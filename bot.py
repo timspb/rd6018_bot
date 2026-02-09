@@ -541,6 +541,7 @@ class DataMonitor(threading.Thread):
             self.desulf_delta_ok_since = None
             self.desulf_timer_start = None
             self.desulf_cooldown_start = None
+            self.desulf_delta_ok_since = time.time() + 5
         self._notify("🔨 Десульфатация включена. Ожидание выхода на режим 16.3 V / 1.0 A.")
         logger.info("Desulfation sequence started for chat %s", chat_id)
         return True
