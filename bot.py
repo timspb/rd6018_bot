@@ -57,24 +57,31 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner")
 SENSOR_VOLTAGE = "sensor.rd_6018_output_voltage"
 SENSOR_CURRENT = "sensor.rd_6018_output_current"
 SENSOR_POWER = "sensor.rd_6018_output_power"
-SENSOR_TEMP = "sensor.rd_6018_temperature_external"
-SENSOR_CAPACITY_AH = "sensor.rd_6018_ah_capacity"
-SENSOR_ENERGY_WH = "sensor.rd_6018_wh_energy"
+SENSOR_TEMP_INTERNAL = "sensor.rd_6018_temperature"
+SENSOR_TEMP_EXTERNAL = "sensor.rd_6018_temperature_external"
+SENSOR_CAPACITY_AH = "sensor.rd_6018_battery_charge"
+SENSOR_ENERGY_WH = "sensor.rd_6018_battery_energy"
 
 NUMBER_SET_VOLTAGE = "number.rd_6018_output_voltage"
 NUMBER_SET_CURRENT = "number.rd_6018_output_current"
 SWITCH_OUTPUT = "switch.rd_6018_output"
 
+BINARY_MODE_CC = "binary_sensor.rd_6018_constant_current"
+BINARY_MODE_CV = "binary_sensor.rd_6018_constant_voltage"
+
 ALL_RELEVANT_ENTITIES = [
     SENSOR_VOLTAGE,
     SENSOR_CURRENT,
     SENSOR_POWER,
-    SENSOR_TEMP,
+    SENSOR_TEMP_INTERNAL,
+    SENSOR_TEMP_EXTERNAL,
     SENSOR_CAPACITY_AH,
     SENSOR_ENERGY_WH,
     NUMBER_SET_VOLTAGE,
     NUMBER_SET_CURRENT,
     SWITCH_OUTPUT,
+    BINARY_MODE_CC,
+    BINARY_MODE_CV,
 ]
 
 # -----------------------------------------------------------------------------
@@ -170,12 +177,17 @@ class HAService:
             "voltage": state_float(SENSOR_VOLTAGE),
             "current": state_float(SENSOR_CURRENT),
             "power": state_float(SENSOR_POWER),
-            "temperature": state_float(SENSOR_TEMP),
+            "temperature_internal": state_float(SENSOR_TEMP_INTERNAL),
+            "temperature_external": state_float(SENSOR_TEMP_EXTERNAL),
+            # Для обратной совместимости оставляем "temperature" как внутреннюю
+            "temperature": state_float(SENSOR_TEMP_INTERNAL),
             "capacity_ah": state_float(SENSOR_CAPACITY_AH),
             "energy_wh": state_float(SENSOR_ENERGY_WH),
             "set_voltage": state_float(NUMBER_SET_VOLTAGE),
             "set_current": state_float(NUMBER_SET_CURRENT),
             "output_on": state_bool(SWITCH_OUTPUT),
+            "mode_cc": state_bool(BINARY_MODE_CC),
+            "mode_cv": state_bool(BINARY_MODE_CV),
         }
 
         data["raw_states"] = {k: by_id.get(k) for k in ALL_RELEVANT_ENTITIES}
@@ -331,6 +343,10 @@ class DataMonitor(threading.Thread):
         # Время начала стадии COOLDOWN
         self.desulf_cooldown_start: Optional[float] = None
 
+        # Время начала текущего «сеанса заряда» (включение выхода)
+        self.output_on_since: Optional[datetime.datetime] = None
+        self._last_output_on: Optional[bool] = None
+
     def run(self) -> None:
         logger.info("DataMonitor thread started.")
         while not self._stop_event.is_set():
@@ -341,10 +357,24 @@ class DataMonitor(threading.Thread):
                     v = data.get("voltage") or 0.0
                     i = data.get("current") or 0.0
                     p = data.get("power") or 0.0
+                    output_on = bool(data.get("output_on"))
                     self.timestamps.append(ts)
                     self.voltages.append(v)
                     self.currents.append(i)
                     self.powers.append(p)
+                    # Отслеживаем время начала заряда (включения выхода)
+                    if self._last_output_on is None:
+                        self._last_output_on = output_on
+                        if output_on:
+                            self.output_on_since = ts
+                    else:
+                        if not self._last_output_on and output_on:
+                            # Переход OFF -> ON
+                            self.output_on_since = ts
+                        elif self._last_output_on and not output_on:
+                            # Переход ON -> OFF
+                            self.output_on_since = None
+                        self._last_output_on = output_on
                     # Обновляем неблокирующую логику десульфатации.
                     self._update_desulfation_logic(data)
             except Exception as exc:  # noqa: BLE001
@@ -398,6 +428,79 @@ class DataMonitor(threading.Thread):
         except Exception as exc:  # noqa: BLE001
             logger.error("Error generating plot: %s", exc)
             return None
+
+    def _build_plot(
+        self,
+        times: list[datetime.datetime],
+        voltages: list[float],
+        currents: list[float],
+        filename: str,
+    ) -> Optional[io.BytesIO]:
+        if not times:
+            return None
+        try:
+            fig, ax1 = plt.subplots(figsize=(9, 4))
+            ax1.plot(times, voltages, color="tab:blue", label="Voltage (V)")
+            ax1.set_xlabel("Time")
+            ax1.set_ylabel("Voltage (V)", color="tab:blue")
+            ax1.tick_params(axis="y", labelcolor="tab:blue")
+
+            ax2 = ax1.twinx()
+            ax2.plot(times, currents, color="tab:red", label="Current (A)")
+            ax2.set_ylabel("Current (A)", color="tab:red")
+            ax2.tick_params(axis="y", labelcolor="tab:red")
+
+            fig.tight_layout()
+            fig.autofmt_xdate()
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight")
+            plt.close(fig)
+            buf.seek(0)
+            buf.name = filename
+            return buf
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Error generating plot: %s", exc)
+            return None
+
+    def generate_plot_30m(self) -> Optional[io.BytesIO]:
+        """
+        График U/I за последние 30 минут.
+        """
+        if not self.timestamps:
+            return None
+        now = datetime.datetime.now()
+        cutoff = now - datetime.timedelta(minutes=30)
+        times_30m: list[datetime.datetime] = []
+        volts_30m: list[float] = []
+        curr_30m: list[float] = []
+        for t, v, c in zip(self.timestamps, self.voltages, self.currents):
+            if t >= cutoff:
+                times_30m.append(t)
+                volts_30m.append(v)
+                curr_30m.append(c)
+        if len(times_30m) < 2:
+            return None
+        return self._build_plot(times_30m, volts_30m, curr_30m, "rd6018_30m.png")
+
+    def generate_plot_charge(self) -> Optional[io.BytesIO]:
+        """
+        График U/I с момента последнего включения выхода (сеанс заряда).
+        """
+        if not self.timestamps or self.output_on_since is None:
+            return None
+        start = self.output_on_since
+        times_ch: list[datetime.datetime] = []
+        volts_ch: list[float] = []
+        curr_ch: list[float] = []
+        for t, v, c in zip(self.timestamps, self.voltages, self.currents):
+            if t >= start:
+                times_ch.append(t)
+                volts_ch.append(v)
+                curr_ch.append(c)
+        if len(times_ch) < 2:
+            return None
+        return self._build_plot(times_ch, volts_ch, curr_ch, "rd6018_charge.png")
 
     # --- Логика десульфатации (неблокирующая) ---
 
@@ -743,11 +846,15 @@ def build_main_keyboard(output_on: Optional[bool]) -> types.InlineKeyboardMarkup
     kb.row(v_plus, v_minus, i_plus, i_minus)
 
     # Row 4: Tools
-    graph_btn = types.InlineKeyboardButton(
-        "📈 Graph history", callback_data="graph_history"
+    graph_30m_btn = types.InlineKeyboardButton(
+        "📈 30m", callback_data="graph_30m"
+    )
+    graph_charge_btn = types.InlineKeyboardButton(
+        "📈 Заряд", callback_data="graph_charge"
     )
     ai_btn = types.InlineKeyboardButton("🤖 AI Check", callback_data="ai_check")
-    kb.row(graph_btn, ai_btn)
+    kb.row(graph_30m_btn, graph_charge_btn)
+    kb.row(ai_btn)
 
     # Row 5: Desulfation / STOP
     desulf_btn = types.InlineKeyboardButton(
@@ -770,6 +877,22 @@ def get_psu_context() -> Optional[Dict[str, Any]]:
     set_voltage = data.get("set_voltage")
     set_current = data.get("set_current")
     output_on = data.get("output_on")
+    temp_int = data.get("temperature_internal")
+    temp_ext = data.get("temperature_external")
+    cap_ah = data.get("capacity_ah")
+    energy_wh = data.get("energy_wh")
+
+    # Режим по бинарным сенсорам CC/CV, при их отсутствии — по току/уставке
+    mode_cc = data.get("mode_cc")
+    mode_cv = data.get("mode_cv")
+    if mode_cc:
+        mode = "CC"
+        mode_emoji = "⚡"
+    elif mode_cv:
+        mode = "CV"
+        mode_emoji = "📊"
+    else:
+        mode, mode_emoji = determine_mode(current, set_current)
 
     # Simple OCV approximation: if current is small, use voltage as OCV
     ocv: Optional[float]
@@ -779,15 +902,15 @@ def get_psu_context() -> Optional[Dict[str, Any]]:
         ocv = voltage
 
     soh = estimate_soh_from_ocv(ocv)
-    mode, mode_emoji = determine_mode(current, set_current)
 
     return {
         "voltage": voltage,
         "current": current,
         "power": power,
-        "temperature": data.get("temperature"),
-        "capacity_ah": data.get("capacity_ah"),
-        "energy_wh": data.get("energy_wh"),
+        "temperature_internal": temp_int,
+        "temperature_external": temp_ext,
+        "capacity_ah": cap_ah,
+        "energy_wh": energy_wh,
         "set_voltage": set_voltage,
         "set_current": set_current,
         "output_on": output_on,
@@ -802,7 +925,8 @@ def format_status_message(ctx: Dict[str, Any]) -> str:
     v = ctx.get("voltage")
     i = ctx.get("current")
     p = ctx.get("power")
-    t = ctx.get("temperature")
+    t_int = ctx.get("temperature_internal")
+    t_ext = ctx.get("temperature_external")
     cap = ctx.get("capacity_ah")
     en = ctx.get("energy_wh")
     sv = ctx.get("set_voltage")
@@ -814,39 +938,82 @@ def format_status_message(ctx: Dict[str, Any]) -> str:
     mode_emoji = ctx.get("mode_emoji")
 
     lines = [
-        "<b>RD6018 Power Supply Status</b>",
+        "<b>RD6018 — статус</b>",
         "",
-        f"Mode: {mode_emoji} <b>{mode}</b>",
-        f"Output: {'🟢 ON' if output_on else '🔴 OFF'}",
+        f"[РЕЖИМ: {mode_emoji} <b>{mode}</b>] | "
+        f"[ВЫХОД: {'🟢 ON' if output_on else '🔴 OFF'}]",
         "",
-        f"V: <b>{v:.2f} V</b>" if v is not None else "V: <i>unknown</i>",
-        f"I: <b>{i:.2f} A</b>" if i is not None else "I: <i>unknown</i>",
-        f"P: <b>{p:.1f} W</b>" if p is not None else "P: <i>unknown</i>",
-        f"🌡 Temp: <b>{t:.1f} °C</b>"
-        if t is not None
-        else "🌡 Temp: <i>unknown</i>",
-        f"Capacity: <b>{cap:.2f} Ah</b>"
-        if cap is not None
-        else "Capacity: <i>unknown</i>",
-        f"Energy: <b>{en:.1f} Wh</b>"
-        if en is not None
-        else "Energy: <i>unknown</i>",
+        "<b>НАПРЯЖЕНИЕ / ТОК</b>",
+        (
+            f"U = <b>{v:.2f} В</b>"
+            if v is not None
+            else "U = <i>нет данных</i>"
+        ),
+        (
+            f"I = <b>{i:.2f} А</b>"
+            if i is not None
+            else "I = <i>нет данных</i>"
+        ),
         "",
-        "Setpoints:",
-        f"- Voltage: <b>{sv:.2f} V</b>" if sv is not None else "- Voltage: <i>unknown</i>",
-        f"- Current: <b>{si:.2f} A</b>" if si is not None else "- Current: <i>unknown</i>",
+        "<b>СТАТИСТИКА</b>",
+        "Ah: "
+        + (
+            f"<b>{cap:.2f}</b>"
+            if cap is not None
+            else "<i>нет данных</i>"
+        )
+        + " | Wh: "
+        + (
+            f"<b>{en:.1f}</b>"
+            if en is not None
+            else "<i>нет данных</i>"
+        )
+        + " | W: "
+        + (
+            f"<b>{p:.1f}</b>"
+            if p is not None
+            else "<i>нет данных</i>"
+        ),
+        "",
+        "<b>ТЕМПЕРАТУРА</b>",
+        "Внутр: "
+        + (
+            f"<b>{t_int:.1f} °C</b>"
+            if t_int is not None
+            else "<i>нет данных</i>"
+        )
+        + " | АКБ: "
+        + (
+            f"<b>{t_ext:.1f} °C</b>"
+            if t_ext is not None
+            else "<i>нет данных</i>"
+        ),
+        "",
+        "<b>УСТАВКИ</b>",
+        "Uset: "
+        + (
+            f"<b>{sv:.2f} В</b>"
+            if sv is not None
+            else "<i>нет данных</i>"
+        )
+        + " | Iset: "
+        + (
+            f"<b>{si:.2f} А</b>"
+            if si is not None
+            else "<i>нет данных</i>"
+        ),
     ]
 
     if ocv is not None:
-        lines.append(f"OCV (est): <b>{ocv:.2f} V</b>")
+        lines.append(f"OCV (оценка): <b>{ocv:.2f} В</b>")
     if soh is not None:
-        lines.append(f"SOH (est): <b>{soh}%</b>")
+        lines.append(f"SOH (оценка): <b>{soh}%</b>")
 
     if v is not None and v > 14.8:
         lines.append("")
         lines.append(
-            "⚠️ <b>High voltage for Pb battery.</b> Expect gassing; limit time and "
-            "ensure ventilation."
+            "⚠️ <b>Высокое напряжение для свинцово‑кислотной АКБ.</b> "
+            "Ожидается газовыделение; ограничьте время и обеспечьте вентиляцию."
         )
 
     return "\n".join(lines)
@@ -1111,19 +1278,35 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
             send_status(chat_id, message_id)
             return
 
-        if data == "graph_history":
-            bot.answer_callback_query(call.id, "Generating history graph…")
-            buf = data_monitor.generate_plot()
+        if data == "graph_30m":
+            bot.answer_callback_query(call.id, "Generating 30m graph…")
+            buf = data_monitor.generate_plot_30m()
             if not buf:
                 bot.send_message(
                     chat_id,
-                    "Not enough data yet to generate graph (need some history).",
+                    "Недостаточно данных для построения графика за 30 минут.",
                 )
                 return
             bot.send_photo(
                 chat_id,
                 photo=buf,
-                caption="RD6018 Voltage/Current history (up to ~4 hours).",
+                caption="RD6018: U/I за последние 30 минут.",
+            )
+            return
+
+        if data == "graph_charge":
+            bot.answer_callback_query(call.id, "Generating charge graph…")
+            buf = data_monitor.generate_plot_charge()
+            if not buf:
+                bot.send_message(
+                    chat_id,
+                    "Нет достаточных данных с момента включения выхода для графика заряда.",
+                )
+                return
+            bot.send_photo(
+                chat_id,
+                photo=buf,
+                caption="RD6018: U/I за текущий сеанс заряда (с момента включения выхода).",
             )
             return
 
