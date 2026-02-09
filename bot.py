@@ -68,6 +68,8 @@ SWITCH_OUTPUT = "switch.rd_6018_output"
 
 BINARY_MODE_CC = "binary_sensor.rd_6018_constant_current"
 BINARY_MODE_CV = "binary_sensor.rd_6018_constant_voltage"
+BINARY_OVP = "binary_sensor.rd_6018_over_voltage_protection"
+BINARY_OCP = "binary_sensor.rd_6018_over_current_protection"
 
 ALL_RELEVANT_ENTITIES = [
     SENSOR_VOLTAGE,
@@ -82,6 +84,8 @@ ALL_RELEVANT_ENTITIES = [
     SWITCH_OUTPUT,
     BINARY_MODE_CC,
     BINARY_MODE_CV,
+    BINARY_OVP,
+    BINARY_OCP,
 ]
 
 # -----------------------------------------------------------------------------
@@ -188,6 +192,8 @@ class HAService:
             "output_on": state_bool(SWITCH_OUTPUT),
             "mode_cc": state_bool(BINARY_MODE_CC),
             "mode_cv": state_bool(BINARY_MODE_CV),
+            "ovp": state_bool(BINARY_OVP),
+            "ocp": state_bool(BINARY_OCP),
         }
 
         data["raw_states"] = {k: by_id.get(k) for k in ALL_RELEVANT_ENTITIES}
@@ -260,6 +266,12 @@ class HAService:
         except requests.RequestException as exc:
             logger.error("Error setting HA value for %s: %s", entity_id, exc)
             return False
+
+    def toggle_output(self, on: bool) -> bool:
+        """
+        Удобный шорткат для включения/выключения выхода RD6018.
+        """
+        return self.set_value(SWITCH_OUTPUT, bool(on))
 
 
 # -----------------------------------------------------------------------------
@@ -346,6 +358,11 @@ class DataMonitor(threading.Thread):
         # Время начала текущего «сеанса заряда» (включение выхода)
         self.output_on_since: Optional[datetime.datetime] = None
         self._last_output_on: Optional[bool] = None
+        # Флаг активной аварии перегрева, чтобы не спамить каждые 10 секунд
+        self._overheat_active: bool = False
+        # Последние состояния аппаратных защит
+        self._last_ovp: Optional[bool] = None
+        self._last_ocp: Optional[bool] = None
 
     def run(self) -> None:
         logger.info("DataMonitor thread started.")
@@ -375,6 +392,8 @@ class DataMonitor(threading.Thread):
                             # Переход ON -> OFF
                             self.output_on_since = None
                         self._last_output_on = output_on
+                    # Глобальный монитор безопасности (перегрев, аппаратные защиты)
+                    self._update_global_safety(data)
                     # Обновляем неблокирующую логику десульфатации.
                     self._update_desulfation_logic(data)
             except Exception as exc:  # noqa: BLE001
@@ -544,6 +563,73 @@ class DataMonitor(threading.Thread):
                 logger.error("Failed to switch off output on desulf stop: %s", exc)
         if prev_active:
             logger.info("Desulfation sequence stopped.")
+
+    # --- Глобальная безопасность (перегрев, аппаратные защиты) ---
+
+    def _notify_global(self, text: str) -> None:
+        # Используем последний активный чат для уведомлений
+        if last_chat_id is None:
+            return
+        try:
+            bot.send_message(last_chat_id, text)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to send global safety notification: %s", exc)
+
+    def _update_global_safety(self, data: Dict[str, Any]) -> None:
+        """
+        Глобальный монитор: перегрев АКБ и аппаратные защиты OVP/OCP.
+        Вызывается из run() каждые ~10 секунд.
+        """
+        # Температура АКБ
+        t_ext = data.get("temperature_external")
+        if t_ext is not None:
+            if t_ext > 45.0 and not self._overheat_active:
+                # Аварийное отключение выхода и остановка десульфатации
+                try:
+                    self.ha_service.toggle_output(False)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Failed to switch off output on overheat: %s", exc)
+                # Останавливаем десульфатацию и дополнительно выключаем выход
+                self.stop_desulfation(turn_output_off=True)
+                self._overheat_active = True
+                msg = (
+                    f"🚨🚨🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ АКБ! "
+                    f"Текущая температура: {t_ext:.1f}°C. "
+                    "ПИТАНИЕ ОТКЛЮЧЕНО!"
+                )
+                logger.warning("Battery overheat: %s", msg)
+                self._notify_global(msg)
+            elif t_ext <= 42.0 and self._overheat_active:
+                # Гистерезис для повторных срабатываний
+                self._overheat_active = False
+
+        # Аппаратные защиты OVP/OCP
+        ovp = bool(data.get("ovp"))
+        ocp = bool(data.get("ocp"))
+
+        if self._last_ovp is None:
+            self._last_ovp = ovp
+        if self._last_ocp is None:
+            self._last_ocp = ocp
+
+        # Срабатывание OVP
+        if ovp and not self._last_ovp:
+            self._notify_global(
+                "⚠️ Сработала аппаратная защита RD6018 по перенапряжению (OVP)! "
+                "Проверьте уставки и состояние нагрузки."
+            )
+            logger.warning("Hardware OVP protection triggered.")
+
+        # Срабатывание OCP
+        if ocp and not self._last_ocp:
+            self._notify_global(
+                "⚠️ Сработала аппаратная защита RD6018 по превышению тока (OCP)! "
+                "Проверьте уставки и состояние нагрузки."
+            )
+            logger.warning("Hardware OCP protection triggered.")
+
+        self._last_ovp = ovp
+        self._last_ocp = ocp
 
     def _notify(self, text: str) -> None:
         if self.desulf_chat_id is None:
@@ -792,6 +878,9 @@ deepseek_ai = DeepSeekAI()
 if not TELEGRAM_BOT_TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN not set; bot cannot start.")
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
+
+# Последний чат, с которым бот взаимодействовал (для аварийных уведомлений)
+last_chat_id: Optional[int] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1075,6 +1164,8 @@ def send_status(chat_id: int, message_id: Optional[int] = None) -> None:
 # -----------------------------------------------------------------------------
 @bot.message_handler(commands=["start", "status"])
 def handle_start_status(message: telebot.types.Message) -> None:
+    global last_chat_id
+    last_chat_id = message.chat.id
     logger.info("Command %s from %s", message.text, message.chat.id)
     send_status(message.chat.id)
 
@@ -1085,6 +1176,8 @@ def handle_check(message: telebot.types.Message) -> None:
     /check <resistance_mOm>
     Example: /check 3.03
     """
+    global last_chat_id
+    last_chat_id = message.chat.id
     logger.info("Command /check from %s: %s", message.chat.id, message.text)
     parts = message.text.split(maxsplit=1)
     if len(parts) != 2:
@@ -1143,6 +1236,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
         data = call.data
         chat_id = call.message.chat.id
         message_id = call.message.message_id
+        global last_chat_id
+        last_chat_id = chat_id
         logger.info("Callback %s from %s", data, chat_id)
 
         if data == "refresh":
@@ -1376,6 +1471,8 @@ def handle_free_text(message: telebot.types.Message) -> None:
     """
     Any non-command text is sent to DeepSeek AI with current PSU context.
     """
+    global last_chat_id
+    last_chat_id = message.chat.id
     logger.info("Free text from %s: %s", message.chat.id, message.text)
     ctx = get_psu_context()
     if not ctx:
