@@ -311,6 +311,26 @@ class DataMonitor(threading.Thread):
         self.powers: deque[float] = deque(maxlen=1440)
         self._stop_event = threading.Event()
 
+        # Состояние алгоритма десульфатации (управляется этим же потоком мониторинга).
+        self.desulf_lock = threading.Lock()
+        # Флаг активности режима
+        self.desulf_mode_active: bool = False
+        # Этап: SEARCHING (поиск триггера), TIMER (3 часа), COOLDOWN (65 с малого тока)
+        self.desulf_stage: str = "SEARCHING"
+        # Привязанный чат
+        self.desulf_chat_id: Optional[int] = None
+        # Начальное напряжение при старте режима
+        self.desulf_start_v: Optional[float] = None
+        # Минимальный ток (для CV) и максимальное напряжение (для CC)
+        self.desulf_min_i: Optional[float] = None
+        self.desulf_max_v: Optional[float] = None
+        # Время, с которого условие по дельте считается устойчивым (≥30 с)
+        self.desulf_delta_ok_since: Optional[float] = None
+        # Время запуска 3‑часового таймера
+        self.desulf_timer_start: Optional[float] = None
+        # Время начала стадии COOLDOWN
+        self.desulf_cooldown_start: Optional[float] = None
+
     def run(self) -> None:
         logger.info("DataMonitor thread started.")
         while not self._stop_event.is_set():
@@ -325,6 +345,8 @@ class DataMonitor(threading.Thread):
                     self.voltages.append(v)
                     self.currents.append(i)
                     self.powers.append(p)
+                    # Обновляем неблокирующую логику десульфатации.
+                    self._update_desulfation_logic(data)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Error in DataMonitor: %s", exc)
             self._stop_event.wait(10.0)
@@ -376,6 +398,210 @@ class DataMonitor(threading.Thread):
         except Exception as exc:  # noqa: BLE001
             logger.error("Error generating plot: %s", exc)
             return None
+
+    # --- Логика десульфатации (неблокирующая) ---
+
+    def is_desulf_active(self) -> bool:
+        with self.desulf_lock:
+            return self.desulf_mode_active
+
+    def start_desulfation(self, chat_id: int) -> bool:
+        with self.desulf_lock:
+            if self.desulf_mode_active:
+                return False
+            # Включаем режим и обнуляем состояние автомата
+            self.desulf_mode_active = True
+            self.desulf_stage = "SEARCHING"
+            self.desulf_chat_id = chat_id
+            self.desulf_start_v = None
+            self.desulf_min_i = None
+            self.desulf_max_v = None
+            self.desulf_delta_ok_since = None
+            self.desulf_timer_start = None
+            self.desulf_cooldown_start = None
+        self._notify("🔨 Десульфатация включена. Ожидание выхода на режим 16.3 V / 1.0 A.")
+        logger.info("Desulfation sequence started for chat %s", chat_id)
+        return True
+
+    def stop_desulfation(self, turn_output_off: bool = False) -> None:
+        with self.desulf_lock:
+            prev_active = self.desulf_mode_active
+            self.desulf_mode_active = False
+            self.desulf_stage = "SEARCHING"
+            self.desulf_start_v = None
+            self.desulf_min_i = None
+            self.desulf_max_v = None
+            self.desulf_delta_ok_since = None
+            self.desulf_timer_start = None
+            self.desulf_cooldown_start = None
+        if turn_output_off:
+            try:
+                self.ha_service.set_value(SWITCH_OUTPUT, False)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Failed to switch off output on desulf stop: %s", exc)
+        if prev_active:
+            logger.info("Desulfation sequence stopped.")
+
+    def _notify(self, text: str) -> None:
+        if self.desulf_chat_id is None:
+            return
+        try:
+            bot.send_message(self.desulf_chat_id, text)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to send desulfation notification: %s", exc)
+
+    def _update_desulfation_logic(self, data: Dict[str, Any]) -> None:
+        """
+        Неблокирующий автомат десульфатации.
+        Вызывается каждые ~10 секунд из потока мониторинга.
+        """
+        with self.desulf_lock:
+            mode_active = self.desulf_mode_active
+            stage = self.desulf_stage
+        if not mode_active:
+            return
+
+        now_ts = time.time()
+        v_now = data.get("voltage")
+        i_now = data.get("current")
+        set_v = data.get("set_voltage")
+        set_i = data.get("set_current")
+        output_on = data.get("output_on")
+
+        # Безопасность: если выход выключен внешним действием — останавливаем алгоритм.
+        if not output_on:
+            self._notify("🛑 Десульфатация остановлена: выход RD6018 отключён.")
+            self.stop_desulfation(turn_output_off=False)
+            return
+
+        mode, _ = determine_mode(i_now, set_i)
+
+        # При первом заходе в режим SEARCHING переводим БП в нужные уставки 16.3 V / 1.0 A
+        if stage == "SEARCHING":
+            with self.desulf_lock:
+                already_started = self.desulf_start_v is not None
+            if not already_started:
+                try:
+                    self.ha_service.set_value(NUMBER_SET_VOLTAGE, 16.3)
+                    self.ha_service.set_value(NUMBER_SET_CURRENT, 1.0)
+                    self.ha_service.set_value(SWITCH_OUTPUT, True)
+                    with self.desulf_lock:
+                        self.desulf_start_v = v_now
+                    self._notify("🔨 Десульфатация: установлено 16.3 V / 1.0 A, выход включён.")
+                    logger.info("Desulfation: set 16.3 V / 1.0 A and enabled output.")
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Failed to set desulfation initial setpoints: %s", exc)
+                    self._notify(
+                        "❌ Не удалось задать 16.3 V / 1.0 A. Десульфатация остановлена."
+                    )
+                    self.stop_desulfation(turn_output_off=False)
+                    return
+
+        # MONITORING: отслеживаем устойчивое изменение тока/напряжения (30 с).
+        if stage == "SEARCHING":
+            if mode == "CV" and i_now is not None:
+                with self.desulf_lock:
+                    i_min = self.desulf_min_i
+                    delta_since = self.desulf_delta_ok_since
+                if i_min is None or i_now < i_min:
+                    i_min = i_now
+                cond = i_min is not None and i_now >= i_min + 0.02
+                if cond:
+                    if delta_since is None:
+                        delta_since = now_ts
+                    elif now_ts - delta_since >= 30.0:
+                        # Устойчивый рост тока ≥0.02 А в течение ≥30 с — триггер.
+                        with self.desulf_lock:
+                            self.desulf_min_i = i_min
+                            self.desulf_delta_ok_since = None
+                            self.desulf_stage = "TIMER"
+                            self.desulf_timer_start = now_ts
+                        self._notify(
+                            "🔨 Десульфатация: Trigger hit! (CV, устойчивый рост тока ≥0.02 A)."
+                        )
+                        self._notify("⏱ Таймер 3 часа запущен.")
+                        logger.info("Desulfation trigger (CV) fired.")
+                        return
+                else:
+                    delta_since = None
+                with self.desulf_lock:
+                    self.desulf_min_i = i_min
+                    self.desulf_delta_ok_since = delta_since
+
+            elif mode == "CC" and v_now is not None:
+                with self.desulf_lock:
+                    v_max = self.desulf_max_v
+                    delta_since = self.desulf_delta_ok_since
+                if v_max is None or v_now > v_max:
+                    v_max = v_now
+                cond = v_max is not None and v_now <= v_max - 0.02
+                if cond:
+                    if delta_since is None:
+                        delta_since = now_ts
+                    elif now_ts - delta_since >= 30.0:
+                        # Устойчивое падение напряжения ≥0.02 В за ≥30 с — триггер.
+                        with self.desulf_lock:
+                            self.desulf_max_v = v_max
+                            self.desulf_delta_ok_since = None
+                            self.desulf_stage = "TIMER"
+                            self.desulf_timer_start = now_ts
+                        self._notify(
+                            "🔨 Десульфатация: Trigger hit! (CC, устойчивое падение напряжения ≥0.02 V)."
+                        )
+                        self._notify("⏱ Таймер 3 часа запущен.")
+                        logger.info("Desulfation trigger (CC) fired.")
+                        return
+                else:
+                    delta_since = None
+                with self.desulf_lock:
+                    self.desulf_max_v = v_max
+                    self.desulf_delta_ok_since = delta_since
+
+        # TIMER: ждём 3 часа с момента триггера (не блокируя поток).
+        with self.desulf_lock:
+            timer_start = self.desulf_timer_start
+        if stage == "TIMER" and timer_start is not None:
+            if now_ts - timer_start >= 3 * 3600:
+                # Через 3 часа переходим на малый ток 0.02 A.
+                try:
+                    self.ha_service.set_value(NUMBER_SET_CURRENT, 0.02)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Failed to switch to 0.02 A in desulfation: %s", exc)
+                    self._notify(
+                        "❌ Не удалось перевести ток на 0.02 A. Десульфатация остановлена."
+                    )
+                    self.stop_desulfation(turn_output_off=False)
+                    return
+                with self.desulf_lock:
+                    self.desulf_stage = "COOLDOWN"
+                    self.desulf_cooldown_start = now_ts
+                self._notify(
+                    "❄️ Десульфатация: cooldown (0.02 A) запущен на 65 секунд."
+                )
+                logger.info("Desulfation entered cooldown stage.")
+                return
+
+        # COOLDOWN: 65 секунд малого тока, затем переход в Float.
+        with self.desulf_lock:
+            cooldown_start = self.desulf_cooldown_start
+        if stage == "COOLDOWN" and cooldown_start is not None:
+            if now_ts - cooldown_start >= 65.0:
+                # Переход в Float 13.8 V / 0.5 A.
+                try:
+                    self.ha_service.set_value(NUMBER_SET_VOLTAGE, 13.8)
+                    self.ha_service.set_value(NUMBER_SET_CURRENT, 0.5)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Failed to switch to Float 13.8/0.5 after desulfation: %s", exc)
+                    self._notify(
+                        "❌ Не удалось перейти в Float 13.8 V / 0.5 A. Проверьте настройки."
+                    )
+                self._notify(
+                    "✅ Десульфатация завершена. Режим Float 13.8 V / 0.5 A."
+                )
+                with self.desulf_lock:
+                    self.desulf_mode_active = False
+                    self.desulf_stage = "SEARCHING"
+                logger.info("Desulfation finished and switched to Float.")
 
 
 # -----------------------------------------------------------------------------
@@ -486,165 +712,6 @@ def determine_mode(
         return "CV", "📊"
     except TypeError:
         return "UNKNOWN", "❓"
-
-
-class DesulfationManager:
-    """
-    State machine for десульфатация (high‑voltage conditioning).
-
-    Алгоритм:
-    - Старт: V=16.3 В, I=1.0 А, выход включен.
-    - Если режим CV: отслеживаем I_min, при I_now >= I_min + 0.02 А — «Trigger hit».
-    - Если режим CC: отслеживаем V_max, при V_now <= V_max - 0.02 В — «Trigger hit».
-    - После триггера: 3 часа тайм‑аут.
-    - Затем: I=0.02 А на 65 секунд (cooldown).
-    - После cooldown: Float 13.8 В, 0.5 А.
-    - В любой момент STOP отменяет последовательность и отключает выход.
-    """
-
-    def __init__(self, ha: HAService) -> None:
-        self.ha = ha
-        self.state_lock = threading.Lock()
-        self.state: str = "idle"  # idle | monitoring | timer | cooldown
-        self.thread: Optional[threading.Thread] = None
-        self.stop_event = threading.Event()
-        self.chat_id: Optional[int] = None
-        self.i_min: Optional[float] = None
-        self.v_max: Optional[float] = None
-        self.trigger_time: Optional[float] = None
-        self.cooldown_start: Optional[float] = None
-
-    def is_active(self) -> bool:
-        with self.state_lock:
-            return self.state != "idle"
-
-    def start_desulfation(self, chat_id: int) -> bool:
-        with self.state_lock:
-            if self.state != "idle":
-                return False
-            self.state = "monitoring"
-
-        self.chat_id = chat_id
-        self.i_min = None
-        self.v_max = None
-        self.trigger_time = None
-        self.cooldown_start = None
-        self.stop_event.clear()
-
-        # Запускаем фоновую логику
-        self.thread = threading.Thread(target=self._run_loop, daemon=True)
-        self.thread.start()
-        logger.info("Desulfation sequence started for chat %s", chat_id)
-        return True
-
-    def stop_desulfation(self) -> None:
-        with self.state_lock:
-            prev_state = self.state
-            self.state = "idle"
-        self.stop_event.set()
-        # Отключаем выход питания
-        self.ha.set_value(SWITCH_OUTPUT, False)
-        logger.info("Desulfation sequence stopped (prev state: %s)", prev_state)
-
-    def _notify(self, text: str) -> None:
-        if self.chat_id is None:
-            return
-        try:
-            bot.send_message(self.chat_id, text)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to send desulfation notification: %s", exc)
-
-    def _run_loop(self) -> None:
-        try:
-            self._notify("🔨 Десульфатация: режим мониторинга запущен.")
-            check_interval = 10.0
-            while not self.stop_event.is_set():
-                with self.state_lock:
-                    state = self.state
-
-                if state == "idle":
-                    break
-
-                data = self.ha.get_data()
-                if not data:
-                    time.sleep(check_interval)
-                    continue
-
-                v_now = data.get("voltage")
-                i_now = data.get("current")
-                sv = data.get("set_voltage")
-                si = data.get("set_current")
-                mode, _ = determine_mode(i_now, si)
-
-                now_ts = time.time()
-
-                if state == "monitoring":
-                    if mode == "CV" and i_now is not None:
-                        if self.i_min is None or i_now < self.i_min:
-                            self.i_min = i_now
-                        if (
-                            self.i_min is not None
-                            and i_now >= self.i_min + 0.02  # type: ignore[operator]
-                        ):
-                            self.trigger_time = now_ts
-                            with self.state_lock:
-                                self.state = "timer"
-                            self._notify("🔨 Десульфатация: Trigger hit! (CV, рост тока).")
-                            self._notify("⏱ Таймер 3 часа запущен.")
-                    elif mode == "CC" and v_now is not None:
-                        if self.v_max is None or v_now > self.v_max:
-                            self.v_max = v_now
-                        if (
-                            self.v_max is not None
-                            and v_now <= self.v_max - 0.02  # type: ignore[operator]
-                        ):
-                            self.trigger_time = now_ts
-                            with self.state_lock:
-                                self.state = "timer"
-                            self._notify("🔨 Десульфатация: Trigger hit! (CC, падение напряжения).")
-                            self._notify("⏱ Таймер 3 часа запущен.")
-
-                elif state == "timer":
-                    if self.trigger_time is not None and now_ts - self.trigger_time >= 3 * 3600:
-                        # Переход в стадию малый ток
-                        ok, warnings = apply_voltage_current_changes(None, 0.02)
-                        if not ok:
-                            self._notify(
-                                "❌ Не удалось перевести ток на 0.02 A. Десульфатация остановлена."
-                            )
-                            self.stop_desulfation()
-                            break
-                        for w in warnings:
-                            self._notify(w)
-                        self.cooldown_start = now_ts
-                        with self.state_lock:
-                            self.state = "cooldown"
-                        self._notify("❄️ Десульфатация: cooldown (0.02 A) запущен на 65 секунд.")
-
-                elif state == "cooldown":
-                    if self.cooldown_start is not None and now_ts - self.cooldown_start >= 65:
-                        ok, warnings = apply_voltage_current_changes(13.8, 0.5)
-                        if not ok:
-                            self._notify(
-                                "❌ Не удалось перейти в Float 13.8 V / 0.5 A. Проверьте настройки."
-                            )
-                        for w in warnings:
-                            self._notify(w)
-                        self._notify(
-                            "✅ Десульфатация завершена. Режим Float 13.8 V / 0.5 A."
-                        )
-                        with self.state_lock:
-                            self.state = "idle"
-                        break
-
-                time.sleep(check_interval)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Error in DesulfationManager loop: %s", exc)
-            self._notify("❌ Ошибка в логике десульфатации. Процесс остановлен.")
-            self.stop_desulfation()
-
-
-desulf_manager = DesulfationManager(ha_service)
 
 
 def build_main_keyboard(output_on: Optional[bool]) -> types.InlineKeyboardMarkup:
@@ -922,6 +989,9 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
             new_state = not output_on
             ok = ha_service.set_value(SWITCH_OUTPUT, new_state)
             if ok:
+                # Если пользователь вручную отключил выход — останавливаем десульфатацию.
+                if not new_state and data_monitor.is_desulf_active():
+                    data_monitor.stop_desulfation(turn_output_off=False)
                 bot.answer_callback_query(
                     call.id, "Output turned ON" if new_state else "Output turned OFF"
                 )
@@ -934,6 +1004,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
 
         if data == "preset_float":
             bot.answer_callback_query(call.id, "Applying Float 13.8V preset…")
+            if data_monitor.is_desulf_active():
+                data_monitor.stop_desulfation(turn_output_off=False)
             success, warnings = apply_voltage_current_changes(13.8, None)
             if not success:
                 bot.send_message(chat_id, "Failed to apply Float preset.")
@@ -944,6 +1016,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
 
         if data == "preset_charge":
             bot.answer_callback_query(call.id, "Applying Charge 14.4V preset…")
+            if data_monitor.is_desulf_active():
+                data_monitor.stop_desulfation(turn_output_off=False)
             success, warnings = apply_voltage_current_changes(14.4, None)
             if not success:
                 bot.send_message(chat_id, "Failed to apply Charge preset.")
@@ -958,6 +1032,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
                 call.id,
                 "Equalization at 16.2V can damage batteries. Confirm required.",
             )
+            if data_monitor.is_desulf_active():
+                data_monitor.stop_desulfation(turn_output_off=False)
             kb = types.InlineKeyboardMarkup(row_width=2)
             yes_btn = types.InlineKeyboardButton(
                 "✅ Yes, equalize 16.2V", callback_data="eq_confirm_yes"
@@ -980,6 +1056,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
 
         if data == "eq_confirm_yes":
             bot.answer_callback_query(call.id, "Equalization 16.2V requested.")
+            if data_monitor.is_desulf_active():
+                data_monitor.stop_desulfation(turn_output_off=False)
             success, warnings = apply_voltage_current_changes(16.2, None)
             if not success:
                 bot.send_message(chat_id, "Failed to apply Equalization preset.")
@@ -994,6 +1072,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
 
         # Fine tuning for V/I
         if data in {"v_plus", "v_minus", "i_plus", "i_minus"}:
+            if data_monitor.is_desulf_active():
+                data_monitor.stop_desulfation(turn_output_off=False)
             sign = 1.0 if data.endswith("plus") else -1.0
             is_voltage = data.startswith("v_")
 
@@ -1062,7 +1142,7 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
             return
 
         if data == "desulf_start":
-            if desulf_manager.is_active():
+            if data_monitor.is_desulf_active():
                 bot.answer_callback_query(
                     call.id,
                     "Desulfation sequence is already running.",
@@ -1071,20 +1151,8 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
                 return
 
             bot.answer_callback_query(call.id, "Starting desulfation sequence…")
-            # Установить 16.3 V / 1.0 A и включить выход
-            success, warnings = apply_voltage_current_changes(16.3, 1.0)
-            if not success:
-                bot.send_message(
-                    chat_id,
-                    "Failed to set 16.3 V / 1.0 A for desulfation.",
-                )
-                return
-            if warnings:
-                bot.send_message(chat_id, "\n".join(warnings))
-
-            ha_service.set_value(SWITCH_OUTPUT, True)
-
-            if not desulf_manager.start_desulfation(chat_id):
+            # Кнопка только включает флаг в DataMonitor; вся логика и уставки внутри DataMonitor.
+            if not data_monitor.start_desulfation(chat_id):
                 bot.send_message(
                     chat_id,
                     "Desulfation manager is busy. Try again later.",
@@ -1098,7 +1166,7 @@ def handle_callback(call: telebot.types.CallbackQuery) -> None:
 
         if data == "desulf_stop":
             bot.answer_callback_query(call.id, "Stopping desulfation sequence…")
-            desulf_manager.stop_desulfation()
+            data_monitor.stop_desulfation(turn_output_off=True)
             bot.send_message(
                 chat_id,
                 "🛑 Десульфатация остановлена. Выход RD6018 выключен.",
