@@ -161,14 +161,29 @@ class ChargeController:
     def _storage_target(self) -> Tuple[float, float]:
         return (13.8, 1.0)
 
-    def _check_temp_safety(self, temp: float) -> Optional[str]:
+    def _check_temp_safety(
+        self,
+        temp: float,
+        voltage: float,
+        current: float,
+        ah_charged: float,
+        stage_duration_min: float,
+    ) -> Optional[str]:
         """
         Проверка температуры (sensor.rd_6018_temperature_external).
         Применяется ко всем режимам (Ca/Ca, EFB, AGM) без исключения.
         Возвращает сообщение об ошибке или None.
         """
         if temp >= TEMP_EMERGENCY:
-            return f"🔴 <b>АВАРИЯ:</b> Температура АКБ {temp:.1f}°C! Заряд остановлен для предотвращения терморазгона."
+            return (
+                "🔴 <b>АВАРИЙНОЕ ОТКЛЮЧЕНИЕ (ПЕРЕГРЕВ)</b>\n\n"
+                f"Температура: <code>{temp:.1f}</code>°C (порог {TEMP_EMERGENCY:.0f}°C)\n"
+                f"Текущий этап: <code>{self.current_stage}</code>\n"
+                f"Напряжение: <code>{voltage:.2f}</code>В\n"
+                f"Ток: <code>{current:.2f}</code>А\n"
+                f"Накопленная ёмкость: <code>{ah_charged:.2f}</code> Ач\n"
+                f"Время в текущем режиме: <code>{stage_duration_min:.0f}</code> мин."
+            )
         if temp >= TEMP_WARNING and not self._temp_34_alerted:
             self._temp_34_alerted = True
             self.notify(
@@ -246,7 +261,9 @@ class ChargeController:
             )
             self.emergency_hv_disconnect = False
 
-        err = self._check_temp_safety(temp)
+        elapsed = now - self.stage_start_time
+        stage_duration_min = elapsed / 60.0
+        err = self._check_temp_safety(temp, voltage, current, ah, stage_duration_min)
         if err:
             actions["emergency_stop"] = True
             actions["full_reset"] = True
