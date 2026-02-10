@@ -1,17 +1,17 @@
-bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
-db = Database()
-hass = HassAPI(HA_URL, HA_TOKEN)
+
+
 
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from database import Database
 from config import HA_URL, HA_TOKEN, ENTITY_IDS
 from hass_api import HassAPI
 from charge_logic import ChargeController
+
 
 TOKEN = 'your-telegram-bot-token'
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
@@ -26,14 +26,14 @@ charge_controller = None
 charge_task = None
 
 @dp.message(Command('start_charge'))
-async def start_charge(message: types.Message):
+async def start_charge(message: Message):
     logging.info('Команда /start_charge получена')
     await message.answer('Выберите тип АКБ (Ca/Ca, EFB, AGM) и емкость (Ah):')
     # Для простоты: ждем ответ пользователя одной строкой "AGM 60"
     # В реальном боте лучше FSM, но здесь — просто
 
 @dp.message(F.text.regexp(r'^(Ca/Ca|EFB|AGM)\s+([0-9]+)'))
-async def handle_battery_type(message: types.Message):
+async def handle_battery_type(message: Message):
     global charge_controller, charge_task
     import re
     m = re.match(r'^(Ca/Ca|EFB|AGM)\s+([0-9]+)', message.text.strip())
@@ -65,7 +65,7 @@ async def charge_process(message, battery_type, ah):
         await message.answer(f'Ошибка процесса заряда: {e}')
 
 @dp.message(Command('status'))
-async def status(message: types.Message):
+async def status(message: Message):
     logging.info('Команда /status получена')
     session = db.get_last_session()
     if session:
@@ -77,7 +77,7 @@ async def status(message: types.Message):
         await message.answer('Нет активной сессии.')
 
 @dp.message(Command('stop'))
-async def stop(message: types.Message):
+async def stop(message: Message):
     global charge_task
     logging.info('Команда /stop получена')
     await hass.turn_off_switch(ENTITY_IDS['output_switch'])
