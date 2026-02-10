@@ -29,6 +29,12 @@ WATCHDOG_TIMEOUT = 5 * 60  # сек — нет данных 5 мин → ава�
 HIGH_V_FAST_TIMEOUT = 60  # сек — при U>15В: нет данных 60 сек → немедленное отключение
 HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watchdog
 
+# Активная безопасность: OVP/OCP, температурная защита
+OVP_OFFSET = 0.2  # В — OVP = целевое U + 0.2
+OCP_OFFSET = 0.5  # А — OCP = лимит I + 0.5
+TEMP_REDUCE = 42.0  # °C — снизить ток в 2 раза
+TEMP_EMERGENCY = 48.0  # °C — аварийное отключение
+
 
 def _log_phase(phase: str, v: float, i: float, t: float) -> None:
     """Лог в консоль: Время | Фаза | V | I | T."""
@@ -73,6 +79,13 @@ class ChargeController:
         self._stuck_current_since: Optional[float] = None  # когда ток впервые застрял > 0.3А в CV
         self.last_update_time: float = 0.0  # время последнего вызова tick() — для watchdog
         self.emergency_hv_disconnect: bool = False  # флаг после аварийного отключения при U>15В
+        self._phase_current_limit: float = 0.0  # базовый лимит тока текущей фазы (для снижения при T>42°C)
+
+    def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
+        """Добавить OVP/OCP в actions при смене фазы."""
+        actions["set_ovp"] = target_v + OVP_OFFSET
+        actions["set_ocp"] = target_i + OCP_OFFSET
+        self._phase_current_limit = target_i
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
         """Запуск заряда по профилю."""
@@ -138,6 +151,8 @@ class ChargeController:
 
     def _check_temp_safety(self, temp: float) -> Optional[str]:
         """Проверка температуры. Возвращает сообщение об ошибке или None."""
+        if temp > TEMP_EMERGENCY:
+            return f"<b>🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ АКБ!</b> T={temp:.1f}°C. Питание отключено."
         limit = MAX_TEMP_AGM if self.battery_type == self.PROFILE_AGM else MAX_TEMP
         if temp > limit:
             return f"<b>🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ!</b> T={temp:.1f}°C. Питание отключено."
@@ -235,6 +250,7 @@ class ChargeController:
                 uv, ui = self._main_target()
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
+                self._add_phase_limits(actions, uv, ui)
                 actions["notify"] = (
                     "<b>✅ Фаза завершена:</b> Подготовка\n"
                     "<b>🚀 Переход к:</b> Main Charge"
@@ -252,6 +268,7 @@ class ChargeController:
                     uv, ui = self._main_target()
                     actions["set_voltage"] = uv
                     actions["set_current"] = ui
+                    self._add_phase_limits(actions, uv, ui)
                     actions["notify"] = (
                         f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
                         f"{uv:.1f}V"
@@ -265,6 +282,7 @@ class ChargeController:
                         mxv, mxi = self._mix_target()
                         actions["set_voltage"] = mxv
                         actions["set_current"] = mxi
+                        self._add_phase_limits(actions, mxv, mxi)
                         actions["notify"] = (
                             "<b>✅ Фаза завершена:</b> Main Charge\n"
                             "<b>🚀 Переход к:</b> Mix Mode (финальный буст)"
@@ -282,6 +300,7 @@ class ChargeController:
                     dv, di = self._desulf_target()
                     actions["set_voltage"] = dv
                     actions["set_current"] = di
+                    self._add_phase_limits(actions, dv, di)
                     actions["notify"] = (
                         f"🔧 <b>Десульфатация #{self.antisulfate_count}</b>\n\n"
                         f"Ток застрял на значении <code>{current:.2f}</code>А "
@@ -298,6 +317,7 @@ class ChargeController:
                     mxv, mxi = self._mix_target()
                     actions["set_voltage"] = mxv
                     actions["set_current"] = mxi
+                    self._add_phase_limits(actions, mxv, mxi)
                     actions["notify"] = (
                         "<b>✅ Переход к:</b> Mix Mode (перемешивание)\n"
                         "Лимит десульфаций достигнут."
@@ -318,6 +338,7 @@ class ChargeController:
                 mxv, mxi = self._mix_target()
                 actions["set_voltage"] = mxv
                 actions["set_current"] = mxi
+                self._add_phase_limits(actions, mxv, mxi)
                 actions["notify"] = (
                     "<b>✅ Фаза завершена:</b> Main Charge\n"
                     "<b>🚀 Переход к:</b> Mix Mode (перемешивание)"
@@ -331,6 +352,7 @@ class ChargeController:
                 uv, ui = self._main_target()
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
+                self._add_phase_limits(actions, uv, ui)
                 actions["notify"] = "<b>⏸ Десульфатация завершена.</b> Возврат к Main Charge."
 
         # --- MIX MODE ---
@@ -356,6 +378,7 @@ class ChargeController:
                     uv, ui = self._storage_target()
                     actions["set_voltage"] = uv
                     actions["set_current"] = ui
+                    self._add_phase_limits(actions, uv, ui)
                     actions["notify"] = (
                         "<b>✅ Заряд завершён.</b>\n"
                         f"Storage 13.8V/1A. V_max={self.v_max_recorded:.2f}В."
@@ -366,7 +389,12 @@ class ChargeController:
                 uv, ui = self._storage_target()
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
+                self._add_phase_limits(actions, uv, ui)
                 actions["notify"] = "<b>⏱ EFB Mix:</b> лимит 10ч. Переход в Storage."
+
+        if temp_ext is not None and TEMP_REDUCE < temp <= TEMP_EMERGENCY and self._phase_current_limit > 0:
+            reduced = max(0.1, self._phase_current_limit / 2.0)
+            actions["set_current"] = reduced
 
         if "notify" in actions:
             self.notify(actions["notify"])

@@ -79,6 +79,8 @@ CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
 IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
 awaiting_ah: Dict[int, str] = {}  # user_id -> profile (Ca/Ca, EFB, AGM)
+last_ha_ok_time: float = 0.0  # для Soft Watchdog: время последнего успешного ответа HA
+SOFT_WATCHDOG_TIMEOUT = 3 * 60  # сек — нет связи с HA 3 мин → Output OFF
 
 
 def _build_trend_summary(
@@ -212,6 +214,22 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     return sent.message_id
 
 
+async def soft_watchdog_loop() -> None:
+    """Мягкий Watchdog: при потере связи с HA более 3 мин — Output OFF."""
+    global last_ha_ok_time
+    while True:
+        await asyncio.sleep(10)
+        try:
+            if last_ha_ok_time <= 0:
+                continue
+            if time.time() - last_ha_ok_time >= SOFT_WATCHDOG_TIMEOUT:
+                logger.critical("CRITICAL: Soft Watchdog timeout (HA connection lost 3min). Emergency Output OFF.")
+                await hass.turn_off(ENTITY_MAP["switch"])
+                charge_controller.stop()
+        except Exception as ex:
+            logger.error("soft_watchdog_loop: %s", ex)
+
+
 async def watchdog_loop() -> None:
     """Hardware Watchdog: при потере связи — аварийное отключение. При U>15В — 60 сек таймаут."""
     global last_chat_id
@@ -304,10 +322,11 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id
+    global last_chat_id, last_ha_ok_time
     while True:
         try:
             live = await hass.get_all_live()
+            last_ha_ok_time = time.time()
             v = _safe_float(live.get("voltage"))
             i = _safe_float(live.get("current"))
             p = _safe_float(live.get("power"))
@@ -328,6 +347,10 @@ async def data_logger() -> None:
                     await hass.set_voltage(float(actions["set_voltage"]))
                 if actions.get("set_current") is not None:
                     await hass.set_current(float(actions["set_current"]))
+                if actions.get("set_ovp") is not None and ENTITY_MAP.get("ovp"):
+                    await hass.set_ovp(float(actions["set_ovp"]))
+                if actions.get("set_ocp") is not None and ENTITY_MAP.get("ocp"):
+                    await hass.set_ocp(float(actions["set_ocp"]))
 
             if temp_ext is not None and float(temp_ext) > MAX_TEMP:
                 await hass.turn_off(ENTITY_MAP["switch"])
@@ -536,6 +559,7 @@ async def main() -> None:
     await bot.set_my_commands([BotCommand(command="start", description="Открыть дашборд RD6018")])
     asyncio.create_task(data_logger())
     asyncio.create_task(charge_monitor())
+    asyncio.create_task(soft_watchdog_loop())
     asyncio.create_task(watchdog_loop())
     logger.info("RD6018 bot starting")
     await dp.start_polling(bot)

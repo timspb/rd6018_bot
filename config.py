@@ -32,6 +32,8 @@ ENTITY_MAP = {
     "switch": "switch.rd_6018_output",
     "set_voltage": "number.rd_6018_output_voltage",
     "set_current": "number.rd_6018_output_current",
+    "ovp": "number.rd_6018_over_voltage_protection",
+    "ocp": "number.rd_6018_over_current_protection",
 }
 
 # Лимиты безопасности

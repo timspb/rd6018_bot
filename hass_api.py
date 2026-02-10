@@ -112,6 +112,14 @@ class HassClient:
         """Установить ток."""
         return await self.set_value(ENTITY_MAP["set_current"], value)
 
+    async def set_ovp(self, value: float) -> bool:
+        """Установить OVP (Over Voltage Protection)."""
+        return await self.set_value(ENTITY_MAP["ovp"], value)
+
+    async def set_ocp(self, value: float) -> bool:
+        """Установить OCP (Over Current Protection)."""
+        return await self.set_value(ENTITY_MAP["ocp"], value)
+
     async def turn_on(self, entity_id: Optional[str] = None) -> bool:
         """Включить switch."""
         eid = entity_id or ENTITY_MAP["switch"]
