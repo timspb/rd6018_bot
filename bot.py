@@ -5,6 +5,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
+from aiogram import Router
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -21,6 +22,7 @@ bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 db = Database()
 hass = HassAPI(HA_URL, HA_TOKEN)
+router = Router()
 
 # Глобальный контроллер заряда
 charge_controller = None
@@ -33,7 +35,7 @@ async def start_charge(message: Message):
     # Для простоты: ждем ответ пользователя одной строкой "AGM 60"
     # В реальном боте лучше FSM, но здесь — просто
 
-@dp.message(F.text.regexp(r'^(Ca/Ca|EFB|AGM)\s+([0-9]+)'))
+@router.message(F.text.regexp(r'^(Ca/Ca|EFB|AGM)\s+([0-9]+)'))
 async def handle_battery_type(message: Message):
     global charge_controller, charge_task
     import re
@@ -65,7 +67,7 @@ async def charge_process(message, battery_type, ah):
         logging.error(f'Ошибка процесса заряда: {e}')
         await message.answer(f'Ошибка процесса заряда: {e}')
 
-@dp.message(Command('status'))
+@router.message(Command('status'))
 async def status(message: Message):
     logging.info('Команда /status получена')
     session = db.get_last_session()
@@ -77,7 +79,7 @@ async def status(message: Message):
     else:
         await message.answer('Нет активной сессии.')
 
-@dp.message(Command('stop'))
+@router.message(Command('stop'))
 async def stop(message: Message):
     global charge_task
     logging.info('Команда /stop получена')
@@ -88,6 +90,7 @@ async def stop(message: Message):
     await message.answer('Выход RD6018 выключен.')
 
 async def main():
+    dp.include_router(router)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
