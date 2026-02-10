@@ -49,16 +49,26 @@ class AIAnalyst:
         # Проверка истории
         if not session_history or len(session_history) < 1:
             return "Мало данных для анализа, подождите 10 минут."
+        # Заменяем None на 'N/A' в истории
+        session_history_clean = []
+        for s in session_history:
+            s_clean = tuple("N/A" if v is None else v for v in s)
+            session_history_clean.append(s_clean)
         # Определяем режим насыщения
         cv_mode = hass_data.get('binary_sensor.rd_6018_constant_voltage') == 'on'
+        # Жестко прописываем model и max_tokens
         payload = {
             "model": "deepseek-chat",
             "messages": [
                 {"role": "system", "content": "Анализируй заряд АКБ RD6018. Если ток в режиме CV не падает — предупреди о КЗ. Учитывай историю деградации."},
-                {"role": "user", "content": self.build_context(hass_data, session_history)}
-            ]
+                {"role": "user", "content": self.build_context(hass_data, session_history_clean)}
+            ],
+            "max_tokens": 1024
         }
-        print(payload)  # Логируем запрос
+        # Убедимся, что max_tokens — integer
+        if isinstance(payload["max_tokens"], str):
+            payload["max_tokens"] = int(payload["max_tokens"])
+        print(f"DEBUG PAYLOAD: {payload}")
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
