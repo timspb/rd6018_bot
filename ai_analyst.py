@@ -9,19 +9,49 @@ class AIAnalyst:
         self.api_key = DEEPSEEK_API_KEY
         self.base_url = DEEPSEEK_BASE_URL
 
-    def get_last_sessions(self, limit=10):
+    def get_last_sessions(self, user_id=None, device_id=None, limit=10):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('''SELECT id, start_time, battery_type, state, v_max_mix, i_min_mix, ah_total FROM current_session ORDER BY id DESC LIMIT ?''', (limit,))
+        query = 'SELECT id, start_time, battery_type, state, v_max_mix, i_min_mix, ah_total FROM current_session'
+        params = []
+        if user_id:
+            query += ' WHERE user_id=?'
+            params.append(user_id)
+        query += ' ORDER BY id DESC LIMIT ?'
+        params.append(limit)
+        cursor.execute(query, tuple(params))
         sessions = cursor.fetchall()
         conn.close()
         return sessions
 
-    def analyze(self, current_logs, summary=None):
+    def build_context(self, hass_data, session_history):
+        # hass_data: dict с ключами из sensor/binary_sensor
+        # session_history: list из get_last_sessions
+        context = []
+        context.append(f"Voltage: {hass_data.get('sensor.rd_6018_output_voltage')} V")
+        context.append(f"Current: {hass_data.get('sensor.rd_6018_output_current')} A")
+        context.append(f"Power: {hass_data.get('sensor.rd_6018_output_power')} W")
+        context.append(f"Battery Voltage: {hass_data.get('sensor.rd_6018_battery_voltage')} V")
+        context.append(f"Charge: {hass_data.get('sensor.rd_6018_battery_charge')} Ah")
+        context.append(f"Energy: {hass_data.get('sensor.rd_6018_battery_energy')} Wh")
+        context.append(f"Temp: {hass_data.get('sensor.rd_6018_temperature_external')} C")
+        context.append(f"CV Mode: {hass_data.get('binary_sensor.rd_6018_constant_voltage')}")
+        context.append(f"CC Mode: {hass_data.get('binary_sensor.rd_6018_constant_current')}")
+        context.append(f"Output: {hass_data.get('switch.rd_6018_output')}")
+        context.append(f"OVP: {hass_data.get('binary_sensor.rd_6018_over_voltage_protection')}")
+        context.append(f"OCP: {hass_data.get('binary_sensor.rd_6018_over_current_protection')}")
+        context.append("\nИстория зарядов:")
+        for s in session_history:
+            context.append(f"{s}")
+        return '\n'.join(context)
+
+    def analyze(self, hass_data, session_history):
+        # Определяем режим насыщения
+        cv_mode = hass_data.get('binary_sensor.rd_6018_constant_voltage') == 'on'
         payload = {
             "messages": [
-                {"role": "system", "content": "Analyze battery charge session. Detect CV anomalies, short-circuit risk, and degradation."},
-                {"role": "user", "content": f"Current logs: {current_logs}\nSummary: {summary}"}
+                {"role": "system", "content": "Анализируй заряд АКБ RD6018. Если ток в режиме CV не падает — предупреди о КЗ. Учитывай историю деградации."},
+                {"role": "user", "content": self.build_context(hass_data, session_history)}
             ]
         }
         headers = {
