@@ -167,14 +167,14 @@ python bot.py
 
 | Условие | Действие |
 |---------|----------|
-| `temp_ext > 45°C` | Немедленное отключение выхода, алерт в Telegram |
+| **Температура АКБ** (sensor.rd_6018_temperature_external) | T≥34°C → предупреждение (1 раз за сессию). T≥37°C → Output OFF, полный сброс |
+| Датчик Unavailable/ошибка | Output OFF, полный сброс (все режимы) |
 | `voltage > 16.6V` | Предупреждение (проверка лимита железа) |
-| **Hardware Watchdog** | Нет данных &gt;5 мин → Output OFF. При U&gt;15В и нет данных &gt;60 сек → Output OFF, уведомление при восстановлении связи |
+| **Hardware Watchdog** | Нет данных &gt;5 мин → Output OFF. При U&gt;15В и нет данных &gt;60 сек → Output OFF |
 | **Soft Watchdog** | Потеря связи с HA &gt;3 мин → Output OFF |
 | **OVP/OCP** | При смене фазы (Main, Mix, Desulfation): OVP=U+0.2В, OCP=I+0.5А |
-| **Температура АКБ** | T&gt;42°C → ток /2. T&gt;48°C → аварийное отключение + уведомление |
 
-Лимиты заданы в `config.py`: `MAX_TEMP`, `MAX_TEMP_AGM`, `MAX_VOLTAGE`.
+Пороги температуры: 34°C (предупреждение), 37°C (авария). Лимит напряжения в `config.py`: `MAX_VOLTAGE`.
 
 ---
 

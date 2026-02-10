@@ -8,7 +8,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from config import MAX_TEMP, MAX_TEMP_AGM, MAX_VOLTAGE
+from config import MAX_VOLTAGE
 
 logger = logging.getLogger("rd6018")
 
@@ -29,11 +29,11 @@ WATCHDOG_TIMEOUT = 5 * 60  # сек — нет данных 5 мин → ава�
 HIGH_V_FAST_TIMEOUT = 60  # сек — при U>15В: нет данных 60 сек → немедленное отключение
 HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watchdog
 
-# Активная безопасность: OVP/OCP, температурная защита
+# Активная безопасность: OVP/OCP, температурная защита (все режимы Ca/Ca, EFB, AGM)
 OVP_OFFSET = 0.2  # В — OVP = целевое U + 0.2
 OCP_OFFSET = 0.5  # А — OCP = лимит I + 0.5
-TEMP_REDUCE = 42.0  # °C — снизить ток в 2 раза
-TEMP_EMERGENCY = 48.0  # °C — аварийное отключение
+TEMP_WARNING = 34.0  # °C — предупреждение в Telegram (один раз за сессию)
+TEMP_EMERGENCY = 37.0  # °C — аварийное отключение, полный сброс
 
 
 def _log_phase(phase: str, v: float, i: float, t: float) -> None:
@@ -79,7 +79,8 @@ class ChargeController:
         self._stuck_current_since: Optional[float] = None  # когда ток впервые застрял > 0.3А в CV
         self.last_update_time: float = 0.0  # время последнего вызова tick() — для watchdog
         self.emergency_hv_disconnect: bool = False  # флаг после аварийного отключения при U>15В
-        self._phase_current_limit: float = 0.0  # базовый лимит тока текущей фазы (для снижения при T>42°C)
+        self._phase_current_limit: float = 0.0  # базовый лимит тока текущей фазы
+        self._temp_34_alerted: bool = False  # предупреждение 34°C отправлено один раз за сессию
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -103,6 +104,7 @@ class ChargeController:
         self._delta_reported = False
         self._stuck_current_since = None
         self.emergency_hv_disconnect = False
+        self._temp_34_alerted = False
         logger.info("ChargeController started: %s %dAh", battery_type, self.ah_capacity)
 
     def stop(self) -> None:
@@ -112,6 +114,16 @@ class ChargeController:
         self.v_max_recorded = None
         self.i_min_recorded = None
         logger.info("ChargeController stopped (was: %s)", prev)
+
+    def full_reset(self) -> None:
+        """Полный сброс состояния (при аварийном отключении по температуре)."""
+        self.stop()
+        self.temp_history.clear()
+        self._temp_34_alerted = False
+        self.finish_timer_start = None
+        self._phantom_alerted = False
+        self._delta_reported = False
+        self._stuck_current_since = None
 
     @property
     def is_active(self) -> bool:
@@ -150,24 +162,18 @@ class ChargeController:
         return (13.8, 1.0)
 
     def _check_temp_safety(self, temp: float) -> Optional[str]:
-        """Проверка температуры. Возвращает сообщение об ошибке или None."""
-        if temp > TEMP_EMERGENCY:
-            return f"<b>🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ АКБ!</b> T={temp:.1f}°C. Питание отключено."
-        limit = MAX_TEMP_AGM if self.battery_type == self.PROFILE_AGM else MAX_TEMP
-        if temp > limit:
-            return f"<b>🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ!</b> T={temp:.1f}°C. Питание отключено."
-
-        now = time.time()
-        self.temp_history.append((now, temp))
-        if len(self.temp_history) >= 2:
-            old_ts, old_t = self.temp_history[0]
-            if now - old_ts >= TEMP_RISE_WINDOW:
-                delta_t = temp - old_t
-                if delta_t >= TEMP_RISE_LIMIT:
-                    return (
-                        f"<b>⚠️ Слишком быстрый нагрев:</b> +{delta_t:.1f}°C за 5 мин. "
-                        "Снижаю ток / остановка."
-                    )
+        """
+        Проверка температуры (sensor.rd_6018_temperature_external).
+        Применяется ко всем режимам (Ca/Ca, EFB, AGM) без исключения.
+        Возвращает сообщение об ошибке или None.
+        """
+        if temp >= TEMP_EMERGENCY:
+            return f"🔴 <b>АВАРИЯ:</b> Температура АКБ {temp:.1f}°C! Заряд остановлен для предотвращения терморазгона."
+        if temp >= TEMP_WARNING and not self._temp_34_alerted:
+            self._temp_34_alerted = True
+            self.notify(
+                f"⚠️ Внимание: Температура АКБ поднялась до {temp:.1f}°C. Продолжаю наблюдение."
+            )
         return None
 
     def _detect_stuck_current(self, current: float) -> bool:
@@ -207,9 +213,32 @@ class ChargeController:
         Возвращает dict: set_voltage, set_current, turn_off, notify, emergency_stop.
         """
         actions: Dict[str, Any] = {}
-        temp = float(temp_ext) if temp_ext is not None else 0.0
         now = time.time()
         self.last_update_time = now
+
+        if temp_ext is None or temp_ext in ("unavailable", "unknown", ""):
+            msg = (
+                "🔴 <b>АВАРИЯ:</b> Датчик температуры (sensor.rd_6018_temperature_external) "
+                "выдаёт ошибку или Unavailable. Заряд остановлен в целях безопасности."
+            )
+            actions["emergency_stop"] = True
+            actions["full_reset"] = True
+            actions["notify"] = msg
+            self.notify(msg)
+            return actions
+
+        try:
+            temp = float(temp_ext)
+        except (ValueError, TypeError):
+            msg = (
+                "🔴 <b>АВАРИЯ:</b> Некорректные данные датчика температуры. "
+                "Заряд остановлен в целях безопасности."
+            )
+            actions["emergency_stop"] = True
+            actions["full_reset"] = True
+            actions["notify"] = msg
+            self.notify(msg)
+            return actions
 
         if self.emergency_hv_disconnect:
             self.notify(
@@ -217,12 +246,13 @@ class ChargeController:
             )
             self.emergency_hv_disconnect = False
 
-        if temp_ext is not None:
-            err = self._check_temp_safety(temp)
-            if err:
-                actions["emergency_stop"] = True
-                actions["notify"] = err
-                return actions
+        err = self._check_temp_safety(temp)
+        if err:
+            actions["emergency_stop"] = True
+            actions["full_reset"] = True
+            actions["notify"] = err
+            self.notify(err)
+            return actions
 
         if voltage > MAX_VOLTAGE:
             actions["notify"] = f"<b>⚠️ Напряжение</b> {voltage:.2f}V превышает лимит!"
@@ -391,10 +421,6 @@ class ChargeController:
                 actions["set_current"] = ui
                 self._add_phase_limits(actions, uv, ui)
                 actions["notify"] = "<b>⏱ EFB Mix:</b> лимит 10ч. Переход в Storage."
-
-        if temp_ext is not None and TEMP_REDUCE < temp <= TEMP_EMERGENCY and self._phase_current_limit > 0:
-            reduced = max(0.1, self._phase_current_limit / 2.0)
-            actions["set_current"] = reduced
 
         if "notify" in actions:
             self.notify(actions["notify"])

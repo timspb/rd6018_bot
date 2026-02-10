@@ -29,7 +29,7 @@ from charge_logic import (
     HIGH_V_THRESHOLD,
     WATCHDOG_TIMEOUT,
 )
-from config import ENTITY_MAP, HA_URL, HA_TOKEN, MAX_TEMP, TG_TOKEN
+from config import ENTITY_MAP, HA_URL, HA_TOKEN, TG_TOKEN
 from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
@@ -337,11 +337,14 @@ async def data_logger() -> None:
             await add_record(v, i, p, t)
 
             actions = await charge_controller.tick(v, i, temp_ext, is_cv, ah)
-            if charge_controller.is_active:
-                if actions.get("emergency_stop"):
-                    await hass.turn_off(ENTITY_MAP["switch"])
+            if actions.get("emergency_stop"):
+                await hass.turn_off(ENTITY_MAP["switch"])
+                if actions.get("full_reset"):
+                    charge_controller.full_reset()
+                else:
                     charge_controller.stop()
-                elif actions.get("turn_off"):
+            elif charge_controller.is_active:
+                if actions.get("turn_off"):
                     await hass.turn_off(ENTITY_MAP["switch"])
                 if actions.get("set_voltage") is not None:
                     await hass.set_voltage(float(actions["set_voltage"]))
@@ -352,20 +355,6 @@ async def data_logger() -> None:
                 if actions.get("set_ocp") is not None and ENTITY_MAP.get("ocp"):
                     await hass.set_ocp(float(actions["set_ocp"]))
 
-            if temp_ext is not None and float(temp_ext) > MAX_TEMP:
-                await hass.turn_off(ENTITY_MAP["switch"])
-                if charge_controller.is_active:
-                    charge_controller.stop()
-                alert = (
-                    f"<b>🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ АКБ!</b> T={float(temp_ext):.1f}°C. "
-                    "ПИТАНИЕ ОТКЛЮЧЕНО!"
-                )
-                logger.warning("Overheat: %s", alert)
-                if last_chat_id:
-                    try:
-                        await bot.send_message(last_chat_id, alert, parse_mode=ParseMode.HTML)
-                    except Exception:
-                        pass
         except Exception as ex:
             logger.error("data_logger: %s", ex)
         await asyncio.sleep(30)
