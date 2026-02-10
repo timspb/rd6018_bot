@@ -101,24 +101,37 @@ async def manual_set(message: Message):
     # TODO: отправить параметры в RD6018
     await message.answer(f'Установлено: <b>{voltage}В</b>, <b>{current}А</b>')
 
-@router.message(F.text == "Старт зарядки")
-async def start_charge(message: Message):
-    logging.info('Кнопка Старт зарядки')
-    await message.answer('Выберите тип АКБ (Ca/Ca, EFB, AGM) и емкость (Ah):')
-
-@router.message(F.text == "Статус")
+@router.message(F.text == "📊 Статус")
 async def status_button(message: Message):
-    # Получаем последние данные (заглушка, заменить на реальные)
-    # Пример: voltage, current, power, timestamps — списки
-    voltage = [13.2, 13.5, 14.0, 14.4, 14.7, 14.7, 14.7]
+    # Кнопка AI-анализа
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🧠 Анализ AI", callback_data="ai_analyze")],
+        ]
+    )
+    # Получаем данные из HA (заглушка, заменить на реальные асинхронные вызовы)
+    hass_data = {
+        'sensor.rd_6018_output_voltage': 14.81,
+        'sensor.rd_6018_output_current': 0.42,
+        'sensor.rd_6018_output_power': 6.36,
+        'sensor.rd_6018_battery_voltage': 14.80,
+        'sensor.rd_6018_battery_charge': 19.75,
+        'sensor.rd_6018_battery_energy': 290.09,
+        'sensor.rd_6018_temperature_external': 21.0,
+        'binary_sensor.rd_6018_constant_voltage': 'on',
+        'binary_sensor.rd_6018_constant_current': 'off',
+        'switch.rd_6018_output': 'on',
+        'binary_sensor.rd_6018_over_voltage_protection': 'off',
+        'binary_sensor.rd_6018_over_current_protection': 'off',
+    }
+    ah = hass_data['sensor.rd_6018_battery_charge']
+    wh = hass_data['sensor.rd_6018_battery_energy']
+    total_time = 60  # TODO: получить из sensor.rd_6018_uptime
+    # График (пример)
+    voltage = [14.2, 14.4, 14.6, 14.7, 14.8, 14.8, 14.8]
     current = [5.0, 4.8, 4.5, 3.0, 1.5, 0.8, 0.3]
     power = [v*i for v, i in zip(voltage, current)]
-    timestamps = [0, 10, 20, 30, 40, 50, 60]  # минуты
-    # Расчет Ah, Wh, Time
-    ah = sum([(current[i]+current[i-1])/2*(timestamps[i]-timestamps[i-1])/60 for i in range(1, len(current))])
-    wh = sum([(power[i]+power[i-1])/2*(timestamps[i]-timestamps[i-1])/60 for i in range(1, len(power))])
-    total_time = timestamps[-1]
-    # График
+    timestamps = [0, 10, 20, 30, 40, 50, 60]
     fig, ax1 = plt.subplots(figsize=(7,4), facecolor="#222")
     ax1.set_facecolor("#222")
     ax1.plot(timestamps, voltage, 'o-', color="#00eaff", label="V")
@@ -134,6 +147,38 @@ async def status_button(message: Message):
     fig.tight_layout()
     buf = io.BytesIO()
     plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
+    buf.seek(0)
+    plt.close(fig)
+    text = f"<b>Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
+    await message.answer_photo(photo=buf, caption=text, reply_markup=ikb)
+
+# AI-анализ по кнопке
+from ai_analyst import AIAnalyst
+@router.callback_query(F.data == "ai_analyze")
+async def ai_analyze_handler(call):
+    # Получаем hass_data и историю (заглушка)
+    hass_data = {
+        'sensor.rd_6018_output_voltage': 14.81,
+        'sensor.rd_6018_output_current': 0.42,
+        'sensor.rd_6018_output_power': 6.36,
+        'sensor.rd_6018_battery_voltage': 14.80,
+        'sensor.rd_6018_battery_charge': 19.75,
+        'sensor.rd_6018_battery_energy': 290.09,
+        'sensor.rd_6018_temperature_external': 21.0,
+        'binary_sensor.rd_6018_constant_voltage': 'on',
+        'binary_sensor.rd_6018_constant_current': 'off',
+        'switch.rd_6018_output': 'on',
+        'binary_sensor.rd_6018_over_voltage_protection': 'off',
+        'binary_sensor.rd_6018_over_current_protection': 'off',
+    }
+    analyst = AIAnalyst()
+    session_history = analyst.get_last_sessions(limit=5)
+    try:
+        result = analyst.analyze(hass_data, session_history)
+    except Exception as e:
+        result = f"Ошибка AI-анализа: {e}"
+    await call.message.answer(f"<b>AI-анализ:</b>\n{result}")
+    await call.answer()
     buf.seek(0)
     plt.close(fig)
     # Отправка
