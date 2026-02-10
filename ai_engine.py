@@ -51,7 +51,7 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "Ты эксперт по свинцово-кислотным АКБ. Отвечай кратко на русском."},
+            {"role": "system", "content": "Ты эксперт по свинцово-кислотным АКБ. Отвечай кратко на русском. Для выделения используй HTML-теги <b>текст</b>, а не **текст**."},
             {"role": "user", "content": prompt},
         ],
         "max_tokens": 512,

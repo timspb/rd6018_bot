@@ -4,6 +4,7 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 """
 import asyncio
 import logging
+import re
 from typing import Dict, Optional, Union
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -47,6 +48,13 @@ charge_controller = ChargeController(hass)
 # Храним message_id дашборда для каждого user_id
 user_dashboard: Dict[int, int] = {}
 last_chat_id: Optional[int] = None
+
+
+def _md_to_html(text: str) -> str:
+    """Конвертировать **жирный** в <b>жирный</b> для Telegram HTML."""
+    if not text:
+        return text
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
 
 
 def _safe_float(val, default: float = 0.0) -> float:
@@ -156,7 +164,7 @@ async def data_logger() -> None:
                 logger.warning(alert)
                 if last_chat_id:
                     try:
-                        await bot.send_message(last_chat_id, alert)
+                        await bot.send_message(last_chat_id, alert, parse_mode=ParseMode.HTML)
                     except Exception:
                         pass
         except Exception as ex:
@@ -238,18 +246,19 @@ async def logs_handler(call: CallbackQuery) -> None:
         for j in range(min(5, len(times))):
             lines.append(f"{times[j]}: U={voltages[j]:.2f}В I={currents[j]:.2f}А")
         text = "<b>Последние логи:</b>\n" + "\n".join(lines)
-    await call.message.answer(text)
+    await call.message.answer(text, parse_mode=ParseMode.HTML)
     await call.answer()
 
 
 @router.callback_query(F.data == "ai_analysis")
 async def ai_analysis_handler(call: CallbackQuery) -> None:
     await call.answer()
-    status_msg = await call.message.answer("⏳ Анализирую...")
+    status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
     times, voltages, currents = await get_graph_data(limit=100)
     history = {"times": times, "voltages": voltages, "currents": currents}
     result = await ask_deepseek(history)
-    await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result}")
+    result_html = _md_to_html(result)
+    await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
 
 
 async def main() -> None:
