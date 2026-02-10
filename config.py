@@ -17,3 +17,6 @@ ENTITY_IDS = {
 # Пороги безопасности
 MAX_TEMP = 45.0
 MAX_VOLTAGE = 17.0
+
+# Токен Telegram-бота
+TOKEN = 'your-telegram-bot-token'
