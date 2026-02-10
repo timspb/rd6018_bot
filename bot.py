@@ -46,7 +46,7 @@ async def start(message: Message):
         resize_keyboard=True
     )
     await message.answer(
-        "<b>RD6018 Charger Bot</b>\nВыберите действие:",
+        "<b>🔌 RD6018 Charger Bot</b>\nВыберите действие:",
         reply_markup=kb
     )
 
@@ -66,7 +66,7 @@ async def charge_menu(message: Message):
             [InlineKeyboardButton(text="Свой", callback_data="ah_custom")],
         ]
     )
-    await message.answer("Выберите тип АКБ и емкость:", reply_markup=ikb)
+    await message.answer("<b>⚡ Заряд: выберите тип АКБ и емкость</b>", reply_markup=ikb)
 
 # Toggle-кнопка управления выходом
 @router.message(F.text == "⚙️ Настройки")
@@ -79,14 +79,14 @@ async def settings_menu(message: Message):
             [InlineKeyboardButton(text=btn_text, callback_data="toggle_output")],
         ]
     )
-    await message.answer("Управление выходом:", reply_markup=ikb)
+    await message.answer("<b>🛠 Управление выходом</b>", reply_markup=ikb)
 
 # Toggle обработка
 @router.callback_query(F.data == "toggle_output")
 async def toggle_output(call):
     # TODO: получить и переключить реальное состояние выхода
     # Здесь просто пример
-    await call.answer("Переключение выхода (заглушка)")
+    await call.answer("🔄 Переключение выхода (заглушка)")
     await call.message.edit_reply_markup()
 
 # Обработка ручной команды set V I
@@ -99,7 +99,7 @@ async def manual_set(message: Message):
         return
     voltage, current = float(m.group(1)), float(m.group(2))
     # TODO: отправить параметры в RD6018
-    await message.answer(f'Установлено: <b>{voltage}В</b>, <b>{current}А</b>')
+    await message.answer(f'✅ Установлено: <b>{voltage} В</b>, <b>{current} А</b>')
 
 @router.message(F.text == "📊 Статус")
 async def status_button(message: Message):
@@ -149,7 +149,7 @@ async def status_button(message: Message):
     plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
     buf.seek(0)
     plt.close(fig)
-    text = f"<b>Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
+    text = f"<b>📊 Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
     await message.answer_photo(photo=buf, caption=text, reply_markup=ikb)
 
 # AI-анализ по кнопке
@@ -177,7 +177,7 @@ async def ai_analyze_handler(call):
         result = analyst.analyze(hass_data, session_history)
     except Exception as e:
         result = f"Ошибка AI-анализа: {e}"
-    await call.message.answer(f"<b>AI-анализ:</b>\n{result}")
+    await call.message.answer(f"<b>🧠 AI-анализ:</b>\n{result}")
     await call.answer()
     buf.seek(0)
     plt.close(fig)
@@ -222,17 +222,17 @@ async def charge_process(message, battery_type, ah):
             if temp > MAX_TEMP or voltage > MAX_VOLTAGE + 0.5:
                 # Немедленно выключить выход
                 await hass.turn_off_switch('switch.rd_6018_output')
-                await message.answer('🆘 <b>CRITICAL OVERHEAT/OVERVOLTAGE</b>\nВыход отключён!')
+                await message.answer('🆘 <b>CRITICAL OVERHEAT/OVERVOLTAGE!</b>\n<b>Выход отключён.</b> Проверьте температуру и напряжение!')
                 break
             # Здесь должна быть логика State Machine
             await charge_controller.safety_check()
             # ...другие этапы заряда...
             await asyncio.sleep(5)
     except asyncio.CancelledError:
-        await message.answer('Заряд остановлен.')
+        await message.answer('⏹️ <b>Заряд остановлен.</b>')
     except Exception as e:
         logging.error(f'Ошибка процесса заряда: {e}')
-        await message.answer(f'Ошибка процесса заряда: {e}')
+        await message.answer(f'⚠️ <b>Ошибка процесса заряда:</b> {e}')
 
 @router.message(Command('status'))
 async def status(message: Message):
