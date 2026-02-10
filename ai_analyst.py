@@ -46,18 +46,28 @@ class AIAnalyst:
         return '\n'.join(context)
 
     def analyze(self, hass_data, session_history):
+        # Проверка истории
+        if not session_history or len(session_history) < 1:
+            return "Мало данных для анализа, подождите 10 минут."
         # Определяем режим насыщения
         cv_mode = hass_data.get('binary_sensor.rd_6018_constant_voltage') == 'on'
         payload = {
+            "model": "deepseek-chat",
             "messages": [
                 {"role": "system", "content": "Анализируй заряд АКБ RD6018. Если ток в режиме CV не падает — предупреди о КЗ. Учитывай историю деградации."},
                 {"role": "user", "content": self.build_context(hass_data, session_history)}
             ]
         }
+        print(payload)  # Логируем запрос
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
         response = requests.post(f"{self.base_url}/v1/chat/completions", json=payload, headers=headers, timeout=30)
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        # Проверяем роли в ответе
+        choices = response.json()["choices"]
+        for c in choices:
+            if c["message"]["role"] not in ["system", "user", "assistant"]:
+                return "Ошибка: некорректная роль в ответе AI."
+        return choices[0]["message"]["content"]
