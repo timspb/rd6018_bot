@@ -137,3 +137,45 @@ async def add_charge_log(message: str) -> None:
 async def get_graph_data(limit: int = 100) -> Tuple[List[str], List[float], List[float]]:
     """Алиас для get_history (для совместимости со спецификацией)."""
     return await get_history(limit=limit)
+
+
+async def get_raw_history(limit: int = 50) -> Tuple[List[str], List[float], List[float]]:
+    """
+    Получить последние limit записей без даунсемплинга.
+    Возвращает (times, voltages, currents) в хронологическом порядке (от старого к новому).
+    """
+    times: List[str] = []
+    voltages: List[float] = []
+    currents: List[float] = []
+
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        if not rows:
+            return times, voltages, currents
+
+        rows = list(reversed(rows))
+        for r in rows:
+            ts = r["timestamp"] if r["timestamp"] else ""
+            try:
+                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
+            except (TypeError, ValueError):
+                v = 0.0
+            try:
+                i = float(r["current"]) if r["current"] is not None else 0.0
+            except (TypeError, ValueError):
+                i = 0.0
+            times.append(ts)
+            voltages.append(v)
+            currents.append(i)
+
+        return times, voltages, currents
+    except Exception as ex:
+        logger.error("get_raw_history failed: %s", ex)
+        return times, voltages, currents

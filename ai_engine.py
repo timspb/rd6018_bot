@@ -36,22 +36,38 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
 
     data_text = "\n".join(lines)
 
+    trend_summary = history_data.get("trend_summary", "")
+    trend_block = (
+        f"\nКраткий тренд: {trend_summary}\n"
+        if trend_summary
+        else ""
+    )
+
     prompt = (
         "Analyze this lead-acid battery charging curve from RD6018.\n"
-        "Data (time, voltage V, current A):\n"
+        + trend_block +
+        f"\nПолные данные (время, напряжение V, ток A):\n"
         f"{data_text}\n\n"
         "Questions:\n"
-        "1. Is the battery in Bulk, Absorption, or Float phase?\n"
-        "2. Estimate time to full charge (minutes).\n"
-        "3. Any concerns (sulfation, capacity loss)?\n"
+        "1. Определи стадию заряда: CC (Bulk), CV (Absorption) или Float.\n"
+        "2. Оцени состояние АКБ по динамике.\n"
+        "3. Дай прогноз: сколько времени осталось до конца заряда (минуты).\n"
+        "4. Возможные риски (сульфатация, потеря ёмкости).\n"
         "Reply briefly in Russian."
+    )
+
+    system_content = (
+        "Ты — эксперт по аккумуляторам. "
+        "Проанализируй динамику заряда за последний час. "
+        "Определи стадию (CC/CV/Float), оцени состояние АКБ и дай прогноз, сколько времени осталось до конца. "
+        "Отвечай кратко на русском. Для выделения используй HTML-теги <b>текст</b>."
     )
 
     url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": "Ты эксперт по свинцово-кислотным АКБ. Отвечай кратко на русском. Для выделения используй HTML-теги <b>текст</b>, а не **текст**."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ],
         "max_tokens": 512,

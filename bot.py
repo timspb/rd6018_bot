@@ -5,6 +5,7 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 import asyncio
 import logging
 import re
+from datetime import datetime, timedelta
 from typing import Dict, Optional, Union
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -23,7 +24,7 @@ from aiogram.filters import Command
 from ai_engine import ask_deepseek
 from charge_logic import ChargeController
 from config import ENTITY_MAP, HA_URL, HA_TOKEN, MAX_TEMP, TG_TOKEN
-from database import add_record, get_graph_data, init_db
+from database import add_record, get_graph_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
 
@@ -48,6 +49,34 @@ charge_controller = ChargeController(hass)
 # Храним message_id дашборда для каждого user_id
 user_dashboard: Dict[int, int] = {}
 last_chat_id: Optional[int] = None
+last_charge_alert_at: Optional[datetime] = None
+CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
+
+
+def _build_trend_summary(
+    times: list,
+    voltages: list,
+    currents: list,
+) -> str:
+    """Сформировать краткую таблицу трендов для AI (напр. «10 мин назад: 13.2В | сейчас: 14.4В»)."""
+    if not times or not voltages or not currents:
+        return ""
+    now = datetime.now()
+    n = min(len(times), len(voltages), len(currents))
+    indices = [0, max(1, n // 3), max(2, 2 * n // 3), n - 1] if n >= 4 else list(range(n))
+    lines = []
+    for i in indices:
+        ts = times[i]
+        v = voltages[i] if i < len(voltages) else 0.0
+        c = currents[i] if i < len(currents) else 0.0
+        try:
+            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00")[:19])
+            delta_min = int((now - dt).total_seconds() / 60)
+            label = "сейчас" if delta_min < 1 else f"{delta_min} мин назад"
+        except Exception:
+            label = str(ts)[-8:] if len(str(ts)) >= 8 else "?"
+        lines.append(f"{label}: {v:.2f}В, {c:.2f}А")
+    return " | ".join(lines)
 
 
 def _md_to_html(text: str) -> str:
@@ -140,6 +169,37 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
     user_dashboard[user_id] = sent.message_id
     return sent.message_id
+
+
+async def charge_monitor() -> None:
+    """Фоновая задача: раз в 15 мин проверяет ток; при I<0.1А и высоком U — алерт о завершении заряда."""
+    global last_chat_id, last_charge_alert_at
+    while True:
+        await asyncio.sleep(15 * 60)
+        try:
+            live = await hass.get_all_live()
+            output_on = str(live.get("switch", "")).lower() == "on"
+            if not output_on:
+                continue
+            v = _safe_float(live.get("voltage"))
+            i = _safe_float(live.get("current"))
+            if v >= 13.5 and i < 0.1:
+                now = datetime.now()
+                if last_charge_alert_at and (now - last_charge_alert_at) < CHARGE_ALERT_COOLDOWN:
+                    continue
+                msg = (
+                    f"⚠️ Заряд завершён или аккумулятор почти полон. "
+                    f"Ток упал до {i:.2f}А при напряжении {v:.2f}В."
+                )
+                logger.info("Charge monitor: %s", msg)
+                last_charge_alert_at = now
+                if last_chat_id:
+                    try:
+                        await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
+                    except Exception:
+                        pass
+        except Exception as ex:
+            logger.error("charge_monitor: %s", ex)
 
 
 async def data_logger() -> None:
@@ -254,8 +314,14 @@ async def logs_handler(call: CallbackQuery) -> None:
 async def ai_analysis_handler(call: CallbackQuery) -> None:
     await call.answer()
     status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
-    times, voltages, currents = await get_graph_data(limit=100)
-    history = {"times": times, "voltages": voltages, "currents": currents}
+    times, voltages, currents = await get_raw_history(limit=50)
+    trend_summary = _build_trend_summary(times, voltages, currents)
+    history = {
+        "times": times,
+        "voltages": voltages,
+        "currents": currents,
+        "trend_summary": trend_summary,
+    }
     result = await ask_deepseek(history)
     result_html = _md_to_html(result)
     await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
@@ -266,6 +332,7 @@ async def main() -> None:
     dp.include_router(router)
     await bot.set_my_commands([BotCommand(command="start", description="Открыть дашборд RD6018")])
     asyncio.create_task(data_logger())
+    asyncio.create_task(charge_monitor())
     logger.info("RD6018 bot starting")
     await dp.start_polling(bot)
 
