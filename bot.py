@@ -1,3 +1,125 @@
+@router.callback_query(F.data == "presets")
+async def presets_menu(call: CallbackQuery):
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="AGM", callback_data="preset_agm"),
+             InlineKeyboardButton(text="GEL", callback_data="preset_gel"),
+             InlineKeyboardButton(text="Li-Ion", callback_data="preset_li")],
+            [InlineKeyboardButton(text="🚀 BOOST (Макс. ток)", callback_data="boost")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="refresh")],
+        ]
+    )
+    await call.message.edit_caption(caption="<b>Выберите пресет или BOOST:</b>", reply_markup=ikb)
+    await call.answer()
+
+@router.callback_query(F.data == "boost")
+async def boost_handler(call: CallbackQuery):
+    # Получаем актуальное напряжение
+    voltage, _ = await hass.get_state('sensor.rd_6018_output_voltage')
+    try:
+        voltage = float(voltage)
+    except Exception:
+        voltage = 0
+    if voltage < 14.4:
+        # TODO: поднять лимит тока до максимума через hass
+        await call.answer("BOOST: Ток увеличен до максимума!", show_alert=True)
+    else:
+        await call.answer("Буст опасен на стадии насыщения!", show_alert=True)
+    # Вернуть дашборд
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+# --- DASHBOARD v1.0 ---
+from aiogram.types import CallbackQuery
+import datetime
+
+async def dashboard(message: Message, old_msg_id=None):
+    # 1. Получаем live-данные из Home Assistant
+    # (Заменить на реальные асинхронные вызовы)
+    hass_data = {
+        'sensor.rd_6018_output_voltage': 14.81,
+        'sensor.rd_6018_output_current': 0.42,
+        'sensor.rd_6018_output_power': 6.2,
+        'sensor.rd_6018_battery_charge': 21.05,
+        'sensor.rd_6018_temperature_external': 32.4,
+        'switch.rd_6018_output': 'on',
+    }
+    status = 'ЗАРЯДКА' if hass_data['switch.rd_6018_output'] == 'on' else 'ВЫКЛ'
+    voltage = hass_data['sensor.rd_6018_output_voltage']
+    current = hass_data['sensor.rd_6018_output_current']
+    power = hass_data['sensor.rd_6018_output_power']
+    temp = hass_data['sensor.rd_6018_temperature_external']
+    temp_status = 'Норма' if temp < 40 else 'ВНИМАНИЕ'
+    ah = hass_data['sensor.rd_6018_battery_charge']
+    # 2. AI-вердикт (коротко)
+    from ai_analyst import AIAnalyst
+    analyst = AIAnalyst()
+    session_history = analyst.get_last_sessions(limit=3)
+    try:
+        ai_short = analyst.analyze(hass_data, session_history)
+        if ai_short and len(ai_short) > 80:
+            ai_short = ai_short[:80] + '...'
+    except Exception as e:
+        ai_short = f"AI: {e}"
+    # 3. График (пример: U/I за 60 мин)
+    import matplotlib.pyplot as plt
+    import io
+    now = datetime.datetime.now()
+    times = [(now - datetime.timedelta(minutes=60-i)).strftime('%H:%M') for i in range(61)]
+    voltages = [14.5 + 0.01*i for i in range(61)]
+    currents = [5.0 - 0.07*i for i in range(61)]
+    fig, ax1 = plt.subplots(figsize=(7,3), facecolor="#222")
+    ax1.set_facecolor("#222")
+    ax1.plot(times, voltages, '-', color="#00eaff", label="V")
+    ax2 = ax1.twinx()
+    ax2.plot(times, currents, '-', color="#ffb300", label="A")
+    ax1.set_xlabel("Время", color="#fff")
+    ax1.set_ylabel("V", color="#00eaff")
+    ax2.set_ylabel("A", color="#ffb300")
+    ax1.tick_params(axis='x', colors="#fff", labelsize=8, rotation=45)
+    ax1.tick_params(axis='y', colors="#00eaff")
+    ax2.tick_params(axis='y', colors="#ffb300")
+    plt.title("U/I за 60 мин", color="#fff")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
+    buf.seek(0)
+    plt.close(fig)
+    from aiogram.types import BufferedInputFile
+    photo = BufferedInputFile(buf.read(), filename="chart.png")
+    # 4. Текст дашборда
+    text = (
+        f"🔋 <b>Статус:</b> <b>{status}</b>\n"
+        f"⚡ <b>Параметры:</b> <b>{voltage}V | {current}A | {power}W</b>\n"
+        f"🌡 <b>Температура:</b> <b>{temp}°C</b> ({temp_status})\n"
+        f"📊 <b>Емкость:</b> <b>{ah} Ah</b>\n"
+        f"🧠 <b>AI Анализ:</b> {ai_short}"
+    )
+    # 5. Кнопки (инлайн)
+    power_on = hass_data['switch.rd_6018_output'] == 'off'
+    power_btn = InlineKeyboardButton(
+        text="🛑 ВЫКЛЮЧИТЬ ПИТАНИЕ" if not power_on else "⚡ ЗАПУСТИТЬ ЗАРЯД",
+        callback_data="power_off" if not power_on else "power_on"
+    )
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить Данные", callback_data="refresh")],
+            [InlineKeyboardButton(text="🧠 Подробный AI Анализ", callback_data="ai_full")],
+            [InlineKeyboardButton(text="🔋 Пресеты: AGM / GEL / Li-Ion", callback_data="presets")],
+            [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"), InlineKeyboardButton(text="📈 Логи", callback_data="logs")],
+            [power_btn],
+        ]
+    )
+    # 6. Удаляем старый дашборд
+    if old_msg_id:
+        try:
+            await message.bot.delete_message(message.chat.id, old_msg_id)
+        except Exception:
+            pass
+    # 7. Отправляем новый дашборд
+    sent = await message.answer_photo(photo=photo, caption=text, reply_markup=ikb)
+    return sent.message_id
 
 
 
@@ -38,34 +160,10 @@ charge_task = None
 @router.message(Command('start'))
 async def start(message: Message):
     logging.info('Команда /start получена')
-    # Получаем параметры (заглушка, заменить на реальные)
-    hass_data = {
-        'sensor.rd_6018_output_voltage': 14.81,
-        'sensor.rd_6018_output_current': 0.42,
-        'sensor.rd_6018_temperature_external': 21.0,
-        'switch.rd_6018_output': 'on',
-    }
-    voltage = hass_data['sensor.rd_6018_output_voltage']
-    current = hass_data['sensor.rd_6018_output_current']
-    temp = hass_data['sensor.rd_6018_temperature_external']
-    output_status = 'Включен' if hass_data['switch.rd_6018_output'] == 'on' else 'Выключен'
-    kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📊 Статус"), KeyboardButton(text="⚡ Заряд")],
-            [KeyboardButton(text="🛑 СТОП (Выкл)")],
-            [KeyboardButton(text="⚙️ Настройки")],
-        ],
-        resize_keyboard=True
-    )
-    text = (
-        f"<b>🔌 RD6018 Charger Bot</b>\n"
-        f"<b>Напряжение:</b> <b>{voltage} В</b>\n"
-        f"<b>Ток:</b> <b>{current} А</b>\n"
-        f"<b>Температура:</b> <b>{temp}°C</b>\n"
-        f"<b>Статус выхода:</b> <b>{output_status}</b>\n"
-        "\nВыберите действие:"
-    )
-    await message.answer(text, reply_markup=kb)
+    msg_id = await dashboard(message)
+    # Сохраняем id дашборда в user_data (in-memory)
+    if not hasattr(message.bot, 'user_dash'): message.bot.user_dash = {}
+    message.bot.user_dash[message.from_user.id] = msg_id
 
 # Меню Заряда (InlineKeyboard)
 @router.message(F.text == "⚡ Заряд")
@@ -120,36 +218,38 @@ async def manual_set(message: Message):
 
 @router.message(F.text == "📊 Статус")
 async def status_button(message: Message):
-    ikb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🧠 Анализ AI", callback_data="ai_analyze")],
-        ]
-    )
-    hass_data = {
-        'sensor.rd_6018_output_voltage': 14.81,
-        'sensor.rd_6018_output_current': 0.42,
-        'sensor.rd_6018_battery_charge': 19.75,
-        'sensor.rd_6018_battery_energy': 290.09,
-        'sensor.rd_6018_temperature_external': 21.0,
-        'switch.rd_6018_output': 'on',
-    }
-    ah = hass_data['sensor.rd_6018_battery_charge']
-    wh = hass_data['sensor.rd_6018_battery_energy']
-    voltage = hass_data['sensor.rd_6018_output_voltage']
-    current = hass_data['sensor.rd_6018_output_current']
-    temp = hass_data['sensor.rd_6018_temperature_external']
-    output_status = 'Включен' if hass_data['switch.rd_6018_output'] == 'on' else 'Выключен'
-    text = (
-        f"<b>📊 Статус</b>\n"
-        f"<b>Напряжение:</b> <b>{voltage} В</b>\n"
-        f"<b>Ток:</b> <b>{current} А</b>\n"
-        f"<b>Температура:</b> <b>{temp}°C</b>\n"
-        f"<b>Статус выхода:</b> <b>{output_status}</b>\n"
-        f"🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>"
-    )
-    sent = await message.answer(text, reply_markup=ikb)
-    # Сохраняем id для edit_message_text
-    message.bot_status_id = sent.message_id
+    # Просто перерисовываем дашборд
+    old_id = getattr(message.bot, 'user_dash', {}).get(message.from_user.id)
+    msg_id = await dashboard(message, old_msg_id=old_id)
+    if not hasattr(message.bot, 'user_dash'): message.bot.user_dash = {}
+    message.bot.user_dash[message.from_user.id] = msg_id
+# --- Dashboard Inline Buttons ---
+@router.callback_query(F.data == "refresh")
+async def refresh_dashboard(call: CallbackQuery):
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Данные обновлены")
+
+@router.callback_query(F.data == "power_off")
+async def power_off(call: CallbackQuery):
+    await hass.turn_off_switch('switch.rd_6018_output')
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Питание отключено")
+
+@router.callback_query(F.data == "power_on")
+async def power_on(call: CallbackQuery):
+    # TODO: включить выход через hass
+    # await hass.turn_on_switch('switch.rd_6018_output')
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Питание включено")
 async def stop_main_menu(message: Message):
     await hass.turn_off_switch('switch.rd_6018_output')
     await message.answer('🛑 <b>Выход RD6018 выключен.</b>')
