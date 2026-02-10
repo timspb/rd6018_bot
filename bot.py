@@ -1,22 +1,42 @@
-# --- Real-time Engine: background HA polling ---
-import time
+import asyncio
+import logging
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import io
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.filters import Command
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from database import Database
+from config import HA_URL, HA_TOKEN, ENTITY_IDS, TOKEN
+from hass_api import HassAPI
+from charge_logic import ChargeController
+from ai_analyst import AIAnalyst
+import datetime
 
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
+
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+router = Router()
+db = Database()
+hass = HassAPI(HA_URL, HA_TOKEN)
+charge_controller = None
+charge_task = None
+
+# --- Real-time Engine: background HA polling ---
 async def ha_background_poll(bot, hass, db: Database):
     while True:
         try:
-            # Получаем значения асинхронно
             voltage, _ = await hass.get_state('sensor.rd_6018_output_voltage')
             current, _ = await hass.get_state('sensor.rd_6018_output_current')
             power, _ = await hass.get_state('sensor.rd_6018_output_power')
             temp, _ = await hass.get_state('sensor.rd_6018_temperature_external')
-            # Запись в sensor_history
             db.add_sensor_history(voltage, current, power, temp)
-            # Safe Stop: если перегрев или перенапряжение
             if temp is not None and float(temp) > 45.0 or voltage is not None and float(voltage) > 15.0:
                 await hass.turn_off_switch('switch.rd_6018_output')
-                # AI alert (коротко)
-                from ai_analyst import AIAnalyst
                 analyst = AIAnalyst()
                 session_history = analyst.get_last_sessions(limit=3)
                 hass_data = {
@@ -27,7 +47,6 @@ async def ha_background_poll(bot, hass, db: Database):
                     'switch.rd_6018_output': 'off',
                 }
                 ai_alert = analyst.analyze(hass_data, session_history)
-                # Отправить алерт всем активным пользователям (in-memory)
                 if hasattr(bot, 'user_dash'):
                     for uid in bot.user_dash:
                         try:
@@ -74,40 +93,41 @@ from aiogram.types import CallbackQuery
 import datetime
 
 async def dashboard(message: Message, old_msg_id=None):
-    # 1. Получаем live-данные из Home Assistant
-    # (Заменить на реальные асинхронные вызовы)
-    hass_data = {
-        'sensor.rd_6018_output_voltage': 14.81,
-        'sensor.rd_6018_output_current': 0.42,
-        'sensor.rd_6018_output_power': 6.2,
-        'sensor.rd_6018_battery_charge': 21.05,
-        'sensor.rd_6018_temperature_external': 32.4,
-        'switch.rd_6018_output': 'on',
-    }
-    status = 'ЗАРЯДКА' if hass_data['switch.rd_6018_output'] == 'on' else 'ВЫКЛ'
-    voltage = hass_data['sensor.rd_6018_output_voltage']
-    current = hass_data['sensor.rd_6018_output_current']
-    power = hass_data['sensor.rd_6018_output_power']
-    temp = hass_data['sensor.rd_6018_temperature_external']
-    temp_status = 'Норма' if temp < 40 else 'ВНИМАНИЕ'
-    ah = hass_data['sensor.rd_6018_battery_charge']
-    # 2. AI-вердикт (коротко)
-    from ai_analyst import AIAnalyst
+    # Получаем live-данные из Home Assistant (асинхронно)
+    voltage, _ = await hass.get_state('sensor.rd_6018_output_voltage')
+    current, _ = await hass.get_state('sensor.rd_6018_output_current')
+    power, _ = await hass.get_state('sensor.rd_6018_output_power')
+    temp, _ = await hass.get_state('sensor.rd_6018_temperature_external')
+    ah = None
+    try:
+        ah, _ = await hass.get_state('sensor.rd_6018_battery_charge')
+    except Exception:
+        ah = 'N/A'
+    output_state, _ = await hass.get_state('switch.rd_6018_output')
+    status = 'ЗАРЯДКА' if output_state == 'on' else 'ВЫКЛ'
+    temp_status = 'Норма' if temp is not None and float(temp) < 40 else 'ВНИМАНИЕ'
+    # AI verdict (коротко)
     analyst = AIAnalyst()
     session_history = analyst.get_last_sessions(limit=3)
+    hass_data = {
+        'sensor.rd_6018_output_voltage': voltage,
+        'sensor.rd_6018_output_current': current,
+        'sensor.rd_6018_output_power': power,
+        'sensor.rd_6018_battery_charge': ah,
+        'sensor.rd_6018_temperature_external': temp,
+        'switch.rd_6018_output': output_state,
+    }
     try:
         ai_short = analyst.analyze(hass_data, session_history)
         if ai_short and len(ai_short) > 80:
             ai_short = ai_short[:80] + '...'
     except Exception as e:
         ai_short = f"AI: {e}"
-    # 3. График (пример: U/I за 60 мин)
-    import matplotlib.pyplot as plt
-    import io
+    # График (пример: U/I за 60 мин, можно заменить на реальные данные из sensor_history)
     now = datetime.datetime.now()
     times = [(now - datetime.timedelta(minutes=60-i)).strftime('%H:%M') for i in range(61)]
-    voltages = [14.5 + 0.01*i for i in range(61)]
-    currents = [5.0 - 0.07*i for i in range(61)]
+    voltages = [float(voltage) if voltage else 0 for _ in range(61)]
+    currents = [float(current) if current else 0 for _ in range(61)]
     fig, ax1 = plt.subplots(figsize=(7,3), facecolor="#222")
     ax1.set_facecolor("#222")
     ax1.plot(times, voltages, '-', color="#00eaff", label="V")
@@ -125,9 +145,7 @@ async def dashboard(message: Message, old_msg_id=None):
     plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
     buf.seek(0)
     plt.close(fig)
-    from aiogram.types import BufferedInputFile
     photo = BufferedInputFile(buf.read(), filename="chart.png")
-    # 4. Текст дашборда
     text = (
         f"🔋 <b>Статус:</b> <b>{status}</b>\n"
         f"⚡ <b>Параметры:</b> <b>{voltage}V | {current}A | {power}W</b>\n"
@@ -135,8 +153,8 @@ async def dashboard(message: Message, old_msg_id=None):
         f"📊 <b>Емкость:</b> <b>{ah} Ah</b>\n"
         f"🧠 <b>AI Анализ:</b> {ai_short}"
     )
-    # 5. Кнопки (инлайн)
-    power_on = hass_data['switch.rd_6018_output'] == 'off'
+    # Кнопка питания (динамическая)
+    power_on = output_state == 'off'
     power_btn = InlineKeyboardButton(
         text="🛑 ВЫКЛЮЧИТЬ ПИТАНИЕ" if not power_on else "⚡ ЗАПУСТИТЬ ЗАРЯД",
         callback_data="power_off" if not power_on else "power_on"
@@ -150,13 +168,16 @@ async def dashboard(message: Message, old_msg_id=None):
             [power_btn],
         ]
     )
-    # 6. Удаляем старый дашборд
+    # Удаляем старое сообщение
     if old_msg_id:
         try:
             await message.bot.delete_message(message.chat.id, old_msg_id)
         except Exception:
             pass
-    # 7. Отправляем новый дашборд
+    try:
+        await message.delete()
+    except Exception:
+        pass
     sent = await message.answer_photo(photo=photo, caption=text, reply_markup=ikb)
     return sent.message_id
 
@@ -388,7 +409,6 @@ async def stop(message: Message):
 
 async def main():
     dp.include_router(router)
-    # Запуск фоновой задачи
     asyncio.create_task(ha_background_poll(bot, hass, db))
     await dp.start_polling(bot)
 
