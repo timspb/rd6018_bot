@@ -15,7 +15,7 @@ from hass_api import HassAPI
 from charge_logic import ChargeController
 
 
-TOKEN = 'your-telegram-bot-token'
+from config import TOKEN
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
