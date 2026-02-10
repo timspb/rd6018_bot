@@ -31,6 +31,7 @@ from hass_api import HassClient
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] %(levelname)s: %(name)s - %(message)s",
+    datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("rd6018")
 
@@ -88,6 +89,17 @@ def _md_to_html(text: str) -> str:
     if not text:
         return text
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+
+def _format_time(ts: str) -> str:
+    """Преобразовать ISO timestamp в HH:MM:SS."""
+    if not ts:
+        return "?:?:?"
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00")[:19])
+        return dt.strftime("%H:%M:%S")
+    except Exception:
+        return str(ts)[-8:] if len(str(ts)) >= 8 else "?:?:?"
 
 
 def _safe_float(val, default: float = 0.0) -> float:
@@ -329,12 +341,16 @@ async def preset_selection(call: CallbackQuery) -> None:
 async def logs_handler(call: CallbackQuery) -> None:
     times, voltages, currents = await get_graph_data(limit=5)
     if not times:
-        text = "Нет данных."
+        text = "<b>📈 Последние логи</b>\n\nНет данных."
     else:
-        lines = []
+        header = "Время   | Напряж. | Ток\n--------+---------+-------"
+        lines = [header]
         for j in range(min(5, len(times))):
-            lines.append(f"{times[j]}: U={voltages[j]:.2f}В I={currents[j]:.2f}А")
-        text = "<b>Последние логи:</b>\n" + "\n".join(lines)
+            ts = _format_time(times[j])
+            v = voltages[j] if j < len(voltages) else 0.0
+            i = currents[j] if j < len(currents) else 0.0
+            lines.append(f"{ts} | {v:5.2f}В | {i:5.2f}А")
+        text = "<b>📈 Последние логи</b>\n\n<pre>" + "\n".join(lines) + "</pre>"
     await call.message.answer(text, parse_mode=ParseMode.HTML)
     await call.answer()
 
