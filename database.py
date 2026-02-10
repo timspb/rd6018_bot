@@ -34,6 +34,22 @@ class Database:
                 message TEXT
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sensor_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                voltage REAL,
+                current REAL,
+                power REAL,
+                temp REAL
+            )
+        ''')
+        self.conn.commit()
+    def add_sensor_history(self, voltage, current, power, temp):
+        now = datetime.now().isoformat()
+        cursor = self.conn.cursor()
+        cursor.execute('INSERT INTO sensor_history (timestamp, voltage, current, power, temp) VALUES (?, ?, ?, ?, ?)',
+                       (now, voltage, current, power, temp))
         self.conn.commit()
 
     def start_session(self, battery_type):

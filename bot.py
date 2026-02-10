@@ -1,3 +1,42 @@
+# --- Real-time Engine: background HA polling ---
+import time
+from database import Database
+
+async def ha_background_poll(bot, hass, db: Database):
+    while True:
+        try:
+            # Получаем значения асинхронно
+            voltage, _ = await hass.get_state('sensor.rd_6018_output_voltage')
+            current, _ = await hass.get_state('sensor.rd_6018_output_current')
+            power, _ = await hass.get_state('sensor.rd_6018_output_power')
+            temp, _ = await hass.get_state('sensor.rd_6018_temperature_external')
+            # Запись в sensor_history
+            db.add_sensor_history(voltage, current, power, temp)
+            # Safe Stop: если перегрев или перенапряжение
+            if temp is not None and float(temp) > 45.0 or voltage is not None and float(voltage) > 15.0:
+                await hass.turn_off_switch('switch.rd_6018_output')
+                # AI alert (коротко)
+                from ai_analyst import AIAnalyst
+                analyst = AIAnalyst()
+                session_history = analyst.get_last_sessions(limit=3)
+                hass_data = {
+                    'sensor.rd_6018_output_voltage': voltage,
+                    'sensor.rd_6018_output_current': current,
+                    'sensor.rd_6018_output_power': power,
+                    'sensor.rd_6018_temperature_external': temp,
+                    'switch.rd_6018_output': 'off',
+                }
+                ai_alert = analyst.analyze(hass_data, session_history)
+                # Отправить алерт всем активным пользователям (in-memory)
+                if hasattr(bot, 'user_dash'):
+                    for uid in bot.user_dash:
+                        try:
+                            await bot.send_message(uid, f'🆘 <b>АВАРИЙНОЕ ОТКЛЮЧЕНИЕ!</b>\n{ai_alert}')
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f'[HA BG POLL] Ошибка: {e}')
+        await asyncio.sleep(30)
 @router.callback_query(F.data == "presets")
 async def presets_menu(call: CallbackQuery):
     ikb = InlineKeyboardMarkup(
@@ -349,6 +388,8 @@ async def stop(message: Message):
 
 async def main():
     dp.include_router(router)
+    # Запуск фоновой задачи
+    asyncio.create_task(ha_background_poll(bot, hass, db))
     await dp.start_polling(bot)
 
 if __name__ == '__main__':

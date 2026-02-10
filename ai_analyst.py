@@ -24,48 +24,57 @@ class AIAnalyst:
         conn.close()
         return sessions
 
-    def build_context(self, hass_data, session_history):
-        # hass_data: dict с ключами из sensor/binary_sensor
-        # session_history: list из get_last_sessions
+    def build_context(self, hass_data, session_history, ah_now=None, charge_time_min=None):
         context = []
         context.append(f"Voltage: {hass_data.get('sensor.rd_6018_output_voltage')} V")
         context.append(f"Current: {hass_data.get('sensor.rd_6018_output_current')} A")
         context.append(f"Power: {hass_data.get('sensor.rd_6018_output_power')} W")
-        context.append(f"Battery Voltage: {hass_data.get('sensor.rd_6018_battery_voltage')} V")
-        context.append(f"Charge: {hass_data.get('sensor.rd_6018_battery_charge')} Ah")
-        context.append(f"Energy: {hass_data.get('sensor.rd_6018_battery_energy')} Wh")
         context.append(f"Temp: {hass_data.get('sensor.rd_6018_temperature_external')} C")
-        context.append(f"CV Mode: {hass_data.get('binary_sensor.rd_6018_constant_voltage')}")
-        context.append(f"CC Mode: {hass_data.get('binary_sensor.rd_6018_constant_current')}")
-        context.append(f"Output: {hass_data.get('switch.rd_6018_output')}")
-        context.append(f"OVP: {hass_data.get('binary_sensor.rd_6018_over_voltage_protection')}")
-        context.append(f"OCP: {hass_data.get('binary_sensor.rd_6018_over_current_protection')}")
+        if ah_now is not None:
+            context.append(f"Current Ah: {ah_now}")
+        if charge_time_min is not None:
+            context.append(f"Charge Time: {charge_time_min} min")
         context.append("\nИстория зарядов:")
         for s in session_history:
             context.append(f"{s}")
         return '\n'.join(context)
 
     def analyze(self, hass_data, session_history):
-        # Проверка истории
         if not session_history or len(session_history) < 1:
             return "Мало данных для анализа, подождите 10 минут."
-        # Заменяем None на 'N/A' в истории
         session_history_clean = []
         for s in session_history:
             s_clean = tuple("N/A" if v is None else v for v in s)
             session_history_clean.append(s_clean)
-        # Определяем режим насыщения
-        cv_mode = hass_data.get('binary_sensor.rd_6018_constant_voltage') == 'on'
-        # Жестко прописываем model и max_tokens
+        # Получаем текущую емкость и время заряда
+        ah_now = hass_data.get('sensor.rd_6018_battery_charge')
+        # Время с начала заряда (минуты)
+        # Для примера: если есть start_time в session_history[0][1]
+        charge_time_min = None
+        try:
+            from datetime import datetime
+            start_time = session_history[0][1]
+            if start_time and isinstance(start_time, str):
+                dt_start = datetime.fromisoformat(start_time)
+                charge_time_min = int((datetime.now() - dt_start).total_seconds() // 60)
+        except Exception:
+            pass
+        # Новый системный промпт
+        sys_prompt = (
+            "Ты эксперт по зарядке АКБ RD6018. "
+            "Анализируй заряд, учитывай деградацию и историю. "
+            f"Текущая емкость: {ah_now} Ah. Время с начала заряда: {charge_time_min} мин. "
+            "Главный вопрос: Сколько времени осталось до 100%? Прогнозируй по падению тока. "
+            "Если ток в режиме CV не падает — предупреди о КЗ."
+        )
         payload = {
             "model": "deepseek-chat",
             "messages": [
-                {"role": "system", "content": "Анализируй заряд АКБ RD6018. Если ток в режиме CV не падает — предупреди о КЗ. Учитывай историю деградации."},
-                {"role": "user", "content": self.build_context(hass_data, session_history_clean)}
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": self.build_context(hass_data, session_history_clean, ah_now, charge_time_min)}
             ],
             "max_tokens": 1024
         }
-        # Убедимся, что max_tokens — integer
         if isinstance(payload["max_tokens"], str):
             payload["max_tokens"] = int(payload["max_tokens"])
         print(f"DEBUG PAYLOAD: {payload}")
@@ -75,7 +84,6 @@ class AIAnalyst:
         }
         response = requests.post(f"{self.base_url}/v1/chat/completions", json=payload, headers=headers, timeout=30)
         response.raise_for_status()
-        # Проверяем роли в ответе
         choices = response.json()["choices"]
         for c in choices:
             if c["message"]["role"] not in ["system", "user", "assistant"]:
