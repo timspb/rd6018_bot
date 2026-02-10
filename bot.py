@@ -3,9 +3,12 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 Дашборд: один автообновляемый message с графиком, метриками и кнопками.
 """
 import asyncio
+import json
 import logging
 import re
 import time
+
+import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Union
 
@@ -30,7 +33,7 @@ from charge_logic import (
     WATCHDOG_TIMEOUT,
 )
 from charging_log import log_checkpoint, log_event, rotate_if_needed
-from config import ENTITY_MAP, HA_URL, HA_TOKEN, TG_TOKEN
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, ENTITY_MAP, HA_URL, HA_TOKEN, TG_TOKEN
 from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
@@ -66,6 +69,58 @@ async def _send_notify_safe(msg: str) -> None:
         await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
     except Exception as ex:
         logger.error("charge notify failed: %s", ex)
+
+
+async def call_llm_analytics(data: dict) -> Optional[str]:
+    """
+    Запрос к DeepSeek для анализа телеметрии.
+    Возвращает экспертный комментарий или None при ошибке.
+    """
+    if not DEEPSEEK_API_KEY:
+        return None
+    data_str = json.dumps(data, ensure_ascii=False, indent=2)
+    system_prompt = (
+        "Ты — эксперт по свинцово-кислотным аккумуляторам. "
+        "Анализируй телеметрию и давай краткий технический вердикт."
+    )
+    user_prompt = (
+        f"Данные: {data_str}\n\n"
+        "Оцени состояние АКБ, укажи на аномалии и дай прогноз окончания этапа одним предложением. "
+        "Ответь на русском. Используй HTML: <b>жирный</b>, <i>курсив</i>."
+    )
+    url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": 256,
+        "temperature": 0.3,
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning("DeepSeek analytics API %d", resp.status)
+                    return None
+                result = await resp.json()
+                choices = result.get("choices", [])
+                if not choices:
+                    return None
+                content = choices[0].get("message", {}).get("content", "").strip()
+                return content if content else None
+    except Exception as ex:
+        logger.warning("call_llm_analytics: %s", ex)
+        return None
 
 
 charge_controller = ChargeController(hass, notify_cb=_charge_notify)
@@ -435,7 +490,7 @@ async def cmd_start(message: Message) -> None:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
-    """Статистика и прогноз заряда."""
+    """Статистика и прогноз заряда с AI-аналитикой."""
     global last_chat_id
     last_chat_id = message.chat.id
     try:
@@ -461,7 +516,7 @@ async def cmd_stats(message: Message) -> None:
 
     stats = charge_controller.get_stats(battery_v, i, ah, temp)
     health = stats.get("health_warning")
-    text = (
+    tech_block = (
         "📊 <b>СТАТИСТИКА ЗАРЯДА</b>\n"
         "──────────────────\n"
         f"🔋 <b>Этап:</b> {stats['stage']}\n"
@@ -470,11 +525,26 @@ async def cmd_stats(message: Message) -> None:
         f"🌡 <b>Темп:</b> {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n\n"
         "🔮 <b>ПРОГНОЗ:</b>\n"
         f"Завершение через {stats['predicted_time']}\n"
-        f"<i>{stats['comment']}</i>"
+        f"<i>{stats['comment']}</i>\n\n"
     )
+    ai_placeholder = "🤖 <b>Аналитика DeepSeek:</b> Думаю..."
+    text = tech_block + ai_placeholder
     if health:
         text += f"\n\n{health}"
-    await message.answer(text)
+    sent = await message.answer(text)
+
+    telemetry = charge_controller.get_telemetry_json(battery_v, i, ah, temp)
+    ai_comment = await call_llm_analytics(telemetry)
+    if ai_comment:
+        new_text = tech_block + f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_comment}</i>"
+    else:
+        new_text = tech_block + "🤖 <b>Аналитика DeepSeek:</b> <i>Математический прогноз (API недоступен)</i>"
+    if health:
+        new_text += f"\n\n{health}"
+    try:
+        await sent.edit_text(new_text, parse_mode=ParseMode.HTML)
+    except Exception as ex:
+        logger.warning("cmd_stats edit_text: %s", ex)
 
 
 @router.message(F.text)

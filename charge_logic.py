@@ -485,6 +485,50 @@ class ChargeController:
             "health_warning": health,
         }
 
+    def get_telemetry_json(
+        self,
+        voltage: float,
+        current: float,
+        ah: float,
+        temp: float,
+    ) -> Dict[str, Any]:
+        """
+        Телеметрия для LLM-аналитики.
+        Последние 10 замеров (V, I, T), стадия, Ah, скорость падения V в паузе.
+        """
+        h = list(self._analytics_history)[-10:]
+        history = []
+        for ts, v, i, a, t in h:
+            history.append({"ts": ts, "v": round(v, 2), "i": round(i, 2), "t": round(t, 1)})
+        ah_charged = ah - self._start_ah if self._start_ah > 0 else ah
+        v_drop_rate = None
+        if self.current_stage == self.STAGE_SAFE_WAIT and len(self._safe_wait_v_samples) >= 2:
+            samples = list(self._safe_wait_v_samples)
+            (t0, v0), (t1, v1) = samples[0], samples[-1]
+            dt_h = (t1 - t0) / 3600.0
+            if dt_h > 0.01:
+                v_drop_rate = round((v0 - v1) / dt_h, 2)
+        di_dt = None
+        dv_dt = None
+        if len(h) >= 4:
+            ts = [x[0] for x in h]
+            vs = [x[1] for x in h]
+            cs = [x[2] for x in h]
+            dt = ts[-1] - ts[0]
+            if dt > 60:
+                di_dt = round((cs[-1] - cs[0]) / (dt / 3600.0), 3)
+                dv_dt = round((vs[-1] - vs[0]) / (dt / 3600.0), 3)
+        return {
+            "history": history,
+            "current": {"v": voltage, "i": current, "ah": ah, "temp": temp},
+            "stage": self.current_stage,
+            "ah_charged": round(ah_charged, 2),
+            "v_drop_rate_per_hour": v_drop_rate,
+            "di_dt_per_hour": di_dt,
+            "dv_dt_per_hour": dv_dt,
+            "battery_type": self.battery_type,
+        }
+
     def _ic(self, factor: float) -> float:
         """Ток 0.5C, 0.5*Ah."""
         return max(0.1, factor * self.ah_capacity)
