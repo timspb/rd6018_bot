@@ -5,6 +5,7 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Union
 
@@ -22,7 +23,12 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from ai_engine import ask_deepseek
-from charge_logic import ChargeController
+from charge_logic import (
+    ChargeController,
+    HIGH_V_FAST_TIMEOUT,
+    HIGH_V_THRESHOLD,
+    WATCHDOG_TIMEOUT,
+)
 from config import ENTITY_MAP, HA_URL, HA_TOKEN, MAX_TEMP, TG_TOKEN
 from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
@@ -206,6 +212,40 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     return sent.message_id
 
 
+async def watchdog_loop() -> None:
+    """Hardware Watchdog: при потере связи — аварийное отключение. При U>15В — 60 сек таймаут."""
+    global last_chat_id
+    while True:
+        await asyncio.sleep(30)
+        try:
+            now = time.time()
+            last = charge_controller.last_update_time
+            if last <= 0:
+                continue
+            delta = now - last
+
+            live = await hass.get_all_live()
+            v = _safe_float(live.get("voltage"))
+            output_on = str(live.get("switch", "")).lower() == "on"
+
+            if not output_on:
+                continue
+
+            if delta >= WATCHDOG_TIMEOUT:
+                logger.critical("CRITICAL: Watchdog timeout. Emergency shutdown.")
+                await hass.turn_off(ENTITY_MAP["switch"])
+                charge_controller.stop()
+                continue
+
+            if v > HIGH_V_THRESHOLD and delta >= HIGH_V_FAST_TIMEOUT:
+                logger.critical("CRITICAL: Watchdog timeout (high voltage >15V, 60s). Emergency shutdown.")
+                await hass.turn_off(ENTITY_MAP["switch"])
+                charge_controller.stop()
+                charge_controller.emergency_hv_disconnect = True
+        except Exception as ex:
+            logger.error("watchdog_loop: %s", ex)
+
+
 async def charge_monitor() -> None:
     """Фоновая задача: раз в 15 мин проверяет ток; алерты при завершении заряда и при нулевом потреблении."""
     global last_chat_id, last_charge_alert_at, last_idle_alert_at, zero_current_since
@@ -277,8 +317,8 @@ async def data_logger() -> None:
             is_cv = str(live.get("is_cv", "")).lower() == "on"
             await add_record(v, i, p, t)
 
+            actions = await charge_controller.tick(v, i, temp_ext, is_cv, ah)
             if charge_controller.is_active:
-                actions = await charge_controller.tick(v, i, temp_ext, is_cv, ah)
                 if actions.get("emergency_stop"):
                     await hass.turn_off(ENTITY_MAP["switch"])
                     charge_controller.stop()
@@ -496,6 +536,7 @@ async def main() -> None:
     await bot.set_my_commands([BotCommand(command="start", description="Открыть дашборд RD6018")])
     asyncio.create_task(data_logger())
     asyncio.create_task(charge_monitor())
+    asyncio.create_task(watchdog_loop())
     logger.info("RD6018 bot starting")
     await dp.start_polling(bot)
 

@@ -24,6 +24,11 @@ EFB_MIX_MAX_HOURS = 10
 AGM_STAGES = [14.4, 14.6, 14.8, 15.0]  # В — четырёхступенчатый подъём
 AGM_STAGE_MIN_MINUTES = 15  # мин на каждой ступени перед переходом
 
+# Hardware Watchdog
+WATCHDOG_TIMEOUT = 5 * 60  # сек — нет данных 5 мин → аварийное отключение
+HIGH_V_FAST_TIMEOUT = 60  # сек — при U>15В: нет данных 60 сек → немедленное отключение
+HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watchdog
+
 
 def _log_phase(phase: str, v: float, i: float, t: float) -> None:
     """Лог в консоль: Время | Фаза | V | I | T."""
@@ -66,6 +71,8 @@ class ChargeController:
         self._delta_reported: bool = False
         self.is_cv: bool = False
         self._stuck_current_since: Optional[float] = None  # когда ток впервые застрял > 0.3А в CV
+        self.last_update_time: float = 0.0  # время последнего вызова tick() — для watchdog
+        self.emergency_hv_disconnect: bool = False  # флаг после аварийного отключения при U>15В
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
         """Запуск заряда по профилю."""
@@ -82,6 +89,7 @@ class ChargeController:
         self._agm_stage_idx = 0
         self._delta_reported = False
         self._stuck_current_since = None
+        self.emergency_hv_disconnect = False
         logger.info("ChargeController started: %s %dAh", battery_type, self.ah_capacity)
 
     def stop(self) -> None:
@@ -185,6 +193,14 @@ class ChargeController:
         """
         actions: Dict[str, Any] = {}
         temp = float(temp_ext) if temp_ext is not None else 0.0
+        now = time.time()
+        self.last_update_time = now
+
+        if self.emergency_hv_disconnect:
+            self.notify(
+                "🔴 <b>АВАРИЙНОЕ ОТКЛЮЧЕНИЕ:</b> Потеряна связь с контроллером при высоком напряжении (>15В)!"
+            )
+            self.emergency_hv_disconnect = False
 
         if temp_ext is not None:
             err = self._check_temp_safety(temp)
@@ -199,7 +215,6 @@ class ChargeController:
         if self.current_stage == self.STAGE_IDLE:
             return actions
 
-        now = time.time()
         elapsed = now - self.stage_start_time
 
         if now - self._last_log_time >= 60:

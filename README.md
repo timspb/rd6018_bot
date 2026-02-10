@@ -169,6 +169,7 @@ python bot.py
 |---------|----------|
 | `temp_ext > 45°C` | Немедленное отключение выхода, алерт в Telegram |
 | `voltage > 16.6V` | Предупреждение (проверка лимита железа) |
+| **Hardware Watchdog** | Нет данных &gt;5 мин → Output OFF. При U&gt;15В и нет данных &gt;60 сек → Output OFF, уведомление при восстановлении связи |
 
 Лимиты заданы в `config.py`: `MAX_TEMP`, `MAX_TEMP_AGM`, `MAX_VOLTAGE`.
 
