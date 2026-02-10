@@ -24,7 +24,7 @@ from aiogram.filters import Command
 from ai_engine import ask_deepseek
 from charge_logic import ChargeController
 from config import ENTITY_MAP, HA_URL, HA_TOKEN, MAX_TEMP, TG_TOKEN
-from database import add_record, get_graph_data, get_raw_history, init_db
+from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
 
@@ -45,7 +45,23 @@ dp = Dispatcher()
 router = Router()
 
 hass = HassClient(HA_URL, HA_TOKEN)
-charge_controller = ChargeController(hass)
+
+
+def _charge_notify(msg: str) -> None:
+    """Отправка уведомления от ChargeController в Telegram."""
+    global last_chat_id
+    if last_chat_id and msg:
+        asyncio.create_task(_send_notify_safe(msg))
+
+
+async def _send_notify_safe(msg: str) -> None:
+    try:
+        await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
+    except Exception as ex:
+        logger.error("charge notify failed: %s", ex)
+
+
+charge_controller = ChargeController(hass, notify_cb=_charge_notify)
 
 # Храним message_id дашборда для каждого user_id
 user_dashboard: Dict[int, int] = {}
@@ -56,6 +72,7 @@ zero_current_since: Optional[datetime] = None
 CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
 IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
+awaiting_ah: Dict[int, str] = {}  # user_id -> profile (Ca/Ca, EFB, AGM)
 
 
 def _build_trend_summary(
@@ -118,7 +135,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     """
     msg = message_or_call.message if isinstance(message_or_call, CallbackQuery) else message_or_call
     chat_id = msg.chat.id
-    user_id = msg.from_user.id if msg.from_user else 0
+    user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
 
     live = await hass.get_all_live()
     v = _safe_float(live.get("voltage"))
@@ -137,36 +154,42 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
 
     status = "ВКЛ" if is_on else "ВЫКЛ"
+    charge_phase = ""
+    if charge_controller.is_active:
+        charge_phase = f"\n<b>🔋 ЗАРЯД:</b> {charge_controller.current_stage} ({charge_controller.battery_type} {charge_controller.ah_capacity}Ач)"
     text = (
-        "<b>📊 СТАТУС:</b> {} | {}\n"
+        "<b>📊 СТАТУС:</b> {} | {}{}\n"
         "<b>⚡ LIVE:</b> {:.2f}В | {:.2f}А | {:.2f}Вт\n"
         "<b>🎯 ЦЕЛЬ:</b> {:.2f}В | {:.1f}А\n"
         "<b>🔋 ЕМКОСТЬ:</b> {:.2f} Ач | {:.1f} Втч\n"
         "<b>🌡 ТЕМП:</b> {:.1f}°C (Внеш) | {:.1f}°C (Внутр)"
-    ).format(status, mode, v, i, p, set_v, set_i, ah, wh, temp_ext, temp_int)
+    ).format(status, mode, charge_phase, v, i, p, set_v, set_i, ah, wh, temp_ext, temp_int)
 
     times, voltages, currents = await get_graph_data(limit=100)
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
-    ikb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
-                InlineKeyboardButton(text="🔋 Пресеты", callback_data="presets"),
-            ],
-            [
-                InlineKeyboardButton(text="📈 Логи", callback_data="logs"),
-                InlineKeyboardButton(text="🧠 AI Анализ", callback_data="ai_analysis"),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🛑 ВЫКЛ" if is_on else "⚡ ВКЛ",
-                    callback_data="power_toggle",
-                )
-            ],
-        ]
-    )
+    kb_rows = [
+        [
+            InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="profile_caca"),
+            InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
+            InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+            InlineKeyboardButton(text="📈 Логи", callback_data="logs"),
+            InlineKeyboardButton(text="🧠 AI Анализ", callback_data="ai_analysis"),
+        ],
+        [
+            InlineKeyboardButton(
+                text="🛑 ВЫКЛ" if is_on else "⚡ ВКЛ",
+                callback_data="power_toggle",
+            ),
+        ],
+    ]
+    if charge_controller.is_active:
+        kb_rows.insert(1, [InlineKeyboardButton(text="🛑 ОСТАНОВИТЬ ЗАРЯД", callback_data="charge_stop")])
+    ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     if old_msg_id:
         try:
@@ -244,7 +267,7 @@ async def charge_monitor() -> None:
 
 
 async def data_logger() -> None:
-    """Фоновая задача: опрос HA каждые 30с, сохранение в DB, проверка безопасности."""
+    """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
     global last_chat_id
     while True:
         try:
@@ -254,15 +277,31 @@ async def data_logger() -> None:
             p = _safe_float(live.get("power"))
             temp_ext = live.get("temp_ext")
             t = _safe_float(temp_ext)
+            ah = _safe_float(live.get("ah"))
+            is_cv = str(live.get("is_cv", "")).lower() == "on"
             await add_record(v, i, p, t)
+
+            if charge_controller.is_active:
+                actions = await charge_controller.tick(v, i, temp_ext, is_cv, ah)
+                if actions.get("emergency_stop"):
+                    await hass.turn_off(ENTITY_MAP["switch"])
+                    charge_controller.stop()
+                elif actions.get("turn_off"):
+                    await hass.turn_off(ENTITY_MAP["switch"])
+                if actions.get("set_voltage") is not None:
+                    await hass.set_voltage(float(actions["set_voltage"]))
+                if actions.get("set_current") is not None:
+                    await hass.set_current(float(actions["set_current"]))
 
             if temp_ext is not None and float(temp_ext) > MAX_TEMP:
                 await hass.turn_off(ENTITY_MAP["switch"])
+                if charge_controller.is_active:
+                    charge_controller.stop()
                 alert = (
-                    f"🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ АКБ! T={float(temp_ext):.1f}°C. "
+                    f"<b>🚨 КРИТИЧЕСКИЙ ПЕРЕГРЕВ АКБ!</b> T={float(temp_ext):.1f}°C. "
                     "ПИТАНИЕ ОТКЛЮЧЕНО!"
                 )
-                logger.warning(alert)
+                logger.warning("Overheat: %s", alert)
                 if last_chat_id:
                     try:
                         await bot.send_message(last_chat_id, alert, parse_mode=ParseMode.HTML)
@@ -284,6 +323,46 @@ async def cmd_start(message: Message) -> None:
     msg_id = await send_dashboard(message)
     if message.from_user:
         user_dashboard[message.from_user.id] = msg_id
+
+
+@router.message(F.text)
+async def ah_input_handler(message: Message) -> None:
+    """Обработка ввода ёмкости АКБ после выбора профиля."""
+    global awaiting_ah, last_chat_id
+    user_id = message.from_user.id if message.from_user else 0
+    profile = awaiting_ah.get(user_id)
+    if not profile:
+        return
+    text = (message.text or "").strip()
+    try:
+        ah = int(float(text))
+        if ah < 1 or ah > 500:
+            await message.answer("Введите число от 1 до 500.")
+            return
+    except ValueError:
+        await message.answer("Введите число (например 60).")
+        return
+    del awaiting_ah[user_id]
+    last_chat_id = message.chat.id
+
+    live = await hass.get_all_live()
+    v = _safe_float(live.get("voltage"))
+    charge_controller.start(profile, ah)
+    if v < 12.0:
+        await hass.set_voltage(12.0)
+        await hass.set_current(0.5)
+    else:
+        uv, ui = charge_controller._main_target()
+        await hass.set_voltage(uv)
+        await hass.set_current(ui)
+    await hass.turn_on(ENTITY_MAP["switch"])
+    await message.answer(
+        f"<b>✅ Заряд запущен:</b> {profile} {ah}Ач\n"
+        f"Текущая фаза: <b>{charge_controller.current_stage}</b>",
+        parse_mode=ParseMode.HTML,
+    )
+    old_id = user_dashboard.get(user_id)
+    await send_dashboard(message, old_msg_id=old_id)
 
 
 @router.callback_query(F.data == "refresh")
@@ -311,45 +390,48 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     await call.answer("Питание " + ("включено" if not is_on else "выключено"))
 
 
-@router.callback_query(F.data == "presets")
-async def presets_menu(call: CallbackQuery) -> None:
-    ikb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="AGM (14.4V)", callback_data="preset_agm"),
-                InlineKeyboardButton(text="GEL (14.2V)", callback_data="preset_gel"),
-            ],
-            [InlineKeyboardButton(text="Repair (14.8V)", callback_data="preset_repair")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="refresh")],
-        ]
+@router.callback_query(F.data.in_({"profile_caca", "profile_efb", "profile_agm"}))
+async def profile_selection(call: CallbackQuery) -> None:
+    global awaiting_ah, last_chat_id
+    last_chat_id = call.message.chat.id
+    mapping = {"profile_caca": "Ca/Ca", "profile_efb": "EFB", "profile_agm": "AGM"}
+    profile = mapping.get(call.data, "Ca/Ca")
+    user_id = call.from_user.id if call.from_user else 0
+    awaiting_ah[user_id] = profile
+    await call.message.answer(
+        f"<b>Профиль {profile}</b> выбран.\n\n"
+        "Введите ёмкость АКБ в Ач (число, например 60):",
+        parse_mode=ParseMode.HTML,
     )
-    await call.message.edit_caption(caption="<b>Выберите пресет:</b>", reply_markup=ikb)
     await call.answer()
 
 
-@router.callback_query(F.data.in_({"preset_agm", "preset_gel", "preset_repair"}))
-async def preset_selection(call: CallbackQuery) -> None:
-    mapping = {"preset_agm": 14.4, "preset_gel": 14.2, "preset_repair": 14.8}
-    v = mapping.get(call.data, 14.4)
-    await hass.set_voltage(v)
-    await call.answer(f"Установлено {v}V")
+@router.callback_query(F.data == "charge_stop")
+async def charge_stop_handler(call: CallbackQuery) -> None:
+    global last_chat_id
+    last_chat_id = call.message.chat.id
+    charge_controller.stop()
+    await hass.turn_off(ENTITY_MAP["switch"])
+    await call.message.answer("<b>🛑 Заряд остановлен.</b> Выход выключен.")
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
+    await call.answer()
 
 
 @router.callback_query(F.data == "logs")
 async def logs_handler(call: CallbackQuery) -> None:
-    times, voltages, currents = await get_graph_data(limit=5)
+    times, voltages, currents, temps = await get_logs_data(limit=5)
     if not times:
         text = "<b>📈 Последние логи</b>\n\nНет данных."
     else:
-        header = "Время   | Напряж. | Ток\n--------+---------+-------"
+        header = "Время   | Напряж. | Ток    | Темп\n--------+---------+--------+-------"
         lines = [header]
         for j in range(min(5, len(times))):
             ts = _format_time(times[j])
             v = voltages[j] if j < len(voltages) else 0.0
             i = currents[j] if j < len(currents) else 0.0
-            lines.append(f"{ts} | {v:5.2f}В | {i:5.2f}А")
+            t = temps[j] if j < len(temps) else 0.0
+            lines.append(f"{ts} | {v:5.2f}В | {i:5.2f}А | {t:5.1f}°C")
         text = "<b>📈 Последние логи</b>\n\n<pre>" + "\n".join(lines) + "</pre>"
     await call.message.answer(text, parse_mode=ParseMode.HTML)
     await call.answer()
