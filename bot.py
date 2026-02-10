@@ -208,9 +208,22 @@ async def handle_battery_type(message: Message):
 
 async def charge_process(message, battery_type, ah):
     global charge_controller
-    # Пример простого цикла опроса
+    MAX_TEMP = 45.0
+    MAX_VOLTAGE = 17.0
     try:
         while True:
+            # Получаем данные из HA (заглушка, заменить на реальные асинхронные вызовы)
+            hass_data = {
+                'sensor.rd_6018_output_voltage': 14.81,
+                'sensor.rd_6018_temperature_external': 21.0,
+            }
+            voltage = float(hass_data['sensor.rd_6018_output_voltage'])
+            temp = float(hass_data['sensor.rd_6018_temperature_external'])
+            if temp > MAX_TEMP or voltage > MAX_VOLTAGE + 0.5:
+                # Немедленно выключить выход
+                await hass.turn_off_switch('switch.rd_6018_output')
+                await message.answer('🆘 <b>CRITICAL OVERHEAT/OVERVOLTAGE</b>\nВыход отключён!')
+                break
             # Здесь должна быть логика State Machine
             await charge_controller.safety_check()
             # ...другие этапы заряда...
