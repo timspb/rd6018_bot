@@ -72,6 +72,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     i = _safe_float(live.get("current"))
     p = _safe_float(live.get("power"))
     ah = _safe_float(live.get("ah"))
+    wh = _safe_float(live.get("wh"))
     temp_int = _safe_float(live.get("temp_int"))
     temp_ext = _safe_float(live.get("temp_ext"))
     set_v = _safe_float(live.get("set_voltage"))
@@ -82,15 +83,14 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     is_cc = str(live.get("is_cc", "")).lower() == "on"
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
 
-    status = "ON" if is_on else "OFF"
+    status = "ВКЛ" if is_on else "ВЫКЛ"
     text = (
-        "📊 <b>RD6018 STATUS:</b> [<b>{}</b>]\n"
-        "⚡ <b>LIVE:</b>   {:.2f}V | {:.2f}A | {:.2f}W\n"
-        "🎯 <b>TARGET:</b> {:.2f}V | {:.1f}A\n"
-        "🔋 <b>CAP:</b>    {:.2f} Ah\n"
-        "🌡 <b>TEMP:</b>   {:.1f}°C\n"
-        "<i>Mode: {}</i>"
-    ).format(status, v, i, p, set_v, set_i, ah, temp_ext if temp_ext else temp_int, mode)
+        "<b>📊 СТАТУС:</b> {} | {}\n"
+        "<b>⚡ LIVE:</b> {:.2f}В | {:.2f}А | {:.2f}Вт\n"
+        "<b>🎯 ЦЕЛЬ:</b> {:.2f}В | {:.1f}А\n"
+        "<b>🔋 ЕМКОСТЬ:</b> {:.2f} Ач | {:.1f} Втч\n"
+        "<b>🌡 ТЕМП:</b> {:.1f}°C (Внеш) | {:.1f}°C (Внутр)"
+    ).format(status, mode, v, i, p, set_v, set_i, ah, wh, temp_ext, temp_int)
 
     times, voltages, currents = await get_graph_data(limit=100)
     buf = generate_chart(times, voltages, currents)
@@ -99,16 +99,16 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     ikb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔄 Refresh", callback_data="refresh"),
-                InlineKeyboardButton(text="🔋 Presets", callback_data="presets"),
+                InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+                InlineKeyboardButton(text="🔋 Пресеты", callback_data="presets"),
             ],
             [
-                InlineKeyboardButton(text="📈 Logs", callback_data="logs"),
-                InlineKeyboardButton(text="🧠 AI Analysis", callback_data="ai_analysis"),
+                InlineKeyboardButton(text="📈 Логи", callback_data="logs"),
+                InlineKeyboardButton(text="🧠 AI Анализ", callback_data="ai_analysis"),
             ],
             [
                 InlineKeyboardButton(
-                    text="🛑 POWER OFF" if is_on else "⚡ POWER ON",
+                    text="🛑 ВЫКЛ" if is_on else "⚡ ВКЛ",
                     callback_data="power_toggle",
                 )
             ],
@@ -211,7 +211,7 @@ async def presets_menu(call: CallbackQuery) -> None:
                 InlineKeyboardButton(text="GEL (14.2V)", callback_data="preset_gel"),
             ],
             [InlineKeyboardButton(text="Repair (14.8V)", callback_data="preset_repair")],
-            [InlineKeyboardButton(text="⬅️ Back", callback_data="refresh")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="refresh")],
         ]
     )
     await call.message.edit_caption(caption="<b>Выберите пресет:</b>", reply_markup=ikb)
@@ -236,8 +236,8 @@ async def logs_handler(call: CallbackQuery) -> None:
     else:
         lines = []
         for j in range(min(5, len(times))):
-            lines.append(f"{times[j]}: V={voltages[j]:.2f} I={currents[j]:.2f}")
-        text = "Последние логи:\n" + "\n".join(lines)
+            lines.append(f"{times[j]}: U={voltages[j]:.2f}В I={currents[j]:.2f}А")
+        text = "<b>Последние логи:</b>\n" + "\n".join(lines)
     await call.message.answer(text)
     await call.answer()
 
@@ -245,11 +245,11 @@ async def logs_handler(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "ai_analysis")
 async def ai_analysis_handler(call: CallbackQuery) -> None:
     await call.answer()
-    status_msg = await call.message.answer("⏳ Thinking...")
+    status_msg = await call.message.answer("⏳ Анализирую...")
     times, voltages, currents = await get_graph_data(limit=100)
     history = {"times": times, "voltages": voltages, "currents": currents}
     result = await ask_deepseek(history)
-    await status_msg.edit_text(f"<b>🧠 AI Analysis:</b>\n{result}")
+    await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result}")
 
 
 async def main() -> None:
