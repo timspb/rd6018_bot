@@ -1,90 +1,139 @@
-import sqlite3
+"""
+database.py — асинхронное хранение истории сенсоров и сессий заряда.
+"""
+import logging
 from datetime import datetime
+from typing import List, Tuple
 
-DB_PATH = 'rd6018_charge.db'
+import aiosqlite
 
-class Database:
-    def __init__(self, db_path=DB_PATH):
-        self.conn = sqlite3.connect(db_path)
-        self.create_tables()
+logger = logging.getLogger("rd6018")
 
-    def create_tables(self):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS current_session (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                device_id TEXT,
-                start_time TEXT,
-                battery_type TEXT,
-                state TEXT,
-                stage_start_time TEXT,
-                antisulfate_count INTEGER,
-                v_max_mix REAL,
-                i_min_mix REAL,
-                ah_total REAL,
-                finished INTEGER DEFAULT 0
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER,
-                timestamp TEXT,
-                message TEXT
-            )
-        ''')
-        cursor.execute('''
+DB_PATH = "rd6018.db"
+
+
+async def init_db() -> None:
+    """Создание таблиц при старте."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS sensor_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
+                timestamp TEXT NOT NULL,
                 voltage REAL,
                 current REAL,
                 power REAL,
-                temp REAL
+                temp_ext REAL
             )
-        ''')
-        self.conn.commit()
-    def add_sensor_history(self, voltage, current, power, temp):
-        now = datetime.now().isoformat()
-        cursor = self.conn.cursor()
-        cursor.execute('INSERT INTO sensor_history (timestamp, voltage, current, power, temp) VALUES (?, ?, ?, ?, ?)',
-                       (now, voltage, current, power, temp))
-        self.conn.commit()
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS charge_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                battery_type TEXT NOT NULL,
+                ah_capacity INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                current_stage TEXT,
+                status TEXT DEFAULT 'active'
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS charge_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                message_text TEXT
+            )
+        """)
+        await db.commit()
+        logger.info("Database initialized: %s", DB_PATH)
 
-    def start_session(self, battery_type):
-        now = datetime.now().isoformat()
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO current_session (start_time, battery_type, state, stage_start_time, antisulfate_count, v_max_mix, i_min_mix, ah_total, finished)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        ''', (now, battery_type, 'IDLE', now, 0, None, None, 0.0))
-        self.conn.commit()
-        return cursor.lastrowid
 
-    def update_session(self, session_id, **kwargs):
-        keys = ', '.join([f'{k}=?' for k in kwargs.keys()])
-        values = list(kwargs.values())
-        values.append(session_id)
-        cursor = self.conn.cursor()
-        cursor.execute(f'UPDATE current_session SET {keys} WHERE id=?', values)
-        self.conn.commit()
+async def add_record(v: float, i: float, p: float, t: float) -> None:
+    """Добавить запись в sensor_history."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO sensor_history (timestamp, voltage, current, power, temp_ext) VALUES (?, ?, ?, ?, ?)",
+                (datetime.now().isoformat(), v, i, p, t),
+            )
+            await db.commit()
+    except Exception as ex:
+        logger.error("add_record failed: %s", ex)
 
-    def log(self, session_id, message):
-        now = datetime.now().isoformat()
-        cursor = self.conn.cursor()
-        cursor.execute('INSERT INTO logs (session_id, timestamp, message) VALUES (?, ?, ?)', (session_id, now, message))
-        self.conn.commit()
 
-    def get_last_session(self):
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM current_session WHERE finished=0 ORDER BY id DESC LIMIT 1')
-        return cursor.fetchone()
+async def get_history(limit: int = 100) -> Tuple[List[str], List[float], List[float]]:
+    """
+    Получить данные для графика.
+    Возвращает (times, voltages, currents), downsampled до limit точек.
+    """
+    times: List[str] = []
+    voltages: List[float] = []
+    currents: List[float] = []
 
-    def finish_session(self, session_id):
-        cursor = self.conn.cursor()
-        cursor.execute('UPDATE current_session SET finished=1 WHERE id=?', (session_id,))
-        self.conn.commit()
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
+                (limit * 3,),  # берём больше, потом downsample
+            ) as cursor:
+                rows = await cursor.fetchall()
 
-    def close(self):
-        self.conn.close()
+        if not rows:
+            return times, voltages, currents
+
+        # reverse чтобы время шло по возрастанию
+        rows = list(reversed(rows))
+
+        # Преобразование и type safety
+        raw_times: List[str] = []
+        raw_v: List[float] = []
+        raw_i: List[float] = []
+        for r in rows:
+            ts = r["timestamp"]
+            try:
+                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
+            except (TypeError, ValueError):
+                v = 0.0
+            try:
+                i = float(r["current"]) if r["current"] is not None else 0.0
+            except (TypeError, ValueError):
+                i = 0.0
+            raw_times.append(ts[-8:] if ts and len(ts) >= 8 else ts or "00:00")
+            raw_v.append(v)
+            raw_i.append(i)
+
+        # Downsample до limit точек
+        n = len(raw_times)
+        if n <= limit:
+            times, voltages, currents = raw_times, raw_v, raw_i
+        else:
+            step = n / limit
+            for idx in range(limit):
+                i = int(idx * step)
+                if i >= n:
+                    break
+                times.append(raw_times[i])
+                voltages.append(raw_v[i])
+                currents.append(raw_i[i])
+
+        return times, voltages, currents
+    except Exception as ex:
+        logger.error("get_history failed: %s", ex)
+        return times, voltages, currents
+
+
+async def add_charge_log(message: str) -> None:
+    """Добавить запись в charge_log."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO charge_log (timestamp, message_text) VALUES (?, ?)",
+                (datetime.now().isoformat(), message),
+            )
+            await db.commit()
+    except Exception as ex:
+        logger.error("add_charge_log failed: %s", ex)
+
+
+async def get_graph_data(limit: int = 100) -> Tuple[List[str], List[float], List[float]]:
+    """Алиас для get_history (для совместимости со спецификацией)."""
+    return await get_history(limit=limit)
