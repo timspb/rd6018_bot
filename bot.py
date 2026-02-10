@@ -3,13 +3,13 @@
 
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, F, DefaultBotProperties
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from database import Database
-from config import HA_URL, HA_TOKEN, ENTITY_IDS
-from config import TOKEN
+from config import HA_URL, HA_TOKEN, ENTITY_IDS, TOKEN
 from hass_api import HassAPI
 from charge_logic import ChargeController
 
