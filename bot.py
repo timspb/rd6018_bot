@@ -180,11 +180,6 @@ async def ai_analyze_handler(call):
         result = f"Ошибка AI-анализа: {e}"
     await call.message.answer(f"<b>🧠 AI-анализ:</b>\n{result}")
     await call.answer()
-    buf.seek(0)
-    plt.close(fig)
-    # Отправка
-    text = f"<b>Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
-    await message.answer_photo(photo=buf, caption=text)
 
 @router.message(F.text == "Остановить")
 async def stop_button(message: Message):
