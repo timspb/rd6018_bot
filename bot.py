@@ -3,12 +3,13 @@
 
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, DefaultBotProperties
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from database import Database
 from config import HA_URL, HA_TOKEN, ENTITY_IDS
+from config import TOKEN
 from hass_api import HassAPI
 from charge_logic import ChargeController
 
@@ -16,7 +17,7 @@ from charge_logic import ChargeController
 TOKEN = 'your-telegram-bot-token'
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 
-bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 db = Database()
 hass = HassAPI(HA_URL, HA_TOKEN)
