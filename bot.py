@@ -3,6 +3,10 @@
 
 import asyncio
 import logging
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import io
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram import Router
@@ -104,7 +108,37 @@ async def start_charge(message: Message):
 
 @router.message(F.text == "Статус")
 async def status_button(message: Message):
-    await status(message)
+    # Получаем последние данные (заглушка, заменить на реальные)
+    # Пример: voltage, current, power, timestamps — списки
+    voltage = [13.2, 13.5, 14.0, 14.4, 14.7, 14.7, 14.7]
+    current = [5.0, 4.8, 4.5, 3.0, 1.5, 0.8, 0.3]
+    power = [v*i for v, i in zip(voltage, current)]
+    timestamps = [0, 10, 20, 30, 40, 50, 60]  # минуты
+    # Расчет Ah, Wh, Time
+    ah = sum([(current[i]+current[i-1])/2*(timestamps[i]-timestamps[i-1])/60 for i in range(1, len(current))])
+    wh = sum([(power[i]+power[i-1])/2*(timestamps[i]-timestamps[i-1])/60 for i in range(1, len(power))])
+    total_time = timestamps[-1]
+    # График
+    fig, ax1 = plt.subplots(figsize=(7,4), facecolor="#222")
+    ax1.set_facecolor("#222")
+    ax1.plot(timestamps, voltage, 'o-', color="#00eaff", label="V")
+    ax2 = ax1.twinx()
+    ax2.plot(timestamps, current, 's-', color="#ffb300", label="A")
+    ax1.set_xlabel("Time, min", color="#fff")
+    ax1.set_ylabel("Voltage, V", color="#00eaff")
+    ax2.set_ylabel("Current, A", color="#ffb300")
+    ax1.tick_params(axis='x', colors="#fff")
+    ax1.tick_params(axis='y', colors="#00eaff")
+    ax2.tick_params(axis='y', colors="#ffb300")
+    plt.title("RD6018 Charge", color="#fff")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
+    buf.seek(0)
+    plt.close(fig)
+    # Отправка
+    text = f"<b>Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
+    await message.answer_photo(photo=buf, caption=text)
 
 @router.message(F.text == "Остановить")
 async def stop_button(message: Message):
