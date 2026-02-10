@@ -1,8 +1,11 @@
 """
 charge_logic.py — State Machine заряда для Ca/Ca, EFB, AGM.
 Профили: Ca/Ca (Liquid), EFB, AGM с десульфатацией и Mix Mode.
+Auto-Resume: сохранение сессии в charge_session.json, восстановление при перезапуске.
 """
+import json
 import logging
+import os
 import time
 from collections import deque
 from datetime import datetime
@@ -11,6 +14,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from config import MAX_VOLTAGE
 
 logger = logging.getLogger("rd6018")
+
+SESSION_FILE = "charge_session.json"
+SESSION_MAX_AGE = 60 * 60  # сек — восстанавливать только если последняя запись < 60 мин назад
 
 # Пороги детекции
 DELTA_V_EXIT = 0.03  # В — выход CC при падении V от пика
@@ -81,6 +87,10 @@ class ChargeController:
         self.emergency_hv_disconnect: bool = False  # флаг после аварийного отключения при U>15В
         self._phase_current_limit: float = 0.0  # базовый лимит тока текущей фазы
         self._temp_34_alerted: bool = False  # предупреждение 34°C отправлено один раз за сессию
+        self._pending_log_event: Optional[str] = None  # для логирования 34°C
+        self._start_ah: float = 0.0  # накопленная ёмкость на старте сессии
+        self._last_checkpoint_time: float = 0.0  # для контрольных точек каждые 10 мин
+        self._last_save_time: float = 0.0
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -105,6 +115,10 @@ class ChargeController:
         self._stuck_current_since = None
         self.emergency_hv_disconnect = False
         self._temp_34_alerted = False
+        self._pending_log_event = None
+        self._start_ah = 0.0
+        self._last_checkpoint_time = 0.0
+        self._clear_session_file()
         logger.info("ChargeController started: %s %dAh", battery_type, self.ah_capacity)
 
     def stop(self) -> None:
@@ -113,7 +127,146 @@ class ChargeController:
         self.current_stage = self.STAGE_IDLE
         self.v_max_recorded = None
         self.i_min_recorded = None
+        self._clear_session_file()
         logger.info("ChargeController stopped (was: %s)", prev)
+
+    def _clear_session_file(self) -> None:
+        """Удалить файл сессии."""
+        try:
+            if os.path.exists(SESSION_FILE):
+                os.remove(SESSION_FILE)
+        except OSError:
+            pass
+
+    def _get_target_finish_time(self) -> Optional[float]:
+        """Время завершения текущей фазы (timestamp) или None."""
+        if self.current_stage == self.STAGE_DESULFATION:
+            return self.stage_start_time + 2 * 3600
+        if self.current_stage == self.STAGE_MIX:
+            if self.finish_timer_start is not None:
+                return self.finish_timer_start + MIX_DONE_TIMER
+            if self.battery_type == self.PROFILE_EFB:
+                return self.stage_start_time + EFB_MIX_MAX_HOURS * 3600
+        return None
+
+    def _get_target_v_i(self) -> Tuple[float, float]:
+        """Текущие целевые V и I для фазы."""
+        if self.current_stage == self.STAGE_PREP:
+            return self._prep_target()
+        if self.current_stage == self.STAGE_MAIN:
+            return self._main_target()
+        if self.current_stage == self.STAGE_DESULFATION:
+            return self._desulf_target()
+        if self.current_stage == self.STAGE_MIX:
+            return self._mix_target()
+        if self.current_stage == self.STAGE_DONE:
+            return self._storage_target()
+        return (0.0, 0.0)
+
+    def _save_session(self, voltage: float, current: float, ah: float) -> None:
+        """Сохранить текущее состояние в charge_session.json."""
+        if self.current_stage == self.STAGE_IDLE or self.current_stage == self.STAGE_DONE:
+            return
+        target_finish = self._get_target_finish_time()
+        uv, ui = self._get_target_v_i()
+        data = {
+            "profile": self.battery_type,
+            "stage": self.current_stage,
+            "stage_start_time": self.stage_start_time,
+            "target_finish_time": target_finish,
+            "finish_timer_start": self.finish_timer_start,
+            "ah_limit": self.ah_capacity,
+            "start_ah": self._start_ah,
+            "current_retries": self.antisulfate_count,
+            "target_voltage": uv,
+            "target_current": ui,
+            "agm_stage_idx": self._agm_stage_idx,
+            "saved_at": time.time(),
+        }
+        try:
+            with open(SESSION_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except OSError as ex:
+            logger.warning("Could not save session: %s", ex)
+
+    def try_restore_session(
+        self, voltage: float, current: float, ah: float
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Восстановить сессию из файла, если прошло < 60 мин.
+        Возвращает (ok, notify_message).
+        """
+        if not os.path.exists(SESSION_FILE):
+            return False, None
+        try:
+            with open(SESSION_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False, None
+
+        saved_at = data.get("saved_at", 0)
+        if time.time() - saved_at > SESSION_MAX_AGE:
+            self._clear_session_file()
+            return False, None
+
+        self.battery_type = data.get("profile", self.PROFILE_CA)
+        self.ah_capacity = int(data.get("ah_limit", 60))
+        self.current_stage = data.get("stage", self.STAGE_MAIN)
+        self.antisulfate_count = int(data.get("current_retries", 0))
+        self._agm_stage_idx = int(data.get("agm_stage_idx", 0))
+        self._start_ah = float(data.get("start_ah", 0))
+
+        target_finish = data.get("target_finish_time")
+        target_v = float(data.get("target_voltage", 14.7))
+        target_i = float(data.get("target_current", 1.0))
+
+        now = time.time()
+        self.finish_timer_start = data.get("finish_timer_start")
+
+        if target_finish is not None:
+            remaining_sec = target_finish - now
+            if remaining_sec > 0:
+                if self.current_stage == self.STAGE_DESULFATION:
+                    phase_dur = 2 * 3600
+                    self.stage_start_time = now - (phase_dur - remaining_sec)
+                elif self.current_stage == self.STAGE_MIX and self.finish_timer_start is not None:
+                    self.finish_timer_start = target_finish - MIX_DONE_TIMER
+                else:
+                    self.stage_start_time = now - (
+                        (target_finish - data.get("stage_start_time", now)) - remaining_sec
+                    )
+                remaining_min = int(remaining_sec / 60)
+                msg = (
+                    f"🔄 <b>Сессия восстановлена!</b>\n\n"
+                    f"Продолжаю режим: <code>{self.current_stage}</code>.\n"
+                    f"Осталось времени: <code>{remaining_min}</code> мин.\n"
+                    f"Цель: <code>{target_v:.1f}</code>В / <code>{target_i:.2f}</code>А"
+                )
+            else:
+                if self.current_stage == self.STAGE_DESULFATION:
+                    self.current_stage = self.STAGE_MAIN
+                    self.stage_start_time = now
+                elif self.current_stage == self.STAGE_MIX and self.battery_type == self.PROFILE_EFB:
+                    self.current_stage = self.STAGE_DONE
+                    self.stage_start_time = now
+                remaining_min = 0
+                msg = (
+                    f"🔄 <b>Сессия восстановлена!</b>\n\n"
+                    f"Переход к следующей фазе: <code>{self.current_stage}</code>.\n"
+                    f"Цель: <code>{target_v:.1f}</code>В / <code>{target_i:.2f}</code>А"
+                )
+        else:
+            remaining_min = 0
+            msg = (
+                f"🔄 <b>Сессия восстановлена!</b>\n\n"
+                f"Продолжаю режим: <code>{self.current_stage}</code>.\n"
+                f"Цель: <code>{target_v:.1f}</code>В / <code>{target_i:.2f}</code>А"
+            )
+
+        self.v_max_recorded = None
+        self.i_min_recorded = None
+        self.finish_timer_start = None
+        return True, msg
 
     def full_reset(self) -> None:
         """Полный сброс состояния (при аварийном отключении по температуре)."""
@@ -186,6 +339,7 @@ class ChargeController:
             )
         if temp >= TEMP_WARNING and not self._temp_34_alerted:
             self._temp_34_alerted = True
+            self._pending_log_event = "WARNING_34C"
             self.notify(
                 f"⚠️ Внимание: Температура АКБ поднялась до {temp:.1f}°C. Продолжаю наблюдение."
             )
@@ -239,6 +393,7 @@ class ChargeController:
             actions["emergency_stop"] = True
             actions["full_reset"] = True
             actions["notify"] = msg
+            actions["log_event"] = "EMERGENCY_UNAVAILABLE"
             self.notify(msg)
             return actions
 
@@ -252,6 +407,7 @@ class ChargeController:
             actions["emergency_stop"] = True
             actions["full_reset"] = True
             actions["notify"] = msg
+            actions["log_event"] = "EMERGENCY_TEMP_INVALID"
             self.notify(msg)
             return actions
 
@@ -268,6 +424,7 @@ class ChargeController:
             actions["emergency_stop"] = True
             actions["full_reset"] = True
             actions["notify"] = err
+            actions["log_event"] = "EMERGENCY_37C"
             self.notify(err)
             return actions
 
@@ -276,6 +433,10 @@ class ChargeController:
 
         if self.current_stage == self.STAGE_IDLE:
             return actions
+
+        if self._pending_log_event:
+            actions["log_event"] = self._pending_log_event
+            self._pending_log_event = None
 
         elapsed = now - self.stage_start_time
 
@@ -294,6 +455,7 @@ class ChargeController:
             else:
                 self.current_stage = self.STAGE_MAIN
                 self.stage_start_time = now
+                self._start_ah = ah
                 uv, ui = self._main_target()
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
@@ -302,6 +464,7 @@ class ChargeController:
                     "<b>✅ Фаза завершена:</b> Подготовка\n"
                     "<b>🚀 Переход к:</b> Main Charge"
                 )
+                actions["log_event"] = "PREP->MAIN"
 
         # --- MAIN CHARGE ---
         elif self.current_stage == self.STAGE_MAIN:
@@ -316,10 +479,11 @@ class ChargeController:
                     actions["set_voltage"] = uv
                     actions["set_current"] = ui
                     self._add_phase_limits(actions, uv, ui)
-                    actions["notify"] = (
-                        f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
-                        f"{uv:.1f}V"
-                    )
+                        actions["notify"] = (
+                            f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
+                            f"{uv:.1f}V"
+                        )
+                        actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
                 else:
                     if is_cv and current < 0.2:
                         self.current_stage = self.STAGE_MIX
@@ -334,6 +498,7 @@ class ChargeController:
                             "<b>✅ Фаза завершена:</b> Main Charge\n"
                             "<b>🚀 Переход к:</b> Mix Mode (финальный буст)"
                         )
+                        actions["log_event"] = "MAIN->MIX"
 
             elif is_cv and self._detect_stuck_current(current):
                 if self._stuck_current_since is None:
@@ -355,6 +520,7 @@ class ChargeController:
                         f"<b>Действие:</b> Переходим на лечебный прострел: "
                         f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 часа."
                     )
+                    actions["log_event"] = "MAIN->DESULFATION"
                 else:
                     self._stuck_current_since = None
                     self.current_stage = self.STAGE_MIX
@@ -369,6 +535,7 @@ class ChargeController:
                         "<b>✅ Переход к:</b> Mix Mode (перемешивание)\n"
                         "Лимит десульфаций достигнут."
                     )
+                    actions["log_event"] = "MAIN->MIX (desulf limit)"
 
             if is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
                 self._stuck_current_since = None
@@ -390,6 +557,7 @@ class ChargeController:
                     "<b>✅ Фаза завершена:</b> Main Charge\n"
                     "<b>🚀 Переход к:</b> Mix Mode (перемешивание)"
                 )
+                actions["log_event"] = "MAIN->MIX"
 
         # --- ДЕСУЛЬФАТАЦИЯ ---
         elif self.current_stage == self.STAGE_DESULFATION:
@@ -401,6 +569,7 @@ class ChargeController:
                 actions["set_current"] = ui
                 self._add_phase_limits(actions, uv, ui)
                 actions["notify"] = "<b>⏸ Десульфатация завершена.</b> Возврат к Main Charge."
+                actions["log_event"] = "DESULFATION->MAIN"
 
         # --- MIX MODE ---
         elif self.current_stage == self.STAGE_MIX:
@@ -430,6 +599,8 @@ class ChargeController:
                         "<b>✅ Заряд завершён.</b>\n"
                         f"Storage 13.8V/1A. V_max={self.v_max_recorded:.2f}В."
                     )
+                    actions["log_event"] = f"DONE ah={ah:.2f}"
+                    self._clear_session_file()
             elif self.battery_type == self.PROFILE_EFB and elapsed >= EFB_MIX_MAX_HOURS * 3600:
                 self.current_stage = self.STAGE_DONE
                 self.stage_start_time = now
@@ -438,7 +609,20 @@ class ChargeController:
                 actions["set_current"] = ui
                 self._add_phase_limits(actions, uv, ui)
                 actions["notify"] = "<b>⏱ EFB Mix:</b> лимит 10ч. Переход в Storage."
+                actions["log_event"] = f"DONE ah={ah:.2f} (EFB limit)"
+                self._clear_session_file()
 
         if "notify" in actions:
             self.notify(actions["notify"])
+
+        active = self.current_stage in (
+            self.STAGE_PREP,
+            self.STAGE_MAIN,
+            self.STAGE_DESULFATION,
+            self.STAGE_MIX,
+        )
+        if active and ("notify" in actions or now - self._last_save_time >= 30):
+            self._save_session(voltage, current, ah)
+            self._last_save_time = now
+
         return actions

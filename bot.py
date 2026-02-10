@@ -29,6 +29,7 @@ from charge_logic import (
     HIGH_V_THRESHOLD,
     WATCHDOG_TIMEOUT,
 )
+from charging_log import log_checkpoint, log_event, rotate_if_needed
 from config import ENTITY_MAP, HA_URL, HA_TOKEN, TG_TOKEN
 from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
@@ -81,6 +82,7 @@ ZERO_CURRENT_THRESHOLD_MINUTES = 30
 awaiting_ah: Dict[int, str] = {}  # user_id -> profile (Ca/Ca, EFB, AGM)
 last_ha_ok_time: float = 0.0  # для Soft Watchdog: время последнего успешного ответа HA
 SOFT_WATCHDOG_TIMEOUT = 3 * 60  # сек — нет связи с HA 3 мин → Output OFF
+last_checkpoint_time: float = 0.0  # для контрольных точек в лог каждые 10 мин
 
 
 def _build_trend_summary(
@@ -224,6 +226,22 @@ async def soft_watchdog_loop() -> None:
                 continue
             if time.time() - last_ha_ok_time >= SOFT_WATCHDOG_TIMEOUT:
                 logger.critical("CRITICAL: Soft Watchdog timeout (HA connection lost 3min). Emergency Output OFF.")
+                try:
+                    live = await hass.get_all_live()
+                    v = _safe_float(live.get("voltage"))
+                    i = _safe_float(live.get("current"))
+                    t = _safe_float(live.get("temp_ext"))
+                    ah = _safe_float(live.get("ah"))
+                    log_event(
+                        charge_controller.current_stage,
+                        v,
+                        i,
+                        t,
+                        ah,
+                        "SOFT_WATCHDOG_HA_LOST",
+                    )
+                except Exception:
+                    pass
                 await hass.turn_off(ENTITY_MAP["switch"])
                 charge_controller.stop()
         except Exception as ex:
@@ -251,12 +269,34 @@ async def watchdog_loop() -> None:
 
             if delta >= WATCHDOG_TIMEOUT:
                 logger.critical("CRITICAL: Watchdog timeout. Emergency shutdown.")
+                i = _safe_float(live.get("current"))
+                ah = _safe_float(live.get("ah"))
+                t = _safe_float(live.get("temp_ext"))
+                log_event(
+                    charge_controller.current_stage,
+                    v,
+                    i,
+                    t,
+                    ah,
+                    "WATCHDOG_TIMEOUT",
+                )
                 await hass.turn_off(ENTITY_MAP["switch"])
                 charge_controller.stop()
                 continue
 
             if v > HIGH_V_THRESHOLD and delta >= HIGH_V_FAST_TIMEOUT:
                 logger.critical("CRITICAL: Watchdog timeout (high voltage >15V, 60s). Emergency shutdown.")
+                i = _safe_float(live.get("current"))
+                ah = _safe_float(live.get("ah"))
+                t = _safe_float(live.get("temp_ext"))
+                log_event(
+                    charge_controller.current_stage,
+                    v,
+                    i,
+                    t,
+                    ah,
+                    "WATCHDOG_HIGH_V",
+                )
                 await hass.turn_off(ENTITY_MAP["switch"])
                 charge_controller.stop()
                 charge_controller.emergency_hv_disconnect = True
@@ -322,7 +362,7 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id, last_ha_ok_time
+    global last_chat_id, last_ha_ok_time, last_checkpoint_time
     while True:
         try:
             live = await hass.get_all_live()
@@ -337,6 +377,22 @@ async def data_logger() -> None:
             await add_record(v, i, p, t)
 
             actions = await charge_controller.tick(v, i, temp_ext, is_cv, ah)
+
+            if actions.get("log_event"):
+                log_event(
+                    charge_controller.current_stage,
+                    v,
+                    i,
+                    t,
+                    ah,
+                    actions["log_event"],
+                )
+
+            now_ts = time.time()
+            if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
+                log_checkpoint(charge_controller.current_stage, v, i, t, ah)
+                last_checkpoint_time = now_ts
+
             if actions.get("emergency_stop"):
                 await hass.turn_off(ENTITY_MAP["switch"])
                 if actions.get("full_reset"):
@@ -376,7 +432,7 @@ async def cmd_start(message: Message) -> None:
 @router.message(F.text)
 async def ah_input_handler(message: Message) -> None:
     """Обработка ввода ёмкости АКБ после выбора профиля."""
-    global awaiting_ah, last_chat_id
+    global awaiting_ah, last_chat_id, last_checkpoint_time
     user_id = message.from_user.id if message.from_user else 0
     profile = awaiting_ah.get(user_id)
     if not profile:
@@ -395,6 +451,9 @@ async def ah_input_handler(message: Message) -> None:
 
     live = await hass.get_all_live()
     v = _safe_float(live.get("voltage"))
+    i = _safe_float(live.get("current"))
+    t = _safe_float(live.get("temp_ext"))
+    ah_val = _safe_float(live.get("ah"))
     charge_controller.start(profile, ah)
     if v < 12.0:
         await hass.set_voltage(12.0)
@@ -404,6 +463,8 @@ async def ah_input_handler(message: Message) -> None:
         await hass.set_voltage(uv)
         await hass.set_current(ui)
     await hass.turn_on(ENTITY_MAP["switch"])
+    last_checkpoint_time = time.time()
+    log_event("Подготовка", v, i, t, ah_val, f"START profile={profile} ah={ah}")
     await message.answer(
         f"<b>✅ Заряд запущен:</b> {profile} {ah}Ач\n"
         f"Текущая фаза: <b>{charge_controller.current_stage}</b>",
@@ -544,6 +605,36 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
 
 async def main() -> None:
     await init_db()
+    rotate_if_needed()
+
+    # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин
+    global last_checkpoint_time
+    try:
+        live = await hass.get_all_live()
+        v = _safe_float(live.get("voltage"))
+        i = _safe_float(live.get("current"))
+        ah = _safe_float(live.get("ah"))
+        ok, msg = charge_controller.try_restore_session(v, i, ah)
+        if ok and msg:
+            last_checkpoint_time = time.time()
+            uv, ui = charge_controller._get_target_v_i()
+            await hass.set_voltage(uv)
+            await hass.set_current(ui)
+            await hass.turn_on(ENTITY_MAP["switch"])
+            t_ext = _safe_float(live.get("temp_ext"))
+            log_event(
+                charge_controller.current_stage,
+                v,
+                i,
+                t_ext,
+                ah,
+                "RESTORE",
+            )
+            _charge_notify(msg)
+            logger.info("Session restored: %s", charge_controller.current_stage)
+    except Exception as ex:
+        logger.warning("Auto-resume check failed: %s", ex)
+
     dp.include_router(router)
     await bot.set_my_commands([BotCommand(command="start", description="Открыть дашборд RD6018")])
     asyncio.create_task(data_logger())
