@@ -1,3 +1,47 @@
+@router.callback_query(F.data == "preset_agm")
+async def preset_agm_handler(call: CallbackQuery):
+    await hass.set_number('sensor.rd_6018_output_voltage', 14.4)
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("AGM выбран: 14.4V")
+
+@router.callback_query(F.data == "preset_gel")
+async def preset_gel_handler(call: CallbackQuery):
+    await hass.set_number('sensor.rd_6018_output_voltage', 14.2)
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("GEL выбран: 14.2V")
+
+@router.callback_query(F.data == "preset_deep")
+async def preset_deep_handler(call: CallbackQuery):
+    await hass.set_number('sensor.rd_6018_output_voltage', 14.8)
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Deep выбран: 14.8V")
+
+@router.callback_query(F.data == "power_on")
+async def power_on_handler(call: CallbackQuery):
+    await hass.turn_on_switch('switch.rd_6018_output')
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Питание включено")
+
+@router.callback_query(F.data == "power_off")
+async def power_off_handler(call: CallbackQuery):
+    await hass.turn_off_switch('switch.rd_6018_output')
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Питание отключено")
 import asyncio
 import logging
 import matplotlib
@@ -274,12 +318,27 @@ async def refresh_dashboard(call: CallbackQuery):
     ah = None
     try:
         ah, _ = await hass.get_state('sensor.rd_6018_battery_charge')
-        ah = round(float(ah), 2)
+        ah = float(ah)
     except Exception:
-        ah = 'N/A'
+        ah = 0.0
     output_state, _ = await hass.get_state('switch.rd_6018_output')
     status = 'ЗАРЯДКА' if output_state == 'on' else 'ВЫКЛ'
     temp_status = 'Норма' if temp is not None and float(temp) < 40 else 'ВНИМАНИЕ'
+    voltage_fmt = f"{float(voltage):.2f}"
+    current_fmt = f"{float(current):.2f}"
+    power_fmt = f"{float(power):.2f}"
+    temp_fmt = f"{float(temp):.2f}"
+    ah_fmt = f"{float(ah):.2f}"
+    cc_limit = 5.00
+    cv_setpoint = 14.40
+    mode = ""
+    try:
+        if abs(float(current_fmt) - cc_limit) < 0.05:
+            mode = "Режим: Стабилизация тока (CC)"
+        elif abs(float(voltage_fmt) - cv_setpoint) < 0.05 and float(current_fmt) < cc_limit:
+            mode = "Режим: Насыщение (CV)"
+    except Exception:
+        mode = ""
     analyst = AIAnalyst()
     session_history = analyst.get_last_sessions(limit=3)
     hass_data = {
@@ -300,9 +359,10 @@ async def refresh_dashboard(call: CallbackQuery):
         ai_short = f"AI: {e}"
     text = (
         f"🔋 <b>Статус:</b> <b>{status}</b>\n"
-        f"⚡ <b>Параметры:</b> <b>{voltage}V | {current}A | {power}W</b>\n"
-        f"🌡 <b>Температура:</b> <b>{temp}°C</b> ({temp_status})\n"
-        f"📊 <b>Емкость:</b> <b>{ah} Ah</b>\n"
+        f"⚡ <b>Параметры:</b> <b>{voltage_fmt}V | {current_fmt}A | {power_fmt}W</b>\n"
+        f"🌡 <b>Температура:</b> <b>{temp_fmt}°C</b> ({temp_status})\n"
+        f"📊 <b>Емкость:</b> <b>{ah_fmt} Ah</b>\n"
+        f"{mode}\n"
         f"🧠 <b>AI Анализ:</b> {ai_short}"
     )
     try:
