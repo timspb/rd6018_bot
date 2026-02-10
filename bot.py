@@ -50,7 +50,11 @@ charge_controller = ChargeController(hass)
 user_dashboard: Dict[int, int] = {}
 last_chat_id: Optional[int] = None
 last_charge_alert_at: Optional[datetime] = None
+last_idle_alert_at: Optional[datetime] = None
+zero_current_since: Optional[datetime] = None
 CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
+IDLE_ALERT_COOLDOWN = timedelta(hours=1)
+ZERO_CURRENT_THRESHOLD_MINUTES = 30
 
 
 def _build_trend_summary(
@@ -172,19 +176,43 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
 
 async def charge_monitor() -> None:
-    """Фоновая задача: раз в 15 мин проверяет ток; при I<0.1А и высоком U — алерт о завершении заряда."""
-    global last_chat_id, last_charge_alert_at
+    """Фоновая задача: раз в 15 мин проверяет ток; алерты при завершении заряда и при нулевом потреблении."""
+    global last_chat_id, last_charge_alert_at, last_idle_alert_at, zero_current_since
     while True:
         await asyncio.sleep(15 * 60)
         try:
             live = await hass.get_all_live()
             output_on = str(live.get("switch", "")).lower() == "on"
-            if not output_on:
-                continue
             v = _safe_float(live.get("voltage"))
             i = _safe_float(live.get("current"))
+            now = datetime.now()
+
+            if not output_on:
+                zero_current_since = None
+                continue
+
+            # Алерт: ток 0.0А более 30 мин при включенном выходе
+            if i <= 0.0:
+                if zero_current_since is None:
+                    zero_current_since = now
+                elif (now - zero_current_since).total_seconds() >= ZERO_CURRENT_THRESHOLD_MINUTES * 60:
+                    if not last_idle_alert_at or (now - last_idle_alert_at) >= IDLE_ALERT_COOLDOWN:
+                        msg = (
+                            "⚠️ Выход включен, но потребление отсутствует. "
+                            "Не забудьте выключить прибор."
+                        )
+                        logger.info("Charge monitor (idle): %s", msg)
+                        last_idle_alert_at = now
+                        if last_chat_id:
+                            try:
+                                await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
+                            except Exception:
+                                pass
+            else:
+                zero_current_since = None
+
+            # Алерт: заряд завершён (высокое U, низкий I)
             if v >= 13.5 and i < 0.1:
-                now = datetime.now()
                 if last_charge_alert_at and (now - last_charge_alert_at) < CHARGE_ALERT_COOLDOWN:
                     continue
                 msg = (
@@ -199,7 +227,8 @@ async def charge_monitor() -> None:
                     except Exception:
                         pass
         except Exception as ex:
-            logger.error("charge_monitor: %s", ex)
+            logger.error("charge_monitor (сеть/ошибка): %s", ex)
+            await asyncio.sleep(60)
 
 
 async def data_logger() -> None:

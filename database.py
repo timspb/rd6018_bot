@@ -2,7 +2,7 @@
 database.py — асинхронное хранение истории сенсоров и сессий заряда.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Tuple
 
 import aiosqlite
@@ -139,9 +139,13 @@ async def get_graph_data(limit: int = 100) -> Tuple[List[str], List[float], List
     return await get_history(limit=limit)
 
 
-async def get_raw_history(limit: int = 50) -> Tuple[List[str], List[float], List[float]]:
+async def get_raw_history(
+    limit: int = 50,
+    max_minutes: int = 180,
+) -> Tuple[List[str], List[float], List[float]]:
     """
     Получить последние limit записей без даунсемплинга.
+    Только за последние max_minutes минут (чтобы не смешивать разные сессии заряда).
     Возвращает (times, voltages, currents) в хронологическом порядке (от старого к новому).
     """
     times: List[str] = []
@@ -149,11 +153,13 @@ async def get_raw_history(limit: int = 50) -> Tuple[List[str], List[float], List
     currents: List[float] = []
 
     try:
+        since = (datetime.now() - timedelta(minutes=max_minutes)).isoformat()
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
-                (limit,),
+                """SELECT timestamp, voltage, current FROM sensor_history
+                   WHERE timestamp >= ? ORDER BY id DESC LIMIT ?""",
+                (since, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
 
