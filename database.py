@@ -13,6 +13,8 @@ class Database:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS current_session (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                device_id TEXT,
                 start_time TEXT,
                 battery_type TEXT,
                 state TEXT,
