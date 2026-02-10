@@ -84,13 +84,25 @@ def generate_chart(
         ax1.xaxis.set_major_formatter(DateFormatter("%H:%M"))
         ax1.tick_params(axis="x", colors="#fff", labelsize=8)
         ax1.tick_params(axis="y", colors="#00ffff")
-        ax1.set_ylim(bottom=0)
+
+        min_v = min(v_list)
+        max_v = max(v_list)
+        if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0):
+            ax1.set_ylim(0, 20)
+        else:
+            ax1.set_ylim(max(0, min_v * 0.95), max_v * 1.05)
 
         ax2 = ax1.twinx()
         ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
         ax2.set_ylabel("Current (A)", color="#ffff00")
         ax2.tick_params(axis="y", colors="#ffff00")
-        ax2.set_ylim(bottom=0)
+
+        min_i = min(i_list)
+        max_i = max(i_list)
+        if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0):
+            ax2.set_ylim(0, 20)
+        else:
+            ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
 
         fig.legend(loc="upper right", fontsize=8)
         fig.autofmt_xdate()
