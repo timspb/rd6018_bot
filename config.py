@@ -7,10 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Telegram
-TG_TOKEN = os.getenv("TG_TOKEN", "")
-if not TG_TOKEN:
-    TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# Telegram (поддержка TG_TOKEN и TELEGRAM_BOT_TOKEN)
+TG_TOKEN = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 
 # Home Assistant
 HA_URL = (os.getenv("HA_URL") or "").rstrip("/")

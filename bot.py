@@ -4,7 +4,7 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 """
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -32,6 +32,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("rd6018")
 
+if not TG_TOKEN:
+    raise ValueError(
+        "TG_TOKEN не задан. Укажите TG_TOKEN или TELEGRAM_BOT_TOKEN в .env"
+    )
+
 bot = Bot(token=TG_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 router = Router()
@@ -53,7 +58,7 @@ def _safe_float(val, default: float = 0.0) -> float:
         return default
 
 
-async def send_dashboard(message_or_call: Message | CallbackQuery, old_msg_id: Optional[int] = None) -> int:
+async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
     """
     Сформировать и отправить дашборд.
     Anti-spam: при refresh удаляем старый message перед отправкой нового.
