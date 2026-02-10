@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
@@ -28,12 +28,35 @@ router = Router()
 charge_controller = None
 charge_task = None
 
-@dp.message(Command('start_charge'))
+
+@router.message(Command('start'))
+async def start(message: Message):
+    logging.info('Команда /start получена')
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Старт зарядки")],
+            [KeyboardButton(text="Статус")],
+            [KeyboardButton(text="Остановить")],
+        ],
+        resize_keyboard=True
+    )
+    await message.answer(
+        "RD6018 Charger Bot\nВыберите действие:",
+        reply_markup=kb
+    )
+
+@router.message(F.text == "Старт зарядки")
 async def start_charge(message: Message):
-    logging.info('Команда /start_charge получена')
+    logging.info('Кнопка Старт зарядки')
     await message.answer('Выберите тип АКБ (Ca/Ca, EFB, AGM) и емкость (Ah):')
-    # Для простоты: ждем ответ пользователя одной строкой "AGM 60"
-    # В реальном боте лучше FSM, но здесь — просто
+
+@router.message(F.text == "Статус")
+async def status_button(message: Message):
+    await status(message)
+
+@router.message(F.text == "Остановить")
+async def stop_button(message: Message):
+    await stop(message)
 
 @router.message(F.text.regexp(r'^(Ca/Ca|EFB|AGM)\s+([0-9]+)'))
 async def handle_battery_type(message: Message):
