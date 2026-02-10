@@ -479,11 +479,11 @@ class ChargeController:
                     actions["set_voltage"] = uv
                     actions["set_current"] = ui
                     self._add_phase_limits(actions, uv, ui)
-                        actions["notify"] = (
-                            f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
-                            f"{uv:.1f}V"
-                        )
-                        actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
+                    actions["notify"] = (
+                        f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
+                        f"{uv:.1f}V"
+                    )
+                    actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
                 else:
                     if is_cv and current < 0.2:
                         self.current_stage = self.STAGE_MIX
