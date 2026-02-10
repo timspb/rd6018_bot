@@ -101,12 +101,18 @@ async def dashboard(message: Message, old_msg_id=None):
     ah = None
     try:
         ah, _ = await hass.get_state('sensor.rd_6018_battery_charge')
-        ah = round(float(ah), 2)
+        ah = float(ah)
     except Exception:
-        ah = 'N/A'
+        ah = 0.0
     output_state, _ = await hass.get_state('switch.rd_6018_output')
     status = 'ЗАРЯДКА' if output_state == 'on' else 'ВЫКЛ'
     temp_status = 'Норма' if temp is not None and float(temp) < 40 else 'ВНИМАНИЕ'
+    # Форматирование
+    voltage_fmt = f"{float(voltage):.2f}"
+    current_fmt = f"{float(current):.2f}"
+    power_fmt = f"{float(power):.2f}"
+    temp_fmt = f"{float(temp):.2f}"
+    ah_fmt = f"{float(ah):.2f}"
     # AI verdict (коротко)
     analyst = AIAnalyst()
     session_history = analyst.get_last_sessions(limit=3)
@@ -141,13 +147,15 @@ async def dashboard(message: Message, old_msg_id=None):
             voltages.append(float(row[1]))
             currents.append(float(row[2]))
         except Exception:
-            voltages.append(0)
-            currents.append(0)
+            voltages.append(0.0)
+            currents.append(0.0)
+    voltages = [float(v) for v in voltages]
+    currents = [float(i) for i in currents]
     if not times:
         now = datetime.datetime.now()
         times = [(now - datetime.timedelta(minutes=100-i)).strftime('%H:%M') for i in range(100)]
-        voltages = [float(voltage) if voltage else 0 for _ in range(100)]
-        currents = [float(current) if current else 0 for _ in range(100)]
+        voltages = [float(voltage_fmt) for _ in range(100)]
+        currents = [float(current_fmt) for _ in range(100)]
     fig, ax1 = plt.subplots(figsize=(7,3), facecolor="#222")
     ax1.set_facecolor("#222")
     ax1.plot(times, voltages, '-', color="#00eaff", label="V")
@@ -166,11 +174,23 @@ async def dashboard(message: Message, old_msg_id=None):
     buf.seek(0)
     plt.close(fig)
     photo = BufferedInputFile(buf.read(), filename="chart.png")
+    # Индикация режима
+    cc_limit = 5.00  # TODO: брать из настроек
+    cv_setpoint = 14.40  # TODO: брать из пресета
+    mode = ""
+    try:
+        if abs(float(current_fmt) - cc_limit) < 0.05:
+            mode = "Режим: CC (Стаб. тока)"
+        elif abs(float(voltage_fmt) - cv_setpoint) < 0.05 and float(current_fmt) < cc_limit:
+            mode = "Режим: CV (Стаб. напряжения)"
+    except Exception:
+        mode = ""
     text = (
         f"🔋 <b>Статус:</b> <b>{status}</b>\n"
-        f"⚡ <b>Параметры:</b> <b>{voltage}V | {current}A | {power}W</b>\n"
-        f"🌡 <b>Температура:</b> <b>{temp}°C</b> ({temp_status})\n"
-        f"📊 <b>Емкость:</b> <b>{ah} Ah</b>\n"
+        f"⚡ <b>Параметры:</b> <b>{voltage_fmt}V | {current_fmt}A | {power_fmt}W</b>\n"
+        f"🌡 <b>Температура:</b> <b>{temp_fmt}°C</b> ({temp_status})\n"
+        f"📊 <b>Емкость:</b> <b>{ah_fmt} Ah</b>\n"
+        f"{mode}\n"
         f"🧠 <b>AI Анализ:</b> {ai_short}"
     )
     power_on = output_state == 'off'
@@ -182,7 +202,7 @@ async def dashboard(message: Message, old_msg_id=None):
         inline_keyboard=[
             [InlineKeyboardButton(text="🔄 Обновить Данные", callback_data="refresh")],
             [InlineKeyboardButton(text="🧠 Подробный AI Анализ", callback_data="ai_full")],
-            [InlineKeyboardButton(text="🔋 Пресеты: AGM / GEL / Li-Ion", callback_data="presets")],
+            [InlineKeyboardButton(text="🔋 Пресеты", callback_data="presets")],
             [InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"), InlineKeyboardButton(text="📈 Логи", callback_data="logs")],
             [power_btn],
         ]
@@ -205,26 +225,38 @@ async def power_toggle_handler(call: CallbackQuery):
     if output_state == 'on':
         await hass.turn_off_switch('switch.rd_6018_output')
     else:
-        # TODO: реализовать turn_on_switch
         try:
             await hass.turn_on_switch('switch.rd_6018_output')
         except Exception:
             pass
-    # Получаем актуальный статус
     output_state, _ = await hass.get_state('switch.rd_6018_output')
     old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
     msg_id = await dashboard(call.message, old_msg_id=old_id)
     if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
     call.bot.user_dash[call.from_user.id] = msg_id
     await call.answer("Статус питания обновлен")
+# Пресеты подменю
+@router.callback_query(F.data == "presets")
+async def presets_menu(call: CallbackQuery):
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="AGM (14.4V)", callback_data="preset_agm"),
+             InlineKeyboardButton(text="GEL (14.2V)", callback_data="preset_gel")],
+            [InlineKeyboardButton(text="Deep Charge (14.8V)", callback_data="preset_deep")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="refresh")],
+        ]
+    )
+    await call.message.edit_caption(caption="<b>Выберите пресет:</b>", reply_markup=ikb)
+    await call.answer()
+# Логи обработчик
 # Логи обработчик
 @router.callback_query(F.data == "logs")
 async def logs_handler(call: CallbackQuery):
     try:
         cursor = db.conn.cursor()
-        cursor.execute('SELECT timestamp, voltage, current, power, temp FROM sensor_history ORDER BY id DESC LIMIT 10')
+        cursor.execute('SELECT timestamp, voltage, current, power, temp FROM sensor_history ORDER BY id DESC LIMIT 5')
         rows = cursor.fetchall()
-        log_text = '\n'.join([f"{r[0]} | V:{r[1]} I:{r[2]} P:{r[3]} T:{r[4]}" for r in rows])
+        log_text = '\n'.join([f"{r[0]} | V:{float(r[1]):.2f} I:{float(r[2]):.2f} P:{float(r[3]):.2f} T:{float(r[4]):.2f}" for r in rows])
         if not log_text:
             log_text = 'Нет данных.'
         await call.message.answer(f'<b>Последние логи:</b>\n{log_text}')
