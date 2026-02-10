@@ -170,11 +170,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
     kb_rows = [
-        [
-            InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="profile_caca"),
-            InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
-            InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
-        ],
+        [InlineKeyboardButton(text="⚙️ Режимы заряда", callback_data="charge_modes")],
         [
             InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
             InlineKeyboardButton(text="📈 Логи", callback_data="logs"),
@@ -365,6 +361,46 @@ async def ah_input_handler(message: Message) -> None:
     await send_dashboard(message, old_msg_id=old_id)
 
 
+@router.callback_query(F.data == "charge_modes")
+async def charge_modes_handler(call: CallbackQuery) -> None:
+    """Открыть подменю «🚗 Авто» с режимами заряда."""
+    global last_chat_id
+    last_chat_id = call.message.chat.id
+    warning = (
+        "⚠️ <b>ВНИМАНИЕ:</b> Данные режимы используют напряжение до 16.5В. "
+        "Убедитесь, что АКБ отсоединена от бортовой сети автомобиля!"
+    )
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="profile_caca"),
+                InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
+                InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
+        ]
+    )
+    try:
+        await call.message.edit_caption(
+            caption=f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:",
+            reply_markup=ikb,
+        )
+    except Exception:
+        await call.message.edit_text(
+            f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:",
+            reply_markup=ikb,
+        )
+    await call.answer()
+
+
+@router.callback_query(F.data == "charge_back")
+async def charge_back_handler(call: CallbackQuery) -> None:
+    """Вернуться из подменю «🚗 Авто» в главное меню."""
+    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
+    await send_dashboard(call, old_msg_id=old_id)
+    await call.answer()
+
+
 @router.callback_query(F.data == "refresh")
 async def refresh_handler(call: CallbackQuery) -> None:
     global last_chat_id
@@ -400,7 +436,7 @@ async def profile_selection(call: CallbackQuery) -> None:
     awaiting_ah[user_id] = profile
     await call.message.answer(
         f"<b>Профиль {profile}</b> выбран.\n\n"
-        "Введите ёмкость АКБ в Ач (число, например 60):",
+        "Введите ёмкость аккумулятора в Ah (например, 60):",
         parse_mode=ParseMode.HTML,
     )
     await call.answer()
