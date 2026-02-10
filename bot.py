@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
@@ -29,21 +29,73 @@ charge_controller = None
 charge_task = None
 
 
+
+# Главное меню
 @router.message(Command('start'))
 async def start(message: Message):
     logging.info('Команда /start получена')
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Старт зарядки")],
-            [KeyboardButton(text="Статус")],
-            [KeyboardButton(text="Остановить")],
+            [KeyboardButton(text="📊 Статус"), KeyboardButton(text="⚡ Заряд")],
+            [KeyboardButton(text="⚙️ Настройки")],
         ],
         resize_keyboard=True
     )
     await message.answer(
-        "RD6018 Charger Bot\nВыберите действие:",
+        "<b>RD6018 Charger Bot</b>\nВыберите действие:",
         reply_markup=kb
     )
+
+# Меню Заряда (InlineKeyboard)
+@router.message(F.text == "⚡ Заряд")
+async def charge_menu(message: Message):
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Ca/Ca", callback_data="type_CaCa"),
+             InlineKeyboardButton(text="EFB", callback_data="type_EFB")],
+            [InlineKeyboardButton(text="AGM", callback_data="type_AGM"),
+             InlineKeyboardButton(text="GEL", callback_data="type_GEL")],
+            [InlineKeyboardButton(text="55Ah", callback_data="ah_55"),
+             InlineKeyboardButton(text="60Ah", callback_data="ah_60")],
+            [InlineKeyboardButton(text="75Ah", callback_data="ah_75"),
+             InlineKeyboardButton(text="100Ah", callback_data="ah_100")],
+            [InlineKeyboardButton(text="Свой", callback_data="ah_custom")],
+        ]
+    )
+    await message.answer("Выберите тип АКБ и емкость:", reply_markup=ikb)
+
+# Toggle-кнопка управления выходом
+@router.message(F.text == "⚙️ Настройки")
+async def settings_menu(message: Message):
+    # Пример: получаем состояние выхода (заглушка)
+    output_on = True  # TODO: получить реальное состояние
+    btn_text = "Выключить Выход" if output_on else "Включить Выход"
+    ikb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=btn_text, callback_data="toggle_output")],
+        ]
+    )
+    await message.answer("Управление выходом:", reply_markup=ikb)
+
+# Toggle обработка
+@router.callback_query(F.data == "toggle_output")
+async def toggle_output(call):
+    # TODO: получить и переключить реальное состояние выхода
+    # Здесь просто пример
+    await call.answer("Переключение выхода (заглушка)")
+    await call.message.edit_reply_markup()
+
+# Обработка ручной команды set V I
+@router.message(F.text.regexp(r'^set\s+(\d+\.?\d*)\s+(\d+\.?\d*)$'))
+async def manual_set(message: Message):
+    import re
+    m = re.match(r'^set\s+(\d+\.?\d*)\s+(\d+\.?\d*)$', message.text.strip())
+    if not m:
+        await message.answer('Формат: set 14.4 5')
+        return
+    voltage, current = float(m.group(1)), float(m.group(2))
+    # TODO: отправить параметры в RD6018
+    await message.answer(f'Установлено: <b>{voltage}В</b>, <b>{current}А</b>')
 
 @router.message(F.text == "Старт зарядки")
 async def start_charge(message: Message):
