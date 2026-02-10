@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import io
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
@@ -149,8 +149,9 @@ async def status_button(message: Message):
     plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
     buf.seek(0)
     plt.close(fig)
+    photo = BufferedInputFile(buf.read(), filename="chart.png")
     text = f"<b>📊 Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
-    await message.answer_photo(photo=buf, caption=text, reply_markup=ikb)
+    await message.answer_photo(photo=photo, caption=text, reply_markup=ikb)
 
 # AI-анализ по кнопке
 from ai_analyst import AIAnalyst
