@@ -10,7 +10,7 @@ from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from database import Database
-from config import HA_URL, HA_TOKEN, ENTITY_IDS, TOKEN
+from config import HA_URL, HA_TOKEN, ENTITY_IDS
 from hass_api import HassAPI
 from charge_logic import ChargeController
 
