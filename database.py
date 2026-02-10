@@ -97,7 +97,7 @@ async def get_history(limit: int = 100) -> Tuple[List[str], List[float], List[fl
                 i = float(r["current"]) if r["current"] is not None else 0.0
             except (TypeError, ValueError):
                 i = 0.0
-            raw_times.append(ts[-8:] if ts and len(ts) >= 8 else ts or "00:00")
+            raw_times.append(ts if ts else "")
             raw_v.append(v)
             raw_i.append(i)
 

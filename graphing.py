@@ -3,11 +3,13 @@ graphing.py — построение графика U/I во времени (dar
 """
 import io
 import logging
+from datetime import datetime, time
 from typing import List, Optional, Union
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
 
 logger = logging.getLogger("rd6018")
 
@@ -21,6 +23,31 @@ def _to_float_list(data: List) -> List[float]:
         except (TypeError, ValueError):
             out.append(0.0)
     return out
+
+
+def _parse_timestamps(times: List[str]) -> List[datetime]:
+    """Преобразовать строки времени (ISO или HH:MM:SS) в datetime."""
+    result: List[datetime] = []
+    base_date = datetime.now().date()
+    for ts in times:
+        if not ts or not isinstance(ts, str):
+            result.append(datetime.now())
+            continue
+        try:
+            if "T" in ts:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00")[:19])
+            else:
+                parts = ts.split(":")
+                if len(parts) >= 2:
+                    h, m = int(parts[0]), int(parts[1])
+                    s = int(parts[2]) if len(parts) >= 3 else 0
+                    dt = datetime.combine(base_date, time(h, m, s))
+                else:
+                    dt = datetime.now()
+            result.append(dt)
+        except (ValueError, TypeError):
+            result.append(datetime.now())
+    return result
 
 
 def generate_chart(
@@ -42,7 +69,7 @@ def generate_chart(
     if n == 0:
         return None
 
-    times = times[:n]
+    times_parsed = _parse_timestamps(times[:n])
     v_list = v_list[:n]
     i_list = i_list[:n]
 
@@ -51,20 +78,22 @@ def generate_chart(
         fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
         ax1.set_facecolor("#1e1e1e")
 
-        ax1.plot(times, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
-        ax1.set_xlabel("Time", color="#fff")
+        ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
+        ax1.set_xlabel("Время", color="#fff")
         ax1.set_ylabel("Voltage (V)", color="#00ffff")
-        ax1.tick_params(axis="x", colors="#fff", labelsize=8, rotation=45)
+        ax1.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        ax1.tick_params(axis="x", colors="#fff", labelsize=8)
         ax1.tick_params(axis="y", colors="#00ffff")
         ax1.set_ylim(bottom=0)
 
         ax2 = ax1.twinx()
-        ax2.plot(times, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
+        ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
         ax2.set_ylabel("Current (A)", color="#ffff00")
         ax2.tick_params(axis="y", colors="#ffff00")
         ax2.set_ylim(bottom=0)
 
         fig.legend(loc="upper right", fontsize=8)
+        fig.autofmt_xdate()
         fig.tight_layout()
 
         buf = io.BytesIO()
