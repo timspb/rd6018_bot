@@ -101,6 +101,7 @@ async def dashboard(message: Message, old_msg_id=None):
     ah = None
     try:
         ah, _ = await hass.get_state('sensor.rd_6018_battery_charge')
+        ah = round(float(ah), 2)
     except Exception:
         ah = 'N/A'
     output_state, _ = await hass.get_state('switch.rd_6018_output')
@@ -119,15 +120,34 @@ async def dashboard(message: Message, old_msg_id=None):
     }
     try:
         ai_short = analyst.analyze(hass_data, session_history)
-        if ai_short and len(ai_short) > 80:
+        if not ai_short or 'Мало данных' in ai_short:
+            ai_short = 'Набираю базу данных...'
+        elif len(ai_short) > 80:
             ai_short = ai_short[:80] + '...'
     except Exception as e:
         ai_short = f"AI: {e}"
-    # График (пример: U/I за 60 мин, можно заменить на реальные данные из sensor_history)
-    now = datetime.datetime.now()
-    times = [(now - datetime.timedelta(minutes=60-i)).strftime('%H:%M') for i in range(61)]
-    voltages = [float(voltage) if voltage else 0 for _ in range(61)]
-    currents = [float(current) if current else 0 for _ in range(61)]
+    # График: последние 100 точек из sensor_history
+    sensor_rows = []
+    try:
+        cursor = db.conn.cursor()
+        cursor.execute('SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT 100')
+        sensor_rows = cursor.fetchall()
+    except Exception:
+        pass
+    times, voltages, currents = [], [], []
+    for row in reversed(sensor_rows):
+        times.append(row[0][-8:])
+        try:
+            voltages.append(float(row[1]))
+            currents.append(float(row[2]))
+        except Exception:
+            voltages.append(0)
+            currents.append(0)
+    if not times:
+        now = datetime.datetime.now()
+        times = [(now - datetime.timedelta(minutes=100-i)).strftime('%H:%M') for i in range(100)]
+        voltages = [float(voltage) if voltage else 0 for _ in range(100)]
+        currents = [float(current) if current else 0 for _ in range(100)]
     fig, ax1 = plt.subplots(figsize=(7,3), facecolor="#222")
     ax1.set_facecolor("#222")
     ax1.plot(times, voltages, '-', color="#00eaff", label="V")
@@ -139,7 +159,7 @@ async def dashboard(message: Message, old_msg_id=None):
     ax1.tick_params(axis='x', colors="#fff", labelsize=8, rotation=45)
     ax1.tick_params(axis='y', colors="#00eaff")
     ax2.tick_params(axis='y', colors="#ffb300")
-    plt.title("U/I за 60 мин", color="#fff")
+    plt.title("U/I", color="#fff")
     fig.tight_layout()
     buf = io.BytesIO()
     plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
@@ -153,11 +173,10 @@ async def dashboard(message: Message, old_msg_id=None):
         f"📊 <b>Емкость:</b> <b>{ah} Ah</b>\n"
         f"🧠 <b>AI Анализ:</b> {ai_short}"
     )
-    # Кнопка питания (динамическая)
     power_on = output_state == 'off'
     power_btn = InlineKeyboardButton(
         text="🛑 ВЫКЛЮЧИТЬ ПИТАНИЕ" if not power_on else "⚡ ЗАПУСТИТЬ ЗАРЯД",
-        callback_data="power_off" if not power_on else "power_on"
+        callback_data="power_toggle"
     )
     ikb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -168,7 +187,6 @@ async def dashboard(message: Message, old_msg_id=None):
             [power_btn],
         ]
     )
-    # Удаляем старое сообщение
     if old_msg_id:
         try:
             await message.bot.delete_message(message.chat.id, old_msg_id)
@@ -180,6 +198,89 @@ async def dashboard(message: Message, old_msg_id=None):
         pass
     sent = await message.answer_photo(photo=photo, caption=text, reply_markup=ikb)
     return sent.message_id
+# Power Toggle обработчик
+@router.callback_query(F.data == "power_toggle")
+async def power_toggle_handler(call: CallbackQuery):
+    output_state, _ = await hass.get_state('switch.rd_6018_output')
+    if output_state == 'on':
+        await hass.turn_off_switch('switch.rd_6018_output')
+    else:
+        # TODO: реализовать turn_on_switch
+        try:
+            await hass.turn_on_switch('switch.rd_6018_output')
+        except Exception:
+            pass
+    # Получаем актуальный статус
+    output_state, _ = await hass.get_state('switch.rd_6018_output')
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    msg_id = await dashboard(call.message, old_msg_id=old_id)
+    if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+    call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Статус питания обновлен")
+# Логи обработчик
+@router.callback_query(F.data == "logs")
+async def logs_handler(call: CallbackQuery):
+    try:
+        cursor = db.conn.cursor()
+        cursor.execute('SELECT timestamp, voltage, current, power, temp FROM sensor_history ORDER BY id DESC LIMIT 10')
+        rows = cursor.fetchall()
+        log_text = '\n'.join([f"{r[0]} | V:{r[1]} I:{r[2]} P:{r[3]} T:{r[4]}" for r in rows])
+        if not log_text:
+            log_text = 'Нет данных.'
+        await call.message.answer(f'<b>Последние логи:</b>\n{log_text}')
+    except Exception as e:
+        await call.message.answer(f'Ошибка логов: {e}')
+    await call.answer()
+# edit_message_caption для быстрого обновления параметров
+@router.callback_query(F.data == "refresh")
+async def refresh_dashboard(call: CallbackQuery):
+    old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+    voltage, _ = await hass.get_state('sensor.rd_6018_output_voltage')
+    current, _ = await hass.get_state('sensor.rd_6018_output_current')
+    power, _ = await hass.get_state('sensor.rd_6018_output_power')
+    temp, _ = await hass.get_state('sensor.rd_6018_temperature_external')
+    ah = None
+    try:
+        ah, _ = await hass.get_state('sensor.rd_6018_battery_charge')
+        ah = round(float(ah), 2)
+    except Exception:
+        ah = 'N/A'
+    output_state, _ = await hass.get_state('switch.rd_6018_output')
+    status = 'ЗАРЯДКА' if output_state == 'on' else 'ВЫКЛ'
+    temp_status = 'Норма' if temp is not None and float(temp) < 40 else 'ВНИМАНИЕ'
+    analyst = AIAnalyst()
+    session_history = analyst.get_last_sessions(limit=3)
+    hass_data = {
+        'sensor.rd_6018_output_voltage': voltage,
+        'sensor.rd_6018_output_current': current,
+        'sensor.rd_6018_output_power': power,
+        'sensor.rd_6018_battery_charge': ah,
+        'sensor.rd_6018_temperature_external': temp,
+        'switch.rd_6018_output': output_state,
+    }
+    try:
+        ai_short = analyst.analyze(hass_data, session_history)
+        if not ai_short or 'Мало данных' in ai_short:
+            ai_short = 'Набираю базу данных...'
+        elif len(ai_short) > 80:
+            ai_short = ai_short[:80] + '...'
+    except Exception as e:
+        ai_short = f"AI: {e}"
+    text = (
+        f"🔋 <b>Статус:</b> <b>{status}</b>\n"
+        f"⚡ <b>Параметры:</b> <b>{voltage}V | {current}A | {power}W</b>\n"
+        f"🌡 <b>Температура:</b> <b>{temp}°C</b> ({temp_status})\n"
+        f"📊 <b>Емкость:</b> <b>{ah} Ah</b>\n"
+        f"🧠 <b>AI Анализ:</b> {ai_short}"
+    )
+    try:
+        await call.message.edit_caption(caption=text)
+    except Exception:
+        old_id = getattr(call.bot, 'user_dash', {}).get(call.from_user.id)
+        msg_id = await dashboard(call.message, old_msg_id=old_id)
+        if not hasattr(call.bot, 'user_dash'): call.bot.user_dash = {}
+        call.bot.user_dash[call.from_user.id] = msg_id
+    await call.answer("Данные обновлены")
 
 
 
