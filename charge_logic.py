@@ -18,6 +18,7 @@ DELTA_I_EXIT = 0.03  # А — выход CV при росте I от миним�
 TEMP_RISE_LIMIT = 2.0  # °C за 5 мин
 TEMP_RISE_WINDOW = 300  # сек (5 мин)
 DESULF_CURRENT_STUCK = 0.3  # А — порог «застревания» для десульфации
+DESULF_STUCK_MIN_MINUTES = 30  # мин — минимум времени застревания перед десульфацией
 MIX_DONE_TIMER = 2 * 3600  # сек — таймер после delta до Done
 EFB_MIX_MAX_HOURS = 10
 AGM_STAGES = [14.4, 14.6, 14.8, 15.0]  # В — четырёхступенчатый подъём
@@ -64,6 +65,7 @@ class ChargeController:
         self._agm_stage_idx: int = 0
         self._delta_reported: bool = False
         self.is_cv: bool = False
+        self._stuck_current_since: Optional[float] = None  # когда ток впервые застрял > 0.3А в CV
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
         """Запуск заряда по профилю."""
@@ -79,6 +81,7 @@ class ChargeController:
         self.temp_history.clear()
         self._agm_stage_idx = 0
         self._delta_reported = False
+        self._stuck_current_since = None
         logger.info("ChargeController started: %s %dAh", battery_type, self.ah_capacity)
 
     def stop(self) -> None:
@@ -253,18 +256,26 @@ class ChargeController:
                         )
 
             elif is_cv and self._detect_stuck_current(current):
-                if self.antisulfate_count < 3:
+                if self._stuck_current_since is None:
+                    self._stuck_current_since = now
+                stuck_mins = int((now - self._stuck_current_since) / 60)
+                if self.antisulfate_count < 3 and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                     self.antisulfate_count += 1
+                    self._stuck_current_since = None
                     self.current_stage = self.STAGE_DESULFATION
                     self.stage_start_time = now
                     dv, di = self._desulf_target()
                     actions["set_voltage"] = dv
                     actions["set_current"] = di
                     actions["notify"] = (
-                        f"<b>🔧 Десульфатация #{self.antisulfate_count}</b>\n"
-                        f"Ток застрял > {DESULF_CURRENT_STUCK}А. 16.3V / 2% Ah."
+                        f"🔧 <b>Десульфатация #{self.antisulfate_count}</b>\n\n"
+                        f"Ток застрял на значении <code>{current:.2f}</code>А "
+                        f"(выше порога <code>{DESULF_CURRENT_STUCK}</code>А) более <code>{stuck_mins}</code> минут.\n\n"
+                        f"<b>Действие:</b> Переходим на лечебный прострел: "
+                        f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 часа."
                     )
                 else:
+                    self._stuck_current_since = None
                     self.current_stage = self.STAGE_MIX
                     self.stage_start_time = now
                     self.v_max_recorded = voltage
@@ -277,7 +288,8 @@ class ChargeController:
                         "Лимит десульфаций достигнут."
                     )
 
-            elif is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
+            if is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
+                self._stuck_current_since = None
                 if elapsed < 600 and not self._phantom_alerted:
                     self._phantom_alerted = True
                     actions["notify"] = (
