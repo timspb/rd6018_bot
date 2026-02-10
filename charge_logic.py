@@ -380,6 +380,9 @@ class ChargeController:
         """
         Основной цикл. Вызывается из фоновой задачи каждые 30 сек.
         Возвращает dict: set_voltage, set_current, turn_off, notify, emergency_stop.
+
+        ВАЖНО: voltage — ВСЕГДА sensor.rd_6018_battery_voltage (напряжение на клеммах АКБ).
+        Используется для расчёта дельты (спад 0.03В) и порогов перехода фаз.
         """
         actions: Dict[str, Any] = {}
         now = time.time()

@@ -148,7 +148,9 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
 
     live = await hass.get_all_live()
-    v = _safe_float(live.get("voltage"))
+    battery_v = _safe_float(live.get("battery_voltage"))
+    output_v = _safe_float(live.get("voltage"))
+    v = battery_v if not (is_on := str(live.get("switch", "")).lower() == "on") else output_v
     i = _safe_float(live.get("current"))
     p = _safe_float(live.get("power"))
     ah = _safe_float(live.get("ah"))
@@ -157,13 +159,11 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     temp_ext = _safe_float(live.get("temp_ext"))
     set_v = _safe_float(live.get("set_voltage"))
     set_i = _safe_float(live.get("set_current"))
-    output_state = live.get("switch")
-    is_on = str(output_state).lower() == "on"
     is_cv = str(live.get("is_cv", "")).lower() == "on"
     is_cc = str(live.get("is_cc", "")).lower() == "on"
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
 
-    status = "ВКЛ" if is_on else "ВЫКЛ"
+    status = "💤 Ожидание | АКБ: {:.2f}В".format(battery_v) if not is_on else "⚡️ Зарядка | Выход: {:.2f}В (АКБ: {:.2f}В)".format(output_v, battery_v)
     charge_phase = ""
     if charge_controller.is_active:
         charge_phase = f"\n<b>🔋 ЗАРЯД:</b> {charge_controller.current_stage} ({charge_controller.battery_type} {charge_controller.ah_capacity}Ач)"
@@ -228,7 +228,7 @@ async def soft_watchdog_loop() -> None:
                 logger.critical("CRITICAL: Soft Watchdog timeout (HA connection lost 3min). Emergency Output OFF.")
                 try:
                     live = await hass.get_all_live()
-                    v = _safe_float(live.get("voltage"))
+                    v = _safe_float(live.get("battery_voltage"))
                     i = _safe_float(live.get("current"))
                     t = _safe_float(live.get("temp_ext"))
                     ah = _safe_float(live.get("ah"))
@@ -312,7 +312,7 @@ async def charge_monitor() -> None:
         try:
             live = await hass.get_all_live()
             output_on = str(live.get("switch", "")).lower() == "on"
-            v = _safe_float(live.get("voltage"))
+            battery_v = _safe_float(live.get("battery_voltage"))
             i = _safe_float(live.get("current"))
             now = datetime.now()
 
@@ -340,13 +340,14 @@ async def charge_monitor() -> None:
             else:
                 zero_current_since = None
 
-            # Алерт: заряд завершён (высокое U, низкий I)
-            if v >= 13.5 and i < 0.1:
+            # Алерт: заряд завершён (высокое U на АКБ, низкий I)
+            battery_v = _safe_float(live.get("battery_voltage"))
+            if battery_v >= 13.5 and i < 0.1:
                 if last_charge_alert_at and (now - last_charge_alert_at) < CHARGE_ALERT_COOLDOWN:
                     continue
                 msg = (
                     f"⚠️ Заряд завершён или аккумулятор почти полон. "
-                    f"Ток упал до {i:.2f}А при напряжении {v:.2f}В."
+                    f"Ток упал до {i:.2f}А при напряжении {battery_v:.2f}В."
                 )
                 logger.info("Charge monitor: %s", msg)
                 last_charge_alert_at = now
@@ -367,21 +368,22 @@ async def data_logger() -> None:
         try:
             live = await hass.get_all_live()
             last_ha_ok_time = time.time()
-            v = _safe_float(live.get("voltage"))
+            battery_v = _safe_float(live.get("battery_voltage"))
+            output_v = _safe_float(live.get("voltage"))
             i = _safe_float(live.get("current"))
             p = _safe_float(live.get("power"))
             temp_ext = live.get("temp_ext")
             t = _safe_float(temp_ext)
             ah = _safe_float(live.get("ah"))
             is_cv = str(live.get("is_cv", "")).lower() == "on"
-            await add_record(v, i, p, t)
+            await add_record(battery_v, i, p, t)
 
-            actions = await charge_controller.tick(v, i, temp_ext, is_cv, ah)
+            actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah)
 
             if actions.get("log_event"):
                 log_event(
                     charge_controller.current_stage,
-                    v,
+                    battery_v,
                     i,
                     t,
                     ah,
@@ -390,7 +392,7 @@ async def data_logger() -> None:
 
             now_ts = time.time()
             if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
-                log_checkpoint(charge_controller.current_stage, v, i, t, ah)
+                log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
                 last_checkpoint_time = now_ts
 
             if actions.get("emergency_stop"):
@@ -450,12 +452,12 @@ async def ah_input_handler(message: Message) -> None:
     last_chat_id = message.chat.id
 
     live = await hass.get_all_live()
-    v = _safe_float(live.get("voltage"))
+    battery_v = _safe_float(live.get("battery_voltage"))
     i = _safe_float(live.get("current"))
     t = _safe_float(live.get("temp_ext"))
     ah_val = _safe_float(live.get("ah"))
     charge_controller.start(profile, ah)
-    if v < 12.0:
+    if battery_v < 12.0:
         await hass.set_voltage(12.0)
         await hass.set_current(0.5)
     else:
@@ -464,7 +466,7 @@ async def ah_input_handler(message: Message) -> None:
         await hass.set_current(ui)
     await hass.turn_on(ENTITY_MAP["switch"])
     last_checkpoint_time = time.time()
-    log_event("Подготовка", v, i, t, ah_val, f"START profile={profile} ah={ah}")
+    log_event("Подготовка", battery_v, i, t, ah_val, f"START profile={profile} ah={ah}")
     await message.answer(
         f"<b>✅ Заряд запущен:</b> {profile} {ah}Ач\n"
         f"Текущая фаза: <b>{charge_controller.current_stage}</b>",
@@ -611,10 +613,10 @@ async def main() -> None:
     global last_checkpoint_time
     try:
         live = await hass.get_all_live()
-        v = _safe_float(live.get("voltage"))
+        battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
         ah = _safe_float(live.get("ah"))
-        ok, msg = charge_controller.try_restore_session(v, i, ah)
+        ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
         if ok and msg:
             last_checkpoint_time = time.time()
             uv, ui = charge_controller._get_target_v_i()
@@ -624,7 +626,7 @@ async def main() -> None:
             t_ext = _safe_float(live.get("temp_ext"))
             log_event(
                 charge_controller.current_stage,
-                v,
+                battery_v,
                 i,
                 t_ext,
                 ah,

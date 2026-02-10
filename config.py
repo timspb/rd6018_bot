@@ -21,6 +21,7 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 # Строгий маппинг сущностей HA (как в спецификации)
 ENTITY_MAP = {
     "voltage": "sensor.rd_6018_output_voltage",
+    "battery_voltage": "sensor.rd_6018_battery_voltage",
     "current": "sensor.rd_6018_output_current",
     "power": "sensor.rd_6018_output_power",
     "ah": "sensor.rd_6018_battery_charge",
