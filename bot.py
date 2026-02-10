@@ -404,6 +404,8 @@ async def data_logger() -> None:
             elif charge_controller.is_active:
                 if actions.get("turn_off"):
                     await hass.turn_off(ENTITY_MAP["switch"])
+                if actions.get("turn_on"):
+                    await hass.turn_on(ENTITY_MAP["switch"])
                 if actions.get("set_voltage") is not None:
                     await hass.set_voltage(float(actions["set_voltage"]))
                 if actions.get("set_current") is not None:
@@ -619,10 +621,16 @@ async def main() -> None:
         ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
         if ok and msg:
             last_checkpoint_time = time.time()
-            uv, ui = charge_controller._get_target_v_i()
-            await hass.set_voltage(uv)
-            await hass.set_current(ui)
-            await hass.turn_on(ENTITY_MAP["switch"])
+            if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                await hass.set_voltage(uv)
+                await hass.set_current(ui)
+                # Output остаётся выключен — ждём падения V
+            else:
+                uv, ui = charge_controller._get_target_v_i()
+                await hass.set_voltage(uv)
+                await hass.set_current(ui)
+                await hass.turn_on(ENTITY_MAP["switch"])
             t_ext = _safe_float(live.get("temp_ext"))
             log_event(
                 charge_controller.current_stage,
