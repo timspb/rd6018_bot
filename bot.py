@@ -38,17 +38,34 @@ charge_task = None
 @router.message(Command('start'))
 async def start(message: Message):
     logging.info('Команда /start получена')
+    # Получаем параметры (заглушка, заменить на реальные)
+    hass_data = {
+        'sensor.rd_6018_output_voltage': 14.81,
+        'sensor.rd_6018_output_current': 0.42,
+        'sensor.rd_6018_temperature_external': 21.0,
+        'switch.rd_6018_output': 'on',
+    }
+    voltage = hass_data['sensor.rd_6018_output_voltage']
+    current = hass_data['sensor.rd_6018_output_current']
+    temp = hass_data['sensor.rd_6018_temperature_external']
+    output_status = 'Включен' if hass_data['switch.rd_6018_output'] == 'on' else 'Выключен'
     kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📊 Статус"), KeyboardButton(text="⚡ Заряд")],
+            [KeyboardButton(text="🛑 СТОП (Выкл)")],
             [KeyboardButton(text="⚙️ Настройки")],
         ],
         resize_keyboard=True
     )
-    await message.answer(
-        "<b>🔌 RD6018 Charger Bot</b>\nВыберите действие:",
-        reply_markup=kb
+    text = (
+        f"<b>🔌 RD6018 Charger Bot</b>\n"
+        f"<b>Напряжение:</b> <b>{voltage} В</b>\n"
+        f"<b>Ток:</b> <b>{current} А</b>\n"
+        f"<b>Температура:</b> <b>{temp}°C</b>\n"
+        f"<b>Статус выхода:</b> <b>{output_status}</b>\n"
+        "\nВыберите действие:"
     )
+    await message.answer(text, reply_markup=kb)
 
 # Меню Заряда (InlineKeyboard)
 @router.message(F.text == "⚡ Заряд")
@@ -103,74 +120,51 @@ async def manual_set(message: Message):
 
 @router.message(F.text == "📊 Статус")
 async def status_button(message: Message):
-    # Кнопка AI-анализа
     ikb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🧠 Анализ AI", callback_data="ai_analyze")],
         ]
     )
-    # Получаем данные из HA (заглушка, заменить на реальные асинхронные вызовы)
     hass_data = {
         'sensor.rd_6018_output_voltage': 14.81,
         'sensor.rd_6018_output_current': 0.42,
-        'sensor.rd_6018_output_power': 6.36,
-        'sensor.rd_6018_battery_voltage': 14.80,
         'sensor.rd_6018_battery_charge': 19.75,
         'sensor.rd_6018_battery_energy': 290.09,
         'sensor.rd_6018_temperature_external': 21.0,
-        'binary_sensor.rd_6018_constant_voltage': 'on',
-        'binary_sensor.rd_6018_constant_current': 'off',
         'switch.rd_6018_output': 'on',
-        'binary_sensor.rd_6018_over_voltage_protection': 'off',
-        'binary_sensor.rd_6018_over_current_protection': 'off',
     }
     ah = hass_data['sensor.rd_6018_battery_charge']
     wh = hass_data['sensor.rd_6018_battery_energy']
-    total_time = 60  # TODO: получить из sensor.rd_6018_uptime
-    # График (пример)
-    voltage = [14.2, 14.4, 14.6, 14.7, 14.8, 14.8, 14.8]
-    current = [5.0, 4.8, 4.5, 3.0, 1.5, 0.8, 0.3]
-    power = [v*i for v, i in zip(voltage, current)]
-    timestamps = [0, 10, 20, 30, 40, 50, 60]
-    fig, ax1 = plt.subplots(figsize=(7,4), facecolor="#222")
-    ax1.set_facecolor("#222")
-    ax1.plot(timestamps, voltage, 'o-', color="#00eaff", label="V")
-    ax2 = ax1.twinx()
-    ax2.plot(timestamps, current, 's-', color="#ffb300", label="A")
-    ax1.set_xlabel("Time, min", color="#fff")
-    ax1.set_ylabel("Voltage, V", color="#00eaff")
-    ax2.set_ylabel("Current, A", color="#ffb300")
-    ax1.tick_params(axis='x', colors="#fff")
-    ax1.tick_params(axis='y', colors="#00eaff")
-    ax2.tick_params(axis='y', colors="#ffb300")
-    plt.title("RD6018 Charge", color="#fff")
-    fig.tight_layout()
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
-    buf.seek(0)
-    plt.close(fig)
-    photo = BufferedInputFile(buf.read(), filename="chart.png")
-    text = f"<b>📊 Статус</b>\n🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>  ⏱ <b>{total_time} мин</b>"
-    await message.answer_photo(photo=photo, caption=text, reply_markup=ikb)
+    voltage = hass_data['sensor.rd_6018_output_voltage']
+    current = hass_data['sensor.rd_6018_output_current']
+    temp = hass_data['sensor.rd_6018_temperature_external']
+    output_status = 'Включен' if hass_data['switch.rd_6018_output'] == 'on' else 'Выключен'
+    text = (
+        f"<b>📊 Статус</b>\n"
+        f"<b>Напряжение:</b> <b>{voltage} В</b>\n"
+        f"<b>Ток:</b> <b>{current} А</b>\n"
+        f"<b>Температура:</b> <b>{temp}°C</b>\n"
+        f"<b>Статус выхода:</b> <b>{output_status}</b>\n"
+        f"🔋 <b>{ah:.2f} Ah</b>  ⚡ <b>{wh:.2f} Wh</b>"
+    )
+    sent = await message.answer(text, reply_markup=ikb)
+    # Сохраняем id для edit_message_text
+    message.bot_status_id = sent.message_id
+async def stop_main_menu(message: Message):
+    await hass.turn_off_switch('switch.rd_6018_output')
+    await message.answer('🛑 <b>Выход RD6018 выключен.</b>')
 
 # AI-анализ по кнопке
 from ai_analyst import AIAnalyst
 @router.callback_query(F.data == "ai_analyze")
 async def ai_analyze_handler(call):
-    # Получаем hass_data и историю (заглушка)
     hass_data = {
         'sensor.rd_6018_output_voltage': 14.81,
         'sensor.rd_6018_output_current': 0.42,
-        'sensor.rd_6018_output_power': 6.36,
-        'sensor.rd_6018_battery_voltage': 14.80,
         'sensor.rd_6018_battery_charge': 19.75,
         'sensor.rd_6018_battery_energy': 290.09,
         'sensor.rd_6018_temperature_external': 21.0,
-        'binary_sensor.rd_6018_constant_voltage': 'on',
-        'binary_sensor.rd_6018_constant_current': 'off',
         'switch.rd_6018_output': 'on',
-        'binary_sensor.rd_6018_over_voltage_protection': 'off',
-        'binary_sensor.rd_6018_over_current_protection': 'off',
     }
     analyst = AIAnalyst()
     session_history = analyst.get_last_sessions(limit=5)
@@ -178,7 +172,8 @@ async def ai_analyze_handler(call):
         result = analyst.analyze(hass_data, session_history)
     except Exception as e:
         result = f"Ошибка AI-анализа: {e}"
-    await call.message.answer(f"<b>🧠 AI-анализ:</b>\n{result}")
+    # Обновляем статус через edit_message_text
+    await call.message.edit_text(f"<b>🧠 AI-анализ:</b>\n{result}", reply_markup=None)
     await call.answer()
 
 @router.message(F.text == "Остановить")
