@@ -5,6 +5,7 @@ Auto-Resume: сохранение сессии в charge_session.json, восс�
 """
 import json
 import logging
+import math
 import os
 import time
 from collections import deque
@@ -103,6 +104,9 @@ class ChargeController:
         self._safe_wait_target_i: float = 0.0
         self._safe_wait_start: float = 0.0
         self._last_hourly_report: float = 0.0  # для прогресс-репортов раз в час
+        self._analytics_history: deque = deque(maxlen=80)  # (ts, v, i, ah, temp) ~40 мин при 30с
+        self._safe_wait_v_samples: deque = deque(maxlen=30)  # (ts, v) каждые 5 мин
+        self._last_safe_wait_sample: float = 0.0
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -135,6 +139,9 @@ class ChargeController:
         self._safe_wait_target_i = 0.0
         self._safe_wait_start = 0.0
         self._last_hourly_report = 0.0
+        self._analytics_history.clear()
+        self._safe_wait_v_samples.clear()
+        self._last_safe_wait_sample = 0.0
         self._clear_session_file()
         logger.info("ChargeController started: %s %dAh", battery_type, self.ah_capacity)
 
@@ -310,10 +317,173 @@ class ChargeController:
         self._delta_reported = False
         self._stuck_current_since = None
         self._safe_wait_next_stage = None
+        self._analytics_history.clear()
+        self._safe_wait_v_samples.clear()
 
     @property
     def is_active(self) -> bool:
         return self.current_stage != self.STAGE_IDLE
+
+    def _temp_trend(self) -> str:
+        """Тренд температуры из temp_history или _analytics_history."""
+        h = list(self._analytics_history)
+        if len(h) < 6:
+            return "→"
+        _, _, _, _, t0 = h[-6]
+        _, _, _, _, t1 = h[-1]
+        delta = t1 - t0
+        if delta > 0.5:
+            return "↗"
+        if delta < -0.5:
+            return "↘"
+        return "→"
+
+    def _self_discharge_warning(self) -> Optional[str]:
+        """Проверка скорости падения V во время SAFE_WAIT при V < 13.5В."""
+        if self.current_stage != self.STAGE_SAFE_WAIT or len(self._safe_wait_v_samples) < 2:
+            return None
+        samples = list(self._safe_wait_v_samples)
+        (t0, v0), (t1, v1) = samples[0], samples[-1]
+        if t1 <= t0 or v0 >= 13.5 and v1 >= 13.5:
+            return None
+        dt_hours = (t1 - t0) / 3600.0
+        if dt_hours < 0.01:
+            return None
+        dV_dt = abs(v1 - v0) / dt_hours  # В/час
+        avg_v = (v0 + v1) / 2
+        if dV_dt > 0.5 and avg_v < 13.5:
+            return "⚠️ Высокая скорость падения напряжения: возможно КЗ в банке или сильный саморазряд."
+        return None
+
+    def _intelligent_comment(
+        self,
+        elapsed_min: float,
+        ah_delta_30m: float,
+        voltage: float,
+        current: float,
+        ah: float,
+    ) -> str:
+        """Интеллектуальный комментарий по данным заряда."""
+        pct_30m = (ah_delta_30m / self.ah_capacity * 100) if self.ah_capacity > 0 else 0
+        ah_charged = ah - self._start_ah if self._start_ah > 0 else ah
+        pct_total = (ah_charged / self.ah_capacity * 100) if self.ah_capacity > 0 else 0
+        if pct_30m > 5 and voltage >= 14.0:
+            return "АКБ активно поглощает заряд."
+        if elapsed_min < 30 and current < 0.35 and pct_total < 5:
+            return "Внимание: подозрение на потерю ёмкости или сульфатацию."
+        return "Нормальный режим заряда."
+
+    def predict_finish(
+        self,
+        voltage: float,
+        current: float,
+        ah: float,
+        temp: float,
+    ) -> Tuple[str, str, Optional[str]]:
+        """
+        Прогноз времени завершения этапа.
+        Возвращает (predicted_time_str, comment, health_warning).
+        """
+        now = time.time()
+        elapsed = now - self.stage_start_time
+        elapsed_min = elapsed / 60.0
+        h = list(self._analytics_history)
+        win_20m = 20 * 60
+        recent = [(t, v, i, a, _) for t, v, i, a, _ in h if now - t <= win_20m]
+        ah_delta_30m = 0.0
+        if len(recent) >= 2:
+            ah_delta_30m = recent[-1][3] - recent[0][3]
+        comment = self._intelligent_comment(elapsed_min, ah_delta_30m, voltage, current, ah)
+        health = self._self_discharge_warning()
+
+        if self.current_stage == self.STAGE_IDLE or self.current_stage == self.STAGE_DONE:
+            return "—", comment, health
+
+        if self.current_stage == self.STAGE_SAFE_WAIT:
+            threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
+            if voltage <= threshold:
+                return "< 1 мин", comment, health
+            wait_left = self._safe_wait_start + SAFE_WAIT_MAX_SEC - now
+            if wait_left <= 0:
+                return "по таймеру", comment, health
+            return f"~{int(wait_left / 60)} мин (макс)", comment, health
+
+        i_target = 0.2 if self.battery_type == self.PROFILE_AGM else 0.3
+        if self.current_stage in (self.STAGE_MAIN, self.STAGE_MIX) and self.is_cv and len(recent) >= 4:
+            ts = [r[0] for r in recent]
+            currents = [r[2] for r in recent]
+            t0 = ts[0]
+            vals = [(t - t0, math.log(max(c, 0.01))) for t, c in zip(ts, currents)]
+            if len(vals) >= 4 and currents[-1] > i_target and currents[-1] < currents[0]:
+                try:
+                    n = len(vals)
+                    sum_x = sum(v[0] for v in vals)
+                    sum_y = sum(v[1] for v in vals)
+                    sum_xx = sum(v[0] ** 2 for v in vals)
+                    sum_xy = sum(v[0] * v[1] for v in vals)
+                    denom = n * sum_xx - sum_x * sum_x
+                    if abs(denom) > 1e-9:
+                        slope = (n * sum_xy - sum_x * sum_y) / denom
+                        if slope < 0:
+                            ln_i_now = math.log(max(currents[-1], 0.01))
+                            ln_target = math.log(max(i_target, 0.01))
+                            sec_to_target = (ln_target - ln_i_now) / slope if slope != 0 else 0
+                            if sec_to_target > 0 and sec_to_target < 24 * 3600:
+                                mins = int(sec_to_target / 60)
+                                if mins < 60:
+                                    return f"~{mins} мин", comment, health
+                                return f"~{mins // 60} ч {mins % 60} мин", comment, health
+                except (ZeroDivisionError, ValueError):
+                    pass
+
+        if self.current_stage == self.STAGE_DESULFATION:
+            rem = 2 * 3600 - elapsed
+            if rem <= 0:
+                return "< 1 мин", comment, health
+            return f"~{int(rem / 60)} мин (таймер)", comment, health
+
+        if self.current_stage == self.STAGE_MIX and self.finish_timer_start:
+            rem = self.finish_timer_start + MIX_DONE_TIMER - now
+            if rem <= 0:
+                return "< 1 мин", comment, health
+            return f"~{int(rem / 60)} мин (2ч таймер)", comment, health
+
+        if self.current_stage == self.STAGE_MIX and self.battery_type == self.PROFILE_EFB:
+            rem = EFB_MIX_MAX_HOURS * 3600 - elapsed
+            if rem <= 0:
+                return "< 1 мин", comment, health
+            return f"~{int(rem / 60)} мин", comment, health
+
+        if self.current_stage == self.STAGE_PREP:
+            return "~5–10 мин", comment, health
+
+        return "—", comment, health
+
+    def get_stats(
+        self,
+        voltage: float,
+        current: float,
+        ah: float,
+        temp: float,
+    ) -> Dict[str, Any]:
+        """Собрать данные для /stats."""
+        now = time.time()
+        elapsed = now - self.stage_start_time
+        hours = int(elapsed // 3600)
+        mins = int((elapsed % 3600) / 60)
+        elapsed_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+        pred, comment, health = self.predict_finish(voltage, current, ah, temp)
+        ah_total = ah - self._start_ah if self._start_ah > 0 else ah
+        return {
+            "stage": self.current_stage,
+            "elapsed_time": elapsed_str,
+            "ah_total": ah_total,
+            "temp_ext": temp,
+            "temp_trend": self._temp_trend(),
+            "predicted_time": pred,
+            "comment": comment,
+            "health_warning": health,
+        }
 
     def _ic(self, factor: float) -> float:
         """Ток 0.5C, 0.5*Ah."""
@@ -456,6 +626,9 @@ class ChargeController:
             actions["log_event"] = "EMERGENCY_TEMP_INVALID"
             self.notify(msg)
             return actions
+
+        if self.current_stage != self.STAGE_IDLE:
+            self._analytics_history.append((now, voltage, current, ah, temp))
 
         if self.emergency_hv_disconnect:
             self.notify(
@@ -621,6 +794,9 @@ class ChargeController:
 
         # --- БЕЗОПАСНОЕ ОЖИДАНИЕ (Output OFF, ждём падения V) ---
         elif self.current_stage == self.STAGE_SAFE_WAIT:
+            if now - self._last_safe_wait_sample >= 300:
+                self._safe_wait_v_samples.append((now, voltage))
+                self._last_safe_wait_sample = now
             threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
             wait_elapsed = now - self._safe_wait_start
             if voltage <= threshold:
@@ -670,6 +846,8 @@ class ChargeController:
                 self._safe_wait_next_stage = self.STAGE_MAIN
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
+                self._safe_wait_v_samples.append((now, voltage))
+                self._last_safe_wait_sample = now
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏸ Десульфатация завершена.</b> Ожидание падения до {threshold:.1f}В. "
@@ -715,6 +893,8 @@ class ChargeController:
                     self._safe_wait_next_stage = self.STAGE_DONE
                     self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                     self._safe_wait_start = now
+                    self._safe_wait_v_samples.append((now, voltage))
+                    self._last_safe_wait_sample = now
                     actions["turn_off"] = True
                     actions["notify"] = (
                         f"<b>✅ Таймер 2ч выполнен.</b> Ожидание падения до {threshold:.1f}В. "
@@ -728,6 +908,8 @@ class ChargeController:
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
+                self._safe_wait_v_samples.append((now, voltage))
+                self._last_safe_wait_sample = now
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ EFB Mix:</b> лимит 10ч. Ожидание падения до {threshold:.1f}В. "

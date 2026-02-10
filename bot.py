@@ -433,6 +433,50 @@ async def cmd_start(message: Message) -> None:
         user_dashboard[message.from_user.id] = msg_id
 
 
+@router.message(Command("stats"))
+async def cmd_stats(message: Message) -> None:
+    """Статистика и прогноз заряда."""
+    global last_chat_id
+    last_chat_id = message.chat.id
+    try:
+        live = await hass.get_all_live()
+        battery_v = _safe_float(live.get("battery_voltage"))
+        i = _safe_float(live.get("current"))
+        ah = _safe_float(live.get("ah"))
+        temp = _safe_float(live.get("temp_ext"))
+    except Exception as ex:
+        logger.error("cmd_stats get_live: %s", ex)
+        await message.answer("Ошибка получения данных с HA.")
+        return
+
+    if not charge_controller.is_active:
+        text = (
+            "📊 <b>СТАТИСТИКА ЗАРЯДА</b>\n"
+            "──────────────────\n"
+            "Заряд не активен.\n"
+            f"V: {battery_v:.2f}В | I: {i:.2f}А | Ah: {ah:.2f} | T: {temp:.1f}°C"
+        )
+        await message.answer(text)
+        return
+
+    stats = charge_controller.get_stats(battery_v, i, ah, temp)
+    health = stats.get("health_warning")
+    text = (
+        "📊 <b>СТАТИСТИКА ЗАРЯДА</b>\n"
+        "──────────────────\n"
+        f"🔋 <b>Этап:</b> {stats['stage']}\n"
+        f"⏱ <b>В работе:</b> {stats['elapsed_time']}\n"
+        f"📥 <b>Залито:</b> {stats['ah_total']:.2f} Ач\n"
+        f"🌡 <b>Темп:</b> {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n\n"
+        "🔮 <b>ПРОГНОЗ:</b>\n"
+        f"Завершение через {stats['predicted_time']}\n"
+        f"<i>{stats['comment']}</i>"
+    )
+    if health:
+        text += f"\n\n{health}"
+    await message.answer(text)
+
+
 @router.message(F.text)
 async def ah_input_handler(message: Message) -> None:
     """Обработка ввода ёмкости АКБ после выбора профиля."""
@@ -646,7 +690,10 @@ async def main() -> None:
         logger.warning("Auto-resume check failed: %s", ex)
 
     dp.include_router(router)
-    await bot.set_my_commands([BotCommand(command="start", description="Открыть дашборд RD6018")])
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Открыть дашборд RD6018"),
+        BotCommand(command="stats", description="Статистика и прогноз заряда"),
+    ])
     asyncio.create_task(data_logger())
     asyncio.create_task(charge_monitor())
     asyncio.create_task(soft_watchdog_loop())
