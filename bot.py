@@ -132,6 +132,9 @@ CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
 IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
 awaiting_ah: Dict[int, str] = {}
+# FSM для ручного режима
+custom_mode_state: Dict[int, str] = {}  # состояние диалога: "voltage", "current", "delta", "time_limit", "capacity"
+custom_mode_data: Dict[int, Dict[str, float]] = {}  # накопленные данные пользователя
 last_ha_ok_time: float = 0.0
 link_lost_alert_sent: bool = False  # флаг-блокировка однократного уведомления о потере связи
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
@@ -250,7 +253,11 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         # Условие перехода в зависимости от этапа
         transition_condition = ""
         if "Main" in stage_name:
-            if charge_controller.battery_type in ["Ca/Ca", "EFB"]:
+            if charge_controller.battery_type == "Custom":
+                delta = charge_controller._custom_delta_threshold
+                limit_h = charge_controller._custom_time_limit_hours
+                transition_condition = f"🔜 ФИНИШ: при dV/dI > {delta:.3f} | 🛑 ЛИМИТ: {limit_h:.0f}ч"
+            elif charge_controller.battery_type in ["Ca/Ca", "EFB"]:
                 transition_condition = "🔜 ПЕРЕХОД: при I < 0.3А в течение 40 мин | 🛑 ЛИМИТ: 72ч"
             elif charge_controller.battery_type == "AGM":
                 transition_condition = "🔜 ПЕРЕХОД: при I < 0.2А | 🛑 ЛИМИТ: 72ч"
@@ -734,12 +741,17 @@ async def get_current_context_for_llm() -> str:
 
 @router.message(F.text)
 async def text_message_handler(message: Message) -> None:
-    """v2.6 Обработка текстовых сообщений: ввод ёмкости АКБ или режим диалога с LLM."""
-    global awaiting_ah, last_chat_id, last_checkpoint_time
+    """v2.6 Обработка текстовых сообщений: ввод ёмкости АКБ, ручной режим или режим диалога с LLM."""
+    global awaiting_ah, custom_mode_state, last_chat_id, last_checkpoint_time
     user_id = message.from_user.id if message.from_user else 0
-    profile = awaiting_ah.get(user_id)
+    
+    # Проверяем ручной режим
+    if user_id in custom_mode_state:
+        await handle_custom_mode_input(message, user_id)
+        return
     
     # Если ожидаем ввод ёмкости АКБ
+    profile = awaiting_ah.get(user_id)
     if profile:
         await handle_ah_input(message, profile, user_id)
         return
@@ -866,6 +878,178 @@ async def handle_dialog_mode(message: Message) -> None:
         await thinking_msg.edit_text("🤖 Ошибка при обращении к AI-консультанту.")
 
 
+async def handle_custom_mode_input(message: Message, user_id: int) -> None:
+    """Обработка ввода параметров в ручном режиме."""
+    global custom_mode_state, custom_mode_data
+    
+    state = custom_mode_state.get(user_id)
+    if not state:
+        return
+    
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("❌ Пустое значение. Попробуйте еще раз.")
+        return
+    
+    # Кнопка отмены для всех этапов
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="custom_cancel")]]
+    )
+    
+    try:
+        value = float(text.replace(",", "."))
+    except ValueError:
+        await message.answer("❌ Некорректное число. Введите значение заново:", reply_markup=cancel_kb)
+        return
+    
+    # Валидация в зависимости от этапа
+    if state == "voltage":
+        if value > 17.0 or value < 12.0:
+            await message.answer(
+                "⚠️ Опасно! Значение слишком высокое или низкое.\n"
+                "Введите напряжение Main (12.0 - 17.0В):",
+                reply_markup=cancel_kb
+            )
+            return
+        custom_mode_data[user_id]["main_voltage"] = value
+        custom_mode_state[user_id] = "current"
+        await message.answer(
+            f"✅ Main: {value:.1f}В\n\n"
+            "**Шаг 2/5:** Введите лимит тока Main (например 5.0):\n"
+            "_Диапазон: 0.1 - 18.0А_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cancel_kb
+        )
+    
+    elif state == "current":
+        if value > 18.0 or value < 0.1:
+            await message.answer(
+                "⚠️ Опасно! Значение слишком высокое или низкое.\n"
+                "Введите лимит тока Main (0.1 - 18.0А):",
+                reply_markup=cancel_kb
+            )
+            return
+        custom_mode_data[user_id]["main_current"] = value
+        custom_mode_state[user_id] = "delta"
+        await message.answer(
+            f"✅ Main: {custom_mode_data[user_id]['main_voltage']:.1f}В / {value:.1f}А\n\n"
+            "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
+            "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cancel_kb
+        )
+    
+    elif state == "delta":
+        if value < 0.005 or value > 0.1:
+            await message.answer(
+                "⚠️ Значение вне допустимого диапазона!\n"
+                "Введите дельту (0.005 - 0.1В). Рекомендуется: 0.03В",
+                reply_markup=cancel_kb
+            )
+            return
+        custom_mode_data[user_id]["delta"] = value
+        custom_mode_state[user_id] = "time_limit"
+        await message.answer(
+            f"✅ Delta: {value:.3f}В\n\n"
+            "**Шаг 4/5:** Введите лимит времени в часах (например 24):\n"
+            "_Максимум: 48ч. Для отключения лимита введите 0_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cancel_kb
+        )
+    
+    elif state == "time_limit":
+        if value < 0 or value > 48:
+            await message.answer(
+                "⚠️ Значение вне допустимого диапазона!\n"
+                "Введите лимит времени (0 - 48ч). 0 = без лимита:",
+                reply_markup=cancel_kb
+            )
+            return
+        custom_mode_data[user_id]["time_limit"] = value if value > 0 else 24  # Принудительно 24ч если 0
+        custom_mode_state[user_id] = "capacity"
+        await message.answer(
+            f"✅ Лимит: {custom_mode_data[user_id]['time_limit']:.0f}ч\n\n"
+            "**Шаг 5/5:** Введите ёмкость АКБ в Ah (например 60):\n"
+            "_Диапазон: 10 - 300 Ah_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cancel_kb
+        )
+    
+    elif state == "capacity":
+        if value < 10 or value > 300:
+            await message.answer(
+                "⚠️ Значение вне допустимого диапазона!\n"
+                "Введите ёмкость АКБ (10 - 300 Ah):",
+                reply_markup=cancel_kb
+            )
+            return
+        
+        # Завершаем настройку
+        custom_mode_data[user_id]["capacity"] = value
+        data = custom_mode_data[user_id]
+        
+        # Очищаем состояние FSM
+        del custom_mode_state[user_id]
+        del custom_mode_data[user_id]
+        
+        # Запускаем заряд
+        await start_custom_charge(message, user_id, data)
+
+
+async def start_custom_charge(message: Message, user_id: int, params: Dict[str, float]) -> None:
+    """Запуск заряда в ручном режиме."""
+    global last_chat_id, last_checkpoint_time
+    last_chat_id = message.chat.id
+    
+    try:
+        # Получаем текущие данные
+        live = await hass.get_all_live()
+        battery_v = _safe_float(live.get("battery_voltage", 12.0))
+        i = _safe_float(live.get("current", 0.0))
+        t = _safe_float(live.get("temp_ext", 25.0))
+        ah_val = _safe_float(live.get("ah", 0.0))
+        
+        # Запускаем контроллер в ручном режиме
+        charge_controller.start_custom(
+            main_voltage=params["main_voltage"],
+            main_current=params["main_current"],
+            delta_threshold=params["delta"],
+            time_limit_hours=params["time_limit"],
+            ah_capacity=int(params["capacity"])
+        )
+        
+        # Устанавливаем параметры на RD6018
+        await hass.set_voltage(params["main_voltage"])
+        await hass.set_current(params["main_current"])
+        await hass.turn_on(ENTITY_MAP["switch"])
+        
+        last_checkpoint_time = time.time()
+        log_event("Подготовка", battery_v, i, t, ah_val, 
+                 f"START CUSTOM main={params['main_voltage']:.1f}V/{params['main_current']:.1f}A "
+                 f"delta={params['delta']:.3f}V limit={params['time_limit']:.0f}h ah={params['capacity']:.0f}")
+        
+        # Показываем результат
+        summary = (
+            f"✅ **Ручной режим запущен!**\n\n"
+            f"📋 **Параметры:**\n"
+            f"• Main: {params['main_voltage']:.1f}В / {params['main_current']:.1f}А\n"
+            f"• Delta: {params['delta']:.3f}В\n"
+            f"• Лимит: {params['time_limit']:.0f}ч\n"
+            f"• Емкость: {params['capacity']:.0f} Ah\n\n"
+            f"🔋 **АКБ:** {battery_v:.2f}В | {i:.2f}А"
+        )
+        
+        await message.answer(summary, parse_mode=ParseMode.MARKDOWN)
+        
+        # Обновляем дашборд
+        old_id = user_dashboard.get(user_id)
+        await send_dashboard(message, old_msg_id=old_id)
+        
+    except Exception as ex:
+        logger.error("start_custom_charge error: %s", ex)
+        await message.answer("❌ Ошибка запуска ручного режима. Проверьте подключение к RD6018.")
+
+
 @router.callback_query(F.data == "charge_modes")
 async def charge_modes_handler(call: CallbackQuery) -> None:
     """Открыть подменю «🚗 Авто» с режимами заряда."""
@@ -886,6 +1070,7 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
                 InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
                 InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
             ],
+            [InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
         ]
     )
@@ -899,6 +1084,28 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
             f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:",
             reply_markup=ikb,
         )
+
+
+@router.callback_query(F.data == "custom_cancel")
+async def custom_mode_cancel(call: CallbackQuery) -> None:
+    """Отменить ручной режим и вернуться в главное меню."""
+    try:
+        await call.answer("Ручной режим отменен")
+    except Exception:
+        pass
+    
+    global custom_mode_state, custom_mode_data
+    user_id = call.from_user.id if call.from_user else 0
+    
+    # Очищаем состояние FSM
+    if user_id in custom_mode_state:
+        del custom_mode_state[user_id]
+    if user_id in custom_mode_data:
+        del custom_mode_data[user_id]
+    
+    # Возвращаемся в главное меню
+    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
+    await send_dashboard(call, old_msg_id=old_id)
 
 
 @router.callback_query(F.data == "charge_back")
@@ -952,6 +1159,48 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     await asyncio.sleep(1)
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
+
+
+@router.callback_query(F.data == "profile_custom")
+async def custom_mode_start(call: CallbackQuery) -> None:
+    """Начать ручной режим с приветственным сообщением."""
+    try:
+        await call.answer()
+    except Exception:
+        pass
+    
+    global custom_mode_state, custom_mode_data, last_chat_id
+    last_chat_id = call.message.chat.id
+    user_id = call.from_user.id if call.from_user else 0
+    
+    # Инициализируем состояние
+    custom_mode_state[user_id] = "voltage"
+    custom_mode_data[user_id] = {}
+    
+    # Приветственное сообщение
+    welcome_text = (
+        "🛠 **Ручной режим (Custom)**\n\n"
+        "• **Main:** До 80% емкости (обычно 14.7В).\n"
+        "• **Mix:** Финальный дозаряд (16+ В).\n"
+        "• **Delta:** Чувствительность финиша (0.03В — стандарт).\n"
+        "• **Limit:** Защита по времени.\n\n"
+        "⚠️ **ВНИМАНИЕ:** Высокие напряжения! Убедитесь, что АКБ отключена от бортсети."
+    )
+    
+    # Кнопка отмены
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="custom_cancel")]]
+    )
+    
+    await call.message.answer(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=cancel_kb)
+    
+    # Начинаем ввод напряжения Main
+    await call.message.answer(
+        "**Шаг 1/5:** Введите напряжение Main (например 14.7):\n"
+        "_Диапазон: 12.0 - 17.0В_",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=cancel_kb
+    )
 
 
 @router.callback_query(F.data.in_({"profile_caca", "profile_efb", "profile_agm"}))

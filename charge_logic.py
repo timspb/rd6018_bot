@@ -42,6 +42,7 @@ TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с инте
 TRIGGER_CONFIRM_INTERVAL_SEC = 60  # сек — интервал между замерами для подтверждения
 MAIN_MIX_STUCK_CV_MIN = 40  # мин в CV с током >=0.3А перед MAIN->MIX (desulf limit) для Ca/EFB
 MAIN_STAGE_MAX_HOURS = 72  # защитный лимит для MAIN: 72 часа максимум
+CUSTOM_MODE_DEFAULT_MAX_HOURS = 24  # защитный лимит для ручного режима по умолчанию
 ELAPSED_MAX_HOURS = 1000  # если elapsed > 1000 ч — ошибка времени, сброс start_time
 TELEMETRY_HISTORY_MINUTES = 15  # для AI только последние 15 мин
 
@@ -54,6 +55,7 @@ HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watch
 OVP_OFFSET = 0.2  # В — OVP = целевое U + 0.2
 OCP_OFFSET = 0.5  # А — OCP = лимит I + 0.5
 TEMP_WARNING = 34.0  # °C — предупреждение в Telegram (один раз за сессию)
+TEMP_CRITICAL = 45.0  # °C — критическая температура для аварийного отключения
 TEMP_EMERGENCY = 37.0  # °C — аварийное отключение, полный сброс
 
 
@@ -93,6 +95,7 @@ class ChargeController:
     PROFILE_CA = "Ca/Ca"
     PROFILE_EFB = "EFB"
     PROFILE_AGM = "AGM"
+    PROFILE_CUSTOM = "Custom"
 
     def __init__(self, hass_client: Any, notify_cb: Optional[Callable[[str], Any]] = None) -> None:
         self.hass = hass_client
@@ -140,6 +143,11 @@ class ChargeController:
         self._last_delta_confirm_time: float = 0.0  # для подтверждения триггера раз в 1 мин
         self._cv_since: Optional[float] = None  # v2.5: время начала CV-режима для отслеживания 40 мин
         self.total_start_time: float = 0.0  # v2.6: общий старт сессии заряда (не сбрасывается при смене этапов)
+        # Переменные для ручного режима
+        self._custom_main_voltage: float = 14.7
+        self._custom_main_current: float = 5.0
+        self._custom_delta_threshold: float = 0.03
+        self._custom_time_limit_hours: float = 24.0
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -180,6 +188,51 @@ class ChargeController:
         self._session_start_reason = "User Command"
         self._clear_session_file()
         logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
+
+    def start_custom(self, main_voltage: float, main_current: float, delta_threshold: float, 
+                    time_limit_hours: float, ah_capacity: int) -> None:
+        """Запуск заряда в ручном режиме с пользовательскими параметрами."""
+        # Сброс данных сессии при старте нового заряда
+        self.reset_session_data()
+        
+        self.battery_type = self.PROFILE_CUSTOM
+        self.ah_capacity = max(1, ah_capacity)
+        self.current_stage = self.STAGE_MAIN  # Ручной режим сразу начинает с MAIN
+        self.stage_start_time = time.time()
+        self.total_start_time = self.stage_start_time
+        
+        # Сохраняем пользовательские параметры
+        self._custom_main_voltage = main_voltage
+        self._custom_main_current = main_current  
+        self._custom_delta_threshold = delta_threshold
+        self._custom_time_limit_hours = max(1.0, time_limit_hours)  # Минимум 1 час
+        
+        # Сброс всех счетчиков и флагов
+        self.antisulfate_count = 0
+        self.v_max_recorded = None
+        self.i_min_recorded = None
+        self.finish_timer_start = None
+        self._phantom_alerted = False
+        self.temp_history.clear()
+        self._agm_stage_idx = 0
+        self._delta_reported = False
+        self._stuck_current_since = None
+        self.emergency_hv_disconnect = False
+        self._temp_34_alerted = False
+        self._pending_log_event = None
+        self._safe_wait_next_stage = None
+        self._safe_wait_target_v = 0.0
+        self._safe_wait_target_i = 0.0
+        self._safe_wait_start = 0.0
+        self._blanking_until = 0.0
+        self._delta_trigger_count = 0
+        self._last_delta_confirm_time = 0.0
+        self._cv_since = None
+        self._session_start_reason = "Custom Mode"
+        self._clear_session_file()
+        
+        logger.info("ChargeController started CUSTOM: %.1fV/%.1fA delta=%.3fV limit=%.0fh capacity=%dAh", 
+                   main_voltage, main_current, delta_threshold, time_limit_hours, ah_capacity)
 
     def stop(self, clear_session: bool = True) -> None:
         """Остановка заряда. Если clear_session=False, файл сессии не удаляется (для восстановления после связи)."""
@@ -696,6 +749,8 @@ class ChargeController:
         return (12.0, 0.5)
 
     def _main_target(self) -> Tuple[float, float]:
+        if self.battery_type == self.PROFILE_CUSTOM:
+            return (self._custom_main_voltage, self._custom_main_current)
         if self.battery_type == self.PROFILE_CA:
             return (14.7, self._ic(0.5))
         if self.battery_type == self.PROFILE_EFB:
@@ -752,16 +807,18 @@ class ChargeController:
         return current > DESULF_CURRENT_STUCK
 
     def _exit_cc_condition(self, v_now: float) -> bool:
-        """Выход CC: V упало на 0.03V от пика."""
+        """Выход CC: V упало на дельту от пика."""
         if self.v_max_recorded is None:
             return False
-        return v_now <= self.v_max_recorded - DELTA_V_EXIT
+        delta_v = self._custom_delta_threshold if self.battery_type == self.PROFILE_CUSTOM else DELTA_V_EXIT
+        return v_now <= self.v_max_recorded - delta_v
 
     def _exit_cv_condition(self, i_now: float) -> bool:
-        """Выход CV: I выросло на 0.03A от минимума."""
+        """Выход CV: I выросло на дельту от минимума."""
         if self.i_min_recorded is None:
             return False
-        return i_now >= self.i_min_recorded + DELTA_I_EXIT
+        delta_i = self._custom_delta_threshold if self.battery_type == self.PROFILE_CUSTOM else DELTA_I_EXIT
+        return i_now >= self.i_min_recorded + delta_i
 
     def _get_stage_max_hours(self) -> Optional[float]:
         """Макс. часов этапа для прогресс-репорта, или None если нет лимита."""
@@ -829,6 +886,21 @@ class ChargeController:
             actions["full_reset"] = True
             actions["notify"] = msg
             actions["log_event"] = "EMERGENCY_TEMP_INVALID"
+            self.notify(msg)
+            return actions
+
+        # Проверка критической температуры (работает во всех режимах включая CUSTOM)
+        if temp >= TEMP_CRITICAL:
+            mode_text = "ручном режиме" if self.battery_type == self.PROFILE_CUSTOM else "режиме"
+            msg = (
+                f"🔴 <b>ПЕРЕГРЕВ АКБ в {mode_text}!</b>\n"
+                f"Температура: {temp:.1f}°C (критическая: {TEMP_CRITICAL}°C)\n"
+                "Заряд экстренно остановлен!"
+            )
+            actions["emergency_stop"] = True
+            actions["full_reset"] = True
+            actions["notify"] = msg
+            actions["log_event"] = f"EMERGENCY_TEMP_CRITICAL: {temp:.1f}°C >= {TEMP_CRITICAL}°C"
             self.notify(msg)
             return actions
 
@@ -936,9 +1008,10 @@ class ChargeController:
             uv, ui = self._main_target()
             in_blanking = now < self._blanking_until
 
-            # Проверяем защитный лимит времени (72 часа)
+            # Проверяем защитный лимит времени (72 часа для авто режимов, пользовательский для CUSTOM)
             stage_elapsed_hours = (now - self.stage_start_time) / 3600.0
-            if stage_elapsed_hours >= MAIN_STAGE_MAX_HOURS:
+            max_hours = self._custom_time_limit_hours if self.battery_type == self.PROFILE_CUSTOM else MAIN_STAGE_MAX_HOURS
+            if stage_elapsed_hours >= max_hours:
                 prev = self.current_stage
                 self.current_stage = self.STAGE_DONE
                 self.stage_start_time = now
@@ -946,20 +1019,54 @@ class ChargeController:
                 self._delta_trigger_count = 0
                 
                 trigger_name = "TIME_LIMIT"
-                condition = f"Достигнут защитный лимит {MAIN_STAGE_MAX_HOURS}ч для этапа MAIN"
+                condition = f"Достигнут лимит {max_hours}ч для этапа MAIN"
                 _log_trigger(prev, self.current_stage, trigger_name, condition)
                 
                 actions["turn_off"] = True
+                mode_text = "ручном режиме" if self.battery_type == self.PROFILE_CUSTOM else "автоматическом режиме"
                 actions["notify"] = (
-                    "<b>🛑 ЗАЩИТНЫЙ ЛИМИТ ДОСТИГНУТ!</b>\n"
-                    f"Этап MAIN длился {stage_elapsed_hours:.1f}ч (лимит {MAIN_STAGE_MAX_HOURS}ч)\n"
-                    "Заряд принудительно остановлен. Проверьте состояние АКБ."
+                    "<b>🛑 ЛИМИТ ВРЕМЕНИ ДОСТИГНУТ!</b>\n"
+                    f"Этап MAIN длился {stage_elapsed_hours:.1f}ч (лимит {max_hours}ч)\n"
+                    f"Заряд в {mode_text} завершен. Проверьте состояние АКБ."
                 )
-                actions["log_event"] = f"MAIN_TIME_LIMIT: {stage_elapsed_hours:.1f}ч >= {MAIN_STAGE_MAX_HOURS}ч - FORCED_STOP"
+                actions["log_event"] = f"MAIN_TIME_LIMIT: {stage_elapsed_hours:.1f}ч >= {max_hours}ч - FORCED_STOP"
                 self._clear_session_file()  # Очищаем сессию при принудительной остановке
                 return actions
 
-            if self.battery_type == self.PROFILE_AGM:
+            # Ручной режим: используем только дельта-триггер для завершения
+            if self.battery_type == self.PROFILE_CUSTOM:
+                if not in_blanking and self._check_delta_finish(voltage, current):
+                    if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT:
+                        # Подтверждённый триггер - завершаем заряд
+                        prev = self.current_stage
+                        self.current_stage = self.STAGE_DONE
+                        self.stage_start_time = now
+                        self._blanking_until = now + BLANKING_SEC
+                        self._delta_trigger_count = 0
+                        
+                        trigger_name = "CUSTOM_DELTA_TRIGGER"
+                        delta_v = self.v_max_recorded - voltage if self.v_max_recorded else 0
+                        delta_i = current - self.i_min_recorded if self.i_min_recorded else 0
+                        condition = f"V_max={self.v_max_recorded:.3f}В, V_now={voltage:.3f}В, dV={delta_v:.3f}В, I_min={self.i_min_recorded:.3f}А, I_now={current:.3f}А, dI={delta_i:.3f}А. Порог: {self._custom_delta_threshold:.3f}. Подтверждено {TRIGGER_CONFIRM_COUNT}/{TRIGGER_CONFIRM_COUNT}"
+                        _log_trigger(prev, self.current_stage, trigger_name, condition)
+                        
+                        actions["turn_off"] = True
+                        actions["notify"] = (
+                            "<b>✅ Ручной режим завершен!</b>\n"
+                            f"Дельта-триггер сработал: {delta_v:.3f}В / {delta_i:.3f}А\n"
+                            f"Порог: {self._custom_delta_threshold:.3f}"
+                        )
+                        actions["log_event"] = f"CUSTOM_FINISH: dV={delta_v:.3f}В, dI={delta_i:.3f}А, подтверждено {TRIGGER_CONFIRM_COUNT}/{TRIGGER_CONFIRM_COUNT}"
+                        self._clear_session_file()
+                        return actions
+                    else:
+                        # Триггер в процессе подтверждения
+                        logger.info("CUSTOM: delta trigger %d/%d, waiting for confirmation", 
+                                  self._delta_trigger_count, TRIGGER_CONFIRM_COUNT)
+                else:
+                    self._delta_trigger_count = 0
+            
+            elif self.battery_type == self.PROFILE_AGM:
                 stage_mins = elapsed / 60
                 if self._agm_stage_idx < len(AGM_STAGES) - 1 and stage_mins >= AGM_STAGE_MIN_MINUTES:
                     self._agm_stage_idx += 1
