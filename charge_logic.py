@@ -54,8 +54,9 @@ HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watch
 # Активная безопасность: OVP/OCP, температурная защита (все режимы Ca/Ca, EFB, AGM)
 OVP_OFFSET = 0.2  # В — OVP = целевое U + 0.2
 OCP_OFFSET = 0.5  # А — OCP = лимит I + 0.5
-TEMP_WARNING = 34.0  # °C — предупреждение в Telegram (один раз за сессию)
-TEMP_CRITICAL = 45.0  # °C — критическая температура для аварийного отключения
+TEMP_WARNING = 35.0  # °C — предупреждение в Telegram (один раз за сессию)
+TEMP_PAUSE = 40.0    # °C — пауза заряда (Output OFF), возврат при 35°C
+TEMP_CRITICAL = 45.0  # °C — критическая температура для полного сброса в IDLE
 TEMP_EMERGENCY = 37.0  # °C — аварийное отключение, полный сброс
 
 
@@ -89,6 +90,7 @@ class ChargeController:
     STAGE_ANTI_SULF = "Десульфатация"  # v2.5: алиас для ясности (16.3В/2%Ah на 2ч)
     STAGE_MIX = "Mix Mode"  # v2.5: 16.5В/3%Ah до 10ч для EFB
     STAGE_SAFE_WAIT = "Безопасное ожидание"
+    STAGE_COOLING = "🌡 Остывание"
     STAGE_DONE = "Done"
     STAGE_IDLE = "Idle"
 
@@ -118,7 +120,10 @@ class ChargeController:
         self.last_update_time: float = 0.0  # время последнего вызова tick() — для watchdog
         self.emergency_hv_disconnect: bool = False  # флаг после аварийного отключения при U>15В
         self._phase_current_limit: float = 0.0  # базовый лимит тока текущей фазы
-        self._temp_34_alerted: bool = False  # предупреждение 34°C отправлено один раз за сессию
+        self._temp_warning_alerted: bool = False  # предупреждение 35°C отправлено один раз за сессию
+        self._cooling_from_stage: Optional[str] = None  # из какого этапа перешли в охлаждение
+        self._cooling_target_v: float = 0.0  # целевые параметры для возврата
+        self._cooling_target_i: float = 0.0
         self._pending_log_event: Optional[str] = None  # для логирования 34°C
         self._start_ah: float = 0.0  # накопленная ёмкость на старте сессии
         self._last_checkpoint_time: float = 0.0  # для контрольных точек каждые 10 мин
@@ -218,7 +223,10 @@ class ChargeController:
         self._delta_reported = False
         self._stuck_current_since = None
         self.emergency_hv_disconnect = False
-        self._temp_34_alerted = False
+        self._temp_warning_alerted = False
+        self._cooling_from_stage = None
+        self._cooling_target_v = 0.0
+        self._cooling_target_i = 0.0
         self._pending_log_event = None
         self._safe_wait_next_stage = None
         self._safe_wait_target_v = 0.0
@@ -277,6 +285,8 @@ class ChargeController:
             return self._mix_target()
         if self.current_stage == self.STAGE_SAFE_WAIT:
             return (0.0, 0.0)  # выход выключен
+        if self.current_stage == self.STAGE_COOLING:
+            return (0.0, 0.0)  # выход выключен во время охлаждения
         if self.current_stage == self.STAGE_DONE:
             return self._storage_target()
         return (0.0, 0.0)
@@ -288,6 +298,8 @@ class ChargeController:
         target_finish = self._get_target_finish_time()
         if self.current_stage == self.STAGE_SAFE_WAIT:
             uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
+        elif self.current_stage == self.STAGE_COOLING:
+            uv, ui = self._cooling_target_v, self._cooling_target_i
         else:
             uv, ui = self._get_target_v_i()
         data = {
@@ -770,6 +782,17 @@ class ChargeController:
 
     def _storage_target(self) -> Tuple[float, float]:
         return (13.8, 1.0)
+    
+    def _get_current_targets(self) -> Tuple[float, float]:
+        """Получить текущие целевые параметры V/I в зависимости от этапа."""
+        if self.current_stage == self.STAGE_MAIN:
+            return self._main_target()
+        elif self.current_stage == self.STAGE_DESULFATION:
+            return self._desulf_target()
+        elif self.current_stage == self.STAGE_MIX:
+            return self._mix_target()
+        else:
+            return (14.0, 1.0)  # безопасные значения по умолчанию
 
     def _check_temp_safety(
         self,
@@ -794,11 +817,12 @@ class ChargeController:
                 f"Накопленная ёмкость: <code>{ah_charged:.2f}</code> Ач\n"
                 f"Время в текущем режиме: <code>{stage_duration_min:.0f}</code> мин."
             )
-        if temp >= TEMP_WARNING and not self._temp_34_alerted:
-            self._temp_34_alerted = True
-            self._pending_log_event = "WARNING_34C"
+        if temp >= TEMP_WARNING and not self._temp_warning_alerted:
+            self._temp_warning_alerted = True
+            self._pending_log_event = "WARNING_35C"
             self.notify(
-                f"⚠️ Внимание: Температура АКБ поднялась до {temp:.1f}°C. Продолжаю наблюдение."
+                f"⚠️ Внимание: Температура АКБ поднялась до {temp:.1f}°C. "
+                f"При {TEMP_PAUSE}°C заряд будет приостановлен."
             )
         return None
 
@@ -889,18 +913,37 @@ class ChargeController:
             self.notify(msg)
             return actions
 
-        # Проверка критической температуры (работает во всех режимах включая CUSTOM)
+        # Трехуровневая температурная защита
         if temp >= TEMP_CRITICAL:
+            # 45°C - критическая температура: полный сброс в IDLE
             mode_text = "ручном режиме" if self.battery_type == self.PROFILE_CUSTOM else "режиме"
             msg = (
-                f"🔴 <b>ПЕРЕГРЕВ АКБ в {mode_text}!</b>\n"
+                f"🔴 <b>КРИТИЧЕСКИЙ ПЕРЕГРЕВ в {mode_text}!</b>\n"
                 f"Температура: {temp:.1f}°C (критическая: {TEMP_CRITICAL}°C)\n"
-                "Заряд экстренно остановлен!"
+                "Заряд экстренно остановлен и сброшен!"
             )
             actions["emergency_stop"] = True
             actions["full_reset"] = True
             actions["notify"] = msg
             actions["log_event"] = f"EMERGENCY_TEMP_CRITICAL: {temp:.1f}°C >= {TEMP_CRITICAL}°C"
+            self.notify(msg)
+            return actions
+        
+        elif temp >= TEMP_PAUSE and self.current_stage not in (self.STAGE_COOLING, self.STAGE_IDLE, self.STAGE_DONE):
+            # 40°C - пауза заряда: переход в режим охлаждения
+            prev_stage = self.current_stage
+            self.current_stage = self.STAGE_COOLING
+            self._cooling_from_stage = prev_stage
+            self._cooling_target_v, self._cooling_target_i = self._get_current_targets()
+            
+            msg = (
+                f"🌡 <b>ПЕРЕГРЕВ - ПАУЗА ЗАРЯДА!</b>\n"
+                f"Температура: {temp:.1f}°C (лимит: {TEMP_PAUSE}°C)\n"
+                f"Выход отключен. Ожидание охлаждения до {TEMP_WARNING}°C."
+            )
+            actions["turn_off"] = True
+            actions["notify"] = msg
+            actions["log_event"] = f"TEMP_PAUSE: {temp:.1f}°C >= {TEMP_PAUSE}°C, {prev_stage}->COOLING"
             self.notify(msg)
             return actions
 
@@ -1246,6 +1289,38 @@ class ChargeController:
                     self._delta_trigger_count = 0
             else:
                 pass  # продолжаем ждать
+
+        # --- ОХЛАЖДЕНИЕ ---
+        elif self.current_stage == self.STAGE_COOLING:
+            # Проверяем, остыла ли АКБ до безопасной температуры
+            if temp <= TEMP_WARNING:
+                # Температура упала до 35°C - можно возвращаться к заряду
+                prev_stage = self.current_stage
+                return_stage = self._cooling_from_stage or self.STAGE_MAIN
+                self.current_stage = return_stage
+                self.stage_start_time = now
+                
+                # Восстанавливаем целевые параметры
+                uv, ui = self._cooling_target_v, self._cooling_target_i
+                self._cooling_from_stage = None
+                
+                actions["set_voltage"] = uv
+                actions["set_current"] = ui
+                self._add_phase_limits(actions, uv, ui)
+                actions["turn_on"] = True
+                self._blanking_until = now + BLANKING_SEC
+                
+                msg = (
+                    f"🌡 <b>АКБ ОСТЫЛА - ВОЗВРАТ К ЗАРЯДУ!</b>\n"
+                    f"Температура: {temp:.1f}°C (норма: ≤{TEMP_WARNING}°C)\n"
+                    f"Возврат к этапу: {return_stage}"
+                )
+                actions["notify"] = msg
+                actions["log_event"] = f"COOLING_RETURN: {temp:.1f}°C <= {TEMP_WARNING}°C, {prev_stage}->{return_stage}"
+                self.notify(msg)
+            else:
+                # Продолжаем ждать охлаждения
+                pass
 
         # --- ДЕСУЛЬФАТАЦИЯ ---
         elif self.current_stage == self.STAGE_DESULFATION:

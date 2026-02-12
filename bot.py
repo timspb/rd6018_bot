@@ -267,6 +267,8 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             transition_condition = "🔜 ПЕРЕХОД: через 2ч к Main Charge"
         elif "Безопасное ожидание" in stage_name:
             transition_condition = "🔜 ПЕРЕХОД: при падении V"
+        elif "Остывание" in stage_name:
+            transition_condition = f"🔜 ВОЗВРАТ: при T ≤ 35°C (сейчас {temp_ext:.1f}°C)"
         
         # Добавляем лимит времени если есть
         time_limit = timers['remaining_time']
