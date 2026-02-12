@@ -138,6 +138,7 @@ class ChargeController:
         self._last_v_i_history_time: float = 0.0
         self._last_delta_confirm_time: float = 0.0  # для подтверждения триггера раз в 1 мин
         self._cv_since: Optional[float] = None  # v2.5: время начала CV-режима для отслеживания 40 мин
+        self.total_start_time: float = 0.0  # v2.6: общий старт сессии заряда (не сбрасывается при смене этапов)
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -154,6 +155,7 @@ class ChargeController:
         self.ah_capacity = max(1, ah_capacity)
         self.current_stage = self.STAGE_PREP
         self.stage_start_time = time.time()
+        self.total_start_time = self.stage_start_time  # v2.6: фиксируем общий старт сессии
         self.antisulfate_count = 0
         self.v_max_recorded = None
         self.i_min_recorded = None
@@ -250,6 +252,7 @@ class ChargeController:
             "safe_wait_target_v": self._safe_wait_target_v,
             "safe_wait_target_i": self._safe_wait_target_i,
             "safe_wait_start": self._safe_wait_start,
+            "total_start_time": self.total_start_time,  # v2.6: сохраняем общий старт
             "saved_at": time.time(),
         }
         try:
@@ -293,6 +296,17 @@ class ChargeController:
             self._safe_wait_start = float(raw_safe_wait_start) if raw_safe_wait_start not in (None, 0) else now
         except (TypeError, ValueError):
             self._safe_wait_start = now
+        
+        # v2.6: восстанавливаем общий старт сессии
+        raw_total_start = data.get("total_start_time")
+        try:
+            self.total_start_time = float(raw_total_start) if raw_total_start not in (None, 0) else now
+        except (TypeError, ValueError):
+            self.total_start_time = now
+        # Валидация total_start_time
+        if not self.total_start_time or self.total_start_time <= 0 or (now - self.total_start_time) > SESSION_START_MAX_AGE:
+            self.total_start_time = now
+            logger.info("Restore: total_start_time invalid or >24h, set to now()")
 
         target_finish = data.get("target_finish_time")
         target_v = float(data.get("target_voltage", 14.7))
@@ -563,6 +577,56 @@ class ChargeController:
             "predicted_time": pred,
             "comment": comment,
             "health_warning": health,
+        }
+
+    def get_timers(self) -> Dict[str, Any]:
+        """v2.6 Получить данные таймеров для отображения и AI."""
+        now = time.time()
+        
+        # Общее время заряда
+        total_elapsed = now - self.total_start_time if self.total_start_time > 0 else 0
+        total_hours = int(total_elapsed // 3600)
+        total_mins = int((total_elapsed % 3600) // 60)
+        total_str = f"{total_hours:02d}:{total_mins:02d}"
+        
+        # Время в текущем этапе
+        stage_elapsed = now - self.stage_start_time if self.stage_start_time > 0 else 0
+        stage_hours = int(stage_elapsed // 3600)
+        stage_mins = int((stage_elapsed % 3600) // 60)
+        stage_str = f"{stage_hours:02d}:{stage_mins:02d}"
+        
+        # Оставшееся время до лимита текущего этапа
+        remaining_str = "—"
+        stage_limit_sec = None
+        
+        if self.current_stage == self.STAGE_DESULFATION:
+            stage_limit_sec = 2 * 3600  # 2 часа
+        elif self.current_stage == self.STAGE_MIX:
+            if self.finish_timer_start:
+                stage_limit_sec = MIX_DONE_TIMER  # 2 часа после Delta
+                stage_elapsed = now - self.finish_timer_start
+            elif self.battery_type == self.PROFILE_EFB:
+                stage_limit_sec = EFB_MIX_MAX_HOURS * 3600  # 10 часов для EFB
+        elif self.current_stage == self.STAGE_SAFE_WAIT:
+            stage_limit_sec = SAFE_WAIT_MAX_SEC  # 2 часа
+            stage_elapsed = now - self._safe_wait_start if self._safe_wait_start > 0 else 0
+        
+        if stage_limit_sec:
+            remaining_sec = stage_limit_sec - stage_elapsed
+            if remaining_sec > 0:
+                rem_hours = int(remaining_sec // 3600)
+                rem_mins = int((remaining_sec % 3600) // 60)
+                remaining_str = f"{rem_hours:02d}:{rem_mins:02d}"
+            else:
+                remaining_str = "00:00"
+        
+        return {
+            "total_time": total_str,
+            "stage_time": stage_str,
+            "remaining_time": remaining_str,
+            "total_elapsed_sec": total_elapsed,
+            "stage_elapsed_sec": stage_elapsed,
+            "stage_limit_sec": stage_limit_sec,
         }
 
     def get_telemetry_summary(

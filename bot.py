@@ -221,15 +221,23 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
     status = "💤 Ожидание | АКБ: {:.2f}В".format(battery_v) if not is_on else "⚡️ Зарядка | Выход: {:.2f}В (АКБ: {:.2f}В)".format(output_v, battery_v)
     charge_phase = ""
+    timer_line = ""
+    
     if charge_controller.is_active:
         charge_phase = f"\n<b>🔋 ЗАРЯД:</b> {charge_controller.current_stage} ({charge_controller.battery_type} {charge_controller.ah_capacity}Ач)"
+        # v2.6 Добавляем строку времени
+        timers = charge_controller.get_timers()
+        timer_line = f"\n<b>⏱ Время:</b> Всего {timers['total_time']} | Этап {timers['stage_time']}"
+        if timers['remaining_time'] != "—":
+            timer_line += f" | Лимит {timers['remaining_time']}"
+    
     text = (
-        "<b>📊 СТАТУС:</b> {} | {}{}\n"
+        "<b>📊 СТАТУС:</b> {} | {}{}{}\n"
         "<b>⚡ LIVE:</b> {:.2f}В | {:.2f}А | {:.2f}Вт\n"
         "<b>🎯 ЦЕЛЬ:</b> {:.2f}В | {:.1f}А\n"
         "<b>🔋 ЕМКОСТЬ:</b> {:.2f} Ач | {:.1f} Втч\n"
         "<b>🌡 ТЕМП:</b> {:.1f}°C (Внеш) | {:.1f}°C (Внутр)"
-    ).format(status, mode, charge_phase, v, i, p, set_v, set_i, ah, wh, temp_ext, temp_int)
+    ).format(status, mode, charge_phase, timer_line, v, i, p, set_v, set_i, ah, wh, temp_ext, temp_int)
 
     times, voltages, currents = await get_graph_data(limit=100)
     buf = generate_chart(times, voltages, currents)
@@ -637,24 +645,50 @@ async def cmd_stats(message: Message) -> None:
 
 
 async def get_current_context_for_llm() -> str:
-    """v2.6 Получить текущий контекст для LLM: V, I, T_ext, стадия заряда, последние события."""
+    """v2.6 Получить расширенный контекст для LLM: таймеры, параметры RD6018, события."""
     try:
         live = await hass.get_all_live()
         battery_v = _safe_float(live.get("battery_voltage"))
+        output_v = _safe_float(live.get("voltage"))
         i = _safe_float(live.get("current"))
+        p = _safe_float(live.get("power"))
         temp_ext = _safe_float(live.get("temp_ext"))
+        set_v = _safe_float(live.get("set_voltage"))
+        set_i = _safe_float(live.get("set_current"))
         is_on = str(live.get("switch", "")).lower() == "on"
+        is_cv = str(live.get("is_cv", "")).lower() == "on"
+        is_cc = str(live.get("is_cc", "")).lower() == "on"
+        mode = "CV" if is_cv else ("CC" if is_cc else "—")
+        
+        # v2.6 Данные таймеров
+        timers = charge_controller.get_timers()
+        timer_info = ""
+        if charge_controller.is_active:
+            timer_info = f"""
+- Общее время заряда: {timers['total_time']}
+- Время в этапе {charge_controller.current_stage}: {timers['stage_time']}
+- Лимит этапа: {timers['remaining_time']} осталось"""
         
         context = f"""Текущие параметры RD6018:
 - Напряжение АКБ: {battery_v:.2f}В
+- Напряжение выхода: {output_v:.2f}В  
 - Ток: {i:.2f}А
+- Мощность: {p:.2f}Вт
 - Температура внешняя: {temp_ext:.1f}°C
-- Выход: {'включен' if is_on else 'выключен'}
+- Настройки: V_set={set_v:.2f}В, I_set={set_i:.2f}А
+- Режим: {mode}
+- Статус выхода: {'ON' if is_on else 'OFF'}
 - Стадия заряда: {charge_controller.current_stage}
 - Тип АКБ: {charge_controller.battery_type if charge_controller.is_active else 'не выбран'}
-- Ёмкость: {charge_controller.ah_capacity}Ач"""
+- Ёмкость: {charge_controller.ah_capacity}Ач{timer_info}"""
         
-        # TODO: добавить последние 3 записи из лога событий когда будет реализован
+        # Последние события из лога
+        from charging_log import get_recent_events
+        recent_events = get_recent_events(5)
+        if recent_events:
+            context += "\n\nПоследние события:\n"
+            for event in recent_events:
+                context += f"- {event}\n"
         
         return context
     except Exception as ex:

@@ -41,8 +41,14 @@ def log_event(
     ah: float,
     event: str,
 ) -> None:
-    """Записать событие в лог."""
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Записать событие в лог с пользовательским часовым поясом."""
+    try:
+        from time_utils import format_datetime_user_tz
+        ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
+    except ImportError:
+        # Fallback если time_utils недоступен
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {event}"
     _ensure_logger().info(line)
 
@@ -50,3 +56,25 @@ def log_event(
 def log_checkpoint(stage: str, v: float, i: float, t_ext: float, ah: float) -> None:
     """Контрольная точка (каждые 10 мин)."""
     log_event(stage, v, i, t_ext, ah, "CHECKPOINT")
+
+
+def get_recent_events(limit: int = 5) -> list:
+    """v2.6 Получить последние N событий из лога для AI контекста."""
+    if not os.path.exists(LOG_FILE):
+        return []
+    
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        # Фильтруем значимые события (не CHECKPOINT)
+        significant_events = []
+        for line in lines:
+            line = line.strip()
+            if line and "CHECKPOINT" not in line:
+                significant_events.append(line)
+        
+        # Возвращаем последние N событий
+        return significant_events[-limit:] if significant_events else []
+    except Exception:
+        return []
