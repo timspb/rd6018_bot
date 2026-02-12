@@ -411,40 +411,60 @@ def format_log_event(event_line: str) -> str:
         # Сокращаем название этапа
         stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
         
-        # Формируем компактную строку
+        # Формируем вертикальный формат для лучшей читаемости
         if "CHECKPOINT" not in event and not _should_hide_restore_event(event):  # Скрываем чекпоинты и обычные RESTORE
+            # Полностью скрываем RESTORE события
+            if "RESTORE" in event:
+                return ""
+            
             # СНАЧАЛА экранируем, ПОТОМ обрезаем - чтобы не порвать HTML теги
             event_clean = event.replace("profile=", "").replace("ah=", "Ah:")
             event_escaped = html.escape(event_clean)
             stage_escaped = html.escape(stage_short)
             
-            # Извлекаем ключевые параметры для отображения в одной строке
-            details = ""
+            # Основное событие
+            main_event = event_escaped.split('.')[0] if '.' in event_escaped else event_escaped.split(',')[0]
+            
+            # Заголовок события
+            header = f"[{time_only}] {icon} <b>{stage_escaped}: {main_event}</b>"
+            
+            # Извлекаем технические параметры для вертикального отображения
+            params_lines = []
             if any(param in event_escaped for param in ["V_max=", "V_now=", "dV=", "I_min=", "I_now=", "dI=", "Порог:", "Подтверждено"]):
-                params = []
                 if "V_now=" in event_escaped:
                     v_match = event_escaped.split("V_now=")[1].split("В")[0] if "V_now=" in event_escaped else ""
                     if v_match:
-                        params.append(f"V={v_match}В")
+                        params_lines.append(f"├ V_now: {v_match}В")
+                
                 if "I_now=" in event_escaped:
                     i_match = event_escaped.split("I_now=")[1].split("А")[0] if "I_now=" in event_escaped else ""
                     if i_match:
-                        params.append(f"I={i_match}А")
+                        params_lines.append(f"├ I_now: {i_match}А")
+                
+                if "V_max=" in event_escaped:
+                    v_max = event_escaped.split("V_max=")[1].split("В")[0] if "V_max=" in event_escaped else ""
+                    if v_max:
+                        params_lines.append(f"├ V_max: {v_max}В")
+                
+                if "I_min=" in event_escaped:
+                    i_min = event_escaped.split("I_min=")[1].split("А")[0] if "I_min=" in event_escaped else ""
+                    if i_min:
+                        params_lines.append(f"├ I_min: {i_min}А")
+                
                 if "Порог:" in event_escaped:
                     threshold = event_escaped.split("Порог: ")[1].split(".")[0] if "Порог: " in event_escaped else ""
                     if threshold:
-                        params.append(f"Δ={threshold}")
+                        params_lines.append(f"└ Δ: {threshold}")
                 
-                if params:
-                    details = f" — {' | '.join(params[:3])}"
+                # Если есть параметры, меняем последний символ на └
+                if params_lines and params_lines[-1].startswith("├"):
+                    params_lines[-1] = params_lines[-1].replace("├", "└", 1)
             
-            # Основное событие (обрезаем если слишком длинное)
-            main_event = event_escaped.split('.')[0] if '.' in event_escaped else event_escaped
-            if len(main_event) > 45:
-                main_event = main_event[:42] + "..."
-            
-            # Формируем ЕДИНЫЙ блок без переносов
-            return f"<code>[{time_only}] {icon} <b>{stage_escaped}</b>: {main_event}{details}</code>"
+            # Формируем итоговый результат
+            if params_lines:
+                return header + "\n" + "\n".join(params_lines)
+            else:
+                return header
         else:
             return ""  # Пропускаем чекпоинты для компактности
             
@@ -546,7 +566,12 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
                 time_display = time_limit
                 
             if transition_condition:
-                transition_condition += f" | ⏱ {time_display}"
+                # Проверяем длину строки и переносим время если нужно
+                full_line = f"{transition_condition} | ⏱ {time_display}"
+                if len(full_line) > 35:  # Если строка слишком длинная
+                    transition_condition = f"{transition_condition}\n⏱ {time_display}"
+                else:
+                    transition_condition = full_line
             else:
                 transition_condition = f"🔜 ⏱ {time_display}"
         
