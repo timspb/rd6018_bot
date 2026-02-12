@@ -427,9 +427,36 @@ async def data_logger() -> None:
             t = _safe_float(temp_ext)
             ah = _safe_float(live.get("ah"))
             is_cv = str(live.get("is_cv", "")).lower() == "on"
+            output_switch = live.get("switch")
             await add_record(battery_v, i, p, t)
 
-            actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah)
+            # Восстановление после потери связи: если был unavailable и теперь данные есть — попробовать restore
+            if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
+                if charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
+                    ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+                    if ok and msg:
+                        last_checkpoint_time = time.time()
+                        if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                            uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                            await hass.set_voltage(uv)
+                            await hass.set_current(ui)
+                        else:
+                            uv, ui = charge_controller._get_target_v_i()
+                            await hass.set_voltage(uv)
+                            await hass.set_current(ui)
+                            await hass.turn_on(ENTITY_MAP["switch"])
+                        log_event(
+                            charge_controller.current_stage,
+                            battery_v,
+                            i,
+                            t,
+                            ah,
+                            "RESTORE",
+                        )
+                        _charge_notify(msg)
+                        logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+
+            actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah, output_switch)
 
             if actions.get("log_event"):
                 log_event(
@@ -450,8 +477,7 @@ async def data_logger() -> None:
                 await hass.turn_off(ENTITY_MAP["switch"])
                 if actions.get("full_reset"):
                     charge_controller.full_reset()
-                else:
-                    charge_controller.stop()
+                # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
             elif charge_controller.is_active:
                 if actions.get("turn_off"):
                     await hass.turn_off(ENTITY_MAP["switch"])

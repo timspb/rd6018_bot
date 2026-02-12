@@ -114,6 +114,8 @@ class ChargeController:
         self._blanking_until: float = 0.0  # до этого времени игнорировать триггеры после смены фазы
         self._delta_trigger_count: int = 0  # подряд выполнений условия Delta для подтверждения
         self._session_start_reason: str = "User Command"  # User Command | Auto-restore
+        self._last_known_output_on: bool = False  # последнее известное состояние выхода (для EMERGENCY_UNAVAILABLE)
+        self._was_unavailable: bool = False  # предыдущий тик был unavailable → при восстановлении попробовать restore
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -155,13 +157,14 @@ class ChargeController:
         self._clear_session_file()
         logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
 
-    def stop(self) -> None:
-        """Остановка заряда."""
+    def stop(self, clear_session: bool = True) -> None:
+        """Остановка заряда. Если clear_session=False, файл сессии не удаляется (для восстановления после связи)."""
         prev = self.current_stage
         self.current_stage = self.STAGE_IDLE
         self.v_max_recorded = None
         self.i_min_recorded = None
-        self._clear_session_file()
+        if clear_session:
+            self._clear_session_file()
         logger.info("ChargeController stopped (was: %s)", prev)
 
     def _clear_session_file(self) -> None:
@@ -662,10 +665,14 @@ class ChargeController:
         temp_ext: Optional[float],
         is_cv: bool,
         ah: float,
+        output_is_on: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Основной цикл. Вызывается из фоновой задачи каждые 30 сек.
         Возвращает dict: set_voltage, set_current, turn_off, notify, emergency_stop.
+
+        output_is_on — последнее известное состояние выхода (on/off); при unavailable
+        по нему решаем, слать ли критическое уведомление или тихо перейти в IDLE.
 
         ВАЖНО: voltage — ВСЕГДА sensor.rd_6018_battery_voltage (напряжение на клеммах АКБ).
         Используется для расчёта дельты (спад 0.03В) и порогов перехода фаз.
@@ -675,15 +682,17 @@ class ChargeController:
         self.last_update_time = now
 
         if temp_ext is None or temp_ext in ("unavailable", "unknown", ""):
-            msg = (
-                "🔴 <b>АВАРИЯ:</b> Датчик температуры (sensor.rd_6018_temperature_external) "
-                "выдаёт ошибку или Unavailable. Заряд остановлен в целях безопасности."
-            )
+            self._was_unavailable = True
             actions["emergency_stop"] = True
-            actions["full_reset"] = True
-            actions["notify"] = msg
             actions["log_event"] = "EMERGENCY_UNAVAILABLE"
-            self.notify(msg)
+            if self._last_known_output_on:
+                msg = "⚠️ Связь потеряна во время заряда!"
+                actions["notify"] = msg
+                actions["full_reset"] = True
+                self.notify(msg)
+            else:
+                # Выход был выключен — тихо в IDLE, сессию не чистим (можно восстановить при возврате связи)
+                self.stop(clear_session=False)
             return actions
 
         try:
@@ -699,6 +708,11 @@ class ChargeController:
             actions["log_event"] = "EMERGENCY_TEMP_INVALID"
             self.notify(msg)
             return actions
+
+        # Обновить последнее известное состояние выхода и сбросить флаг unavailable
+        if output_is_on is not None and str(output_is_on).lower() not in ("unavailable", "unknown", ""):
+            self._last_known_output_on = (output_is_on is True or str(output_is_on).lower() == "on")
+        self._was_unavailable = False
 
         if self.current_stage != self.STAGE_IDLE:
             self._analytics_history.append((now, voltage, current, ah, temp))
