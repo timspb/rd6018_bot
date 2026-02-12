@@ -311,6 +311,30 @@ def safe_html_format(template: str, **kwargs) -> str:
     return result
 
 
+# Глобальные переменные для отслеживания RESTORE событий
+_last_restore_time: float = 0.0
+_script_start_time: float = time.time()
+
+def _should_hide_restore_event(event: str) -> bool:
+    """Определяет, нужно ли скрыть RESTORE событие от пользователя."""
+    global _last_restore_time, _script_start_time
+    
+    if "RESTORE" not in event:
+        return False
+    
+    current_time = time.time()
+    
+    # Показываем RESTORE только если:
+    # 1. Это первый RESTORE после запуска скрипта (в течение первых 5 минут)
+    # 2. Прошло более 2 минут с последнего показанного RESTORE
+    if (current_time - _script_start_time < 300 and _last_restore_time == 0) or \
+       (current_time - _last_restore_time > 120):
+        _last_restore_time = current_time
+        return False  # Показываем событие
+    
+    return True  # Скрываем событие
+
+
 def format_log_event(event_line: str) -> str:
     """Форматирование строки события в красивый вид с иконками."""
     try:
@@ -344,6 +368,8 @@ def format_log_event(event_line: str) -> str:
             icon = "⚠️"
         elif "CHECKPOINT" in event:
             icon = "⏱️"
+        elif "RESTORE" in event:
+            icon = "🔄"
         elif any(word in event for word in ["Set", "УСТАВКА", "V=", "I="]):
             icon = "⚙️"
         
@@ -351,7 +377,7 @@ def format_log_event(event_line: str) -> str:
         stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
         
         # Формируем компактную строку
-        if "CHECKPOINT" not in event:  # Скрываем обычные чекпоинты
+        if "CHECKPOINT" not in event and not _should_hide_restore_event(event):  # Скрываем чекпоинты и обычные RESTORE
             # СНАЧАЛА экранируем, ПОТОМ обрезаем - чтобы не порвать HTML теги
             event_clean = event.replace("profile=", "").replace("ah=", "Ah:")
             event_escaped = html.escape(event_clean)
