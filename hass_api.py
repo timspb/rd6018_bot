@@ -148,7 +148,7 @@ class HassClient:
 
     async def get_all_live(self) -> Dict[str, Any]:
         """Получить все live-данные для дашборда."""
-        keys = ["voltage", "battery_voltage", "current", "power", "ah", "wh", "temp_int", "temp_ext", "is_cv", "is_cc", "switch", "set_voltage", "set_current"]
+        keys = ["voltage", "battery_voltage", "current", "power", "ah", "wh", "temp_int", "temp_ext", "is_cv", "is_cc", "switch", "set_voltage", "set_current", "ovp", "ocp"]
         result: Dict[str, Any] = {}
         for key in keys:
             eid = ENTITY_MAP.get(key)

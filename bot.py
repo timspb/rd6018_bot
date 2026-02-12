@@ -238,15 +238,44 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         temp_warning = f" | ⚠️ Блок: {temp_int:.1f}°C"
     live_line = f"⚡️ LIVE: {battery_v:.2f}В | {i:.2f}А | 🌡 {temp_ext:.1f}°C{temp_warning}"
     
-    # 3. БЛОК ЦЕЛИ (Две строки) - только при активном заряде
+    # 3. БЛОК ЭТАПА (Три строки) - только при активном заряде
     stage_block = ""
     if charge_controller.is_active:
         stage_time = timers['stage_time']
-        time_limit = timers['remaining_time'] if timers['remaining_time'] != "—" else "∞"
+        
+        # Получаем жесткие лимиты блока (OVP/OCP)
+        ovp_v = _safe_float(live.get("ovp", set_v + 0.2))  # OVP - защита по перенапряжению
+        ocp_a = _safe_float(live.get("ocp", set_i + 0.5))  # OCP - защита по перетоку
+        
+        # Условие перехода в зависимости от этапа
+        transition_condition = ""
+        if "Main" in stage_name:
+            if charge_controller.battery_type in ["Ca/Ca", "EFB"]:
+                transition_condition = "🔜 ПЕРЕХОД: при I < 0.3А в течение 40 мин"
+            elif charge_controller.battery_type == "AGM":
+                transition_condition = "🔜 ПЕРЕХОД: при I < 0.2А"
+        elif "Mix" in stage_name:
+            transition_condition = "🔜 ФИНИШ: при dV > 0.03В или dI > 0.03А"
+        elif "Десульфатация" in stage_name:
+            transition_condition = "🔜 ПЕРЕХОД: через 2ч к Main Charge"
+        elif "Безопасное ожидание" in stage_name:
+            transition_condition = "🔜 ПЕРЕХОД: при падении V"
+        
+        # Добавляем лимит времени если есть
+        time_limit = timers['remaining_time']
+        if time_limit != "—":
+            if transition_condition:
+                transition_condition += f" | ЛИМИТ: {time_limit}"
+            else:
+                transition_condition = f"🔜 ЛИМИТ: {time_limit}"
+        
         stage_block = (
             f"\n📍 ЭТАП: {stage_name} ({stage_time})\n"
-            f"🎯 ЦЕЛЬ: {set_v:.2f}В | {set_i:.1f}А | Лимит: {time_limit}"
+            f"⚙️ УСТАВКИ: {ovp_v:.1f}В | {ocp_a:.0f}А"
         )
+        
+        if transition_condition:
+            stage_block += f"\n{transition_condition}"
     
     # 4. ЧЕТВЕРТАЯ СТРОКА (Емкость)
     capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"

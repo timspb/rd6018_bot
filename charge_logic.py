@@ -41,6 +41,7 @@ BLANKING_SEC = 5 * 60  # сек — после смены фазы или вкл
 TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с интервалом 1 мин для срабатывания Delta
 TRIGGER_CONFIRM_INTERVAL_SEC = 60  # сек — интервал между замерами для подтверждения
 MAIN_MIX_STUCK_CV_MIN = 40  # мин в CV с током >=0.3А перед MAIN->MIX (desulf limit) для Ca/EFB
+MAIN_STAGE_MAX_HOURS = 72  # защитный лимит для MAIN: 72 часа максимум
 ELAPSED_MAX_HOURS = 1000  # если elapsed > 1000 ч — ошибка времени, сброс start_time
 TELEMETRY_HISTORY_MINUTES = 15  # для AI только последние 15 мин
 
@@ -591,6 +592,11 @@ class ChargeController:
         
         # Время в текущем этапе
         stage_elapsed = now - self.stage_start_time if self.stage_start_time > 0 else 0
+        
+        # Защита от бага: stage_time не может быть больше total_time
+        if stage_elapsed > total_elapsed:
+            stage_elapsed = total_elapsed
+            
         stage_hours = int(stage_elapsed // 3600)
         stage_mins = int((stage_elapsed % 3600) // 60)
         stage_str = f"{stage_hours:02d}:{stage_mins:02d}"
@@ -599,7 +605,9 @@ class ChargeController:
         remaining_str = "—"
         stage_limit_sec = None
         
-        if self.current_stage == self.STAGE_DESULFATION:
+        if self.current_stage == self.STAGE_MAIN:
+            stage_limit_sec = MAIN_STAGE_MAX_HOURS * 3600  # 72 часа защитный лимит
+        elif self.current_stage == self.STAGE_DESULFATION:
             stage_limit_sec = 2 * 3600  # 2 часа
         elif self.current_stage == self.STAGE_MIX:
             if self.finish_timer_start:
@@ -927,6 +935,29 @@ class ChargeController:
         elif self.current_stage == self.STAGE_MAIN:
             uv, ui = self._main_target()
             in_blanking = now < self._blanking_until
+
+            # Проверяем защитный лимит времени (72 часа)
+            stage_elapsed_hours = (now - self.stage_start_time) / 3600.0
+            if stage_elapsed_hours >= MAIN_STAGE_MAX_HOURS:
+                prev = self.current_stage
+                self.current_stage = self.STAGE_SAFE_WAIT
+                self.stage_start_time = now
+                self._blanking_until = now + BLANKING_SEC
+                self._delta_trigger_count = 0
+                
+                trigger_name = "TIME_LIMIT"
+                condition = f"Достигнут защитный лимит {MAIN_STAGE_MAX_HOURS}ч для этапа MAIN"
+                _log_trigger(prev, self.current_stage, trigger_name, condition)
+                
+                actions["set_voltage"] = voltage - 0.1
+                actions["set_current"] = 0.5
+                actions["notify"] = (
+                    "<b>⚠️ Достигнут защитный лимит!</b>\n"
+                    f"Этап MAIN длился {stage_elapsed_hours:.1f}ч (лимит {MAIN_STAGE_MAX_HOURS}ч)\n"
+                    "Принудительный переход к безопасному ожиданию."
+                )
+                actions["log_event"] = f"MAIN_TIME_LIMIT: {stage_elapsed_hours:.1f}ч >= {MAIN_STAGE_MAX_HOURS}ч"
+                return actions
 
             if self.battery_type == self.PROFILE_AGM:
                 stage_mins = elapsed / 60
