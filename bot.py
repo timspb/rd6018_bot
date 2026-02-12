@@ -231,22 +231,32 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
+    # Основная динамическая кнопка: запуск/остановка заряда + выключение выхода
+    is_charging = charge_controller.is_active or is_on
+    main_btn_text = "🛑 ОСТАНОВИТЬ И ВЫКЛЮЧИТЬ" if is_charging else "🚀 ЗАПУСТИТЬ ЗАРЯД"
+
+    # Клавиатура:
+    # 1 ряд: 🔄 Обновить (основная)
+    # 2 ряд: 📊 График | 🧠 AI Анализ
+    # 3 ряд: ⚙️ Выбор режима | 📝 Последние логи
+    # 4 ряд: динамическая кнопка запуска/остановки заряда
     kb_rows = [
-        [InlineKeyboardButton(text="⚙️ Режимы заряда", callback_data="charge_modes")],
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh")],
         [
-            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
-            InlineKeyboardButton(text="📈 Логи", callback_data="logs"),
+            InlineKeyboardButton(text="📊 График", callback_data="refresh"),
             InlineKeyboardButton(text="🧠 AI Анализ", callback_data="ai_analysis"),
         ],
         [
+            InlineKeyboardButton(text="⚙️ Выбор режима", callback_data="charge_modes"),
+            InlineKeyboardButton(text="📝 Последние логи", callback_data="logs"),
+        ],
+        [
             InlineKeyboardButton(
-                text="🛑 ВЫКЛ" if is_on else "⚡ ВКЛ",
+                text=main_btn_text,
                 callback_data="power_toggle",
             ),
         ],
     ]
-    if charge_controller.is_active:
-        kb_rows.insert(1, [InlineKeyboardButton(text="🛑 ОСТАНОВИТЬ ЗАРЯД", callback_data="charge_stop")])
     ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
     if old_msg_id:
@@ -719,10 +729,21 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     last_chat_id = call.message.chat.id
     live = await hass.get_all_live()
     is_on = str(live.get("switch", "")).lower() == "on"
-    if is_on:
-        await hass.turn_off()
+    # Если заряд активен или выход включен — останавливаем заряд и выключаем выход
+    if charge_controller.is_active or is_on:
+        charge_controller.stop()
+        await hass.turn_off(ENTITY_MAP["switch"])
+        await call.message.answer(
+            "<b>🛑 Заряд остановлен.</b> Выход выключен.",
+            parse_mode=ParseMode.HTML,
+        )
     else:
-        await hass.turn_on()
+        # Заряд стоит: включаем выход с текущими параметрами RD6018
+        await hass.turn_on(ENTITY_MAP["switch"])
+        await call.message.answer(
+            "<b>🚀 Заряд запущен.</b> Выход включен с текущими параметрами.",
+            parse_mode=ParseMode.HTML,
+        )
     await asyncio.sleep(1)
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
@@ -745,21 +766,6 @@ async def profile_selection(call: CallbackQuery) -> None:
         "Введите ёмкость аккумулятора в Ah (например, 60):",
         parse_mode=ParseMode.HTML,
     )
-
-
-@router.callback_query(F.data == "charge_stop")
-async def charge_stop_handler(call: CallbackQuery) -> None:
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    global last_chat_id
-    last_chat_id = call.message.chat.id
-    charge_controller.stop()
-    await hass.turn_off(ENTITY_MAP["switch"])
-    await call.message.answer("<b>🛑 Заряд остановлен.</b> Выход выключен.")
-    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
-    await send_dashboard(call, old_msg_id=old_id)
 
 
 @router.callback_query(F.data == "logs")
