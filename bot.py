@@ -132,6 +132,7 @@ IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
 awaiting_ah: Dict[int, str] = {}
 last_ha_ok_time: float = 0.0
+ha_consecutive_failures: int = 0  # после 3 подряд — EMERGENCY_UNAVAILABLE
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
 last_checkpoint_time: float = 0.0
 
@@ -414,11 +415,12 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id, last_ha_ok_time, last_checkpoint_time
+    global last_chat_id, last_ha_ok_time, last_checkpoint_time, ha_consecutive_failures
     while True:
         try:
             live = await hass.get_all_live()
             last_ha_ok_time = time.time()
+            ha_consecutive_failures = 0
             battery_v = _safe_float(live.get("battery_voltage"))
             output_v = _safe_float(live.get("voltage"))
             i = _safe_float(live.get("current"))
@@ -493,7 +495,33 @@ async def data_logger() -> None:
                     await hass.set_ocp(float(actions["set_ocp"]))
 
         except Exception as ex:
-            logger.error("data_logger: %s", ex)
+            err_str = str(ex).lower()
+            if "name resolution" in err_str or "dns" in err_str or "nodename" in err_str:
+                logger.warning("data_logger (DNS/сеть): %s", ex)
+            else:
+                logger.error("data_logger: %s", ex)
+            ha_consecutive_failures += 1
+            if ha_consecutive_failures >= 3:
+                # Генерировать EMERGENCY_UNAVAILABLE только после 3 неудачных попыток подряд
+                actions = await charge_controller.tick(0.0, 0.0, None, False, 0.0, None)
+                if actions.get("log_event"):
+                    log_event(
+                        charge_controller.current_stage,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        actions["log_event"],
+                    )
+                if actions.get("emergency_stop"):
+                    try:
+                        await hass.turn_off(ENTITY_MAP["switch"])
+                    except Exception:
+                        pass
+                    if actions.get("full_reset"):
+                        charge_controller.full_reset()
+                if actions.get("notify"):
+                    _charge_notify(actions["notify"])
         await asyncio.sleep(30)
 
 
@@ -555,6 +583,15 @@ async def cmd_stats(message: Message) -> None:
         text += f"\n\n{health}"
     sent = await message.answer(text)
 
+    # Принудительное обновление сенсоров перед формированием промпта для DeepSeek
+    try:
+        live = await hass.get_all_live()
+        battery_v = _safe_float(live.get("battery_voltage"))
+        i = _safe_float(live.get("current"))
+        ah = _safe_float(live.get("ah"))
+        temp = _safe_float(live.get("temp_ext"))
+    except Exception as ex:
+        logger.warning("cmd_stats update_sensors: %s", ex)
     telemetry = charge_controller.get_telemetry_summary(battery_v, i, ah, temp)
     ai_comment = await call_llm_analytics(telemetry)
     if ai_comment:
