@@ -251,9 +251,9 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         transition_condition = ""
         if "Main" in stage_name:
             if charge_controller.battery_type in ["Ca/Ca", "EFB"]:
-                transition_condition = "🔜 ПЕРЕХОД: при I < 0.3А в течение 40 мин"
+                transition_condition = "🔜 ПЕРЕХОД: при I < 0.3А в течение 40 мин | 🛑 ЛИМИТ: 72ч"
             elif charge_controller.battery_type == "AGM":
-                transition_condition = "🔜 ПЕРЕХОД: при I < 0.2А"
+                transition_condition = "🔜 ПЕРЕХОД: при I < 0.2А | 🛑 ЛИМИТ: 72ч"
         elif "Mix" in stage_name:
             transition_condition = "🔜 ФИНИШ: при dV > 0.03В или dI > 0.03А"
         elif "Десульфатация" in stage_name:

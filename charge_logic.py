@@ -940,7 +940,7 @@ class ChargeController:
             stage_elapsed_hours = (now - self.stage_start_time) / 3600.0
             if stage_elapsed_hours >= MAIN_STAGE_MAX_HOURS:
                 prev = self.current_stage
-                self.current_stage = self.STAGE_SAFE_WAIT
+                self.current_stage = self.STAGE_DONE
                 self.stage_start_time = now
                 self._blanking_until = now + BLANKING_SEC
                 self._delta_trigger_count = 0
@@ -949,14 +949,14 @@ class ChargeController:
                 condition = f"Достигнут защитный лимит {MAIN_STAGE_MAX_HOURS}ч для этапа MAIN"
                 _log_trigger(prev, self.current_stage, trigger_name, condition)
                 
-                actions["set_voltage"] = voltage - 0.1
-                actions["set_current"] = 0.5
+                actions["turn_off"] = True
                 actions["notify"] = (
-                    "<b>⚠️ Достигнут защитный лимит!</b>\n"
+                    "<b>🛑 ЗАЩИТНЫЙ ЛИМИТ ДОСТИГНУТ!</b>\n"
                     f"Этап MAIN длился {stage_elapsed_hours:.1f}ч (лимит {MAIN_STAGE_MAX_HOURS}ч)\n"
-                    "Принудительный переход к безопасному ожиданию."
+                    "Заряд принудительно остановлен. Проверьте состояние АКБ."
                 )
-                actions["log_event"] = f"MAIN_TIME_LIMIT: {stage_elapsed_hours:.1f}ч >= {MAIN_STAGE_MAX_HOURS}ч"
+                actions["log_event"] = f"MAIN_TIME_LIMIT: {stage_elapsed_hours:.1f}ч >= {MAIN_STAGE_MAX_HOURS}ч - FORCED_STOP"
+                self._clear_session_file()  # Очищаем сессию при принудительной остановке
                 return actions
 
             if self.battery_type == self.PROFILE_AGM:
