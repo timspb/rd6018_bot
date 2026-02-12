@@ -40,6 +40,7 @@ PHANTOM_CHARGE_MINUTES = 15  # мин — ток < 0.3А за это время 
 BLANKING_SEC = 5 * 60  # сек — после смены фазы или включения выхода игнорировать триггеры
 TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с интервалом 1 мин для срабатывания Delta
 TRIGGER_CONFIRM_INTERVAL_SEC = 60  # сек — интервал между замерами для подтверждения
+MAIN_MIX_STUCK_CV_MIN = 40  # мин в CV с током >=0.3А перед MAIN->MIX (desulf limit) для Ca/EFB
 ELAPSED_MAX_HOURS = 1000  # если elapsed > 1000 ч — ошибка времени, сброс start_time
 TELEMETRY_HISTORY_MINUTES = 15  # для AI только последние 15 мин
 
@@ -76,7 +77,8 @@ class ChargeController:
     STAGE_PREP = "Подготовка"
     STAGE_MAIN = "Main Charge"
     STAGE_DESULFATION = "Десульфатация"
-    STAGE_MIX = "Mix Mode"
+    STAGE_ANTI_SULF = "Десульфатация"  # v2.5: алиас для ясности (16.3В/2%Ah на 2ч)
+    STAGE_MIX = "Mix Mode"  # v2.5: 16.5В/3%Ah до 10ч для EFB
     STAGE_SAFE_WAIT = "Безопасное ожидание"
     STAGE_DONE = "Done"
     STAGE_IDLE = "Idle"
@@ -129,6 +131,7 @@ class ChargeController:
         self.i_history: deque = deque(maxlen=21)
         self._last_v_i_history_time: float = 0.0
         self._last_delta_confirm_time: float = 0.0  # для подтверждения триггера раз в 1 мин
+        self._cv_since: Optional[float] = None  # v2.5: время начала CV-режима для отслеживания 40 мин
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -170,6 +173,7 @@ class ChargeController:
         self.v_history.clear()
         self.i_history.clear()
         self._last_v_i_history_time = 0.0
+        self._cv_since = None
         self._session_start_reason = "User Command"
         self._clear_session_file()
         logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
@@ -801,6 +805,13 @@ class ChargeController:
                 self.notify(report)
 
         self.is_cv = is_cv
+        
+        # v2.5: Отслеживание времени в CV-режиме для правила 40 минут
+        if is_cv:
+            if self._cv_since is None:
+                self._cv_since = now
+        else:
+            self._cv_since = None
 
         # --- ПОДГОТОВКА (Soft Start) ---
         if self.current_stage == self.STAGE_PREP:
@@ -897,23 +908,34 @@ class ChargeController:
                     actions["log_event"] = "MAIN->DESULFATION"
                 else:
                     self._stuck_current_since = None
-                    prev = self.current_stage
-                    self.current_stage = self.STAGE_MIX
-                    self.stage_start_time = now
-                    self.v_max_recorded = voltage
-                    self.i_min_recorded = current
-                    self._blanking_until = now + BLANKING_SEC
-                    self._delta_trigger_count = 0
-                    _log_trigger(prev, self.current_stage, "Лимит десульфаций достигнут, переход в Mix Mode")
-                    mxv, mxi = self._mix_target()
-                    actions["set_voltage"] = mxv
-                    actions["set_current"] = mxi
-                    self._add_phase_limits(actions, mxv, mxi)
-                    actions["notify"] = (
-                        "<b>✅ Переход к:</b> Mix Mode (перемешивание)\n"
-                        "Лимит десульфаций достигнут."
-                    )
-                    actions["log_event"] = "MAIN->MIX (desulf limit)"
+                    # v2.5: MAIN->MIX (desulf limit) только после 40 мин CV с током >=0.3А для Ca/EFB
+                    cv_minutes = 0.0
+                    if self._cv_since is not None:
+                        cv_minutes = (now - self._cv_since) / 60.0
+                    
+                    if (self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB) and 
+                        cv_minutes >= MAIN_MIX_STUCK_CV_MIN and current >= 0.3):
+                        prev = self.current_stage
+                        self.current_stage = self.STAGE_MIX
+                        self.stage_start_time = now
+                        self.v_max_recorded = voltage
+                        self.i_min_recorded = current
+                        self._blanking_until = now + BLANKING_SEC
+                        self._delta_trigger_count = 0
+                        _log_trigger(prev, self.current_stage, f"Лимит десульфаций + 40 мин CV (ток {current:.2f}А >= 0.3А), переход в Mix Mode")
+                        mxv, mxi = self._mix_target()
+                        actions["set_voltage"] = mxv
+                        actions["set_current"] = mxi
+                        self._add_phase_limits(actions, mxv, mxi)
+                        actions["notify"] = (
+                            "<b>✅ Переход к:</b> Mix Mode (перемешивание)\n"
+                            f"Лимит десульфаций + 40 мин в CV с током ≥0.3А."
+                        )
+                        actions["log_event"] = f"MAIN->MIX (desulf limit + {cv_minutes:.1f}min CV)"
+                    else:
+                        # Ещё рано переходить в MIX — остаёмся в MAIN
+                        logger.info("MAIN: desulf limit reached but CV time %.1f min < %d min or current %.2fA < 0.3A", 
+                                  cv_minutes, MAIN_MIX_STUCK_CV_MIN, current)
 
             if not in_blanking and is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
                 self._stuck_current_since = None
@@ -1069,7 +1091,21 @@ class ChargeController:
                         f"<b>📉 Отчёт Delta</b>\n{trigger_msg}\n"
                         "Условие выполнено. Таймер 2ч."
                     )
-                    actions["log_event"] = f"DELTA_TRIGGER {trigger_msg[:50]}"
+                    # v2.5: расширенное логирование Delta для лог-файла
+                    if self._exit_cc_condition(voltage):
+                        delta_v = v_peak - voltage
+                        actions["log_event"] = (
+                            f"DELTA_TRIGGER V_max={v_peak:.2f}В, V_now={voltage:.2f}В, "
+                            f"dV={delta_v:.3f}В, confirmed={self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT}"
+                        )
+                    elif self._exit_cv_condition(current):
+                        delta_i = current - i_min
+                        actions["log_event"] = (
+                            f"DELTA_TRIGGER I_min={i_min:.2f}А, I_now={current:.2f}А, "
+                            f"dI={delta_i:.3f}А, confirmed={self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT}"
+                        )
+                    else:
+                        actions["log_event"] = f"DELTA_TRIGGER {trigger_msg[:50]}"
                 if self.finish_timer_start and (now - self.finish_timer_start) >= MIX_DONE_TIMER:
                     prev = self.current_stage
                     uv, ui = self._storage_target()

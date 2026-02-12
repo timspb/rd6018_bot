@@ -132,7 +132,7 @@ IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
 awaiting_ah: Dict[int, str] = {}
 last_ha_ok_time: float = 0.0
-ha_consecutive_failures: int = 0  # после 3 подряд — EMERGENCY_UNAVAILABLE
+link_lost_alert_sent: bool = False  # флаг-блокировка однократного уведомления о потере связи
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
 last_checkpoint_time: float = 0.0
 
@@ -231,15 +231,14 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
-    # Основная динамическая кнопка: запуск/остановка заряда + выключение выхода
-    is_charging = charge_controller.is_active or is_on
-    main_btn_text = "🛑 ОСТАНОВИТЬ И ВЫКЛЮЧИТЬ" if is_charging else "🚀 ЗАПУСТИТЬ ЗАРЯД"
+    # Кнопка-хамелеон: зависит только от output_on (HA switch)
+    main_btn_text = "🛑 ОСТАНОВИТЬ И ВЫКЛЮЧИТЬ" if is_on else "🚀 ЗАПУСТИТЬ ЗАРЯД"
 
-    # Клавиатура:
-    # 1 ряд: 🔄 Обновить (основная)
-    # 2 ряд: 📊 График | 🧠 AI Анализ
-    # 3 ряд: ⚙️ Выбор режима | 📝 Последние логи
-    # 4 ряд: динамическая кнопка запуска/остановки заряда
+    # v2.5 Клавиатура:
+    # 1 ряд: 🔄 Обновить (главное меню, на всю ширину)
+    # 2 ряд: 📊 График | 🧠 AI Анализ (сетка 2x2)
+    # 3 ряд: ⚙️ Режимы | 📝 Логи (сетка 2x2)
+    # 4 ряд: динамическая кнопка-хамелеон
     kb_rows = [
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh")],
         [
@@ -247,8 +246,8 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             InlineKeyboardButton(text="🧠 AI Анализ", callback_data="ai_analysis"),
         ],
         [
-            InlineKeyboardButton(text="⚙️ Выбор режима", callback_data="charge_modes"),
-            InlineKeyboardButton(text="📝 Последние логи", callback_data="logs"),
+            InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
+            InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
         ],
         [
             InlineKeyboardButton(
@@ -425,12 +424,13 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id, last_ha_ok_time, last_checkpoint_time, ha_consecutive_failures
+    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent
     while True:
         try:
             live = await hass.get_all_live()
             last_ha_ok_time = time.time()
-            ha_consecutive_failures = 0
+            link_lost_alert_sent = False  # сброс флага при успешном подключении
+            
             battery_v = _safe_float(live.get("battery_voltage"))
             output_v = _safe_float(live.get("voltage"))
             i = _safe_float(live.get("current"))
@@ -440,6 +440,13 @@ async def data_logger() -> None:
             ah = _safe_float(live.get("ah"))
             is_cv = str(live.get("is_cv", "")).lower() == "on"
             output_switch = live.get("switch")
+            
+            # v2.5 Умный watchdog: обновляем последнее известное состояние выхода
+            if output_switch is not None and str(output_switch).lower() not in ("unavailable", "unknown", ""):
+                charge_controller._last_known_output_on = (
+                    output_switch is True or str(output_switch).lower() == "on"
+                )
+            
             await add_record(battery_v, i, p, t)
 
             # Восстановление после потери связи: если был unavailable и теперь данные есть — попробовать restore
@@ -510,28 +517,37 @@ async def data_logger() -> None:
                 logger.warning("data_logger (DNS/сеть): %s", ex)
             else:
                 logger.error("data_logger: %s", ex)
-            ha_consecutive_failures += 1
-            if ha_consecutive_failures >= 3:
-                # Генерировать EMERGENCY_UNAVAILABLE только после 3 неудачных попыток подряд
-                actions = await charge_controller.tick(0.0, 0.0, None, False, 0.0, None)
-                if actions.get("log_event"):
+            
+            # v2.5 Умный watchdog: поведение зависит от последнего состояния выхода
+            output_was_on = charge_controller._last_known_output_on
+            
+            if not output_was_on:
+                # Выход был выключен — тихий переход в IDLE, без уведомлений
+                if charge_controller.is_active:
+                    charge_controller.stop(clear_session=False)
+                    logger.info("Link lost with output OFF: quiet transition to IDLE")
+            else:
+                # Выход был включён — однократное уведомление и аварийное отключение
+                if not link_lost_alert_sent:
+                    _charge_notify("🚨 Связь потеряна во время активного заряда!")
+                    link_lost_alert_sent = True
+                    logger.critical("Link lost during active charge: emergency shutdown")
+                
+                try:
+                    await hass.turn_off(ENTITY_MAP["switch"])
+                except Exception:
+                    pass
+                
+                if charge_controller.is_active:
+                    charge_controller.stop(clear_session=False)
                     log_event(
-                        charge_controller.current_stage,
+                        "EMERGENCY",
                         0.0,
                         0.0,
                         0.0,
                         0.0,
-                        actions["log_event"],
+                        "LINK_LOST_DURING_CHARGE",
                     )
-                if actions.get("emergency_stop"):
-                    try:
-                        await hass.turn_off(ENTITY_MAP["switch"])
-                    except Exception:
-                        pass
-                    if actions.get("full_reset"):
-                        charge_controller.full_reset()
-                if actions.get("notify"):
-                    _charge_notify(actions["notify"])
         await asyncio.sleep(30)
 
 

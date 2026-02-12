@@ -73,6 +73,25 @@ def generate_chart(
     v_list = v_list[:n]
     i_list = i_list[:n]
 
+    # v2.5: Автозум X-axis — показывать только последние 6 часов
+    if len(times_parsed) > 1:
+        from datetime import timedelta
+        
+        max_ts = times_parsed[-1]
+        min_ts = times_parsed[0]
+        window = timedelta(hours=6)
+        
+        # Если данных больше 6 часов — обрезаем до последних 6ч
+        if max_ts - min_ts > window:
+            start_ts = max_ts - window
+            idx0 = next((i for i, t in enumerate(times_parsed) if t >= start_ts), 0)
+            times_parsed = times_parsed[idx0:]
+            v_list = v_list[idx0:]
+            i_list = i_list[idx0:]
+            n = len(times_parsed)
+            if n == 0:
+                return None
+
     try:
         plt.style.use("dark_background")
         fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
@@ -103,6 +122,10 @@ def generate_chart(
             ax2.set_ylim(0, 20)
         else:
             ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
+
+        # v2.5: Растягиваем ось X от первого до последнего замера (убираем пустую "дыру")
+        if len(times_parsed) > 1:
+            ax1.set_xlim(times_parsed[0], times_parsed[-1])
 
         fig.legend(loc="upper right", fontsize=8)
         fig.autofmt_xdate()
