@@ -338,11 +338,15 @@ def format_log_event(event_line: str) -> str:
         
         # Формируем компактную строку
         if "CHECKPOINT" not in event:  # Скрываем обычные чекпоинты
-            event_short = event.replace("profile=", "").replace("ah=", "Ah:")
-            if len(event_short) > 40:
-                event_short = event_short[:37] + "..."
+            # СНАЧАЛА экранируем, ПОТОМ обрезаем - чтобы не порвать HTML теги
+            event_clean = event.replace("profile=", "").replace("ah=", "Ah:")
+            event_escaped = html.escape(event_clean)
+            stage_escaped = html.escape(stage_short)
             
-            return f"<code>[{time_only}]</code> {icon} <b>{html.escape(stage_short)}</b>: {html.escape(event_short)}"
+            if len(event_escaped) > 40:
+                event_escaped = event_escaped[:37] + "..."
+            
+            return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {event_escaped}"
         else:
             return ""  # Пропускаем чекпоинты для компактности
             
@@ -430,14 +434,24 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         elif "Безопасное ожидание" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: падение V"
         elif "Остывание" in raw_stage:
-            transition_condition = f"🔜 ВОЗВРАТ: T≤35°C (сейчас {temp_ext:.1f}°C)"
+            transition_condition = f"🔜 ВОЗВРАТ: T&le;35°C (сейчас {temp_ext:.1f}°C)"
         
-        # Добавляем актуальный лимит времени
+        # Добавляем актуальный лимит времени в часах (убираем минуты)
         if time_limit != "—":
+            # Парсим время и оставляем только часы
+            try:
+                if ":" in time_limit:
+                    hours = int(time_limit.split(":")[0])
+                    time_display = f"{hours}ч" if hours > 0 else "менее 1ч"
+                else:
+                    time_display = time_limit
+            except:
+                time_display = time_limit
+                
             if transition_condition:
-                transition_condition += f" | ⏱{time_limit}"
+                transition_condition += f" | Ост: {time_display}"
             else:
-                transition_condition = f"🔜 ⏱{time_limit}"
+                transition_condition = f"🔜 Ост: {time_display}"
         
         stage_time_safe = html.escape(stage_time)
         stage_block = (
@@ -1451,8 +1465,14 @@ async def logs_handler(call: CallbackQuery) -> None:
             for event in recent_events:
                 # Парсим строку события для красивого форматирования
                 formatted_event = format_log_event(event)
-                lines.append(formatted_event)
-            text = "\n".join(lines)
+                if formatted_event.strip():  # Пропускаем пустые строки
+                    lines.append(formatted_event)
+            
+            # Проверяем, что у нас есть события для отображения
+            if len(lines) <= 1:
+                text = "<b>📝 Логи событий</b>\n\nТолько служебные события."
+            else:
+                text = "\n".join(lines)
     except Exception as ex:
         logger.error("Failed to get recent events: %s", ex)
         text = "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
