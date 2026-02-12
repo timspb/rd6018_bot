@@ -316,12 +316,14 @@ _last_restore_time: float = 0.0
 _script_start_time: float = time.time()
 
 def _remove_duplicate_events(events: list) -> list:
-    """Удаляет дубли идущих подряд событий, оставляя только последнее."""
+    """Удаляет дубли идущих подряд событий, группирует RESTORE с счетчиком."""
     if not events:
         return events
     
     filtered_events = []
     prev_event_type = None
+    restore_count = 0
+    last_restore_event = None
     
     for event in events:
         # Извлекаем тип события (например, "RESTORE", "START", "MAIN", etc.)
@@ -329,6 +331,41 @@ def _remove_duplicate_events(events: list) -> list:
         if len(event_parts) > 6:
             current_event_type = event_parts[6].strip().split()[0] if event_parts[6].strip() else ""
             stage = event_parts[1].strip()
+            
+            # Специальная обработка RESTORE событий
+            if current_event_type == "RESTORE":
+                if prev_event_type == f"{stage}_RESTORE":
+                    # Увеличиваем счетчик RESTORE
+                    restore_count += 1
+                    last_restore_event = event
+                else:
+                    # Добавляем предыдущий RESTORE с счетчиком если был
+                    if last_restore_event and restore_count > 1:
+                        # Модифицируем событие добавляя счетчик
+                        parts = last_restore_event.split(' | ')
+                        if len(parts) > 6:
+                            parts[6] = f"RESTORE (x{restore_count})"
+                            filtered_events.append(' | '.join(parts))
+                    elif last_restore_event:
+                        filtered_events.append(last_restore_event)
+                    
+                    # Начинаем новую группу RESTORE
+                    restore_count = 1
+                    last_restore_event = event
+                    prev_event_type = f"{stage}_RESTORE"
+                continue
+            else:
+                # Завершаем группу RESTORE если была
+                if last_restore_event:
+                    if restore_count > 1:
+                        parts = last_restore_event.split(' | ')
+                        if len(parts) > 6:
+                            parts[6] = f"RESTORE (x{restore_count})"
+                            filtered_events.append(' | '.join(parts))
+                    else:
+                        filtered_events.append(last_restore_event)
+                    last_restore_event = None
+                    restore_count = 0
             
             # Создаем ключ для группировки (тип события + этап)
             event_key = f"{stage}_{current_event_type}"
@@ -346,6 +383,16 @@ def _remove_duplicate_events(events: list) -> list:
             # Если формат события неожиданный, добавляем как есть
             filtered_events.append(event)
             prev_event_type = None
+    
+    # Добавляем последний RESTORE если был
+    if last_restore_event:
+        if restore_count > 1:
+            parts = last_restore_event.split(' | ')
+            if len(parts) > 6:
+                parts[6] = f"RESTORE (x{restore_count})"
+                filtered_events.append(' | '.join(parts))
+        else:
+            filtered_events.append(last_restore_event)
     
     return filtered_events
 
@@ -411,7 +458,7 @@ def format_log_event(event_line: str) -> str:
         # Сокращаем название этапа
         stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
         
-        # Формируем вертикальный формат для лучшей читаемости
+        # Формируем СТРОГИЙ вертикальный формат для гарантированного размещения
         if "CHECKPOINT" not in event and not _should_hide_restore_event(event):  # Скрываем чекпоинты и обычные RESTORE
             # Полностью скрываем RESTORE события
             if "RESTORE" in event:
@@ -422,49 +469,75 @@ def format_log_event(event_line: str) -> str:
             event_escaped = html.escape(event_clean)
             stage_escaped = html.escape(stage_short)
             
-            # Основное событие
-            main_event = event_escaped.split('.')[0] if '.' in event_escaped else event_escaped.split(',')[0]
+            # Определяем тип события для правильного разбора
+            event_type = ""
+            if "START" in event_escaped:
+                event_type = "START"
+            elif "DONE" in event_escaped or "FINISH" in event_escaped:
+                event_type = "FINISH"
+            elif "MAIN" in event_escaped or "MIX" in event_escaped or "DESULFATION" in event_escaped:
+                event_type = "TRANSITION"
+            else:
+                event_type = "OTHER"
             
-            # Заголовок события
-            header = f"[{time_only}] {icon} <b>{stage_escaped}: {main_event}</b>"
+            # Заголовок события (ВСЕГДА короткий)
+            text = f"[{time_only}] {icon} <b>{stage_escaped}: {event_type}</b>\n"
             
-            # Извлекаем технические параметры для вертикального отображения
-            params_lines = []
-            if any(param in event_escaped for param in ["V_max=", "V_now=", "dV=", "I_min=", "I_now=", "dI=", "Порог:", "Подтверждено"]):
+            # Извлекаем параметры и добавляем СТРОГО вертикально
+            params_added = False
+            
+            # Для START событий - извлекаем основные параметры
+            if "START" in event_escaped:
+                # Ищем профиль
+                if "EFB" in event_escaped:
+                    text += "├ Профиль: EFB\n"
+                    params_added = True
+                elif "AGM" in event_escaped:
+                    text += "├ Профиль: AGM\n"
+                    params_added = True
+                elif "CUSTOM" in event_escaped:
+                    text += "├ Профиль: Custom\n"
+                    params_added = True
+                
+                # Ищем емкость
+                if "Ah:" in event_escaped:
+                    ah_match = event_escaped.split("Ah:")[1].split()[0] if "Ah:" in event_escaped else ""
+                    if ah_match:
+                        text += f"├ Емкость: {ah_match}Ah\n"
+                        params_added = True
+            
+            # Для технических событий - ключевые параметры
+            if any(param in event_escaped for param in ["V_now=", "I_now=", "V_max=", "I_min=", "Порог:"]):
                 if "V_now=" in event_escaped:
                     v_match = event_escaped.split("V_now=")[1].split("В")[0] if "V_now=" in event_escaped else ""
                     if v_match:
-                        params_lines.append(f"├ V_now: {v_match}В")
+                        text += f"├ V: {v_match}В\n"
+                        params_added = True
                 
                 if "I_now=" in event_escaped:
                     i_match = event_escaped.split("I_now=")[1].split("А")[0] if "I_now=" in event_escaped else ""
                     if i_match:
-                        params_lines.append(f"├ I_now: {i_match}А")
-                
-                if "V_max=" in event_escaped:
-                    v_max = event_escaped.split("V_max=")[1].split("В")[0] if "V_max=" in event_escaped else ""
-                    if v_max:
-                        params_lines.append(f"├ V_max: {v_max}В")
-                
-                if "I_min=" in event_escaped:
-                    i_min = event_escaped.split("I_min=")[1].split("А")[0] if "I_min=" in event_escaped else ""
-                    if i_min:
-                        params_lines.append(f"├ I_min: {i_min}А")
+                        text += f"├ I: {i_match}А\n"
+                        params_added = True
                 
                 if "Порог:" in event_escaped:
                     threshold = event_escaped.split("Порог: ")[1].split(".")[0] if "Порог: " in event_escaped else ""
                     if threshold:
-                        params_lines.append(f"└ Δ: {threshold}")
-                
-                # Если есть параметры, меняем последний символ на └
-                if params_lines and params_lines[-1].startswith("├"):
-                    params_lines[-1] = params_lines[-1].replace("├", "└", 1)
+                        text += f"├ Δ: {threshold}\n"
+                        params_added = True
             
-            # Формируем итоговый результат
-            if params_lines:
-                return header + "\n" + "\n".join(params_lines)
+            # Меняем последний ├ на └ если есть параметры
+            if params_added:
+                text = text.rstrip('\n')  # Убираем последний \n
+                lines = text.split('\n')
+                if len(lines) > 1 and lines[-1].startswith("├"):
+                    lines[-1] = lines[-1].replace("├", "└", 1)
+                text = '\n'.join(lines)
             else:
-                return header
+                # Убираем лишний \n если параметров нет
+                text = text.rstrip('\n')
+            
+            return text
         else:
             return ""  # Пропускаем чекпоинты для компактности
             
