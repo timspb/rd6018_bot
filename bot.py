@@ -120,12 +120,19 @@ async def _send_notify_safe(msg: str) -> None:
         if not any(tag in msg for tag in ['<b>', '<i>', '<code>']):
             # Если нет HTML тегов, экранируем полностью
             safe_msg = html.escape(msg)
+        
+        # Заменяем неподдерживаемые HTML теги
+        safe_msg = safe_msg.replace('<hr>', '___________________')
+        safe_msg = safe_msg.replace('<hr/>', '___________________')
+        safe_msg = safe_msg.replace('<hr />', '___________________')
+        
         await bot.send_message(last_chat_id, safe_msg, parse_mode=ParseMode.HTML)
     except Exception as ex:
         logger.error("charge notify failed: %s", ex)
         # Fallback: отправляем без HTML парсинга
         try:
-            await bot.send_message(last_chat_id, html.escape(msg))
+            clean_msg = html.escape(msg).replace('<hr>', '---').replace('<hr/>', '---').replace('<hr />', '---')
+            await bot.send_message(last_chat_id, clean_msg)
         except Exception as ex2:
             logger.error("fallback notify also failed: %s", ex2)
 
@@ -295,7 +302,13 @@ def safe_html_format(template: str, **kwargs) -> str:
         else:
             safe_kwargs[key] = html.escape(str(value)) if value is not None else ""
     
-    return template.format(**safe_kwargs)
+    # Заменяем неподдерживаемые HTML теги на текстовые аналоги
+    result = template.format(**safe_kwargs)
+    result = result.replace('<hr>', '___________________')
+    result = result.replace('<hr/>', '___________________')
+    result = result.replace('<hr />', '___________________')
+    
+    return result
 
 
 def format_log_event(event_line: str) -> str:
@@ -503,10 +516,15 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     except Exception:
         pass
 
+    # Заменяем неподдерживаемые HTML теги
+    clean_text = text.replace('<hr>', '___________________')
+    clean_text = clean_text.replace('<hr/>', '___________________')
+    clean_text = clean_text.replace('<hr />', '___________________')
+    
     if photo:
-        sent = await bot.send_photo(chat_id, photo=photo, caption=text, reply_markup=ikb, parse_mode=ParseMode.HTML)
+        sent = await bot.send_photo(chat_id, photo=photo, caption=clean_text, reply_markup=ikb, parse_mode=ParseMode.HTML)
     else:
-        sent = await bot.send_message(chat_id, text, reply_markup=ikb, parse_mode=ParseMode.HTML)
+        sent = await bot.send_message(chat_id, clean_text, reply_markup=ikb, parse_mode=ParseMode.HTML)
 
     user_dashboard[user_id] = sent.message_id
     return sent.message_id
