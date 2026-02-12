@@ -10,7 +10,7 @@ import time
 
 import aiohttp
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Any
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -193,6 +193,7 @@ awaiting_ah: Dict[int, str] = {}
 # FSM для ручного режима
 custom_mode_state: Dict[int, str] = {}  # состояние диалога: "voltage", "current", "delta", "time_limit", "capacity"
 custom_mode_data: Dict[int, Dict[str, float]] = {}  # накопленные данные пользователя
+custom_mode_confirm: Dict[int, Dict[str, Any]] = {}  # данные для подтверждения опасных значений
 last_ha_ok_time: float = 0.0
 link_lost_alert_sent: bool = False  # флаг-блокировка однократного уведомления о потере связи
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
@@ -1138,6 +1139,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
             return
         custom_mode_data[user_id]["main_voltage"] = value
         custom_mode_state[user_id] = "current"
+        custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение при переходе
         await message.answer(
             f"✅ Main: {value:.1f}В\n\n"
             "**Шаг 2/5:** Введите лимит тока Main (например 5.0):\n"
@@ -1147,22 +1149,60 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         )
     
     elif state == "current":
-        if value > 18.0 or value < 0.1:
+        # Проверка критических значений
+        if value > 18.0:
             await message.answer(
-                "⚠️ Опасно! Значение слишком высокое или низкое.\n"
-                "Введите лимит тока Main (0.1 - 18.0А):",
+                "🚫 ОШИБКА: RD6018 не поддерживает ток выше 18А. Введите корректное значение.",
                 reply_markup=cancel_kb
             )
             return
-        custom_mode_data[user_id]["main_current"] = value
-        custom_mode_state[user_id] = "delta"
-        await message.answer(
-            f"✅ Main: {custom_mode_data[user_id]['main_voltage']:.1f}В / {value:.1f}А\n\n"
-            "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
-            "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=cancel_kb
-        )
+        elif value < 0.1:
+            await message.answer(
+                "⚠️ Слишком низкое значение. Введите лимит тока Main (0.1 - 18.0А):",
+                reply_markup=cancel_kb
+            )
+            return
+        
+        # Проверка опасных значений (10.1 - 18.0А)
+        elif value > 10.0:
+            # Проверяем, не подтверждение ли это
+            confirm_data = custom_mode_confirm.get(user_id, {})
+            if confirm_data.get("step") == "current" and abs(confirm_data.get("value", 0) - value) < 0.01:
+                # Подтверждение получено - принимаем опасное значение
+                custom_mode_data[user_id]["main_current"] = value
+                custom_mode_state[user_id] = "delta"
+                custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение
+                
+                await message.answer(
+                    f"⚠️ ПРИНЯТО: {custom_mode_data[user_id]['main_voltage']:.1f}В / {value:.1f}А\n\n"
+                    "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
+                    "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=cancel_kb
+                )
+            else:
+                # Первый ввод опасного значения - требуем подтверждения
+                custom_mode_confirm[user_id] = {"step": "current", "value": value}
+                await message.answer(
+                    f"⚠️ ВНИМАНИЕ: Ток {value:.1f}А выше 10А опасен для большинства АКБ и может перегреть RD6018.\n\n"
+                    "Вы уверены? Введите ток еще раз для подтверждения или введите значение до 10А.",
+                    reply_markup=cancel_kb
+                )
+            return
+        
+        # Безопасное значение (0.1 - 10.0А)
+        else:
+            custom_mode_data[user_id]["main_current"] = value
+            custom_mode_state[user_id] = "delta"
+            custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение если было
+            
+            await message.answer(
+                f"✅ Main: {custom_mode_data[user_id]['main_voltage']:.1f}В / {value:.1f}А\n\n"
+                "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
+                "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=cancel_kb
+            )
     
     elif state == "delta":
         if value < 0.005 or value > 0.1:
@@ -1174,26 +1214,29 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
             return
         custom_mode_data[user_id]["delta"] = value
         custom_mode_state[user_id] = "time_limit"
+        custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение при переходе
         await message.answer(
             f"✅ Delta: {value:.3f}В\n\n"
             "**Шаг 4/5:** Введите лимит времени в часах (например 24):\n"
-            "_Максимум: 48ч. Для отключения лимита введите 0_",
+            "_Диапазон: 1 - 72ч. Заряд без присмотра запрещен!_",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=cancel_kb
         )
     
     elif state == "time_limit":
-        if value < 0 or value > 48:
+        if value <= 0 or value > 72:
             await message.answer(
-                "⚠️ Значение вне допустимого диапазона!\n"
-                "Введите лимит времени (0 - 48ч). 0 = без лимита:",
+                "⚠️ БЕЗОПАСНОСТЬ: Оставлять заряд без присмотра категорически запрещено.\n"
+                "Введите лимит от 1 до 72 часов:",
                 reply_markup=cancel_kb
             )
             return
-        custom_mode_data[user_id]["time_limit"] = value if value > 0 else 24  # Принудительно 24ч если 0
+        
+        custom_mode_data[user_id]["time_limit"] = value
         custom_mode_state[user_id] = "capacity"
+        custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение при переходе
         await message.answer(
-            f"✅ Лимит: {custom_mode_data[user_id]['time_limit']:.0f}ч\n\n"
+            f"✅ Лимит: {value:.0f}ч\n\n"
             "**Шаг 5/5:** Введите ёмкость АКБ в Ah (например 60):\n"
             "_Диапазон: 10 - 300 Ah_",
             parse_mode=ParseMode.MARKDOWN,
@@ -1216,6 +1259,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         # Очищаем состояние FSM
         del custom_mode_state[user_id]
         del custom_mode_data[user_id]
+        custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение если было
         
         # Запускаем заряд
         await start_custom_charge(message, user_id, data)
@@ -1319,7 +1363,7 @@ async def custom_mode_cancel(call: CallbackQuery) -> None:
     except Exception:
         pass
     
-    global custom_mode_state, custom_mode_data
+    global custom_mode_state, custom_mode_data, custom_mode_confirm
     user_id = call.from_user.id if call.from_user else 0
     
     # Очищаем состояние FSM
@@ -1327,6 +1371,8 @@ async def custom_mode_cancel(call: CallbackQuery) -> None:
         del custom_mode_state[user_id]
     if user_id in custom_mode_data:
         del custom_mode_data[user_id]
+    if user_id in custom_mode_confirm:
+        del custom_mode_confirm[user_id]
     
     # Возвращаемся в главное меню
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
