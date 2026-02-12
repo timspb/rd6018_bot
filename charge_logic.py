@@ -36,6 +36,10 @@ SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (цель - 0.
 SAFE_WAIT_MAX_SEC = 2 * 3600  # макс 2 часа ожидания
 HIGH_V_FOR_SAFE_WAIT = 15.0  # переходы с V > 15В требуют ожидания
 PHANTOM_CHARGE_MINUTES = 15  # мин — ток < 0.3А за это время = подозрительный заряд
+BLANKING_SEC = 5 * 60  # сек — после смены фазы игнорировать триггеры
+TRIGGER_CONFIRM_CYCLES = 6  # циклов подряд (3 мин при 30с) для подтверждения Delta
+ELAPSED_MAX_HOURS = 1000  # если elapsed > 1000 ч — ошибка времени, сброс start_time
+TELEMETRY_HISTORY_MINUTES = 15  # для AI только последние 15 мин
 
 # Hardware Watchdog
 WATCHDOG_TIMEOUT = 5 * 60  # сек — нет данных 5 мин → аварийное отключение
@@ -107,6 +111,9 @@ class ChargeController:
         self._analytics_history: deque = deque(maxlen=80)  # (ts, v, i, ah, temp) ~40 мин при 30с
         self._safe_wait_v_samples: deque = deque(maxlen=30)  # (ts, v) каждые 5 мин
         self._last_safe_wait_sample: float = 0.0
+        self._blanking_until: float = 0.0  # до этого времени игнорировать триггеры после смены фазы
+        self._delta_trigger_count: int = 0  # подряд выполнений условия Delta для подтверждения
+        self._session_start_reason: str = "User Command"  # User Command | Auto-restore
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
         """Добавить OVP/OCP в actions при смене фазы."""
@@ -142,8 +149,11 @@ class ChargeController:
         self._analytics_history.clear()
         self._safe_wait_v_samples.clear()
         self._last_safe_wait_sample = 0.0
+        self._blanking_until = 0.0
+        self._delta_trigger_count = 0
+        self._session_start_reason = "User Command"
         self._clear_session_file()
-        logger.info("ChargeController started: %s %dAh", battery_type, self.ah_capacity)
+        logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
 
     def stop(self) -> None:
         """Остановка заряда."""
@@ -253,14 +263,24 @@ class ChargeController:
         self._safe_wait_next_stage = data.get("safe_wait_next_stage")
         self._safe_wait_target_v = float(data.get("safe_wait_target_v", 0))
         self._safe_wait_target_i = float(data.get("safe_wait_target_i", 0))
-        self._safe_wait_start = float(data.get("safe_wait_start", time.time()))
+        now = time.time()
+        raw_safe_wait_start = data.get("safe_wait_start")
+        try:
+            self._safe_wait_start = float(raw_safe_wait_start) if raw_safe_wait_start not in (None, 0) else now
+        except (TypeError, ValueError):
+            self._safe_wait_start = now
 
         target_finish = data.get("target_finish_time")
         target_v = float(data.get("target_voltage", 14.7))
         target_i = float(data.get("target_current", 1.0))
-
-        now = time.time()
         self.finish_timer_start = data.get("finish_timer_start")
+        raw_stage_start = data.get("stage_start_time")
+        try:
+            saved_stage_start = float(raw_stage_start) if raw_stage_start not in (None, 0) else now
+        except (TypeError, ValueError):
+            saved_stage_start = now
+
+        self._session_start_reason = "Auto-restore"
 
         if target_finish is not None:
             remaining_sec = target_finish - now
@@ -271,9 +291,10 @@ class ChargeController:
                 elif self.current_stage == self.STAGE_MIX and self.finish_timer_start is not None:
                     self.finish_timer_start = target_finish - MIX_DONE_TIMER
                 else:
-                    self.stage_start_time = now - (
-                        (target_finish - data.get("stage_start_time", now)) - remaining_sec
-                    )
+                    if saved_stage_start and 0 < saved_stage_start <= now:
+                        self.stage_start_time = saved_stage_start
+                    else:
+                        self.stage_start_time = now
                 remaining_min = int(remaining_sec / 60)
                 msg = (
                     f"🔄 <b>Сессия восстановлена!</b>\n\n"
@@ -296,6 +317,7 @@ class ChargeController:
                 )
         else:
             remaining_min = 0
+            self.stage_start_time = saved_stage_start if saved_stage_start and saved_stage_start <= now else now
             msg = (
                 f"🔄 <b>Сессия восстановлена!</b>\n\n"
                 f"Продолжаю режим: <code>{self.current_stage}</code>.\n"
@@ -305,6 +327,12 @@ class ChargeController:
         self.v_max_recorded = None
         self.i_min_recorded = None
         self.finish_timer_start = None
+        self._blanking_until = now + BLANKING_SEC
+        self._delta_trigger_count = 0
+        elapsed_sec = now - self.stage_start_time
+        if elapsed_sec < 0 or elapsed_sec > ELAPSED_MAX_HOURS * 3600:
+            self.stage_start_time = now
+            logger.warning("Restore: stage_start_time corrected (elapsed invalid)")
         return True, msg
 
     def full_reset(self) -> None:
@@ -485,7 +513,7 @@ class ChargeController:
             "health_warning": health,
         }
 
-    def get_telemetry_json(
+    def get_telemetry_summary(
         self,
         voltage: float,
         current: float,
@@ -493,13 +521,12 @@ class ChargeController:
         temp: float,
     ) -> Dict[str, Any]:
         """
-        Телеметрия для LLM-аналитики.
-        Последние 10 замеров (V, I, T), стадия, Ah, скорость падения V в паузе.
+        Телеметрия для AI: только последние 10–15 мин, с текущей меткой времени.
         """
-        h = list(self._analytics_history)[-10:]
-        history = []
-        for ts, v, i, a, t in h:
-            history.append({"ts": ts, "v": round(v, 2), "i": round(i, 2), "t": round(t, 1)})
+        now = time.time()
+        window_sec = TELEMETRY_HISTORY_MINUTES * 60
+        h = [(t, v, i, a, te) for t, v, i, a, te in self._analytics_history if now - t <= window_sec]
+        history = [{"ts": ts, "v": round(v, 2), "i": round(i, 2), "t": round(te, 1)} for ts, v, i, a, te in h]
         ah_charged = ah - self._start_ah if self._start_ah > 0 else ah
         v_drop_rate = None
         if self.current_stage == self.STAGE_SAFE_WAIT and len(self._safe_wait_v_samples) >= 2:
@@ -508,8 +535,7 @@ class ChargeController:
             dt_h = (t1 - t0) / 3600.0
             if dt_h > 0.01:
                 v_drop_rate = round((v0 - v1) / dt_h, 2)
-        di_dt = None
-        dv_dt = None
+        di_dt = dv_dt = None
         if len(h) >= 4:
             ts = [x[0] for x in h]
             vs = [x[1] for x in h]
@@ -519,6 +545,9 @@ class ChargeController:
                 di_dt = round((cs[-1] - cs[0]) / (dt / 3600.0), 3)
                 dv_dt = round((vs[-1] - vs[0]) / (dt / 3600.0), 3)
         return {
+            "timestamp": now,
+            "timestamp_iso": datetime.fromtimestamp(now).isoformat(),
+            "history_minutes": TELEMETRY_HISTORY_MINUTES,
             "history": history,
             "current": {"v": voltage, "i": current, "ah": ah, "temp": temp},
             "stage": self.current_stage,
@@ -673,6 +702,10 @@ class ChargeController:
 
         if self.current_stage != self.STAGE_IDLE:
             self._analytics_history.append((now, voltage, current, ah, temp))
+            elapsed_check = now - self.stage_start_time
+            if elapsed_check < 0 or elapsed_check > ELAPSED_MAX_HOURS * 3600:
+                self.stage_start_time = now
+                logger.warning("tick: stage_start_time corrected (elapsed invalid)")
 
         if self.emergency_hv_disconnect:
             self.notify(
@@ -733,6 +766,10 @@ class ChargeController:
                 self.current_stage = self.STAGE_MAIN
                 self.stage_start_time = now
                 self._start_ah = ah
+                self.v_max_recorded = None
+                self.i_min_recorded = None
+                self._blanking_until = now + BLANKING_SEC
+                self._delta_trigger_count = 0
                 uv, ui = self._main_target()
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
@@ -746,6 +783,7 @@ class ChargeController:
         # --- MAIN CHARGE ---
         elif self.current_stage == self.STAGE_MAIN:
             uv, ui = self._main_target()
+            in_blanking = now < self._blanking_until
 
             if self.battery_type == self.PROFILE_AGM:
                 stage_mins = elapsed / 60
@@ -762,11 +800,13 @@ class ChargeController:
                     )
                     actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
                 else:
-                    if is_cv and current < 0.2:
+                    if not in_blanking and is_cv and current < 0.2:
                         self.current_stage = self.STAGE_MIX
                         self.stage_start_time = now
                         self.v_max_recorded = voltage
                         self.i_min_recorded = current
+                        self._blanking_until = now + BLANKING_SEC
+                        self._delta_trigger_count = 0
                         mxv, mxi = self._mix_target()
                         actions["set_voltage"] = mxv
                         actions["set_current"] = mxi
@@ -777,7 +817,7 @@ class ChargeController:
                         )
                         actions["log_event"] = "MAIN->MIX"
 
-            elif is_cv and self._detect_stuck_current(current):
+            elif not in_blanking and is_cv and self._detect_stuck_current(current):
                 if self._stuck_current_since is None:
                     self._stuck_current_since = now
                 stuck_mins = int((now - self._stuck_current_since) / 60)
@@ -786,6 +826,10 @@ class ChargeController:
                     self._stuck_current_since = None
                     self.current_stage = self.STAGE_DESULFATION
                     self.stage_start_time = now
+                    self.v_max_recorded = None
+                    self.i_min_recorded = None
+                    self._blanking_until = now + BLANKING_SEC
+                    self._delta_trigger_count = 0
                     dv, di = self._desulf_target()
                     actions["set_voltage"] = dv
                     actions["set_current"] = di
@@ -804,6 +848,8 @@ class ChargeController:
                     self.stage_start_time = now
                     self.v_max_recorded = voltage
                     self.i_min_recorded = current
+                    self._blanking_until = now + BLANKING_SEC
+                    self._delta_trigger_count = 0
                     mxv, mxi = self._mix_target()
                     actions["set_voltage"] = mxv
                     actions["set_current"] = mxi
@@ -814,7 +860,7 @@ class ChargeController:
                     )
                     actions["log_event"] = "MAIN->MIX (desulf limit)"
 
-            if is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
+            if not in_blanking and is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
                 self._stuck_current_since = None
                 phantom_note = ""
                 if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
@@ -825,6 +871,8 @@ class ChargeController:
                 self.stage_start_time = now
                 self.v_max_recorded = voltage
                 self.i_min_recorded = current
+                self._blanking_until = now + BLANKING_SEC
+                self._delta_trigger_count = 0
                 mxv, mxi = self._mix_target()
                 actions["set_voltage"] = mxv
                 actions["set_current"] = mxi
@@ -860,6 +908,10 @@ class ChargeController:
                     actions["log_event"] = f"DONE ah={ah:.2f}"
                     self._clear_session_file()
                 else:
+                    self.v_max_recorded = None
+                    self.i_min_recorded = None
+                    self._blanking_until = now + BLANKING_SEC
+                    self._delta_trigger_count = 0
                     actions["notify"] = "<b>🚀 Возврат к Main Charge.</b> Напряжение упало."
                     actions["log_event"] = "SAFE_WAIT->MAIN"
             elif wait_elapsed >= SAFE_WAIT_MAX_SEC:
@@ -878,6 +930,11 @@ class ChargeController:
                 actions["log_event"] = "SAFE_WAIT_FORCED"
                 if self.current_stage == self.STAGE_DONE:
                     self._clear_session_file()
+                else:
+                    self.v_max_recorded = None
+                    self.i_min_recorded = None
+                    self._blanking_until = now + BLANKING_SEC
+                    self._delta_trigger_count = 0
             else:
                 pass  # продолжаем ждать
 
@@ -901,12 +958,20 @@ class ChargeController:
 
         # --- MIX MODE ---
         elif self.current_stage == self.STAGE_MIX:
-            if self.v_max_recorded is None or voltage > self.v_max_recorded:
-                self.v_max_recorded = voltage
-            if self.i_min_recorded is None or current < self.i_min_recorded:
-                self.i_min_recorded = current
+            if now < self._blanking_until:
+                pass
+            else:
+                if self.v_max_recorded is None or voltage > self.v_max_recorded:
+                    self.v_max_recorded = voltage
+                if self.i_min_recorded is None or current < self.i_min_recorded:
+                    self.i_min_recorded = current
 
-            if self._check_delta_finish(voltage, current):
+                if self._check_delta_finish(voltage, current):
+                    self._delta_trigger_count += 1
+                else:
+                    self._delta_trigger_count = 0
+
+            if self._delta_trigger_count >= TRIGGER_CONFIRM_CYCLES and self._check_delta_finish(voltage, current):
                 if not self._delta_reported:
                     self._delta_reported = True
                     self.finish_timer_start = now
@@ -963,6 +1028,9 @@ class ChargeController:
 
         if "notify" in actions:
             self.notify(actions["notify"])
+
+        if "log_event" in actions:
+            actions["log_event"] = f"{actions['log_event']} | {self._session_start_reason}"
 
         active = self.current_stage in (
             self.STAGE_PREP,
