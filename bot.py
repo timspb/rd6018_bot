@@ -34,10 +34,12 @@ from charge_logic import (
 )
 from charging_log import log_checkpoint, log_event, rotate_if_needed
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, ENTITY_MAP, HA_URL, HA_TOKEN, TG_TOKEN
-from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
+from database import add_record, cleanup_old_records, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
 from time_utils import format_time_user_tz
+from concurrent.futures import ThreadPoolExecutor
+import requests
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +58,51 @@ dp = Dispatcher()
 router = Router()
 
 hass = HassClient(HA_URL, HA_TOKEN)
+
+# Executor для блокирующих операций (DeepSeek API)
+executor = ThreadPoolExecutor(max_workers=2)
+
+
+def _call_deepseek_sync(system_prompt: str, user_prompt: str) -> str:
+    """Синхронный вызов DeepSeek API для использования в executor."""
+    import requests
+    
+    try:
+        url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 512,
+            "temperature": 0.3,
+        }
+        
+        response = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=20
+        )
+        
+        if response.status_code != 200:
+            return f"ERROR: API вернул статус {response.status_code}"
+        
+        data = response.json()
+        choices = data.get("choices", [])
+        if not choices:
+            return "ERROR: Пустой ответ от DeepSeek API"
+        
+        ai_response = choices[0].get("message", {}).get("content", "").strip()
+        return ai_response or "ERROR: Пустой контент от AI"
+        
+    except Exception as ex:
+        logger.error("DeepSeek sync call failed: %s", ex)
+        return f"ERROR: Ошибка при обращении к AI - {ex}"
 
 
 def _charge_notify(msg: str) -> None:
@@ -197,6 +244,31 @@ def _safe_float(val, default: float = 0.0) -> float:
         return default
 
 
+def format_electrical_data(v: float, i: float, p: float = None, precision: int = 2) -> str:
+    """Форматтер для электрических данных V/I/P."""
+    result = f"{v:.{precision}f}В | {i:.{precision}f}А"
+    if p is not None:
+        result += f" | {p:.1f}Вт"
+    return result
+
+
+def format_temperature_data(t_ext: float, t_int: float = None, warn_threshold: float = 50.0) -> str:
+    """Форматтер для температурных данных с предупреждениями."""
+    result = f"🌡 {t_ext:.1f}°C"
+    if t_int is not None and t_int > warn_threshold:
+        result += f" | ⚠️ Блок: {t_int:.1f}°C"
+    return result
+
+
+def format_status_data(is_on: bool, mode: str, stage: str = None) -> str:
+    """Форматтер для статусных данных."""
+    status_emoji = "⚡️" if is_on else "⏸️"
+    result = f"{status_emoji} {mode}"
+    if stage:
+        result += f" | {stage}"
+    return result
+
+
 async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
     """
     Сформировать и отправить дашборд.
@@ -206,21 +278,28 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     chat_id = msg.chat.id
     user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
 
-    live = await hass.get_all_live()
-    battery_v = _safe_float(live.get("battery_voltage"))
-    output_v = _safe_float(live.get("voltage"))
-    v = battery_v if not (is_on := str(live.get("switch", "")).lower() == "on") else output_v
-    i = _safe_float(live.get("current"))
-    p = _safe_float(live.get("power"))
-    ah = _safe_float(live.get("ah"))
-    wh = _safe_float(live.get("wh"))
-    temp_int = _safe_float(live.get("temp_int"))
-    temp_ext = _safe_float(live.get("temp_ext"))
-    set_v = _safe_float(live.get("set_voltage"))
-    set_i = _safe_float(live.get("set_current"))
-    is_cv = str(live.get("is_cv", "")).lower() == "on"
-    is_cc = str(live.get("is_cc", "")).lower() == "on"
-    mode = "CV" if is_cv else ("CC" if is_cc else "-")
+    try:
+        live = await hass.get_all_live()
+        battery_v = _safe_float(live.get("battery_voltage"))
+        output_v = _safe_float(live.get("voltage"))
+        v = battery_v if not (is_on := str(live.get("switch", "")).lower() == "on") else output_v
+        i = _safe_float(live.get("current"))
+        p = _safe_float(live.get("power"))
+        ah = _safe_float(live.get("ah"))
+        wh = _safe_float(live.get("wh"))
+        temp_int = _safe_float(live.get("temp_int"))
+        temp_ext = _safe_float(live.get("temp_ext"))
+        set_v = _safe_float(live.get("set_voltage"))
+        set_i = _safe_float(live.get("set_current"))
+        is_cv = str(live.get("is_cv", "")).lower() == "on"
+        is_cc = str(live.get("is_cc", "")).lower() == "on"
+        mode = "CV" if is_cv else ("CC" if is_cc else "-")
+    except Exception as ex:
+        logger.error("Failed to get HA data for dashboard: %s", ex)
+        # Fallback значения при недоступности HA
+        battery_v = output_v = v = i = p = ah = wh = temp_int = temp_ext = set_v = set_i = 0.0
+        is_on = is_cv = is_cc = False
+        mode = "ERROR"
 
     # Новая структура интерфейса
     
@@ -236,10 +315,9 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
     
     # 2. ВТОРАЯ СТРОКА (Живые данные)
-    temp_warning = ""
-    if temp_int > 50.0:
-        temp_warning = f" | ⚠️ Блок: {temp_int:.1f}°C"
-    live_line = f"⚡️ LIVE: {battery_v:.2f}В | {i:.2f}А | 🌡 {temp_ext:.1f}°C{temp_warning}"
+    electrical_data = format_electrical_data(battery_v, i)
+    temp_data = format_temperature_data(temp_ext, temp_int)
+    live_line = f"⚡️ LIVE: {electrical_data} | {temp_data}"
     
     # 3. БЛОК ЭТАПА (Три строки) - только при активном заряде
     stage_block = ""
@@ -483,6 +561,8 @@ async def charge_monitor() -> None:
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
     global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent
+    last_cleanup_time = 0.0
+    
     while True:
         try:
             live = await hass.get_all_live()
@@ -549,6 +629,11 @@ async def data_logger() -> None:
             if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
                 log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
                 last_checkpoint_time = now_ts
+            
+            # Очистка базы данных каждые 6 часов
+            if now_ts - last_cleanup_time >= 21600:  # 6 часов
+                await cleanup_old_records()
+                last_cleanup_time = now_ts
 
             if actions.get("emergency_stop"):
                 await hass.turn_off(ENTITY_MAP["switch"])
@@ -902,48 +987,18 @@ async def handle_dialog_mode(message: Message) -> None:
 - Возможных проблем или аномалий
 - Рекомендаций по оптимизации процесса"""
 
-        # Вызов LLM
-        url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "max_tokens": 512,
-            "temperature": 0.3,
-        }
+        # Асинхронный вызов LLM через executor для неблокирующей работы
+        ai_response = await asyncio.get_event_loop().run_in_executor(
+            executor, _call_deepseek_sync, system_prompt, user_prompt
+        )
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                timeout=aiohttp.ClientTimeout(total=20),
-            ) as resp:
-                if resp.status != 200:
-                    await thinking_msg.edit_text("🤖 Ошибка API. Попробуйте позже.")
-                    return
-                
-                result = await resp.json()
-                choices = result.get("choices", [])
-                if not choices:
-                    await thinking_msg.edit_text("🤖 Нет ответа от AI.")
-                    return
-                
-                ai_response = choices[0].get("message", {}).get("content", "").strip()
-                if not ai_response:
-                    await thinking_msg.edit_text("🤖 Пустой ответ от AI.")
-                    return
-                
-                # Отправляем ответ
-                await thinking_msg.edit_text(
-                    f"🤖 <b>AI-Консультант:</b>\n\n{ai_response}",
-                    parse_mode=ParseMode.HTML
-                )
+        if ai_response.startswith("ERROR:"):
+            await thinking_msg.edit_text(f"🤖 {ai_response}")
+        else:
+            await thinking_msg.edit_text(
+                f"🤖 <b>AI-Консультант:</b>\n\n{ai_response}",
+                parse_mode=ParseMode.HTML
+            )
                 
     except Exception as ex:
         logger.error("handle_dialog_mode: %s", ex)

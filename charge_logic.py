@@ -111,7 +111,8 @@ class ChargeController:
         self.i_min_recorded: Optional[float] = None
         self.finish_timer_start: Optional[float] = None
         self._phantom_alerted: bool = False
-        self.temp_history: deque = deque(maxlen=20)
+        # Ограничиваем память: 24 часа данных при интервале 30 сек = 2880 точек
+        self.temp_history: deque = deque(maxlen=100)  # ~50 мин истории температуры
         self._last_log_time: float = 0.0
         self._agm_stage_idx: int = 0
         self._delta_reported: bool = False
@@ -124,7 +125,7 @@ class ChargeController:
         self._cooling_from_stage: Optional[str] = None  # из какого этапа перешли в охлаждение
         self._cooling_target_v: float = 0.0  # целевые параметры для возврата
         self._cooling_target_i: float = 0.0
-        self._pending_log_event: Optional[str] = None  # для логирования 34°C
+        self._pending_log_event: Optional[str] = None  # для логирования событий
         self._start_ah: float = 0.0  # накопленная ёмкость на старте сессии
         self._last_checkpoint_time: float = 0.0  # для контрольных точек каждые 10 мин
         self._last_save_time: float = 0.0
@@ -133,17 +134,18 @@ class ChargeController:
         self._safe_wait_target_i: float = 0.0
         self._safe_wait_start: float = 0.0
         self._last_hourly_report: float = 0.0  # для прогресс-репортов раз в час
-        self._analytics_history: deque = deque(maxlen=80)  # (ts, v, i, ah, temp) ~40 мин при 30с
-        self._safe_wait_v_samples: deque = deque(maxlen=30)  # (ts, v) каждые 5 мин
+        # Оптимизация памяти: ограничиваем историю 24 часами (2880 точек при 30с интервале)
+        self._analytics_history: deque = deque(maxlen=1000)  # ~8.3 часа истории при 30с
+        self._safe_wait_v_samples: deque = deque(maxlen=288)  # 24 часа при замере каждые 5 мин
         self._last_safe_wait_sample: float = 0.0
         self._blanking_until: float = 0.0  # до этого времени игнорировать триггеры после смены фазы
         self._delta_trigger_count: int = 0  # подряд выполнений условия Delta для подтверждения
         self._session_start_reason: str = "User Command"  # User Command | Auto-restore
         self._last_known_output_on: bool = False  # последнее известное состояние выхода (для EMERGENCY_UNAVAILABLE)
         self._was_unavailable: bool = False  # предыдущий тик был unavailable → при восстановлении попробовать restore
-        # История замеров V/I за последние 20 мин, обновление раз в минуту
-        self.v_history: deque = deque(maxlen=21)
-        self.i_history: deque = deque(maxlen=21)
+        # История замеров V/I за последние 24 часа, обновление раз в минуту
+        self.v_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
+        self.i_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
         self._last_v_i_history_time: float = 0.0
         self._last_delta_confirm_time: float = 0.0  # для подтверждения триггера раз в 1 мин
         self._cv_since: Optional[float] = None  # v2.5: время начала CV-режима для отслеживания 40 мин

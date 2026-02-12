@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 from datetime import datetime
+from time_utils import format_datetime_user_tz
 
 LOG_FILE = "charging_history.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 МБ
@@ -43,9 +44,8 @@ def log_event(
 ) -> None:
     """Записать событие в лог с пользовательским часовым поясом."""
     try:
-        from time_utils import format_datetime_user_tz
         ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
-    except ImportError:
+    except Exception:
         # Fallback если time_utils недоступен
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     

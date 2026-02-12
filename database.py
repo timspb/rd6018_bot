@@ -46,6 +46,32 @@ async def init_db() -> None:
         logger.info("Database initialized: %s", DB_PATH)
 
 
+async def cleanup_old_records() -> None:
+    """Очистка записей старше 24 часов для экономии памяти."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            # Удаляем записи старше 24 часов
+            cutoff_time = datetime.now() - timedelta(hours=24)
+            cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            await db.execute("DELETE FROM sensor_data WHERE timestamp < ?", (cutoff_str,))
+            await db.execute("DELETE FROM charge_log WHERE timestamp < ?", (cutoff_str,))
+            
+            # Оставляем только последние 100 завершенных сессий
+            await db.execute("""
+                DELETE FROM charge_sessions 
+                WHERE id NOT IN (
+                    SELECT id FROM charge_sessions 
+                    ORDER BY id DESC LIMIT 100
+                )
+            """)
+            
+            await db.commit()
+            logger.info("Database cleanup completed")
+    except Exception as ex:
+        logger.error("Database cleanup failed: %s", ex)
+
+
 async def add_record(v: float, i: float, p: float, t: float) -> None:
     """Добавить запись в sensor_history."""
     try:
