@@ -18,6 +18,9 @@ HA_TOKEN = os.getenv("HA_TOKEN", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
+# v2.6 Часовой пояс для всех временных меток
+USER_TIMEZONE = os.getenv("USER_TIMEZONE", "Europe/Moscow")
+
 # Строгий маппинг сущностей HA (как в спецификации)
 ENTITY_MAP = {
     "voltage": "sensor.rd_6018_output_voltage",

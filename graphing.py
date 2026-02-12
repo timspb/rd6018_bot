@@ -26,27 +26,38 @@ def _to_float_list(data: List) -> List[float]:
 
 
 def _parse_timestamps(times: List[str]) -> List[datetime]:
-    """Преобразовать строки времени (ISO или HH:MM:SS) в datetime."""
+    """Преобразовать строки времени (ISO или HH:MM:SS) в datetime с пользовательским часовым поясом."""
+    from time_utils import now_user_tz, get_user_timezone
+    
     result: List[datetime] = []
-    base_date = datetime.now().date()
+    base_date = now_user_tz().date()
+    user_tz = get_user_timezone()
+    
     for ts in times:
         if not ts or not isinstance(ts, str):
-            result.append(datetime.now())
+            result.append(now_user_tz())
             continue
         try:
             if "T" in ts:
+                # ISO формат - парсим и конвертируем в пользовательский часовой пояс
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00")[:19])
+                if dt.tzinfo is None:
+                    import pytz
+                    dt = dt.replace(tzinfo=pytz.UTC)
+                dt = dt.astimezone(user_tz)
             else:
+                # HH:MM:SS формат - считаем что это уже в пользовательском часовом поясе
                 parts = ts.split(":")
                 if len(parts) >= 2:
                     h, m = int(parts[0]), int(parts[1])
                     s = int(parts[2]) if len(parts) >= 3 else 0
                     dt = datetime.combine(base_date, time(h, m, s))
+                    dt = user_tz.localize(dt)
                 else:
-                    dt = datetime.now()
+                    dt = now_user_tz()
             result.append(dt)
         except (ValueError, TypeError):
-            result.append(datetime.now())
+            result.append(now_user_tz())
     return result
 
 

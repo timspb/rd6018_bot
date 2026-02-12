@@ -37,6 +37,7 @@ from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, ENTITY_MAP, HA_URL, HA_T
 from database import add_record, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
+from time_utils import format_time_user_tz
 
 logging.basicConfig(
     level=logging.INFO,
@@ -171,12 +172,15 @@ def _md_to_html(text: str) -> str:
 
 
 def _format_time(ts: str) -> str:
-    """Преобразовать ISO timestamp в HH:MM:SS."""
+    """Преобразовать ISO timestamp в HH:MM:SS с пользовательским часовым поясом."""
     if not ts:
         return "?:?:?"
     try:
         dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00")[:19])
-        return dt.strftime("%H:%M:%S")
+        if dt.tzinfo is None:
+            import pytz
+            dt = dt.replace(tzinfo=pytz.UTC)
+        return format_time_user_tz(dt)
     except Exception:
         return str(ts)[-8:] if len(str(ts)) >= 8 else "?:?:?"
 
@@ -632,14 +636,50 @@ async def cmd_stats(message: Message) -> None:
         logger.warning("cmd_stats edit_text: %s", ex)
 
 
+async def get_current_context_for_llm() -> str:
+    """v2.6 Получить текущий контекст для LLM: V, I, T_ext, стадия заряда, последние события."""
+    try:
+        live = await hass.get_all_live()
+        battery_v = _safe_float(live.get("battery_voltage"))
+        i = _safe_float(live.get("current"))
+        temp_ext = _safe_float(live.get("temp_ext"))
+        is_on = str(live.get("switch", "")).lower() == "on"
+        
+        context = f"""Текущие параметры RD6018:
+- Напряжение АКБ: {battery_v:.2f}В
+- Ток: {i:.2f}А
+- Температура внешняя: {temp_ext:.1f}°C
+- Выход: {'включен' if is_on else 'выключен'}
+- Стадия заряда: {charge_controller.current_stage}
+- Тип АКБ: {charge_controller.battery_type if charge_controller.is_active else 'не выбран'}
+- Ёмкость: {charge_controller.ah_capacity}Ач"""
+        
+        # TODO: добавить последние 3 записи из лога событий когда будет реализован
+        
+        return context
+    except Exception as ex:
+        return f"Ошибка получения контекста: {ex}"
+
+
 @router.message(F.text)
-async def ah_input_handler(message: Message) -> None:
-    """Обработка ввода ёмкости АКБ после выбора профиля."""
+async def text_message_handler(message: Message) -> None:
+    """v2.6 Обработка текстовых сообщений: ввод ёмкости АКБ или режим диалога с LLM."""
     global awaiting_ah, last_chat_id, last_checkpoint_time
     user_id = message.from_user.id if message.from_user else 0
     profile = awaiting_ah.get(user_id)
-    if not profile:
+    
+    # Если ожидаем ввод ёмкости АКБ
+    if profile:
+        await handle_ah_input(message, profile, user_id)
         return
+    
+    # v2.6 Режим диалога: отправляем сообщение в LLM с контекстом
+    await handle_dialog_mode(message)
+
+
+async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
+    """Обработка ввода ёмкости АКБ после выбора профиля."""
+    global awaiting_ah, last_chat_id, last_checkpoint_time
     text = (message.text or "").strip()
     try:
         ah = int(float(text))
@@ -675,6 +715,84 @@ async def ah_input_handler(message: Message) -> None:
     )
     old_id = user_dashboard.get(user_id)
     await send_dashboard(message, old_msg_id=old_id)
+
+
+async def handle_dialog_mode(message: Message) -> None:
+    """v2.6 Режим диалога: отправка сообщения пользователя в LLM с текущим контекстом."""
+    if not DEEPSEEK_API_KEY:
+        await message.answer("🤖 AI-консультант недоступен (не настроен API ключ)")
+        return
+    
+    user_question = (message.text or "").strip()
+    if not user_question:
+        return
+    
+    # Показываем что бот думает
+    thinking_msg = await message.answer("🤖 Анализирую данные...")
+    
+    try:
+        # Получаем текущий контекст
+        context = await get_current_context_for_llm()
+        
+        # Системный промпт для эксперта-аккумуляторщика
+        system_prompt = """Ты — эксперт по свинцово-кислотным аккумуляторам и системам заряда RD6018. 
+Отвечай как опытный аккумуляторщик, поясняй текущие процессы, диагностируй проблемы.
+Используй HTML разметку: <b>жирный</b>, <i>курсив</i>, <code>моноширинный</code>.
+Отвечай кратко и по существу на русском языке."""
+        
+        user_prompt = f"""Контекст системы:
+{context}
+
+Вопрос пользователя: {user_question}
+
+Проанализируй ситуацию и дай экспертный ответ."""
+
+        # Вызов LLM
+        url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 512,
+            "temperature": 0.3,
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                if resp.status != 200:
+                    await thinking_msg.edit_text("🤖 Ошибка API. Попробуйте позже.")
+                    return
+                
+                result = await resp.json()
+                choices = result.get("choices", [])
+                if not choices:
+                    await thinking_msg.edit_text("🤖 Нет ответа от AI.")
+                    return
+                
+                ai_response = choices[0].get("message", {}).get("content", "").strip()
+                if not ai_response:
+                    await thinking_msg.edit_text("🤖 Пустой ответ от AI.")
+                    return
+                
+                # Отправляем ответ
+                await thinking_msg.edit_text(
+                    f"🤖 <b>AI-Консультант:</b>\n\n{ai_response}",
+                    parse_mode=ParseMode.HTML
+                )
+                
+    except Exception as ex:
+        logger.error("handle_dialog_mode: %s", ex)
+        await thinking_msg.edit_text("🤖 Ошибка при обращении к AI-консультанту.")
 
 
 @router.callback_query(F.data == "charge_modes")
