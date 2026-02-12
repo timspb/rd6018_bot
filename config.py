@@ -38,6 +38,8 @@ ENTITY_MAP = {
     "set_current": "number.rd_6018_output_current",
     "ovp": "number.rd_6018_over_voltage_protection",
     "ocp": "number.rd_6018_over_current_protection",
+    "input_voltage": "sensor.rd_6018_input_voltage",  # Может отсутствовать в некоторых интеграциях
+    "uptime": "sensor.rd_6018_uptime",  # Может отсутствовать в некоторых интеграциях
 }
 
 # Лимиты безопасности
