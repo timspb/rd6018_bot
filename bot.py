@@ -72,10 +72,7 @@ async def _send_notify_safe(msg: str) -> None:
 
 
 async def call_llm_analytics(data: dict) -> Optional[str]:
-    """
-    Запрос к DeepSeek для анализа телеметрии.
-    Возвращает экспертный комментарий или None при ошибке.
-    """
+    """Запрос к DeepSeek для анализа телеметрии. Возвращает комментарий или None."""
     if not DEEPSEEK_API_KEY:
         return None
     data_str = json.dumps(data, ensure_ascii=False, indent=2)
@@ -125,7 +122,6 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
 
 charge_controller = ChargeController(hass, notify_cb=_charge_notify)
 
-# Храним message_id дашборда для каждого user_id
 user_dashboard: Dict[int, int] = {}
 last_chat_id: Optional[int] = None
 last_charge_alert_at: Optional[datetime] = None
@@ -134,10 +130,10 @@ zero_current_since: Optional[datetime] = None
 CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
 IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
-awaiting_ah: Dict[int, str] = {}  # user_id -> profile (Ca/Ca, EFB, AGM)
-last_ha_ok_time: float = 0.0  # для Soft Watchdog: время последнего успешного ответа HA
-SOFT_WATCHDOG_TIMEOUT = 3 * 60  # сек — нет связи с HA 3 мин → Output OFF
-last_checkpoint_time: float = 0.0  # для контрольных точек в лог каждые 10 мин
+awaiting_ah: Dict[int, str] = {}
+last_ha_ok_time: float = 0.0
+SOFT_WATCHDOG_TIMEOUT = 3 * 60
+last_checkpoint_time: float = 0.0
 
 
 def _build_trend_summary(
@@ -533,7 +529,7 @@ async def cmd_stats(message: Message) -> None:
         text += f"\n\n{health}"
     sent = await message.answer(text)
 
-    telemetry = charge_controller.get_telemetry_json(battery_v, i, ah, temp)
+    telemetry = charge_controller.get_telemetry_summary(battery_v, i, ah, temp)
     ai_comment = await call_llm_analytics(telemetry)
     if ai_comment:
         new_text = tech_block + f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_comment}</i>"
