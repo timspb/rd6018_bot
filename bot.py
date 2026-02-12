@@ -357,10 +357,42 @@ def format_log_event(event_line: str) -> str:
             event_escaped = html.escape(event_clean)
             stage_escaped = html.escape(stage_short)
             
-            if len(event_escaped) > 40:
-                event_escaped = event_escaped[:37] + "..."
-            
-            return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {event_escaped}"
+            # Проверяем, есть ли длинные параметры для переноса
+            if len(event_escaped) > 50:
+                # Ищем технические параметры для переноса
+                if any(param in event_escaped for param in ["V_max=", "V_now=", "dV=", "I_min=", "I_now=", "dI=", "Порог:", "Подтверждено"]):
+                    # Разбиваем на основное событие и параметры
+                    main_event = event_escaped.split('.')[0] if '.' in event_escaped else event_escaped.split(',')[0]
+                    if len(main_event) > 40:
+                        main_event = main_event[:37] + "..."
+                    
+                    # Извлекаем ключевые параметры
+                    params = []
+                    if "V_now=" in event_escaped:
+                        v_match = event_escaped.split("V_now=")[1].split("В")[0] if "V_now=" in event_escaped else ""
+                        if v_match:
+                            params.append(f"V={v_match}В")
+                    if "I_now=" in event_escaped:
+                        i_match = event_escaped.split("I_now=")[1].split("А")[0] if "I_now=" in event_escaped else ""
+                        if i_match:
+                            params.append(f"I={i_match}А")
+                    if "Порог:" in event_escaped:
+                        threshold = event_escaped.split("Порог: ")[1].split(".")[0] if "Порог: " in event_escaped else ""
+                        if threshold:
+                            params.append(f"Δ={threshold}")
+                    
+                    if params:
+                        params_str = " | ".join(params[:3])  # Максимум 3 параметра
+                        return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {main_event}\n    <i>{params_str}</i>"
+                    else:
+                        return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {main_event}"
+                else:
+                    # Обычное длинное событие - просто обрезаем
+                    event_escaped = event_escaped[:47] + "..."
+                    return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {event_escaped}"
+            else:
+                # Короткое событие - в одну строку
+                return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {event_escaped}"
         else:
             return ""  # Пропускаем чекпоинты для компактности
             
