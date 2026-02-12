@@ -256,8 +256,8 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 
 def format_electrical_data(v: float, i: float, p: float = None, precision: int = 2) -> str:
-    """Форматтер для электрических данных V/I/P с HTML-экранированием."""
-    result = f"{v:.{precision}f}В | {i:.{precision}f}А"
+    """Форматтер для электрических данных V/I/P с HTML-экранированием и точностью .2f."""
+    result = f"{v:.2f}В | {i:.2f}А"  # Принудительно .2f для всех V/I
     if p is not None:
         result += f" | {p:.1f}Вт"
     return html.escape(result)
@@ -295,6 +295,60 @@ def safe_html_format(template: str, **kwargs) -> str:
             safe_kwargs[key] = html.escape(str(value)) if value is not None else ""
     
     return template.format(**safe_kwargs)
+
+
+def format_log_event(event_line: str) -> str:
+    """Форматирование строки события в красивый вид с иконками."""
+    try:
+        # Парсим строку формата: [2024-02-12 19:15:23] | Main Charge  | 14.80 | 2.40 | 25.1 |  60.25 | START profile=EFB ah=60
+        parts = event_line.split(' | ')
+        if len(parts) < 6:
+            return f"<code>{html.escape(event_line)}</code>"
+        
+        timestamp = parts[0].strip('[]')
+        stage = parts[1].strip()
+        voltage = parts[2].strip()
+        current = parts[3].strip()
+        temp = parts[4].strip()
+        ah = parts[5].strip()
+        event = parts[6].strip() if len(parts) > 6 else ""
+        
+        # Извлекаем только время (ЧЧ:ММ)
+        time_only = timestamp.split(' ')[1][:5] if ' ' in timestamp else timestamp[-8:-3]
+        
+        # Определяем иконку по типу события
+        icon = "📋"
+        if "START" in event:
+            icon = "🏁"
+        elif "MAIN" in event or "MIX" in event or "DESULFATION" in event:
+            icon = "📈"
+        elif "DONE" in event or "FINISH" in event:
+            icon = "✅"
+        elif "STOP" in event or "EMERGENCY" in event:
+            icon = "🛑"
+        elif "WARNING" in event or "TEMP" in event:
+            icon = "⚠️"
+        elif "CHECKPOINT" in event:
+            icon = "⏱️"
+        elif any(word in event for word in ["Set", "УСТАВКА", "V=", "I="]):
+            icon = "⚙️"
+        
+        # Сокращаем название этапа
+        stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
+        
+        # Формируем компактную строку
+        if "CHECKPOINT" not in event:  # Скрываем обычные чекпоинты
+            event_short = event.replace("profile=", "").replace("ah=", "Ah:")
+            if len(event_short) > 40:
+                event_short = event_short[:37] + "..."
+            
+            return f"<code>[{time_only}]</code> {icon} <b>{html.escape(stage_short)}</b>: {html.escape(event_short)}"
+        else:
+            return ""  # Пропускаем чекпоинты для компактности
+            
+    except Exception as ex:
+        logger.error("Failed to format log event: %s", ex)
+        return f"<code>{html.escape(event_line[:100])}</code>"
 
 
 async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
@@ -352,47 +406,47 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     if charge_controller.is_active:
         stage_time = timers['stage_time']
         
-        # Получаем жесткие лимиты блока (OVP/OCP)
-        ovp_v = _safe_float(live.get("ovp", set_v + 0.2))  # OVP - защита по перенапряжению
-        ocp_a = _safe_float(live.get("ocp", set_i + 0.5))  # OCP - защита по перетоку
+        # Получаем ТЕКУЩИЕ уставки, которые реально установлены на приборе
+        current_v_set = _safe_float(live.get("set_voltage", set_v))  # Текущая уставка напряжения
+        current_i_set = _safe_float(live.get("set_current", set_i))  # Текущая уставка тока
         
-        # Условие перехода в зависимости от этапа (с безопасным экранированием символов сравнения)
+        # Компактное условие перехода с HTML-безопасными символами
         transition_condition = ""
-        raw_stage = charge_controller.current_stage  # используем неэкранированное имя для сравнения
+        raw_stage = charge_controller.current_stage
+        time_limit = timers['remaining_time']
+        
         if "Main" in raw_stage:
             if charge_controller.battery_type == "Custom":
                 delta = charge_controller._custom_delta_threshold
-                limit_h = charge_controller._custom_time_limit_hours
-                transition_condition = f"🔜 ФИНИШ: при dV/dI больше {delta:.3f} | 🛑 ЛИМИТ: {limit_h:.0f}ч"
+                transition_condition = f"🔜 ФИНИШ: dV/dI &gt; {delta:.3f}"
             elif charge_controller.battery_type in ["Ca/Ca", "EFB"]:
-                transition_condition = "🔜 ПЕРЕХОД: при I меньше 0.3А в течение 40 мин | 🛑 ЛИМИТ: 72ч"
+                transition_condition = "🔜 ПЕРЕХОД: &lt;0.3A (40м)"
             elif charge_controller.battery_type == "AGM":
-                transition_condition = "🔜 ПЕРЕХОД: при I меньше 0.2А | 🛑 ЛИМИТ: 72ч"
+                transition_condition = "🔜 ПЕРЕХОД: &lt;0.2A"
         elif "Mix" in raw_stage:
-            transition_condition = "🔜 ФИНИШ: при dV больше 0.03В или dI больше 0.03А"
+            transition_condition = "🔜 ФИНИШ: dV&gt;0.03В или dI&gt;0.03А"
         elif "Десульфатация" in raw_stage:
-            transition_condition = "🔜 ПЕРЕХОД: через 2ч к Main Charge"
+            transition_condition = "🔜 ПЕРЕХОД: 2ч → Main"
         elif "Безопасное ожидание" in raw_stage:
-            transition_condition = "🔜 ПЕРЕХОД: при падении V"
+            transition_condition = "🔜 ПЕРЕХОД: падение V"
         elif "Остывание" in raw_stage:
-            transition_condition = f"🔜 ВОЗВРАТ: при T меньше или равно 35°C (сейчас {temp_ext:.1f}°C)"
+            transition_condition = f"🔜 ВОЗВРАТ: T≤35°C (сейчас {temp_ext:.1f}°C)"
         
-        # Добавляем лимит времени если есть
-        time_limit = timers['remaining_time']
+        # Добавляем актуальный лимит времени
         if time_limit != "—":
             if transition_condition:
-                transition_condition += f" | ЛИМИТ: {time_limit}"
+                transition_condition += f" | ⏱{time_limit}"
             else:
-                transition_condition = f"🔜 ЛИМИТ: {time_limit}"
+                transition_condition = f"🔜 ⏱{time_limit}"
         
         stage_time_safe = html.escape(stage_time)
         stage_block = (
             f"\n📍 ЭТАП: {stage_name} ({stage_time_safe})\n"
-            f"⚙️ УСТАВКИ: {ovp_v:.1f}В | {ocp_a:.0f}А"
+            f"⚙️ УСТАВКИ: {current_v_set:.2f}В | {current_i_set:.2f}А"
         )
         
         if transition_condition:
-            stage_block += f"\n{html.escape(transition_condition)}"
+            stage_block += f"\n{transition_condition}"  # Уже содержит HTML entities (&lt;, &gt;)
     
     # 4. ЧЕТВЕРТАЯ СТРОКА (Емкость)
     capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
@@ -1385,19 +1439,24 @@ async def logs_handler(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    times, voltages, currents, temps = await get_logs_data(limit=5)
-    if not times:
-        text = "<b>📝 Логи событий</b>\n\nНет данных."
-    else:
-        header = "Время   | Напряж. | Ток    | Темп\n--------+---------+--------+-------"
-        lines = [header]
-        for j in range(min(5, len(times))):
-            ts = _format_time(times[j])
-            v = voltages[j] if j < len(voltages) else 0.0
-            i = currents[j] if j < len(currents) else 0.0
-            t = temps[j] if j < len(temps) else 0.0
-            lines.append(f"{ts} | {v:5.2f}В | {i:5.2f}А | {t:5.1f}°C")
-        text = "<b>📝 Логи событий</b>\n\n<pre>" + "\n".join(lines) + "</pre>"
+    
+    # Получаем реальные события из лога заряда
+    from charging_log import get_recent_events
+    try:
+        recent_events = get_recent_events(15)  # Последние 15 событий
+        if not recent_events:
+            text = "<b>📝 Логи событий</b>\n\nНет событий."
+        else:
+            lines = ["<b>📝 Логи событий</b>\n"]
+            for event in recent_events:
+                # Парсим строку события для красивого форматирования
+                formatted_event = format_log_event(event)
+                lines.append(formatted_event)
+            text = "\n".join(lines)
+    except Exception as ex:
+        logger.error("Failed to get recent events: %s", ex)
+        text = "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
+    
     await call.message.answer(text, parse_mode=ParseMode.HTML)
 
 
