@@ -654,6 +654,10 @@ async def ah_input_handler(message: Message) -> None:
 @router.callback_query(F.data == "charge_modes")
 async def charge_modes_handler(call: CallbackQuery) -> None:
     """Открыть подменю «🚗 Авто» с режимами заряда."""
+    try:
+        await call.answer()
+    except Exception:
+        pass
     global last_chat_id
     last_chat_id = call.message.chat.id
     warning = (
@@ -680,28 +684,37 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
             f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:",
             reply_markup=ikb,
         )
-    await call.answer()
 
 
 @router.callback_query(F.data == "charge_back")
 async def charge_back_handler(call: CallbackQuery) -> None:
     """Вернуться из подменю «🚗 Авто» в главное меню."""
+    try:
+        await call.answer()
+    except Exception:
+        pass
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
-    await call.answer()
 
 
 @router.callback_query(F.data == "refresh")
 async def refresh_handler(call: CallbackQuery) -> None:
+    try:
+        await call.answer("Данные обновлены")
+    except Exception:
+        pass
     global last_chat_id
     last_chat_id = call.message.chat.id
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
-    await call.answer("Данные обновлены")
 
 
 @router.callback_query(F.data == "power_toggle")
 async def power_toggle_handler(call: CallbackQuery) -> None:
+    try:
+        await call.answer()
+    except Exception:
+        pass
     global last_chat_id
     last_chat_id = call.message.chat.id
     live = await hass.get_all_live()
@@ -713,11 +726,14 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     await asyncio.sleep(1)
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
-    await call.answer("Питание " + ("включено" if not is_on else "выключено"))
 
 
 @router.callback_query(F.data.in_({"profile_caca", "profile_efb", "profile_agm"}))
 async def profile_selection(call: CallbackQuery) -> None:
+    try:
+        await call.answer()
+    except Exception:
+        pass
     global awaiting_ah, last_chat_id
     last_chat_id = call.message.chat.id
     mapping = {"profile_caca": "Ca/Ca", "profile_efb": "EFB", "profile_agm": "AGM"}
@@ -729,11 +745,14 @@ async def profile_selection(call: CallbackQuery) -> None:
         "Введите ёмкость аккумулятора в Ah (например, 60):",
         parse_mode=ParseMode.HTML,
     )
-    await call.answer()
 
 
 @router.callback_query(F.data == "charge_stop")
 async def charge_stop_handler(call: CallbackQuery) -> None:
+    try:
+        await call.answer()
+    except Exception:
+        pass
     global last_chat_id
     last_chat_id = call.message.chat.id
     charge_controller.stop()
@@ -741,11 +760,14 @@ async def charge_stop_handler(call: CallbackQuery) -> None:
     await call.message.answer("<b>🛑 Заряд остановлен.</b> Выход выключен.")
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
-    await call.answer()
 
 
 @router.callback_query(F.data == "logs")
 async def logs_handler(call: CallbackQuery) -> None:
+    try:
+        await call.answer()
+    except Exception:
+        pass
     times, voltages, currents, temps = await get_logs_data(limit=5)
     if not times:
         text = "<b>📈 Последние логи</b>\n\nНет данных."
@@ -760,12 +782,14 @@ async def logs_handler(call: CallbackQuery) -> None:
             lines.append(f"{ts} | {v:5.2f}В | {i:5.2f}А | {t:5.1f}°C")
         text = "<b>📈 Последние логи</b>\n\n<pre>" + "\n".join(lines) + "</pre>"
     await call.message.answer(text, parse_mode=ParseMode.HTML)
-    await call.answer()
 
 
 @router.callback_query(F.data == "ai_analysis")
 async def ai_analysis_handler(call: CallbackQuery) -> None:
-    await call.answer()
+    try:
+        await call.answer()
+    except Exception:
+        pass
     status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
     times, voltages, currents = await get_raw_history(limit=50)
     trend_summary = _build_trend_summary(times, voltages, currents)
