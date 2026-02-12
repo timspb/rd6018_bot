@@ -40,6 +40,7 @@ from hass_api import HassClient
 from time_utils import format_time_user_tz
 from concurrent.futures import ThreadPoolExecutor
 import requests
+import html
 
 logging.basicConfig(
     level=logging.INFO,
@@ -114,9 +115,19 @@ def _charge_notify(msg: str) -> None:
 
 async def _send_notify_safe(msg: str) -> None:
     try:
-        await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
+        # Экранируем HTML в уведомлениях, но сохраняем основные теги
+        safe_msg = msg
+        if not any(tag in msg for tag in ['<b>', '<i>', '<code>']):
+            # Если нет HTML тегов, экранируем полностью
+            safe_msg = html.escape(msg)
+        await bot.send_message(last_chat_id, safe_msg, parse_mode=ParseMode.HTML)
     except Exception as ex:
         logger.error("charge notify failed: %s", ex)
+        # Fallback: отправляем без HTML парсинга
+        try:
+            await bot.send_message(last_chat_id, html.escape(msg))
+        except Exception as ex2:
+            logger.error("fallback notify also failed: %s", ex2)
 
 
 async def call_llm_analytics(data: dict) -> Optional[str]:
@@ -245,28 +256,45 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 
 def format_electrical_data(v: float, i: float, p: float = None, precision: int = 2) -> str:
-    """Форматтер для электрических данных V/I/P."""
+    """Форматтер для электрических данных V/I/P с HTML-экранированием."""
     result = f"{v:.{precision}f}В | {i:.{precision}f}А"
     if p is not None:
         result += f" | {p:.1f}Вт"
-    return result
+    return html.escape(result)
 
 
 def format_temperature_data(t_ext: float, t_int: float = None, warn_threshold: float = 50.0) -> str:
-    """Форматтер для температурных данных с предупреждениями."""
+    """Форматтер для температурных данных с предупреждениями и HTML-экранированием."""
     result = f"🌡 {t_ext:.1f}°C"
     if t_int is not None and t_int > warn_threshold:
         result += f" | ⚠️ Блок: {t_int:.1f}°C"
-    return result
+    return html.escape(result)
 
 
 def format_status_data(is_on: bool, mode: str, stage: str = None) -> str:
-    """Форматтер для статусных данных."""
+    """Форматтер для статусных данных с HTML-экранированием."""
     status_emoji = "⚡️" if is_on else "⏸️"
     result = f"{status_emoji} {mode}"
     if stage:
-        result += f" | {stage}"
+        result += f" | {html.escape(stage)}"
     return result
+
+
+def safe_html_format(template: str, **kwargs) -> str:
+    """Безопасное форматирование HTML с экранированием переменных."""
+    # Экранируем все переменные, кроме тех что уже содержат HTML теги
+    safe_kwargs = {}
+    for key, value in kwargs.items():
+        if isinstance(value, str) and ('<' in value or '>' in value or '&' in value):
+            # Если значение уже содержит HTML теги, не экранируем
+            if not any(tag in value for tag in ['<b>', '<i>', '<code>', '</b>', '</i>', '</code>']):
+                safe_kwargs[key] = html.escape(value)
+            else:
+                safe_kwargs[key] = value
+        else:
+            safe_kwargs[key] = html.escape(str(value)) if value is not None else ""
+    
+    return template.format(**safe_kwargs)
 
 
 async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
@@ -307,9 +335,9 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     if charge_controller.is_active:
         timers = charge_controller.get_timers()
         status_emoji = "⚡️" if is_on else "⏸️"
-        stage_name = charge_controller.current_stage
-        battery_type = charge_controller.battery_type
-        total_time = timers['total_time']
+        stage_name = html.escape(charge_controller.current_stage)
+        battery_type = html.escape(charge_controller.battery_type)
+        total_time = html.escape(timers['total_time'])
         status_line = f"📊 СТАТУС: {status_emoji} {stage_name} | {battery_type} | ⏱ {total_time}"
     else:
         status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
@@ -328,25 +356,26 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         ovp_v = _safe_float(live.get("ovp", set_v + 0.2))  # OVP - защита по перенапряжению
         ocp_a = _safe_float(live.get("ocp", set_i + 0.5))  # OCP - защита по перетоку
         
-        # Условие перехода в зависимости от этапа
+        # Условие перехода в зависимости от этапа (с безопасным экранированием символов сравнения)
         transition_condition = ""
-        if "Main" in stage_name:
+        raw_stage = charge_controller.current_stage  # используем неэкранированное имя для сравнения
+        if "Main" in raw_stage:
             if charge_controller.battery_type == "Custom":
                 delta = charge_controller._custom_delta_threshold
                 limit_h = charge_controller._custom_time_limit_hours
-                transition_condition = f"🔜 ФИНИШ: при dV/dI > {delta:.3f} | 🛑 ЛИМИТ: {limit_h:.0f}ч"
+                transition_condition = f"🔜 ФИНИШ: при dV/dI больше {delta:.3f} | 🛑 ЛИМИТ: {limit_h:.0f}ч"
             elif charge_controller.battery_type in ["Ca/Ca", "EFB"]:
-                transition_condition = "🔜 ПЕРЕХОД: при I < 0.3А в течение 40 мин | 🛑 ЛИМИТ: 72ч"
+                transition_condition = "🔜 ПЕРЕХОД: при I меньше 0.3А в течение 40 мин | 🛑 ЛИМИТ: 72ч"
             elif charge_controller.battery_type == "AGM":
-                transition_condition = "🔜 ПЕРЕХОД: при I < 0.2А | 🛑 ЛИМИТ: 72ч"
-        elif "Mix" in stage_name:
-            transition_condition = "🔜 ФИНИШ: при dV > 0.03В или dI > 0.03А"
-        elif "Десульфатация" in stage_name:
+                transition_condition = "🔜 ПЕРЕХОД: при I меньше 0.2А | 🛑 ЛИМИТ: 72ч"
+        elif "Mix" in raw_stage:
+            transition_condition = "🔜 ФИНИШ: при dV больше 0.03В или dI больше 0.03А"
+        elif "Десульфатация" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: через 2ч к Main Charge"
-        elif "Безопасное ожидание" in stage_name:
+        elif "Безопасное ожидание" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: при падении V"
-        elif "Остывание" in stage_name:
-            transition_condition = f"🔜 ВОЗВРАТ: при T ≤ 35°C (сейчас {temp_ext:.1f}°C)"
+        elif "Остывание" in raw_stage:
+            transition_condition = f"🔜 ВОЗВРАТ: при T меньше или равно 35°C (сейчас {temp_ext:.1f}°C)"
         
         # Добавляем лимит времени если есть
         time_limit = timers['remaining_time']
@@ -356,18 +385,19 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             else:
                 transition_condition = f"🔜 ЛИМИТ: {time_limit}"
         
+        stage_time_safe = html.escape(stage_time)
         stage_block = (
-            f"\n📍 ЭТАП: {stage_name} ({stage_time})\n"
+            f"\n📍 ЭТАП: {stage_name} ({stage_time_safe})\n"
             f"⚙️ УСТАВКИ: {ovp_v:.1f}В | {ocp_a:.0f}А"
         )
         
         if transition_condition:
-            stage_block += f"\n{transition_condition}"
+            stage_block += f"\n{html.escape(transition_condition)}"
     
     # 4. ЧЕТВЕРТАЯ СТРОКА (Емкость)
     capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
     
-    # Формируем итоговый текст
+    # Формируем итоговый текст (все переменные уже экранированы)
     text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
     times, voltages, currents = await get_graph_data(limit=100)
@@ -405,9 +435,9 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         pass
 
     if photo:
-        sent = await bot.send_photo(chat_id, photo=photo, caption=text, reply_markup=ikb)
+        sent = await bot.send_photo(chat_id, photo=photo, caption=text, reply_markup=ikb, parse_mode=ParseMode.HTML)
     else:
-        sent = await bot.send_message(chat_id, text, reply_markup=ikb)
+        sent = await bot.send_message(chat_id, text, reply_markup=ikb, parse_mode=ParseMode.HTML)
 
     user_dashboard[user_id] = sent.message_id
     return sent.message_id
@@ -630,8 +660,8 @@ async def data_logger() -> None:
                 log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
                 last_checkpoint_time = now_ts
             
-            # Очистка базы данных каждые 6 часов
-            if now_ts - last_cleanup_time >= 21600:  # 6 часов
+            # Очистка базы данных каждые 24 часа (записи старше 7 дней)
+            if now_ts - last_cleanup_time >= 86400:  # 24 часа
                 await cleanup_old_records()
                 last_cleanup_time = now_ts
 

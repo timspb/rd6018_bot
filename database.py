@@ -47,11 +47,11 @@ async def init_db() -> None:
 
 
 async def cleanup_old_records() -> None:
-    """Очистка записей старше 24 часов для экономии памяти."""
+    """Очистка записей старше 7 дней для экономии памяти (АКБ может заряжаться до 110 часов)."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            # Удаляем записи старше 24 часов
-            cutoff_time = datetime.now() - timedelta(hours=24)
+            # Удаляем записи старше 7 дней (168 часов)
+            cutoff_time = datetime.now() - timedelta(days=7)
             cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
             
             await db.execute("DELETE FROM sensor_data WHERE timestamp < ?", (cutoff_str,))
