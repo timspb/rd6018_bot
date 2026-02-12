@@ -315,6 +315,41 @@ def safe_html_format(template: str, **kwargs) -> str:
 _last_restore_time: float = 0.0
 _script_start_time: float = time.time()
 
+def _remove_duplicate_events(events: list) -> list:
+    """Удаляет дубли идущих подряд событий, оставляя только последнее."""
+    if not events:
+        return events
+    
+    filtered_events = []
+    prev_event_type = None
+    
+    for event in events:
+        # Извлекаем тип события (например, "RESTORE", "START", "MAIN", etc.)
+        event_parts = event.split(' | ')
+        if len(event_parts) > 6:
+            current_event_type = event_parts[6].strip().split()[0] if event_parts[6].strip() else ""
+            stage = event_parts[1].strip()
+            
+            # Создаем ключ для группировки (тип события + этап)
+            event_key = f"{stage}_{current_event_type}"
+            
+            # Если это не дубль или это важное событие, добавляем
+            if (event_key != prev_event_type or 
+                current_event_type in ["START", "DONE", "EMERGENCY", "STOP"]):
+                filtered_events.append(event)
+                prev_event_type = event_key
+            else:
+                # Заменяем предыдущее событие того же типа на текущее (более новое)
+                if filtered_events:
+                    filtered_events[-1] = event
+        else:
+            # Если формат события неожиданный, добавляем как есть
+            filtered_events.append(event)
+            prev_event_type = None
+    
+    return filtered_events
+
+
 def _should_hide_restore_event(event: str) -> bool:
     """Определяет, нужно ли скрыть RESTORE событие от пользователя."""
     global _last_restore_time, _script_start_time
@@ -383,42 +418,33 @@ def format_log_event(event_line: str) -> str:
             event_escaped = html.escape(event_clean)
             stage_escaped = html.escape(stage_short)
             
-            # Проверяем, есть ли длинные параметры для переноса
-            if len(event_escaped) > 50:
-                # Ищем технические параметры для переноса
-                if any(param in event_escaped for param in ["V_max=", "V_now=", "dV=", "I_min=", "I_now=", "dI=", "Порог:", "Подтверждено"]):
-                    # Разбиваем на основное событие и параметры
-                    main_event = event_escaped.split('.')[0] if '.' in event_escaped else event_escaped.split(',')[0]
-                    if len(main_event) > 40:
-                        main_event = main_event[:37] + "..."
-                    
-                    # Извлекаем ключевые параметры
-                    params = []
-                    if "V_now=" in event_escaped:
-                        v_match = event_escaped.split("V_now=")[1].split("В")[0] if "V_now=" in event_escaped else ""
-                        if v_match:
-                            params.append(f"V={v_match}В")
-                    if "I_now=" in event_escaped:
-                        i_match = event_escaped.split("I_now=")[1].split("А")[0] if "I_now=" in event_escaped else ""
-                        if i_match:
-                            params.append(f"I={i_match}А")
-                    if "Порог:" in event_escaped:
-                        threshold = event_escaped.split("Порог: ")[1].split(".")[0] if "Порог: " in event_escaped else ""
-                        if threshold:
-                            params.append(f"Δ={threshold}")
-                    
-                    if params:
-                        params_str = " | ".join(params[:3])  # Максимум 3 параметра
-                        return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {main_event}\n    <i>{params_str}</i>"
-                    else:
-                        return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {main_event}"
-                else:
-                    # Обычное длинное событие - просто обрезаем
-                    event_escaped = event_escaped[:47] + "..."
-                    return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {event_escaped}"
-            else:
-                # Короткое событие - в одну строку
-                return f"<code>[{time_only}]</code> {icon} <b>{stage_escaped}</b>: {event_escaped}"
+            # Извлекаем ключевые параметры для отображения в одной строке
+            details = ""
+            if any(param in event_escaped for param in ["V_max=", "V_now=", "dV=", "I_min=", "I_now=", "dI=", "Порог:", "Подтверждено"]):
+                params = []
+                if "V_now=" in event_escaped:
+                    v_match = event_escaped.split("V_now=")[1].split("В")[0] if "V_now=" in event_escaped else ""
+                    if v_match:
+                        params.append(f"V={v_match}В")
+                if "I_now=" in event_escaped:
+                    i_match = event_escaped.split("I_now=")[1].split("А")[0] if "I_now=" in event_escaped else ""
+                    if i_match:
+                        params.append(f"I={i_match}А")
+                if "Порог:" in event_escaped:
+                    threshold = event_escaped.split("Порог: ")[1].split(".")[0] if "Порог: " in event_escaped else ""
+                    if threshold:
+                        params.append(f"Δ={threshold}")
+                
+                if params:
+                    details = f" — {' | '.join(params[:3])}"
+            
+            # Основное событие (обрезаем если слишком длинное)
+            main_event = event_escaped.split('.')[0] if '.' in event_escaped else event_escaped
+            if len(main_event) > 45:
+                main_event = main_event[:42] + "..."
+            
+            # Формируем ЕДИНЫЙ блок без переносов
+            return f"<code>[{time_only}] {icon} <b>{stage_escaped}</b>: {main_event}{details}</code>"
         else:
             return ""  # Пропускаем чекпоинты для компактности
             
@@ -1578,12 +1604,15 @@ async def logs_handler(call: CallbackQuery) -> None:
     # Получаем реальные события из лога заряда
     from charging_log import get_recent_events
     try:
-        recent_events = get_recent_events(15)  # Последние 15 событий
+        recent_events = get_recent_events(20)  # Берем больше событий для фильтрации
         if not recent_events:
             text = "<b>📝 Логи событий</b>\n\nНет событий."
         else:
+            # Удаляем дубли идущих подряд событий
+            filtered_events = _remove_duplicate_events(recent_events)
+            
             lines = ["<b>📝 Логи событий</b>\n"]
-            for event in recent_events:
+            for event in filtered_events[-15:]:  # Берем последние 15 после фильтрации
                 # Парсим строку события для красивого форматирования
                 formatted_event = format_log_event(event)
                 if formatted_event.strip():  # Пропускаем пустые строки
