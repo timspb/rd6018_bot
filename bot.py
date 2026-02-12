@@ -450,13 +450,13 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
                 time_display = time_limit
                 
             if transition_condition:
-                transition_condition += f" | Ост: {time_display}"
+                transition_condition += f" {time_display}"
             else:
-                transition_condition = f"🔜 Ост: {time_display}"
+                transition_condition = f"🔜 {time_display}"
         
         stage_time_safe = html.escape(stage_time)
         stage_block = (
-            f"\n📍 ЭТАП: {stage_name} ({stage_time_safe})\n"
+            f"\n📍 ЭТАП: {stage_name} {stage_time_safe}ч\n"
             f"⚙️ УСТАВКИ: {current_v_set:.2f}В | {current_i_set:.2f}А"
         )
         
