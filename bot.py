@@ -435,20 +435,19 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         
         if "Main" in raw_stage:
             if charge_controller.battery_type == "Custom":
-                delta = charge_controller._custom_delta_threshold
-                transition_condition = f"🔜 ФИНИШ: dV/dI &gt; {delta:.3f}"
+                transition_condition = "🔜 ФИНИШ: &lt;0.30А"
             elif charge_controller.battery_type in ["Ca/Ca", "EFB"]:
-                transition_condition = "🔜 ПЕРЕХОД: &lt;0.3A (40м)"
+                transition_condition = "🔜 ПЕРЕХОД: &lt;0.30А"
             elif charge_controller.battery_type == "AGM":
-                transition_condition = "🔜 ПЕРЕХОД: &lt;0.2A"
+                transition_condition = "🔜 ПЕРЕХОД: &lt;0.20А"
         elif "Mix" in raw_stage:
-            transition_condition = "🔜 ФИНИШ: dV&gt;0.03В или dI&gt;0.03А"
+            transition_condition = "🔜 ФИНИШ: &lt;0.10А"
         elif "Десульфатация" in raw_stage:
-            transition_condition = "🔜 ПЕРЕХОД: 2ч → Main"
+            transition_condition = "🔜 ПЕРЕХОД: 2ч"
         elif "Безопасное ожидание" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: падение V"
         elif "Остывание" in raw_stage:
-            transition_condition = f"🔜 ВОЗВРАТ: T&le;35°C (сейчас {temp_ext:.1f}°C)"
+            transition_condition = f"🔜 ВОЗВРАТ: T&le;35°C"
         
         # Добавляем актуальный лимит времени в часах (убираем минуты)
         if time_limit != "—":
@@ -463,13 +462,13 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
                 time_display = time_limit
                 
             if transition_condition:
-                transition_condition += f" {time_display}"
+                transition_condition += f" | ⏱ {time_display}"
             else:
-                transition_condition = f"🔜 {time_display}"
+                transition_condition = f"🔜 ⏱ {time_display}"
         
         stage_time_safe = html.escape(stage_time)
         stage_block = (
-            f"\n📍 ЭТАП: {stage_name} {stage_time_safe}ч\n"
+            f"\n📍 ЭТАП: {stage_name} | ⏱ {stage_time_safe}\n"
             f"⚙️ УСТАВКИ: {current_v_set:.2f}В | {current_i_set:.2f}А"
         )
         
