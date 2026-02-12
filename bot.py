@@ -219,54 +219,62 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     is_cc = str(live.get("is_cc", "")).lower() == "on"
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
 
-    status = "💤 Ожидание | АКБ: {:.2f}В".format(battery_v) if not is_on else "⚡️ Зарядка | Выход: {:.2f}В (АКБ: {:.2f}В)".format(output_v, battery_v)
-    charge_phase = ""
-    timer_line = ""
+    # Новая структура интерфейса
     
+    # 1. ПЕРВАЯ СТРОКА (Общий статус)
     if charge_controller.is_active:
-        charge_phase = f"\n<b>🔋 ЗАРЯД:</b> {charge_controller.current_stage} ({charge_controller.battery_type} {charge_controller.ah_capacity}Ач)"
-        # v2.6 Добавляем строку времени
         timers = charge_controller.get_timers()
-        timer_line = f"\n<b>⏱ Время:</b> Всего {timers['total_time']} | Этап {timers['stage_time']}"
-        if timers['remaining_time'] != "—":
-            timer_line += f" | Лимит {timers['remaining_time']}"
+        status_emoji = "⚡️" if is_on else "⏸️"
+        stage_name = charge_controller.current_stage
+        battery_type = charge_controller.battery_type
+        total_time = timers['total_time']
+        status_line = f"📊 СТАТУС: {status_emoji} {stage_name} | {battery_type} | ⏱ {total_time}"
+    else:
+        status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
     
-    text = (
-        "<b>📊 СТАТУС:</b> {} | {}{}{}\n"
-        "<b>⚡ LIVE:</b> {:.2f}В | {:.2f}А | {:.2f}Вт\n"
-        "<b>🎯 ЦЕЛЬ:</b> {:.2f}В | {:.1f}А\n"
-        "<b>🔋 ЕМКОСТЬ:</b> {:.2f} Ач | {:.1f} Втч\n"
-        "<b>🌡 ТЕМП:</b> {:.1f}°C (Внеш) | {:.1f}°C (Внутр)"
-    ).format(status, mode, charge_phase, timer_line, v, i, p, set_v, set_i, ah, wh, temp_ext, temp_int)
+    # 2. ВТОРАЯ СТРОКА (Живые данные)
+    temp_warning = ""
+    if temp_int > 50.0:
+        temp_warning = f" | ⚠️ Блок: {temp_int:.1f}°C"
+    live_line = f"⚡️ LIVE: {battery_v:.2f}В | {i:.2f}А | 🌡 {temp_ext:.1f}°C{temp_warning}"
+    
+    # 3. БЛОК ЦЕЛИ (Две строки) - только при активном заряде
+    stage_block = ""
+    if charge_controller.is_active:
+        stage_time = timers['stage_time']
+        time_limit = timers['remaining_time'] if timers['remaining_time'] != "—" else "∞"
+        stage_block = (
+            f"\n📍 ЭТАП: {stage_name} ({stage_time})\n"
+            f"🎯 ЦЕЛЬ: {set_v:.2f}В | {set_i:.1f}А | Лимит: {time_limit}"
+        )
+    
+    # 4. ЧЕТВЕРТАЯ СТРОКА (Емкость)
+    capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
+    
+    # Формируем итоговый текст
+    text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
     times, voltages, currents = await get_graph_data(limit=100)
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
+    # Новое кнопочное меню
     # Кнопка-хамелеон: зависит только от output_on (HA switch)
-    main_btn_text = "🛑 ОСТАНОВИТЬ И ВЫКЛЮЧИТЬ" if is_on else "🚀 ЗАПУСТИТЬ ЗАРЯД"
+    main_btn_text = "🛑 ОСТАНОВИТЬ" if is_on else "🚀 ЗАПУСТИТЬ"
 
-    # v2.5 Клавиатура:
-    # 1 ряд: 🔄 Обновить (главное меню, на всю ширину)
-    # 2 ряд: 📊 График | 🧠 AI Анализ (сетка 2x2)
-    # 3 ряд: ⚙️ Режимы | 📝 Логи (сетка 2x2)
-    # 4 ряд: динамическая кнопка-хамелеон
+    # Новая структура клавиатуры:
+    # Row 1: [🔄 ОБНОВИТЬ ИНФОРМАЦИЮ] (Full width)
+    # Row 2: Динамическая кнопка [🛑 ОСТАНОВИТЬ] / [🚀 ЗАПУСТИТЬ]
+    # Row 3: [🧠 AI АНАЛИЗ] | [⚙️ РЕЖИМЫ]
+    # Row 4: [📝 ЛОГИ СОБЫТИЙ]
     kb_rows = [
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh")],
+        [InlineKeyboardButton(text="🔄 ОБНОВИТЬ ИНФОРМАЦИЮ", callback_data="refresh")],
+        [InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle")],
         [
-            InlineKeyboardButton(text="📊 График", callback_data="refresh"),
-            InlineKeyboardButton(text="🧠 AI Анализ", callback_data="ai_analysis"),
+            InlineKeyboardButton(text="🧠 AI АНАЛИЗ", callback_data="ai_analysis"),
+            InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
         ],
-        [
-            InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
-            InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
-        ],
-        [
-            InlineKeyboardButton(
-                text=main_btn_text,
-                callback_data="power_toggle",
-            ),
-        ],
+        [InlineKeyboardButton(text="📝 ЛОГИ СОБЫТИЙ", callback_data="logs")],
     ]
     ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
@@ -878,7 +886,7 @@ async def charge_back_handler(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "refresh")
 async def refresh_handler(call: CallbackQuery) -> None:
     try:
-        await call.answer("Данные обновлены")
+        await call.answer("Информация обновлена")
     except Exception:
         pass
     global last_chat_id
@@ -944,7 +952,7 @@ async def logs_handler(call: CallbackQuery) -> None:
         pass
     times, voltages, currents, temps = await get_logs_data(limit=5)
     if not times:
-        text = "<b>📈 Последние логи</b>\n\nНет данных."
+        text = "<b>📝 Логи событий</b>\n\nНет данных."
     else:
         header = "Время   | Напряж. | Ток    | Темп\n--------+---------+--------+-------"
         lines = [header]
@@ -954,7 +962,7 @@ async def logs_handler(call: CallbackQuery) -> None:
             i = currents[j] if j < len(currents) else 0.0
             t = temps[j] if j < len(temps) else 0.0
             lines.append(f"{ts} | {v:5.2f}В | {i:5.2f}А | {t:5.1f}°C")
-        text = "<b>📈 Последние логи</b>\n\n<pre>" + "\n".join(lines) + "</pre>"
+        text = "<b>📝 Логи событий</b>\n\n<pre>" + "\n".join(lines) + "</pre>"
     await call.message.answer(text, parse_mode=ParseMode.HTML)
 
 
