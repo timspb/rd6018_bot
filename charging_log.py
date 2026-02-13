@@ -4,12 +4,16 @@ charging_log.py — детальное логирование событий з�
 """
 import logging
 import os
+import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
+
 from time_utils import format_datetime_user_tz
 
 LOG_FILE = "charging_history.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 МБ
+LOG_RETENTION_DAYS = 30  # хранить события не старше 30 дней
 
 _charge_logger: logging.Logger = None
 
@@ -25,6 +29,77 @@ def _ensure_logger() -> logging.Logger:
             _charge_logger.addHandler(h)
         _charge_logger.propagate = False
     return _charge_logger
+
+
+# Регулярка для извлечения даты из строки: [ГГГГ-ММ-ДД ЧЧ:ММ:SS]
+_LOG_LINE_DATE_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]")
+
+
+def _parse_log_line_date(line: str) -> Optional[datetime]:
+    """Извлечь дату из строки лога. Возвращает None, если не удалось распарсить."""
+    line = line.strip()
+    if not line:
+        return None
+    m = _LOG_LINE_DATE_RE.match(line)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def trim_log_older_than_days(days: int = LOG_RETENTION_DAYS) -> int:
+    """
+    Удалить из charging_history.log строки старше указанного числа дней.
+    Возвращает количество удалённых строк.
+    Перед перезаписью файла хендлер логгера временно снимается и затем восстанавливается.
+    """
+    if not os.path.exists(LOG_FILE):
+        return 0
+    logger_obj = _ensure_logger()
+    # Снимаем файловый хендлер, чтобы можно было перезаписать файл
+    handler_to_remove = None
+    for h in logger_obj.handlers[:]:
+        if getattr(h, "baseFilename", None) and LOG_FILE in str(h.baseFilename):
+            handler_to_remove = h
+            break
+    if handler_to_remove:
+        logger_obj.removeHandler(handler_to_remove)
+        try:
+            handler_to_remove.close()
+        except Exception:
+            pass
+
+    cutoff = datetime.now() - timedelta(days=days)
+    removed = 0
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        kept = []
+        for line in lines:
+            dt = _parse_log_line_date(line)
+            if dt is None:
+                kept.append(line)
+                continue
+            if dt >= cutoff:
+                kept.append(line)
+            else:
+                removed += 1
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+    except Exception as e:
+        logging.getLogger("rd6018").warning("trim_log_older_than_days failed: %s", e)
+    finally:
+        # Восстанавливаем файловый хендлер
+        if not any(
+            getattr(h, "baseFilename", None) and LOG_FILE in str(getattr(h, "baseFilename", ""))
+            for h in logger_obj.handlers
+        ):
+            h = logging.FileHandler(LOG_FILE, encoding="utf-8")
+            h.setFormatter(logging.Formatter("%(message)s"))
+            logger_obj.addHandler(h)
+    return removed
 
 
 def rotate_if_needed() -> None:
@@ -59,27 +134,26 @@ def log_checkpoint(stage: str, v: float, i: float, t_ext: float, ah: float) -> N
 
 
 def clear_event_logs() -> None:
-    """Очистить файл логов событий. Вызывать при старте новой сессии заряда (ЗАПУСТИТЬ / новый профиль). В памяти остаются только события текущей сессии."""
-    try:
-        logger = _ensure_logger()
-        for h in logger.handlers:
-            if getattr(h, "baseFilename", None) and LOG_FILE in str(h.baseFilename):
-                stream = getattr(h, "stream", None)
-                if stream and hasattr(stream, "seek") and hasattr(stream, "truncate"):
-                    stream.seek(0)
-                    stream.truncate(0)
-                    stream.flush()
-                break
-        else:
-            if os.path.exists(LOG_FILE):
-                with open(LOG_FILE, "w", encoding="utf-8") as f:
-                    f.write("")
-    except Exception as e:
-        logging.getLogger("rd6018").warning("clear_event_logs failed: %s", e)
+    """
+    v2.7: Больше НЕ очищает файл журнала.
+
+    История всех зарядов должна сохраняться в charging_history.log для последующего анализа.
+    Очистка логов для пользователя теперь реализуется фильтрацией по текущей сессии
+    (см. get_recent_events), поэтому эта функция оставлена только для обратной совместимости.
+    """
+    # Ничего не делаем умышленно.
+    return None
 
 
 def get_recent_events(limit: int = 5) -> list:
-    """v2.6 Получить последние N событий из лога для AI контекста."""
+    """
+    v2.7 Получить последние N событий ТЕКУЩЕЙ сессии из лога.
+
+    Лог-файл хранит историю всех зарядов, но для отображения пользователю и AI-контекста
+    показываем только события с момента последнего старта:
+    - строка содержит 'START profile=' (авто-профиль)
+    - или 'START CUSTOM' (ручной режим)
+    """
     if not os.path.exists(LOG_FILE):
         return []
     
@@ -87,9 +161,20 @@ def get_recent_events(limit: int = 5) -> list:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
+        # Находим последнюю строку начала сессии
+        start_idx = -1
+        for idx, line in enumerate(lines):
+            if "START profile=" in line or "START CUSTOM" in line:
+                start_idx = idx
+        
+        if start_idx != -1:
+            session_lines = lines[start_idx:]
+        else:
+            session_lines = lines
+        
         # Фильтруем значимые события (не CHECKPOINT)
         significant_events = []
-        for line in lines:
+        for line in session_lines:
             line = line.strip()
             if line and "CHECKPOINT" not in line:
                 significant_events.append(line)

@@ -21,6 +21,25 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 # v2.6 Часовой пояс для всех временных меток
 USER_TIMEZONE = os.getenv("USER_TIMEZONE", "Europe/Moscow")
 
+# Разрешённые chat_id (через запятую). Пусто = доступ у всех.
+def _parse_allowed_chat_ids() -> tuple:
+    raw = (os.getenv("ALLOWED_CHAT_IDS") or "").strip()
+    if not raw:
+        return ()
+    result = []
+    for s in raw.split(","):
+        s = s.strip()
+        if not s:
+            continue
+        try:
+            result.append(int(s))
+        except ValueError:
+            pass
+    return tuple(result)
+
+
+ALLOWED_CHAT_IDS = _parse_allowed_chat_ids()
+
 # Строгий маппинг сущностей HA (как в спецификации)
 ENTITY_MAP = {
     "voltage": "sensor.rd_6018_output_voltage",

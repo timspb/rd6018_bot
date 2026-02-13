@@ -172,6 +172,8 @@ HA_URL=http://your-homeassistant:8123
 HA_TOKEN=your_long_lived_access_token
 DEEPSEEK_API_KEY=your_deepseek_api_key
 USER_TIMEZONE=Europe/Moscow
+# Ограничение доступа: через запятую chat_id (личка и группы). Пусто = доступ у всех.
+# ALLOWED_CHAT_IDS=38426001,-5207442975,-1005207442975
 ```
 
 ### **Настройка Home Assistant:**

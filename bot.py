@@ -32,9 +32,19 @@ from charge_logic import (
     HIGH_V_FAST_TIMEOUT,
     HIGH_V_THRESHOLD,
     WATCHDOG_TIMEOUT,
+    OVP_OFFSET,
+    OCP_OFFSET,
 )
-from charging_log import clear_event_logs, log_checkpoint, log_event, rotate_if_needed
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, ENTITY_MAP, HA_URL, HA_TOKEN, TG_TOKEN
+from charging_log import clear_event_logs, log_checkpoint, log_event, rotate_if_needed, trim_log_older_than_days
+from config import (
+    ALLOWED_CHAT_IDS,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    ENTITY_MAP,
+    HA_URL,
+    HA_TOKEN,
+    TG_TOKEN,
+)
 from database import add_record, cleanup_old_records, get_graph_data, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
@@ -188,6 +198,32 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
 
 
 charge_controller = ChargeController(hass, notify_cb=_charge_notify)
+
+
+def _is_chat_allowed(chat_id: int) -> bool:
+    """Проверка доступа по ALLOWED_CHAT_IDS. Пустой список = доступ у всех."""
+    if not ALLOWED_CHAT_IDS:
+        return True
+    return chat_id in ALLOWED_CHAT_IDS
+
+
+async def _check_chat_and_respond(event: Union[Message, CallbackQuery]) -> bool:
+    """
+    Вернуть True, если чат разрешён. Иначе отправить «Доступ запрещён» и вернуть False.
+    Вызывать в начале обработчиков.
+    """
+    chat_id = event.chat.id if isinstance(event, Message) else event.message.chat.id
+    if _is_chat_allowed(chat_id):
+        return True
+    try:
+        if isinstance(event, Message):
+            await event.answer("Доступ запрещён.")
+        else:
+            await event.answer("Доступ запрещён.", show_alert=True)
+    except Exception:
+        pass
+    return False
+
 
 user_dashboard: Dict[int, int] = {}
 last_chat_id: Optional[int] = None
@@ -930,9 +966,13 @@ async def data_logger() -> None:
                 log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
                 last_checkpoint_time = now_ts
             
-            # Очистка базы данных каждые 24 часа (записи старше 7 дней)
+            # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)
             if now_ts - last_cleanup_time >= 86400:  # 24 часа
                 await cleanup_old_records()
+                try:
+                    trim_log_older_than_days(30)
+                except Exception as ex:
+                    logger.warning("trim_log_older_than_days: %s", ex)
                 last_cleanup_time = now_ts
 
             if actions.get("emergency_stop"):
@@ -999,6 +1039,8 @@ async def data_logger() -> None:
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
+    if not await _check_chat_and_respond(message):
+        return
     global last_chat_id
     last_chat_id = message.chat.id
     logger.info("Command /start from %s", message.from_user.id)
@@ -1010,6 +1052,8 @@ async def cmd_start(message: Message) -> None:
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
     """Статистика и прогноз заряда с AI-аналитикой."""
+    if not await _check_chat_and_respond(message):
+        return
     global last_chat_id
     last_chat_id = message.chat.id
     try:
@@ -1073,6 +1117,12 @@ async def cmd_stats(message: Message) -> None:
         await sent.edit_text(new_text, parse_mode=ParseMode.HTML)
     except Exception as ex:
         logger.warning("cmd_stats edit_text: %s", ex)
+
+    # После запроса статистики обновляем дашборд, чтобы виджет меню был внизу чата
+    if message.from_user:
+        old_id = user_dashboard.get(message.from_user.id)
+        msg_id = await send_dashboard(message, old_msg_id=old_id)
+        user_dashboard[message.from_user.id] = msg_id
 
 
 async def get_ai_context() -> str:
@@ -1183,6 +1233,8 @@ async def get_current_context_for_llm() -> str:
 @router.message(F.text)
 async def text_message_handler(message: Message) -> None:
     """v2.6 Обработка текстовых сообщений: ввод ёмкости АКБ, ручной режим или режим диалога с LLM."""
+    if not await _check_chat_and_respond(message):
+        return
     global awaiting_ah, custom_mode_state, last_chat_id, last_checkpoint_time
     user_id = message.from_user.id if message.from_user else 0
     
@@ -1215,21 +1267,22 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         return
     del awaiting_ah[user_id]
     last_chat_id = message.chat.id
-
-    clear_event_logs()
     live = await hass.get_all_live()
     battery_v = _safe_float(live.get("battery_voltage"))
     i = _safe_float(live.get("current"))
     t = _safe_float(live.get("temp_ext"))
     ah_val = _safe_float(live.get("ah"))
     charge_controller.start(profile, ah)
+    # Устанавливаем стартовые уставки и OVP/OCP под новый профиль
     if battery_v < 12.0:
-        await hass.set_voltage(12.0)
-        await hass.set_current(0.5)
+        uv, ui = 12.0, 0.5
     else:
         uv, ui = charge_controller._main_target()
-        await hass.set_voltage(uv)
-        await hass.set_current(ui)
+
+    await hass.set_voltage(uv)
+    await hass.set_current(ui)
+    await hass.set_ovp(uv + OVP_OFFSET)
+    await hass.set_ocp(ui + OCP_OFFSET)
     await hass.turn_on(ENTITY_MAP["switch"])
     last_checkpoint_time = time.time()
     log_event("Подготовка", battery_v, i, t, ah_val, f"START profile={profile} ah={ah}")
@@ -1239,7 +1292,22 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         parse_mode=ParseMode.HTML,
     )
     old_id = user_dashboard.get(user_id)
-    await send_dashboard(message, old_msg_id=old_id)
+    msg_id = await send_dashboard(message, old_msg_id=old_id)
+    if user_id:
+        user_dashboard[user_id] = msg_id
+
+    # Через 2 секунды после включения выхода — автообновление дашборда
+    async def _delayed_dashboard_refresh() -> None:
+        try:
+            await asyncio.sleep(2)
+            old = user_dashboard.get(user_id)
+            new_id = await send_dashboard(message, old_msg_id=old)
+            if user_id:
+                user_dashboard[user_id] = new_id
+        except Exception as ex:
+            logger.warning("Delayed dashboard refresh failed: %s", ex)
+
+    asyncio.create_task(_delayed_dashboard_refresh())
 
 
 async def handle_dialog_mode(message: Message) -> None:
@@ -1458,7 +1526,6 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
     """Запуск заряда в ручном режиме."""
     global last_chat_id, last_checkpoint_time
     last_chat_id = message.chat.id
-    clear_event_logs()
     
     try:
         # Получаем текущие данные
@@ -1477,15 +1544,25 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
             ah_capacity=int(params["capacity"])
         )
         
-        # Устанавливаем параметры на RD6018
+        # Устанавливаем параметры на RD6018 и сбрасываем OVP/OCP под пользовательский профиль
         await hass.set_voltage(params["main_voltage"])
         await hass.set_current(params["main_current"])
+        await hass.set_ovp(params["main_voltage"] + OVP_OFFSET)
+        await hass.set_ocp(params["main_current"] + OCP_OFFSET)
         await hass.turn_on(ENTITY_MAP["switch"])
         
         last_checkpoint_time = time.time()
-        log_event("Подготовка", battery_v, i, t, ah_val, 
-                 f"START CUSTOM main={params['main_voltage']:.1f}V/{params['main_current']:.1f}A "
-                 f"delta={params['delta']:.3f}V limit={params['time_limit']:.0f}h ah={params['capacity']:.0f}")
+        log_event(
+            "Подготовка",
+            battery_v,
+            i,
+            t,
+            ah_val,
+            (
+                f"START CUSTOM main={params['main_voltage']:.1f}V/{params['main_current']:.1f}A "
+                f"delta={params['delta']:.3f}V limit={params['time_limit']:.0f}h ah={params['capacity']:.0f}"
+            ),
+        )
         
         # Показываем результат
         summary = (
@@ -1502,7 +1579,22 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         
         # Обновляем дашборд
         old_id = user_dashboard.get(user_id)
-        await send_dashboard(message, old_msg_id=old_id)
+        msg_id = await send_dashboard(message, old_msg_id=old_id)
+        if user_id:
+            user_dashboard[user_id] = msg_id
+
+        # Автообновление через 2 секунды после включения выхода
+        async def _delayed_dashboard_refresh_custom() -> None:
+            try:
+                await asyncio.sleep(2)
+                old = user_dashboard.get(user_id)
+                new_id = await send_dashboard(message, old_msg_id=old)
+                if user_id:
+                    user_dashboard[user_id] = new_id
+            except Exception as ex:
+                logger.warning("Delayed dashboard refresh (custom) failed: %s", ex)
+
+        asyncio.create_task(_delayed_dashboard_refresh_custom())
         
     except Exception as ex:
         logger.error("start_custom_charge error: %s", ex)
@@ -1512,6 +1604,8 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
 @router.callback_query(F.data == "charge_modes")
 async def charge_modes_handler(call: CallbackQuery) -> None:
     """Открыть подменю «🚗 Авто» с режимами заряда."""
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
@@ -1548,6 +1642,8 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "custom_cancel")
 async def custom_mode_cancel(call: CallbackQuery) -> None:
     """Отменить ручной режим и вернуться в главное меню."""
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer("Ручной режим отменен")
     except Exception:
@@ -1572,6 +1668,8 @@ async def custom_mode_cancel(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "charge_back")
 async def charge_back_handler(call: CallbackQuery) -> None:
     """Вернуться из подменю «🚗 Авто» в главное меню."""
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
@@ -1582,6 +1680,8 @@ async def charge_back_handler(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "refresh")
 async def refresh_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer("Информация обновлена")
     except Exception:
@@ -1594,6 +1694,8 @@ async def refresh_handler(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "power_toggle")
 async def power_toggle_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
@@ -1625,11 +1727,12 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "profile_custom")
 async def custom_mode_start(call: CallbackQuery) -> None:
     """Начать ручной режим с приветственным сообщением."""
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
         pass
-    
     global custom_mode_state, custom_mode_data, last_chat_id
     last_chat_id = call.message.chat.id
     user_id = call.from_user.id if call.from_user else 0
@@ -1666,6 +1769,8 @@ async def custom_mode_start(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.in_({"profile_caca", "profile_efb", "profile_agm"}))
 async def profile_selection(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
@@ -1685,11 +1790,12 @@ async def profile_selection(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "logs")
 async def logs_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
         pass
-    
     # Получаем реальные события из лога заряда
     from charging_log import get_recent_events
     try:
@@ -1718,9 +1824,17 @@ async def logs_handler(call: CallbackQuery) -> None:
     
     await call.message.answer(text, parse_mode=ParseMode.HTML)
 
+    # Обновляем дашборд, чтобы виджет меню был сразу над строкой ввода
+    if call.from_user:
+        old_id = user_dashboard.get(call.from_user.id)
+        msg_id = await send_dashboard(call, old_msg_id=old_id)
+        user_dashboard[call.from_user.id] = msg_id
+
 
 @router.callback_query(F.data == "ai_analysis")
 async def ai_analysis_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
     try:
         await call.answer()
     except Exception:
@@ -1738,10 +1852,23 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
     result_html = _md_to_html(result)
     await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
 
+    # Обновляем дашборд после AI-анализа
+    if call.from_user:
+        old_id = user_dashboard.get(call.from_user.id)
+        msg_id = await send_dashboard(call, old_msg_id=old_id)
+        user_dashboard[call.from_user.id] = msg_id
+
 
 async def main() -> None:
     await init_db()
     rotate_if_needed()
+    # Очистка журнала событий от записей старше 30 дней
+    try:
+        n = trim_log_older_than_days(30)
+        if n > 0:
+            logger.info("Trimmed %d old lines from charging_history.log", n)
+    except Exception as ex:
+        logger.warning("trim_log_older_than_days at startup: %s", ex)
 
     # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин
     global last_checkpoint_time
