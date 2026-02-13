@@ -701,7 +701,13 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     # Формируем итоговый текст (все переменные уже экранированы)
     text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
-    times, voltages, currents = await get_graph_data(limit=100)
+    # График только по текущей сессии заряда (как и логи событий)
+    graph_since = (
+        charge_controller.total_start_time
+        if charge_controller.is_active and getattr(charge_controller, "total_start_time", None)
+        else None
+    )
+    times, voltages, currents = await get_graph_data(limit=100, since_timestamp=graph_since)
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 

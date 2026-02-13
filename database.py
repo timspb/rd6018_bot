@@ -3,7 +3,7 @@ database.py — асинхронное хранение истории сенс�
 """
 import logging
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import aiosqlite
 
@@ -84,23 +84,39 @@ async def add_record(v: float, i: float, p: float, t: float) -> None:
         logger.error("add_record failed: %s", ex)
 
 
-async def get_history(limit: int = 100) -> Tuple[List[str], List[float], List[float]]:
+async def get_history(
+    limit: int = 100,
+    since_timestamp: Optional[float] = None,
+) -> Tuple[List[str], List[float], List[float]]:
     """
     Получить данные для графика.
     Возвращает (times, voltages, currents), downsampled до limit точек.
+    Если since_timestamp задан (unix time) — только записи с timestamp >= этого момента (текущая сессия заряда).
     """
     times: List[str] = []
     voltages: List[float] = []
     currents: List[float] = []
 
     try:
+        since_iso: Optional[str] = None
+        if since_timestamp and since_timestamp > 0:
+            since_iso = datetime.fromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S")
+
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
-                (limit * 3,),  # берём больше, потом downsample
-            ) as cursor:
-                rows = await cursor.fetchall()
+            if since_iso:
+                async with db.execute(
+                    """SELECT timestamp, voltage, current FROM sensor_history
+                       WHERE timestamp >= ? ORDER BY id DESC LIMIT ?""",
+                    (since_iso, limit * 3),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
+                    (limit * 3,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
 
         if not rows:
             return times, voltages, currents
@@ -159,9 +175,12 @@ async def add_charge_log(message: str) -> None:
         logger.error("add_charge_log failed: %s", ex)
 
 
-async def get_graph_data(limit: int = 100) -> Tuple[List[str], List[float], List[float]]:
-    """Алиас для get_history (для совместимости со спецификацией)."""
-    return await get_history(limit=limit)
+async def get_graph_data(
+    limit: int = 100,
+    since_timestamp: Optional[float] = None,
+) -> Tuple[List[str], List[float], List[float]]:
+    """Данные для графика. При активном заряде передайте since_timestamp=total_start_time, чтобы график только по текущей сессии."""
+    return await get_history(limit=limit, since_timestamp=since_timestamp)
 
 
 async def get_logs_data(limit: int = 5) -> Tuple[List[str], List[float], List[float], List[float]]:
