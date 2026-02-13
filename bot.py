@@ -666,13 +666,13 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
                     expect_i = i_min + DELTA_I_EXIT
                     transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А I≥{expect_i:.2f}А"
                 else:
-                    transition_condition = "🔜 ФИНИШ: ΔI +0.03А от мин"
+                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А"
             elif is_cc:
                 if v_max is not None:
                     expect_v = v_max - DELTA_V_EXIT
                     transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В V≤{expect_v:.2f}В"
                 else:
-                    transition_condition = "🔜 ФИНИШ: ΔV −0.03В от пика"
+                    transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В"
             else:
                 transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{DELTA_I_EXIT}А (CV)"
         elif "Десульфатация" in raw_stage:
