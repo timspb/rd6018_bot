@@ -661,14 +661,21 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             # Окончание Mix: CC — спад V на 0.03В от пика; CV — рост I на 0.03А от минимума
             v_max = charge_controller.v_max_recorded
             i_min = charge_controller.i_min_recorded
-            if is_cv and i_min is not None:
-                expect_i = i_min + DELTA_I_EXIT
-                transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: I≥{expect_i:.2f}А"
-            elif is_cc and v_max is not None:
-                expect_v = v_max - DELTA_V_EXIT
-                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: V≤{expect_v:.2f}В"
+            mode_part = f"Сейчас: {mode}. "
+            if is_cv:
+                if i_min is not None:
+                    expect_i = i_min + DELTA_I_EXIT
+                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: I≥{expect_i:.2f}А"
+                else:
+                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: — (накопление мин I)"
+            elif is_cc:
+                if v_max is not None:
+                    expect_v = v_max - DELTA_V_EXIT
+                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: V≤{expect_v:.2f}В"
+                else:
+                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: — (накопление пика V)"
             else:
-                transition_condition = "🔜 ФИНИШ: ΔV −0.03В (CC) или ΔI +0.03А (CV)"
+                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{DELTA_I_EXIT}А (CV)"
         elif "Десульфатация" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: 2ч"
         elif "Безопасное ожидание" in raw_stage:
