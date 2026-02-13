@@ -58,6 +58,26 @@ def log_checkpoint(stage: str, v: float, i: float, t_ext: float, ah: float) -> N
     log_event(stage, v, i, t_ext, ah, "CHECKPOINT")
 
 
+def clear_event_logs() -> None:
+    """Очистить файл логов событий. Вызывать при старте новой сессии заряда (ЗАПУСТИТЬ / новый профиль). В памяти остаются только события текущей сессии."""
+    try:
+        logger = _ensure_logger()
+        for h in logger.handlers:
+            if getattr(h, "baseFilename", None) and LOG_FILE in str(h.baseFilename):
+                stream = getattr(h, "stream", None)
+                if stream and hasattr(stream, "seek") and hasattr(stream, "truncate"):
+                    stream.seek(0)
+                    stream.truncate(0)
+                    stream.flush()
+                break
+        else:
+            if os.path.exists(LOG_FILE):
+                with open(LOG_FILE, "w", encoding="utf-8") as f:
+                    f.write("")
+    except Exception as e:
+        logging.getLogger("rd6018").warning("clear_event_logs failed: %s", e)
+
+
 def get_recent_events(limit: int = 5) -> list:
     """v2.6 Получить последние N событий из лога для AI контекста."""
     if not os.path.exists(LOG_FILE):
