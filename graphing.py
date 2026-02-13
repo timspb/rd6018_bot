@@ -53,8 +53,10 @@ def _parse_timestamps(times: List[str]) -> List[datetime]:
             continue
         try:
             if "T" in ts:
-                # ISO формат - парсим и конвертируем в пользовательский часовой пояс
-                dt = datetime.fromisoformat(ts.replace("Z", "+00:00")[:19])
+                # ISO: с Z — UTC, конвертируем в пользовательский пояс; без Z — legacy, считаем UTC
+                s = ts.replace("Z", "+00:00").strip()
+                # Не обрезать время, иначе теряется +00:00 и ось графика не в user_tz
+                dt = datetime.fromisoformat(s)
                 if dt.tzinfo is None:
                     import pytz
                     dt = dt.replace(tzinfo=pytz.UTC)

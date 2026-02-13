@@ -661,19 +661,18 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             # Окончание Mix: CC — спад V на 0.03В от пика; CV — рост I на 0.03А от минимума
             v_max = charge_controller.v_max_recorded
             i_min = charge_controller.i_min_recorded
-            mode_part = f"Сейчас: {mode}. "
             if is_cv:
                 if i_min is not None:
                     expect_i = i_min + DELTA_I_EXIT
-                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: I≥{expect_i:.2f}А"
+                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: I≥{expect_i:.2f}А"
                 else:
-                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: — (накопление мин I)"
+                    transition_condition = "🔜 ФИНИШ: ΔI +0.03А от мин. Ожидаем: ⏳ мин I"
             elif is_cc:
                 if v_max is not None:
                     expect_v = v_max - DELTA_V_EXIT
-                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: V≤{expect_v:.2f}В"
+                    transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: V≤{expect_v:.2f}В"
                 else:
-                    transition_condition = f"🔜 ФИНИШ: {mode_part}ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: — (накопление пика V)"
+                    transition_condition = "🔜 ФИНИШ: ΔV −0.03В от пика. Ожидаем: ⏳ пик V"
             else:
                 transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{DELTA_I_EXIT}А (CV)"
         elif "Десульфатация" in raw_stage:
@@ -696,12 +695,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
                 time_display = time_limit
                 
             if transition_condition:
-                # Проверяем длину строки и переносим время если нужно
-                full_line = f"{transition_condition} | ⏱ {time_display}"
-                if len(full_line) > 35:  # Если строка слишком длинная
-                    transition_condition = f"{transition_condition}\n⏱ {time_display}"
-                else:
-                    transition_condition = full_line
+                transition_condition = f"{transition_condition} | ⏱ {time_display}"
             else:
                 transition_condition = f"🔜 ⏱ {time_display}"
         
