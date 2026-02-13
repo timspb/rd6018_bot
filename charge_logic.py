@@ -25,18 +25,23 @@ DELTA_V_EXIT = 0.03  # В — выход CC при падении V от пик�
 DELTA_I_EXIT = 0.03  # А — выход CV при росте I от минимума
 TEMP_RISE_LIMIT = 2.0  # °C за 5 мин
 TEMP_RISE_WINDOW = 300  # сек (5 мин)
-DESULF_CURRENT_STUCK = 0.3  # А — порог «застревания» для десульфации
-DESULF_STUCK_MIN_MINUTES = 30  # мин — минимум времени застревания перед десульфацией
+DESULF_CURRENT_STUCK = 0.3  # А — порог «застревания» для Ca/EFB
+DESULF_CURRENT_STUCK_AGM = 0.2  # А — порог для AGM
+DESULF_STUCK_MIN_MINUTES = 40  # мин — минимум времени застревания перед десульфацией (детектор «полки»)
+ANTISULFATE_MAX_CA_EFB = 3  # макс итераций антисульфата для Ca/Ca и EFB
+ANTISULFATE_MAX_AGM = 4  # макс итераций для AGM
 MIX_DONE_TIMER = 2 * 3600  # сек — таймер после delta до Done
+CA_MIX_MAX_HOURS = 8   # Ca/Ca: макс 8 ч на этапе Mix
 EFB_MIX_MAX_HOURS = 10
+AGM_MIX_MAX_HOURS = 5  # AGM: макс 5 ч на этапе Mix
 AGM_STAGES = [14.4, 14.6, 14.8, 15.0]  # В — четырёхступенчатый подъём
 AGM_STAGE_MIN_MINUTES = 15  # мин на каждой ступени перед переходом
 
-# Безопасный переход HV -> LV
-SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (цель - 0.5В)
+# Безопасный переход HV -> LV (вместо фиксированной «паузы 30 мин» — ожидание по напряжению)
+SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (целевое напряжение следующего этапа − 0.5В)
 SAFE_WAIT_MAX_SEC = 2 * 3600  # макс 2 часа ожидания
 HIGH_V_FOR_SAFE_WAIT = 15.0  # переходы с V > 15В требуют ожидания
-PHANTOM_CHARGE_MINUTES = 15  # мин — ток < 0.3А за это время = подозрительный заряд
+PHANTOM_CHARGE_MINUTES = 10  # мин — ток < порога за это время = подозрительно быстрый заряд
 BLANKING_SEC = 5 * 60  # сек — после смены фазы игнорировать триггеры
 DELTA_MONITOR_DELAY_SEC = 120  # v2.0: начинать мониторинг dV/dI строго через 120 сек после смены уставок
 TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с интервалом 1 мин для срабатывания Delta
@@ -284,6 +289,10 @@ class ChargeController:
                 return self.finish_timer_start + MIX_DONE_TIMER
             if self.battery_type == self.PROFILE_EFB:
                 return self.stage_start_time + EFB_MIX_MAX_HOURS * 3600
+            if self.battery_type == self.PROFILE_CA:
+                return self.stage_start_time + CA_MIX_MAX_HOURS * 3600
+            if self.battery_type == self.PROFILE_AGM:
+                return self.stage_start_time + AGM_MIX_MAX_HOURS * 3600
         return None
 
     def _get_target_v_i(self) -> Tuple[float, float]:
@@ -686,10 +695,16 @@ class ChargeController:
             stage_limit_sec = 2 * 3600  # 2 часа
         elif self.current_stage == self.STAGE_MIX:
             if self.finish_timer_start:
-                stage_limit_sec = MIX_DONE_TIMER  # 2 часа после Delta
+                stage_limit_sec = MIX_DONE_TIMER
                 stage_elapsed = now - self.finish_timer_start
             elif self.battery_type == self.PROFILE_EFB:
-                stage_limit_sec = EFB_MIX_MAX_HOURS * 3600  # 10 часов для EFB
+                stage_limit_sec = EFB_MIX_MAX_HOURS * 3600
+            elif self.battery_type == self.PROFILE_CA:
+                stage_limit_sec = CA_MIX_MAX_HOURS * 3600
+            elif self.battery_type == self.PROFILE_AGM:
+                stage_limit_sec = AGM_MIX_MAX_HOURS * 3600
+            else:
+                stage_limit_sec = MIX_DONE_TIMER
         elif self.current_stage == self.STAGE_SAFE_WAIT:
             stage_limit_sec = SAFE_WAIT_MAX_SEC  # 2 часа
             stage_elapsed = now - self._safe_wait_start if self._safe_wait_start > 0 else 0
@@ -840,8 +855,9 @@ class ChargeController:
         return None
 
     def _detect_stuck_current(self, current: float) -> bool:
-        """Застревание тока > 0.3A — триггер десульфации."""
-        return current > DESULF_CURRENT_STUCK
+        """Застревание тока выше порога — триггер десульфации (0.2А для AGM, 0.3А для Ca/EFB)."""
+        threshold = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
+        return current > threshold
 
     def _exit_cc_condition(self, v_now: float) -> bool:
         """Выход CC: V упало на дельту от пика."""
@@ -862,7 +878,15 @@ class ChargeController:
         if self.current_stage == self.STAGE_DESULFATION:
             return 2.0
         if self.current_stage == self.STAGE_MIX:
-            return 10.0 if self.battery_type == self.PROFILE_EFB else 2.0
+            if self.finish_timer_start is not None:
+                return 2.0  # таймер 2ч после Delta
+            if self.battery_type == self.PROFILE_EFB:
+                return float(EFB_MIX_MAX_HOURS)
+            if self.battery_type == self.PROFILE_CA:
+                return float(CA_MIX_MAX_HOURS)
+            if self.battery_type == self.PROFILE_AGM:
+                return float(AGM_MIX_MAX_HOURS)
+            return 2.0
         if self.current_stage == self.STAGE_SAFE_WAIT:
             return 2.0
         return None
@@ -1017,7 +1041,7 @@ class ChargeController:
             max_str = f"{max_hrs:.0f}" if max_hrs is not None else "—"
             report = (
                 f"⏳ Прошло {current_hrs:.1f}ч из {max_str} лимита этапа. "
-                f"T: {temp:.1f}°C, Ah: {ah:.2f}."
+                f"Ток: {current:.2f} А, T: {temp:.1f}°C, Ah: {ah:.2f}."
             )
             if "notify" not in actions or not actions["notify"]:
                 actions["notify"] = report
@@ -1144,7 +1168,54 @@ class ChargeController:
                     )
                     actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
                 else:
-                    if not in_blanking and is_cv and current < 0.2:
+                    # AGM: застревание I >= 0.2А 40 мин — десульфация (макс 4 итерации)
+                    if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
+                        if self._stuck_current_since is None:
+                            self._stuck_current_since = now
+                        stuck_mins = int((now - self._stuck_current_since) / 60)
+                        if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
+                            self.antisulfate_count += 1
+                            self._stuck_current_since = None
+                            prev = self.current_stage
+                            self.current_stage = self.STAGE_DESULFATION
+                            self.stage_start_time = now
+                            self._reset_delta_and_blanking(now)
+                            _log_trigger(prev, self.current_stage, "AGM_I_stuck_0.2A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
+                            dv, di = self._desulf_target()
+                            actions["set_voltage"] = dv
+                            actions["set_current"] = di
+                            self._add_phase_limits(actions, dv, di)
+                            actions["notify"] = (
+                                f"🔧 <b>AGM Десульфатация #{self.antisulfate_count}</b>\n\n"
+                                f"Ток застрял ≥ <code>{DESULF_CURRENT_STUCK_AGM}</code>А более <code>{stuck_mins}</code> мин. "
+                                f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
+                            )
+                            actions["log_event"] = "MAIN->DESULFATION (AGM)"
+                        elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
+                            self._stuck_current_since = None
+                            prev = self.current_stage
+                            self.current_stage = self.STAGE_MIX
+                            self.stage_start_time = now
+                            self._reset_delta_and_blanking(now)
+                            mxv, mxi = self._mix_target()
+                            actions["set_voltage"] = mxv
+                            actions["set_current"] = mxi
+                            self._add_phase_limits(actions, mxv, mxi)
+                            actions["notify"] = (
+                                "<b>⚠️ AGM:</b> Лимит 4 десульфаций. Ток всё ещё > 0.2А. "
+                                "Переход в Mix Mode (финальный буст)."
+                            )
+                            actions["log_event"] = "MAIN->MIX (AGM desulf limit)"
+                    elif not in_blanking and is_cv and current < 0.2:
+                        phantom_note = ""
+                        log_ev = "MAIN->MIX"
+                        if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
+                            self._phantom_alerted = True
+                            phantom_note = (
+                                "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
+                                f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
+                            )
+                            log_ev = "PHANTOM_CHARGE | MAIN->MIX"
                         prev = self.current_stage
                         self.current_stage = self.STAGE_MIX
                         self.stage_start_time = now
@@ -1157,36 +1228,37 @@ class ChargeController:
                         actions["notify"] = (
                             "<b>✅ Фаза завершена:</b> Main Charge\n"
                             "<b>🚀 Переход к:</b> Mix Mode (финальный буст)"
+                            f"{phantom_note}"
                         )
-                        actions["log_event"] = "MAIN->MIX"
+                        actions["log_event"] = log_ev
 
             elif not in_blanking and is_cv and self._detect_stuck_current(current):
                 if self._stuck_current_since is None:
                     self._stuck_current_since = now
                 stuck_mins = int((now - self._stuck_current_since) / 60)
-                if self.antisulfate_count < 3 and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
+                max_antisulf = ANTISULFATE_MAX_AGM if self.battery_type == self.PROFILE_AGM else ANTISULFATE_MAX_CA_EFB
+                if self.antisulfate_count < max_antisulf and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                     self.antisulfate_count += 1
                     self._stuck_current_since = None
                     prev = self.current_stage
                     self.current_stage = self.STAGE_DESULFATION
                     self.stage_start_time = now
                     self._reset_delta_and_blanking(now)
-                    _log_trigger(prev, self.current_stage, "I_stuck > 0.3A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
+                    thr = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
+                    _log_trigger(prev, self.current_stage, "I_stuck", f"Факт: {current:.2f}А > {thr}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
                     dv, di = self._desulf_target()
                     actions["set_voltage"] = dv
                     actions["set_current"] = di
                     self._add_phase_limits(actions, dv, di)
                     actions["notify"] = (
                         f"🔧 <b>Десульфатация #{self.antisulfate_count}</b>\n\n"
-                        f"Ток застрял на значении <code>{current:.2f}</code>А "
-                        f"(выше порога <code>{DESULF_CURRENT_STUCK}</code>А) более <code>{stuck_mins}</code> минут.\n\n"
-                        f"<b>Действие:</b> Переходим на лечебный прострел: "
-                        f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 часа."
+                        f"Ток застрял на <code>{current:.2f}</code>А (порог <code>{thr}</code>А) более <code>{stuck_mins}</code> мин. "
+                        f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
                     )
                     actions["log_event"] = "MAIN->DESULFATION"
                 else:
                     self._stuck_current_since = None
-                    # v2.5: MAIN->MIX (desulf limit) только после 40 мин CV с током >=0.3А для Ca/EFB
+                    # MAIN->MIX (desulf limit) только после 40 мин CV с током >= порога для Ca/EFB
                     cv_minutes = 0.0
                     if self._cv_since is not None:
                         cv_minutes = (now - self._cv_since) / 60.0
@@ -1212,12 +1284,16 @@ class ChargeController:
                         logger.info("MAIN: desulf limit reached but CV time %.1f min < %d min or current %.2fA < 0.3A", 
                                   cv_minutes, MAIN_MIX_STUCK_CV_MIN, current)
 
-            if not in_blanking and is_cv and current < (0.3 if self.battery_type != self.PROFILE_AGM else 0.2):
+            # Переход MAIN->MIX по падению тока (Ca/EFB: 0.3А; AGM обработан выше в блоке PROFILE_AGM)
+            if self.battery_type != self.PROFILE_AGM and not in_blanking and is_cv and current < 0.3:
                 self._stuck_current_since = None
                 phantom_note = ""
                 if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
                     self._phantom_alerted = True
-                    phantom_note = "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд. Проверьте АКБ на сульфатацию или потерю ёмкости (высокое R)."
+                    phantom_note = (
+                        "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
+                        f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
+                    )
                     actions["log_event"] = "PHANTOM_CHARGE"
                 prev = self.current_stage
                 self.current_stage = self.STAGE_MIX
@@ -1421,30 +1497,72 @@ class ChargeController:
                     self._safe_wait_start = now
                     self._safe_wait_v_samples.append((now, voltage))
                     self._last_safe_wait_sample = now
-                    _log_trigger(prev, self.STAGE_SAFE_WAIT, "Mix_timer_2h", f"Время после Delta: {(now - self.finish_timer_start)/3600:.1f}ч >= 2ч")
+                    v_peak = self.v_max_recorded or voltage
+                    i_min = self.i_min_recorded or current
+                    delta_log = ""
+                    if self._exit_cc_condition(voltage):
+                        delta_log = f" V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В. Дельта {DELTA_V_EXIT}В достигнута."
+                    elif self._exit_cv_condition(current) and i_min is not None:
+                        delta_log = f" I_min было {i_min:.2f}А, текущий {current:.2f}А. Дельта {DELTA_I_EXIT}А достигнута."
+                    _log_trigger(prev, self.STAGE_SAFE_WAIT, "Mix_timer_2h", f"Время после Delta: {(now - self.finish_timer_start)/3600:.1f}ч >= 2ч.{delta_log}")
                     actions["turn_off"] = True
                     actions["notify"] = (
                         f"<b>✅ Таймер 2ч выполнен.</b> Ожидание падения до {threshold:.1f}В. "
                         f"V_max={self.v_max_recorded:.2f}В. Выход выключен."
                     )
-                    actions["log_event"] = "MIX->SAFE_WAIT"
+                    actions["log_event"] = f"MIX->SAFE_WAIT{delta_log}"
             elif self.battery_type == self.PROFILE_EFB and elapsed >= EFB_MIX_MAX_HOURS * 3600:
                 prev = self.current_stage
                 uv, ui = self._storage_target()
-                threshold = uv - SAFE_WAIT_V_MARGIN  # 13.3В
+                threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._safe_wait_v_samples.append((now, voltage))
                 self._last_safe_wait_sample = now
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 10ч")
+                v_peak = self.v_max_recorded or voltage
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ EFB Mix:</b> лимит 10ч. Ожидание падения до {threshold:.1f}В. "
-                    "Выход выключен."
+                    f"V_max={v_peak:.2f}В. Выход выключен."
                 )
-                actions["log_event"] = "MIX->SAFE_WAIT (EFB limit)"
+                actions["log_event"] = f"MIX->SAFE_WAIT (EFB limit) V_max={v_peak:.2f}В, V_now={voltage:.2f}В"
+            elif self.battery_type == self.PROFILE_CA and elapsed >= CA_MIX_MAX_HOURS * 3600:
+                prev = self.current_stage
+                uv, ui = self._storage_target()
+                threshold = uv - SAFE_WAIT_V_MARGIN
+                self.current_stage = self.STAGE_SAFE_WAIT
+                self._safe_wait_next_stage = self.STAGE_DONE
+                self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
+                self._safe_wait_start = now
+                self._safe_wait_v_samples.append((now, voltage))
+                self._last_safe_wait_sample = now
+                v_peak = self.v_max_recorded or voltage
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_8h", f"Время: {elapsed/3600:.1f}ч >= 8ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                actions["turn_off"] = True
+                actions["notify"] = (
+                    f"<b>⏱ Ca/Ca Mix:</b> лимит 8ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
+                )
+                actions["log_event"] = f"MIX->SAFE_WAIT (Ca limit) V_max={v_peak:.2f}В, V_now={voltage:.2f}В"
+            elif self.battery_type == self.PROFILE_AGM and elapsed >= AGM_MIX_MAX_HOURS * 3600:
+                prev = self.current_stage
+                uv, ui = self._storage_target()
+                threshold = uv - SAFE_WAIT_V_MARGIN
+                self.current_stage = self.STAGE_SAFE_WAIT
+                self._safe_wait_next_stage = self.STAGE_DONE
+                self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
+                self._safe_wait_start = now
+                self._safe_wait_v_samples.append((now, voltage))
+                self._last_safe_wait_sample = now
+                v_peak = self.v_max_recorded or voltage
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_5h", f"Время: {elapsed/3600:.1f}ч >= 5ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                actions["turn_off"] = True
+                actions["notify"] = (
+                    f"<b>⏱ AGM Mix:</b> лимит 5ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
+                )
+                actions["log_event"] = f"MIX->SAFE_WAIT (AGM limit) V_max={v_peak:.2f}В, V_now={voltage:.2f}В"
 
         if "notify" in actions:
             self.notify(actions["notify"])
