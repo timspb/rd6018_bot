@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v2.7.0)'
+        required: true
+        default: 'v2.7.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Get tag body
+        id: notes
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-${GITHUB_REF#refs/tags/}}"
+          if [ -f RELEASES.md ]; then
+            awk -v t="$TAG" '/^## /{if(p) exit; p=($2==t)} p' RELEASES.md > release_body.md
+            [ -s release_body.md ] && echo "body_path=release_body.md" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.body_path }}
+          fail_on_unmatched: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
