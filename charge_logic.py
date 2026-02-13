@@ -35,7 +35,10 @@ CA_MIX_MAX_HOURS = 8   # Ca/Ca: макс 8 ч на этапе Mix
 EFB_MIX_MAX_HOURS = 10
 AGM_MIX_MAX_HOURS = 5  # AGM: макс 5 ч на этапе Mix
 AGM_STAGES = [14.4, 14.6, 14.8, 15.0]  # В — четырёхступенчатый подъём
-AGM_STAGE_MIN_MINUTES = 15  # мин на каждой ступени перед переходом
+AGM_STAGE_MIN_MINUTES = 15  # мин на каждой ступени перед переходом (резерв, см. FIRST_STAGE_HOLD)
+# Ожидание на минимальном токе перед переходом: Ca/EFB — MAIN→MIX; AGM — ступени до 15В и MAIN→MIX
+FIRST_STAGE_HOLD_HOURS = 3
+FIRST_STAGE_HOLD_SEC = FIRST_STAGE_HOLD_HOURS * 3600
 
 # Безопасный переход HV -> LV (вместо фиксированной «паузы 30 мин» — ожидание по напряжению)
 SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (целевое напряжение следующего этапа − 0.5В)
@@ -157,6 +160,7 @@ class ChargeController:
         self._last_delta_confirm_time: float = 0.0  # для подтверждения триггера раз в 1 мин
         self._cv_since: Optional[float] = None  # v2.5: время начала CV-режима для отслеживания 40 мин
         self.total_start_time: float = 0.0  # v2.6: общий старт сессии заряда (не сбрасывается при смене этапов)
+        self._first_stage_hold_since: Optional[float] = None  # с какого момента ток на пороге перехода (ждём FIRST_STAGE_HOLD_SEC)
         # Переменные для ручного режима
         self._custom_main_voltage: float = 14.7
         self._custom_main_current: float = 5.0
@@ -174,6 +178,7 @@ class ChargeController:
         self.v_max_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
+        self._first_stage_hold_since = None
         self._blanking_until = now + DELTA_MONITOR_DELAY_SEC
         self._delta_monitor_after = now + DELTA_MONITOR_DELAY_SEC
 
@@ -207,6 +212,7 @@ class ChargeController:
         self._delta_trigger_count = 0
         self._last_delta_confirm_time = 0.0
         self._cv_since = None
+        self._first_stage_hold_since = None
         self._session_start_reason = "User Command"
         self._clear_session_file()
         logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
@@ -251,6 +257,7 @@ class ChargeController:
         self._safe_wait_start = 0.0
         self._blanking_until = time.time() + DELTA_MONITOR_DELAY_SEC
         self._delta_monitor_after = time.time() + DELTA_MONITOR_DELAY_SEC
+        self._first_stage_hold_since = None
         self._delta_trigger_count = 0
         self._last_delta_confirm_time = 0.0
         self._cv_since = None
@@ -341,6 +348,7 @@ class ChargeController:
             "safe_wait_target_i": self._safe_wait_target_i,
             "safe_wait_start": self._safe_wait_start,
             "total_start_time": self.total_start_time,  # v2.6: сохраняем общий старт
+            "first_stage_hold_since": self._first_stage_hold_since,
             "saved_at": time.time(),
         }
         try:
@@ -384,7 +392,12 @@ class ChargeController:
             self._safe_wait_start = float(raw_safe_wait_start) if raw_safe_wait_start not in (None, 0) else now
         except (TypeError, ValueError):
             self._safe_wait_start = now
-        
+        raw_hold_since = data.get("first_stage_hold_since")
+        try:
+            self._first_stage_hold_since = float(raw_hold_since) if raw_hold_since not in (None, 0) else None
+        except (TypeError, ValueError):
+            self._first_stage_hold_since = None
+
         # v2.6: восстанавливаем общий старт сессии
         raw_total_start = data.get("total_start_time")
         try:
@@ -1152,21 +1165,54 @@ class ChargeController:
                     self._delta_trigger_count = 0
             
             elif self.battery_type == self.PROFILE_AGM:
-                stage_mins = elapsed / 60
-                if self._agm_stage_idx < len(AGM_STAGES) - 1 and stage_mins >= AGM_STAGE_MIN_MINUTES:
-                    self._agm_stage_idx += 1
-                    self.stage_start_time = now
-                    self._reset_delta_and_blanking(now)
-                    uv, ui = self._main_target()
-                    _log_trigger(self.STAGE_MAIN, self.STAGE_MAIN, "AGM_stage_timer", f"Ступень {self._agm_stage_idx + 1}/4: {stage_mins:.1f}мин >= {AGM_STAGE_MIN_MINUTES}мин")
-                    actions["set_voltage"] = uv
-                    actions["set_current"] = ui
-                    self._add_phase_limits(actions, uv, ui)
-                    actions["notify"] = (
-                        f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
-                        f"{uv:.1f}V"
-                    )
-                    actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
+                # До 15В: переход по ступеням и MAIN->MIX только после 3ч на токе <0.2А
+                if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
+                    self._first_stage_hold_since = None
+                if not in_blanking and is_cv and current < 0.2:
+                    if self._first_stage_hold_since is None:
+                        self._first_stage_hold_since = now
+                    hold_elapsed = now - self._first_stage_hold_since
+                    if hold_elapsed >= FIRST_STAGE_HOLD_SEC:
+                        self._first_stage_hold_since = None
+                        if self._agm_stage_idx < len(AGM_STAGES) - 1:
+                            self._agm_stage_idx += 1
+                            self.stage_start_time = now
+                            self._reset_delta_and_blanking(now)
+                            uv, ui = self._main_target()
+                            _log_trigger(self.STAGE_MAIN, self.STAGE_MAIN, "AGM_stage_3h_hold", f"Ступень {self._agm_stage_idx + 1}/4: ток <0.2А {FIRST_STAGE_HOLD_HOURS}ч")
+                            actions["set_voltage"] = uv
+                            actions["set_current"] = ui
+                            self._add_phase_limits(actions, uv, ui)
+                            actions["notify"] = (
+                                f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
+                                f"{uv:.1f}V (ток &lt;0.2А {FIRST_STAGE_HOLD_HOURS}ч)"
+                            )
+                            actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
+                        else:
+                            phantom_note = ""
+                            log_ev = "MAIN->MIX"
+                            if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
+                                self._phantom_alerted = True
+                                phantom_note = (
+                                    "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
+                                    f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
+                                )
+                                log_ev = "PHANTOM_CHARGE | MAIN->MIX"
+                            prev = self.current_stage
+                            self.current_stage = self.STAGE_MIX
+                            self.stage_start_time = now
+                            self._reset_delta_and_blanking(now)
+                            _log_trigger(prev, self.current_stage, "I_drop_3h_hold", f"Факт: {current:.2f}А, выдержка {FIRST_STAGE_HOLD_HOURS}ч")
+                            mxv, mxi = self._mix_target()
+                            actions["set_voltage"] = mxv
+                            actions["set_current"] = mxi
+                            self._add_phase_limits(actions, mxv, mxi)
+                            actions["notify"] = (
+                                "<b>✅ Фаза завершена:</b> Main Charge\n"
+                                f"<b>🚀 Переход к:</b> Mix Mode (ток &lt;0.2А {FIRST_STAGE_HOLD_HOURS}ч)"
+                                f"{phantom_note}"
+                            )
+                            actions["log_event"] = log_ev
                 else:
                     # AGM: застревание I >= 0.2А 40 мин — десульфация (макс 4 итерации)
                     if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
@@ -1206,31 +1252,6 @@ class ChargeController:
                                 "Переход в Mix Mode (финальный буст)."
                             )
                             actions["log_event"] = "MAIN->MIX (AGM desulf limit)"
-                    elif not in_blanking and is_cv and current < 0.2:
-                        phantom_note = ""
-                        log_ev = "MAIN->MIX"
-                        if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
-                            self._phantom_alerted = True
-                            phantom_note = (
-                                "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
-                                f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
-                            )
-                            log_ev = "PHANTOM_CHARGE | MAIN->MIX"
-                        prev = self.current_stage
-                        self.current_stage = self.STAGE_MIX
-                        self.stage_start_time = now
-                        self._reset_delta_and_blanking(now)
-                        _log_trigger(prev, self.current_stage, "I_drop < 0.2A", f"Факт: {current:.2f}А")
-                        mxv, mxi = self._mix_target()
-                        actions["set_voltage"] = mxv
-                        actions["set_current"] = mxi
-                        self._add_phase_limits(actions, mxv, mxi)
-                        actions["notify"] = (
-                            "<b>✅ Фаза завершена:</b> Main Charge\n"
-                            "<b>🚀 Переход к:</b> Mix Mode (финальный буст)"
-                            f"{phantom_note}"
-                        )
-                        actions["log_event"] = log_ev
 
             elif not in_blanking and is_cv and self._detect_stuck_current(current):
                 if self._stuck_current_since is None:
@@ -1284,32 +1305,40 @@ class ChargeController:
                         logger.info("MAIN: desulf limit reached but CV time %.1f min < %d min or current %.2fA < 0.3A", 
                                   cv_minutes, MAIN_MIX_STUCK_CV_MIN, current)
 
-            # Переход MAIN->MIX по падению тока (Ca/EFB: 0.3А; AGM обработан выше в блоке PROFILE_AGM)
-            if self.battery_type != self.PROFILE_AGM and not in_blanking and is_cv and current < 0.3:
-                self._stuck_current_since = None
-                phantom_note = ""
-                if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
-                    self._phantom_alerted = True
-                    phantom_note = (
-                        "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
-                        f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
-                    )
-                    actions["log_event"] = "PHANTOM_CHARGE"
-                prev = self.current_stage
-                self.current_stage = self.STAGE_MIX
-                self.stage_start_time = now
-                self._reset_delta_and_blanking(now)
-                _log_trigger(prev, self.current_stage, "I_drop < 0.3A", f"Факт: {current:.2f}А")
-                mxv, mxi = self._mix_target()
-                actions["set_voltage"] = mxv
-                actions["set_current"] = mxi
-                self._add_phase_limits(actions, mxv, mxi)
-                actions["notify"] = (
-                    "<b>✅ Фаза завершена:</b> Main Charge\n"
-                    "<b>🚀 Переход к:</b> Mix Mode (перемешивание)"
-                    f"{phantom_note}"
-                )
-                actions["log_event"] = "MAIN->MIX"
+            # Переход MAIN->MIX по падению тока: Ca/EFB — ждём 3ч на токе <0.3А; AGM — в блоке PROFILE_AGM
+            if self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
+                if not in_blanking and is_cv and current >= 0.3:
+                    self._first_stage_hold_since = None
+                elif not in_blanking and is_cv and current < 0.3:
+                    self._stuck_current_since = None
+                    if self._first_stage_hold_since is None:
+                        self._first_stage_hold_since = now
+                    hold_elapsed = now - self._first_stage_hold_since
+                    if hold_elapsed >= FIRST_STAGE_HOLD_SEC:
+                        self._first_stage_hold_since = None
+                        phantom_note = ""
+                        if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
+                            self._phantom_alerted = True
+                            phantom_note = (
+                                "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
+                                f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
+                            )
+                            actions["log_event"] = "PHANTOM_CHARGE"
+                        prev = self.current_stage
+                        self.current_stage = self.STAGE_MIX
+                        self.stage_start_time = now
+                        self._reset_delta_and_blanking(now)
+                        _log_trigger(prev, self.current_stage, "I_drop_3h_hold", f"Факт: {current:.2f}А, выдержка {FIRST_STAGE_HOLD_HOURS}ч")
+                        mxv, mxi = self._mix_target()
+                        actions["set_voltage"] = mxv
+                        actions["set_current"] = mxi
+                        self._add_phase_limits(actions, mxv, mxi)
+                        actions["notify"] = (
+                            "<b>✅ Фаза завершена:</b> Main Charge\n"
+                            f"<b>🚀 Переход к:</b> Mix Mode (ток &lt;0.3А {FIRST_STAGE_HOLD_HOURS}ч)"
+                            f"{phantom_note}"
+                        )
+                        actions["log_event"] = "MAIN->MIX"
 
         # --- БЕЗОПАСНОЕ ОЖИДАНИЕ (Output OFF, ждём падения V) ---
         elif self.current_stage == self.STAGE_SAFE_WAIT:
