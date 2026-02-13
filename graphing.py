@@ -1,9 +1,10 @@
 """
 graphing.py — построение графика U/I во времени (dark theme).
+Ось X: время в USER_TIMEZONE (config).
 """
 import io
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import List, Optional, Union
 
 import matplotlib
@@ -40,26 +41,28 @@ def _smooth(y: List[float], window: int = 5) -> List[float]:
 
 
 def _parse_timestamps(times: List[str]) -> List[datetime]:
-    """Преобразовать строки времени (ISO или HH:MM:SS) в datetime с пользовательским часовым поясом."""
+    """Строки времени (ISO из БД или HH:MM:SS) → datetime в USER_TIMEZONE. В БД хранится UTC (Z)."""
     from time_utils import now_user_tz, get_user_timezone
-    
+
     result: List[datetime] = []
     base_date = now_user_tz().date()
     user_tz = get_user_timezone()
-    
+
     for ts in times:
         if not ts or not isinstance(ts, str):
             result.append(now_user_tz())
             continue
         try:
             if "T" in ts:
-                # ISO: с Z — UTC, конвертируем в пользовательский пояс; без Z — legacy, считаем UTC
-                s = ts.replace("Z", "+00:00").strip()
-                # Не обрезать время, иначе теряется +00:00 и ось графика не в user_tz
+                raw = ts.strip()
+                # Явно: суффикс Z = UTC, иначе legacy без TZ
+                if raw.endswith("Z"):
+                    s = raw[:-1] + "+00:00"
+                else:
+                    s = raw.replace("Z", "+00:00") if "Z" in raw else raw
                 dt = datetime.fromisoformat(s)
                 if dt.tzinfo is None:
-                    import pytz
-                    dt = dt.replace(tzinfo=pytz.UTC)
+                    dt = dt.replace(tzinfo=timezone.utc)
                 dt = dt.astimezone(user_tz)
             else:
                 # HH:MM:SS формат - считаем что это уже в пользовательском часовом поясе
