@@ -126,14 +126,19 @@ def generate_chart(
                 return None
 
     try:
+        from time_utils import get_user_timezone
+        user_tz = get_user_timezone()
+
         plt.style.use("dark_background")
         fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
         ax1.set_facecolor("#1e1e1e")
+        # Метки оси X — в пользовательском часовом поясе (по умолчанию matplotlib использует UTC)
+        ax1.xaxis_date(tz=user_tz)
 
         ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
         ax1.set_xlabel("Время", color="#fff")
         ax1.set_ylabel("Voltage (V)", color="#00ffff")
-        ax1.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        ax1.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
         ax1.tick_params(axis="x", colors="#fff", labelsize=8)
         ax1.tick_params(axis="y", colors="#00ffff")
 
