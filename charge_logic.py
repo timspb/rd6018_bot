@@ -37,7 +37,8 @@ SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (цель - 0.
 SAFE_WAIT_MAX_SEC = 2 * 3600  # макс 2 часа ожидания
 HIGH_V_FOR_SAFE_WAIT = 15.0  # переходы с V > 15В требуют ожидания
 PHANTOM_CHARGE_MINUTES = 15  # мин — ток < 0.3А за это время = подозрительный заряд
-BLANKING_SEC = 5 * 60  # сек — после смены фазы или включения выхода игнорировать триггеры
+BLANKING_SEC = 5 * 60  # сек — после смены фазы игнорировать триггеры
+DELTA_MONITOR_DELAY_SEC = 120  # v2.0: начинать мониторинг dV/dI строго через 120 сек после смены уставок
 TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с интервалом 1 мин для срабатывания Delta
 TRIGGER_CONFIRM_INTERVAL_SEC = 60  # сек — интервал между замерами для подтверждения
 MAIN_MIX_STUCK_CV_MIN = 40  # мин в CV с током >=0.3А перед MAIN->MIX (desulf limit) для Ca/EFB
@@ -51,13 +52,13 @@ WATCHDOG_TIMEOUT = 5 * 60  # сек — нет данных 5 мин → ава�
 HIGH_V_FAST_TIMEOUT = 60  # сек — при U>15В: нет данных 60 сек → немедленное отключение
 HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watchdog
 
-# Активная безопасность: OVP/OCP, температурная защита (все режимы Ca/Ca, EFB, AGM)
-OVP_OFFSET = 0.2  # В — OVP = целевое U + 0.2
-OCP_OFFSET = 0.5  # А — OCP = лимит I + 0.5
+# Активная безопасность: OVP/OCP (v2.0: при каждой смене этапа)
+OVP_OFFSET = 0.5  # В — OVP = U_target + 0.5V
+OCP_OFFSET = 0.5  # А — OCP = I_limit + 0.5A
+# Температура: ТОЛЬКО внешний датчик (АКБ). 35/40/45 — три уровня.
 TEMP_WARNING = 35.0  # °C — предупреждение в Telegram (один раз за сессию)
 TEMP_PAUSE = 40.0    # °C — пауза заряда (Output OFF), возврат при 35°C
-TEMP_CRITICAL = 45.0  # °C — критическая температура для полного сброса в IDLE
-TEMP_EMERGENCY = 37.0  # °C — аварийное отключение, полный сброс
+TEMP_CRITICAL = 45.0  # °C — аварийная остановка ТОЛЬКО по внешнему датчику АКБ
 
 
 def _log_phase(phase: str, v: float, i: float, t: float) -> None:
@@ -139,6 +140,7 @@ class ChargeController:
         self._safe_wait_v_samples: deque = deque(maxlen=288)  # 24 часа при замере каждые 5 мин
         self._last_safe_wait_sample: float = 0.0
         self._blanking_until: float = 0.0  # до этого времени игнорировать триггеры после смены фазы
+        self._delta_monitor_after: float = 0.0  # v2.0: мониторинг dV/dI только после этого времени (120 сек после смены уставок)
         self._delta_trigger_count: int = 0  # подряд выполнений условия Delta для подтверждения
         self._session_start_reason: str = "User Command"  # User Command | Auto-restore
         self._last_known_output_on: bool = False  # последнее известное состояние выхода (для EMERGENCY_UNAVAILABLE)
@@ -157,10 +159,18 @@ class ChargeController:
         self._custom_time_limit_hours: float = 24.0
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
-        """Добавить OVP/OCP в actions при смене фазы."""
+        """v2.0: Добавить OVP/OCP в actions при смене фазы. OVP = U_target + 0.5V, OCP = I_limit + 0.5A."""
         actions["set_ovp"] = target_v + OVP_OFFSET
         actions["set_ocp"] = target_i + OCP_OFFSET
         self._phase_current_limit = target_i
+
+    def _reset_delta_and_blanking(self, now: float) -> None:
+        """v2.0: Полный сброс при смене этапа/уставок — исключает ложный DELTA_TRIGGER после Main->Mix."""
+        self.v_max_recorded = None
+        self.i_min_recorded = None
+        self._delta_trigger_count = 0
+        self._blanking_until = now + DELTA_MONITOR_DELAY_SEC
+        self._delta_monitor_after = now + DELTA_MONITOR_DELAY_SEC
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
         """Запуск заряда по профилю."""
@@ -182,7 +192,7 @@ class ChargeController:
         self._delta_reported = False
         self._stuck_current_since = None
         self.emergency_hv_disconnect = False
-        self._temp_34_alerted = False
+        self._temp_warning_alerted = False
         self._pending_log_event = None
         self._safe_wait_next_stage = None
         self._safe_wait_target_v = 0.0
@@ -234,7 +244,8 @@ class ChargeController:
         self._safe_wait_target_v = 0.0
         self._safe_wait_target_i = 0.0
         self._safe_wait_start = 0.0
-        self._blanking_until = 0.0
+        self._blanking_until = time.time() + DELTA_MONITOR_DELAY_SEC
+        self._delta_monitor_after = time.time() + DELTA_MONITOR_DELAY_SEC
         self._delta_trigger_count = 0
         self._last_delta_confirm_time = 0.0
         self._cv_since = None
@@ -434,11 +445,8 @@ class ChargeController:
                 f"Цель: <code>{target_v:.1f}</code>В / <code>{target_i:.2f}</code>А"
             )
 
-        self.v_max_recorded = None
-        self.i_min_recorded = None
+        self._reset_delta_and_blanking(now)
         self.finish_timer_start = None
-        self._blanking_until = now + BLANKING_SEC
-        self._delta_trigger_count = 0
         elapsed_sec = now - self.stage_start_time
         if elapsed_sec < 0 or elapsed_sec > ELAPSED_MAX_HOURS * 3600:
             self.stage_start_time = now
@@ -469,7 +477,7 @@ class ChargeController:
         """Полный сброс состояния (при аварийном отключении по температуре)."""
         self.stop()
         self.temp_history.clear()
-        self._temp_34_alerted = False
+        self._temp_warning_alerted = False
         self.finish_timer_start = None
         self._phantom_alerted = False
         self._delta_reported = False
@@ -763,24 +771,28 @@ class ChargeController:
         return (12.0, 0.5)
 
     def _main_target(self) -> Tuple[float, float]:
+        """v2.0: Main Charge — I_target = ah * 0.1 (ёмкостно-ориентированный расчёт)."""
         if self.battery_type == self.PROFILE_CUSTOM:
             return (self._custom_main_voltage, self._custom_main_current)
+        i_main = min(18.0, self.ah_capacity * 0.1)  # 7.2A для 72Ah
         if self.battery_type == self.PROFILE_CA:
-            return (14.7, self._ic(0.5))
+            return (14.7, i_main)
         if self.battery_type == self.PROFILE_EFB:
-            return (14.8, self._ic(0.5))
+            return (14.8, i_main)
         if self.battery_type == self.PROFILE_AGM:
             v = AGM_STAGES[min(self._agm_stage_idx, len(AGM_STAGES) - 1)]
-            return (v, self._ic(0.5))
-        return (14.7, self._ic(0.5))
+            return (v, i_main)
+        return (14.7, i_main)
 
     def _desulf_target(self) -> Tuple[float, float]:
         return (16.3, self._pct_ah(2.0))
 
     def _mix_target(self) -> Tuple[float, float]:
+        """v2.0: Mix Mode — I_target = ah * 0.03 (ёмкостно-ориентированный расчёт)."""
+        i_mix = min(18.0, self.ah_capacity * 0.03)  # 2.16A для 72Ah
         if self.battery_type == self.PROFILE_AGM:
-            return (16.3, self._pct_ah(2.0))
-        return (16.5, self._pct_ah(3.0))
+            return (16.3, i_mix)
+        return (16.5, i_mix)
 
     def _storage_target(self) -> Tuple[float, float]:
         return (13.8, 1.0)
@@ -805,14 +817,13 @@ class ChargeController:
         stage_duration_min: float,
     ) -> Optional[str]:
         """
-        Проверка температуры (sensor.rd_6018_temperature_external).
-        Применяется ко всем режимам (Ca/Ca, EFB, AGM) без исключения.
-        Возвращает сообщение об ошибке или None.
+        Проверка температуры. ВАЖНО: temp должен быть ТОЛЬКО с внешнего датчика АКБ (sensor.rd_6018_temperature_external).
+        Аварийная остановка 45°C — только по внешнему датчику. Внутренняя температура БП не используется для защиты АКБ.
         """
-        if temp >= TEMP_EMERGENCY:
+        if temp >= TEMP_CRITICAL:
             return (
-                "🔴 <b>АВАРИЙНОЕ ОТКЛЮЧЕНИЕ (ПЕРЕГРЕВ)</b>\n\n"
-                f"Температура: <code>{temp:.1f}</code>°C (порог {TEMP_EMERGENCY:.0f}°C)\n"
+                "🔴 <b>АВАРИЙНОЕ ОТКЛЮЧЕНИЕ (ПЕРЕГРЕВ АКБ)</b>\n\n"
+                f"Температура (внешний датчик): <code>{temp:.1f}</code>°C (порог {TEMP_CRITICAL:.0f}°C)\n"
                 f"Текущий этап: <code>{self.current_stage}</code>\n"
                 f"Напряжение: <code>{voltage:.2f}</code>В\n"
                 f"Ток: <code>{current:.2f}</code>А\n"
@@ -979,7 +990,7 @@ class ChargeController:
             actions["emergency_stop"] = True
             actions["full_reset"] = True
             actions["notify"] = err
-            actions["log_event"] = "EMERGENCY_37C"
+            actions["log_event"] = "EMERGENCY_TEMP_45C"
             self.notify(err)
             return actions
 
@@ -1033,10 +1044,7 @@ class ChargeController:
                 self.current_stage = self.STAGE_MAIN
                 self.stage_start_time = now
                 self._start_ah = ah
-                self.v_max_recorded = None
-                self.i_min_recorded = None
-                self._blanking_until = now + BLANKING_SEC
-                self._delta_trigger_count = 0
+                self._reset_delta_and_blanking(now)
                 _log_trigger(prev, self.current_stage, "V_threshold", f"Факт: {voltage:.2f}В >= 12.0В")
                 uv, ui = self._main_target()
                 actions["set_voltage"] = uv
@@ -1078,9 +1086,17 @@ class ChargeController:
                 self._clear_session_file()  # Очищаем сессию при принудительной остановке
                 return actions
 
-            # Ручной режим: используем только дельта-триггер для завершения
+            # Ручной режим: используем только дельта-триггер для завершения (v2.0: мониторинг только после 120 сек)
             if self.battery_type == self.PROFILE_CUSTOM:
-                if not in_blanking and self._check_delta_finish(voltage, current):
+                if now >= self._delta_monitor_after:
+                    if self.v_max_recorded is None or voltage > self.v_max_recorded:
+                        self.v_max_recorded = voltage
+                    if self.i_min_recorded is None or current < self.i_min_recorded:
+                        self.i_min_recorded = current
+                if now >= self._delta_monitor_after and not in_blanking and self._check_delta_finish(voltage, current):
+                    if now - self._last_delta_confirm_time >= TRIGGER_CONFIRM_INTERVAL_SEC:
+                        self._last_delta_confirm_time = now
+                        self._delta_trigger_count += 1
                     if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT:
                         # Подтверждённый триггер - завершаем заряд
                         prev = self.current_stage
@@ -1116,6 +1132,7 @@ class ChargeController:
                 if self._agm_stage_idx < len(AGM_STAGES) - 1 and stage_mins >= AGM_STAGE_MIN_MINUTES:
                     self._agm_stage_idx += 1
                     self.stage_start_time = now
+                    self._reset_delta_and_blanking(now)
                     uv, ui = self._main_target()
                     _log_trigger(self.STAGE_MAIN, self.STAGE_MAIN, "AGM_stage_timer", f"Ступень {self._agm_stage_idx + 1}/4: {stage_mins:.1f}мин >= {AGM_STAGE_MIN_MINUTES}мин")
                     actions["set_voltage"] = uv
@@ -1131,10 +1148,7 @@ class ChargeController:
                         prev = self.current_stage
                         self.current_stage = self.STAGE_MIX
                         self.stage_start_time = now
-                        self.v_max_recorded = voltage
-                        self.i_min_recorded = current
-                        self._blanking_until = now + BLANKING_SEC
-                        self._delta_trigger_count = 0
+                        self._reset_delta_and_blanking(now)
                         _log_trigger(prev, self.current_stage, "I_drop < 0.2A", f"Факт: {current:.2f}А")
                         mxv, mxi = self._mix_target()
                         actions["set_voltage"] = mxv
@@ -1156,10 +1170,7 @@ class ChargeController:
                     prev = self.current_stage
                     self.current_stage = self.STAGE_DESULFATION
                     self.stage_start_time = now
-                    self.v_max_recorded = None
-                    self.i_min_recorded = None
-                    self._blanking_until = now + BLANKING_SEC
-                    self._delta_trigger_count = 0
+                    self._reset_delta_and_blanking(now)
                     _log_trigger(prev, self.current_stage, "I_stuck > 0.3A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
                     dv, di = self._desulf_target()
                     actions["set_voltage"] = dv
@@ -1185,10 +1196,7 @@ class ChargeController:
                         prev = self.current_stage
                         self.current_stage = self.STAGE_MIX
                         self.stage_start_time = now
-                        self.v_max_recorded = voltage
-                        self.i_min_recorded = current
-                        self._blanking_until = now + BLANKING_SEC
-                        self._delta_trigger_count = 0
+                        self._reset_delta_and_blanking(now)
                         _log_trigger(prev, self.current_stage, "Desulf_limit + CV_40min", f"CV: {cv_minutes:.1f}мин >= 40мин, I: {current:.2f}А >= 0.3А")
                         mxv, mxi = self._mix_target()
                         actions["set_voltage"] = mxv
@@ -1214,10 +1222,7 @@ class ChargeController:
                 prev = self.current_stage
                 self.current_stage = self.STAGE_MIX
                 self.stage_start_time = now
-                self.v_max_recorded = voltage
-                self.i_min_recorded = current
-                self._blanking_until = now + BLANKING_SEC
-                self._delta_trigger_count = 0
+                self._reset_delta_and_blanking(now)
                 _log_trigger(prev, self.current_stage, "I_drop < 0.3A", f"Факт: {current:.2f}А")
                 mxv, mxi = self._mix_target()
                 actions["set_voltage"] = mxv
@@ -1346,7 +1351,8 @@ class ChargeController:
 
         # --- MIX MODE ---
         elif self.current_stage == self.STAGE_MIX:
-            if now < self._blanking_until:
+            # v2.0: мониторинг dV/dI только через 120 сек после смены уставок (исключаем переходные процессы)
+            if now < self._blanking_until or now < self._delta_monitor_after:
                 pass
             else:
                 if self.v_max_recorded is None or voltage > self.v_max_recorded:

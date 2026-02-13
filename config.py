@@ -29,8 +29,9 @@ ENTITY_MAP = {
     "power": "sensor.rd_6018_output_power",
     "ah": "sensor.rd_6018_battery_charge",
     "wh": "sensor.rd_6018_battery_energy",
-    "temp_int": "sensor.rd_6018_temperature",
-    "temp_ext": "sensor.rd_6018_temperature_external",
+    # v2.0: Разделение датчиков — внутренняя температура БП и внешняя АКБ (K-тип). Защита 45°C только по temp_ext.
+    "temp_int": "sensor.rd_6018_temperature",           # внутренняя температура блока питания
+    "temp_ext": "sensor.rd_6018_temperature_external",  # внешний датчик на АКБ (K-тип), используется для 35/40/45°C
     "is_cv": "binary_sensor.rd_6018_constant_voltage",
     "is_cc": "binary_sensor.rd_6018_constant_current",
     "switch": "switch.rd_6018_output",

@@ -583,7 +583,8 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     # 1. ПЕРВАЯ СТРОКА (Общий статус)
     if charge_controller.is_active:
         timers = charge_controller.get_timers()
-        status_emoji = "⚡️" if is_on else "⏸️"
+        # v2.0: Заряд только если Output=ON и ток > 0.05А, иначе Пауза
+        status_emoji = "⚡️" if (is_on and i > 0.05) else "⏸️"
         stage_name = html.escape(charge_controller.current_stage)
         battery_type = html.escape(charge_controller.battery_type)
         total_time = html.escape(timers['total_time'])
