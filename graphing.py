@@ -25,6 +25,20 @@ def _to_float_list(data: List) -> List[float]:
     return out
 
 
+def _smooth(y: List[float], window: int = 5) -> List[float]:
+    """Скользящее среднее по window точкам. Границы обрабатываются полусредним (меньшее окно)."""
+    n = len(y)
+    if n == 0 or window <= 1:
+        return list(y)
+    out: List[float] = []
+    half = window // 2
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        out.append(sum(y[lo:hi]) / (hi - lo))
+    return out
+
+
 def _parse_timestamps(times: List[str]) -> List[datetime]:
     """Преобразовать строки времени (ISO или HH:MM:SS) в datetime с пользовательским часовым поясом."""
     from time_utils import now_user_tz, get_user_timezone
@@ -83,6 +97,9 @@ def generate_chart(
     times_parsed = _parse_timestamps(times[:n])
     v_list = v_list[:n]
     i_list = i_list[:n]
+    # Сглаживание рядов (зубья — дискретные замеры; при линейном изменении график плавный)
+    v_list = _smooth(v_list, window=5)
+    i_list = _smooth(i_list, window=5)
 
     # v2.5: Автозум X-axis — показывать только последние 6 часов
     if len(times_parsed) > 1:

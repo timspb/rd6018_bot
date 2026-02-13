@@ -29,6 +29,8 @@ from ai_engine import ask_deepseek
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
 from charge_logic import (
     ChargeController,
+    DELTA_I_EXIT,
+    DELTA_V_EXIT,
     HIGH_V_FAST_TIMEOUT,
     HIGH_V_THRESHOLD,
     WATCHDOG_TIMEOUT,
@@ -629,10 +631,10 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     else:
         status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
     
-    # 2. ВТОРАЯ СТРОКА (Живые данные)
+    # 2. ВТОРАЯ СТРОКА (Живые данные: V, I, режим CC/CV, температура)
     electrical_data = format_electrical_data(battery_v, i)
     temp_data = format_temperature_data(temp_ext, temp_int)
-    live_line = f"⚡️ LIVE: {electrical_data} | {temp_data}"
+    live_line = f"⚡️ LIVE: {electrical_data} | {mode} | {temp_data}"
     
     # 3. БЛОК ЭТАПА (Три строки) - только при активном заряде
     stage_block = ""
@@ -656,7 +658,17 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             elif charge_controller.battery_type == "AGM":
                 transition_condition = "🔜 ПЕРЕХОД: &lt;0.20А"
         elif "Mix" in raw_stage:
-            transition_condition = "🔜 ФИНИШ: &lt;0.10А"
+            # Окончание Mix: CC — спад V на 0.03В от пика; CV — рост I на 0.03А от минимума
+            v_max = charge_controller.v_max_recorded
+            i_min = charge_controller.i_min_recorded
+            if is_cv and i_min is not None:
+                expect_i = i_min + DELTA_I_EXIT
+                transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А от мин. Ожидаем: I≥{expect_i:.2f}А"
+            elif is_cc and v_max is not None:
+                expect_v = v_max - DELTA_V_EXIT
+                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В от пика. Ожидаем: V≤{expect_v:.2f}В"
+            else:
+                transition_condition = "🔜 ФИНИШ: ΔV −0.03В (CC) или ΔI +0.03А (CV)"
         elif "Десульфатация" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: 2ч"
         elif "Безопасное ожидание" in raw_stage:
@@ -1830,11 +1842,20 @@ async def logs_handler(call: CallbackQuery) -> None:
     
     await call.message.answer(text, parse_mode=ParseMode.HTML)
 
-    # Обновляем дашборд, чтобы виджет меню был сразу над строкой ввода
+    # Обновление дашборда через 90 с (пауза до обновления информации)
     if call.from_user:
-        old_id = user_dashboard.get(call.from_user.id)
-        msg_id = await send_dashboard(call, old_msg_id=old_id)
-        user_dashboard[call.from_user.id] = msg_id
+        user_id = call.from_user.id
+        old_id = user_dashboard.get(user_id)
+
+        async def _delayed_dashboard() -> None:
+            await asyncio.sleep(90)
+            try:
+                msg_id = await send_dashboard(call, old_msg_id=old_id)
+                user_dashboard[user_id] = msg_id
+            except Exception as ex:
+                logger.debug("delayed send_dashboard after logs: %s", ex)
+
+        asyncio.create_task(_delayed_dashboard())
 
 
 @router.callback_query(F.data == "ai_analysis")
@@ -1858,11 +1879,20 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
     result_html = _md_to_html(result)
     await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
 
-    # Обновляем дашборд после AI-анализа
+    # Обновление дашборда через 90 с (пауза до обновления информации)
     if call.from_user:
-        old_id = user_dashboard.get(call.from_user.id)
-        msg_id = await send_dashboard(call, old_msg_id=old_id)
-        user_dashboard[call.from_user.id] = msg_id
+        user_id = call.from_user.id
+        old_id = user_dashboard.get(user_id)
+
+        async def _delayed_dashboard_ai() -> None:
+            await asyncio.sleep(90)
+            try:
+                msg_id = await send_dashboard(call, old_msg_id=old_id)
+                user_dashboard[user_id] = msg_id
+            except Exception as ex:
+                logger.debug("delayed send_dashboard after ai_analysis: %s", ex)
+
+        asyncio.create_task(_delayed_dashboard_ai())
 
 
 async def main() -> None:

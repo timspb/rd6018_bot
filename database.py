@@ -47,11 +47,11 @@ async def init_db() -> None:
 
 
 async def cleanup_old_records() -> None:
-    """Очистка записей старше 30 дней (месяц) для экономии места на сервере."""
+    """Очистка записей старше 30 дней (месяц) для экономии места на сервере. Сравнение по UTC."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            cutoff_time = datetime.now() - timedelta(days=30)
-            cutoff_iso = cutoff_time.strftime("%Y-%m-%dT%H:%M:%S")
+            cutoff_time = datetime.utcnow() - timedelta(days=30)
+            cutoff_iso = cutoff_time.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
             await db.execute("DELETE FROM sensor_history WHERE timestamp < ?", (cutoff_iso,))
             await db.execute("DELETE FROM charge_log WHERE timestamp < ?", (cutoff_iso,))
@@ -71,13 +71,18 @@ async def cleanup_old_records() -> None:
         logger.error("Database cleanup failed: %s", ex)
 
 
+def _utc_iso() -> str:
+    """Текущее время в UTC в формате ISO с суффиксом Z (для графика в пользовательском часовом поясе)."""
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+
+
 async def add_record(v: float, i: float, p: float, t: float) -> None:
-    """Добавить запись в sensor_history."""
+    """Добавить запись в sensor_history (timestamp в UTC)."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "INSERT INTO sensor_history (timestamp, voltage, current, power, temp_ext) VALUES (?, ?, ?, ?, ?)",
-                (datetime.now().isoformat(), v, i, p, t),
+                (_utc_iso(), v, i, p, t),
             )
             await db.commit()
     except Exception as ex:
@@ -100,7 +105,7 @@ async def get_history(
     try:
         since_iso: Optional[str] = None
         if since_timestamp and since_timestamp > 0:
-            since_iso = datetime.fromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S")
+            since_iso = datetime.utcfromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
@@ -168,7 +173,7 @@ async def add_charge_log(message: str) -> None:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "INSERT INTO charge_log (timestamp, message_text) VALUES (?, ?)",
-                (datetime.now().isoformat(), message),
+                (_utc_iso(), message),
             )
             await db.commit()
     except Exception as ex:
@@ -245,7 +250,7 @@ async def get_raw_history(
     currents: List[float] = []
 
     try:
-        since = (datetime.now() - timedelta(minutes=max_minutes)).isoformat()
+        since = (datetime.utcnow() - timedelta(minutes=max_minutes)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
