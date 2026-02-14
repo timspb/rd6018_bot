@@ -45,6 +45,8 @@ from config import (
     ENTITY_MAP,
     HA_URL,
     HA_TOKEN,
+    MIN_INPUT_VOLTAGE,
+    TEMP_INT_PRECRITICAL,
     TG_TOKEN,
 )
 from database import add_record, cleanup_old_records, get_graph_data, get_logs_data, get_raw_history, init_db
@@ -691,7 +693,6 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
     main_btn_text = "🛑 ОСТАНОВИТЬ" if is_on else "🚀 ЗАПУСТИТЬ"
-    # Строка 1: Обновить (краткая инфо под графиком) | Полная инфо. Строка 2: AI Анализ | Логи. Строка 3: Старт/Стоп | Режимы
     kb_rows = [
         [
             InlineKeyboardButton(text="🔄 ОБНОВИТЬ", callback_data="refresh"),
@@ -894,6 +895,12 @@ async def data_logger() -> None:
             ah = _safe_float(live.get("ah"))
             is_cv = str(live.get("is_cv", "")).lower() == "on"
             output_switch = live.get("switch")
+            output_on = str(output_switch or "").lower() == "on"
+            ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
+            ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+            battery_mode = str(live.get("battery_mode", "")).lower() == "on"
+            input_voltage = _safe_float(live.get("input_voltage"), 0.0)
+            temp_int = _safe_float(live.get("temp_int"), 0.0)
             
             # v2.5 Умный watchdog: обновляем последнее известное состояние выхода
             if output_switch is not None and str(output_switch).lower() not in ("unavailable", "unknown", ""):
@@ -901,33 +908,84 @@ async def data_logger() -> None:
                     output_switch is True or str(output_switch).lower() == "on"
                 )
             
+            # Реакция на срабатывание OVP/OCP: лог, уведомление, выключение
+            if charge_controller.is_active and (ovp_triggered or ocp_triggered):
+                if ovp_triggered:
+                    log_event(charge_controller.current_stage, battery_v, i, t, ah, "OVP_TRIGGERED")
+                    _charge_notify("🛑 Сработала защита OVP (перенапряжение). Выход выключен.")
+                if ocp_triggered:
+                    log_event(charge_controller.current_stage, battery_v, i, t, ah, "OCP_TRIGGERED")
+                    _charge_notify("🛑 Сработала защита OCP (переток). Выход выключен.")
+                await hass.turn_off(ENTITY_MAP["switch"])
+                charge_controller.stop()
+            
+            # Предкритическая температура блока: выключение выхода
+            if (output_on or charge_controller.is_active) and temp_int >= TEMP_INT_PRECRITICAL:
+                log_event(
+                    charge_controller.current_stage,
+                    battery_v,
+                    i,
+                    t,
+                    ah,
+                    f"TEMP_INT_PRECRITICAL_{temp_int:.0f}C",
+                )
+                _charge_notify(
+                    f"🌡 Температура блока {temp_int:.0f}°C ≥ {TEMP_INT_PRECRITICAL:.0f}°C. "
+                    "Выход выключен для защиты БП."
+                )
+                await hass.turn_off(ENTITY_MAP["switch"])
+                charge_controller.stop()
+            
             await add_record(battery_v, i, p, t)
 
-            # Восстановление после потери связи: если был unavailable и теперь данные есть — попробовать restore
+            # Восстановление после потери связи: только если нет OVP/OCP, режим батареи и вход ≥ 60 В
             if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
                 if charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
                     ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
                     if ok and msg:
                         last_checkpoint_time = time.time()
-                        if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
-                            uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                            await hass.set_voltage(uv)
-                            await hass.set_current(ui)
-                        else:
-                            uv, ui = charge_controller._get_target_v_i()
-                            await hass.set_voltage(uv)
-                            await hass.set_current(ui)
-                            await hass.turn_on(ENTITY_MAP["switch"])
-                        log_event(
-                            charge_controller.current_stage,
-                            battery_v,
-                            i,
-                            t,
-                            ah,
-                            "RESTORE",
+                        allow_turn_on = (
+                            not ovp_triggered
+                            and not ocp_triggered
+                            and battery_mode
+                            and input_voltage >= MIN_INPUT_VOLTAGE
                         )
-                        _charge_notify(msg)
-                        logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+                        if allow_turn_on:
+                            if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                                await hass.set_voltage(uv)
+                                await hass.set_current(ui)
+                            else:
+                                uv, ui = charge_controller._get_target_v_i()
+                                await hass.set_voltage(uv)
+                                await hass.set_current(ui)
+                                await hass.turn_on(ENTITY_MAP["switch"])
+                            log_event(
+                                charge_controller.current_stage,
+                                battery_v,
+                                i,
+                                t,
+                                ah,
+                                "RESTORE",
+                            )
+                            _charge_notify(msg)
+                            logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+                        else:
+                            if ovp_triggered or ocp_triggered:
+                                _charge_notify(
+                                    "⚠️ Недавно сработала защита OVP/OCP. "
+                                    "Включите заряд вручную после проверки."
+                                )
+                            elif not battery_mode:
+                                _charge_notify(
+                                    "⚠️ Устройство не в режиме батареи. Включите заряд вручную после проверки."
+                                )
+                            elif input_voltage < MIN_INPUT_VOLTAGE:
+                                _charge_notify(
+                                    f"⚠️ Низкое входное напряжение ({input_voltage:.0f} В < {MIN_INPUT_VOLTAGE:.0f} В). "
+                                    "Включите заряд вручную после проверки питания."
+                                )
+                            logger.info("Restore skipped: protections or battery_mode or input_voltage")
 
             actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah, output_switch)
 
@@ -1061,6 +1119,45 @@ async def cmd_stats(message: Message) -> None:
         "📋 Статистика и прогноз заряда теперь в блоке <b>«Полная инфо»</b> — нажмите кнопку под графиком.",
         parse_mode=ParseMode.HTML,
     )
+
+
+@router.message(Command("entities"))
+async def cmd_entities(message: Message) -> None:
+    """Опросить и показать статус всех сущностей Home Assistant (RD6018)."""
+    if not await _check_chat_and_respond(message):
+        return
+    status_msg = await message.answer("⏳ Опрашиваю сущности HA...", parse_mode=ParseMode.HTML)
+    try:
+        rows = await hass.get_entities_status()
+        lines = ["<b>📡 Статус сущностей RD6018</b>\n"]
+        ok_count = sum(1 for r in rows if r["status"] == "ok")
+        bad = [r for r in rows if r["status"] != "ok"]
+        lines.append(f"✅ Доступно: {ok_count}/{len(rows)}")
+        if bad:
+            lines.append(f"⚠️ Нет данных: {len(bad)}\n")
+        for r in rows:
+            key = html.escape(r["key"])
+            eid = html.escape(r["entity_id"])
+            state = html.escape(str(r["state"]))
+            unit = html.escape(r["unit"] or "")
+            status = r["status"]
+            if status == "ok":
+                icon = "🟢"
+                line = f"{icon} <b>{key}</b>: {state} {unit}".strip()
+            else:
+                icon = "🔴" if status == "error" else "🟡"
+                line = f"{icon} <b>{key}</b>: {status} ({state})"
+            lines.append(line)
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = "\n".join(lines[:2] + [f"… всего {len(rows)} сущностей, обрезка"] + [l for l in lines[3:25]])
+        await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
+    except Exception as ex:
+        logger.exception("cmd_entities: %s", ex)
+        await status_msg.edit_text(
+            f"❌ Ошибка опроса сущностей: {html.escape(str(ex))}",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def get_ai_context() -> str:
@@ -1210,10 +1307,19 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
     i = _safe_float(live.get("current"))
     t = _safe_float(live.get("temp_ext"))
     ah_val = _safe_float(live.get("ah"))
+    input_v = _safe_float(live.get("input_voltage"), 0.0)
     if t < MIN_START_TEMP:
         await message.answer(
             f"❌ Заряд не запущен: температура внешнего датчика {t:.1f}°C ниже {MIN_START_TEMP:.0f}°C. "
             "Прогрейте АКБ или помещение.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    if input_v > 0 and input_v < MIN_INPUT_VOLTAGE:
+        log_event("Idle", battery_v, i, t, ah_val, f"START_REFUSED_INPUT_VOLTAGE_{input_v:.0f}V")
+        await message.answer(
+            f"❌ Заряд не запущен: входное напряжение {input_v:.0f} В ниже {MIN_INPUT_VOLTAGE:.0f} В. "
+            "Проверьте питание БП.",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -1479,10 +1585,19 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         i = _safe_float(live.get("current", 0.0))
         t = _safe_float(live.get("temp_ext", 25.0))
         ah_val = _safe_float(live.get("ah", 0.0))
+        input_v = _safe_float(live.get("input_voltage"), 0.0)
         if t < MIN_START_TEMP:
             await message.answer(
                 f"❌ Заряд не запущен: температура внешнего датчика {t:.1f}°C ниже {MIN_START_TEMP:.0f}°C. "
                 "Прогрейте АКБ или помещение.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if input_v > 0 and input_v < MIN_INPUT_VOLTAGE:
+            log_event("Idle", battery_v, i, t, ah_val, f"START_REFUSED_INPUT_VOLTAGE_{input_v:.0f}V")
+            await message.answer(
+                f"❌ Заряд не запущен: входное напряжение {input_v:.0f} В ниже {MIN_INPUT_VOLTAGE:.0f} В. "
+                "Проверьте питание БП.",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -1641,6 +1756,9 @@ async def info_full_handler(call: CallbackQuery) -> None:
         live = await hass.get_all_live()
         status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
+        ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
+        ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
+        full_text += f"\n🛡 Защиты: OVP сработала — {'да' if ovp_tr else 'нет'}, OCP сработала — {'да' if ocp_tr else 'нет'}"
         # Статистика и прогноз заряда (из бывшего /stats)
         battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
@@ -1709,6 +1827,41 @@ async def info_full_handler(call: CallbackQuery) -> None:
     except Exception as ex:
         logger.error("info_full: %s", ex)
         await call.message.answer("Не удалось загрузить данные.")
+
+
+@router.callback_query(F.data == "entities_status")
+async def entities_status_handler(call: CallbackQuery) -> None:
+    """Показать статус всех сущностей HA по кнопке дашборда."""
+    if not await _check_chat_and_respond(call):
+        return
+    try:
+        await call.answer("Опрашиваю сущности...")
+    except Exception:
+        pass
+    try:
+        rows = await hass.get_entities_status()
+        lines = ["<b>📡 Статус сущностей RD6018</b>\n"]
+        ok_count = sum(1 for r in rows if r["status"] == "ok")
+        lines.append(f"✅ Доступно: {ok_count}/{len(rows)}\n")
+        for r in rows:
+            key = html.escape(r["key"])
+            state = html.escape(str(r["state"]))
+            unit = html.escape(r["unit"] or "")
+            status = r["status"]
+            if status == "ok":
+                icon = "🟢"
+                line = f"{icon} <b>{key}</b>: {state} {unit}".strip()
+            else:
+                icon = "🔴" if status == "error" else "🟡"
+                line = f"{icon} <b>{key}</b>: {status} ({state})"
+            lines.append(line)
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = "\n".join(lines[:3] + [f"… всего {len(rows)} сущностей"] + [l for l in lines[3:25]])
+        await call.message.answer(text, parse_mode=ParseMode.HTML)
+    except Exception as ex:
+        logger.exception("entities_status_handler: %s", ex)
+        await call.message.answer(f"❌ Ошибка опроса: {html.escape(str(ex))}", parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "refresh")
@@ -1921,43 +2074,59 @@ async def main() -> None:
     except Exception as ex:
         logger.warning("trim_log_older_than_days at startup: %s", ex)
 
-    # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин
+    # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, режим батареи, вход ≥ 60 В
     global last_checkpoint_time
     try:
         live = await hass.get_all_live()
         battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
         ah = _safe_float(live.get("ah"))
+        ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
+        ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+        battery_mode = str(live.get("battery_mode", "")).lower() == "on"
+        input_voltage = _safe_float(live.get("input_voltage"), 0.0)
         ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
         if ok and msg:
             last_checkpoint_time = time.time()
-            if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
-                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                await hass.set_voltage(uv)
-                await hass.set_current(ui)
-                # Output остаётся выключен — ждём падения V
-            else:
-                uv, ui = charge_controller._get_target_v_i()
-                await hass.set_voltage(uv)
-                await hass.set_current(ui)
-                await hass.turn_on(ENTITY_MAP["switch"])
-            t_ext = _safe_float(live.get("temp_ext"))
-            log_event(
-                charge_controller.current_stage,
-                battery_v,
-                i,
-                t_ext,
-                ah,
-                "RESTORE",
+            allow_turn_on = (
+                not ovp_triggered
+                and not ocp_triggered
+                and battery_mode
+                and input_voltage >= MIN_INPUT_VOLTAGE
             )
-            _charge_notify(msg)
-            logger.info("Session restored: %s", charge_controller.current_stage)
+            if allow_turn_on:
+                if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                    uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                    await hass.set_voltage(uv)
+                    await hass.set_current(ui)
+                else:
+                    uv, ui = charge_controller._get_target_v_i()
+                    await hass.set_voltage(uv)
+                    await hass.set_current(ui)
+                    await hass.turn_on(ENTITY_MAP["switch"])
+                t_ext = _safe_float(live.get("temp_ext"))
+                log_event(
+                    charge_controller.current_stage,
+                    battery_v,
+                    i,
+                    t_ext,
+                    ah,
+                    "RESTORE",
+                )
+                _charge_notify(msg)
+                logger.info("Session restored: %s", charge_controller.current_stage)
+            else:
+                logger.info(
+                    "Auto-resume skipped: ovp=%s ocp=%s battery_mode=%s input_v=%.0f",
+                    ovp_triggered, ocp_triggered, battery_mode, input_voltage,
+                )
     except Exception as ex:
         logger.warning("Auto-resume check failed: %s", ex)
 
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Открыть дашборд RD6018"),
+        BotCommand(command="entities", description="Статус сущностей HA (RD6018)"),
     ])
     asyncio.create_task(data_logger())
     asyncio.create_task(charge_monitor())

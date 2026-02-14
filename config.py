@@ -40,7 +40,7 @@ def _parse_allowed_chat_ids() -> tuple:
 
 ALLOWED_CHAT_IDS = _parse_allowed_chat_ids()
 
-# Строгий маппинг сущностей HA (как в спецификации)
+# Маппинг сущностей HA (RD6018)
 ENTITY_MAP = {
     "voltage": "sensor.rd_6018_output_voltage",
     "battery_voltage": "sensor.rd_6018_battery_voltage",
@@ -48,20 +48,26 @@ ENTITY_MAP = {
     "power": "sensor.rd_6018_output_power",
     "ah": "sensor.rd_6018_battery_charge",
     "wh": "sensor.rd_6018_battery_energy",
-    # v2.0: Разделение датчиков — внутренняя температура БП и внешняя АКБ (K-тип). Защита 45°C только по temp_ext.
-    "temp_int": "sensor.rd_6018_temperature",           # внутренняя температура блока питания
-    "temp_ext": "sensor.rd_6018_temperature_external",  # внешний датчик на АКБ (K-тип), используется для 35/40/45°C
+    "temp_int": "sensor.rd_6018_temperature",
+    "temp_ext": "sensor.rd_6018_temperature_external",
     "is_cv": "binary_sensor.rd_6018_constant_voltage",
     "is_cc": "binary_sensor.rd_6018_constant_current",
+    "battery_mode": "binary_sensor.rd_6018_battery_mode",
+    "keypad_lock": "binary_sensor.rd_6018_keypad_lock",
+    "ovp_triggered": "binary_sensor.rd_6018_over_voltage_protection",
+    "ocp_triggered": "binary_sensor.rd_6018_over_current_protection",
     "switch": "switch.rd_6018_output",
     "set_voltage": "number.rd_6018_output_voltage",
     "set_current": "number.rd_6018_output_current",
     "ovp": "number.rd_6018_over_voltage_protection",
     "ocp": "number.rd_6018_over_current_protection",
-    "input_voltage": "sensor.rd_6018_input_voltage",  # Может отсутствовать в некоторых интеграциях
-    "uptime": "sensor.rd_6018_uptime",  # Может отсутствовать в некоторых интеграциях
+    "backlight": "number.rd_6018_backlight",
+    "input_voltage": "sensor.rd_6018_input_voltage",
+    "uptime": "sensor.rd_6018_uptime",
 }
 
 # Лимиты безопасности
 MAX_VOLTAGE = 16.6  # V — предупреждение
-# Температура: 34°C (предупреждение), 37°C (авария) — в charge_logic.py
+MIN_INPUT_VOLTAGE = 60.0  # В — не включать заряд при входном напряжении ниже
+TEMP_INT_PRECRITICAL = 55.0  # °C — выключение выхода при температуре блока (защита БП)
+# Температура АКБ: 34°C (предупреждение), 37°C (авария) — в charge_logic.py

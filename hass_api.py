@@ -148,7 +148,7 @@ class HassClient:
 
     async def get_all_live(self) -> Dict[str, Any]:
         """Получить все live-данные для дашборда."""
-        keys = ["voltage", "battery_voltage", "current", "power", "ah", "wh", "temp_int", "temp_ext", "is_cv", "is_cc", "switch", "set_voltage", "set_current", "ovp", "ocp", "input_voltage", "uptime"]
+        keys = ["voltage", "battery_voltage", "current", "power", "ah", "wh", "temp_int", "temp_ext", "is_cv", "is_cc", "battery_mode", "keypad_lock", "ovp_triggered", "ocp_triggered", "switch", "set_voltage", "set_current", "ovp", "ocp", "backlight", "input_voltage", "uptime"]
         result: Dict[str, Any] = {}
         for key in keys:
             eid = ENTITY_MAP.get(key)
@@ -156,4 +156,50 @@ class HassClient:
                 continue
             state, _ = await self.get_state(eid)
             result[key] = state
+        return result
+
+    async def get_entities_status(self) -> List[Dict[str, Any]]:
+        """
+        Опросить статус всех сущностей из ENTITY_MAP.
+        Возвращает список словарей: key, entity_id, state, status, unit, friendly_name.
+        status: "ok" | "unavailable" | "unknown" | "error"
+        """
+        if not self.base_url or not self.token:
+            return []
+
+        result: List[Dict[str, Any]] = []
+        for key, entity_id in ENTITY_MAP.items():
+            entry: Dict[str, Any] = {
+                "key": key,
+                "entity_id": entity_id,
+                "state": None,
+                "status": "error",
+                "unit": "",
+                "friendly_name": entity_id.split(".")[-1].replace("_", " "),
+            }
+            try:
+                url = f"{self.base_url}/api/states/{entity_id}"
+                session = await self._ensure_session()
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        entry["status"] = "error"
+                        entry["state"] = f"HTTP {resp.status}"
+                        result.append(entry)
+                        continue
+                    data = await resp.json()
+                    state = data.get("state")
+                    attrs = data.get("attributes", {})
+                    entry["state"] = state
+                    entry["unit"] = attrs.get("unit_of_measurement", "")
+                    entry["friendly_name"] = attrs.get("friendly_name", entry["friendly_name"])
+                    if state is None or state == "":
+                        entry["status"] = "unknown"
+                    elif str(state).lower() in ("unavailable", "unknown"):
+                        entry["status"] = str(state).lower()
+                    else:
+                        entry["status"] = "ok"
+            except Exception as ex:
+                entry["status"] = "error"
+                entry["state"] = str(ex)[:50]
+            result.append(entry)
         return result
