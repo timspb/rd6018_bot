@@ -1004,7 +1004,9 @@ async def data_logger() -> None:
             
             # v2.5 Умный watchdog: поведение зависит от последнего состояния выхода
             output_was_on = charge_controller._last_known_output_on
-            
+            # Чтобы при возврате связи сработало восстановление сессии
+            charge_controller._was_unavailable = True
+
             if not output_was_on:
                 # Выход был выключен — тихий переход в IDLE, без уведомлений
                 if charge_controller.is_active:
