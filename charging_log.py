@@ -121,9 +121,44 @@ def log_event(
     try:
         ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
     except Exception:
-        # Fallback если time_utils недоступен
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+    line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {event}"
+    _ensure_logger().info(line)
+
+
+def _format_duration(seconds: float) -> str:
+    """Форматировать длительность: Xч Yм или Xм."""
+    if seconds < 60:
+        return f"{int(seconds)}с"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}м"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    if m:
+        return f"{h}ч {m}м"
+    return f"{h}ч"
+
+
+def log_stage_end(
+    stage: str,
+    v: float,
+    i: float,
+    t_ext: float,
+    ah: float,
+    time_sec: float,
+    ah_on_stage: float,
+    trigger: str,
+) -> None:
+    """Записать завершение этапа: время на этапе, ёмкость, T, V, I, триггер."""
+    try:
+        ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
+    except Exception:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    time_str = _format_duration(time_sec)
+    event = (
+        f"END | Время: {time_str} | Ёмкость: {ah_on_stage:.2f} Ач | "
+        f"T: {t_ext:.1f}°C | V: {v:.2f}В | I: {i:.2f}А | Триггер: {trigger}"
+    )
     line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {event}"
     _ensure_logger().info(line)
 
@@ -161,10 +196,10 @@ def get_recent_events(limit: int = 5) -> list:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
-        # Находим последнюю строку начала сессии
+        # Находим последнюю строку начала сессии (START ... profile=... или START CUSTOM)
         start_idx = -1
         for idx, line in enumerate(lines):
-            if "START profile=" in line or "START CUSTOM" in line:
+            if ("START" in line and "profile=" in line) or "START CUSTOM" in line:
                 start_idx = idx
         
         if start_idx != -1:

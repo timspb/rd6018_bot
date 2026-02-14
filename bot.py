@@ -37,7 +37,7 @@ from charge_logic import (
     OVP_OFFSET,
     OCP_OFFSET,
 )
-from charging_log import clear_event_logs, log_checkpoint, log_event, rotate_if_needed, trim_log_older_than_days
+from charging_log import clear_event_logs, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from config import (
     ALLOWED_CHAT_IDS,
     DEEPSEEK_API_KEY,
@@ -461,7 +461,7 @@ def _should_hide_restore_event(event: str) -> bool:
 def format_log_event(event_line: str) -> str:
     """Форматирование строки события в красивый вид с иконками."""
     try:
-        # Парсим строку формата: [2024-02-12 19:15:23] | Main Charge  | 14.80 | 2.40 | 25.1 |  60.25 | START profile=EFB ah=60
+        # Парсим строку формата: [2024-02-12 19:15:23] | Main Charge  | 14.80 | 2.40 | 25.1 |  60.25 | START | Емкость: 60Ah
         parts = event_line.split(' | ')
         if len(parts) < 6:
             return f"<code>{html.escape(event_line)}</code>"
@@ -476,111 +476,60 @@ def format_log_event(event_line: str) -> str:
         
         # Извлекаем только время (ЧЧ:ММ)
         time_only = timestamp.split(' ')[1][:5] if ' ' in timestamp else timestamp[-8:-3]
-        
-        # Определяем иконку по типу события
-        icon = "📋"
+        stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
+        stage_escaped = html.escape(stage_short)
+
+        # Завершение этапа: END | Время: ... | Ёмкость: ... | T: ... | V: ... | I: ... | Триггер: ...
+        if event.startswith("END |"):
+            icon = "📊"
+            text = f"[{time_only}] {icon} <b>{stage_escaped}: завершён</b>\n"
+            rest = event[5:].strip()  # после "END |"
+            # Парсим пары "Ключ: значение"
+            for part in rest.split(" | "):
+                part = part.strip()
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    text += f"└ {k.strip()}: {v.strip()}\n"
+            return text.rstrip()
+
+        # Действие по триггеру в текущем этапе (вложенная строка)
+        if event.strip().startswith("└"):
+            detail = event.strip()[1:].strip()  # убираем └
+            return f"[{time_only}] └ {html.escape(detail)}"
+
+        # Старт этапа: START | Емкость: XAh [| profile=...]
         if "START" in event:
             icon = "🏁"
-        elif "MAIN" in event or "MIX" in event or "DESULFATION" in event:
-            icon = "📈"
-        elif "DONE" in event or "FINISH" in event:
+            text = f"[{time_only}] {icon} <b>{stage_escaped}: START</b>\n"
+            if "Емкость:" in event:
+                m = re.search(r"Емкость:\s*(\d+)\s*Ah", event, re.IGNORECASE)
+                if m:
+                    text += f"└ Емкость: {m.group(1)}Ah\n"
+            if "profile=" in event:
+                for p in ("EFB", "AGM", "Ca/Ca"):
+                    if p in event:
+                        text += f"└ Профиль: {p}\n"
+                        break
+            if "CUSTOM" in event and "profile=" not in event:
+                text += "└ Профиль: Custom\n"
+            return text.rstrip()
+
+        # Остальные события (EMERGENCY, DONE, старый формат и т.д.)
+        icon = "📋"
+        if "DONE" in event or "FINISH" in event:
             icon = "✅"
         elif "STOP" in event or "EMERGENCY" in event:
             icon = "🛑"
         elif "WARNING" in event or "TEMP" in event:
             icon = "⚠️"
         elif "CHECKPOINT" in event:
-            icon = "⏱️"
+            return ""
         elif "RESTORE" in event:
-            icon = "🔄"
-        elif any(word in event for word in ["Set", "УСТАВКА", "V=", "I="]):
-            icon = "⚙️"
-        
-        # Сокращаем название этапа
-        stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
-        
-        # Формируем СТРОГИЙ вертикальный формат для гарантированного размещения
-        if "CHECKPOINT" not in event and not _should_hide_restore_event(event):  # Скрываем чекпоинты и обычные RESTORE
-            # Полностью скрываем RESTORE события
-            if "RESTORE" in event:
-                return ""
-            
-            # СНАЧАЛА экранируем, ПОТОМ обрезаем - чтобы не порвать HTML теги
-            event_clean = event.replace("profile=", "").replace("ah=", "Ah:")
-            event_escaped = html.escape(event_clean)
-            stage_escaped = html.escape(stage_short)
-            
-            # Определяем тип события для правильного разбора
-            event_type = ""
-            if "START" in event_escaped:
-                event_type = "START"
-            elif "DONE" in event_escaped or "FINISH" in event_escaped:
-                event_type = "FINISH"
-            elif "MAIN" in event_escaped or "MIX" in event_escaped or "DESULFATION" in event_escaped:
-                event_type = "TRANSITION"
-            else:
-                event_type = "OTHER"
-            
-            # Заголовок события (ВСЕГДА короткий)
-            text = f"[{time_only}] {icon} <b>{stage_escaped}: {event_type}</b>\n"
-            
-            # Извлекаем параметры и добавляем СТРОГО вертикально
-            params_added = False
-            
-            # Для START событий - извлекаем основные параметры
-            if "START" in event_escaped:
-                # Ищем профиль
-                if "EFB" in event_escaped:
-                    text += "├ Профиль: EFB\n"
-                    params_added = True
-                elif "AGM" in event_escaped:
-                    text += "├ Профиль: AGM\n"
-                    params_added = True
-                elif "CUSTOM" in event_escaped:
-                    text += "├ Профиль: Custom\n"
-                    params_added = True
-                
-                # Ищем емкость
-                if "Ah:" in event_escaped:
-                    ah_match = event_escaped.split("Ah:")[1].split()[0] if "Ah:" in event_escaped else ""
-                    if ah_match:
-                        text += f"├ Емкость: {ah_match}Ah\n"
-                        params_added = True
-            
-            # Для технических событий - ключевые параметры
-            if any(param in event_escaped for param in ["V_now=", "I_now=", "V_max=", "I_min=", "Порог:"]):
-                if "V_now=" in event_escaped:
-                    v_match = event_escaped.split("V_now=")[1].split("В")[0] if "V_now=" in event_escaped else ""
-                    if v_match:
-                        text += f"├ V: {v_match}В\n"
-                        params_added = True
-                
-                if "I_now=" in event_escaped:
-                    i_match = event_escaped.split("I_now=")[1].split("А")[0] if "I_now=" in event_escaped else ""
-                    if i_match:
-                        text += f"├ I: {i_match}А\n"
-                        params_added = True
-                
-                if "Порог:" in event_escaped:
-                    threshold = event_escaped.split("Порог: ")[1].split(".")[0] if "Порог: " in event_escaped else ""
-                    if threshold:
-                        text += f"├ Δ: {threshold}\n"
-                        params_added = True
-            
-            # Меняем последний ├ на └ если есть параметры
-            if params_added:
-                text = text.rstrip('\n')  # Убираем последний \n
-                lines = text.split('\n')
-                if len(lines) > 1 and lines[-1].startswith("├"):
-                    lines[-1] = lines[-1].replace("├", "└", 1)
-                text = '\n'.join(lines)
-            else:
-                # Убираем лишний \n если параметров нет
-                text = text.rstrip('\n')
-            
-            return text
-        else:
-            return ""  # Пропускаем чекпоинты для компактности
+            return ""
+        if _should_hide_restore_event(event):
+            return ""
+        event_escaped = html.escape(event)
+        return f"[{time_only}] {icon} <b>{stage_escaped}</b>: {event_escaped}"
             
     except Exception as ex:
         logger.error("Failed to format log event: %s", ex)
@@ -975,6 +924,27 @@ async def data_logger() -> None:
 
             actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah, output_switch)
 
+            end = actions.get("log_event_end")
+            if end:
+                log_stage_end(
+                    end["stage"],
+                    end["v"],
+                    end["i"],
+                    end["t"],
+                    end["ah"],
+                    end["time_sec"],
+                    end["ah_on_stage"],
+                    end["trigger"],
+                )
+            if actions.get("log_event_sub"):
+                log_event(
+                    end["stage"] if end else charge_controller.current_stage,
+                    battery_v,
+                    i,
+                    t,
+                    ah,
+                    actions["log_event_sub"],
+                )
             if actions.get("log_event"):
                 log_event(
                     charge_controller.current_stage,
@@ -1309,7 +1279,7 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
     await hass.set_ocp(ui + OCP_OFFSET)
     await hass.turn_on(ENTITY_MAP["switch"])
     last_checkpoint_time = time.time()
-    log_event("Подготовка", battery_v, i, t, ah_val, f"START profile={profile} ah={ah}")
+    # Лог "Подготовка: START" пишется при первом tick()
     await message.answer(
         f"<b>✅ Заряд запущен:</b> {profile} {ah}Ач\n"
         f"Текущая фаза: <b>{charge_controller.current_stage}</b>",

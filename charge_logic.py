@@ -138,6 +138,7 @@ class ChargeController:
         self._cooling_target_i: float = 0.0
         self._pending_log_event: Optional[str] = None  # для логирования событий
         self._start_ah: float = 0.0  # накопленная ёмкость на старте сессии
+        self._stage_start_ah: float = 0.0  # ёмкость на входе в текущий этап (для лога завершения)
         self._last_checkpoint_time: float = 0.0  # для контрольных точек каждые 10 мин
         self._last_save_time: float = 0.0
         self._safe_wait_next_stage: Optional[str] = None  # куда перейти после ожидания
@@ -195,6 +196,7 @@ class ChargeController:
         self.ah_capacity = max(1, ah_capacity)
         self.current_stage = self.STAGE_PREP
         self.stage_start_time = time.time()
+        self._stage_start_ah = 0.0  # будет установлен при первом tick()
         self.total_start_time = self.stage_start_time  # v2.6: фиксируем общий старт сессии
         self.antisulfate_count = 0
         self.v_max_recorded = None
@@ -232,6 +234,7 @@ class ChargeController:
         self.ah_capacity = max(1, ah_capacity)
         self.current_stage = self.STAGE_MAIN  # Ручной режим сразу начинает с MAIN
         self.stage_start_time = time.time()
+        self._stage_start_ah = 0.0  # будет установлен при первом tick()
         self.total_start_time = self.stage_start_time
         
         # Сохраняем пользовательские параметры
@@ -345,6 +348,7 @@ class ChargeController:
             "finish_timer_start": self.finish_timer_start,
             "ah_limit": self.ah_capacity,
             "start_ah": self._start_ah,
+            "stage_start_ah": self._stage_start_ah,
             "current_retries": self.antisulfate_count,
             "target_voltage": uv,
             "target_current": ui,
@@ -390,6 +394,7 @@ class ChargeController:
         self.antisulfate_count = int(data.get("current_retries", 0))
         self._agm_stage_idx = int(data.get("agm_stage_idx", 0))
         self._start_ah = float(data.get("start_ah", 0))
+        self._stage_start_ah = float(data.get("stage_start_ah", ah))  # при отсутствии — текущий ah
         self._safe_wait_next_stage = data.get("safe_wait_next_stage")
         self._safe_wait_target_v = float(data.get("safe_wait_target_v", 0))
         self._safe_wait_target_i = float(data.get("safe_wait_target_i", 0))
@@ -499,6 +504,7 @@ class ChargeController:
         
         # Сброс счетчиков и временных данных
         self._start_ah = 0.0
+        self._stage_start_ah = 0.0
         self._last_checkpoint_time = 0.0
         self._last_hourly_report = 0.0
         self._last_v_i_history_time = 0.0
@@ -924,6 +930,27 @@ class ChargeController:
             return True
         return False
 
+    def _make_log_event_end(
+        self,
+        now: float,
+        ah: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        trigger: str,
+    ) -> Dict[str, Any]:
+        """Сформировать данные для лога завершения текущего этапа (до смены current_stage)."""
+        return {
+            "stage": self.current_stage,
+            "time_sec": now - self.stage_start_time,
+            "ah_on_stage": ah - self._stage_start_ah,
+            "ah": ah,
+            "t": temp,
+            "v": voltage,
+            "i": current,
+            "trigger": trigger,
+        }
+
     async def tick(
         self,
         voltage: float,
@@ -993,8 +1020,13 @@ class ChargeController:
         
         elif temp >= TEMP_PAUSE and self.current_stage not in (self.STAGE_COOLING, self.STAGE_IDLE, self.STAGE_DONE):
             # 40°C - пауза заряда: переход в режим охлаждения
+            actions["log_event_end"] = self._make_log_event_end(
+                now, ah, voltage, current, temp, f"T≥{TEMP_PAUSE}°C ({temp:.1f}°C)"
+            )
             prev_stage = self.current_stage
             self.current_stage = self.STAGE_COOLING
+            self.stage_start_time = now
+            self._stage_start_ah = ah
             self._cooling_from_stage = prev_stage
             self._cooling_target_v, self._cooling_target_i = self._get_current_targets()
             
@@ -1005,7 +1037,7 @@ class ChargeController:
             )
             actions["turn_off"] = True
             actions["notify"] = msg
-            actions["log_event"] = f"TEMP_PAUSE: {temp:.1f}°C >= {TEMP_PAUSE}°C, {prev_stage}->COOLING"
+            actions["log_event"] = "START"
             self.notify(msg)
             return actions
 
@@ -1085,6 +1117,16 @@ class ChargeController:
         else:
             self._cv_since = None
 
+        # Инициализация ёмкости на входе в этап при первом тике (старт/восстановление) + лог старта этапа
+        if self._stage_start_ah == 0 and self.current_stage in (
+            self.STAGE_PREP, self.STAGE_MAIN, self.STAGE_DESULFATION, self.STAGE_MIX,
+            self.STAGE_SAFE_WAIT, self.STAGE_COOLING,
+        ):
+            self._stage_start_ah = ah
+            if "log_event" not in actions:
+                profile_tag = "CUSTOM" if self.battery_type == self.PROFILE_CUSTOM else f"profile={self.battery_type}"
+                actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah | {profile_tag}"
+
         # --- ПОДГОТОВКА (Soft Start) ---
         if self.current_stage == self.STAGE_PREP:
             uv, ui = self._prep_target()
@@ -1092,9 +1134,13 @@ class ChargeController:
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
             else:
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"V≥12В ({voltage:.2f}В)"
+                )
                 prev = self.current_stage
                 self.current_stage = self.STAGE_MAIN
                 self.stage_start_time = now
+                self._stage_start_ah = ah
                 self._start_ah = ah
                 self._reset_delta_and_blanking(now)
                 _log_trigger(prev, self.current_stage, "V_threshold", f"Факт: {voltage:.2f}В >= 12.0В")
@@ -1106,7 +1152,7 @@ class ChargeController:
                     "<b>✅ Фаза завершена:</b> Подготовка\n"
                     "<b>🚀 Переход к:</b> Main Charge"
                 )
-                actions["log_event"] = "PREP->MAIN"
+                actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
 
         # --- MAIN CHARGE ---
         elif self.current_stage == self.STAGE_MAIN:
@@ -1121,9 +1167,12 @@ class ChargeController:
                 prev = self.current_stage
                 transition_threshold = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
                 if self.battery_type != self.PROFILE_CUSTOM and is_cv and current <= transition_threshold:
-                    # Ток перехода достиг — принудительный переход на следующий этап (Mix)
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, f"Лимит {max_hours}ч, I≤{transition_threshold}А"
+                    )
                     self.current_stage = self.STAGE_MIX
                     self.stage_start_time = now
+                    self._stage_start_ah = ah
                     self._reset_delta_and_blanking(now)
                     _log_trigger(prev, self.current_stage, "TIME_LIMIT_MAIN_TO_MIX", f"Лимит {max_hours}ч, I={current:.2f}А ≤ {transition_threshold}А")
                     mxv, mxi = self._mix_target()
@@ -1134,10 +1183,14 @@ class ChargeController:
                         f"<b>⏱ Лимит {max_hours}ч MAIN.</b> Ток перехода достиг (I≤{transition_threshold}А). "
                         "<b>Переход к:</b> Mix Mode."
                     )
-                    actions["log_event"] = f"MAIN_TIME_LIMIT->MIX ({max_hours}h, I≤{transition_threshold}A)"
+                    actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
                 else:
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, f"Лимит времени {max_hours}ч"
+                    )
                     self.current_stage = self.STAGE_DONE
                     self.stage_start_time = now
+                    self._stage_start_ah = ah
                     self._blanking_until = now + BLANKING_SEC
                     self._delta_trigger_count = 0
                     trigger_name = "TIME_LIMIT"
@@ -1150,7 +1203,7 @@ class ChargeController:
                         f"Этап MAIN длился {stage_elapsed_hours:.1f}ч (лимит {max_hours}ч)\n"
                         f"Заряд в {mode_text} завершен. Проверьте состояние АКБ."
                     )
-                    actions["log_event"] = f"MAIN_TIME_LIMIT: {stage_elapsed_hours:.1f}ч >= {max_hours}ч - FORCED_STOP"
+                    actions["log_event"] = "START"
                     self._clear_session_file()
                 return actions
 
@@ -1167,15 +1220,20 @@ class ChargeController:
                         self._delta_trigger_count += 1
                     if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT:
                         # Подтверждённый триггер - завершаем заряд
+                        delta_v = self.v_max_recorded - voltage if self.v_max_recorded else 0
+                        delta_i = current - self.i_min_recorded if self.i_min_recorded else 0
+                        trigger_desc = f"dV={delta_v:.3f}В, dI={delta_i:.3f}А"
+                        actions["log_event_end"] = self._make_log_event_end(
+                            now, ah, voltage, current, temp, trigger_desc
+                        )
                         prev = self.current_stage
                         self.current_stage = self.STAGE_DONE
                         self.stage_start_time = now
+                        self._stage_start_ah = ah
                         self._blanking_until = now + BLANKING_SEC
                         self._delta_trigger_count = 0
                         
                         trigger_name = "CUSTOM_DELTA_TRIGGER"
-                        delta_v = self.v_max_recorded - voltage if self.v_max_recorded else 0
-                        delta_i = current - self.i_min_recorded if self.i_min_recorded else 0
                         condition = f"V_max={self.v_max_recorded:.3f}В, V_now={voltage:.3f}В, dV={delta_v:.3f}В, I_min={self.i_min_recorded:.3f}А, I_now={current:.3f}А, dI={delta_i:.3f}А. Порог: {self._custom_delta_threshold:.3f}. Подтверждено {TRIGGER_CONFIRM_COUNT}/{TRIGGER_CONFIRM_COUNT}"
                         _log_trigger(prev, self.current_stage, trigger_name, condition)
                         
@@ -1185,7 +1243,7 @@ class ChargeController:
                             f"Дельта-триггер сработал: {delta_v:.3f}В / {delta_i:.3f}А\n"
                             f"Порог: {self._custom_delta_threshold:.3f}"
                         )
-                        actions["log_event"] = f"CUSTOM_FINISH: dV={delta_v:.3f}В, dI={delta_i:.3f}А, подтверждено {TRIGGER_CONFIRM_COUNT}/{TRIGGER_CONFIRM_COUNT}"
+                        actions["log_event"] = "START"
                         self._clear_session_file()
                         return actions
                     else:
@@ -1212,6 +1270,7 @@ class ChargeController:
                         if self._agm_stage_idx < len(AGM_STAGES) - 1:
                             self._agm_stage_idx += 1
                             self.stage_start_time = now
+                            self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
                             uv, ui = self._main_target()
                             _log_trigger(self.STAGE_MAIN, self.STAGE_MAIN, "AGM_stage_3h_hold", f"Ступень {self._agm_stage_idx + 1}/4: ток <0.2А {FIRST_STAGE_HOLD_HOURS}ч")
@@ -1222,20 +1281,23 @@ class ChargeController:
                                 f"<b>🚀 AGM ступень {self._agm_stage_idx + 1}/4:</b> "
                                 f"{uv:.1f}V (ток &lt;0.2А {FIRST_STAGE_HOLD_HOURS}ч)"
                             )
-                            actions["log_event"] = f"AGM_STAGE_{self._agm_stage_idx + 1}/4"
+                            actions["log_event"] = f"└ AGM ступень {self._agm_stage_idx + 1}/4"
                         else:
                             phantom_note = ""
-                            log_ev = "MAIN->MIX"
                             if elapsed < PHANTOM_CHARGE_MINUTES * 60 and not self._phantom_alerted:
                                 self._phantom_alerted = True
                                 phantom_note = (
                                     "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
                                     f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
                                 )
-                                log_ev = "PHANTOM_CHARGE | MAIN->MIX"
+                                actions["log_event_sub"] = "└ Подозрительно быстрый заряд (PHANTOM)"
+                            actions["log_event_end"] = self._make_log_event_end(
+                                now, ah, voltage, current, temp, f"I<0.2А {FIRST_STAGE_HOLD_HOURS}ч"
+                            )
                             prev = self.current_stage
                             self.current_stage = self.STAGE_MIX
                             self.stage_start_time = now
+                            self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
                             _log_trigger(prev, self.current_stage, "I_drop_3h_hold", f"Факт: {current:.2f}А, выдержка {FIRST_STAGE_HOLD_HOURS}ч")
                             mxv, mxi = self._mix_target()
@@ -1247,7 +1309,7 @@ class ChargeController:
                                 f"<b>🚀 Переход к:</b> Mix Mode (ток &lt;0.2А {FIRST_STAGE_HOLD_HOURS}ч)"
                                 f"{phantom_note}"
                             )
-                            actions["log_event"] = log_ev
+                            actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
                 else:
                     # AGM: застревание I >= 0.2А 40 мин — десульфация (макс 4 итерации)
                     if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
@@ -1257,9 +1319,13 @@ class ChargeController:
                         if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                             self.antisulfate_count += 1
                             self._stuck_current_since = None
+                            actions["log_event_end"] = self._make_log_event_end(
+                                now, ah, voltage, current, temp, f"I≥0.2А {stuck_mins}мин, десульфация #{self.antisulfate_count}"
+                            )
                             prev = self.current_stage
                             self.current_stage = self.STAGE_DESULFATION
                             self.stage_start_time = now
+                            self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
                             _log_trigger(prev, self.current_stage, "AGM_I_stuck_0.2A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
                             dv, di = self._desulf_target()
@@ -1271,7 +1337,7 @@ class ChargeController:
                                 f"Ток застрял ≥ <code>{DESULF_CURRENT_STUCK_AGM}</code>А более <code>{stuck_mins}</code> мин. "
                                 f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
                             )
-                            actions["log_event"] = "MAIN->DESULFATION (AGM)"
+                            actions["log_event"] = "START"
                         elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                             self._stuck_current_since = None
                             # Лимит десульфаций исчерпан — остаёмся в MAIN, переход в Mix по правилу 3ч на минимуме тока
@@ -1284,11 +1350,15 @@ class ChargeController:
                 if self.antisulfate_count < max_antisulf and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                     self.antisulfate_count += 1
                     self._stuck_current_since = None
+                    thr = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, f"I≥{thr}А {stuck_mins}мин, десульфация #{self.antisulfate_count}"
+                    )
                     prev = self.current_stage
                     self.current_stage = self.STAGE_DESULFATION
                     self.stage_start_time = now
+                    self._stage_start_ah = ah
                     self._reset_delta_and_blanking(now)
-                    thr = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
                     _log_trigger(prev, self.current_stage, "I_stuck", f"Факт: {current:.2f}А > {thr}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
                     dv, di = self._desulf_target()
                     actions["set_voltage"] = dv
@@ -1299,7 +1369,7 @@ class ChargeController:
                         f"Ток застрял на <code>{current:.2f}</code>А (порог <code>{thr}</code>А) более <code>{stuck_mins}</code> мин. "
                         f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
                     )
-                    actions["log_event"] = "MAIN->DESULFATION"
+                    actions["log_event"] = "START"
                 else:
                     self._stuck_current_since = None
                     # После исчерпания десульфаций остаёмся в MAIN — переход в Mix только по правилу 3ч на минимуме тока
@@ -1326,10 +1396,14 @@ class ChargeController:
                                 "\n\n<b>⚠️ Внимание:</b> Подозрительно быстрый заряд (ток упал за "
                                 f"{PHANTOM_CHARGE_MINUTES} мин). Возможна высокая сульфатация или потеря ёмкости."
                             )
-                            actions["log_event"] = "PHANTOM_CHARGE"
+                            actions["log_event_sub"] = "└ Подозрительно быстрый заряд (PHANTOM)"
+                        actions["log_event_end"] = self._make_log_event_end(
+                            now, ah, voltage, current, temp, f"I<0.3А {FIRST_STAGE_HOLD_HOURS}ч"
+                        )
                         prev = self.current_stage
                         self.current_stage = self.STAGE_MIX
                         self.stage_start_time = now
+                        self._stage_start_ah = ah
                         self._reset_delta_and_blanking(now)
                         _log_trigger(prev, self.current_stage, "I_drop_3h_hold", f"Факт: {current:.2f}А, выдержка {FIRST_STAGE_HOLD_HOURS}ч")
                         mxv, mxi = self._mix_target()
@@ -1341,7 +1415,7 @@ class ChargeController:
                             f"<b>🚀 Переход к:</b> Mix Mode (ток &lt;0.3А {FIRST_STAGE_HOLD_HOURS}ч)"
                             f"{phantom_note}"
                         )
-                        actions["log_event"] = "MAIN->MIX"
+                        actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
 
         # --- БЕЗОПАСНОЕ ОЖИДАНИЕ (Output OFF, ждём падения V) ---
         elif self.current_stage == self.STAGE_SAFE_WAIT:
@@ -1351,10 +1425,14 @@ class ChargeController:
             threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
             wait_elapsed = now - self._safe_wait_start
             if voltage <= threshold:
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"V≤{threshold:.1f}В ({voltage:.2f}В)"
+                )
                 prev = self.STAGE_SAFE_WAIT
                 next_stage = self._safe_wait_next_stage
                 self.current_stage = next_stage
                 self.stage_start_time = now
+                self._stage_start_ah = ah
                 uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
                 self._safe_wait_next_stage = None
                 _log_trigger(prev, self.current_stage, "V_drop_threshold", f"Факт: {voltage:.2f}В <= {threshold:.1f}В")
@@ -1368,7 +1446,7 @@ class ChargeController:
                         f"<b>✅ Заряд завершён.</b> Storage {uv:.1f}V/{ui:.1f}А. "
                         f"V_max={self.v_max_recorded:.2f}В." if self.v_max_recorded else f"Storage {uv:.1f}V."
                     )
-                    actions["log_event"] = f"DONE ah={ah:.2f}"
+                    actions["log_event"] = "START"
                     self._clear_session_file()
                 else:
                     self.v_max_recorded = None
@@ -1376,12 +1454,16 @@ class ChargeController:
                     self._blanking_until = now + BLANKING_SEC
                     self._delta_trigger_count = 0
                     actions["notify"] = "<b>🚀 Возврат к Main Charge.</b> Напряжение упало."
-                    actions["log_event"] = "SAFE_WAIT->MAIN"
+                    actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
             elif wait_elapsed >= SAFE_WAIT_MAX_SEC:
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"Таймаут 2ч (V не упало)"
+                )
                 prev = self.STAGE_SAFE_WAIT
                 next_stage = self._safe_wait_next_stage
                 self.current_stage = next_stage
                 self.stage_start_time = now
+                self._stage_start_ah = ah
                 uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
                 self._safe_wait_next_stage = None
                 _log_trigger(prev, self.current_stage, "Safe_wait_timeout", f"Таймер: {wait_elapsed/3600:.1f}ч >= 2ч")
@@ -1394,7 +1476,7 @@ class ChargeController:
                     "⚠️ Напряжение падает слишком медленно, возможен сильный нагрев или дефект АКБ. "
                     f"Принудительный переход к следующему этапу ({uv:.1f}В)."
                 )
-                actions["log_event"] = "SAFE_WAIT_FORCED"
+                actions["log_event"] = "START"
                 if self.current_stage == self.STAGE_DONE:
                     self._clear_session_file()
                 else:
@@ -1410,10 +1492,14 @@ class ChargeController:
             # Проверяем, остыла ли АКБ до безопасной температуры
             if temp <= TEMP_WARNING:
                 # Температура упала до 35°C - можно возвращаться к заряду
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"T≤{TEMP_WARNING}°C ({temp:.1f}°C)"
+                )
                 prev_stage = self.current_stage
                 return_stage = self._cooling_from_stage or self.STAGE_MAIN
                 self.current_stage = return_stage
                 self.stage_start_time = now
+                self._stage_start_ah = ah
                 
                 # Восстанавливаем целевые параметры
                 uv, ui = self._cooling_target_v, self._cooling_target_i
@@ -1431,19 +1517,24 @@ class ChargeController:
                     f"Возврат к этапу: {return_stage}"
                 )
                 actions["notify"] = msg
-                actions["log_event"] = f"COOLING_RETURN: {temp:.1f}°C <= {TEMP_WARNING}°C, {prev_stage}->{return_stage}"
+                actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
                 self.notify(msg)
             else:
                 # Продолжаем ждать охлаждения
                 pass
 
         # --- ДЕСУЛЬФАТАЦИЯ ---
-        elif self.current_stage == self.STAGE_DESULFATION:
+        el        if self.current_stage == self.STAGE_DESULFATION:
             if elapsed >= 2 * 3600:
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, "Таймер 2ч"
+                )
                 prev = self.current_stage
                 uv, ui = self._main_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN  # 14.2В при цели 14.7В
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self.stage_start_time = now
+                self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_MAIN
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
@@ -1455,7 +1546,7 @@ class ChargeController:
                     f"<b>⏸ Десульфатация завершена.</b> Ожидание падения до {threshold:.1f}В. "
                     "Выход выключен."
                 )
-                actions["log_event"] = "DESULFATION->SAFE_WAIT"
+                actions["log_event"] = "START"
 
         # --- MIX MODE ---
         elif self.current_stage == self.STAGE_MIX:
@@ -1508,29 +1599,37 @@ class ChargeController:
                     if self._exit_cc_condition(voltage):
                         delta_v = v_peak - voltage
                         actions["log_event"] = (
-                            f"DELTA_TRIGGER V_max={v_peak:.2f}В, V_now={voltage:.2f}В, "
-                            f"dV={delta_v:.3f}В, confirmed={self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT}"
+                            f"└ Дельта V: V_max={v_peak:.2f}В, dV={delta_v:.3f}В"
                         )
                     elif self._exit_cv_condition(current):
                         delta_i = current - i_min
                         actions["log_event"] = (
-                            f"DELTA_TRIGGER I_min={i_min:.2f}А, I_now={current:.2f}А, "
-                            f"dI={delta_i:.3f}А, confirmed={self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT}"
+                            f"└ Дельта I: I_min={i_min:.2f}А, dI={delta_i:.3f}А"
                         )
                     else:
-                        actions["log_event"] = f"DELTA_TRIGGER {trigger_msg[:50]}"
+                        actions["log_event"] = f"└ {trigger_msg[:50]}"
                 if self.finish_timer_start and (now - self.finish_timer_start) >= MIX_DONE_TIMER:
+                    v_peak = self.v_max_recorded or voltage
+                    i_min = self.i_min_recorded or current
+                    trigger_desc = "Таймер 2ч после Delta"
+                    if self._exit_cc_condition(voltage):
+                        trigger_desc = f"ΔV≥{DELTA_V_EXIT}В, V_max={v_peak:.2f}В"
+                    elif self._exit_cv_condition(current) and i_min is not None:
+                        trigger_desc = f"ΔI≥{DELTA_I_EXIT}А, I_min={i_min:.2f}А"
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, trigger_desc
+                    )
                     prev = self.current_stage
                     uv, ui = self._storage_target()
                     threshold = uv - SAFE_WAIT_V_MARGIN  # 13.3В
                     self.current_stage = self.STAGE_SAFE_WAIT
+                    self.stage_start_time = now
+                    self._stage_start_ah = ah
                     self._safe_wait_next_stage = self.STAGE_DONE
                     self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                     self._safe_wait_start = now
                     self._safe_wait_v_samples.append((now, voltage))
                     self._last_safe_wait_sample = now
-                    v_peak = self.v_max_recorded or voltage
-                    i_min = self.i_min_recorded or current
                     delta_log = ""
                     if self._exit_cc_condition(voltage):
                         delta_log = f" V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В. Дельта {DELTA_V_EXIT}В достигнута."
@@ -1542,64 +1641,79 @@ class ChargeController:
                         f"<b>✅ Таймер 2ч выполнен.</b> Ожидание падения до {threshold:.1f}В. "
                         f"V_max={self.v_max_recorded:.2f}В. Выход выключен."
                     )
-                    actions["log_event"] = f"MIX->SAFE_WAIT{delta_log}"
+                    actions["log_event"] = "START"
             elif self.battery_type == self.PROFILE_EFB and elapsed >= EFB_MIX_MAX_HOURS * 3600:
+                v_peak = self.v_max_recorded or voltage
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"EFB лимит 10ч, V_max={v_peak:.2f}В"
+                )
                 prev = self.current_stage
                 uv, ui = self._storage_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self.stage_start_time = now
+                self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._safe_wait_v_samples.append((now, voltage))
                 self._last_safe_wait_sample = now
-                v_peak = self.v_max_recorded or voltage
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ EFB Mix:</b> лимит 10ч. Ожидание падения до {threshold:.1f}В. "
                     f"V_max={v_peak:.2f}В. Выход выключен."
                 )
-                actions["log_event"] = f"MIX->SAFE_WAIT (EFB limit) V_max={v_peak:.2f}В, V_now={voltage:.2f}В"
+                actions["log_event"] = "START"
             elif self.battery_type == self.PROFILE_CA and elapsed >= CA_MIX_MAX_HOURS * 3600:
+                v_peak = self.v_max_recorded or voltage
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"Ca/Ca лимит 8ч, V_max={v_peak:.2f}В"
+                )
                 prev = self.current_stage
                 uv, ui = self._storage_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self.stage_start_time = now
+                self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._safe_wait_v_samples.append((now, voltage))
                 self._last_safe_wait_sample = now
-                v_peak = self.v_max_recorded or voltage
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_8h", f"Время: {elapsed/3600:.1f}ч >= 8ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ Ca/Ca Mix:</b> лимит 8ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
                 )
-                actions["log_event"] = f"MIX->SAFE_WAIT (Ca limit) V_max={v_peak:.2f}В, V_now={voltage:.2f}В"
+                actions["log_event"] = "START"
             elif self.battery_type == self.PROFILE_AGM and elapsed >= AGM_MIX_MAX_HOURS * 3600:
+                v_peak = self.v_max_recorded or voltage
+                actions["log_event_end"] = self._make_log_event_end(
+                    now, ah, voltage, current, temp, f"AGM лимит 5ч, V_max={v_peak:.2f}В"
+                )
                 prev = self.current_stage
                 uv, ui = self._storage_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self.stage_start_time = now
+                self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._safe_wait_v_samples.append((now, voltage))
                 self._last_safe_wait_sample = now
-                v_peak = self.v_max_recorded or voltage
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_5h", f"Время: {elapsed/3600:.1f}ч >= 5ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ AGM Mix:</b> лимит 5ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
                 )
-                actions["log_event"] = f"MIX->SAFE_WAIT (AGM limit) V_max={v_peak:.2f}В, V_now={voltage:.2f}В"
+                actions["log_event"] = "START"
 
         if "notify" in actions:
             self.notify(actions["notify"])
 
-        if "log_event" in actions:
+        if "log_event" in actions and not str(actions["log_event"]).strip().startswith("└"):
             actions["log_event"] = f"{actions['log_event']} | {self._session_start_reason}"
 
         active = self.current_stage in (
