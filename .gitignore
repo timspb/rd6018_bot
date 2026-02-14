@@ -187,3 +187,8 @@ config.py
 charge_session.json
 manual_off_state.json
 commit_msg.txt
+.commit_msg.txt
+
+# Локальные копии/бэкапы и БД
+bot.py+*
+*.db
