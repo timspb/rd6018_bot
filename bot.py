@@ -1692,6 +1692,18 @@ async def info_full_handler(call: CallbackQuery) -> None:
             await call.message.answer_photo(photo=photo, caption=caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
         else:
             await call.message.answer(caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
+        # Ниже — аналитика DeepSeek по телеметрии (тот же промпт, что был в /stats)
+        if charge_controller.is_active:
+            telemetry = charge_controller.get_telemetry_summary(battery_v, i, ah, temp)
+            ai_comment = await call_llm_analytics(telemetry)
+            if ai_comment:
+                ai_text = f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_comment}</i>"
+            else:
+                ai_text = "🤖 <b>Аналитика DeepSeek:</b> <i>Математический прогноз (API недоступен)</i>"
+            try:
+                await call.message.answer(ai_text, parse_mode=ParseMode.HTML)
+            except Exception as ex_ai:
+                logger.warning("info_full AI message: %s", ex_ai)
     except Exception as ex:
         logger.error("info_full: %s", ex)
         await call.message.answer("Не удалось загрузить данные.")
