@@ -1770,6 +1770,7 @@ async def text_message_handler(message: Message) -> None:
     if not await _check_chat_and_respond(message):
         return
     global awaiting_ah, custom_mode_state, last_chat_id, last_checkpoint_time
+    global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
     user_id = message.from_user.id if message.from_user else 0
     text = (message.text or "").strip()
 
@@ -1777,7 +1778,6 @@ async def text_message_handler(message: Message) -> None:
     if not (user_id in custom_mode_state or awaiting_ah.get(user_id)):
         off_parsed = _parse_off_command(text)
         if off_parsed is not None:
-            global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
             manual_off_voltage = off_parsed.get("voltage_ge")
             manual_off_voltage_le = off_parsed.get("voltage_le")
             manual_off_current = off_parsed.get("current_le")
@@ -1806,7 +1806,6 @@ async def text_message_handler(message: Message) -> None:
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= 18.0:
                 ok_v = await hass.set_voltage(v_set)
                 ok_i = await hass.set_current(i_set)
-                global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
                 manual_off_voltage = None
                 manual_off_voltage_le = None
                 manual_off_current = None
