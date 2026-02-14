@@ -1050,6 +1050,26 @@ async def send_dashboard_to_chat(chat_id: int, user_id: int = 0) -> int:
     return await _build_and_send_dashboard(chat_id, user_id, old_msg_id)
 
 
+# Через столько секунд после некритичного сообщения обновлять дашборд (чтобы сверху не висел текст)
+DASHBOARD_AFTER_MSG_SEC = 60.0
+
+
+async def _delayed_dashboard_task(chat_id: int, user_id: int, delay: float) -> None:
+    """Через delay сек отправить короткий дашборд в чат (последним сообщением)."""
+    try:
+        await asyncio.sleep(delay)
+        await send_dashboard_to_chat(chat_id, user_id)
+    except Exception as ex:
+        logger.debug("delayed dashboard after msg: %s", ex)
+
+
+def schedule_dashboard_after_60(chat_id: int, user_id: int = 0) -> None:
+    """Запланировать обновление дашборда через 60 с (после любого некритичного ответа)."""
+    if not chat_id:
+        return
+    asyncio.create_task(_delayed_dashboard_task(chat_id, user_id, DASHBOARD_AFTER_MSG_SEC))
+
+
 async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
     """
     Сформировать и отправить дашборд.
@@ -1554,6 +1574,7 @@ async def cmd_stats(message: Message) -> None:
         "📋 Статистика и прогноз заряда теперь в блоке <b>«Полная инфо»</b> — нажмите кнопку под графиком.",
         parse_mode=ParseMode.HTML,
     )
+    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
 
 
 @router.message(Command("entities"))
@@ -1791,11 +1812,13 @@ async def text_message_handler(message: Message) -> None:
                 parse_mode=ParseMode.HTML,
             )
             last_chat_id = message.chat.id
+            schedule_dashboard_after_60(message.chat.id, user_id)
             return
         if text.strip().lower() == "off":
             _clear_manual_off()
             await message.answer("Сброс условия выключения. Уставки «off» больше не активны.")
             last_chat_id = message.chat.id
+            schedule_dashboard_after_60(message.chat.id, user_id)
             return
 
     # Три значения: V I и таймер (2:35), или ток 2.35A/А, или напряжение 15V/В — уставки + условие выключения
@@ -1838,10 +1861,12 @@ async def text_message_handler(message: Message) -> None:
                     parse_mode=ParseMode.HTML,
                 )
                 last_chat_id = message.chat.id
+                schedule_dashboard_after_60(message.chat.id, user_id)
                 return
             else:
                 await message.answer("Диапазоны: напряжение 12–17 В, ток 0.1–18 А.")
                 last_chat_id = message.chat.id
+                schedule_dashboard_after_60(message.chat.id, user_id)
                 return
 
     # Быстрая установка уставок: два числа через пробел — напряжение (В) и ток (А)
@@ -1859,6 +1884,7 @@ async def text_message_handler(message: Message) -> None:
                         parse_mode=ParseMode.HTML,
                     )
                     last_chat_id = message.chat.id
+                    schedule_dashboard_after_60(message.chat.id, user_id)
                     return
                 await asyncio.sleep(0.8)
                 live = await hass.get_all_live()
@@ -1880,11 +1906,13 @@ async def text_message_handler(message: Message) -> None:
                         parse_mode=ParseMode.HTML,
                     )
                 last_chat_id = message.chat.id
+                schedule_dashboard_after_60(message.chat.id, user_id)
                 return
             await message.answer(
                 "⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–18 А. Пример: <code>16.50 1.4</code>",
                 parse_mode=ParseMode.HTML,
             )
+            schedule_dashboard_after_60(message.chat.id, user_id)
             return
 
     # Проверяем ручной режим
@@ -1910,9 +1938,11 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         ah = int(float(text))
         if ah < 1 or ah > 500:
             await message.answer("Введите число от 1 до 500.")
+            schedule_dashboard_after_60(message.chat.id, user_id)
             return
     except ValueError:
         await message.answer("Введите число (например 60).")
+        schedule_dashboard_after_60(message.chat.id, user_id)
         return
     del awaiting_ah[user_id]
     last_chat_id = message.chat.id
@@ -1929,6 +1959,7 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
             "Прогрейте АКБ или помещение.",
             parse_mode=ParseMode.HTML,
         )
+        schedule_dashboard_after_60(message.chat.id, user_id)
         return
     if input_v > 0 and input_v < MIN_INPUT_VOLTAGE:
         log_event("Idle", battery_v, i, t, ah_val, f"START_REFUSED_INPUT_VOLTAGE_{input_v:.0f}V")
@@ -1937,6 +1968,7 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
             "Проверьте питание БП.",
             parse_mode=ParseMode.HTML,
         )
+        schedule_dashboard_after_60(message.chat.id, user_id)
         return
     charge_controller.start(profile, ah)
     # Устанавливаем стартовые уставки и OVP/OCP под новый профиль
@@ -1961,6 +1993,7 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
     msg_id = await send_dashboard(message, old_msg_id=old_id)
     if user_id:
         user_dashboard[user_id] = msg_id
+    schedule_dashboard_after_60(message.chat.id, user_id)
 
     # Через 2 секунды после включения выхода — автообновление дашборда
     async def _delayed_dashboard_refresh() -> None:
@@ -1980,6 +2013,7 @@ async def handle_dialog_mode(message: Message) -> None:
     """v2.6 Режим диалога: отправка сообщения пользователя в LLM с текущим контекстом."""
     if not DEEPSEEK_API_KEY:
         await message.answer("🤖 AI-консультант недоступен (не настроен API ключ)")
+        schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
         return
     
     user_question = (message.text or "").strip()
@@ -2021,10 +2055,11 @@ async def handle_dialog_mode(message: Message) -> None:
                 f"🤖 <b>AI-Консультант:</b>\n\n{ai_response}",
                 parse_mode=ParseMode.HTML
             )
-                
+        schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
     except Exception as ex:
         logger.error("handle_dialog_mode: %s", ex)
         await thinking_msg.edit_text("🤖 Ошибка при обращении к AI-консультанту.")
+        schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
 
 
 async def handle_custom_mode_input(message: Message, user_id: int) -> None:
@@ -2038,6 +2073,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
     text = (message.text or "").strip()
     if not text:
         await message.answer("❌ Пустое значение. Попробуйте еще раз.")
+        schedule_dashboard_after_60(message.chat.id, user_id)
         return
     
     # Кнопка отмены для всех этапов
@@ -2062,11 +2098,13 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=cancel_kb
                 )
+                schedule_dashboard_after_60(message.chat.id, user_id)
                 return
             await message.answer(
                 "⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–18 А. Введите заново (например 16.50 1.4):",
                 reply_markup=cancel_kb
             )
+            schedule_dashboard_after_60(message.chat.id, user_id)
             return
     
     try:
@@ -2415,6 +2453,7 @@ async def menu_off_handler(call: CallbackQuery) -> None:
     await call.message.answer(status_msg, parse_mode=ParseMode.HTML)
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
+    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 @router.callback_query(F.data == "info_full")
@@ -2502,9 +2541,11 @@ async def info_full_handler(call: CallbackQuery) -> None:
                 await call.message.answer(ai_text, parse_mode=ParseMode.HTML)
             except Exception as ex_ai:
                 logger.warning("info_full AI message: %s", ex_ai)
+        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
     except Exception as ex:
         logger.error("info_full: %s", ex)
         await call.message.answer("Не удалось загрузить данные.")
+        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 @router.callback_query(F.data == "entities_status")
@@ -2537,9 +2578,11 @@ async def entities_status_handler(call: CallbackQuery) -> None:
         if len(text) > 4000:
             text = "\n".join(lines[:3] + [f"… всего {len(rows)} сущностей"] + [l for l in lines[3:25]])
         await call.message.answer(text, parse_mode=ParseMode.HTML)
+        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
     except Exception as ex:
         logger.exception("entities_status_handler: %s", ex)
         await call.message.answer(f"❌ Ошибка опроса: {html.escape(str(ex))}", parse_mode=ParseMode.HTML)
+        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 @router.callback_query(F.data == "refresh")
@@ -2579,6 +2622,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
             "<b>🛑 Заряд остановлен.</b> Выход выключен.",
             parse_mode=ParseMode.HTML,
         )
+        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
     else:
         # Выход выключен: пробуем восстановить сессию, чтобы бот снова управлял зарядом
         battery_v = _safe_float(live.get("battery_voltage"))
@@ -2615,6 +2659,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     await asyncio.sleep(1)
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
+    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 @router.callback_query(F.data == "profile_custom")
@@ -2680,6 +2725,7 @@ async def profile_selection(call: CallbackQuery) -> None:
         "Введите ёмкость аккумулятора в Ah (например, 60):",
         parse_mode=ParseMode.HTML,
     )
+    schedule_dashboard_after_60(call.message.chat.id, user_id)
 
 
 @router.callback_query(F.data == "logs")
@@ -2717,21 +2763,7 @@ async def logs_handler(call: CallbackQuery) -> None:
         text = "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
     
     await call.message.answer(text, parse_mode=ParseMode.HTML)
-
-    # Обновление дашборда через 90 с (пауза до обновления информации)
-    if call.from_user:
-        user_id = call.from_user.id
-        old_id = user_dashboard.get(user_id)
-
-        async def _delayed_dashboard() -> None:
-            await asyncio.sleep(90)
-            try:
-                msg_id = await send_dashboard(call, old_msg_id=old_id)
-                user_dashboard[user_id] = msg_id
-            except Exception as ex:
-                logger.debug("delayed send_dashboard after logs: %s", ex)
-
-        asyncio.create_task(_delayed_dashboard())
+    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 @router.callback_query(F.data == "ai_analysis")
@@ -2754,21 +2786,7 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
     result = await ask_deepseek(history)
     result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
-
-    # Обновление дашборда через 90 с (пауза до обновления информации)
-    if call.from_user:
-        user_id = call.from_user.id
-        old_id = user_dashboard.get(user_id)
-
-        async def _delayed_dashboard_ai() -> None:
-            await asyncio.sleep(90)
-            try:
-                msg_id = await send_dashboard(call, old_msg_id=old_id)
-                user_dashboard[user_id] = msg_id
-            except Exception as ex:
-                logger.debug("delayed send_dashboard after ai_analysis: %s", ex)
-
-        asyncio.create_task(_delayed_dashboard_ai())
+    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 async def main() -> None:
