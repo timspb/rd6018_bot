@@ -433,14 +433,30 @@ def _format_manual_off_for_dashboard() -> str:
     if not _has_manual_off_condition():
         return ""
     parts = []
-    if manual_off_voltage is not None:
-        parts.append(f"при V≥{manual_off_voltage:.1f} В")
-    if manual_off_voltage_le is not None:
-        parts.append(f"при V≤{manual_off_voltage_le:.1f} В")
-    if manual_off_current is not None:
-        parts.append(f"при I≤{manual_off_current:.2f} А")
-    if manual_off_current_ge is not None:
-        parts.append(f"при I≥{manual_off_current_ge:.2f} А")
+    # «Достигли» V: оба порога равны
+    if (
+        manual_off_voltage is not None
+        and manual_off_voltage_le is not None
+        and abs(manual_off_voltage - manual_off_voltage_le) < 0.01
+    ):
+        parts.append(f"при достижении V {manual_off_voltage:.2f} В")
+    else:
+        if manual_off_voltage is not None:
+            parts.append(f"при V≥{manual_off_voltage:.1f} В")
+        if manual_off_voltage_le is not None:
+            parts.append(f"при V≤{manual_off_voltage_le:.1f} В")
+    # «Достигли» I: оба порога равны
+    if (
+        manual_off_current is not None
+        and manual_off_current_ge is not None
+        and abs(manual_off_current - manual_off_current_ge) < 0.01
+    ):
+        parts.append(f"при достижении I {manual_off_current:.2f} А")
+    else:
+        if manual_off_current is not None:
+            parts.append(f"при I≤{manual_off_current:.2f} А")
+        if manual_off_current_ge is not None:
+            parts.append(f"при I≥{manual_off_current_ge:.2f} А")
     remaining_sec = 0.0
     if manual_off_time_sec is not None:
         remaining_sec = manual_off_start_time + manual_off_time_sec - time.time()
@@ -1273,14 +1289,31 @@ async def data_logger() -> None:
             if output_on and _has_manual_off_condition():
                 now_ts = time.time()
                 off_reason = None
-                if manual_off_voltage is not None and battery_v >= manual_off_voltage:
+                # «Достигли» V: оба порога заданы и равны — выкл при |V - value| <= eps
+                if (
+                    manual_off_voltage is not None
+                    and manual_off_voltage_le is not None
+                    and abs(manual_off_voltage - manual_off_voltage_le) < 0.01
+                ):
+                    if abs(battery_v - manual_off_voltage) <= OFF_REACH_EPS:
+                        off_reason = f"напряжение достигло {manual_off_voltage:.2f} В (сейчас {battery_v:.2f} В)"
+                elif manual_off_voltage is not None and battery_v >= manual_off_voltage:
                     off_reason = f"напряжение {battery_v:.2f} В ≥ {manual_off_voltage:.1f} В"
-                if manual_off_voltage_le is not None and battery_v <= manual_off_voltage_le:
-                    off_reason = off_reason or f"напряжение {battery_v:.2f} В ≤ {manual_off_voltage_le:.1f} В"
-                if manual_off_current is not None and i <= manual_off_current:
-                    off_reason = off_reason or f"ток {i:.2f} А ≤ {manual_off_current:.2f} А"
-                if manual_off_current_ge is not None and i >= manual_off_current_ge:
-                    off_reason = off_reason or f"ток {i:.2f} А ≥ {manual_off_current_ge:.2f} А"
+                elif manual_off_voltage_le is not None and battery_v <= manual_off_voltage_le:
+                    off_reason = f"напряжение {battery_v:.2f} В ≤ {manual_off_voltage_le:.1f} В"
+                # «Достигли» I: оба порога заданы и равны — выкл при |I - value| <= eps
+                if off_reason is None:
+                    if (
+                        manual_off_current is not None
+                        and manual_off_current_ge is not None
+                        and abs(manual_off_current - manual_off_current_ge) < 0.01
+                    ):
+                        if abs(i - manual_off_current) <= OFF_REACH_EPS:
+                            off_reason = f"ток достиг {manual_off_current:.2f} А (сейчас {i:.2f} А)"
+                    elif manual_off_current is not None and i <= manual_off_current:
+                        off_reason = off_reason or f"ток {i:.2f} А ≤ {manual_off_current:.2f} А"
+                    elif manual_off_current_ge is not None and i >= manual_off_current_ge:
+                        off_reason = off_reason or f"ток {i:.2f} А ≥ {manual_off_current_ge:.2f} А"
                 if manual_off_time_sec is not None and (now_ts - manual_off_start_time) >= manual_off_time_sec:
                     off_reason = off_reason or f"таймер {manual_off_time_sec / 3600:.1f} ч"
                 if off_reason:
@@ -1385,7 +1418,10 @@ async def data_logger() -> None:
                 else:
                     logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
 
-            actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah, output_switch)
+            actions = await charge_controller.tick(
+                battery_v, i, temp_ext, is_cv, ah, output_switch,
+                manual_off_active=_has_manual_off_condition(),
+            )
 
             end = actions.get("log_event_end")
             if end:
@@ -1664,6 +1700,57 @@ async def get_current_context_for_llm() -> str:
     return await get_ai_context()
 
 
+# Порог «достигли» для выключения по V или I (с любой стороны)
+OFF_REACH_EPS = 0.02
+
+
+def _parse_three_values(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Парсит строку из трёх частей: V I и третья — таймер H:MM, ток X.XXA/А, или напряжение X.XV/В.
+    Возвращает dict с v, i и одним из: time_sec, off_current, off_voltage; иначе None.
+    """
+    parts = (text or "").strip().replace(",", ".").split()
+    if len(parts) != 3:
+        return None
+    try:
+        v = float(parts[0])
+        i = float(parts[1])
+        third = parts[2].strip().upper().rstrip("AАВV")
+        if not third:
+            return None
+        # Таймер: 2:35 или 2:35:00
+        if ":" in parts[2]:
+            comp = parts[2].split(":")
+            if len(comp) == 2:
+                h, m = int(comp[0].strip()), int(comp[1].strip())
+                time_sec = h * 3600 + m * 60
+            elif len(comp) == 3:
+                h, m, s = int(comp[0].strip()), int(comp[1].strip()), int(comp[2].strip())
+                time_sec = h * 3600 + m * 60 + s
+            else:
+                return None
+            if time_sec <= 0:
+                return None
+            return {"v": v, "i": i, "time_sec": time_sec}
+        # Ток: 2.35A / 2.35А (латиница или кириллица) — выкл по достижении тока
+        raw3 = parts[2].strip().replace(",", ".")
+        last_char = (raw3[-1].upper() if len(raw3) > 1 else "")
+        if last_char in ("A", "А"):  # A (Latin) или А (Cyrillic)
+            val = float(third)
+            if 0.1 <= val <= 18.0:
+                return {"v": v, "i": i, "off_current": val}
+            return None
+        # Напряжение: 15V / 15В (латиница или кириллица) — выкл по достижении напряжения
+        if last_char in ("V", "В"):  # V (Latin) или В (Cyrillic)
+            val = float(third)
+            if 0 <= val <= 20.0:
+                return {"v": v, "i": i, "off_voltage": val}
+            return None
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
 def _parse_two_numbers(text: str) -> Optional[tuple]:
     """Парсит строку вида '16.50 1.4' (напряжение и ток). Возвращает (v, i) или None."""
     parts = (text or "").strip().replace(",", ".").split()
@@ -1710,6 +1797,53 @@ async def text_message_handler(message: Message) -> None:
             await message.answer("Сброс условия выключения. Уставки «off» больше не активны.")
             last_chat_id = message.chat.id
             return
+
+    # Три значения: V I и таймер (2:35), или ток 2.35A/А, или напряжение 15V/В — уставки + условие выключения
+    if not (user_id in custom_mode_state or awaiting_ah.get(user_id)):
+        three = _parse_three_values(text)
+        if three is not None:
+            v_set, i_set = three["v"], three["i"]
+            if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= 18.0:
+                ok_v = await hass.set_voltage(v_set)
+                ok_i = await hass.set_current(i_set)
+                global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
+                manual_off_voltage = None
+                manual_off_voltage_le = None
+                manual_off_current = None
+                manual_off_current_ge = None
+                manual_off_time_sec = None
+                if "time_sec" in three:
+                    manual_off_time_sec = three["time_sec"]
+                    manual_off_start_time = time.time()
+                    cond = f"таймер {manual_off_time_sec / 3600:.1f} ч"
+                elif "off_current" in three:
+                    manual_off_current = three["off_current"]
+                    manual_off_current_ge = three["off_current"]
+                    cond = f"при достижении тока {three['off_current']:.2f} А"
+                else:
+                    manual_off_voltage = three["off_voltage"]
+                    manual_off_voltage_le = three["off_voltage"]
+                    cond = f"при достижении напряжения {three['off_voltage']:.2f} В"
+                _save_manual_off_state()
+                on_dev = ""
+                if ok_v and ok_i:
+                    await asyncio.sleep(0.8)
+                    live = await hass.get_all_live()
+                    on_v = _safe_float(live.get("set_voltage"), 0.0)
+                    on_i = _safe_float(live.get("set_current"), 0.0)
+                    on_dev = f" На приборе: {on_v:.2f} В | {on_i:.2f} А"
+                else:
+                    on_dev = " ⚠️ Проверьте уставки на приборе."
+                await message.answer(
+                    f"✅ Уставки: {v_set:.1f} В, {i_set:.2f} А. Выключение: {cond}.{on_dev}",
+                    parse_mode=ParseMode.HTML,
+                )
+                last_chat_id = message.chat.id
+                return
+            else:
+                await message.answer("Диапазоны: напряжение 12–17 В, ток 0.1–18 А.")
+                last_chat_id = message.chat.id
+                return
 
     # Быстрая установка уставок: два числа через пробел — напряжение (В) и ток (А)
     # Не перехватываем, если пользователь в диалоге выбора режима или ввода ёмкости

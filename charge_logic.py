@@ -1012,6 +1012,7 @@ class ChargeController:
         is_cv: bool,
         ah: float,
         output_is_on: Optional[Any] = None,
+        manual_off_active: bool = False,
     ) -> Dict[str, Any]:
         """
         Основной цикл. Вызывается из фоновой задачи каждые 30 сек.
@@ -1019,6 +1020,7 @@ class ChargeController:
 
         output_is_on — последнее известное состояние выхода (on/off); при unavailable
         по нему решаем, слать ли критическое уведомление или тихо перейти в IDLE.
+        manual_off_active — задано условие «off»: часовые отчёты этапа не шлём.
 
         ВАЖНО: voltage — ВСЕГДА sensor.rd_6018_battery_voltage (напряжение на клеммах АКБ).
         Используется для расчёта дельты (спад 0.03В) и порогов перехода фаз.
@@ -1149,7 +1151,7 @@ class ChargeController:
         report_interval = STORAGE_REPORT_INTERVAL_SEC if (
             voltage < 14.0 and self.current_stage in (self.STAGE_SAFE_WAIT, self.STAGE_DONE)
         ) else 3600
-        if now - self._last_hourly_report >= report_interval:
+        if not manual_off_active and now - self._last_hourly_report >= report_interval:
             self._last_hourly_report = now
             current_hrs = elapsed / 3600.0
             max_hrs = self._get_stage_max_hours()
@@ -1216,10 +1218,10 @@ class ChargeController:
             in_blanking = now < self._blanking_until
 
             # Защитный лимит времени MAIN (72ч авто, пользовательский для CUSTOM)
-            # Если уже достигнут ток перехода (CV и I ≤ 0.3/0.2) — переходим в Mix; иначе — Done (стоп)
+            # При заданном условии «off» таймер режима не срабатывает — выключение только по off.
             stage_elapsed_hours = (now - self.stage_start_time) / 3600.0
             max_hours = self._custom_time_limit_hours if self.battery_type == self.PROFILE_CUSTOM else MAIN_STAGE_MAX_HOURS
-            if stage_elapsed_hours >= max_hours:
+            if not manual_off_active and stage_elapsed_hours >= max_hours:
                 prev = self.current_stage
                 transition_threshold = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
                 if self.battery_type != self.PROFILE_CUSTOM and is_cv and current <= transition_threshold:
@@ -1710,7 +1712,7 @@ class ChargeController:
                         f"V_max={self.v_max_recorded:.2f}В. Выход выключен."
                     )
                     actions["log_event"] = "START"
-            elif self.battery_type == self.PROFILE_EFB and elapsed >= EFB_MIX_MAX_HOURS * 3600:
+            elif not manual_off_active and self.battery_type == self.PROFILE_EFB and elapsed >= EFB_MIX_MAX_HOURS * 3600:
                 v_peak = self.v_max_recorded or voltage
                 actions["log_event_end"] = self._make_log_event_end(
                     now, ah, voltage, current, temp, f"EFB лимит 10ч, V_max={v_peak:.2f}В"
@@ -1734,7 +1736,7 @@ class ChargeController:
                     f"V_max={v_peak:.2f}В. Выход выключен."
                 )
                 actions["log_event"] = "START"
-            elif self.battery_type == self.PROFILE_CA and elapsed >= CA_MIX_MAX_HOURS * 3600:
+            elif not manual_off_active and self.battery_type == self.PROFILE_CA and elapsed >= CA_MIX_MAX_HOURS * 3600:
                 v_peak = self.v_max_recorded or voltage
                 actions["log_event_end"] = self._make_log_event_end(
                     now, ah, voltage, current, temp, f"Ca/Ca лимит 8ч, V_max={v_peak:.2f}В"
@@ -1757,7 +1759,7 @@ class ChargeController:
                     f"<b>⏱ Ca/Ca Mix:</b> лимит 8ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
                 )
                 actions["log_event"] = "START"
-            elif self.battery_type == self.PROFILE_AGM and elapsed >= AGM_MIX_MAX_HOURS * 3600:
+            elif not manual_off_active and self.battery_type == self.PROFILE_AGM and elapsed >= AGM_MIX_MAX_HOURS * 3600:
                 v_peak = self.v_max_recorded or voltage
                 actions["log_event_end"] = self._make_log_event_end(
                     now, ah, voltage, current, temp, f"AGM лимит 5ч, V_max={v_peak:.2f}В"
