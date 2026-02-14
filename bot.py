@@ -1702,9 +1702,7 @@ async def text_message_handler(message: Message) -> None:
             _save_manual_off_state()
             cond = ", ".join(off_parsed["parts"])
             await message.answer(
-                f"⏹ <b>Выключение по условию:</b> {cond}\n\n"
-                "Выход выключится, когда <b>достигнут</b> любой из параметров (ток/напряжение/таймер). "
-                "Защиты не сбрасываются и не выставляются; температура и входное напряжение по-прежнему работают и могут выключить выход раньше.",
+                f"✅ <b>Выключение по условию:</b> {cond}",
                 parse_mode=ParseMode.HTML,
             )
             last_chat_id = message.chat.id
@@ -2200,8 +2198,10 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
                 InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
                 InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
             ],
-            [InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom")],
-            [InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off")],
+            [
+                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom"),
+                InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
+            ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
         ]
     )
@@ -2272,12 +2272,12 @@ async def menu_off_handler(call: CallbackQuery) -> None:
         status_msg = "Сейчас условие выключения не задано.\n\n"
     status_msg += (
         "<b>Введите в чат:</b>\n"
-        "• <code>off I<=1.23</code> или <code>off 1.23</code> — выкл при токе ≤1.23 А\n"
-        "• <code>off I>=2</code> — выкл при токе ≥2 А\n"
-        "• <code>off V>=16.4</code> или <code>off 16.4</code> — выкл при напряжении ≥16.4 В\n"
-        "• <code>off V<=13.2</code> — выкл при напряжении ≤13.2 В (микс)\n"
+        "• <code>off I&lt;=1.23</code> или <code>off 1.23</code> — выкл при токе ≤1.23 А\n"
+        "• <code>off I&gt;=2</code> — выкл при токе ≥2 А\n"
+        "• <code>off V&gt;=16.4</code> или <code>off 16.4</code> — выкл при напряжении ≥16.4 В\n"
+        "• <code>off V&lt;=13.2</code> — выкл при напряжении ≤13.2 В (микс)\n"
         "• <code>off 2:23</code> — выкл через 2 ч 23 мин\n"
-        "• <code>off I>=2 V<=13.5 2:00</code> — любое из условий\n"
+        "• <code>off I&gt;=2 V&lt;=13.5 2:00</code> — любое из условий\n"
         "• <code>off</code> — сброс\n\n"
         "Защиты не сбрасываются; температура и входное напряжение могут выключить выход раньше."
     )
