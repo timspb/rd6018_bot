@@ -161,6 +161,8 @@ class ChargeController:
         self._link_lost_at: float = 0.0  # время потери связи (для вычитания паузы из таймеров при восстановлении)
         self._restored_target_v: float = 0.0  # уставки из сессии при restore (чтобы не перезаписать дефолтами профиля)
         self._restored_target_i: float = 0.0
+        self._device_set_voltage: Optional[float] = None  # фактические уставки прибора (для сохранения в сессию)
+        self._device_set_current: Optional[float] = None
         # История замеров V/I за последние 24 часа, обновление раз в минуту
         self.v_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
         self.i_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
@@ -286,6 +288,8 @@ class ChargeController:
     def stop(self, clear_session: bool = True) -> None:
         """Остановка заряда. Если clear_session=False, файл сессии не удаляется (для восстановления после связи)."""
         prev = self.current_stage
+        if prev == self.STAGE_IDLE:
+            return  # уже остановлен — не дублировать лог при повторных вызовах (напр. при unavailable)
         self.current_stage = self.STAGE_IDLE
         self._clear_restored_targets()
         self.v_max_recorded = None
@@ -345,7 +349,7 @@ class ChargeController:
         return (0.0, 0.0)
 
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
-        """Сохранить текущее состояние в charge_session.json."""
+        """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
         if self.current_stage in (self.STAGE_IDLE, self.STAGE_DONE):
             return
         target_finish = self._get_target_finish_time()
@@ -355,6 +359,20 @@ class ChargeController:
             uv, ui = self._cooling_target_v, self._cooling_target_i
         else:
             uv, ui = self._get_target_v_i()
+        # Сохраняем фактические уставки прибора (до потери связи/перезапуска)
+        if self._device_set_voltage is not None and self._device_set_voltage > 0 and self._device_set_current is not None and self._device_set_current > 0:
+            uv, ui = self._device_set_voltage, self._device_set_current
+        else:
+            # С прибора уставки не приходили — не перезаписывать дефолтами профиля; сохранить из файла, если есть
+            if os.path.exists(SESSION_FILE):
+                try:
+                    with open(SESSION_FILE, "r", encoding="utf-8") as f:
+                        old = json.load(f)
+                    tv, ti = float(old.get("target_voltage", 0) or 0), float(old.get("target_current", 0) or 0)
+                    if tv > 0 and ti > 0:
+                        uv, ui = tv, ti
+                except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                    pass
         data = {
             "profile": self.battery_type,
             "stage": self.current_stage,
@@ -1194,7 +1212,7 @@ class ChargeController:
 
         # --- MAIN CHARGE ---
         elif self.current_stage == self.STAGE_MAIN:
-            uv, ui = self._main_target()
+            uv, ui = self._get_target_v_i()  # после restore — уставки из сессии, иначе по профилю
             in_blanking = now < self._blanking_until
 
             # Защитный лимит времени MAIN (72ч авто, пользовательский для CUSTOM)

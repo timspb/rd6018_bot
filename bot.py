@@ -5,6 +5,7 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 
@@ -257,11 +258,67 @@ manual_off_current_ge: Optional[float] = None  # выкл когда I >= (на�
 manual_off_time_sec: Optional[float] = None
 manual_off_start_time: float = 0.0
 
+MANUAL_OFF_FILE = "manual_off_state.json"
+
+
+def _save_manual_off_state() -> None:
+    """Сохранить условие «off» в файл (переживёт перезапуск бота)."""
+    if not _has_manual_off_condition():
+        try:
+            if os.path.exists(MANUAL_OFF_FILE):
+                os.remove(MANUAL_OFF_FILE)
+        except OSError:
+            pass
+        return
+    data = {
+        "voltage_ge": manual_off_voltage,
+        "voltage_le": manual_off_voltage_le,
+        "current_le": manual_off_current,
+        "current_ge": manual_off_current_ge,
+        "time_sec": manual_off_time_sec,
+        "start_time": manual_off_start_time,
+    }
+    try:
+        with open(MANUAL_OFF_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except OSError as ex:
+        logger.warning("Could not save manual_off state: %s", ex)
+
+
+def _load_manual_off_state() -> None:
+    """Восстановить условие «off» из файла после перезапуска бота."""
+    global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
+    if not os.path.exists(MANUAL_OFF_FILE):
+        return
+    try:
+        with open(MANUAL_OFF_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    v_ge = data.get("voltage_ge")
+    v_le = data.get("voltage_le")
+    i_le = data.get("current_le")
+    i_ge = data.get("current_ge")
+    t_sec = data.get("time_sec")
+    start = data.get("start_time")
+    if v_ge is None and v_le is None and i_le is None and i_ge is None and t_sec is None:
+        return
+    manual_off_voltage = float(v_ge) if v_ge is not None else None
+    manual_off_voltage_le = float(v_le) if v_le is not None else None
+    manual_off_current = float(i_le) if i_le is not None else None
+    manual_off_current_ge = float(i_ge) if i_ge is not None else None
+    manual_off_time_sec = float(t_sec) if t_sec is not None else None
+    try:
+        manual_off_start_time = float(start) if start is not None else 0.0
+    except (TypeError, ValueError):
+        manual_off_start_time = 0.0
+    logger.info("Manual off condition restored from %s", MANUAL_OFF_FILE)
+
 
 def _parse_off_command(text: str) -> Optional[Dict[str, Any]]:
     """
     Парсит команду off с явными условиями:
-    V>=16.4 / V≤13.2 — по напряжению (достигнет ≥ или снизится до ≤);
+    V>=16.4 / V<=13.2 — по напряжению (достигнет ≥ или снизится до ≤);
     I<=1.23 / I>=2 — по току (достигнет ≤ или достигнет ≥);
     2:23 — таймер.
     Без префикса: число 12–18 В → V>=, 0.1–18 А → I<= (как раньше).
@@ -361,6 +418,7 @@ def _clear_manual_off() -> None:
     manual_off_current_ge = None
     manual_off_time_sec = None
     manual_off_start_time = 0.0
+    _save_manual_off_state()
 
 
 def _has_manual_off_condition() -> bool:
@@ -459,7 +517,10 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 
 def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
-    """Преобразует uptime из HA (секунды или ISO-время старта) в прошедшие секунды."""
+    """
+    Преобразует uptime из HA в прошедшие секунды.
+    Поддерживает: число (секунды), строку "8:36" (H:MM) или "8:36:00" (H:MM:SS), ISO-дату.
+    """
     if uptime_raw is None or uptime_raw == "":
         return None
     if isinstance(uptime_raw, (int, float)):
@@ -471,17 +532,71 @@ def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
         return float(s)
     except ValueError:
         pass
+    # Формат таймера прибора: "8:36" (ч:мин), "8:36:00" (ч:мин:сек), "9:00" (минуты:секунды при < 1 ч)
+    if ":" in s and "T" not in s and "-" not in s:
+        parts = s.split(":")
+        try:
+            if len(parts) == 2:
+                a, b = int(parts[0].strip()), int(parts[1].strip())
+                if a == 0:
+                    return b * 60  # "0:09" = 0 ч 9 мин
+                if 1 <= a <= 59 and b == 0:
+                    return a * 60  # "9:00" = 9 мин (таймер прибора часто MM:SS при < 1 ч)
+                return a * 3600 + b * 60  # часы:минуты "8:36"
+            if len(parts) == 3:
+                h, m, sec = int(parts[0].strip()), int(parts[1].strip()), int(parts[2].strip())
+                return h * 3600 + m * 60 + sec
+        except (ValueError, IndexError):
+            pass
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return time.time() - dt.timestamp()
+        elapsed = time.time() - dt.timestamp()
+        if elapsed < 0:
+            return None  # дата в будущем — не использовать
+        return elapsed
     except Exception:
         return None
 
 
+# Макс. время (сек), при котором считаем uptime таймером заряда (иначе — время с включения прибора)
+UPTIME_AS_CHARGE_TIMER_MAX_SEC = 24 * 3600
+
+
+def _format_uptime_display(uptime_raw) -> str:
+    """
+    Форматирование сущности sensor.rd_6018_uptime для отображения.
+    Если приходит ISO-дата (момент старта заряда) — показываем «Старт: DD.MM HH:MM (прошло ЧЧ:ММ)».
+    Иначе — сырое значение (число секунд или строка типа "8:36").
+    """
+    if uptime_raw is None or uptime_raw == "":
+        return "—"
+    s = str(uptime_raw).strip()
+    if not s:
+        return "—"
+    # ISO datetime: 2026-02-12T14:38:56+00:00 — момент старта заряда
+    if "T" in s and "-" in s:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            start_str = dt.strftime("%d.%m.%Y %H:%M")
+            elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
+            if elapsed is not None and 0 <= elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
+                h, m = int(elapsed // 3600), int((elapsed % 3600) // 60)
+                return f"Старт: {start_str} (прошло {h:02d}:{m:02d})"
+            return f"Старт: {start_str}"
+        except Exception:
+            return s
+    # Число или строка "8:36"
+    elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
+    if elapsed is not None and 0 <= elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
+        h, m = int(elapsed // 3600), int((elapsed % 3600) // 60)
+        return f"{h:02d}:{m:02d}"
+    return s
+
+
 def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> None:
     """
-    После восстановления сессии: вычесть паузу потери связи из таймеров
-    и по возможности синхронизировать общее время с таймером прибора (uptime).
+    После восстановления: пауза потери связи вычитается из таймеров.
+    Если sensor.rd_6018_uptime возвращает таймер заряда (как на дисплее, ≤24ч) — синхронизируем общее время.
     """
     now = time.time()
     link_lost = getattr(charge_controller, "_link_lost_at", 0) or 0
@@ -492,7 +607,7 @@ def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> 
         charge_controller._link_lost_at = 0
     uptime_raw = (live or {}).get("uptime")
     elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
-    if elapsed is not None and elapsed >= 0:
+    if elapsed is not None and 0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
         charge_controller.total_start_time = now - elapsed
 
 
@@ -746,6 +861,12 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
     output_v = _safe_float(live.get("voltage"))
 
+    # Синхронизация таймера с прибором: при каждом построении дашборда подставляем время из сущности uptime
+    if charge_controller.is_active and live.get("uptime") is not None:
+        elapsed = _parse_uptime_to_elapsed_sec(live.get("uptime"))
+        if elapsed is not None and 0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
+            charge_controller.total_start_time = time.time() - elapsed
+
     if charge_controller.is_active:
         timers = charge_controller.get_timers()
         status_emoji = "⚡️" if (is_on and i > 0.05) else "⏸️"
@@ -889,7 +1010,6 @@ async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Opti
         [
             InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
             InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
-            InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
         ],
     ]
     ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -1110,6 +1230,18 @@ async def data_logger() -> None:
                 charge_controller._last_known_output_on = (
                     output_switch is True or str(output_switch).lower() == "on"
                 )
+            # Фактические уставки прибора — для сохранения в сессию (восстановление после перезапуска/потери связи)
+            set_v = _safe_float(live.get("set_voltage"))
+            set_i = _safe_float(live.get("set_current"))
+            if set_v > 0 and set_i > 0:
+                charge_controller._device_set_voltage = set_v
+                charge_controller._device_set_current = set_i
+            
+            # Синхронизация общего времени заряда с прибором: sensor.rd_6018_uptime может быть датой старта (ISO)
+            if charge_controller.is_active and live.get("uptime") is not None:
+                elapsed = _parse_uptime_to_elapsed_sec(live.get("uptime"))
+                if elapsed is not None and 0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
+                    charge_controller.total_start_time = time.time() - elapsed
             
             # Реакция на срабатывание OVP/OCP: лог, уведомление, выключение
             if charge_controller.is_active and (ovp_triggered or ocp_triggered):
@@ -1567,6 +1699,7 @@ async def text_message_handler(message: Message) -> None:
             manual_off_current_ge = off_parsed.get("current_ge")
             manual_off_time_sec = off_parsed.get("time_sec")
             manual_off_start_time = off_parsed["start_time"]
+            _save_manual_off_state()
             cond = ", ".join(off_parsed["parts"])
             await message.answer(
                 f"⏹ <b>Выключение по условию:</b> {cond}\n\n"
@@ -1589,12 +1722,34 @@ async def text_message_handler(message: Message) -> None:
         if parsed is not None:
             v_set, i_set = parsed
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= 18.0:
-                await hass.set_voltage(v_set)
-                await hass.set_current(i_set)
-                await message.answer(
-                    f"✅ <b>Уставки установлены:</b> {v_set:.2f} В | {i_set:.2f} А",
-                    parse_mode=ParseMode.HTML,
-                )
+                ok_v = await hass.set_voltage(v_set)
+                ok_i = await hass.set_current(i_set)
+                if not ok_v or not ok_i:
+                    await message.answer(
+                        f"⚠️ Ошибка отправки в HA: напряжение — {'ок' if ok_v else 'ошибка'}, ток — {'ок' if ok_i else 'ошибка'}. Проверьте связь с Home Assistant.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                    last_chat_id = message.chat.id
+                    return
+                await asyncio.sleep(0.8)
+                live = await hass.get_all_live()
+                on_v = _safe_float(live.get("set_voltage"), 0.0)
+                on_i = _safe_float(live.get("set_current"), 0.0)
+                tol = 0.02
+                match = abs(on_v - v_set) <= tol and abs(on_i - i_set) <= tol
+                if match:
+                    await message.answer(
+                        f"✅ <b>Уставки установлены:</b> {v_set:.2f} В | {i_set:.2f} А\n"
+                        f"📟 На приборе: {on_v:.2f} В | {on_i:.2f} А",
+                        parse_mode=ParseMode.HTML,
+                    )
+                else:
+                    await message.answer(
+                        f"✅ Уставки отправлены в HA: {v_set:.2f} В | {i_set:.2f} А\n"
+                        f"📟 На приборе сейчас: {on_v:.2f} В | {on_i:.2f} А\n"
+                        "⚠️ Значения на приборе отличаются — проверьте интеграцию RD6018 и связь.",
+                        parse_mode=ParseMode.HTML,
+                    )
                 last_chat_id = message.chat.id
                 return
             await message.answer(
@@ -2046,6 +2201,7 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
                 InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
             ],
             [InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom")],
+            [InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
         ]
     )
@@ -2116,12 +2272,12 @@ async def menu_off_handler(call: CallbackQuery) -> None:
         status_msg = "Сейчас условие выключения не задано.\n\n"
     status_msg += (
         "<b>Введите в чат:</b>\n"
-        "• <code>off I≤1.23</code> или <code>off 1.23</code> — выкл, когда ток достигнет ≤1.23 А\n"
-        "• <code>off I≥2</code> — выкл, когда ток достигнет ≥2 А (напр. рост от 1 А)\n"
-        "• <code>off V≥16.4</code> или <code>off 16.4</code> — выкл, когда напряжение ≥16.4 В\n"
-        "• <code>off V≤13.2</code> — выкл, когда напряжение снизится до ≤13.2 В (микс)\n"
+        "• <code>off I<=1.23</code> или <code>off 1.23</code> — выкл при токе ≤1.23 А\n"
+        "• <code>off I>=2</code> — выкл при токе ≥2 А\n"
+        "• <code>off V>=16.4</code> или <code>off 16.4</code> — выкл при напряжении ≥16.4 В\n"
+        "• <code>off V<=13.2</code> — выкл при напряжении ≤13.2 В (микс)\n"
         "• <code>off 2:23</code> — выкл через 2 ч 23 мин\n"
-        "• <code>off I≥2 V≤13.5 2:00</code> — любое из условий\n"
+        "• <code>off I>=2 V<=13.5 2:00</code> — любое из условий\n"
         "• <code>off</code> — сброс\n\n"
         "Защиты не сбрасываются; температура и входное напряжение могут выключить выход раньше."
     )
@@ -2145,6 +2301,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
+        full_text += f"\n⏱ Таймер прибора (sensor.rd_6018_uptime): {_format_uptime_display(live.get('uptime'))}"
         ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
         full_text += f"\n🛡 Защиты: OVP сработала — {'да' if ovp_tr else 'нет'}, OCP сработала — {'да' if ocp_tr else 'нет'}"
@@ -2194,7 +2351,6 @@ async def info_full_handler(call: CallbackQuery) -> None:
             [
                 InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
                 InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
-                InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
             ],
         ]
         ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -2494,6 +2650,8 @@ async def main() -> None:
             logger.info("Trimmed %d old lines from charging_history.log", n)
     except Exception as ex:
         logger.warning("trim_log_older_than_days at startup: %s", ex)
+
+    _load_manual_off_state()
 
     # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, вход ≥ 60 В
     global last_checkpoint_time
