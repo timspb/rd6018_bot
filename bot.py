@@ -121,33 +121,31 @@ def _call_deepseek_sync(system_prompt: str, user_prompt: str) -> str:
         return f"ERROR: Ошибка при обращении к AI - {ex}"
 
 
-def _charge_notify(msg: str) -> None:
-    """Отправка уведомления от ChargeController в Telegram."""
+def _charge_notify(msg: str, critical: bool = True) -> None:
+    """Отправка уведомления в Telegram. critical=True — после него дашборд только по кнопке ОБНОВИТЬ; critical=False — сразу шлём дашборд последним сообщением."""
     global last_chat_id
     if last_chat_id and msg:
-        asyncio.create_task(_send_notify_safe(msg))
+        asyncio.create_task(_send_notify_safe(msg, critical))
 
 
-async def _send_notify_safe(msg: str) -> None:
+async def _send_notify_safe(msg: str, critical: bool = True) -> None:
+    global last_chat_id, last_user_id
     try:
-        # Экранируем HTML в уведомлениях, но сохраняем основные теги
         safe_msg = msg
         if not any(tag in msg for tag in ['<b>', '<i>', '<code>']):
-            # Если нет HTML тегов, экранируем полностью
             safe_msg = html.escape(msg)
-        
-        # Заменяем неподдерживаемые HTML теги
-        safe_msg = safe_msg.replace('<hr>', '___________________')
-        safe_msg = safe_msg.replace('<hr/>', '___________________')
-        safe_msg = safe_msg.replace('<hr />', '___________________')
-        
+        safe_msg = safe_msg.replace('<hr>', '___________________').replace('<hr/>', '___________________').replace('<hr />', '___________________')
+        safe_msg = safe_msg.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
         await bot.send_message(last_chat_id, safe_msg, parse_mode=ParseMode.HTML)
+        if not critical and last_chat_id:
+            await send_dashboard_to_chat(last_chat_id, last_user_id or 0)
     except Exception as ex:
         logger.error("charge notify failed: %s", ex)
-        # Fallback: отправляем без HTML парсинга
         try:
             clean_msg = html.escape(msg).replace('<hr>', '---').replace('<hr/>', '---').replace('<hr />', '---')
             await bot.send_message(last_chat_id, clean_msg)
+            if not critical and last_chat_id:
+                await send_dashboard_to_chat(last_chat_id, last_user_id or 0)
         except Exception as ex2:
             logger.error("fallback notify also failed: %s", ex2)
 
@@ -231,6 +229,7 @@ async def _check_chat_and_respond(event: Union[Message, CallbackQuery]) -> bool:
 
 user_dashboard: Dict[int, int] = {}
 last_chat_id: Optional[int] = None
+last_user_id: Optional[int] = None
 last_charge_alert_at: Optional[datetime] = None
 last_idle_alert_at: Optional[datetime] = None
 zero_current_since: Optional[datetime] = None
@@ -305,6 +304,44 @@ def _safe_float(val, default: float = 0.0) -> float:
         return float(val)
     except (ValueError, TypeError):
         return default
+
+
+def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
+    """Преобразует uptime из HA (секунды или ISO-время старта) в прошедшие секунды."""
+    if uptime_raw is None or uptime_raw == "":
+        return None
+    if isinstance(uptime_raw, (int, float)):
+        return float(uptime_raw)
+    s = str(uptime_raw).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return time.time() - dt.timestamp()
+    except Exception:
+        return None
+
+
+def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> None:
+    """
+    После восстановления сессии: вычесть паузу потери связи из таймеров
+    и по возможности синхронизировать общее время с таймером прибора (uptime).
+    """
+    now = time.time()
+    link_lost = getattr(charge_controller, "_link_lost_at", 0) or 0
+    if link_lost > 0:
+        gap = now - link_lost
+        charge_controller.total_start_time += gap
+        charge_controller.stage_start_time += gap
+        charge_controller._link_lost_at = 0
+    uptime_raw = (live or {}).get("uptime")
+    elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
+    if elapsed is not None and elapsed >= 0:
+        charge_controller.total_start_time = now - elapsed
 
 
 def format_electrical_data(v: float, i: float, p: float = None, precision: int = 2) -> str:
@@ -566,6 +603,8 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
         status_line = f"📊 СТАТУС: {status_emoji} {stage_name} | {battery_type} | ⏱ {total_time}"
     else:
         status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
+        if is_on and i > 0.05:
+            status_line += f" | ⚠️ Выход вкл {i:.2f}А, бот не управляет"
 
     electrical_data = format_electrical_data(battery_v, i)
     temp_data = format_temperature_data(temp_ext, temp_int)
@@ -638,20 +677,13 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     return status_line, live_line, stage_block, capacity_line
 
 
-async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
-    """
-    Сформировать и отправить дашборд.
-    Anti-spam: при refresh удаляем старый message перед отправкой нового.
-    """
-    msg = message_or_call.message if isinstance(message_or_call, CallbackQuery) else message_or_call
-    chat_id = msg.chat.id
-    user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
-
+async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Optional[int] = None) -> int:
+    """Собрать дашборд и отправить в chat_id. Удалить old_msg_id если задан. Обновить user_dashboard."""
     try:
         live = await hass.get_all_live()
         battery_v = _safe_float(live.get("battery_voltage"))
         output_v = _safe_float(live.get("voltage"))
-        v = battery_v if not (is_on := str(live.get("switch", "")).lower() == "on") else output_v
+        is_on = str(live.get("switch", "")).lower() == "on"
         i = _safe_float(live.get("current"))
         p = _safe_float(live.get("power"))
         ah = _safe_float(live.get("ah"))
@@ -665,12 +697,11 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         mode = "CV" if is_cv else ("CC" if is_cc else "-")
     except Exception as ex:
         logger.error("Failed to get HA data for dashboard: %s", ex)
-        # Fallback значения при недоступности HA
-        battery_v = output_v = v = i = p = ah = wh = temp_int = temp_ext = set_v = set_i = 0.0
+        live = {}
+        battery_v = output_v = i = p = ah = wh = temp_int = temp_ext = set_v = set_i = 0.0
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    # Блоки дашборда: под графиком — статус + живые V/I/T (полная статистика в «Полная инфо»)
     status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
     short_status = (
         status_line.replace(" Mix Mode ", " Mix ")
@@ -679,9 +710,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         .replace("Безопасное ожидание", "Ожидание")
     )
     caption_short = f"{short_status}\n{live_line}"
-    full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
-    # График от начала до конца сессии заряда (одним непрерывным диапазоном)
     graph_since = (
         charge_controller.total_start_time
         if charge_controller.is_active and getattr(charge_controller, "total_start_time", None)
@@ -714,10 +743,6 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
             await bot.delete_message(chat_id, old_msg_id)
         except Exception:
             pass
-    try:
-        await msg.delete()
-    except Exception:
-        pass
 
     clean_caption = caption_short.replace('<hr>', '___________________').replace('<hr/>', '___________________').replace('<hr />', '___________________')
     if photo:
@@ -727,6 +752,28 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
     user_dashboard[user_id] = sent.message_id
     return sent.message_id
+
+
+async def send_dashboard_to_chat(chat_id: int, user_id: int = 0) -> int:
+    """Отправить дашборд в чат (последним сообщением). Используется после некритичных уведомлений."""
+    old_msg_id = user_dashboard.get(user_id) if user_id else None
+    return await _build_and_send_dashboard(chat_id, user_id, old_msg_id)
+
+
+async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
+    """
+    Сформировать и отправить дашборд.
+    Anti-spam: при refresh удаляем старый message перед отправкой нового.
+    """
+    msg = message_or_call.message if isinstance(message_or_call, CallbackQuery) else message_or_call
+    chat_id = msg.chat.id
+    user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
+    old = old_msg_id or user_dashboard.get(user_id)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    return await _build_and_send_dashboard(chat_id, user_id, old)
 
 
 async def soft_watchdog_loop() -> None:
@@ -938,16 +985,16 @@ async def data_logger() -> None:
             
             await add_record(battery_v, i, p, t)
 
-            # Восстановление после потери связи: только если нет OVP/OCP, режим батареи и вход ≥ 60 В
+            # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В (battery_mode не требуем — после потери связи мы сами выключили выход)
             if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
                 if charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
                     ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
                     if ok and msg:
+                        _apply_restore_time_corrections(charge_controller, live)
                         last_checkpoint_time = time.time()
                         allow_turn_on = (
                             not ovp_triggered
                             and not ocp_triggered
-                            and battery_mode
                             and input_voltage >= MIN_INPUT_VOLTAGE
                         )
                         if allow_turn_on:
@@ -968,7 +1015,7 @@ async def data_logger() -> None:
                                 ah,
                                 "RESTORE",
                             )
-                            _charge_notify(msg)
+                            _charge_notify("✅ Связь восстановлена, заряд снова под управлением бота.\n" + (msg or ""), critical=False)
                             logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
                         else:
                             if ovp_triggered or ocp_triggered:
@@ -976,16 +1023,60 @@ async def data_logger() -> None:
                                     "⚠️ Недавно сработала защита OVP/OCP. "
                                     "Включите заряд вручную после проверки."
                                 )
-                            elif not battery_mode:
-                                _charge_notify(
-                                    "⚠️ Устройство не в режиме батареи. Включите заряд вручную после проверки."
-                                )
                             elif input_voltage < MIN_INPUT_VOLTAGE:
                                 _charge_notify(
                                     f"⚠️ Низкое входное напряжение ({input_voltage:.0f} В < {MIN_INPUT_VOLTAGE:.0f} В). "
                                     "Включите заряд вручную после проверки питания."
                                 )
-                            logger.info("Restore skipped: protections or battery_mode or input_voltage")
+                            logger.info("Restore skipped: protections or input_voltage")
+                    else:
+                        # Нет файла сессии или старше 24 ч — выход может быть всё ещё вкл
+                        if output_on and i > 0.05:
+                            _charge_notify(
+                                "⚠️ Связь восстановлена, но сессии нет (или старше 24 ч). "
+                                f"Выход включён ({i:.2f} А). Нажмите Остановить или запустите заряд заново."
+                            )
+                            logger.warning("Link restored but no session; output still on I=%.2fA", i)
+
+            # Выход уже включён, но бот в IDLE (перезапуск бота или ручное включение) — подхватываем сессию без turn_on
+            if (
+                temp_ext is not None
+                and temp_ext not in ("unavailable", "unknown", "")
+                and not charge_controller._was_unavailable
+                and charge_controller.current_stage == charge_controller.STAGE_IDLE
+                and output_on
+                and i > 0.05
+            ):
+                ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+                if ok and msg:
+                    _apply_restore_time_corrections(charge_controller, live)
+                    allow = (
+                        not ovp_triggered
+                        and not ocp_triggered
+                        and input_voltage >= MIN_INPUT_VOLTAGE
+                    )
+                    if allow:
+                        last_checkpoint_time = time.time()
+                        if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                            uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                        else:
+                            uv, ui = charge_controller._get_target_v_i()
+                        await hass.set_voltage(uv)
+                        await hass.set_current(ui)
+                        log_event(
+                            charge_controller.current_stage,
+                            battery_v,
+                            i,
+                            t,
+                            ah,
+                            "RESTORE",
+                        )
+                        _charge_notify("✅ Заряд подхвачен, бот снова управляет.", critical=False)
+                        logger.info("Session restored (output was already on): %s", charge_controller.current_stage)
+                    else:
+                        logger.debug("Restore (output on, idle) skipped: allow=%s ovp=%s ocp=%s input_v=%.0f", allow, ovp_triggered, ocp_triggered, input_voltage)
+                else:
+                    logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
 
             actions = await charge_controller.tick(battery_v, i, temp_ext, is_cv, ah, output_switch)
 
@@ -1062,8 +1153,8 @@ async def data_logger() -> None:
             
             # v2.5 Умный watchdog: поведение зависит от последнего состояния выхода
             output_was_on = charge_controller._last_known_output_on
-            # Чтобы при возврате связи сработало восстановление сессии
             charge_controller._was_unavailable = True
+            charge_controller._link_lost_at = time.time()
 
             if not output_was_on:
                 # Выход был выключен — тихий переход в IDLE, без уведомлений
@@ -1102,8 +1193,9 @@ async def data_logger() -> None:
 async def cmd_start(message: Message) -> None:
     if not await _check_chat_and_respond(message):
         return
-    global last_chat_id
+    global last_chat_id, last_user_id
     last_chat_id = message.chat.id
+    last_user_id = message.from_user.id if message.from_user else 0
     logger.info("Command /start from %s", message.from_user.id)
     msg_id = await send_dashboard(message)
     if message.from_user:
@@ -1302,6 +1394,7 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         return
     del awaiting_ah[user_id]
     last_chat_id = message.chat.id
+    last_user_id = message.from_user.id if message.from_user else 0
     live = await hass.get_all_live()
     battery_v = _safe_float(live.get("battery_voltage"))
     i = _safe_float(live.get("current"))
@@ -1575,9 +1668,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
 
 async def start_custom_charge(message: Message, user_id: int, params: Dict[str, float]) -> None:
     """Запуск заряда в ручном режиме."""
-    global last_chat_id, last_checkpoint_time
+    global last_chat_id, last_user_id, last_checkpoint_time
     last_chat_id = message.chat.id
-    
+    last_user_id = message.from_user.id if message.from_user else 0
     try:
         # Получаем текущие данные
         live = await hass.get_all_live()
@@ -1676,8 +1769,9 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    global last_chat_id
+    global last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
+    last_user_id = call.from_user.id if call.from_user else 0
     warning = (
         "⚠️ <b>ВНИМАНИЕ:</b> Данные режимы используют напряжение до 16.5В. "
         "Убедитесь, что АКБ отсоединена от бортовой сети автомобиля!"
@@ -1817,7 +1911,8 @@ async def info_full_handler(call: CallbackQuery) -> None:
             telemetry = charge_controller.get_telemetry_summary(battery_v, i, ah, temp)
             ai_comment = await call_llm_analytics(telemetry)
             if ai_comment:
-                ai_text = f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_comment}</i>"
+                ai_safe = (ai_comment or "").replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+                ai_text = f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_safe}</i>"
             else:
                 ai_text = "🤖 <b>Аналитика DeepSeek:</b> <i>Математический прогноз (API недоступен)</i>"
             try:
@@ -1872,8 +1967,9 @@ async def refresh_handler(call: CallbackQuery) -> None:
         await call.answer("Информация обновлена")
     except Exception:
         pass
-    global last_chat_id
+    global last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
+    last_user_id = call.from_user.id if call.from_user else 0
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
 
@@ -1886,8 +1982,9 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    global last_chat_id
+    global last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
+    last_user_id = call.from_user.id if call.from_user else 0
     live = await hass.get_all_live()
     is_on = str(live.get("switch", "")).lower() == "on"
     # Если заряд активен или выход включен — останавливаем заряд и выключаем выход
@@ -1899,12 +1996,38 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
             parse_mode=ParseMode.HTML,
         )
     else:
-        # Заряд стоит: включаем выход с текущими параметрами RD6018
-        await hass.turn_on(ENTITY_MAP["switch"])
-        await call.message.answer(
-            "<b>🚀 Заряд запущен.</b> Выход включен с текущими параметрами.",
-            parse_mode=ParseMode.HTML,
-        )
+        # Выход выключен: пробуем восстановить сессию, чтобы бот снова управлял зарядом
+        battery_v = _safe_float(live.get("battery_voltage"))
+        i = _safe_float(live.get("current"))
+        ah = _safe_float(live.get("ah"))
+        ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
+        ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+        input_voltage = _safe_float(live.get("input_voltage"), 0.0)
+        ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+        if ok and msg:
+            _apply_restore_time_corrections(charge_controller, live)
+        allow_turn_on = ok and msg and not ovp_triggered and not ocp_triggered and input_voltage >= MIN_INPUT_VOLTAGE
+        if allow_turn_on:
+            if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                await hass.set_voltage(uv)
+                await hass.set_current(ui)
+            else:
+                uv, ui = charge_controller._get_target_v_i()
+                await hass.set_voltage(uv)
+                await hass.set_current(ui)
+            await hass.turn_on(ENTITY_MAP["switch"])
+            await call.message.answer(
+                "<b>🚀 Заряд подхвачен.</b> Сессия восстановлена, бот снова управляет этапами.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await hass.turn_on(ENTITY_MAP["switch"])
+            await call.message.answer(
+                "<b>🚀 Выход включён</b> с текущими параметрами RD6018. "
+                "Чтобы бот вёл этапы — выберите режим в <b>⚙️ РЕЖИМЫ</b>.",
+                parse_mode=ParseMode.HTML,
+            )
     await asyncio.sleep(1)
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
@@ -1919,10 +2042,10 @@ async def custom_mode_start(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    global custom_mode_state, custom_mode_data, last_chat_id
+    global custom_mode_state, custom_mode_data, last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
+    last_user_id = call.from_user.id if call.from_user else 0
     user_id = call.from_user.id if call.from_user else 0
-    
     # Инициализируем состояние
     custom_mode_state[user_id] = "voltage"
     custom_mode_data[user_id] = {}
@@ -1961,8 +2084,9 @@ async def profile_selection(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    global awaiting_ah, last_chat_id
+    global awaiting_ah, last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
+    last_user_id = call.from_user.id if call.from_user else 0
     mapping = {"profile_caca": "Ca/Ca", "profile_efb": "EFB", "profile_agm": "AGM"}
     profile = mapping.get(call.data, "Ca/Ca")
     user_id = call.from_user.id if call.from_user else 0
@@ -2044,7 +2168,7 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
         "trend_summary": trend_summary,
     }
     result = await ask_deepseek(history)
-    result_html = _md_to_html(result)
+    result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
 
     # Обновление дашборда через 90 с (пауза до обновления информации)
@@ -2074,7 +2198,7 @@ async def main() -> None:
     except Exception as ex:
         logger.warning("trim_log_older_than_days at startup: %s", ex)
 
-    # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, режим батареи, вход ≥ 60 В
+    # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, вход ≥ 60 В
     global last_checkpoint_time
     try:
         live = await hass.get_all_live()
@@ -2083,15 +2207,14 @@ async def main() -> None:
         ah = _safe_float(live.get("ah"))
         ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
-        battery_mode = str(live.get("battery_mode", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
         ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
         if ok and msg:
+            _apply_restore_time_corrections(charge_controller, live)
             last_checkpoint_time = time.time()
             allow_turn_on = (
                 not ovp_triggered
                 and not ocp_triggered
-                and battery_mode
                 and input_voltage >= MIN_INPUT_VOLTAGE
             )
             if allow_turn_on:
@@ -2117,8 +2240,8 @@ async def main() -> None:
                 logger.info("Session restored: %s", charge_controller.current_stage)
             else:
                 logger.info(
-                    "Auto-resume skipped: ovp=%s ocp=%s battery_mode=%s input_v=%.0f",
-                    ovp_triggered, ocp_triggered, battery_mode, input_voltage,
+                    "Auto-resume skipped: ovp=%s ocp=%s input_v=%.0f",
+                    ovp_triggered, ocp_triggered, input_voltage,
                 )
     except Exception as ex:
         logger.warning("Auto-resume check failed: %s", ex)
@@ -2133,7 +2256,18 @@ async def main() -> None:
     asyncio.create_task(soft_watchdog_loop())
     asyncio.create_task(watchdog_loop())
     logger.info("RD6018 bot starting")
-    await dp.start_polling(bot)
+    logger.info("Если появится TelegramConflictError — запущен ещё один экземпляр бота. Остановите все кроме одного: pgrep -af 'bot.py' && kill <PID>")
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await hass.close()
+        try:
+            session = getattr(bot, "session", None)
+            if session is not None and not getattr(session, "closed", True):
+                await session.close()
+        except Exception as ex:
+            logger.debug("Bot session close: %s", ex)
+        logger.info("RD6018 bot stopped")
 
 
 if __name__ == "__main__":

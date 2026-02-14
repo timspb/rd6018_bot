@@ -17,7 +17,7 @@ from config import MAX_VOLTAGE
 logger = logging.getLogger("rd6018")
 
 SESSION_FILE = "charge_session.json"
-SESSION_MAX_AGE = 60 * 60  # сек — восстанавливать только если последняя запись < 60 мин назад
+SESSION_MAX_AGE = 24 * 60 * 60  # сек — при восстановлении связи всегда пробуем восстановить сессию (до 24 ч), юзеру пишем
 SESSION_START_MAX_AGE = 24 * 60 * 60  # сек — если start_time старше 24 ч или 0, принудительно now()
 
 # Пороги детекции
@@ -158,6 +158,9 @@ class ChargeController:
         self._session_start_reason: str = "User Command"  # User Command | Auto-restore
         self._last_known_output_on: bool = False  # последнее известное состояние выхода (для EMERGENCY_UNAVAILABLE)
         self._was_unavailable: bool = False  # предыдущий тик был unavailable → при восстановлении попробовать restore
+        self._link_lost_at: float = 0.0  # время потери связи (для вычитания паузы из таймеров при восстановлении)
+        self._restored_target_v: float = 0.0  # уставки из сессии при restore (чтобы не перезаписать дефолтами профиля)
+        self._restored_target_i: float = 0.0
         # История замеров V/I за последние 24 часа, обновление раз в минуту
         self.v_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
         self.i_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
@@ -223,6 +226,7 @@ class ChargeController:
         self._first_stage_hold_since = None
         self._first_stage_hold_current = None
         self._session_start_reason = "User Command"
+        self._clear_restored_targets()
         self._clear_session_file()
         logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
 
@@ -273,6 +277,7 @@ class ChargeController:
         self._last_delta_confirm_time = 0.0
         self._cv_since = None
         self._session_start_reason = "Custom Mode"
+        self._clear_restored_targets()
         self._clear_session_file()
         
         logger.info("ChargeController started CUSTOM: %.1fV/%.1fA delta=%.3fV limit=%.0fh capacity=%dAh", 
@@ -282,6 +287,7 @@ class ChargeController:
         """Остановка заряда. Если clear_session=False, файл сессии не удаляется (для восстановления после связи)."""
         prev = self.current_stage
         self.current_stage = self.STAGE_IDLE
+        self._clear_restored_targets()
         self.v_max_recorded = None
         self.i_min_recorded = None
         if clear_session:
@@ -313,8 +319,15 @@ class ChargeController:
                 return self.stage_start_time + AGM_MIX_MAX_HOURS * 3600
         return None
 
+    def _clear_restored_targets(self) -> None:
+        """Сбросить уставки, восстановленные из сессии (после перехода на другой этап)."""
+        self._restored_target_v = 0.0
+        self._restored_target_i = 0.0
+
     def _get_target_v_i(self) -> Tuple[float, float]:
-        """Текущие целевые V и I для фазы."""
+        """Текущие целевые V и I для фазы. При restore возвращаем сохранённые уставки из сессии."""
+        if self._restored_target_v > 0 and self._restored_target_i > 0:
+            return (self._restored_target_v, self._restored_target_i)
         if self.current_stage == self.STAGE_PREP:
             return self._prep_target()
         if self.current_stage == self.STAGE_MAIN:
@@ -431,6 +444,8 @@ class ChargeController:
         target_finish = data.get("target_finish_time")
         target_v = float(data.get("target_voltage", 14.7))
         target_i = float(data.get("target_current", 1.0))
+        self._restored_target_v = target_v
+        self._restored_target_i = target_i
         self.finish_timer_start = data.get("finish_timer_start")
         raw_stage_start = data.get("stage_start_time")
         try:
@@ -467,9 +482,11 @@ class ChargeController:
             else:
                 if self.current_stage == self.STAGE_DESULFATION:
                     self.current_stage = self.STAGE_MAIN
+                    self._clear_restored_targets()
                     self.stage_start_time = now
                 elif self.current_stage == self.STAGE_MIX and self.battery_type == self.PROFILE_EFB:
                     self.current_stage = self.STAGE_DONE
+                    self._clear_restored_targets()
                     self.stage_start_time = now
                 remaining_min = 0
                 msg = (
@@ -488,6 +505,22 @@ class ChargeController:
 
         self._reset_delta_and_blanking(now)
         self.finish_timer_start = None
+
+        # Синхронизация таймеров с прибором: оцениваем время по накопленным А·ч и току
+        i_avg = max(float(current), 0.1)
+        delta_ah_total = ah - self._start_ah
+        delta_ah_stage = ah - self._stage_start_ah
+        if delta_ah_total > 0.01 and i_avg > 0.05:
+            est_total_h = delta_ah_total / i_avg
+            est_total_h = min(est_total_h, SESSION_START_MAX_AGE / 3600)
+            self.total_start_time = now - est_total_h * 3600
+            logger.info("Restore: total_start_time synced from Ah: %.1f h elapsed", est_total_h)
+        if delta_ah_stage > 0.01 and i_avg > 0.05:
+            est_stage_h = delta_ah_stage / i_avg
+            est_stage_h = min(est_stage_h, SESSION_START_MAX_AGE / 3600)
+            self.stage_start_time = now - est_stage_h * 3600
+            logger.info("Restore: stage_start_time synced from Ah: %.1f h on stage", est_stage_h)
+
         elapsed_sec = now - self.stage_start_time
         if elapsed_sec < 0 or elapsed_sec > ELAPSED_MAX_HOURS * 3600:
             self.stage_start_time = now
@@ -978,6 +1011,7 @@ class ChargeController:
 
         if temp_ext is None or temp_ext in ("unavailable", "unknown", ""):
             self._was_unavailable = True
+            self._link_lost_at = now  # время последней потери связи для коррекции таймеров при восстановлении
             actions["emergency_stop"] = True
             actions["log_event"] = "EMERGENCY_UNAVAILABLE"
             if self._last_known_output_on:
@@ -1027,6 +1061,7 @@ class ChargeController:
             )
             prev_stage = self.current_stage
             self.current_stage = self.STAGE_COOLING
+            self._clear_restored_targets()
             self.stage_start_time = now
             self._stage_start_ah = ah
             self._cooling_from_stage = prev_stage
@@ -1141,6 +1176,7 @@ class ChargeController:
                 )
                 prev = self.current_stage
                 self.current_stage = self.STAGE_MAIN
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 self._start_ah = ah
@@ -1173,6 +1209,7 @@ class ChargeController:
                         now, ah, voltage, current, temp, f"Лимит {max_hours}ч, I≤{transition_threshold}А"
                     )
                     self.current_stage = self.STAGE_MIX
+                    self._clear_restored_targets()
                     self.stage_start_time = now
                     self._stage_start_ah = ah
                     self._reset_delta_and_blanking(now)
@@ -1191,6 +1228,7 @@ class ChargeController:
                         now, ah, voltage, current, temp, f"Лимит времени {max_hours}ч"
                     )
                     self.current_stage = self.STAGE_DONE
+                    self._clear_restored_targets()
                     self.stage_start_time = now
                     self._stage_start_ah = ah
                     self._blanking_until = now + BLANKING_SEC
@@ -1230,6 +1268,7 @@ class ChargeController:
                         )
                         prev = self.current_stage
                         self.current_stage = self.STAGE_DONE
+                        self._clear_restored_targets()
                         self.stage_start_time = now
                         self._stage_start_ah = ah
                         self._blanking_until = now + BLANKING_SEC
@@ -1298,6 +1337,7 @@ class ChargeController:
                             )
                             prev = self.current_stage
                             self.current_stage = self.STAGE_MIX
+                            self._clear_restored_targets()
                             self.stage_start_time = now
                             self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
@@ -1326,6 +1366,7 @@ class ChargeController:
                             )
                             prev = self.current_stage
                             self.current_stage = self.STAGE_DESULFATION
+                            self._clear_restored_targets()
                             self.stage_start_time = now
                             self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
@@ -1358,6 +1399,7 @@ class ChargeController:
                     )
                     prev = self.current_stage
                     self.current_stage = self.STAGE_DESULFATION
+                    self._clear_restored_targets()
                     self.stage_start_time = now
                     self._stage_start_ah = ah
                     self._reset_delta_and_blanking(now)
@@ -1404,6 +1446,7 @@ class ChargeController:
                         )
                         prev = self.current_stage
                         self.current_stage = self.STAGE_MIX
+                        self._clear_restored_targets()
                         self.stage_start_time = now
                         self._stage_start_ah = ah
                         self._reset_delta_and_blanking(now)
@@ -1433,6 +1476,7 @@ class ChargeController:
                 prev = self.STAGE_SAFE_WAIT
                 next_stage = self._safe_wait_next_stage
                 self.current_stage = next_stage
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
@@ -1464,6 +1508,7 @@ class ChargeController:
                 prev = self.STAGE_SAFE_WAIT
                 next_stage = self._safe_wait_next_stage
                 self.current_stage = next_stage
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
@@ -1500,6 +1545,7 @@ class ChargeController:
                 prev_stage = self.current_stage
                 return_stage = self._cooling_from_stage or self.STAGE_MAIN
                 self.current_stage = return_stage
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 
@@ -1535,6 +1581,7 @@ class ChargeController:
                 uv, ui = self._main_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN  # 14.2В при цели 14.7В
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_MAIN
@@ -1625,6 +1672,7 @@ class ChargeController:
                     uv, ui = self._storage_target()
                     threshold = uv - SAFE_WAIT_V_MARGIN  # 13.3В
                     self.current_stage = self.STAGE_SAFE_WAIT
+                    self._clear_restored_targets()
                     self.stage_start_time = now
                     self._stage_start_ah = ah
                     self._safe_wait_next_stage = self.STAGE_DONE
@@ -1653,6 +1701,7 @@ class ChargeController:
                 uv, ui = self._storage_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_DONE
@@ -1676,6 +1725,7 @@ class ChargeController:
                 uv, ui = self._storage_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_DONE
@@ -1698,6 +1748,7 @@ class ChargeController:
                 uv, ui = self._storage_target()
                 threshold = uv - SAFE_WAIT_V_MARGIN
                 self.current_stage = self.STAGE_SAFE_WAIT
+                self._clear_restored_targets()
                 self.stage_start_time = now
                 self._stage_start_ah = ah
                 self._safe_wait_next_stage = self.STAGE_DONE
