@@ -110,10 +110,12 @@ async def get_history(
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             if since_iso:
+                # Сессия заряда: берём все точки от начала до конца (до ~24ч при замере каждые 30 с)
+                session_limit = min(limit * 50, 3000)
                 async with db.execute(
                     """SELECT timestamp, voltage, current FROM sensor_history
-                       WHERE timestamp >= ? ORDER BY id DESC LIMIT ?""",
-                    (since_iso, limit * 3),
+                       WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
+                    (since_iso, session_limit),
                 ) as cursor:
                     rows = await cursor.fetchall()
             else:
@@ -126,8 +128,9 @@ async def get_history(
         if not rows:
             return times, voltages, currents
 
-        # reverse чтобы время шло по возрастанию
-        rows = list(reversed(rows))
+        # При since_iso уже ASC (от начала сессии); иначе DESC — реверс для возрастания времени
+        if not since_iso:
+            rows = list(reversed(rows))
 
         # Преобразование и type safety
         raw_times: List[str] = []

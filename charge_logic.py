@@ -39,6 +39,8 @@ AGM_STAGE_MIN_MINUTES = 15  # мин на каждой ступени перед
 # Ожидание на минимальном токе перед переходом: Ca/EFB — MAIN→MIX; AGM — ступени до 15В и MAIN→MIX
 FIRST_STAGE_HOLD_HOURS = 3
 FIRST_STAGE_HOLD_SEC = FIRST_STAGE_HOLD_HOURS * 3600
+# Режим хранения (V < 14В): прогресс-репорты раз в час, не чаще
+STORAGE_REPORT_INTERVAL_SEC = 3600
 
 # Безопасный переход HV -> LV (вместо фиксированной «паузы 30 мин» — ожидание по напряжению)
 SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (целевое напряжение следующего этапа − 0.5В)
@@ -1047,7 +1049,10 @@ class ChargeController:
             _log_phase(self.current_stage, voltage, current, temp)
             self._last_log_time = now
 
-        if now - self._last_hourly_report >= 3600:
+        report_interval = STORAGE_REPORT_INTERVAL_SEC if (
+            voltage < 14.0 and self.current_stage in (self.STAGE_SAFE_WAIT, self.STAGE_DONE)
+        ) else 3600
+        if now - self._last_hourly_report >= report_interval:
             self._last_hourly_report = now
             current_hrs = elapsed / 3600.0
             max_hrs = self._get_stage_max_hours()

@@ -106,24 +106,7 @@ def generate_chart(
     v_list = _smooth(v_list, window=5)
     i_list = _smooth(i_list, window=5)
 
-    # v2.5: Автозум X-axis — показывать только последние 6 часов
-    if len(times_parsed) > 1:
-        from datetime import timedelta
-        
-        max_ts = times_parsed[-1]
-        min_ts = times_parsed[0]
-        window = timedelta(hours=6)
-        
-        # Если данных больше 6 часов — обрезаем до последних 6ч
-        if max_ts - min_ts > window:
-            start_ts = max_ts - window
-            idx0 = next((i for i, t in enumerate(times_parsed) if t >= start_ts), 0)
-            times_parsed = times_parsed[idx0:]
-            v_list = v_list[idx0:]
-            i_list = i_list[idx0:]
-            n = len(times_parsed)
-            if n == 0:
-                return None
+    # График от начала до конца сессии — без обрезки по времени (полный диапазон данных)
 
     try:
         from time_utils import get_user_timezone

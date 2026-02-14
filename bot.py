@@ -233,6 +233,8 @@ last_charge_alert_at: Optional[datetime] = None
 last_idle_alert_at: Optional[datetime] = None
 zero_current_since: Optional[datetime] = None
 CHARGE_ALERT_COOLDOWN = timedelta(hours=1)
+# В режиме хранения (V < 14В) алерт «заряд завершён» не чаще раза в час
+STORAGE_ALERT_COOLDOWN = timedelta(hours=1)
 IDLE_ALERT_COOLDOWN = timedelta(hours=1)
 ZERO_CURRENT_THRESHOLD_MINUTES = 30
 awaiting_ah: Dict[int, str] = {}
@@ -714,13 +716,14 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     # Формируем итоговый текст (все переменные уже экранированы)
     text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
-    # График только по текущей сессии заряда (как и логи событий)
+    # График от начала до конца сессии заряда (одним непрерывным диапазоном)
     graph_since = (
         charge_controller.total_start_time
         if charge_controller.is_active and getattr(charge_controller, "total_start_time", None)
         else None
     )
-    times, voltages, currents = await get_graph_data(limit=100, since_timestamp=graph_since)
+    limit_pts = 200 if graph_since else 100
+    times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
@@ -892,10 +895,11 @@ async def charge_monitor() -> None:
             else:
                 zero_current_since = None
 
-            # Алерт: заряд завершён (высокое U на АКБ, низкий I)
+            # Алерт: заряд завершён (высокое U на АКБ, низкий I). При V < 14В (хранение) — не чаще 1 раза в час
             battery_v = _safe_float(live.get("battery_voltage"))
             if battery_v >= 13.5 and i < 0.1:
-                if last_charge_alert_at and (now - last_charge_alert_at) < CHARGE_ALERT_COOLDOWN:
+                cooldown = STORAGE_ALERT_COOLDOWN if battery_v < 14.0 else CHARGE_ALERT_COOLDOWN
+                if last_charge_alert_at and (now - last_charge_alert_at) < cooldown:
                     continue
                 msg = (
                     f"⚠️ Заряд завершён или аккумулятор почти полон. "
