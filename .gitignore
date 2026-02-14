@@ -182,3 +182,8 @@ cython_debug/
 .cursorindexingignore
 .env
 config.py
+
+# Runtime state (не коммитить)
+charge_session.json
+manual_off_state.json
+commit_msg.txt

@@ -82,8 +82,6 @@ executor = ThreadPoolExecutor(max_workers=2)
 
 def _call_deepseek_sync(system_prompt: str, user_prompt: str) -> str:
     """Синхронный вызов DeepSeek API для использования в executor."""
-    import requests
-    
     try:
         url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
         payload = {
