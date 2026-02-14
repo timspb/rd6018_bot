@@ -249,6 +249,158 @@ SOFT_WATCHDOG_TIMEOUT = 3 * 60
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
 
+# Команда off: выключить по напряжению / току / таймеру (игнорируя режим, защита остаётся)
+manual_off_voltage: Optional[float] = None    # выкл когда V >=
+manual_off_voltage_le: Optional[float] = None  # выкл когда V <= (напр. спад в миксе)
+manual_off_current: Optional[float] = None     # выкл когда I <=
+manual_off_current_ge: Optional[float] = None  # выкл когда I >= (напр. рост от 1 А к 2 А)
+manual_off_time_sec: Optional[float] = None
+manual_off_start_time: float = 0.0
+
+
+def _parse_off_command(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Парсит команду off с явными условиями:
+    V>=16.4 / V≤13.2 — по напряжению (достигнет ≥ или снизится до ≤);
+    I<=1.23 / I>=2 — по току (достигнет ≤ или достигнет ≥);
+    2:23 — таймер.
+    Без префикса: число 12–18 В → V>=, 0.1–18 А → I<= (как раньше).
+    """
+    t = (text or "").strip().replace(",", ".")
+    if not t.lower().startswith("off "):
+        return None
+    rest = t[4:].strip().replace("\u2265", ">=").replace("\u2264", "<=")  # ≥ ≤
+    if not rest:
+        return None
+    tokens = rest.lower().split()
+    voltage_ge: Optional[float] = None
+    voltage_le: Optional[float] = None
+    current_le: Optional[float] = None
+    current_ge: Optional[float] = None
+    time_sec: Optional[float] = None
+    parts: list = []
+
+    for tok in tokens:
+        if ":" in tok:
+            try:
+                comp = tok.split(":")
+                if len(comp) == 2:
+                    h, m = int(comp[0].strip()), int(comp[1].strip())
+                    sec = h * 3600 + m * 60
+                elif len(comp) == 3:
+                    h, m, s = int(comp[0].strip()), int(comp[1].strip()), int(comp[2].strip())
+                    sec = h * 3600 + m * 60 + s
+                else:
+                    continue
+                if sec <= 0:
+                    continue
+                time_sec = (time_sec or 0) + sec
+                parts.append(f"таймер {tok}")
+            except (ValueError, IndexError):
+                continue
+        elif tok.startswith("v>="):
+            try:
+                voltage_ge = float(tok[3:].strip())
+                if 0 <= voltage_ge <= 20:
+                    parts.append(f"V≥{voltage_ge:.1f} В")
+            except ValueError:
+                continue
+        elif tok.startswith("v<="):
+            try:
+                voltage_le = float(tok[3:].strip())
+                if 0 <= voltage_le <= 20:
+                    parts.append(f"V≤{voltage_le:.1f} В")
+            except ValueError:
+                continue
+        elif tok.startswith("i>="):
+            try:
+                current_ge = float(tok[3:].strip())
+                if 0 < current_ge <= 18:
+                    parts.append(f"I≥{current_ge:.2f} А")
+            except ValueError:
+                continue
+        elif tok.startswith("i<="):
+            try:
+                current_le = float(tok[3:].strip())
+                if 0 < current_le <= 18:
+                    parts.append(f"I≤{current_le:.2f} А")
+            except ValueError:
+                continue
+        else:
+            try:
+                val = float(tok)
+                if 12.0 <= val <= 18.0:
+                    voltage_ge = val
+                    parts.append(f"{val:.1f} В (V≥)")
+                elif 0.1 <= val <= 18.0:
+                    current_le = val
+                    parts.append(f"{val:.2f} А (I≤)")
+                else:
+                    continue
+            except ValueError:
+                continue
+
+    if voltage_ge is None and voltage_le is None and current_le is None and current_ge is None and time_sec is None:
+        return None
+    return {
+        "voltage_ge": voltage_ge,
+        "voltage_le": voltage_le,
+        "current_le": current_le,
+        "current_ge": current_ge,
+        "time_sec": time_sec,
+        "start_time": time.time(),
+        "parts": parts,
+    }
+
+
+def _clear_manual_off() -> None:
+    global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
+    manual_off_voltage = None
+    manual_off_voltage_le = None
+    manual_off_current = None
+    manual_off_current_ge = None
+    manual_off_time_sec = None
+    manual_off_start_time = 0.0
+
+
+def _has_manual_off_condition() -> bool:
+    return (
+        manual_off_voltage is not None or manual_off_voltage_le is not None
+        or manual_off_current is not None or manual_off_current_ge is not None
+        or manual_off_time_sec is not None
+    )
+
+
+def _format_manual_off_for_dashboard() -> str:
+    """Строка для дашборда: статус принудительного выключения и остаток времени до выкл."""
+    global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
+    if not _has_manual_off_condition():
+        return ""
+    parts = []
+    if manual_off_voltage is not None:
+        parts.append(f"при V≥{manual_off_voltage:.1f} В")
+    if manual_off_voltage_le is not None:
+        parts.append(f"при V≤{manual_off_voltage_le:.1f} В")
+    if manual_off_current is not None:
+        parts.append(f"при I≤{manual_off_current:.2f} А")
+    if manual_off_current_ge is not None:
+        parts.append(f"при I≥{manual_off_current_ge:.2f} А")
+    remaining_sec = 0.0
+    if manual_off_time_sec is not None:
+        remaining_sec = manual_off_start_time + manual_off_time_sec - time.time()
+        if remaining_sec <= 0:
+            parts.append("таймер истёк")
+        else:
+            h = int(manual_off_time_sec // 3600)
+            m = int((manual_off_time_sec % 3600) // 60)
+            parts.append(f"таймер {h}:{m:02d}")
+    line = "⏹ ВЫКЛ ПО УСЛОВИЮ: " + ", ".join(parts)
+    if manual_off_time_sec is not None and remaining_sec > 0:
+        h = int(remaining_sec // 3600)
+        m = int((remaining_sec % 3600) // 60)
+        line += f" | осталось до выкл: {h}:{m:02d}"
+    return line
+
 
 def _build_trend_summary(
     times: list,
@@ -710,6 +862,9 @@ async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Opti
         .replace("Безопасное ожидание", "Ожидание")
     )
     caption_short = f"{short_status}\n{live_line}"
+    off_line = _format_manual_off_for_dashboard()
+    if off_line:
+        caption_short += f"\n{off_line}"
 
     graph_since = (
         charge_controller.total_start_time
@@ -734,6 +889,7 @@ async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Opti
         [
             InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
             InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
+            InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
         ],
     ]
     ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -982,6 +1138,27 @@ async def data_logger() -> None:
                 )
                 await hass.turn_off(ENTITY_MAP["switch"])
                 charge_controller.stop()
+            
+            # Команда off: выключить по напряжению / току / таймеру (защиты не отключаются)
+            if output_on and _has_manual_off_condition():
+                now_ts = time.time()
+                off_reason = None
+                if manual_off_voltage is not None and battery_v >= manual_off_voltage:
+                    off_reason = f"напряжение {battery_v:.2f} В ≥ {manual_off_voltage:.1f} В"
+                if manual_off_voltage_le is not None and battery_v <= manual_off_voltage_le:
+                    off_reason = off_reason or f"напряжение {battery_v:.2f} В ≤ {manual_off_voltage_le:.1f} В"
+                if manual_off_current is not None and i <= manual_off_current:
+                    off_reason = off_reason or f"ток {i:.2f} А ≤ {manual_off_current:.2f} А"
+                if manual_off_current_ge is not None and i >= manual_off_current_ge:
+                    off_reason = off_reason or f"ток {i:.2f} А ≥ {manual_off_current_ge:.2f} А"
+                if manual_off_time_sec is not None and (now_ts - manual_off_start_time) >= manual_off_time_sec:
+                    off_reason = off_reason or f"таймер {manual_off_time_sec / 3600:.1f} ч"
+                if off_reason:
+                    log_event(charge_controller.current_stage, battery_v, i, t, ah, f"MANUAL_OFF_{off_reason[:30]}")
+                    _charge_notify(f"⏹ Выключено по условию: {off_reason}")
+                    await hass.turn_off(ENTITY_MAP["switch"])
+                    charge_controller.stop()
+                    _clear_manual_off()
             
             await add_record(battery_v, i, p, t)
 
@@ -1378,6 +1555,32 @@ async def text_message_handler(message: Message) -> None:
     global awaiting_ah, custom_mode_state, last_chat_id, last_checkpoint_time
     user_id = message.from_user.id if message.from_user else 0
     text = (message.text or "").strip()
+
+    # Команда off: выключить по напряжению / току / таймеру (вне ручного режима)
+    if not (user_id in custom_mode_state or awaiting_ah.get(user_id)):
+        off_parsed = _parse_off_command(text)
+        if off_parsed is not None:
+            global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
+            manual_off_voltage = off_parsed.get("voltage_ge")
+            manual_off_voltage_le = off_parsed.get("voltage_le")
+            manual_off_current = off_parsed.get("current_le")
+            manual_off_current_ge = off_parsed.get("current_ge")
+            manual_off_time_sec = off_parsed.get("time_sec")
+            manual_off_start_time = off_parsed["start_time"]
+            cond = ", ".join(off_parsed["parts"])
+            await message.answer(
+                f"⏹ <b>Выключение по условию:</b> {cond}\n\n"
+                "Выход выключится, когда <b>достигнут</b> любой из параметров (ток/напряжение/таймер). "
+                "Защиты не сбрасываются и не выставляются; температура и входное напряжение по-прежнему работают и могут выключить выход раньше.",
+                parse_mode=ParseMode.HTML,
+            )
+            last_chat_id = message.chat.id
+            return
+        if text.strip().lower() == "off":
+            _clear_manual_off()
+            await message.answer("Сброс условия выключения. Уставки «off» больше не активны.")
+            last_chat_id = message.chat.id
+            return
 
     # Быстрая установка уставок: два числа через пробел — напряжение (В) и ток (А)
     # Не перехватываем, если пользователь в диалоге выбора режима или ввода ёмкости
@@ -1897,6 +2100,36 @@ async def charge_back_handler(call: CallbackQuery) -> None:
     await send_dashboard(call, old_msg_id=old_id)
 
 
+@router.callback_query(F.data == "menu_off")
+async def menu_off_handler(call: CallbackQuery) -> None:
+    """Меню «Off по условию»: показать статус и подсказку по команде."""
+    if not await _check_chat_and_respond(call):
+        return
+    try:
+        await call.answer()
+    except Exception:
+        pass
+    off_line = _format_manual_off_for_dashboard()
+    if off_line:
+        status_msg = f"<b>⏹ Принудительное выключение активно</b>\n\n{off_line}\n\n"
+    else:
+        status_msg = "Сейчас условие выключения не задано.\n\n"
+    status_msg += (
+        "<b>Введите в чат:</b>\n"
+        "• <code>off I≤1.23</code> или <code>off 1.23</code> — выкл, когда ток достигнет ≤1.23 А\n"
+        "• <code>off I≥2</code> — выкл, когда ток достигнет ≥2 А (напр. рост от 1 А)\n"
+        "• <code>off V≥16.4</code> или <code>off 16.4</code> — выкл, когда напряжение ≥16.4 В\n"
+        "• <code>off V≤13.2</code> — выкл, когда напряжение снизится до ≤13.2 В (микс)\n"
+        "• <code>off 2:23</code> — выкл через 2 ч 23 мин\n"
+        "• <code>off I≥2 V≤13.5 2:00</code> — любое из условий\n"
+        "• <code>off</code> — сброс\n\n"
+        "Защиты не сбрасываются; температура и входное напряжение могут выключить выход раньше."
+    )
+    await call.message.answer(status_msg, parse_mode=ParseMode.HTML)
+    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
+    await send_dashboard(call, old_msg_id=old_id)
+
+
 @router.callback_query(F.data == "info_full")
 async def info_full_handler(call: CallbackQuery) -> None:
     if not await _check_chat_and_respond(call):
@@ -1909,6 +2142,9 @@ async def info_full_handler(call: CallbackQuery) -> None:
         live = await hass.get_all_live()
         status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
+        off_line = _format_manual_off_for_dashboard()
+        if off_line:
+            full_text += f"\n{off_line}"
         ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
         full_text += f"\n🛡 Защиты: OVP сработала — {'да' if ovp_tr else 'нет'}, OCP сработала — {'да' if ocp_tr else 'нет'}"
@@ -1958,6 +2194,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
             [
                 InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
                 InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
+                InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
             ],
         ]
         ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -2049,6 +2286,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     # Если заряд активен или выход включен — останавливаем заряд и выключаем выход
     if charge_controller.is_active or is_on:
         charge_controller.stop()
+        _clear_manual_off()
         await hass.turn_off(ENTITY_MAP["switch"])
         await call.message.answer(
             "<b>🛑 Заряд остановлен.</b> Выход выключен.",
