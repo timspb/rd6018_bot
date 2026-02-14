@@ -587,6 +587,105 @@ def format_log_event(event_line: str) -> str:
         return f"<code>{html.escape(event_line[:100])}</code>"
 
 
+def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
+    """
+    Построить блоки текста дашборда по данным live.
+    Возвращает (status_line, live_line, stage_block, capacity_line).
+    """
+    battery_v = _safe_float(live.get("battery_voltage"))
+    set_v = _safe_float(live.get("set_voltage"))
+    set_i = _safe_float(live.get("set_current"))
+    is_on = str(live.get("switch", "")).lower() == "on"
+    i = _safe_float(live.get("current"))
+    temp_ext = _safe_float(live.get("temp_ext"))
+    temp_int = _safe_float(live.get("temp_int"))
+    ah = _safe_float(live.get("ah"))
+    is_cv = str(live.get("is_cv", "")).lower() == "on"
+    is_cc = str(live.get("is_cc", "")).lower() == "on"
+    mode = "CV" if is_cv else ("CC" if is_cc else "-")
+    output_v = _safe_float(live.get("voltage"))
+
+    if charge_controller.is_active:
+        timers = charge_controller.get_timers()
+        status_emoji = "⚡️" if (is_on and i > 0.05) else "⏸️"
+        stage_name = html.escape(charge_controller.current_stage)
+        battery_type = html.escape(charge_controller.battery_type)
+        total_time = html.escape(timers["total_time"])
+        status_line = f"📊 СТАТУС: {status_emoji} {stage_name} | {battery_type} | ⏱ {total_time}"
+    else:
+        status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
+
+    electrical_data = format_electrical_data(battery_v, i)
+    temp_data = format_temperature_data(temp_ext, temp_int)
+    live_line = f"⚡️ LIVE: {electrical_data} | {mode} | {temp_data}"
+
+    stage_block = ""
+    if charge_controller.is_active:
+        timers = charge_controller.get_timers()
+        stage_time = timers["stage_time"]
+        current_v_set = _safe_float(live.get("set_voltage", set_v))
+        current_i_set = _safe_float(live.get("set_current", set_i))
+        transition_condition = ""
+        raw_stage = charge_controller.current_stage
+        time_limit = timers["remaining_time"]
+
+        if "Main" in raw_stage:
+            if charge_controller.battery_type == "Custom":
+                transition_condition = "🔜 ФИНИШ: &lt;0.30А"
+            elif charge_controller.battery_type in ["Ca/Ca", "EFB"]:
+                transition_condition = "🔜 ПЕРЕХОД: &lt;0.30А"
+            elif charge_controller.battery_type == "AGM":
+                transition_condition = "🔜 ПЕРЕХОД: &lt;0.20А"
+        elif "Mix" in raw_stage:
+            v_max = charge_controller.v_max_recorded
+            i_min = charge_controller.i_min_recorded
+            if is_cv:
+                if i_min is not None:
+                    expect_i = i_min + DELTA_I_EXIT
+                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А I≥{expect_i:.2f}А"
+                else:
+                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А"
+            elif is_cc:
+                if v_max is not None:
+                    expect_v = v_max - DELTA_V_EXIT
+                    transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В V≤{expect_v:.2f}В"
+                else:
+                    transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В"
+            else:
+                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{DELTA_I_EXIT}А (CV)"
+        elif "Десульфатация" in raw_stage:
+            transition_condition = "🔜 ПЕРЕХОД: 2ч"
+        elif "Безопасное ожидание" in raw_stage:
+            transition_condition = "🔜 ПЕРЕХОД: падение V"
+        elif "Остывание" in raw_stage:
+            transition_condition = "🔜 ВОЗВРАТ: T&le;35°C"
+
+        if time_limit != "—":
+            try:
+                if ":" in time_limit:
+                    hours = int(time_limit.split(":")[0])
+                    time_display = f"{hours}ч" if hours > 0 else "менее 1ч"
+                else:
+                    time_display = time_limit
+            except Exception:
+                time_display = time_limit
+            if transition_condition:
+                transition_condition = f"{transition_condition} | ⏱ {time_display}"
+            else:
+                transition_condition = f"🔜 ⏱ {time_display}"
+
+        stage_name = html.escape(charge_controller.current_stage)
+        stage_time_safe = html.escape(stage_time)
+        stage_block = (
+            f"\n📍 ЭТАП: {stage_name} | ⏱ {stage_time_safe}\n"
+            f"⚙️ УСТАВКИ: {current_v_set:.2f}В | {current_i_set:.2f}А\n"
+            f"{transition_condition}"
+        )
+
+    capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
+    return status_line, live_line, stage_block, capacity_line
+
+
 async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
     """
     Сформировать и отправить дашборд.
@@ -619,102 +718,10 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    # Новая структура интерфейса
-    
-    # 1. ПЕРВАЯ СТРОКА (Общий статус)
-    if charge_controller.is_active:
-        timers = charge_controller.get_timers()
-        # v2.0: Заряд только если Output=ON и ток > 0.05А, иначе Пауза
-        status_emoji = "⚡️" if (is_on and i > 0.05) else "⏸️"
-        stage_name = html.escape(charge_controller.current_stage)
-        battery_type = html.escape(charge_controller.battery_type)
-        total_time = html.escape(timers['total_time'])
-        status_line = f"📊 СТАТУС: {status_emoji} {stage_name} | {battery_type} | ⏱ {total_time}"
-    else:
-        status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
-    
-    # 2. ВТОРАЯ СТРОКА (Живые данные: V, I, режим CC/CV, температура)
-    electrical_data = format_electrical_data(battery_v, i)
-    temp_data = format_temperature_data(temp_ext, temp_int)
-    live_line = f"⚡️ LIVE: {electrical_data} | {mode} | {temp_data}"
-    
-    # 3. БЛОК ЭТАПА (Три строки) - только при активном заряде
-    stage_block = ""
-    if charge_controller.is_active:
-        stage_time = timers['stage_time']
-        
-        # Получаем ТЕКУЩИЕ уставки, которые реально установлены на приборе
-        current_v_set = _safe_float(live.get("set_voltage", set_v))  # Текущая уставка напряжения
-        current_i_set = _safe_float(live.get("set_current", set_i))  # Текущая уставка тока
-        
-        # Компактное условие перехода с HTML-безопасными символами
-        transition_condition = ""
-        raw_stage = charge_controller.current_stage
-        time_limit = timers['remaining_time']
-        
-        if "Main" in raw_stage:
-            if charge_controller.battery_type == "Custom":
-                transition_condition = "🔜 ФИНИШ: &lt;0.30А"
-            elif charge_controller.battery_type in ["Ca/Ca", "EFB"]:
-                transition_condition = "🔜 ПЕРЕХОД: &lt;0.30А"
-            elif charge_controller.battery_type == "AGM":
-                transition_condition = "🔜 ПЕРЕХОД: &lt;0.20А"
-        elif "Mix" in raw_stage:
-            # Окончание Mix: CC — спад V на 0.03В от пика; CV — рост I на 0.03А от минимума
-            v_max = charge_controller.v_max_recorded
-            i_min = charge_controller.i_min_recorded
-            if is_cv:
-                if i_min is not None:
-                    expect_i = i_min + DELTA_I_EXIT
-                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А I≥{expect_i:.2f}А"
-                else:
-                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А"
-            elif is_cc:
-                if v_max is not None:
-                    expect_v = v_max - DELTA_V_EXIT
-                    transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В V≤{expect_v:.2f}В"
-                else:
-                    transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В"
-            else:
-                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{DELTA_I_EXIT}А (CV)"
-        elif "Десульфатация" in raw_stage:
-            transition_condition = "🔜 ПЕРЕХОД: 2ч"
-        elif "Безопасное ожидание" in raw_stage:
-            transition_condition = "🔜 ПЕРЕХОД: падение V"
-        elif "Остывание" in raw_stage:
-            transition_condition = f"🔜 ВОЗВРАТ: T&le;35°C"
-        
-        # Добавляем актуальный лимит времени в часах (убираем минуты)
-        if time_limit != "—":
-            # Парсим время и оставляем только часы
-            try:
-                if ":" in time_limit:
-                    hours = int(time_limit.split(":")[0])
-                    time_display = f"{hours}ч" if hours > 0 else "менее 1ч"
-                else:
-                    time_display = time_limit
-            except:
-                time_display = time_limit
-                
-            if transition_condition:
-                transition_condition = f"{transition_condition} | ⏱ {time_display}"
-            else:
-                transition_condition = f"🔜 ⏱ {time_display}"
-        
-        stage_time_safe = html.escape(stage_time)
-        stage_block = (
-            f"\n📍 ЭТАП: {stage_name} | ⏱ {stage_time_safe}\n"
-            f"⚙️ УСТАВКИ: {current_v_set:.2f}В | {current_i_set:.2f}А"
-        )
-        
-        if transition_condition:
-            stage_block += f"\n{transition_condition}"  # Уже содержит HTML entities (&lt;, &gt;)
-    
-    # 4. ЧЕТВЕРТАЯ СТРОКА (Емкость)
-    capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
-    
-    # Формируем итоговый текст (все переменные уже экранированы)
-    text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
+    # Блоки дашборда: под графиком — только 2 строки (режим/тип/время + V/I/T/CC-CV)
+    status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
+    caption_short = f"{status_line}\n{live_line}"
+    full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
     # График от начала до конца сессии заряда (одним непрерывным диапазоном)
     graph_since = (
@@ -727,23 +734,21 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
-    # Новое кнопочное меню
-    # Кнопка-хамелеон: зависит только от output_on (HA switch)
     main_btn_text = "🛑 ОСТАНОВИТЬ" if is_on else "🚀 ЗАПУСТИТЬ"
-
-    # Новая структура клавиатуры:
-    # Row 1: [🔄 ОБНОВИТЬ ИНФОРМАЦИЮ] (Full width)
-    # Row 2: Динамическая кнопка [🛑 ОСТАНОВИТЬ] / [🚀 ЗАПУСТИТЬ]
-    # Row 3: [🧠 AI АНАЛИЗ] | [⚙️ РЕЖИМЫ]
-    # Row 4: [📝 ЛОГИ СОБЫТИЙ]
+    # Строка 1: Обновить (краткая инфо под графиком) | Полная инфо. Строка 2: AI Анализ | Логи. Строка 3: Старт/Стоп | Режимы
     kb_rows = [
-        [InlineKeyboardButton(text="🔄 ОБНОВИТЬ ИНФОРМАЦИЮ", callback_data="refresh")],
-        [InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle")],
+        [
+            InlineKeyboardButton(text="🔄 ОБНОВИТЬ", callback_data="refresh"),
+            InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
+        ],
         [
             InlineKeyboardButton(text="🧠 AI АНАЛИЗ", callback_data="ai_analysis"),
+            InlineKeyboardButton(text="📝 ЛОГИ СОБЫТИЙ", callback_data="logs"),
+        ],
+        [
+            InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
             InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
         ],
-        [InlineKeyboardButton(text="📝 ЛОГИ СОБЫТИЙ", callback_data="logs")],
     ]
     ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
@@ -757,15 +762,11 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     except Exception:
         pass
 
-    # Заменяем неподдерживаемые HTML теги
-    clean_text = text.replace('<hr>', '___________________')
-    clean_text = clean_text.replace('<hr/>', '___________________')
-    clean_text = clean_text.replace('<hr />', '___________________')
-    
+    clean_caption = caption_short.replace('<hr>', '___________________').replace('<hr/>', '___________________').replace('<hr />', '___________________')
     if photo:
-        sent = await bot.send_photo(chat_id, photo=photo, caption=clean_text, reply_markup=ikb, parse_mode=ParseMode.HTML)
+        sent = await bot.send_photo(chat_id, photo=photo, caption=clean_caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
     else:
-        sent = await bot.send_message(chat_id, clean_text, reply_markup=ikb, parse_mode=ParseMode.HTML)
+        sent = await bot.send_message(chat_id, clean_caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
 
     user_dashboard[user_id] = sent.message_id
     return sent.message_id
@@ -1699,6 +1700,25 @@ async def charge_back_handler(call: CallbackQuery) -> None:
         pass
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
+
+
+@router.callback_query(F.data == "info_full")
+async def info_full_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
+    try:
+        await call.answer()
+    except Exception:
+        pass
+    try:
+        live = await hass.get_all_live()
+        status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
+        full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
+        full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
+        await call.message.answer(f"<b>📋 Полная информация по режиму</b>\n\n{full_text}", parse_mode=ParseMode.HTML)
+    except Exception as ex:
+        logger.error("info_full: %s", ex)
+        await call.message.answer("Не удалось загрузить данные.")
 
 
 @router.callback_query(F.data == "refresh")
