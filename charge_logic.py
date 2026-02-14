@@ -1524,7 +1524,7 @@ class ChargeController:
                 pass
 
         # --- ДЕСУЛЬФАТАЦИЯ ---
-        el        if self.current_stage == self.STAGE_DESULFATION:
+        elif self.current_stage == self.STAGE_DESULFATION:
             if elapsed >= 2 * 3600:
                 actions["log_event_end"] = self._make_log_event_end(
                     now, ah, voltage, current, temp, "Таймер 2ч"
