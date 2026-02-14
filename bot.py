@@ -245,6 +245,7 @@ custom_mode_confirm: Dict[int, Dict[str, Any]] = {}  # данные для по�
 last_ha_ok_time: float = 0.0
 link_lost_alert_sent: bool = False  # флаг-блокировка однократного уведомления о потере связи
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
+MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
 
 
@@ -1266,6 +1267,13 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
     i = _safe_float(live.get("current"))
     t = _safe_float(live.get("temp_ext"))
     ah_val = _safe_float(live.get("ah"))
+    if t < MIN_START_TEMP:
+        await message.answer(
+            f"❌ Заряд не запущен: температура внешнего датчика {t:.1f}°C ниже {MIN_START_TEMP:.0f}°C. "
+            "Прогрейте АКБ или помещение.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     charge_controller.start(profile, ah)
     # Устанавливаем стартовые уставки и OVP/OCP под новый профиль
     if battery_v < 12.0:
@@ -1528,7 +1536,13 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         i = _safe_float(live.get("current", 0.0))
         t = _safe_float(live.get("temp_ext", 25.0))
         ah_val = _safe_float(live.get("ah", 0.0))
-        
+        if t < MIN_START_TEMP:
+            await message.answer(
+                f"❌ Заряд не запущен: температура внешнего датчика {t:.1f}°C ниже {MIN_START_TEMP:.0f}°C. "
+                "Прогрейте АКБ или помещение.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
         # Запускаем контроллер в ручном режиме
         charge_controller.start_custom(
             main_voltage=params["main_voltage"],
@@ -1685,7 +1699,38 @@ async def info_full_handler(call: CallbackQuery) -> None:
         status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
-        await call.message.answer(f"<b>📋 Полная информация по режиму</b>\n\n{full_text}", parse_mode=ParseMode.HTML)
+        caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
+        # График как в краткой инфо
+        graph_since = (
+            charge_controller.total_start_time
+            if charge_controller.is_active and getattr(charge_controller, "total_start_time", None)
+            else None
+        )
+        limit_pts = 200 if graph_since else 100
+        times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
+        buf = generate_chart(times, voltages, currents)
+        photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
+        is_on = str(live.get("switch", "")).lower() == "on"
+        main_btn_text = "🛑 ОСТАНОВИТЬ" if is_on else "🚀 ЗАПУСТИТЬ"
+        kb_rows = [
+            [
+                InlineKeyboardButton(text="🔄 ОБНОВИТЬ", callback_data="refresh"),
+                InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
+            ],
+            [
+                InlineKeyboardButton(text="🧠 AI АНАЛИЗ", callback_data="ai_analysis"),
+                InlineKeyboardButton(text="📝 ЛОГИ СОБЫТИЙ", callback_data="logs"),
+            ],
+            [
+                InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
+                InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
+            ],
+        ]
+        ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+        if photo:
+            await call.message.answer_photo(photo=photo, caption=caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
+        else:
+            await call.message.answer(caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
     except Exception as ex:
         logger.error("info_full: %s", ex)
         await call.message.answer("Не удалось загрузить данные.")
