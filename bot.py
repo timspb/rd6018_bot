@@ -1357,6 +1357,19 @@ async def get_current_context_for_llm() -> str:
     return await get_ai_context()
 
 
+def _parse_two_numbers(text: str) -> Optional[tuple]:
+    """Парсит строку вида '16.50 1.4' (напряжение и ток). Возвращает (v, i) или None."""
+    parts = (text or "").strip().replace(",", ".").split()
+    if len(parts) != 2:
+        return None
+    try:
+        v = float(parts[0])
+        i = float(parts[1])
+        return (v, i)
+    except ValueError:
+        return None
+
+
 @router.message(F.text)
 async def text_message_handler(message: Message) -> None:
     """v2.6 Обработка текстовых сообщений: ввод ёмкости АКБ, ручной режим или режим диалога с LLM."""
@@ -1364,7 +1377,29 @@ async def text_message_handler(message: Message) -> None:
         return
     global awaiting_ah, custom_mode_state, last_chat_id, last_checkpoint_time
     user_id = message.from_user.id if message.from_user else 0
-    
+    text = (message.text or "").strip()
+
+    # Быстрая установка уставок: два числа через пробел — напряжение (В) и ток (А)
+    # Не перехватываем, если пользователь в диалоге выбора режима или ввода ёмкости
+    if not (user_id in custom_mode_state or awaiting_ah.get(user_id)):
+        parsed = _parse_two_numbers(text)
+        if parsed is not None:
+            v_set, i_set = parsed
+            if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= 18.0:
+                await hass.set_voltage(v_set)
+                await hass.set_current(i_set)
+                await message.answer(
+                    f"✅ <b>Уставки установлены:</b> {v_set:.2f} В | {i_set:.2f} А",
+                    parse_mode=ParseMode.HTML,
+                )
+                last_chat_id = message.chat.id
+                return
+            await message.answer(
+                "⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–18 А. Пример: <code>16.50 1.4</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
     # Проверяем ручной режим
     if user_id in custom_mode_state:
         await handle_custom_mode_input(message, user_id)
@@ -1522,6 +1557,30 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
     cancel_kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="custom_cancel")]]
     )
+    
+    # В шаге "voltage" допускаем ввод двух чисел через пробел: "16.50 1.4" (В и А)
+    if state == "voltage":
+        two = _parse_two_numbers(text)
+        if two is not None:
+            v_val, i_val = two
+            if 12.0 <= v_val <= 17.0 and 0.1 <= i_val <= 18.0:
+                custom_mode_data[user_id]["main_voltage"] = v_val
+                custom_mode_data[user_id]["main_current"] = i_val
+                custom_mode_state[user_id] = "delta"
+                custom_mode_confirm.pop(user_id, None)
+                await message.answer(
+                    f"✅ Main: {v_val:.1f}В / {i_val:.1f}А\n\n"
+                    "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
+                    "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=cancel_kb
+                )
+                return
+            await message.answer(
+                "⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–18 А. Введите заново (например 16.50 1.4):",
+                reply_markup=cancel_kb
+            )
+            return
     
     try:
         value = float(text.replace(",", "."))
