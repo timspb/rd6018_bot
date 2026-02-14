@@ -668,9 +668,15 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    # Блоки дашборда: под графиком — только 2 строки (режим/тип/время + V/I/T/CC-CV)
+    # Блоки дашборда: под графиком — одна короткая строка (статистика LIVE только в «Полная инфо»)
     status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
-    caption_short = f"{status_line}\n{live_line}"
+    short_status = (
+        status_line.replace(" Mix Mode ", " Mix ")
+        .replace(" Main Charge ", " Main ")
+        .replace("Десульфатация", "Desulf")
+        .replace("Безопасное ожидание", "Ожидание")
+    )
+    caption_short = short_status
     full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
     # График от начала до конца сессии заряда (одним непрерывным диапазоном)
@@ -1046,78 +1052,13 @@ async def cmd_start(message: Message) -> None:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
-    """Статистика и прогноз заряда с AI-аналитикой."""
+    """Статистика и прогноз перенесены в «Полная инфо»."""
     if not await _check_chat_and_respond(message):
         return
-    global last_chat_id
-    last_chat_id = message.chat.id
-    try:
-        live = await hass.get_all_live()
-        battery_v = _safe_float(live.get("battery_voltage"))
-        i = _safe_float(live.get("current"))
-        ah = _safe_float(live.get("ah"))
-        temp = _safe_float(live.get("temp_ext"))
-    except Exception as ex:
-        logger.error("cmd_stats get_live: %s", ex)
-        await message.answer("Ошибка получения данных с HA.")
-        return
-
-    if not charge_controller.is_active:
-        text = (
-            "📊 <b>СТАТИСТИКА ЗАРЯДА</b>\n"
-            "──────────────────\n"
-            "Заряд не активен.\n"
-            f"V: {battery_v:.2f}В | I: {i:.2f}А | Ah: {ah:.2f} | T: {temp:.1f}°C"
-        )
-        await message.answer(text)
-        return
-
-    stats = charge_controller.get_stats(battery_v, i, ah, temp)
-    health = stats.get("health_warning")
-    tech_block = (
-        "📊 <b>СТАТИСТИКА ЗАРЯДА</b>\n"
-        "──────────────────\n"
-        f"🔋 <b>Этап:</b> {stats['stage']}\n"
-        f"⏱ <b>В работе:</b> {stats['elapsed_time']}\n"
-        f"📥 <b>Залито:</b> {stats['ah_total']:.2f} Ач\n"
-        f"🌡 <b>Темп:</b> {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n\n"
-        "🔮 <b>ПРОГНОЗ:</b>\n"
-        f"Завершение через {stats['predicted_time']}\n"
-        f"<i>{stats['comment']}</i>\n\n"
+    await message.answer(
+        "📋 Статистика и прогноз заряда теперь в блоке <b>«Полная инфо»</b> — нажмите кнопку под графиком.",
+        parse_mode=ParseMode.HTML,
     )
-    ai_placeholder = "🤖 <b>Аналитика DeepSeek:</b> Думаю..."
-    text = tech_block + ai_placeholder
-    if health:
-        text += f"\n\n{health}"
-    sent = await message.answer(text)
-
-    # Принудительное обновление сенсоров перед формированием промпта для DeepSeek
-    try:
-        live = await hass.get_all_live()
-        battery_v = _safe_float(live.get("battery_voltage"))
-        i = _safe_float(live.get("current"))
-        ah = _safe_float(live.get("ah"))
-        temp = _safe_float(live.get("temp_ext"))
-    except Exception as ex:
-        logger.warning("cmd_stats update_sensors: %s", ex)
-    telemetry = charge_controller.get_telemetry_summary(battery_v, i, ah, temp)
-    ai_comment = await call_llm_analytics(telemetry)
-    if ai_comment:
-        new_text = tech_block + f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_comment}</i>"
-    else:
-        new_text = tech_block + "🤖 <b>Аналитика DeepSeek:</b> <i>Математический прогноз (API недоступен)</i>"
-    if health:
-        new_text += f"\n\n{health}"
-    try:
-        await sent.edit_text(new_text, parse_mode=ParseMode.HTML)
-    except Exception as ex:
-        logger.warning("cmd_stats edit_text: %s", ex)
-
-    # После запроса статистики обновляем дашборд, чтобы виджет меню был внизу чата
-    if message.from_user:
-        old_id = user_dashboard.get(message.from_user.id)
-        msg_id = await send_dashboard(message, old_msg_id=old_id)
-        user_dashboard[message.from_user.id] = msg_id
 
 
 async def get_ai_context() -> str:
@@ -1698,6 +1639,26 @@ async def info_full_handler(call: CallbackQuery) -> None:
         live = await hass.get_all_live()
         status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
+        # Статистика и прогноз заряда (из бывшего /stats)
+        battery_v = _safe_float(live.get("battery_voltage"))
+        i = _safe_float(live.get("current"))
+        ah = _safe_float(live.get("ah"))
+        temp = _safe_float(live.get("temp_ext"))
+        if charge_controller.is_active:
+            stats = charge_controller.get_stats(battery_v, i, ah, temp)
+            stats_block = (
+                "\n──────────────────\n"
+                "📊 <b>СТАТИСТИКА И ПРОГНОЗ</b>\n"
+                f"🔋 Этап: {stats['stage']}\n"
+                f"⏱ В работе: {stats['elapsed_time']}\n"
+                f"📥 Залито: {stats['ah_total']:.2f} Ач\n"
+                f"🌡 Темп: {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n"
+                f"🔮 Завершение через {stats['predicted_time']}\n"
+                f"<i>{stats['comment']}</i>"
+            )
+            if stats.get("health_warning"):
+                stats_block += f"\n\n{stats['health_warning']}"
+            full_text += stats_block
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
         caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
         # График как в краткой инфо
@@ -1983,7 +1944,6 @@ async def main() -> None:
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Открыть дашборд RD6018"),
-        BotCommand(command="stats", description="Статистика и прогноз заряда"),
     ])
     asyncio.create_task(data_logger())
     asyncio.create_task(charge_monitor())
