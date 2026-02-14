@@ -668,7 +668,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    # Блоки дашборда: под графиком — одна короткая строка (статистика LIVE только в «Полная инфо»)
+    # Блоки дашборда: под графиком — статус + живые V/I/T (полная статистика в «Полная инфо»)
     status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
     short_status = (
         status_line.replace(" Mix Mode ", " Mix ")
@@ -676,7 +676,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
         .replace("Десульфатация", "Desulf")
         .replace("Безопасное ожидание", "Ожидание")
     )
-    caption_short = short_status
+    caption_short = f"{short_status}\n{live_line}"
     full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
 
     # График от начала до конца сессии заряда (одним непрерывным диапазоном)
