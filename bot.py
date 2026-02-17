@@ -2480,10 +2480,10 @@ async def info_full_handler(call: CallbackQuery) -> None:
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
-        full_text += f"\n⏱ Таймер прибора (sensor.rd_6018_uptime): {_format_uptime_display(live.get('uptime'))}"
+        full_text += f"\n⏱ Таймер прибора: {_format_uptime_display(live.get('uptime'))}"
         ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
-        full_text += f"\n🛡 Защиты: OVP сработала — {'да' if ovp_tr else 'нет'}, OCP сработала — {'да' if ocp_tr else 'нет'}"
+        full_text += f"\n🛡 Защиты: OVP — {'да' if ovp_tr else 'нет'}, OCP — {'да' if ocp_tr else 'нет'}"
         # Статистика и прогноз заряда (из бывшего /stats)
         battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
