@@ -1035,10 +1035,13 @@ class ChargeController:
             actions["emergency_stop"] = True
             actions["log_event"] = "EMERGENCY_UNAVAILABLE"
             if self._last_known_output_on:
+                # Связь потеряна во время активного заряда: аварийно останавливаем,
+                # но не чистим файл сессии, чтобы можно было восстановиться после возврата связи.
                 msg = "⚠️ Связь потеряна во время заряда!"
                 actions["notify"] = msg
-                actions["full_reset"] = True
                 self.notify(msg)
+                if self.is_active:
+                    self.stop(clear_session=False)
             else:
                 # Выход был выключен — тихо в IDLE, сессию не чистим (можно восстановить при возврате связи)
                 self.stop(clear_session=False)

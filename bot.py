@@ -895,7 +895,10 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
 
     electrical_data = format_electrical_data(battery_v, i)
     temp_data = format_temperature_data(temp_ext, temp_int)
-    live_line = f"⚡️ LIVE: {electrical_data} | {mode} | {temp_data}"
+    
+    # На мобильных CV/CC и температура не помещаются в одну строку.
+    # Делаем компактный LIVE: первая строка — V/I, вторая — режим и температура с разделителем "·".
+    live_line = f"⚡️ LIVE: {electrical_data}\n{mode} · {temp_data}"
 
     stage_block = ""
     if charge_controller.is_active:
