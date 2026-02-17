@@ -627,26 +627,27 @@ def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> 
 
 def format_electrical_data(v: float, i: float, p: float = None, precision: int = 2) -> str:
     """Форматтер для электрических данных V/I/P с HTML-экранированием и точностью .2f."""
-    result = f"{v:.2f}В | {i:.2f}А"  # Принудительно .2f для всех V/I
+    # Разделитель между значениями — один пробел (без вертикальных черт).
+    result = f"{v:.2f}В {i:.2f}А"  # Принудительно .2f для всех V/I
     if p is not None:
-        result += f" | {p:.1f}Вт"
+        result += f" {p:.1f}Вт"
     return html.escape(result)
 
 
 def format_temperature_data(t_ext: float, t_int: float = None, warn_threshold: float = 50.0) -> str:
     """Форматтер для температурных данных с предупреждениями и HTML-экранированием."""
-    result = f"🌡 {t_ext:.1f}°C"
+    result = f"🌡{t_ext:.1f}°C"
     if t_int is not None and t_int > warn_threshold:
-        result += f" | ⚠️ Блок: {t_int:.1f}°C"
+        result += f" ⚠️ Блок: {t_int:.1f}°C"
     return html.escape(result)
 
 
 def format_status_data(is_on: bool, mode: str, stage: str = None) -> str:
     """Форматтер для статусных данных с HTML-экранированием."""
     status_emoji = "⚡️" if is_on else "⏸️"
-    result = f"{status_emoji} {mode}"
+    result = f"{status_emoji}{mode}"
     if stage:
-        result += f" | {html.escape(stage)}"
+        result += f" {html.escape(stage)}"
     return result
 
 
@@ -887,18 +888,18 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
         stage_name = html.escape(charge_controller.current_stage)
         battery_type = html.escape(charge_controller.battery_type)
         total_time = html.escape(timers["total_time"])
-        status_line = f"📊 СТАТУС: {status_emoji} {stage_name} | {battery_type} | ⏱ {total_time}"
+        # Все разделители — одиночные пробелы, без пробела после иконки.
+        status_line = f"📊СТАТУС: {status_emoji}{stage_name} {battery_type} ⏱ {total_time}"
     else:
-        status_line = f"📊 СТАТУС: 💤 Ожидание | АКБ: {battery_v:.2f}В"
+        status_line = f"📊СТАТУС: 💤Ожидание АКБ: {battery_v:.2f}В"
         if is_on and i > 0.05:
-            status_line += f" | ⚠️ Выход вкл {i:.2f}А, бот не управляет"
+            status_line += f" ⚠️ Выход вкл {i:.2f}А, бот не управляет"
 
     electrical_data = format_electrical_data(battery_v, i)
     temp_data = format_temperature_data(temp_ext, temp_int)
     
-    # На мобильных CV/CC и температура не помещаются в одну строку.
-    # Делаем компактный LIVE: первая строка — V/I, вторая — режим и температура с разделителем "·".
-    live_line = f"⚡️ LIVE: {electrical_data}\n{mode} · {temp_data}"
+    # Вторая строка: ⚡️LIVE: CV 14.80В 0.61А 🌡24.0°C
+    live_line = f"⚡️LIVE: {mode} {electrical_data} {temp_data}"
 
     stage_block = ""
     if charge_controller.is_active:
