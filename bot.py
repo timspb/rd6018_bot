@@ -886,6 +886,11 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
         timers = charge_controller.get_timers()
         status_emoji = "⚡️" if (is_on and i > 0.05) else "⏸️"
         stage_name = html.escape(charge_controller.current_stage)
+        # Для краткого статуса убираем лишние слова, чтобы строка помещалась на мобильном.
+        if stage_name == "Main Charge":
+            stage_name = "Main"
+        elif stage_name == "Mix Mode":
+            stage_name = "Mix"
         battery_type = html.escape(charge_controller.battery_type)
         total_time = html.escape(timers["total_time"])
         # Все разделители — одиночные пробелы, без пробела после иконки.
