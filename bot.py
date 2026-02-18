@@ -2483,7 +2483,9 @@ async def info_full_handler(call: CallbackQuery) -> None:
     try:
         live = await hass.get_all_live()
         status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
-        full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
+        # В полной инфо показываем полные названия этапов (Main Charge, Mix Mode)
+        full_status = status_line.replace(" Main ", " Main Charge ").replace(" Mix ", " Mix Mode ")
+        full_text = f"{full_status}\n{live_line}{stage_block}\n{capacity_line}"
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
