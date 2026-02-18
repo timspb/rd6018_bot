@@ -1980,16 +1980,17 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         schedule_dashboard_after_60(message.chat.id, user_id)
         return
     charge_controller.start(profile, ah)
-    # Устанавливаем стартовые уставки и OVP/OCP под новый профиль
+    # Сначала OVP/OCP, затем уставки — иначе прибор может не дать включить выход
     if battery_v < 12.0:
         uv, ui = 12.0, 0.5
     else:
         uv, ui = charge_controller._main_target()
-
+    if ENTITY_MAP.get("ovp"):
+        await hass.set_ovp(uv + OVP_OFFSET)
+    if ENTITY_MAP.get("ocp"):
+        await hass.set_ocp(ui + OCP_OFFSET)
     await hass.set_voltage(uv)
     await hass.set_current(ui)
-    await hass.set_ovp(uv + OVP_OFFSET)
-    await hass.set_ocp(ui + OCP_OFFSET)
     await hass.turn_on(ENTITY_MAP["switch"])
     last_checkpoint_time = time.time()
     # Лог "Подготовка: START" пишется при первом tick()
@@ -2296,11 +2297,13 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
             ah_capacity=int(params["capacity"])
         )
         
-        # Устанавливаем параметры на RD6018 и сбрасываем OVP/OCP под пользовательский профиль
+        # Сначала выставляем OVP/OCP, затем U/I — иначе прибор может не дать включить выход после предыдущих настроек
+        if ENTITY_MAP.get("ovp"):
+            await hass.set_ovp(params["main_voltage"] + OVP_OFFSET)
+        if ENTITY_MAP.get("ocp"):
+            await hass.set_ocp(params["main_current"] + OCP_OFFSET)
         await hass.set_voltage(params["main_voltage"])
         await hass.set_current(params["main_current"])
-        await hass.set_ovp(params["main_voltage"] + OVP_OFFSET)
-        await hass.set_ocp(params["main_current"] + OCP_OFFSET)
         await hass.turn_on(ENTITY_MAP["switch"])
         
         last_checkpoint_time = time.time()

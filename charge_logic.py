@@ -65,8 +65,8 @@ HIGH_V_FAST_TIMEOUT = 60  # сек — при U>15В: нет данных 60 с�
 HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watchdog
 
 # Активная безопасность: OVP/OCP (v2.0: при каждой смене этапа)
-OVP_OFFSET = 0.5  # В — OVP = U_target + 0.5V
-OCP_OFFSET = 0.5  # А — OCP = I_limit + 0.5A
+OVP_OFFSET = 0.2  # В — OVP = U_target + 0.2V
+OCP_OFFSET = 0.2  # А — OCP = I_limit + 0.2A
 # Температура: ТОЛЬКО внешний датчик (АКБ). 35/40/45 — три уровня.
 TEMP_WARNING = 35.0  # °C — предупреждение в Telegram (один раз за сессию)
 TEMP_PAUSE = 40.0    # °C — пауза заряда (Output OFF), возврат при 35°C
@@ -179,7 +179,7 @@ class ChargeController:
         self._custom_time_limit_hours: float = 24.0
 
     def _add_phase_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
-        """v2.0: Добавить OVP/OCP в actions при смене фазы. OVP = U_target + 0.5V, OCP = I_limit + 0.5A."""
+        """v2.0: Добавить OVP/OCP в actions при смене фазы. OVP = U_target + 0.2V, OCP = I_limit + 0.2A."""
         actions["set_ovp"] = target_v + OVP_OFFSET
         actions["set_ocp"] = target_i + OCP_OFFSET
         self._phase_current_limit = target_i
