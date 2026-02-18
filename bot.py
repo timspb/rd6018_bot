@@ -861,7 +861,7 @@ def format_log_event(event_line: str) -> str:
 def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     """
     Построить блоки текста дашборда по данным live.
-    Возвращает (status_line, live_line, stage_block, capacity_line).
+    Возвращает (status_line, live_line, stage_block, capacity_line, idle_warning).
     """
     battery_v = _safe_float(live.get("battery_voltage"))
     set_v = _safe_float(live.get("set_voltage"))
@@ -897,8 +897,10 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
         status_line = f"📊СТАТУС: {status_emoji}{stage_name} {battery_type} ⏱ {total_time}"
     else:
         status_line = f"📊СТАТУС: 💤Ожидание АКБ: {battery_v:.2f}В"
-        if is_on and i > 0.05:
-            status_line += f" ⚠️ Выход вкл {i:.2f}А, бот не управляет"
+    # Предупреждение внизу: выход включён и ток идёт, но бот не ведёт заряд (сессия/этапы). Таймер «выкл по условию» при этом сработает.
+    idle_warning = ""
+    if not charge_controller.is_active and is_on and i > 0.05:
+        idle_warning = f"⚠️ Выход вкл {i:.2f}А, бот не ведёт заряд"
 
     electrical_data = format_electrical_data(battery_v, i)
     temp_data = format_temperature_data(temp_ext, temp_int)
@@ -970,7 +972,7 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
         )
 
     capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
-    return status_line, live_line, stage_block, capacity_line
+    return status_line, live_line, stage_block, capacity_line, idle_warning
 
 
 async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Optional[int] = None) -> int:
@@ -998,7 +1000,7 @@ async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Opti
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
+    status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
     short_status = (
         status_line.replace(" Mix Mode ", " Mix ")
         .replace(" Main Charge ", " Main ")
@@ -1009,6 +1011,8 @@ async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Opti
     off_line = _format_manual_off_for_dashboard()
     if off_line:
         caption_short += f"\n{off_line}"
+    if idle_warning:
+        caption_short += f"\n{idle_warning}"
 
     graph_since = (
         charge_controller.total_start_time
@@ -2478,7 +2482,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
         pass
     try:
         live = await hass.get_all_live()
-        status_line, live_line, stage_block, capacity_line = _build_dashboard_blocks(live)
+        status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
         off_line = _format_manual_off_for_dashboard()
         if off_line:
@@ -2507,6 +2511,8 @@ async def info_full_handler(call: CallbackQuery) -> None:
             if stats.get("health_warning"):
                 stats_block += f"\n\n{stats['health_warning']}"
             full_text += stats_block
+        if idle_warning:
+            full_text += f"\n{idle_warning}"
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
         caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
         # График как в краткой инфо
