@@ -184,10 +184,11 @@ def get_recent_events(limit: int = 5) -> list:
     """
     v2.7 Получить последние N событий ТЕКУЩЕЙ сессии из лога.
 
-    Лог-файл хранит историю всех зарядов, но для отображения пользователю и AI-контекста
-    показываем только события с момента последнего старта:
-    - строка содержит 'START profile=' (авто-профиль)
-    - или 'START CUSTOM' (ручной режим)
+    Сессия начинается с последнего из:
+    - START с profile= или START CUSTOM (новый заряд)
+    - RESTORE (восстановление после потери связи)
+    - START сразу после END (новый цикл после завершения этапа/ручного выкл)
+    Так старые сессии не попадают в выборку.
     """
     if not os.path.exists(LOG_FILE):
         return []
@@ -196,11 +197,18 @@ def get_recent_events(limit: int = 5) -> list:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
-        # Находим последнюю строку начала сессии (START ... profile=... или START CUSTOM)
+        # Ищем последнюю границу сессии: новый старт или восстановление
         start_idx = -1
         for idx, line in enumerate(lines):
             if ("START" in line and "profile=" in line) or "START CUSTOM" in line:
                 start_idx = idx
+            elif "RESTORE" in line:
+                start_idx = idx
+            elif "END " in line and idx + 1 < len(lines):
+                next_line = lines[idx + 1]
+                if "START" in next_line:
+                    start_idx = idx + 1
+                # иначе оставляем предыдущий start_idx
         
         if start_idx != -1:
             session_lines = lines[start_idx:]
@@ -214,7 +222,6 @@ def get_recent_events(limit: int = 5) -> list:
             if line and "CHECKPOINT" not in line:
                 significant_events.append(line)
         
-        # Возвращаем последние N событий
         return significant_events[-limit:] if significant_events else []
     except Exception:
         return []

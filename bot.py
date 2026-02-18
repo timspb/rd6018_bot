@@ -1607,7 +1607,14 @@ async def cmd_entities(message: Message) -> None:
         for r in rows:
             key = html.escape(r["key"])
             eid = html.escape(r["entity_id"])
-            state = html.escape(str(r["state"]))
+            state_raw = r["state"]
+            if r["status"] == "ok" and state_raw is not None:
+                try:
+                    state = html.escape(f"{float(state_raw):.3f}")
+                except (TypeError, ValueError):
+                    state = html.escape(str(state_raw))
+            else:
+                state = html.escape(str(state_raw) if state_raw is not None else "")
             unit = html.escape(r["unit"] or "")
             status = r["status"]
             if status == "ok":
@@ -2766,7 +2773,7 @@ async def logs_handler(call: CallbackQuery) -> None:
     # Получаем реальные события из лога заряда
     from charging_log import get_recent_events
     try:
-        recent_events = get_recent_events(20)  # Берем больше событий для фильтрации
+        recent_events = get_recent_events(50)  # текущая сессия (от последнего START/RESTORE/END+START)
         if not recent_events:
             text = "<b>📝 Логи событий</b>\n\nНет событий."
         else:
@@ -2774,7 +2781,7 @@ async def logs_handler(call: CallbackQuery) -> None:
             filtered_events = _remove_duplicate_events(recent_events)
             
             lines = ["<b>📝 Логи событий</b>\n"]
-            for event in filtered_events[-15:]:  # Берем последние 15 после фильтрации
+            for event in filtered_events[-25:]:  # последние 25 после фильтрации
                 # Парсим строку события для красивого форматирования
                 formatted_event = format_log_event(event)
                 if formatted_event.strip():  # Пропускаем пустые строки
