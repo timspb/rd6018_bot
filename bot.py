@@ -2584,7 +2584,14 @@ async def entities_status_handler(call: CallbackQuery) -> None:
         lines.append(f"✅ Доступно: {ok_count}/{len(rows)}\n")
         for r in rows:
             key = html.escape(r["key"])
-            state = html.escape(str(r["state"]))
+            state_raw = r["state"]
+            if r["status"] == "ok" and state_raw is not None:
+                try:
+                    state = html.escape(f"{float(state_raw):.3f}")
+                except (TypeError, ValueError):
+                    state = html.escape(str(state_raw))
+            else:
+                state = html.escape(str(state_raw) if state_raw is not None else "")
             unit = html.escape(r["unit"] or "")
             status = r["status"]
             if status == "ok":
