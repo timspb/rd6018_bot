@@ -808,7 +808,8 @@ def _format_uptime_display(uptime_raw) -> str:
     if "T" in s and "-" in s:
         try:
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            start_str = dt.strftime("%d.%m.%Y %H:%M")
+            # Показываем старт в пользовательском часовом поясе, чтобы не было расхождения с "прошло".
+            start_str = format_time_user_tz(dt, "%d.%m.%Y %H:%M")
             elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
             if elapsed is not None and 0 <= elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
                 h, m = int(elapsed // 3600), int((elapsed % 3600) // 60)
@@ -1230,6 +1231,64 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     return status_line, live_line, stage_block, capacity_line, idle_warning
 
 
+def _strip_html_tags(text: str) -> str:
+    """Убрать HTML-теги и нормализовать пробелы для компактного текста."""
+    plain = re.sub(r"<[^>]+>", "", text or "")
+    plain = plain.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    return re.sub(r"\s+", " ", plain).strip()
+
+
+def _compact_dashboard_caption(
+    live: Dict[str, Any],
+    chart_mode: str,
+    mode: str,
+    idle_warning: str,
+) -> str:
+    """Короткая подпись дашборда для мобильного экрана."""
+    battery_v = _safe_float(live.get("battery_voltage"))
+    current = _safe_float(live.get("current"))
+    ah = _safe_float(live.get("ah"))
+    temp_ext = _safe_float(live.get("temp_ext"))
+    is_on = str(live.get("switch", "")).lower() == "on"
+    ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
+    ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
+
+    lines = []
+    if charge_controller.is_active:
+        timers = charge_controller.get_timers()
+        profile = charge_controller.battery_type
+        stage_name = _stage_label(charge_controller.current_stage, short=True)
+        remaining = timers.get("remaining_time", "—")
+        lines.append(f"📊 RD6018 · {profile}")
+        lines.append(f"Стадия: {stage_name}")
+        lines.append(f"V: {battery_v:.2f}V  I: {current:.2f}A")
+        lines.append(f"Ah: {ah:.2f}  T: {temp_ext:.1f}°C")
+        lines.append(f"Режим: {mode}  ETA: {remaining}")
+    else:
+        state_label = "Готов" if is_on else "Ожидание"
+        lines.append(f"📊 RD6018 · {state_label}")
+        lines.append(f"АКБ: {battery_v:.2f}V  I: {current:.2f}A")
+        lines.append(f"Ah: {ah:.2f}  T: {temp_ext:.1f}°C")
+        lines.append(f"Режим: {mode}")
+
+    alerts = []
+    off_line = _format_manual_off_for_dashboard()
+    if off_line:
+        alerts.append("⏹ Off: активно")
+    if ovp_tr or ocp_tr:
+        alerts.append(f"🛡 OVP:{'ON' if ovp_tr else 'off'} OCP:{'ON' if ocp_tr else 'off'}")
+    if idle_warning:
+        alerts.append("⚠ Ручной режим на приборе")
+
+    if alerts:
+        lines.append(" | ".join(alerts))
+    else:
+        lines.append("✅ Норма")
+
+    lines.append(f"📈 {_chart_label(chart_mode)}")
+    return "\n".join(_strip_html_tags(line) for line in lines if line)
+
+
 async def _build_and_send_dashboard(
     chat_id: int,
     user_id: int,
@@ -1260,22 +1319,19 @@ async def _build_and_send_dashboard(
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
-    caption_short = f"{status_line}\n{live_line}"
-    off_line = _format_manual_off_for_dashboard()
-    if off_line:
-        caption_short += f"\n{off_line}"
-    if idle_warning:
-        caption_short += f"\n{idle_warning}"
-
+    _, _, _, _, idle_warning = _build_dashboard_blocks(live)
     chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
     times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
     ikb = _build_dashboard_keyboard(is_on, user_id)
-    clean_caption = caption_short.replace('<hr>', '___________________').replace('<hr/>', '___________________').replace('<hr />', '___________________')
-    clean_caption += f"\n📈 Окно графика: {_chart_label(chart_mode)}"
+    clean_caption = _compact_dashboard_caption(
+        live=live,
+        chart_mode=chart_mode,
+        mode=mode,
+        idle_warning=idle_warning,
+    )
 
     target_msg_id = old_msg_id or anchor_msg_id
     if target_msg_id:
@@ -2961,7 +3017,6 @@ async def info_full_handler(call: CallbackQuery) -> None:
             full_text += stats_block
         if idle_warning:
             full_text += f"\n{idle_warning}"
-        full_text += "\n\nℹ️ AI вынесен в отдельный экран кнопкой «🧠 AI анализ»."
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
         caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
         user_id = call.from_user.id if call.from_user else 0
