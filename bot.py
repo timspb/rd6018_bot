@@ -1808,6 +1808,7 @@ async def data_logger() -> None:
                         if allow_turn_on:
                             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                                await _apply_phase_protection(uv, ui)
                                 await hass.set_voltage(uv)
                                 await hass.set_current(_cap_current(ui))
                                 await hass.turn_off(ENTITY_MAP["switch"])
@@ -1869,6 +1870,7 @@ async def data_logger() -> None:
                         last_checkpoint_time = time.time()
                         if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                             uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                            await _apply_phase_protection(uv, ui)
                             await hass.turn_off(ENTITY_MAP["switch"])
                         else:
                             uv, ui = charge_controller._get_target_v_i()
@@ -3307,6 +3309,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         if allow_turn_on:
             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                await _apply_phase_protection(uv, ui)
                 await hass.set_voltage(uv)
                 await hass.set_current(_cap_current(ui))
                 await hass.turn_off(ENTITY_MAP["switch"])
@@ -3410,14 +3413,29 @@ async def logs_handler(call: CallbackQuery) -> None:
     text = _build_logs_text()
     user_id = call.from_user.id if call.from_user else 0
     is_on = await _safe_output_on()
-    sent = await call.message.answer(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
-    )
-    if user_id:
-        user_dashboard[user_id] = sent.message_id
-    chat_dashboard[call.message.chat.id] = sent.message_id
+    ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
+    try:
+        await call.message.edit_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=ikb,
+        )
+        if user_id:
+            user_dashboard[user_id] = call.message.message_id
+        chat_dashboard[call.message.chat.id] = call.message.message_id
+    except Exception:
+        sent = await call.message.answer(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=ikb,
+        )
+        if user_id:
+            user_dashboard[user_id] = sent.message_id
+        chat_dashboard[call.message.chat.id] = sent.message_id
+        try:
+            await bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
@@ -3429,18 +3447,42 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
+    status_msg = call.message
+    try:
+        await status_msg.edit_text("⏳ Анализирую...", parse_mode=ParseMode.HTML)
+    except Exception:
+        status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
     result_text = await _build_ai_analysis_text()
     user_id = call.from_user.id if call.from_user else 0
     is_on = await _safe_output_on()
-    await status_msg.edit_text(
-        result_text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
-    )
-    if user_id:
-        user_dashboard[user_id] = status_msg.message_id
-    chat_dashboard[call.message.chat.id] = status_msg.message_id
+    ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
+    try:
+        await status_msg.edit_text(
+            result_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=ikb,
+        )
+        if user_id:
+            user_dashboard[user_id] = status_msg.message_id
+        chat_dashboard[call.message.chat.id] = status_msg.message_id
+        if status_msg.message_id != call.message.message_id:
+            try:
+                await bot.delete_message(call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
+    except Exception:
+        sent = await call.message.answer(
+            result_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=ikb,
+        )
+        if user_id:
+            user_dashboard[user_id] = sent.message_id
+        chat_dashboard[call.message.chat.id] = sent.message_id
+        try:
+            await bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
@@ -3479,6 +3521,7 @@ async def main() -> None:
             if allow_turn_on:
                 if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                     uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                    await _apply_phase_protection(uv, ui)
                     await hass.set_voltage(uv)
                     await hass.set_current(_cap_current(ui))
                     await hass.turn_off(ENTITY_MAP["switch"])
