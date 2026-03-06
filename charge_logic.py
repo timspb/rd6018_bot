@@ -1460,15 +1460,22 @@ class ChargeController:
                         self.stage_start_time = now
                         self._stage_start_ah = ah
                         self._reset_delta_and_blanking(now)
-                        _log_trigger(prev, self.current_stage, "CA_EFB_I_stuck_0.3A", f"Fact: {current:.2f}A for {stuck_mins}min, attempt #{self.antisulfate_count}")
+                        _log_trigger(
+                            prev,
+                            self.current_stage,
+                            "CA_EFB_I_stuck_0.3A",
+                            f"Факт: {current:.2f}А в течение {stuck_mins} мин, попытка #{self.antisulfate_count}",
+                        )
                         dv, di = self._desulf_target()
                         actions["set_voltage"] = dv
                         actions["set_current"] = di
                         self._add_phase_limits(actions, dv, di)
                         actions["notify"] = (
-                            f"🔧 <b>{self.battery_type} Desulfation #{self.antisulfate_count}</b>\n\n"
-                            f"Current stuck at/above <code>{DESULF_CURRENT_STUCK}</code>A for <code>{stuck_mins}</code> min. "
-                            f"<code>{dv:.1f}</code>V / <code>{di:.2f}</code>A for 2h."
+                            f"🔧 <b>{self.battery_type}: десульфатация #{self.antisulfate_count}</b>\n\n"
+                            f"Ток держится на уровне <code>{DESULF_CURRENT_STUCK:.1f}А</code> и выше уже "
+                            f"<code>{stuck_mins}</code> мин.\n"
+                            f"Запускаю этап десульфатации: <code>{dv:.1f}В</code> / <code>{di:.2f}А</code> "
+                            f"на <code>2 часа</code>."
                         )
                         actions["log_event"] = "START"
                     elif self.antisulfate_count >= ANTISULFATE_MAX_CA_EFB and stuck_mins >= MAIN_MIX_STUCK_CV_MIN:
@@ -1488,8 +1495,8 @@ class ChargeController:
                         actions["set_current"] = mxi
                         self._add_phase_limits(actions, mxv, mxi)
                         actions["notify"] = (
-                            f"<b>⏱ Desulfation limit reached ({ANTISULFATE_MAX_CA_EFB}).</b> "
-                            f"Switching to Mix Mode after {stuck_mins} min of high CV current."
+                            f"<b>⏱ Достигнут лимит циклов десульфатации ({ANTISULFATE_MAX_CA_EFB}).</b> "
+                            f"Переход в Mix Mode после {stuck_mins} мин повышенного тока в CV."
                         )
                         actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
                 else:
