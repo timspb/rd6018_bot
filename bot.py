@@ -574,10 +574,10 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
             InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
             InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
         ],
-        chart_buttons,
     ]
     if back_to_dashboard:
         rows.append([InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")])
+    rows.append(chart_buttons)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
