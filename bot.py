@@ -35,6 +35,7 @@ from charge_logic import (
     DELTA_V_EXIT,
     HIGH_V_FAST_TIMEOUT,
     HIGH_V_THRESHOLD,
+    MAX_STAGE_CURRENT,
     WATCHDOG_TIMEOUT,
     OVP_OFFSET,
     OCP_OFFSET,
@@ -47,6 +48,7 @@ from config import (
     ENTITY_MAP,
     HA_URL,
     HA_TOKEN,
+    MAX_VOLTAGE,
     MIN_INPUT_VOLTAGE,
     TEMP_INT_PRECRITICAL,
     TG_TOKEN,
@@ -329,7 +331,7 @@ def _parse_off_command(text: str) -> Optional[Dict[str, Any]]:
     V>=16.4 / V<=13.2 — по напряжению (достигнет ≥ или снизится до ≤);
     I<=1.23 / I>=2 — по току (достигнет ≤ или достигнет ≥);
     2:23 — таймер.
-    Без префикса: число 12–18 В → V>=, 0.1–18 А → I<= (как раньше).
+    Без префикса: число 12–18 В → V>=, 0.1–12 А → I<= (как раньше).
     """
     t = (text or "").strip().replace(",", ".")
     if not t.lower().startswith("off "):
@@ -380,14 +382,14 @@ def _parse_off_command(text: str) -> Optional[Dict[str, Any]]:
         elif tok.startswith("i>="):
             try:
                 current_ge = float(tok[3:].strip())
-                if 0 < current_ge <= 18:
+                if 0 < current_ge <= MAX_STAGE_CURRENT:
                     parts.append(f"I≥{current_ge:.2f} А")
             except ValueError:
                 continue
         elif tok.startswith("i<="):
             try:
                 current_le = float(tok[3:].strip())
-                if 0 < current_le <= 18:
+                if 0 < current_le <= MAX_STAGE_CURRENT:
                     parts.append(f"I≤{current_le:.2f} А")
             except ValueError:
                 continue
@@ -397,7 +399,7 @@ def _parse_off_command(text: str) -> Optional[Dict[str, Any]]:
                 if 12.0 <= val <= 18.0:
                     voltage_ge = val
                     parts.append(f"{val:.1f} В (V≥)")
-                elif 0.1 <= val <= 18.0:
+                elif 0.1 <= val <= MAX_STAGE_CURRENT:
                     current_le = val
                     parts.append(f"{val:.2f} А (I≤)")
                 else:
@@ -676,6 +678,38 @@ def _safe_float(val, default: float = 0.0) -> float:
         return float(val)
     except (ValueError, TypeError):
         return default
+
+
+def _cap_current(value: float) -> float:
+    return min(MAX_STAGE_CURRENT, max(0.1, float(value)))
+
+
+async def _apply_phase_protection(uv: float, ui: float) -> None:
+    """Set OVP/OCP for target limits before output ON."""
+    if ENTITY_MAP.get("ovp"):
+        await hass.set_ovp(float(uv) + OVP_OFFSET)
+    if ENTITY_MAP.get("ocp"):
+        await hass.set_ocp(_cap_current(ui) + OCP_OFFSET)
+
+
+IDLE_SAFE_OVP = MAX_VOLTAGE + OVP_OFFSET
+# Hard cap for all charge stages.
+IDLE_SAFE_OCP = MAX_STAGE_CURRENT
+
+
+async def _apply_idle_protection() -> None:
+    """Reset OVP/OCP to wide safe values after full stop."""
+    if ENTITY_MAP.get("ovp"):
+        await hass.set_ovp(IDLE_SAFE_OVP)
+    if ENTITY_MAP.get("ocp"):
+        await hass.set_ocp(IDLE_SAFE_OCP)
+
+
+async def _hard_stop_charge(clear_session: bool = True) -> None:
+    """Output OFF + safe protection reset + controller stop."""
+    await hass.turn_off(ENTITY_MAP["switch"])
+    await _apply_idle_protection()
+    charge_controller.stop(clear_session=clear_session)
 
 
 def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
@@ -1357,8 +1391,7 @@ async def soft_watchdog_loop() -> None:
                     )
                 except Exception:
                     pass
-                await hass.turn_off(ENTITY_MAP["switch"])
-                charge_controller.stop()
+                await _hard_stop_charge()
         except Exception as ex:
             logger.error("soft_watchdog_loop: %s", ex)
 
@@ -1395,8 +1428,7 @@ async def watchdog_loop() -> None:
                     ah,
                     "WATCHDOG_TIMEOUT",
                 )
-                await hass.turn_off(ENTITY_MAP["switch"])
-                charge_controller.stop()
+                await _hard_stop_charge()
                 continue
 
             if v > HIGH_V_THRESHOLD and delta >= HIGH_V_FAST_TIMEOUT:
@@ -1412,8 +1444,7 @@ async def watchdog_loop() -> None:
                     ah,
                     "WATCHDOG_HIGH_V",
                 )
-                await hass.turn_off(ENTITY_MAP["switch"])
-                charge_controller.stop()
+                await _hard_stop_charge()
                 charge_controller.emergency_hv_disconnect = True
         except Exception as ex:
             logger.error("watchdog_loop: %s", ex)
@@ -1532,8 +1563,7 @@ async def data_logger() -> None:
                 if ocp_triggered:
                     log_event(charge_controller.current_stage, battery_v, i, t, ah, "OCP_TRIGGERED")
                     _charge_notify("🛑 Сработала защита OCP (переток). Выход выключен.")
-                await hass.turn_off(ENTITY_MAP["switch"])
-                charge_controller.stop()
+                await _hard_stop_charge()
             
             # Предкритическая температура блока: выключение выхода
             if (output_on or charge_controller.is_active) and temp_int >= TEMP_INT_PRECRITICAL:
@@ -1549,8 +1579,7 @@ async def data_logger() -> None:
                     f"🌡 Температура блока {temp_int:.0f}°C ≥ {TEMP_INT_PRECRITICAL:.0f}°C. "
                     "Выход выключен для защиты БП."
                 )
-                await hass.turn_off(ENTITY_MAP["switch"])
-                charge_controller.stop()
+                await _hard_stop_charge()
             
             # Команда off: выключить по напряжению / току / таймеру (защиты не отключаются)
             if output_on and _has_manual_off_condition():
@@ -1586,8 +1615,7 @@ async def data_logger() -> None:
                 if off_reason:
                     log_event(charge_controller.current_stage, battery_v, i, t, ah, f"MANUAL_OFF_{off_reason[:30]}")
                     _charge_notify(f"⏹ Выключено по условию: {off_reason}")
-                    await hass.turn_off(ENTITY_MAP["switch"])
-                    charge_controller.stop()
+                    await _hard_stop_charge()
                     _clear_manual_off()
             
             await add_record(battery_v, i, p, t)
@@ -1608,11 +1636,13 @@ async def data_logger() -> None:
                             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                                 await hass.set_voltage(uv)
-                                await hass.set_current(ui)
+                                await hass.set_current(_cap_current(ui))
+                                await hass.turn_off(ENTITY_MAP["switch"])
                             else:
                                 uv, ui = charge_controller._get_target_v_i()
+                                await _apply_phase_protection(uv, ui)
                                 await hass.set_voltage(uv)
-                                await hass.set_current(ui)
+                                await hass.set_current(_cap_current(ui))
                                 await hass.turn_on(ENTITY_MAP["switch"])
                             log_event(
                                 charge_controller.current_stage,
@@ -1666,10 +1696,12 @@ async def data_logger() -> None:
                         last_checkpoint_time = time.time()
                         if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                             uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                            await hass.turn_off(ENTITY_MAP["switch"])
                         else:
                             uv, ui = charge_controller._get_target_v_i()
+                            await _apply_phase_protection(uv, ui)
                         await hass.set_voltage(uv)
-                        await hass.set_current(ui)
+                        await hass.set_current(_cap_current(ui))
                         log_event(
                             charge_controller.current_stage,
                             battery_v,
@@ -1737,22 +1769,23 @@ async def data_logger() -> None:
 
             if actions.get("emergency_stop"):
                 await hass.turn_off(ENTITY_MAP["switch"])
+                await _apply_idle_protection()
                 if actions.get("full_reset"):
                     charge_controller.full_reset()
                 # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
             elif charge_controller.is_active:
                 if actions.get("turn_off"):
                     await hass.turn_off(ENTITY_MAP["switch"])
-                if actions.get("turn_on"):
-                    await hass.turn_on(ENTITY_MAP["switch"])
-                if actions.get("set_voltage") is not None:
-                    await hass.set_voltage(float(actions["set_voltage"]))
-                if actions.get("set_current") is not None:
-                    await hass.set_current(float(actions["set_current"]))
                 if actions.get("set_ovp") is not None and ENTITY_MAP.get("ovp"):
                     await hass.set_ovp(float(actions["set_ovp"]))
                 if actions.get("set_ocp") is not None and ENTITY_MAP.get("ocp"):
-                    await hass.set_ocp(float(actions["set_ocp"]))
+                    await hass.set_ocp(min(float(actions["set_ocp"]), MAX_STAGE_CURRENT + OCP_OFFSET))
+                if actions.get("set_voltage") is not None:
+                    await hass.set_voltage(float(actions["set_voltage"]))
+                if actions.get("set_current") is not None:
+                    await hass.set_current(_cap_current(float(actions["set_current"])))
+                if actions.get("turn_on"):
+                    await hass.turn_on(ENTITY_MAP["switch"])
 
         except Exception as ex:
             err_str = str(ex).lower()
@@ -1780,6 +1813,7 @@ async def data_logger() -> None:
                 
                 try:
                     await hass.turn_off(ENTITY_MAP["switch"])
+                    await _apply_idle_protection()
                 except Exception:
                     pass
                 
@@ -2110,7 +2144,7 @@ def _parse_three_values(text: str) -> Optional[Dict[str, Any]]:
         last_char = (raw3[-1].upper() if len(raw3) > 1 else "")
         if last_char in ("A", "А"):  # A (Latin) или А (Cyrillic)
             val = float(third)
-            if 0.1 <= val <= 18.0:
+            if 0.1 <= val <= MAX_STAGE_CURRENT:
                 return {"v": v, "i": i, "off_current": val}
             return None
         # Напряжение: 15V / 15В (латиница или кириллица) — выкл по достижении напряжения
@@ -2182,9 +2216,9 @@ async def text_message_handler(message: Message) -> None:
         three = _parse_three_values(text)
         if three is not None:
             v_set, i_set = three["v"], three["i"]
-            if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= 18.0:
+            if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
                 ok_v = await hass.set_voltage(v_set)
-                ok_i = await hass.set_current(i_set)
+                ok_i = await hass.set_current(_cap_current(i_set))
                 manual_off_voltage = None
                 manual_off_voltage_le = None
                 manual_off_current = None
@@ -2220,7 +2254,7 @@ async def text_message_handler(message: Message) -> None:
                 schedule_dashboard_after_60(message.chat.id, user_id)
                 return
             else:
-                await message.answer("Диапазоны: напряжение 12–17 В, ток 0.1–18 А.")
+                await message.answer(f"Диапазоны: напряжение 12–17 В, ток 0.1–{MAX_STAGE_CURRENT:.1f} А.")
                 last_chat_id = message.chat.id
                 schedule_dashboard_after_60(message.chat.id, user_id)
                 return
@@ -2231,9 +2265,9 @@ async def text_message_handler(message: Message) -> None:
         parsed = _parse_two_numbers(text)
         if parsed is not None:
             v_set, i_set = parsed
-            if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= 18.0:
+            if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
                 ok_v = await hass.set_voltage(v_set)
-                ok_i = await hass.set_current(i_set)
+                ok_i = await hass.set_current(_cap_current(i_set))
                 if not ok_v or not ok_i:
                     await message.answer(
                         f"⚠️ Ошибка отправки в HA: напряжение — {'ок' if ok_v else 'ошибка'}, ток — {'ок' if ok_i else 'ошибка'}. Проверьте связь с Home Assistant.",
@@ -2265,7 +2299,7 @@ async def text_message_handler(message: Message) -> None:
                 schedule_dashboard_after_60(message.chat.id, user_id)
                 return
             await message.answer(
-                "⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–18 А. Пример: <code>16.50 1.4</code>",
+                        f"⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–{MAX_STAGE_CURRENT:.1f} А. Пример: <code>16.50 1.4</code>",
                 parse_mode=ParseMode.HTML,
             )
             schedule_dashboard_after_60(message.chat.id, user_id)
@@ -2335,9 +2369,9 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
     if ENTITY_MAP.get("ovp"):
         await hass.set_ovp(uv + OVP_OFFSET)
     if ENTITY_MAP.get("ocp"):
-        await hass.set_ocp(ui + OCP_OFFSET)
+        await hass.set_ocp(_cap_current(ui) + OCP_OFFSET)
     await hass.set_voltage(uv)
-    await hass.set_current(ui)
+    await hass.set_current(_cap_current(ui))
     await hass.turn_on(ENTITY_MAP["switch"])
     last_checkpoint_time = time.time()
     # Лог "Подготовка: START" пишется при первом tick()
@@ -2443,7 +2477,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         two = _parse_two_numbers(text)
         if two is not None:
             v_val, i_val = two
-            if 12.0 <= v_val <= 17.0 and 0.1 <= i_val <= 18.0:
+            if 12.0 <= v_val <= 17.0 and 0.1 <= i_val <= MAX_STAGE_CURRENT:
                 custom_mode_data[user_id]["main_voltage"] = v_val
                 custom_mode_data[user_id]["main_current"] = i_val
                 custom_mode_state[user_id] = "delta"
@@ -2458,7 +2492,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
                 schedule_dashboard_after_60(message.chat.id, user_id)
                 return
             await message.answer(
-                "⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–18 А. Введите заново (например 16.50 1.4):",
+                f"⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–{MAX_STAGE_CURRENT:.1f} А. Введите заново (например 16.50 1.4):",
                 reply_markup=cancel_kb
             )
             schedule_dashboard_after_60(message.chat.id, user_id)
@@ -2485,27 +2519,27 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         await message.answer(
             f"✅ Main: {value:.1f}В\n\n"
             "<b>Шаг 2/5:</b> Введите лимит тока Main (например 5.0):\n"
-            "<i>Диапазон: 0.1 - 18.0А</i>",
+            f"<i>Диапазон: 0.1 - {MAX_STAGE_CURRENT:.1f}А</i>",
             parse_mode=ParseMode.HTML,
             reply_markup=cancel_kb
         )
     
     elif state == "current":
         # Проверка критических значений
-        if value > 18.0:
+        if value > MAX_STAGE_CURRENT:
             await message.answer(
-                "🚫 ОШИБКА: RD6018 не поддерживает ток выше 18А. Введите корректное значение.",
+                f"🚫 ОШИБКА: RD6018 не поддерживает ток выше {MAX_STAGE_CURRENT:.1f}А. Введите корректное значение.",
                 reply_markup=cancel_kb
             )
             return
         elif value < 0.1:
             await message.answer(
-                "⚠️ Слишком низкое значение. Введите лимит тока Main (0.1 - 18.0А):",
+                f"⚠️ Слишком низкое значение. Введите лимит тока Main (0.1 - {MAX_STAGE_CURRENT:.1f}А):",
                 reply_markup=cancel_kb
             )
             return
         
-        # Проверка опасных значений (10.1 - 18.0А)
+        # Проверка опасных значений (10.1 - 12.0А)
         elif value > 10.0:
             # Проверяем, не подтверждение ли это
             confirm_data = custom_mode_confirm.get(user_id, {})
@@ -2613,6 +2647,7 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
     last_chat_id = message.chat.id
     last_user_id = message.from_user.id if message.from_user else 0
     try:
+        main_current = min(MAX_STAGE_CURRENT, max(0.1, float(params["main_current"])))
         # Получаем текущие данные
         live = await hass.get_all_live()
         battery_v = _safe_float(live.get("battery_voltage", 12.0))
@@ -2638,7 +2673,7 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         # Запускаем контроллер в ручном режиме
         charge_controller.start_custom(
             main_voltage=params["main_voltage"],
-            main_current=params["main_current"],
+            main_current=main_current,
             delta_threshold=params["delta"],
             time_limit_hours=params["time_limit"],
             ah_capacity=int(params["capacity"])
@@ -2648,9 +2683,9 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         if ENTITY_MAP.get("ovp"):
             await hass.set_ovp(params["main_voltage"] + OVP_OFFSET)
         if ENTITY_MAP.get("ocp"):
-            await hass.set_ocp(params["main_current"] + OCP_OFFSET)
+            await hass.set_ocp(_cap_current(main_current) + OCP_OFFSET)
         await hass.set_voltage(params["main_voltage"])
-        await hass.set_current(params["main_current"])
+        await hass.set_current(_cap_current(main_current))
         await hass.turn_on(ENTITY_MAP["switch"])
         
         last_checkpoint_time = time.time()
@@ -2661,7 +2696,7 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
             t,
             ah_val,
             (
-                f"START CUSTOM main={params['main_voltage']:.1f}V/{params['main_current']:.1f}A "
+                f"START CUSTOM main={params['main_voltage']:.1f}V/{main_current:.1f}A "
                 f"delta={params['delta']:.3f}V limit={params['time_limit']:.0f}h ah={params['capacity']:.0f}"
             ),
         )
@@ -2670,7 +2705,7 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         summary = (
             f"✅ <b>Ручной режим запущен!</b>\n\n"
             f"📋 <b>Параметры:</b>\n"
-            f"• Main: {params['main_voltage']:.1f}В / {params['main_current']:.1f}А\n"
+            f"• Main: {params['main_voltage']:.1f}В / {main_current:.1f}А\n"
             f"• Delta: {params['delta']:.3f}В\n"
             f"• Лимит: {params['time_limit']:.0f}ч\n"
             f"• Емкость: {params['capacity']:.0f} Ah\n\n"
@@ -3064,9 +3099,8 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     is_on = str(live.get("switch", "")).lower() == "on"
     # Если заряд активен или выход включен — останавливаем заряд и выключаем выход
     if charge_controller.is_active or is_on:
-        charge_controller.stop()
+        await _hard_stop_charge()
         _clear_manual_off()
-        await hass.turn_off(ENTITY_MAP["switch"])
         await call.message.answer(
             "<b>🛑 Заряд остановлен.</b> Выход выключен.",
             parse_mode=ParseMode.HTML,
@@ -3088,12 +3122,14 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                 await hass.set_voltage(uv)
-                await hass.set_current(ui)
+                await hass.set_current(_cap_current(ui))
+                await hass.turn_off(ENTITY_MAP["switch"])
             else:
                 uv, ui = charge_controller._get_target_v_i()
+                await _apply_phase_protection(uv, ui)
                 await hass.set_voltage(uv)
-                await hass.set_current(ui)
-            await hass.turn_on(ENTITY_MAP["switch"])
+                await hass.set_current(_cap_current(ui))
+                await hass.turn_on(ENTITY_MAP["switch"])
             await call.message.answer(
                 "<b>🚀 Заряд подхвачен.</b> Сессия восстановлена, бот снова управляет этапами.",
                 parse_mode=ParseMode.HTML,
@@ -3252,11 +3288,13 @@ async def main() -> None:
                 if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                     uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                     await hass.set_voltage(uv)
-                    await hass.set_current(ui)
+                    await hass.set_current(_cap_current(ui))
+                    await hass.turn_off(ENTITY_MAP["switch"])
                 else:
                     uv, ui = charge_controller._get_target_v_i()
+                    await _apply_phase_protection(uv, ui)
                     await hass.set_voltage(uv)
-                    await hass.set_current(ui)
+                    await hass.set_current(_cap_current(ui))
                     await hass.turn_on(ENTITY_MAP["switch"])
                 t_ext = _safe_float(live.get("temp_ext"))
                 log_event(
