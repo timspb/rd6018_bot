@@ -562,6 +562,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
         ),
     ]
     rows = [
+        chart_buttons,
         [
             InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
             InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
@@ -577,7 +578,6 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
     ]
     if back_to_dashboard:
         rows.append([InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")])
-    rows.append(chart_buttons)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
