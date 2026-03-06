@@ -1350,9 +1350,11 @@ def _compact_dashboard_caption(
     if charge_controller.is_active:
         timers = charge_controller.get_timers()
         profile = html.escape(charge_controller.battery_type)
+        capacity_ah = int(getattr(charge_controller, "ah_capacity", 0) or 0)
+        cap_suffix = f" | {capacity_ah}Ah" if capacity_ah > 0 else ""
         stage_name = html.escape(_stage_label(charge_controller.current_stage, short=True))
         remaining = html.escape(_format_eta_compact(timers.get("remaining_time", "—")))
-        lines.append(f"<b>📊 RD6018 · {profile}</b>")
+        lines.append(f"<b>📊 RD6018 · {profile}{cap_suffix}</b>")
         lines.append(f"<b>Стадия: {stage_name}</b>")
         lines.append(f"V: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
         lines.append(f"Ah: <b>{ah:.2f}</b>   T: <b>{temp_ext:.1f}°C</b>")
