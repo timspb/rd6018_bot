@@ -1187,11 +1187,34 @@ async def _build_ai_analysis_text() -> str:
     try:
         times, voltages, currents = await get_raw_history(limit=50)
         trend_summary = _build_trend_summary(times, voltages, currents)
+        live = await hass.get_all_live()
+        is_cv = str(live.get("is_cv", "")).lower() == "on"
+        is_cc = str(live.get("is_cc", "")).lower() == "on"
+        mode_flags = "CV" if is_cv else ("CC" if is_cc else "-")
+        capacity_ah = int(getattr(charge_controller, "ah_capacity", 0) or 0)
+        capacity_known = bool(charge_controller.is_active and capacity_ah > 0)
+        stage_remaining = "—"
+        if charge_controller.is_active:
+            try:
+                stage_remaining = charge_controller.get_timers().get("remaining_time", "—")
+            except Exception:
+                stage_remaining = "—"
         history = {
             "times": times,
             "voltages": voltages,
             "currents": currents,
             "trend_summary": trend_summary,
+            "ai_context": {
+                "output_status": "ON" if str(live.get("switch", "")).lower() == "on" else "OFF",
+                "current_stage": charge_controller.current_stage if charge_controller.is_active else "Idle",
+                "battery_type": charge_controller.battery_type if charge_controller.is_active else "UNKNOWN",
+                "mode": mode_flags,
+                "capacity_known": capacity_known,
+                "capacity_ah": capacity_ah if capacity_known else "UNKNOWN",
+                "remaining_time": stage_remaining,
+                "v_batt_now": _safe_float(live.get("battery_voltage", 0.0)),
+                "i_now": _safe_float(live.get("current", 0.0)),
+            },
         }
         result = await ask_deepseek(history)
         result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")

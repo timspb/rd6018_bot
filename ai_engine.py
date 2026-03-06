@@ -1,5 +1,6 @@
 """
 ai_engine.py — интеграция с DeepSeek для анализа кривой заряда.
+Для кнопки "AI анализ" используется строгий промпт, согласованный с логикой этапов бота.
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -12,10 +13,7 @@ logger = logging.getLogger("rd6018")
 
 
 async def ask_deepseek(history_data: Dict[str, Any]) -> str:
-    """
-    Отправить последние ~20 минут V/I в DeepSeek.
-    Вопрос: фаза заряда (Bulk/Absorption/Float) и оценка времени до полного заряда.
-    """
+    """Отправить историю V/I и контекст контроллера в DeepSeek."""
     if not DEEPSEEK_API_KEY:
         return "DeepSeek API ключ не настроен."
 
@@ -37,6 +35,18 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
     data_text = "\n".join(lines)
 
     trend_summary = history_data.get("trend_summary", "")
+    ai_ctx: Dict[str, Any] = history_data.get("ai_context", {}) or {}
+    output_status = str(ai_ctx.get("output_status", "UNKNOWN"))
+    current_stage = str(ai_ctx.get("current_stage", "UNKNOWN"))
+    battery_type = str(ai_ctx.get("battery_type", "UNKNOWN"))
+    mode = str(ai_ctx.get("mode", "UNKNOWN"))
+    capacity_ah = ai_ctx.get("capacity_ah", "UNKNOWN")
+    capacity_known = bool(ai_ctx.get("capacity_known", False))
+    remaining_time = str(ai_ctx.get("remaining_time", "—"))
+    v_batt_now = ai_ctx.get("v_batt_now")
+    i_now = ai_ctx.get("i_now")
+
+    cap_text = f"{capacity_ah}Ah" if capacity_known else "UNKNOWN"
     trend_block = (
         f"\nКраткий тренд: {trend_summary}\n"
         if trend_summary
@@ -44,24 +54,35 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
     )
 
     prompt = (
-        "Analyze this lead-acid battery charging curve from RD6018.\n"
+        "Контекст RD6018 (из бота):\n"
+        f"- OUTPUT_STATUS: {output_status}\n"
+        f"- Stage: {current_stage}\n"
+        f"- Profile: {battery_type}\n"
+        f"- Mode flags: {mode}\n"
+        f"- Capacity_known: {'YES' if capacity_known else 'NO'}\n"
+        f"- Capacity_Ah: {cap_text}\n"
+        f"- Stage_remaining: {remaining_time}\n"
+        f"- Current snapshot: V_batt={v_batt_now}, I={i_now}\n"
         + trend_block +
-        f"\nПолные данные (время, напряжение V, ток A):\n"
+        "\nИстория (время, напряжение V, ток A):\n"
         f"{data_text}\n\n"
-        "Questions:\n"
-        "1. Определи стадию заряда: CC (Bulk), CV (Absorption) или Float.\n"
-        "2. Оцени состояние АКБ по динамике.\n"
-        "3. Дай прогноз: сколько времени осталось до конца заряда (минуты).\n"
-        "4. Возможные риски (сульфатация, потеря ёмкости).\n"
-        "Reply briefly in Russian."
+        "Сформируй краткий техотчет по пунктам:\n"
+        "1) Что происходит сейчас (строго по Stage/OUTPUT_STATUS).\n"
+        "2) Состояние по данным (без фантазий).\n"
+        "3) Прогноз (если он реально обоснован Stage_remaining/трендом).\n"
+        "4) Риски и рекомендации (только подтвержденные данными).\n"
     )
 
     system_content = (
-        "Ты — эксперт по аккумуляторам. "
-        "Тип аккумулятора: Lead-Acid (свинец). "
-        "Проанализируй динамику заряда за последний час. "
-        "Определи стадию (CC/CV/Float), оцени состояние АКБ и дай прогноз, сколько времени осталось до конца. "
-        "Отвечай кратко на русском. Для выделения используй HTML-теги <b>текст</b>."
+        "Ты анализируешь только данные этого RD6018-бота.\n"
+        "Жесткие правила:\n"
+        "1) Запрещено использовать термины Bulk/Absorption/Float, если их нет в текущем этапе.\n"
+        "2) Для этой логики после Main идет Mix, затем Safe_wait/Storage. Не пиши 'после Main сразу Float'.\n"
+        "3) Если Capacity_known=YES, запрещено писать 'неизвестна емкость'.\n"
+        "4) Напряжение ~12.6-12.9V в покое не называть 'глубоким разрядом'.\n"
+        "5) При OUTPUT_STATUS=OFF не делать жестких выводов о неисправности АКБ.\n"
+        "6) Если данных недостаточно — явно так и напиши.\n"
+        "Ответ: кратко, по-русски, можно HTML <b>...</b>."
     )
 
     url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
