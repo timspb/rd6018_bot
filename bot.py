@@ -1312,6 +1312,25 @@ def _strip_html_tags(text: str) -> str:
     return re.sub(r"\s+", " ", plain).strip()
 
 
+def _format_eta_compact(raw_eta: Any) -> str:
+    """Сделать ETA читабельным для мобильного дашборда."""
+    s = str(raw_eta or "").strip()
+    if not s or s == "—":
+        return "—"
+    if ":" in s:
+        parts = s.split(":")
+        if len(parts) == 2:
+            try:
+                h = int(parts[0])
+                m = int(parts[1])
+                if h > 0:
+                    return f"{h}ч {m:02d}м"
+                return f"{m}м"
+            except ValueError:
+                return s
+    return s
+
+
 def _compact_dashboard_caption(
     live: Dict[str, Any],
     chart_mode: str,
@@ -1332,17 +1351,17 @@ def _compact_dashboard_caption(
         timers = charge_controller.get_timers()
         profile = html.escape(charge_controller.battery_type)
         stage_name = html.escape(_stage_label(charge_controller.current_stage, short=True))
-        remaining = html.escape(str(timers.get("remaining_time", "—")))
+        remaining = html.escape(_format_eta_compact(timers.get("remaining_time", "—")))
         lines.append(f"<b>📊 RD6018 · {profile}</b>")
         lines.append(f"<b>Стадия: {stage_name}</b>")
-        lines.append(f"V: {battery_v:.2f}V  I: {current:.2f}A")
-        lines.append(f"Ah: {ah:.2f}  T: {temp_ext:.1f}°C")
+        lines.append(f"V: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
+        lines.append(f"Ah: <b>{ah:.2f}</b>   T: <b>{temp_ext:.1f}°C</b>")
         lines.append(f"Режим: {html.escape(mode)}  ETA: {remaining}")
     else:
         state_label = "Готов" if is_on else "Ожидание"
         lines.append(f"<b>📊 RD6018 · {state_label}</b>")
-        lines.append(f"АКБ: {battery_v:.2f}V  I: {current:.2f}A")
-        lines.append(f"Ah: {ah:.2f}  T: {temp_ext:.1f}°C")
+        lines.append(f"АКБ: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
+        lines.append(f"Ah: <b>{ah:.2f}</b>   T: <b>{temp_ext:.1f}°C</b>")
         lines.append(f"Режим: {html.escape(mode)}")
 
     alerts = []
@@ -2084,11 +2103,14 @@ async def cmd_logs(message: Message) -> None:
     text = _build_logs_text()
     user_id = message.from_user.id if message.from_user else 0
     is_on = await _safe_output_on()
-    await message.answer(
+    sent = await message.answer(
         text,
         parse_mode=ParseMode.HTML,
         reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
     )
+    if user_id:
+        user_dashboard[user_id] = sent.message_id
+    chat_dashboard[message.chat.id] = sent.message_id
     schedule_dashboard_after_60(message.chat.id, user_id)
 
 
@@ -2105,6 +2127,9 @@ async def cmd_ai(message: Message) -> None:
         parse_mode=ParseMode.HTML,
         reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
     )
+    if user_id:
+        user_dashboard[user_id] = status_msg.message_id
+    chat_dashboard[message.chat.id] = status_msg.message_id
     schedule_dashboard_after_60(message.chat.id, user_id)
 
 
@@ -2170,13 +2195,17 @@ async def get_ai_context() -> str:
         
         # Данные контроллера заряда
         controller_info = ""
+        capacity_known = False
+        capacity_ah = 0
         if charge_controller.is_active:
             timers = charge_controller.get_timers()
+            capacity_ah = int(getattr(charge_controller, "ah_capacity", 0) or 0)
+            capacity_known = capacity_ah > 0
             controller_info = f"""
 Контроллер заряда:
 - Активный этап: {charge_controller.current_stage}
 - Тип АКБ: {charge_controller.battery_type}
-- Заданная емкость: {charge_controller.ah_capacity}Ач
+- Заданная емкость: {capacity_ah}Ач
 - Общее время: {timers['total_time']}
 - Время этапа: {timers['stage_time']}
 - Лимит этапа: {timers['remaining_time']}"""
@@ -2188,6 +2217,8 @@ async def get_ai_context() -> str:
         context = f"""ПОЛНЫЙ СЛЕПОК RD6018:
 
 OUTPUT_STATUS: {output_status} (выход зарядного устройства: включен/выключен)
+CAPACITY_KNOWN: {"YES" if capacity_known else "NO"}
+CAPACITY_AH: {capacity_ah if capacity_known else "UNKNOWN"}
 
 Электрика:
 - V_out: {v_out:.3f}В (напряжение на выходе)
@@ -3354,11 +3385,14 @@ async def logs_handler(call: CallbackQuery) -> None:
     text = _build_logs_text()
     user_id = call.from_user.id if call.from_user else 0
     is_on = await _safe_output_on()
-    await call.message.answer(
+    sent = await call.message.answer(
         text,
         parse_mode=ParseMode.HTML,
         reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
     )
+    if user_id:
+        user_dashboard[user_id] = sent.message_id
+    chat_dashboard[call.message.chat.id] = sent.message_id
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
@@ -3379,6 +3413,9 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
         parse_mode=ParseMode.HTML,
         reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
     )
+    if user_id:
+        user_dashboard[user_id] = status_msg.message_id
+    chat_dashboard[call.message.chat.id] = status_msg.message_id
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
