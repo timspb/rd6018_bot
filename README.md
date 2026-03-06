@@ -171,3 +171,11 @@ journalctl -u rd6018-bot -n 100 --no-pager
 ## Р›РёС†РµРЅР·РёСЏ
 
 MIT. РСЃРїРѕР»СЊР·РѕРІР°РЅРёРµ РЅР° РІР°С€ СЂРёСЃРє.
+
+## Assistant Memory
+
+For repeatable work across sessions, these files were added:
+- docs/assistant/HISTORY.md - short project history and accepted decisions.
+- docs/assistant/INSTRUCTIONS.md - working rules and sync flow.
+- docs/assistant/PROMPTS.md - reusable prompt templates.
+- docs/assistant/USER_PROMPT_MEMORY.md - ready-to-use prompt to load memory in a new chat.
