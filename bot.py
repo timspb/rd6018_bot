@@ -1358,7 +1358,7 @@ def _compact_dashboard_caption(
         lines.append(f"<b>Стадия: {stage_name}</b>")
         lines.append(f"V: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
         lines.append(f"Ah: <b>{ah:.2f}</b>   T: <b>{temp_ext:.1f}°C</b>")
-        lines.append(f"Режим: {html.escape(mode)}  ETA: {remaining}")
+        lines.append(f"Режим: {html.escape(mode)}  Лимит этапа: {remaining}")
     else:
         state_label = "Готов" if is_on else "Ожидание"
         lines.append(f"<b>📊 RD6018 · {state_label}</b>")
