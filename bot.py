@@ -1881,8 +1881,19 @@ async def cmd_help(message: Message) -> None:
         "• /off — меню Off по условию\n"
         "• /logs — последние события\n"
         "• /ai — AI анализ телеметрии\n"
+        "• /stats — где смотреть статистику\n"
         "• /entities — статус сущностей HA\n"
-        "• /help — эта справка"
+        "• /help — эта справка\n\n"
+        "<b>Подсказка по режимам</b>\n"
+        "• <b>Ca/Ca</b> — обычные малосурьмянистые/кальциевые АКБ.\n"
+        "• <b>EFB</b> — EFB (start-stop), мягче финальная фаза.\n"
+        "• <b>AGM</b> — AGM, контролируйте нагрев и ток.\n"
+        "• <b>Custom</b> — только если понимаете уставки (Main/Mix/Delta).\n\n"
+        "<b>Как использовать кратко</b>\n"
+        "1) /modes → выбрать профиль → ввести Ah.\n"
+        "2) Следить за этапом и током в дашборде.\n"
+        "3) При необходимости задать авто-останов: /off.\n\n"
+        "⚠️ Перед высоким напряжением (до 16.5В) отключайте АКБ от бортсети авто."
     )
     await message.answer(text, parse_mode=ParseMode.HTML)
     schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
