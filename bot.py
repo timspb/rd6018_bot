@@ -1807,9 +1807,22 @@ async def cmd_start(message: Message) -> None:
     last_chat_id = message.chat.id
     last_user_id = message.from_user.id if message.from_user else 0
     logger.info("Command /start from %s", message.from_user.id)
-    msg_id = await send_dashboard(message)
-    if message.from_user:
-        user_dashboard[message.from_user.id] = msg_id
+    user_id = message.from_user.id if message.from_user else 0
+    old_id = user_dashboard.get(user_id) if user_id else chat_dashboard.get(message.chat.id)
+    if old_id:
+        try:
+            await bot.delete_message(message.chat.id, old_id)
+        except Exception:
+            pass
+    msg_id = await _build_and_send_dashboard(
+        chat_id=message.chat.id,
+        user_id=user_id,
+        old_msg_id=None,
+        anchor_msg_id=None,
+    )
+    if user_id:
+        user_dashboard[user_id] = msg_id
+    chat_dashboard[message.chat.id] = msg_id
 
 
 @router.message(Command("stats"))
