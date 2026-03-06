@@ -61,7 +61,7 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
         f"- Mode flags: {mode}\n"
         f"- Capacity_known: {'YES' if capacity_known else 'NO'}\n"
         f"- Capacity_Ah: {cap_text}\n"
-        f"- Stage_remaining: {remaining_time}\n"
+        f"- Остаток до защитного лимита этапа: {remaining_time}\n"
         f"- Current snapshot: V_batt={v_batt_now}, I={i_now}\n"
         + trend_block +
         "\nИстория (время, напряжение V, ток A):\n"
@@ -82,6 +82,8 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
         "4) Напряжение ~12.6-12.9V в покое не называть 'глубоким разрядом'.\n"
         "5) При OUTPUT_STATUS=OFF не делать жестких выводов о неисправности АКБ.\n"
         "6) Если данных недостаточно — явно так и напиши.\n"
+        "7) 'Остаток до защитного лимита этапа' — это НЕ прогноз окончания заряда, а верхняя граница по безопасности.\n"
+        "8) В ответе запрещено использовать внутренние имена полей/переменных (OUTPUT_STATUS, Capacity_known и т.п.). Пиши человеческими формулировками.\n"
         "Ответ: кратко, по-русски, можно HTML <b>...</b>."
     )
 
