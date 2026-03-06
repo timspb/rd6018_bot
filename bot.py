@@ -20,6 +20,7 @@ from aiogram.types import BotCommand
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
+    InputMediaPhoto,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -227,6 +228,9 @@ async def _check_chat_and_respond(event: Union[Message, CallbackQuery]) -> bool:
 
 
 user_dashboard: Dict[int, int] = {}
+chat_dashboard: Dict[int, int] = {}
+user_chart_range: Dict[int, str] = {}
+_action_debounce_until: Dict[str, float] = {}
 last_chat_id: Optional[int] = None
 last_user_id: Optional[int] = None
 last_charge_alert_at: Optional[datetime] = None
@@ -257,6 +261,12 @@ manual_off_time_sec: Optional[float] = None
 manual_off_start_time: float = 0.0
 
 MANUAL_OFF_FILE = "manual_off_state.json"
+
+CHART_RANGE_30M = "30m"
+CHART_RANGE_2H = "2h"
+CHART_RANGE_SESSION = "session"
+CHART_RANGE_DEFAULT = CHART_RANGE_2H
+CHART_RANGE_VALUES = {CHART_RANGE_30M, CHART_RANGE_2H, CHART_RANGE_SESSION}
 
 
 def _save_manual_off_state() -> None:
@@ -474,6 +484,144 @@ def _format_manual_off_for_dashboard() -> str:
     return line
 
 
+def _stage_label(raw_stage: str, short: bool = True) -> str:
+    """Единый словарь названий этапов для краткого и полного интерфейса."""
+    stage = (raw_stage or "").strip()
+    mapping_short = {
+        "Main Charge": "Основной",
+        "Mix Mode": "Микс",
+        "Десульфатация": "Десульф",
+        "Безопасное ожидание": "Ожидание",
+        "Остывание": "Остывание",
+        "Idle": "Ожидание",
+    }
+    mapping_full = {
+        "Main Charge": "Основной заряд",
+        "Mix Mode": "Микс-режим",
+        "Десульфатация": "Десульфатация",
+        "Безопасное ожидание": "Безопасное ожидание",
+        "Остывание": "Остывание",
+        "Idle": "Ожидание",
+    }
+    mapping = mapping_short if short else mapping_full
+    return mapping.get(stage, stage)
+
+
+def _is_action_allowed(user_id: int, action: str, cooldown_sec: float = 1.2) -> bool:
+    """Простой debounce для кнопок с риском двойного нажатия."""
+    key = f"{user_id}:{action}"
+    now = time.time()
+    until = _action_debounce_until.get(key, 0.0)
+    if now < until:
+        return False
+    _action_debounce_until[key] = now + cooldown_sec
+    return True
+
+
+def _chart_range_for_user(user_id: int) -> str:
+    mode = user_chart_range.get(user_id, CHART_RANGE_DEFAULT)
+    return mode if mode in CHART_RANGE_VALUES else CHART_RANGE_DEFAULT
+
+
+def _chart_label(mode: str) -> str:
+    labels = {
+        CHART_RANGE_30M: "30м",
+        CHART_RANGE_2H: "2ч",
+        CHART_RANGE_SESSION: "Сессия",
+    }
+    return labels.get(mode, "2ч")
+
+
+def _chart_query_params(user_id: int) -> tuple:
+    mode = _chart_range_for_user(user_id)
+    now = time.time()
+    if mode == CHART_RANGE_30M:
+        return mode, now - 30 * 60, 120
+    if mode == CHART_RANGE_SESSION and charge_controller.is_active and getattr(charge_controller, "total_start_time", None):
+        return mode, charge_controller.total_start_time, 500
+    if mode == CHART_RANGE_SESSION:
+        mode = CHART_RANGE_2H
+    return mode, now - 2 * 3600, 300
+
+
+def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: bool = False) -> InlineKeyboardMarkup:
+    main_btn_text = "🛑 СТОП" if is_on else "🚀 СТАРТ"
+    chart_mode = _chart_range_for_user(user_id)
+    chart_buttons = [
+        InlineKeyboardButton(
+            text=("● " if chart_mode == CHART_RANGE_30M else "") + "30м",
+            callback_data=f"chart_{CHART_RANGE_30M}",
+        ),
+        InlineKeyboardButton(
+            text=("● " if chart_mode == CHART_RANGE_2H else "") + "2ч",
+            callback_data=f"chart_{CHART_RANGE_2H}",
+        ),
+        InlineKeyboardButton(
+            text=("● " if chart_mode == CHART_RANGE_SESSION else "") + "Сессия",
+            callback_data=f"chart_{CHART_RANGE_SESSION}",
+        ),
+    ]
+    rows = [
+        [
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+            InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
+        ],
+        [
+            InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
+            InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
+        ],
+        [
+            InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
+            InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
+        ],
+        chart_buttons,
+    ]
+    if back_to_dashboard:
+        rows.append([InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _build_off_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⏱ 2ч", callback_data="off_preset_time_2h"),
+                InlineKeyboardButton(text="🔋 I≤0.30A", callback_data="off_preset_i_le_030"),
+            ],
+            [
+                InlineKeyboardButton(text="⚡ V≥16.2V", callback_data="off_preset_v_ge_162"),
+                InlineKeyboardButton(text="🧹 Сброс", callback_data="off_preset_clear"),
+            ],
+            [InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")],
+        ]
+    )
+
+
+def _charge_modes_text() -> str:
+    warning = (
+        "⚠️ <b>ВНИМАНИЕ:</b> Эти режимы используют напряжение до 16.5В. "
+        "Убедитесь, что АКБ отсоединена от бортовой сети автомобиля."
+    )
+    return f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:"
+
+
+def _build_charge_modes_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="profile_caca"),
+                InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
+                InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
+            ],
+            [
+                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom"),
+                InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
+        ]
+    )
+
+
 def _build_trend_summary(
     times: list,
     voltages: list,
@@ -574,6 +722,41 @@ def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
 
 # Макс. время (сек), при котором считаем uptime таймером заряда (иначе — время с включения прибора)
 UPTIME_AS_CHARGE_TIMER_MAX_SEC = 24 * 3600
+# Синхронизировать total_start_time с прибором только если расхождение не больше 5 мин (иначе не затирать новую сессию)
+UPTIME_SYNC_MAX_DRIFT_SEC = 300
+
+
+def _sync_total_start_from_uptime(
+    charge_controller,
+    live: Optional[Dict],
+    *,
+    max_drift_sec: int = UPTIME_SYNC_MAX_DRIFT_SEC,
+    allow_init: bool = False,
+) -> bool:
+    """
+    Синхронизирует total_start_time с uptime прибора только при малом расхождении.
+    Возвращает True, если total_start_time был обновлён.
+    """
+    if not getattr(charge_controller, "is_active", False):
+        return False
+    uptime_raw = (live or {}).get("uptime")
+    if uptime_raw is None:
+        return False
+    elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
+    if elapsed is None or not (0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC):
+        return False
+
+    now = time.time()
+    total_start = float(getattr(charge_controller, "total_start_time", 0) or 0)
+    if total_start > 0:
+        our_elapsed = now - total_start
+        if abs(our_elapsed - elapsed) > max_drift_sec:
+            return False
+    elif not allow_init:
+        return False
+
+    charge_controller.total_start_time = now - elapsed
+    return True
 
 
 def _format_uptime_display(uptime_raw) -> str:
@@ -619,10 +802,12 @@ def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> 
         charge_controller.total_start_time += gap
         charge_controller.stage_start_time += gap
         charge_controller._link_lost_at = 0
-    uptime_raw = (live or {}).get("uptime")
-    elapsed = _parse_uptime_to_elapsed_sec(uptime_raw)
-    if elapsed is not None and 0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
-        charge_controller.total_start_time = now - elapsed
+    _sync_total_start_from_uptime(
+        charge_controller,
+        live,
+        max_drift_sec=UPTIME_SYNC_MAX_DRIFT_SEC,
+        allow_init=False,
+    )
 
 
 def format_electrical_data(v: float, i: float, p: float = None, precision: int = 2) -> str:
@@ -857,6 +1042,55 @@ def format_log_event(event_line: str) -> str:
         logger.error("Failed to format log event: %s", ex)
         return f"<code>{html.escape(event_line[:100])}</code>"
 
+ 
+def _build_logs_text(limit: int = 50, shown: int = 25) -> str:
+    """Собрать текст экрана логов для кнопки/команды."""
+    from charging_log import get_recent_events
+    try:
+        recent_events = get_recent_events(limit)
+        if not recent_events:
+            return "<b>📝 Логи событий</b>\n\nНет событий."
+        filtered_events = _remove_duplicate_events(recent_events)
+        lines = ["<b>📝 Логи событий</b>\n"]
+        for event in filtered_events[-shown:]:
+            formatted_event = format_log_event(event)
+            if formatted_event.strip():
+                lines.append(formatted_event)
+        if len(lines) <= 1:
+            return "<b>📝 Логи событий</b>\n\nТолько служебные события."
+        return "\n".join(lines)
+    except Exception as ex:
+        logger.error("Failed to get recent events: %s", ex)
+        return "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
+
+
+async def _safe_output_on() -> bool:
+    """Безопасно получить текущий статус выхода для построения клавиатуры."""
+    try:
+        live = await hass.get_all_live()
+        return str(live.get("switch", "")).lower() == "on"
+    except Exception:
+        return False
+
+
+async def _build_ai_analysis_text() -> str:
+    """Собрать AI-анализ для кнопки/команды."""
+    try:
+        times, voltages, currents = await get_raw_history(limit=50)
+        trend_summary = _build_trend_summary(times, voltages, currents)
+        history = {
+            "times": times,
+            "voltages": voltages,
+            "currents": currents,
+            "trend_summary": trend_summary,
+        }
+        result = await ask_deepseek(history)
+        result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+        return f"<b>🧠 AI Анализ</b>\n{result_html}"
+    except Exception as ex:
+        logger.warning("AI analysis failed: %s", ex)
+        return "<b>🧠 AI Анализ</b>\n<i>Сервис временно недоступен, попробуйте позже.</i>"
+
 
 def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     """
@@ -876,37 +1110,24 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
     output_v = _safe_float(live.get("voltage"))
 
-    # Синхронизация таймера с прибором: при каждом построении дашборда подставляем время из сущности uptime
-    if charge_controller.is_active and live.get("uptime") is not None:
-        elapsed = _parse_uptime_to_elapsed_sec(live.get("uptime"))
-        if elapsed is not None and 0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
-            charge_controller.total_start_time = time.time() - elapsed
-
     if charge_controller.is_active:
         timers = charge_controller.get_timers()
-        status_emoji = "⚡️" if (is_on and i > 0.05) else "⏸️"
-        stage_name = html.escape(charge_controller.current_stage)
-        # Для краткого статуса убираем лишние слова, чтобы строка помещалась на мобильном.
-        if stage_name == "Main Charge":
-            stage_name = "Main"
-        elif stage_name == "Mix Mode":
-            stage_name = "Mix"
+        status_emoji = "🟢" if (is_on and i > 0.05) else "🟡"
+        stage_name = html.escape(_stage_label(charge_controller.current_stage, short=True))
         battery_type = html.escape(charge_controller.battery_type)
         total_time = html.escape(timers["total_time"])
-        # Все разделители — одиночные пробелы, без пробела после иконки.
-        status_line = f"📊СТАТУС: {status_emoji}{stage_name} {battery_type} ⏱ {total_time}"
+        status_line = f"{status_emoji} Заряд: {stage_name} | {battery_type} | ⏱ {total_time}"
     else:
-        status_line = f"📊СТАТУС: 💤Ожидание АКБ: {battery_v:.2f}В"
+        status_line = f"⚪ Ожидание АКБ | Vакб {battery_v:.2f}В"
     # Выход включён и ток идёт, но бот не ведёт заряд (ручной режим на приборе). Таймер «выкл по условию» при этом сработает.
     idle_warning = ""
     if not charge_controller.is_active and is_on and i > 0.05:
-        idle_warning = "⚠️ Ручной режим"
+        idle_warning = "🟡 Ручной режим: выход включен без автоэтапов"
 
     electrical_data = format_electrical_data(battery_v, i)
     temp_data = format_temperature_data(temp_ext, temp_int)
     
-    # Вторая строка: ⚡️LIVE: CV 14.80В 0.61А 🌡24.0°C
-    live_line = f"⚡️LIVE: {mode} {electrical_data} {temp_data}"
+    live_line = f"⚡ LIVE: {mode} {electrical_data} {temp_data}"
 
     stage_block = ""
     if charge_controller.is_active:
@@ -963,20 +1184,25 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
             else:
                 transition_condition = f"🔜 ⏱ {time_display}"
 
-        stage_name = html.escape(charge_controller.current_stage)
+        stage_name = html.escape(_stage_label(charge_controller.current_stage, short=False))
         stage_time_safe = html.escape(stage_time)
         stage_block = (
-            f"\n📍 ЭТАП: {stage_name} | ⏱ {stage_time_safe}\n"
-            f"⚙️ УСТАВКИ: {current_v_set:.2f}В | {current_i_set:.2f}А\n"
+            f"\n📍 Этап: {stage_name} | ⏱ {stage_time_safe}\n"
+            f"⚙ Уставки: {current_v_set:.2f}В | {current_i_set:.2f}А\n"
             f"{transition_condition}"
         )
 
-    capacity_line = f"🔋 ЕМКОСТЬ: {ah:.2f} Ач"
+    capacity_line = f"🔋 Емкость: {ah:.2f} Ач"
     return status_line, live_line, stage_block, capacity_line, idle_warning
 
 
-async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Optional[int] = None) -> int:
-    """Собрать дашборд и отправить в chat_id. Удалить old_msg_id если задан. Обновить user_dashboard."""
+async def _build_and_send_dashboard(
+    chat_id: int,
+    user_id: int,
+    old_msg_id: Optional[int] = None,
+    anchor_msg_id: Optional[int] = None,
+) -> int:
+    """Собрать дашборд и обновить существующее сообщение; при ошибке отправить новое."""
     try:
         live = await hass.get_all_live()
         battery_v = _safe_float(live.get("battery_voltage"))
@@ -1001,65 +1227,74 @@ async def _build_and_send_dashboard(chat_id: int, user_id: int, old_msg_id: Opti
         mode = "ERROR"
 
     status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
-    short_status = (
-        status_line.replace(" Mix Mode ", " Mix ")
-        .replace(" Main Charge ", " Main ")
-        .replace("Десульфатация", "Desulf")
-        .replace("Безопасное ожидание", "Ожидание")
-    )
-    caption_short = f"{short_status}\n{live_line}"
+    caption_short = f"{status_line}\n{live_line}"
     off_line = _format_manual_off_for_dashboard()
     if off_line:
         caption_short += f"\n{off_line}"
     if idle_warning:
         caption_short += f"\n{idle_warning}"
 
-    graph_since = (
-        charge_controller.total_start_time
-        if charge_controller.is_active and getattr(charge_controller, "total_start_time", None)
-        else None
-    )
-    limit_pts = 200 if graph_since else 100
+    chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
     times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
     buf = generate_chart(times, voltages, currents)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
-    main_btn_text = "🛑 ОСТАНОВИТЬ" if is_on else "🚀 ЗАПУСТИТЬ"
-    kb_rows = [
-        [
-            InlineKeyboardButton(text="🔄 ОБНОВИТЬ", callback_data="refresh"),
-            InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
-        ],
-        [
-            InlineKeyboardButton(text="🧠 AI АНАЛИЗ", callback_data="ai_analysis"),
-            InlineKeyboardButton(text="📝 ЛОГИ СОБЫТИЙ", callback_data="logs"),
-        ],
-        [
-            InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
-            InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
-        ],
-    ]
-    ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-
-    if old_msg_id:
-        try:
-            await bot.delete_message(chat_id, old_msg_id)
-        except Exception:
-            pass
-
+    ikb = _build_dashboard_keyboard(is_on, user_id)
     clean_caption = caption_short.replace('<hr>', '___________________').replace('<hr/>', '___________________').replace('<hr />', '___________________')
+    clean_caption += f"\n📈 Окно графика: {_chart_label(chart_mode)}"
+
+    target_msg_id = old_msg_id or anchor_msg_id
+    if target_msg_id:
+        try:
+            if photo:
+                await bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=target_msg_id,
+                    media=InputMediaPhoto(
+                        media=photo,
+                        caption=clean_caption,
+                        parse_mode=ParseMode.HTML,
+                    ),
+                    reply_markup=ikb,
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=target_msg_id,
+                    text=clean_caption,
+                    reply_markup=ikb,
+                    parse_mode=ParseMode.HTML,
+                )
+            user_dashboard[user_id] = target_msg_id
+            chat_dashboard[chat_id] = target_msg_id
+            return target_msg_id
+        except Exception as ex:
+            err = str(ex).lower()
+            # Нормальная ситуация: данные не изменились, новое сообщение не нужно.
+            if "message is not modified" in err:
+                user_dashboard[user_id] = target_msg_id
+                chat_dashboard[chat_id] = target_msg_id
+                return target_msg_id
+            # При невозможности редактирования удаляем старый дашборд, чтобы не копить сообщения.
+            try:
+                await bot.delete_message(chat_id, target_msg_id)
+            except Exception:
+                pass
+
     if photo:
         sent = await bot.send_photo(chat_id, photo=photo, caption=clean_caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
     else:
         sent = await bot.send_message(chat_id, clean_caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-
     user_dashboard[user_id] = sent.message_id
+    chat_dashboard[chat_id] = sent.message_id
     return sent.message_id
 
 
 async def send_dashboard_to_chat(chat_id: int, user_id: int = 0) -> int:
     """Отправить дашборд в чат (последним сообщением). Используется после некритичных уведомлений."""
     old_msg_id = user_dashboard.get(user_id) if user_id else None
+    if old_msg_id is None:
+        old_msg_id = chat_dashboard.get(chat_id)
     return await _build_and_send_dashboard(chat_id, user_id, old_msg_id)
 
 
@@ -1091,12 +1326,9 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
     msg = message_or_call.message if isinstance(message_or_call, CallbackQuery) else message_or_call
     chat_id = msg.chat.id
     user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
-    old = old_msg_id or user_dashboard.get(user_id)
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-    return await _build_and_send_dashboard(chat_id, user_id, old)
+    old = old_msg_id or user_dashboard.get(user_id) or chat_dashboard.get(chat_id)
+    anchor = msg.message_id if isinstance(message_or_call, CallbackQuery) else None
+    return await _build_and_send_dashboard(chat_id, user_id, old, anchor_msg_id=anchor)
 
 
 async def soft_watchdog_loop() -> None:
@@ -1284,11 +1516,13 @@ async def data_logger() -> None:
                 charge_controller._device_set_voltage = set_v
                 charge_controller._device_set_current = set_i
             
-            # Синхронизация общего времени заряда с прибором: sensor.rd_6018_uptime может быть датой старта (ISO)
-            if charge_controller.is_active and live.get("uptime") is not None:
-                elapsed = _parse_uptime_to_elapsed_sec(live.get("uptime"))
-                if elapsed is not None and 0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC:
-                    charge_controller.total_start_time = time.time() - elapsed
+            # Синхронизация с прибором только при малом расхождении (чтобы не затирать новую сессию)
+            _sync_total_start_from_uptime(
+                charge_controller,
+                live,
+                max_drift_sec=UPTIME_SYNC_MAX_DRIFT_SEC,
+                allow_init=False,
+            )
             
             # Реакция на срабатывание OVP/OCP: лог, уведомление, выключение
             if charge_controller.is_active and (ovp_triggered or ocp_triggered):
@@ -1636,6 +1870,80 @@ async def cmd_entities(message: Message) -> None:
         )
 
 
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    if not await _check_chat_and_respond(message):
+        return
+    text = (
+        "<b>RD6018: быстрые команды</b>\n\n"
+        "• /start — открыть дашборд\n"
+        "• /modes — режимы заряда\n"
+        "• /off — меню Off по условию\n"
+        "• /logs — последние события\n"
+        "• /ai — AI анализ телеметрии\n"
+        "• /entities — статус сущностей HA\n"
+        "• /help — эта справка"
+    )
+    await message.answer(text, parse_mode=ParseMode.HTML)
+    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
+
+
+@router.message(Command("logs"))
+async def cmd_logs(message: Message) -> None:
+    if not await _check_chat_and_respond(message):
+        return
+    text = _build_logs_text()
+    user_id = message.from_user.id if message.from_user else 0
+    is_on = await _safe_output_on()
+    await message.answer(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
+    )
+    schedule_dashboard_after_60(message.chat.id, user_id)
+
+
+@router.message(Command("ai"))
+async def cmd_ai(message: Message) -> None:
+    if not await _check_chat_and_respond(message):
+        return
+    status_msg = await message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
+    result_text = await _build_ai_analysis_text()
+    user_id = message.from_user.id if message.from_user else 0
+    is_on = await _safe_output_on()
+    await status_msg.edit_text(
+        result_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
+    )
+    schedule_dashboard_after_60(message.chat.id, user_id)
+
+
+@router.message(Command("off"))
+async def cmd_off(message: Message) -> None:
+    if not await _check_chat_and_respond(message):
+        return
+    off_line = _format_manual_off_for_dashboard()
+    if off_line:
+        status_msg = f"<b>⏹ Принудительное выключение активно</b>\n\n{off_line}\n\n"
+    else:
+        status_msg = "Сейчас условие выключения не задано.\n\n"
+    status_msg += (
+        "Выберите preset кнопкой ниже или используйте текстовую команду "
+        "<code>off ...</code> (например, <code>off 2:00</code>)."
+    )
+    await message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
+    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
+
+
+@router.message(Command("modes"))
+async def cmd_modes(message: Message) -> None:
+    if not await _check_chat_and_respond(message):
+        return
+    await message.answer(_charge_modes_text(), parse_mode=ParseMode.HTML, reply_markup=_build_charge_modes_keyboard())
+    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
+
+
 async def get_ai_context() -> str:
     """Получить полный слепок данных RD6018 для AI анализа."""
     try:
@@ -1814,6 +2122,10 @@ async def text_message_handler(message: Message) -> None:
     global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
     user_id = message.from_user.id if message.from_user else 0
     text = (message.text or "").strip()
+
+    # Команды вида /help, /start и т.п. не должны попадать в LLM-диалог.
+    if text.startswith("/"):
+        return
 
     # Команда off: выключить по напряжению / току / таймеру (вне ручного режима)
     if not (user_id in custom_mode_state or awaiting_ah.get(user_id)):
@@ -2114,9 +2426,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
                 custom_mode_confirm.pop(user_id, None)
                 await message.answer(
                     f"✅ Main: {v_val:.1f}В / {i_val:.1f}А\n\n"
-                    "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
-                    "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
-                    parse_mode=ParseMode.MARKDOWN,
+                    "<b>Шаг 3/5:</b> Введите дельту (0.01 - 0.05):\n"
+                    "<i>Чем меньше, тем чувствительнее финиш. Стандарт: 0.03</i>",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=cancel_kb
                 )
                 schedule_dashboard_after_60(message.chat.id, user_id)
@@ -2148,9 +2460,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение при переходе
         await message.answer(
             f"✅ Main: {value:.1f}В\n\n"
-            "**Шаг 2/5:** Введите лимит тока Main (например 5.0):\n"
-            "_Диапазон: 0.1 - 18.0А_",
-            parse_mode=ParseMode.MARKDOWN,
+            "<b>Шаг 2/5:</b> Введите лимит тока Main (например 5.0):\n"
+            "<i>Диапазон: 0.1 - 18.0А</i>",
+            parse_mode=ParseMode.HTML,
             reply_markup=cancel_kb
         )
     
@@ -2181,9 +2493,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
                 
                 await message.answer(
                     f"⚠️ ПРИНЯТО: {custom_mode_data[user_id]['main_voltage']:.1f}В / {value:.1f}А\n\n"
-                    "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
-                    "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
-                    parse_mode=ParseMode.MARKDOWN,
+                    "<b>Шаг 3/5:</b> Введите дельту (0.01 - 0.05):\n"
+                    "<i>Чем меньше, тем чувствительнее финиш. Стандарт: 0.03</i>",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=cancel_kb
                 )
             else:
@@ -2204,9 +2516,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
             
             await message.answer(
                 f"✅ Main: {custom_mode_data[user_id]['main_voltage']:.1f}В / {value:.1f}А\n\n"
-                "**Шаг 3/5:** Введите дельту (0.01 - 0.05):\n"
-                "_Чем меньше, тем чувствительнее финиш. Стандарт: 0.03_",
-                parse_mode=ParseMode.MARKDOWN,
+                "<b>Шаг 3/5:</b> Введите дельту (0.01 - 0.05):\n"
+                "<i>Чем меньше, тем чувствительнее финиш. Стандарт: 0.03</i>",
+                parse_mode=ParseMode.HTML,
                 reply_markup=cancel_kb
             )
     
@@ -2223,9 +2535,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение при переходе
         await message.answer(
             f"✅ Delta: {value:.3f}В\n\n"
-            "**Шаг 4/5:** Введите лимит времени в часах (например 24):\n"
-            "_Диапазон: 1 - 72ч. Заряд без присмотра запрещен!_",
-            parse_mode=ParseMode.MARKDOWN,
+            "<b>Шаг 4/5:</b> Введите лимит времени в часах (например 24):\n"
+            "<i>Диапазон: 1 - 72ч. Заряд без присмотра запрещен!</i>",
+            parse_mode=ParseMode.HTML,
             reply_markup=cancel_kb
         )
     
@@ -2243,9 +2555,9 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение при переходе
         await message.answer(
             f"✅ Лимит: {value:.0f}ч\n\n"
-            "**Шаг 5/5:** Введите ёмкость АКБ в Ah (например 60):\n"
-            "_Диапазон: 10 - 300 Ah_",
-            parse_mode=ParseMode.MARKDOWN,
+            "<b>Шаг 5/5:</b> Введите ёмкость АКБ в Ah (например 60):\n"
+            "<i>Диапазон: 10 - 300 Ah</i>",
+            parse_mode=ParseMode.HTML,
             reply_markup=cancel_kb
         )
     
@@ -2332,16 +2644,15 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         
         # Показываем результат
         summary = (
-            f"✅ **Ручной режим запущен!**\n\n"
-            f"📋 **Параметры:**\n"
+            f"✅ <b>Ручной режим запущен!</b>\n\n"
+            f"📋 <b>Параметры:</b>\n"
             f"• Main: {params['main_voltage']:.1f}В / {params['main_current']:.1f}А\n"
             f"• Delta: {params['delta']:.3f}В\n"
             f"• Лимит: {params['time_limit']:.0f}ч\n"
             f"• Емкость: {params['capacity']:.0f} Ah\n\n"
-            f"🔋 **АКБ:** {battery_v:.2f}В | {i:.2f}А"
+            f"🔋 <b>АКБ:</b> {battery_v:.2f}В | {i:.2f}А"
         )
-        
-        await message.answer(summary, parse_mode=ParseMode.MARKDOWN)
+        await message.answer(summary, parse_mode=ParseMode.HTML)
         
         # Обновляем дашборд
         old_id = user_dashboard.get(user_id)
@@ -2379,32 +2690,16 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
     global last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
     last_user_id = call.from_user.id if call.from_user else 0
-    warning = (
-        "⚠️ <b>ВНИМАНИЕ:</b> Данные режимы используют напряжение до 16.5В. "
-        "Убедитесь, что АКБ отсоединена от бортовой сети автомобиля!"
-    )
-    ikb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="profile_caca"),
-                InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
-                InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
-            ],
-            [
-                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom"),
-                InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
-            ],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
-        ]
-    )
+    text = _charge_modes_text()
+    ikb = _build_charge_modes_keyboard()
     try:
         await call.message.edit_caption(
-            caption=f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:",
+            caption=text,
             reply_markup=ikb,
         )
     except Exception:
         await call.message.edit_text(
-            f"<b>🚗 Авто</b>\n\n{warning}\n\nВыберите профиль заряда:",
+            text,
             reply_markup=ikb,
         )
 
@@ -2448,6 +2743,95 @@ async def charge_back_handler(call: CallbackQuery) -> None:
     await send_dashboard(call, old_msg_id=old_id)
 
 
+@router.callback_query(F.data == "dash_back")
+async def dashboard_back_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
+    try:
+        await call.answer()
+    except Exception:
+        pass
+    user_id = call.from_user.id if call.from_user else 0
+    chat_id = call.message.chat.id
+    current_msg_id = call.message.message_id
+    old_id = user_dashboard.get(user_id) if user_id else None
+    if old_id is None:
+        old_id = chat_dashboard.get(chat_id)
+
+    # Если дашборд закреплён за другим сообщением, удаляем его,
+    # а текущий экран (полная инфо/логи/ai) превращаем обратно в дашборд.
+    if old_id and old_id != current_msg_id:
+        try:
+            await bot.delete_message(chat_id, old_id)
+        except Exception:
+            pass
+    await send_dashboard(call, old_msg_id=current_msg_id)
+
+
+@router.callback_query(F.data.startswith("chart_"))
+async def chart_range_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
+    user_id = call.from_user.id if call.from_user else 0
+    mode = (call.data or "").replace("chart_", "", 1)
+    if mode not in CHART_RANGE_VALUES:
+        try:
+            await call.answer("Неизвестный режим графика", show_alert=True)
+        except Exception:
+            pass
+        return
+    user_chart_range[user_id] = mode
+    try:
+        await call.answer(f"График: {_chart_label(mode)}")
+    except Exception:
+        pass
+    old_id = user_dashboard.get(user_id) if user_id else None
+    await send_dashboard(call, old_msg_id=old_id)
+
+
+@router.callback_query(F.data.startswith("off_preset_"))
+async def off_preset_handler(call: CallbackQuery) -> None:
+    if not await _check_chat_and_respond(call):
+        return
+    try:
+        await call.answer()
+    except Exception:
+        pass
+
+    global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
+    preset = (call.data or "").replace("off_preset_", "", 1)
+
+    manual_off_voltage = None
+    manual_off_voltage_le = None
+    manual_off_current = None
+    manual_off_current_ge = None
+    manual_off_time_sec = None
+    manual_off_start_time = 0.0
+
+    if preset == "time_2h":
+        manual_off_time_sec = 2 * 3600
+        manual_off_start_time = time.time()
+        text = "✅ Preset применён: выключение через 2 часа."
+    elif preset == "i_le_030":
+        manual_off_current = 0.30
+        text = "✅ Preset применён: выключение при I≤0.30 A."
+    elif preset == "v_ge_162":
+        manual_off_voltage = 16.2
+        text = "✅ Preset применён: выключение при V≥16.2 V."
+    elif preset == "clear":
+        text = "✅ Условие выключения сброшено."
+    else:
+        try:
+            await call.answer("Неизвестный preset", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    _save_manual_off_state()
+    await call.message.answer(text, parse_mode=ParseMode.HTML)
+    await menu_off_handler(call)
+
+
 @router.callback_query(F.data == "menu_off")
 async def menu_off_handler(call: CallbackQuery) -> None:
     """Меню «Off по условию»: показать статус и подсказку по команде."""
@@ -2463,20 +2847,18 @@ async def menu_off_handler(call: CallbackQuery) -> None:
     else:
         status_msg = "Сейчас условие выключения не задано.\n\n"
     status_msg += (
-        "<b>Введите в чат:</b>\n"
-        "• <code>off I&lt;=1.23</code> или <code>off 1.23</code> — выкл при токе ≤1.23 А\n"
-        "• <code>off I&gt;=2</code> — выкл при токе ≥2 А\n"
-        "• <code>off V&gt;=16.4</code> или <code>off 16.4</code> — выкл при напряжении ≥16.4 В\n"
-        "• <code>off V&lt;=13.2</code> — выкл при напряжении ≤13.2 В (микс)\n"
-        "• <code>off 2:23</code> — выкл через 2 ч 23 мин\n"
-        "• <code>off I&gt;=2 V&lt;=13.5 2:00</code> — любое из условий\n"
+        "<b>Быстрые пресеты:</b> кнопки ниже.\n\n"
+        "<b>Расширенный ввод в чат:</b>\n"
+        "• <code>off I&lt;=1.23</code> или <code>off 1.23</code>\n"
+        "• <code>off I&gt;=2</code>\n"
+        "• <code>off V&gt;=16.4</code> или <code>off 16.4</code>\n"
+        "• <code>off V&lt;=13.2</code>\n"
+        "• <code>off 2:23</code>\n"
+        "• <code>off I&gt;=2 V&lt;=13.5 2:00</code>\n"
         "• <code>off</code> — сброс\n\n"
         "Защиты не сбрасываются; температура и входное напряжение могут выключить выход раньше."
     )
-    await call.message.answer(status_msg, parse_mode=ParseMode.HTML)
-    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
-    await send_dashboard(call, old_msg_id=old_id)
-    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
+    await call.message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
 
 
 @router.callback_query(F.data == "info_full")
@@ -2490,9 +2872,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
     try:
         live = await hass.get_all_live()
         status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
-        # В полной инфо показываем полные названия этапов (Main Charge, Mix Mode)
-        full_status = status_line.replace(" Main ", " Main Charge ").replace(" Mix ", " Mix Mode ")
-        full_text = f"{full_status}\n{live_line}{stage_block}\n{capacity_line}"
+        full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
@@ -2522,56 +2902,53 @@ async def info_full_handler(call: CallbackQuery) -> None:
             full_text += stats_block
         if idle_warning:
             full_text += f"\n{idle_warning}"
+        full_text += "\n\nℹ️ AI вынесен в отдельный экран кнопкой «🧠 AI анализ»."
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
         caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
-        # График как в краткой инфо
-        graph_since = (
-            charge_controller.total_start_time
-            if charge_controller.is_active and getattr(charge_controller, "total_start_time", None)
-            else None
-        )
-        limit_pts = 200 if graph_since else 100
+        user_id = call.from_user.id if call.from_user else 0
+        chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
         times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
         buf = generate_chart(times, voltages, currents)
         photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
+        caption += f"\n📈 Окно графика: {_chart_label(chart_mode)}"
         is_on = str(live.get("switch", "")).lower() == "on"
-        main_btn_text = "🛑 ОСТАНОВИТЬ" if is_on else "🚀 ЗАПУСТИТЬ"
-        kb_rows = [
-            [
-                InlineKeyboardButton(text="🔄 ОБНОВИТЬ", callback_data="refresh"),
-                InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
-            ],
-            [
-                InlineKeyboardButton(text="🧠 AI АНАЛИЗ", callback_data="ai_analysis"),
-                InlineKeyboardButton(text="📝 ЛОГИ СОБЫТИЙ", callback_data="logs"),
-            ],
-            [
-                InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
-                InlineKeyboardButton(text="⚙️ РЕЖИМЫ", callback_data="charge_modes"),
-            ],
-        ]
-        ikb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-        if photo:
-            await call.message.answer_photo(photo=photo, caption=caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-        else:
-            await call.message.answer(caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-        # Ниже — аналитика DeepSeek по телеметрии (тот же промпт, что был в /stats)
-        if charge_controller.is_active:
-            telemetry = charge_controller.get_telemetry_summary(battery_v, i, ah, temp)
-            ai_comment = await call_llm_analytics(telemetry)
-            if ai_comment:
-                ai_safe = (ai_comment or "").replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
-                ai_text = f"🤖 <b>Аналитика DeepSeek:</b>\n<i>{ai_safe}</i>"
+        ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
+        try:
+            if photo:
+                await bot.edit_message_media(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    media=InputMediaPhoto(media=photo, caption=caption, parse_mode=ParseMode.HTML),
+                    reply_markup=ikb,
+                )
             else:
-                ai_text = "🤖 <b>Аналитика DeepSeek:</b> <i>Математический прогноз (API недоступен)</i>"
+                await bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=caption,
+                    reply_markup=ikb,
+                    parse_mode=ParseMode.HTML,
+                )
+            user_dashboard[user_id] = call.message.message_id
+            chat_dashboard[call.message.chat.id] = call.message.message_id
+        except Exception:
+            if photo:
+                sent = await call.message.answer_photo(photo=photo, caption=caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
+            else:
+                sent = await call.message.answer(caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
+            user_dashboard[user_id] = sent.message_id
+            chat_dashboard[call.message.chat.id] = sent.message_id
             try:
-                await call.message.answer(ai_text, parse_mode=ParseMode.HTML)
-            except Exception as ex_ai:
-                logger.warning("info_full AI message: %s", ex_ai)
+                await bot.delete_message(call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
         schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
     except Exception as ex:
         logger.error("info_full: %s", ex)
-        await call.message.answer("Не удалось загрузить данные.")
+        try:
+            await call.message.edit_text("Не удалось загрузить данные.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")]]))
+        except Exception:
+            await call.message.answer("Не удалось загрузить данные.")
         schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
@@ -2623,14 +3000,21 @@ async def entities_status_handler(call: CallbackQuery) -> None:
 async def refresh_handler(call: CallbackQuery) -> None:
     if not await _check_chat_and_respond(call):
         return
+    user_id = call.from_user.id if call.from_user else 0
+    if not _is_action_allowed(user_id, "refresh", cooldown_sec=1.0):
+        try:
+            await call.answer("Подождите 1 сек...", show_alert=False)
+        except Exception:
+            pass
+        return
     try:
         await call.answer("Информация обновлена")
     except Exception:
         pass
     global last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
-    last_user_id = call.from_user.id if call.from_user else 0
-    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
+    last_user_id = user_id
+    old_id = user_dashboard.get(user_id) if user_id else None
     await send_dashboard(call, old_msg_id=old_id)
 
 
@@ -2638,13 +3022,20 @@ async def refresh_handler(call: CallbackQuery) -> None:
 async def power_toggle_handler(call: CallbackQuery) -> None:
     if not await _check_chat_and_respond(call):
         return
+    user_id = call.from_user.id if call.from_user else 0
+    if not _is_action_allowed(user_id, "power_toggle", cooldown_sec=1.5):
+        try:
+            await call.answer("Команда уже выполняется...", show_alert=False)
+        except Exception:
+            pass
+        return
     try:
         await call.answer()
     except Exception:
         pass
     global last_chat_id, last_user_id
     last_chat_id = call.message.chat.id
-    last_user_id = call.from_user.id if call.from_user else 0
+    last_user_id = user_id
     live = await hass.get_all_live()
     is_on = str(live.get("switch", "")).lower() == "on"
     # Если заряд активен или выход включен — останавливаем заряд и выключаем выход
@@ -2691,9 +3082,9 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
                 parse_mode=ParseMode.HTML,
             )
     await asyncio.sleep(1)
-    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
+    old_id = user_dashboard.get(user_id) if user_id else None
     await send_dashboard(call, old_msg_id=old_id)
-    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
+    schedule_dashboard_after_60(call.message.chat.id, user_id)
 
 
 @router.callback_query(F.data == "profile_custom")
@@ -2715,12 +3106,12 @@ async def custom_mode_start(call: CallbackQuery) -> None:
     
     # Приветственное сообщение
     welcome_text = (
-        "🛠 **Ручной режим (Custom)**\n\n"
-        "• **Main:** До 80% емкости (обычно 14.7В).\n"
-        "• **Mix:** Финальный дозаряд (16+ В).\n"
-        "• **Delta:** Чувствительность финиша (0.03В — стандарт).\n"
-        "• **Limit:** Защита по времени.\n\n"
-        "⚠️ **ВНИМАНИЕ:** Высокие напряжения! Убедитесь, что АКБ отключена от бортсети."
+        "🛠 <b>Ручной режим (Custom)</b>\n\n"
+        "• <b>Main:</b> До 80% емкости (обычно 14.7В).\n"
+        "• <b>Mix:</b> Финальный дозаряд (16+ В).\n"
+        "• <b>Delta:</b> Чувствительность финиша (0.03В — стандарт).\n"
+        "• <b>Limit:</b> Защита по времени.\n\n"
+        "⚠️ <b>ВНИМАНИЕ:</b> Высокие напряжения! Убедитесь, что АКБ отключена от бортсети."
     )
     
     # Кнопка отмены
@@ -2728,13 +3119,13 @@ async def custom_mode_start(call: CallbackQuery) -> None:
         inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="custom_cancel")]]
     )
     
-    await call.message.answer(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=cancel_kb)
+    await call.message.answer(welcome_text, parse_mode=ParseMode.HTML, reply_markup=cancel_kb)
     
     # Начинаем ввод напряжения Main
     await call.message.answer(
-        "**Шаг 1/5:** Введите напряжение Main (например 14.7):\n"
-        "_Диапазон: 12.0 - 17.0В_",
-        parse_mode=ParseMode.MARKDOWN,
+        "<b>Шаг 1/5:</b> Введите напряжение Main (например 14.7):\n"
+        "<i>Диапазон: 12.0 - 17.0В</i>",
+        parse_mode=ParseMode.HTML,
         reply_markup=cancel_kb
     )
 
@@ -2770,33 +3161,14 @@ async def logs_handler(call: CallbackQuery) -> None:
         await call.answer()
     except Exception:
         pass
-    # Получаем реальные события из лога заряда
-    from charging_log import get_recent_events
-    try:
-        recent_events = get_recent_events(50)  # текущая сессия (от последнего START/RESTORE/END+START)
-        if not recent_events:
-            text = "<b>📝 Логи событий</b>\n\nНет событий."
-        else:
-            # Удаляем дубли идущих подряд событий
-            filtered_events = _remove_duplicate_events(recent_events)
-            
-            lines = ["<b>📝 Логи событий</b>\n"]
-            for event in filtered_events[-25:]:  # последние 25 после фильтрации
-                # Парсим строку события для красивого форматирования
-                formatted_event = format_log_event(event)
-                if formatted_event.strip():  # Пропускаем пустые строки
-                    lines.append(formatted_event)
-            
-            # Проверяем, что у нас есть события для отображения
-            if len(lines) <= 1:
-                text = "<b>📝 Логи событий</b>\n\nТолько служебные события."
-            else:
-                text = "\n".join(lines)
-    except Exception as ex:
-        logger.error("Failed to get recent events: %s", ex)
-        text = "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
-    
-    await call.message.answer(text, parse_mode=ParseMode.HTML)
+    text = _build_logs_text()
+    user_id = call.from_user.id if call.from_user else 0
+    is_on = await _safe_output_on()
+    await call.message.answer(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
+    )
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
@@ -2809,17 +3181,14 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
     except Exception:
         pass
     status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
-    times, voltages, currents = await get_raw_history(limit=50)
-    trend_summary = _build_trend_summary(times, voltages, currents)
-    history = {
-        "times": times,
-        "voltages": voltages,
-        "currents": currents,
-        "trend_summary": trend_summary,
-    }
-    result = await ask_deepseek(history)
-    result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
-    await status_msg.edit_text(f"<b>🧠 AI Анализ:</b>\n{result_html}", parse_mode=ParseMode.HTML)
+    result_text = await _build_ai_analysis_text()
+    user_id = call.from_user.id if call.from_user else 0
+    is_on = await _safe_output_on()
+    await status_msg.edit_text(
+        result_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
+    )
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
@@ -2886,7 +3255,13 @@ async def main() -> None:
 
     dp.include_router(router)
     await bot.set_my_commands([
-        BotCommand(command="start", description="Открыть дашборд RD6018"),
+        BotCommand(command="start", description="Открыть дашборд"),
+        BotCommand(command="modes", description="Выбрать режим заряда"),
+        BotCommand(command="off", description="Условие выключения (preset/команда)"),
+        BotCommand(command="logs", description="Последние события"),
+        BotCommand(command="ai", description="AI анализ телеметрии"),
+        BotCommand(command="stats", description="Где смотреть статистику"),
+        BotCommand(command="help", description="Справка по командам"),
         BotCommand(command="entities", description="Статус сущностей HA (RD6018)"),
     ])
     asyncio.create_task(data_logger())
