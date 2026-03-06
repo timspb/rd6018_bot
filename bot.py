@@ -253,6 +253,7 @@ link_lost_alert_sent: bool = False  # флаг-блокировка однокр
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
+_event_log_last_at: Dict[str, float] = {}
 
 # Команда off: выключить по напряжению / току / таймеру (игнорируя режим, защита остаётся)
 manual_off_voltage: Optional[float] = None    # выкл когда V >=
@@ -521,8 +522,21 @@ def _is_action_allowed(user_id: int, action: str, cooldown_sec: float = 1.2) -> 
 
 
 def _chart_range_for_user(user_id: int) -> str:
-    mode = user_chart_range.get(user_id, CHART_RANGE_DEFAULT)
-    return mode if mode in CHART_RANGE_VALUES else CHART_RANGE_DEFAULT
+    manual_mode = user_chart_range.get(user_id)
+    if manual_mode in CHART_RANGE_VALUES:
+        return manual_mode
+
+    # Автоподбор по длительности активной сессии:
+    # <2ч -> 30м, 2-8ч -> 2ч, >8ч -> сессия.
+    if charge_controller.is_active and getattr(charge_controller, "total_start_time", 0):
+        elapsed_sec = max(0.0, time.time() - float(charge_controller.total_start_time))
+        if elapsed_sec < 2 * 3600:
+            return CHART_RANGE_30M
+        if elapsed_sec <= 8 * 3600:
+            return CHART_RANGE_2H
+        return CHART_RANGE_SESSION
+
+    return CHART_RANGE_DEFAULT
 
 
 def _chart_label(mode: str) -> str:
@@ -682,6 +696,23 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 def _cap_current(value: float) -> float:
     return min(MAX_STAGE_CURRENT, max(0.1, float(value)))
+
+
+def _should_skip_noisy_log_event(stage: str, event: str, now_ts: Optional[float] = None) -> bool:
+    """
+    Подавление шумных повторов в журнале.
+    Сейчас ограничиваем поток EMERGENCY_UNAVAILABLE: не чаще 1 раза в 10 минут.
+    """
+    ev = (event or "").strip()
+    if ev != "EMERGENCY_UNAVAILABLE":
+        return False
+    key = f"{stage}:{ev}"
+    now_val = now_ts if now_ts is not None else time.time()
+    last = _event_log_last_at.get(key, 0.0)
+    if now_val - last < 600:
+        return True
+    _event_log_last_at[key] = now_val
+    return False
 
 
 async def _apply_phase_protection(uv: float, ui: float) -> None:
@@ -898,10 +929,53 @@ def safe_html_format(template: str, **kwargs) -> str:
 _last_restore_time: float = 0.0
 _script_start_time: float = time.time()
 
+
+def _collapse_noisy_events(events: list) -> list:
+    """Сжать подряд идущие шумные события в одну запись с (xN)."""
+    if not events:
+        return events
+    collapsed: list = []
+    run_event: Optional[str] = None
+    run_count = 0
+
+    def _flush_run() -> None:
+        nonlocal run_event, run_count
+        if not run_event:
+            return
+        if run_count <= 1:
+            collapsed.append(run_event)
+        else:
+            parts = run_event.split(" | ")
+            if len(parts) > 6:
+                parts[6] = f"{parts[6].strip()} (x{run_count})"
+                collapsed.append(" | ".join(parts))
+            else:
+                collapsed.append(run_event)
+        run_event = None
+        run_count = 0
+
+    for event in events:
+        parts = event.split(" | ")
+        event_name = parts[6].strip() if len(parts) > 6 else ""
+        is_noisy = event_name == "EMERGENCY_UNAVAILABLE"
+        if is_noisy:
+            if run_event is None:
+                run_event = event
+                run_count = 1
+            else:
+                run_count += 1
+            continue
+        _flush_run()
+        collapsed.append(event)
+    _flush_run()
+    return collapsed
+
+
 def _remove_duplicate_events(events: list) -> list:
     """Удаляет дубли идущих подряд событий, группирует RESTORE с счетчиком."""
     if not events:
         return events
+    events = _collapse_noisy_events(events)
     
     filtered_events = []
     prev_event_type = None
@@ -1800,14 +1874,16 @@ async def data_logger() -> None:
                     actions["log_event_sub"],
                 )
             if actions.get("log_event"):
-                log_event(
-                    charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t,
-                    ah,
-                    actions["log_event"],
-                )
+                event_name = str(actions["log_event"])
+                if not _should_skip_noisy_log_event(charge_controller.current_stage, event_name, now_ts):
+                    log_event(
+                        charge_controller.current_stage,
+                        battery_v,
+                        i,
+                        t,
+                        ah,
+                        event_name,
+                    )
 
             now_ts = time.time()
             if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
