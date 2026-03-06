@@ -1330,20 +1330,20 @@ def _compact_dashboard_caption(
     lines = []
     if charge_controller.is_active:
         timers = charge_controller.get_timers()
-        profile = charge_controller.battery_type
-        stage_name = _stage_label(charge_controller.current_stage, short=True)
-        remaining = timers.get("remaining_time", "—")
-        lines.append(f"📊 RD6018 · {profile}")
-        lines.append(f"Стадия: {stage_name}")
+        profile = html.escape(charge_controller.battery_type)
+        stage_name = html.escape(_stage_label(charge_controller.current_stage, short=True))
+        remaining = html.escape(str(timers.get("remaining_time", "—")))
+        lines.append(f"<b>📊 RD6018 · {profile}</b>")
+        lines.append(f"<b>Стадия: {stage_name}</b>")
         lines.append(f"V: {battery_v:.2f}V  I: {current:.2f}A")
         lines.append(f"Ah: {ah:.2f}  T: {temp_ext:.1f}°C")
-        lines.append(f"Режим: {mode}  ETA: {remaining}")
+        lines.append(f"Режим: {html.escape(mode)}  ETA: {remaining}")
     else:
         state_label = "Готов" if is_on else "Ожидание"
-        lines.append(f"📊 RD6018 · {state_label}")
+        lines.append(f"<b>📊 RD6018 · {state_label}</b>")
         lines.append(f"АКБ: {battery_v:.2f}V  I: {current:.2f}A")
         lines.append(f"Ah: {ah:.2f}  T: {temp_ext:.1f}°C")
-        lines.append(f"Режим: {mode}")
+        lines.append(f"Режим: {html.escape(mode)}")
 
     alerts = []
     off_line = _format_manual_off_for_dashboard()
@@ -1356,11 +1356,10 @@ def _compact_dashboard_caption(
 
     if alerts:
         lines.append(" | ".join(alerts))
+        lines.append(f"📈 {_chart_label(chart_mode)}")
     else:
-        lines.append("✅ Норма")
-
-    lines.append(f"📈 {_chart_label(chart_mode)}")
-    return "\n".join(_strip_html_tags(line) for line in lines if line)
+        lines.append(f"✅ Норма · 📈 {_chart_label(chart_mode)}")
+    return "\n".join(line for line in lines if line)
 
 
 async def _build_and_send_dashboard(
