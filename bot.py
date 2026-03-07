@@ -1953,14 +1953,33 @@ async def data_logger() -> None:
             elif charge_controller.is_active:
                 if actions.get("turn_off"):
                     await hass.turn_off(ENTITY_MAP["switch"])
+                # Apply voltage target first (OVP is always a margin above target V).
                 if actions.get("set_ovp") is not None and ENTITY_MAP.get("ovp"):
                     await hass.set_ovp(float(actions["set_ovp"]))
-                if actions.get("set_ocp") is not None and ENTITY_MAP.get("ocp"):
-                    await hass.set_ocp(min(float(actions["set_ocp"]), MAX_STAGE_CURRENT + OCP_OFFSET))
                 if actions.get("set_voltage") is not None:
                     await hass.set_voltage(float(actions["set_voltage"]))
-                if actions.get("set_current") is not None:
-                    await hass.set_current(_cap_current(float(actions["set_current"])))
+
+                # Avoid false OCP trip when lowering current:
+                # if target current is lower than current setpoint, lower current first, then OCP.
+                target_i_raw = actions.get("set_current")
+                target_ocp_raw = actions.get("set_ocp")
+                has_ocp = target_ocp_raw is not None and ENTITY_MAP.get("ocp")
+                if target_i_raw is not None:
+                    target_i = _cap_current(float(target_i_raw))
+                    current_set_i = _safe_float(live.get("set_current"), target_i)
+                    if has_ocp:
+                        target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
+                        if target_i < current_set_i:
+                            await hass.set_current(target_i)
+                            await hass.set_ocp(target_ocp)
+                        else:
+                            await hass.set_ocp(target_ocp)
+                            await hass.set_current(target_i)
+                    else:
+                        await hass.set_current(target_i)
+                elif has_ocp:
+                    target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
+                    await hass.set_ocp(target_ocp)
                 if actions.get("turn_on"):
                     await hass.turn_on(ENTITY_MAP["switch"])
 
