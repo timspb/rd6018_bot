@@ -131,7 +131,8 @@ class ChargeController:
         self._agm_stage_idx: int = 0
         self._delta_reported: bool = False
         self.is_cv: bool = False
-        self._stuck_current_since: Optional[float] = None  # когда ток впервые застрял > 0.3А в CV
+        self._stuck_current_since: Optional[float] = None  # когда ток впервые вышел на полку выше порога десульфации
+        self._stuck_current_value: Optional[float] = None  # минимум тока на текущей полке; новый минимум сбрасывает таймер
         self.last_update_time: float = 0.0  # время последнего вызова tick() — для watchdog
         self.emergency_hv_disconnect: bool = False  # флаг после аварийного отключения при U>15В
         self._phase_current_limit: float = 0.0  # базовый лимит тока текущей фазы
@@ -192,6 +193,8 @@ class ChargeController:
         self._delta_trigger_count = 0
         self._first_stage_hold_since = None
         self._first_stage_hold_current = None
+        self._stuck_current_since = None
+        self._stuck_current_value = None
         self._blanking_until = now + DELTA_MONITOR_DELAY_SEC
         self._delta_monitor_after = now + DELTA_MONITOR_DELAY_SEC
 
@@ -215,6 +218,7 @@ class ChargeController:
         self._agm_stage_idx = 0
         self._delta_reported = False
         self._stuck_current_since = None
+        self._stuck_current_value = None
         self.emergency_hv_disconnect = False
         self._temp_warning_alerted = False
         self._pending_log_event = None
@@ -262,6 +266,7 @@ class ChargeController:
         self._agm_stage_idx = 0
         self._delta_reported = False
         self._stuck_current_since = None
+        self._stuck_current_value = None
         self.emergency_hv_disconnect = False
         self._temp_warning_alerted = False
         self._cooling_from_stage = None
@@ -394,6 +399,8 @@ class ChargeController:
             "total_start_time": self.total_start_time,  # v2.6: сохраняем общий старт
             "first_stage_hold_since": self._first_stage_hold_since,
             "first_stage_hold_current": self._first_stage_hold_current,
+            "stuck_current_since": self._stuck_current_since,
+            "stuck_current_value": self._stuck_current_value,
             "saved_at": time.time(),
         }
         try:
@@ -460,6 +467,16 @@ class ChargeController:
             self._first_stage_hold_current = float(raw_hold_current) if raw_hold_current is not None else None
         except (TypeError, ValueError):
             self._first_stage_hold_current = None
+        raw_stuck_since = data.get("stuck_current_since")
+        try:
+            self._stuck_current_since = float(raw_stuck_since) if raw_stuck_since not in (None, 0) else None
+        except (TypeError, ValueError):
+            self._stuck_current_since = None
+        raw_stuck_value = data.get("stuck_current_value")
+        try:
+            self._stuck_current_value = float(raw_stuck_value) if raw_stuck_value is not None else None
+        except (TypeError, ValueError):
+            self._stuck_current_value = None
 
         # v2.6: восстанавливаем общий старт сессии
         raw_total_start = data.get("total_start_time")
@@ -536,6 +553,17 @@ class ChargeController:
             )
 
         self._reset_delta_and_blanking(now)
+        if self.current_stage == self.STAGE_MAIN:
+            raw_stuck_since = data.get("stuck_current_since")
+            try:
+                self._stuck_current_since = float(raw_stuck_since) if raw_stuck_since not in (None, 0) else None
+            except (TypeError, ValueError):
+                self._stuck_current_since = None
+            raw_stuck_value = data.get("stuck_current_value")
+            try:
+                self._stuck_current_value = float(raw_stuck_value) if raw_stuck_value is not None else None
+            except (TypeError, ValueError):
+                self._stuck_current_value = None
         if self.current_stage != self.STAGE_MIX:
             self.finish_timer_start = None
 
@@ -577,6 +605,10 @@ class ChargeController:
         self._last_hourly_report = 0.0
         self._last_v_i_history_time = 0.0
         self._last_safe_wait_sample = 0.0
+        self._stuck_current_since = None
+        self._stuck_current_value = None
+        self._first_stage_hold_since = None
+        self._first_stage_hold_current = None
         
         # Очистка временного лога событий (если будет реализован)
         # self._event_log.clear()  # TODO: добавить когда будет event log
@@ -590,6 +622,7 @@ class ChargeController:
         self._phantom_alerted = False
         self._delta_reported = False
         self._stuck_current_since = None
+        self._stuck_current_value = None
         self._safe_wait_next_stage = None
         self._analytics_history.clear()
         self._safe_wait_v_samples.clear()
@@ -957,6 +990,25 @@ class ChargeController:
         """Застревание тока выше порога — триггер десульфации (0.2А для AGM, 0.3А для Ca/EFB)."""
         threshold = DESULF_CURRENT_STUCK_AGM if self.battery_type == self.PROFILE_AGM else DESULF_CURRENT_STUCK
         return current > threshold
+
+    def _track_stuck_current_plateau(self, now: float, current: float, threshold: float) -> Optional[int]:
+        """Отслеживать полку тока выше порога; новый минимум сбрасывает таймер."""
+        if current < threshold:
+            self._stuck_current_since = None
+            self._stuck_current_value = None
+            return None
+
+        if self._stuck_current_since is None or self._stuck_current_value is None:
+            self._stuck_current_since = now
+            self._stuck_current_value = current
+            return 0
+
+        if current < self._stuck_current_value:
+            self._stuck_current_since = now
+            self._stuck_current_value = current
+            return 0
+
+        return int((now - self._stuck_current_since) / 60)
 
     def _exit_cc_condition(self, v_now: float) -> bool:
         """Выход CC: V упало на дельту от пика."""
@@ -1356,6 +1408,7 @@ class ChargeController:
                     self._first_stage_hold_current = None
                 if not in_blanking and is_cv and current < 0.2:
                     self._stuck_current_since = None
+                    self._stuck_current_value = None
                     # Новый минимум тока — перезапуск 2ч; переход только после 2ч без нового минимума
                     if self._first_stage_hold_current is None or current < self._first_stage_hold_current:
                         self._first_stage_hold_since = now
@@ -1411,12 +1464,11 @@ class ChargeController:
                 else:
                     # AGM: застревание I >= 0.2А 40 мин — десульфация (макс 4 итерации)
                     if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
-                        if self._stuck_current_since is None:
-                            self._stuck_current_since = now
-                        stuck_mins = int((now - self._stuck_current_since) / 60)
+                        stuck_mins = self._track_stuck_current_plateau(now, current, DESULF_CURRENT_STUCK_AGM) or 0
                         if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                             self.antisulfate_count += 1
                             self._stuck_current_since = None
+                            self._stuck_current_value = None
                             actions["log_event_end"] = self._make_log_event_end(
                                 now, ah, voltage, current, temp, f"I≥0.2А {stuck_mins}мин, десульфация #{self.antisulfate_count}"
                             )
@@ -1439,18 +1491,18 @@ class ChargeController:
                             actions["log_event"] = "START"
                         elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                             self._stuck_current_since = None
+                            self._stuck_current_value = None
                             # Лимит десульфаций исчерпан — остаёмся в MAIN, переход в Mix по правилу 2ч на минимуме тока
 
             elif self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
                 # Ca/EFB: застревание I >= 0.3А 40 мин -> десульфатация (макс 3 итерации).
                 # После исчерпания лимита десульфации уходим в MIX по лимиту времени "полки" тока.
                 if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK:
-                    if self._stuck_current_since is None:
-                        self._stuck_current_since = now
-                    stuck_mins = int((now - self._stuck_current_since) / 60)
+                    stuck_mins = self._track_stuck_current_plateau(now, current, DESULF_CURRENT_STUCK) or 0
                     if self.antisulfate_count < ANTISULFATE_MAX_CA_EFB and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
                         self.antisulfate_count += 1
                         self._stuck_current_since = None
+                        self._stuck_current_value = None
                         actions["log_event_end"] = self._make_log_event_end(
                             now, ah, voltage, current, temp, f"I>=0.3A {stuck_mins}min, desulf #{self.antisulfate_count}"
                         )
@@ -1480,6 +1532,7 @@ class ChargeController:
                         actions["log_event"] = "START"
                     elif self.antisulfate_count >= ANTISULFATE_MAX_CA_EFB and stuck_mins >= MAIN_MIX_STUCK_CV_MIN:
                         self._stuck_current_since = None
+                        self._stuck_current_value = None
                         actions["log_event_end"] = self._make_log_event_end(
                             now, ah, voltage, current, temp, f"I>=0.3A {stuck_mins}min, desulf limit -> MIX"
                         )
@@ -1501,6 +1554,7 @@ class ChargeController:
                         actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
                 else:
                     self._stuck_current_since = None
+                    self._stuck_current_value = None
 
             # Переход MAIN->MIX по падению тока: Ca/EFB — ждём 3ч на минимуме <0.3А; AGM — в блоке PROFILE_AGM
             if self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
@@ -1509,6 +1563,7 @@ class ChargeController:
                     self._first_stage_hold_current = None
                 elif not in_blanking and is_cv and current < 0.3:
                     self._stuck_current_since = None
+                    self._stuck_current_value = None
                     # Новый минимум тока — перезапуск 3ч; переход только после 3ч без нового минимума
                     if self._first_stage_hold_current is None or current < self._first_stage_hold_current:
                         self._first_stage_hold_since = now
