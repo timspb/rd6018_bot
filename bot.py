@@ -1922,6 +1922,7 @@ async def data_logger() -> None:
             if now_ts - last_cleanup_time >= 86400:  # 24 часа
                 await cleanup_old_records()
                 try:
+                    rotate_if_needed()
                     trim_log_older_than_days(30)
                 except Exception as ex:
                     logger.warning("trim_log_older_than_days: %s", ex)

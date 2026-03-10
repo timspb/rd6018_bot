@@ -14,6 +14,7 @@ from time_utils import format_datetime_user_tz
 LOG_FILE = "charging_history.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 МБ
 LOG_RETENTION_DAYS = 30  # хранить события не старше 30 дней
+LOG_ROTATE_KEEP_ARCHIVES = 10
 
 _charge_logger: logging.Logger = None
 
@@ -33,6 +34,62 @@ def _ensure_logger() -> logging.Logger:
 
 # Регулярка для извлечения даты из строки: [ГГГГ-ММ-ДД ЧЧ:ММ:SS]
 _LOG_LINE_DATE_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]")
+
+
+def _event_from_log_line(line: str) -> str:
+    parts = line.strip().split(" | ")
+    return parts[6].strip() if len(parts) > 6 else ""
+
+
+def _find_current_session_start_idx(lines: list[str]) -> int:
+    """Session starts from last START, fallback to last RESTORE."""
+    last_start_idx = -1
+    last_restore_idx = -1
+    for idx, line in enumerate(lines):
+        event = _event_from_log_line(line)
+        if event.startswith("START"):
+            last_start_idx = idx
+        elif event.startswith("RESTORE"):
+            last_restore_idx = idx
+    return last_start_idx if last_start_idx != -1 else last_restore_idx
+
+
+def _extract_current_session_lines(lines: list[str]) -> list[str]:
+    start_idx = _find_current_session_start_idx(lines)
+    if start_idx == -1:
+        return []
+    session_lines = []
+    for line in lines[start_idx:]:
+        clean = line.rstrip("\n")
+        if not clean:
+            continue
+        session_lines.append(clean + "\n")
+    return session_lines
+
+
+def _detach_log_file_handler(logger_obj: logging.Logger) -> Optional[logging.Handler]:
+    handler_to_remove = None
+    for h in logger_obj.handlers[:]:
+        if getattr(h, "baseFilename", None) and LOG_FILE in str(h.baseFilename):
+            handler_to_remove = h
+            break
+    if handler_to_remove:
+        logger_obj.removeHandler(handler_to_remove)
+        try:
+            handler_to_remove.close()
+        except Exception:
+            pass
+    return handler_to_remove
+
+
+def _attach_log_file_handler_if_missing(logger_obj: logging.Logger) -> None:
+    if not any(
+        getattr(h, "baseFilename", None) and LOG_FILE in str(getattr(h, "baseFilename", ""))
+        for h in logger_obj.handlers
+    ):
+        h = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        h.setFormatter(logging.Formatter("%(message)s"))
+        logger_obj.addHandler(h)
 
 
 def _parse_log_line_date(line: str) -> Optional[datetime]:
@@ -58,18 +115,7 @@ def trim_log_older_than_days(days: int = LOG_RETENTION_DAYS) -> int:
     if not os.path.exists(LOG_FILE):
         return 0
     logger_obj = _ensure_logger()
-    # Снимаем файловый хендлер, чтобы можно было перезаписать файл
-    handler_to_remove = None
-    for h in logger_obj.handlers[:]:
-        if getattr(h, "baseFilename", None) and LOG_FILE in str(h.baseFilename):
-            handler_to_remove = h
-            break
-    if handler_to_remove:
-        logger_obj.removeHandler(handler_to_remove)
-        try:
-            handler_to_remove.close()
-        except Exception:
-            pass
+    _detach_log_file_handler(logger_obj)
 
     cutoff = datetime.now() - timedelta(days=days)
     removed = 0
@@ -91,22 +137,63 @@ def trim_log_older_than_days(days: int = LOG_RETENTION_DAYS) -> int:
     except Exception as e:
         logging.getLogger("rd6018").warning("trim_log_older_than_days failed: %s", e)
     finally:
-        # Восстанавливаем файловый хендлер
-        if not any(
-            getattr(h, "baseFilename", None) and LOG_FILE in str(getattr(h, "baseFilename", ""))
-            for h in logger_obj.handlers
-        ):
-            h = logging.FileHandler(LOG_FILE, encoding="utf-8")
-            h.setFormatter(logging.Formatter("%(message)s"))
-            logger_obj.addHandler(h)
+        _attach_log_file_handler_if_missing(logger_obj)
     return removed
 
 
-def rotate_if_needed() -> None:
-    """Если лог > 5МБ — архивировать и начать новый."""
-    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > LOG_MAX_BYTES:
+def rotate_if_needed(
+    max_bytes: int = LOG_MAX_BYTES,
+    keep_archives: int = LOG_ROTATE_KEEP_ARCHIVES,
+    preserve_current_session: bool = True,
+) -> bool:
+    """
+    Rotate event log by size.
+    Preserves current charge session in fresh log to avoid losing active context.
+    """
+    if not os.path.exists(LOG_FILE):
+        return False
+    if os.path.getsize(LOG_FILE) <= max_bytes:
+        return False
+
+    logger_obj = _ensure_logger()
+    _detach_log_file_handler(logger_obj)
+    rd_logger = logging.getLogger("rd6018")
+
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        preserved_lines = _extract_current_session_lines(lines) if preserve_current_session else []
         archive = f"{LOG_FILE}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
         shutil.move(LOG_FILE, archive)
+
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            if preserved_lines:
+                f.writelines(preserved_lines)
+
+        archives = sorted(
+            [p for p in os.listdir(".") if p.startswith(f"{LOG_FILE}.") and p.endswith(".bak")],
+            key=lambda p: os.path.getmtime(p),
+            reverse=True,
+        )
+        for old in archives[keep_archives:]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+
+        rd_logger.info(
+            "Rotated %s -> %s (preserved %d current-session lines)",
+            LOG_FILE,
+            archive,
+            len(preserved_lines),
+        )
+        return True
+    except Exception as ex:
+        rd_logger.warning("rotate_if_needed failed: %s", ex)
+        return False
+    finally:
+        _attach_log_file_handler_if_missing(logger_obj)
 
 
 def log_event(
@@ -192,20 +279,7 @@ def get_recent_events(limit: int = 50) -> list:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
-        # Граница текущей сессии:
-        # 1) последний START (новый заряд),
-        # 2) если START не найден — последний RESTORE.
-        last_start_idx = -1
-        last_restore_idx = -1
-        for idx, line in enumerate(lines):
-            parts = line.strip().split(" | ")
-            event = parts[6].strip() if len(parts) > 6 else ""
-            if event.startswith("START"):
-                last_start_idx = idx
-            elif event.startswith("RESTORE"):
-                last_restore_idx = idx
-
-        start_idx = last_start_idx if last_start_idx != -1 else last_restore_idx
+        start_idx = _find_current_session_start_idx(lines)
 
         if start_idx != -1:
             session_lines = lines[start_idx:]
