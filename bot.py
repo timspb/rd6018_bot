@@ -972,85 +972,54 @@ def _collapse_noisy_events(events: list) -> list:
 
 
 def _remove_duplicate_events(events: list) -> list:
-    """Удаляет дубли идущих подряд событий, группирует RESTORE с счетчиком."""
+    """Compress only noisy duplicates and preserve transition/state events order."""
     if not events:
         return events
     events = _collapse_noisy_events(events)
-    
+
     filtered_events = []
-    prev_event_type = None
     restore_count = 0
     last_restore_event = None
-    
+    last_restore_stage = None
+
+    def _flush_restore_group() -> None:
+        nonlocal restore_count, last_restore_event, last_restore_stage
+        if not last_restore_event:
+            return
+        if restore_count > 1:
+            parts = last_restore_event.split(" | ")
+            if len(parts) > 6:
+                parts[6] = f"RESTORE (x{restore_count})"
+                filtered_events.append(" | ".join(parts))
+            else:
+                filtered_events.append(last_restore_event)
+        else:
+            filtered_events.append(last_restore_event)
+        restore_count = 0
+        last_restore_event = None
+        last_restore_stage = None
+
     for event in events:
-        # Извлекаем тип события (например, "RESTORE", "START", "MAIN", etc.)
-        event_parts = event.split(' | ')
+        event_parts = event.split(" | ")
         if len(event_parts) > 6:
-            current_event_type = event_parts[6].strip().split()[0] if event_parts[6].strip() else ""
+            event_field = event_parts[6].strip()
+            current_event_type = event_field.split()[0] if event_field else ""
             stage = event_parts[1].strip()
-            
-            # Специальная обработка RESTORE событий
             if current_event_type == "RESTORE":
-                if prev_event_type == f"{stage}_RESTORE":
-                    # Увеличиваем счетчик RESTORE
+                if last_restore_event and last_restore_stage == stage:
                     restore_count += 1
                     last_restore_event = event
                 else:
-                    # Добавляем предыдущий RESTORE с счетчиком если был
-                    if last_restore_event and restore_count > 1:
-                        # Модифицируем событие добавляя счетчик
-                        parts = last_restore_event.split(' | ')
-                        if len(parts) > 6:
-                            parts[6] = f"RESTORE (x{restore_count})"
-                            filtered_events.append(' | '.join(parts))
-                    elif last_restore_event:
-                        filtered_events.append(last_restore_event)
-                    
-                    # Начинаем новую группу RESTORE
+                    _flush_restore_group()
                     restore_count = 1
                     last_restore_event = event
-                    prev_event_type = f"{stage}_RESTORE"
+                    last_restore_stage = stage
                 continue
-            else:
-                # Завершаем группу RESTORE если была
-                if last_restore_event:
-                    if restore_count > 1:
-                        parts = last_restore_event.split(' | ')
-                        if len(parts) > 6:
-                            parts[6] = f"RESTORE (x{restore_count})"
-                            filtered_events.append(' | '.join(parts))
-                    else:
-                        filtered_events.append(last_restore_event)
-                    last_restore_event = None
-                    restore_count = 0
-            
-            # Создаем ключ для группировки (тип события + этап)
-            event_key = f"{stage}_{current_event_type}"
-            
-            # Если это не дубль или это важное событие, добавляем
-            if (event_key != prev_event_type or 
-                current_event_type in ["START", "DONE", "EMERGENCY", "STOP"]):
-                filtered_events.append(event)
-                prev_event_type = event_key
-            else:
-                # Заменяем предыдущее событие того же типа на текущее (более новое)
-                if filtered_events:
-                    filtered_events[-1] = event
-        else:
-            # Если формат события неожиданный, добавляем как есть
-            filtered_events.append(event)
-            prev_event_type = None
-    
-    # Добавляем последний RESTORE если был
-    if last_restore_event:
-        if restore_count > 1:
-            parts = last_restore_event.split(' | ')
-            if len(parts) > 6:
-                parts[6] = f"RESTORE (x{restore_count})"
-                filtered_events.append(' | '.join(parts))
-        else:
-            filtered_events.append(last_restore_event)
-    
+
+        _flush_restore_group()
+        filtered_events.append(event)
+
+    _flush_restore_group()
     return filtered_events
 
 
@@ -1129,6 +1098,10 @@ def format_log_event(event_line: str) -> str:
             if "CUSTOM" in event and "profile=" not in event:
                 text += "└ Профиль: Custom\n"
             return text.rstrip()
+
+        if event.startswith("STAGE_CHANGE |"):
+            transition = event.replace("STAGE_CHANGE |", "", 1).strip()
+            return f"[{time_only}] >> <b>{stage_escaped}</b>: {html.escape(transition)}"
 
         # Остальные события (EMERGENCY, DONE, старый формат и т.д.)
         icon = "📋"
@@ -1892,10 +1865,21 @@ async def data_logger() -> None:
                 else:
                     logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
 
+            now_ts = time.time()
+            prev_stage = charge_controller.current_stage
             actions = await charge_controller.tick(
                 battery_v, i, temp_ext, is_cv, ah, output_switch,
                 manual_off_active=_has_manual_off_condition(),
             )
+            if prev_stage != charge_controller.current_stage:
+                log_event(
+                    charge_controller.current_stage,
+                    battery_v,
+                    i,
+                    t,
+                    ah,
+                    f"STAGE_CHANGE | {prev_stage} -> {charge_controller.current_stage}",
+                )
 
             end = actions.get("log_event_end")
             if end:
@@ -1930,7 +1914,6 @@ async def data_logger() -> None:
                         event_name,
                     )
 
-            now_ts = time.time()
             if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
                 log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
                 last_checkpoint_time = now_ts

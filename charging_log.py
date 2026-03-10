@@ -180,15 +180,10 @@ def clear_event_logs() -> None:
     return None
 
 
-def get_recent_events(limit: int = 5) -> list:
+def get_recent_events(limit: int = 50) -> list:
     """
-    v2.7 Получить последние N событий ТЕКУЩЕЙ сессии из лога.
-
-    Сессия начинается с последнего из:
-    - START с profile= или START CUSTOM (новый заряд)
-    - RESTORE (восстановление после потери связи)
-    - START сразу после END (новый цикл после завершения этапа/ручного выкл)
-    Так старые сессии не попадают в выборку.
+    Получить последние N значимых событий текущей сессии из лога.
+    Граница сессии определяется по последнему START/RESTORE.
     """
     if not os.path.exists(LOG_FILE):
         return []
@@ -197,19 +192,21 @@ def get_recent_events(limit: int = 5) -> list:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
-        # Ищем последнюю границу сессии: новый старт или восстановление
-        start_idx = -1
+        # Граница текущей сессии:
+        # 1) последний START (новый заряд),
+        # 2) если START не найден — последний RESTORE.
+        last_start_idx = -1
+        last_restore_idx = -1
         for idx, line in enumerate(lines):
-            if ("START" in line and "profile=" in line) or "START CUSTOM" in line:
-                start_idx = idx
-            elif "RESTORE" in line:
-                start_idx = idx
-            elif "END " in line and idx + 1 < len(lines):
-                next_line = lines[idx + 1]
-                if "START" in next_line:
-                    start_idx = idx + 1
-                # иначе оставляем предыдущий start_idx
-        
+            parts = line.strip().split(" | ")
+            event = parts[6].strip() if len(parts) > 6 else ""
+            if event.startswith("START"):
+                last_start_idx = idx
+            elif event.startswith("RESTORE"):
+                last_restore_idx = idx
+
+        start_idx = last_start_idx if last_start_idx != -1 else last_restore_idx
+
         if start_idx != -1:
             session_lines = lines[start_idx:]
         else:
