@@ -1033,6 +1033,7 @@ class ChargeController:
         target_v, target_i = self._get_target_v_i()
         timers = self.get_timers()
         hold = self._get_ai_hold_snapshot(now)
+        mix_exit_policy = None
 
         if self.current_stage == self.STAGE_PREP:
             summary = "Soft Start 12.0V/0.5A, затем Main."
@@ -1059,23 +1060,58 @@ class ChargeController:
             if self.finish_timer_start is not None:
                 summary = "Mix после delta-триггера: таймер 2ч до Done."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Завершение по таймеру 2ч после delta, затем SAFE_WAIT."
+                transition = "Delta уже подтверждена: идёт 2ч таймер до Done, затем SAFE_WAIT."
+                mix_exit_policy = {
+                    "mode": "delta_confirmed_timer_running",
+                    "primary": "timer",
+                    "delta_triggered": True,
+                    "delta_source": "CC_or_CV",
+                    "fallback_limit_hours": None,
+                }
             elif self.battery_type == self.PROFILE_EFB:
-                summary = "Mix 16.5V / 0.03C до лимита 10ч."
+                summary = "Mix 16.5V / 0.03C: нормальный выход по ΔV/ΔI, лимит 10ч - fallback."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Переход в SAFE_WAIT после лимита 10ч."
+                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 10ч переводит в SAFE_WAIT."
+                mix_exit_policy = {
+                    "mode": "delta_or_time_fallback",
+                    "primary": "delta",
+                    "delta_triggered": False,
+                    "delta_source": "CC_or_CV",
+                    "fallback_limit_hours": EFB_MIX_MAX_HOURS,
+                }
             elif self.battery_type == self.PROFILE_CA:
-                summary = "Mix 16.5V / 0.03C до лимита 8ч."
+                summary = "Mix 16.5V / 0.03C: нормальный выход по ΔV/ΔI, лимит 8ч - fallback."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Переход в SAFE_WAIT после лимита 8ч."
+                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 8ч переводит в SAFE_WAIT."
+                mix_exit_policy = {
+                    "mode": "delta_or_time_fallback",
+                    "primary": "delta",
+                    "delta_triggered": False,
+                    "delta_source": "CC_or_CV",
+                    "fallback_limit_hours": CA_MIX_MAX_HOURS,
+                }
             elif self.battery_type == self.PROFILE_AGM:
-                summary = "Mix 16.3V / 0.03C до лимита 5ч."
+                summary = "Mix 16.3V / 0.03C: нормальный выход по ΔV/ΔI, лимит 5ч - fallback."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Переход в SAFE_WAIT после лимита 5ч."
+                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 5ч переводит в SAFE_WAIT."
+                mix_exit_policy = {
+                    "mode": "delta_or_time_fallback",
+                    "primary": "delta",
+                    "delta_triggered": False,
+                    "delta_source": "CC_or_CV",
+                    "fallback_limit_hours": AGM_MIX_MAX_HOURS,
+                }
             else:
-                summary = "Mix по пользовательским правилам."
+                summary = "Mix по пользовательским правилам: нормальный выход по ΔV/ΔI, затем таймер."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Переход по пользовательскому delta или таймеру."
+                transition = "Нормальный выход по delta-триггеру; если delta не сработает, сработает пользовательский лимит времени."
+                mix_exit_policy = {
+                    "mode": "delta_or_time_fallback",
+                    "primary": "delta",
+                    "delta_triggered": False,
+                    "delta_source": "CUSTOM",
+                    "fallback_limit_hours": self._custom_time_limit_hours,
+                }
         elif self.current_stage == self.STAGE_SAFE_WAIT:
             summary = "Штатное безопасное ожидание падения напряжения при выключенном выходе."
             next_stage = self._safe_wait_next_stage or self.STAGE_MAIN
@@ -1122,6 +1158,7 @@ class ChargeController:
             "agm_stage_idx": self._agm_stage_idx,
             "desulf_attempts": self.antisulfate_count,
             "finish_timer_active": self.finish_timer_start is not None,
+            "mix_exit_policy": mix_exit_policy,
             "session_reason": self._session_start_reason,
         }
 

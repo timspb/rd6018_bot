@@ -38,6 +38,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
     timers = snapshot.get("timers", {}) or {}
     hold = snapshot.get("hold") or {}
     safety = snapshot.get("safety", {}) or {}
+    mix_exit_policy = snapshot.get("mix_exit_policy") or {}
 
     stage = snapshot.get("stage", "—")
     profile = snapshot.get("profile", "—")
@@ -61,6 +62,25 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         targets_line,
         f"Timers: total={timers.get('total_time', '—')} | stage={timers.get('stage_time', '—')} | remaining={timers.get('remaining_time', '—')}",
     ]
+
+    if stage == "Mix Mode" or mix_exit_policy:
+        if mix_exit_policy:
+            primary = mix_exit_policy.get("primary", "—")
+            mode = mix_exit_policy.get("mode", "—")
+            delta_triggered = "YES" if mix_exit_policy.get("delta_triggered") else "NO"
+            fallback_hours = mix_exit_policy.get("fallback_limit_hours")
+            fallback_text = f"{fallback_hours}h" if isinstance(fallback_hours, (int, float)) else "—"
+            lines.append(
+                f"Mix exit: primary={primary} | mode={mode} | delta_triggered={delta_triggered} | fallback_limit={fallback_text}"
+            )
+        else:
+            lines.append("Mix exit: primary=delta | mode=delta_or_time_fallback | delta_triggered=NO")
+        lines.append(
+            "Mix rule: normal exit is by ΔV/ΔI confirmation; stage timer is a fallback limit, not the main trigger."
+        )
+        lines.append(
+            f"Finish timer active: {'YES' if snapshot.get('finish_timer_active') else 'NO'}"
+        )
 
     if hold:
         hold_kind = hold.get("kind", "—")
