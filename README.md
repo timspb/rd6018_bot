@@ -19,6 +19,7 @@
 - Защитный лимит Main: `72ч`.
 - При тайм-ауте Main для **Ca/Ca** и **EFB** переход в Mix выполняется принудительно.
 - Температурная защита по внешнему датчику АКБ: `35C предупреждение`, `40C пауза`, `45C аварийный стоп`.
+- `temp_ext` — это температура АКБ, `temp_int` — температура блока/БП; для стратегии и AI ориентируйтесь на [docs/assistant/CHARGE_STRATEGY.md](docs/assistant/CHARGE_STRATEGY.md).
 
 ## Профили заряда
 
@@ -157,6 +158,7 @@ journalctl -u rd6018-bot -n 100 --no-pager
 - `bot.py` — Telegram-бот, интерфейс, команды, дашборд
 - `charge_logic.py` — FSM заряда, этапы, триггеры, защиты
 - `ai_engine.py` / `ai_system_prompt.py` — AI-аналитика и системный промпт
+- `docs/assistant/CHARGE_STRATEGY.md` — краткая опора по этапам, триггерам и температурным сигналам
 - `config.py` — env и карта HA-сущностей
 - `charging_log.py` — лог событий
 - `database.py` — SQLite и данные для графиков

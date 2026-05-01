@@ -902,10 +902,13 @@ def format_electrical_data(v: float, i: float, p: float = None, precision: int =
 
 def format_temperature_data(t_ext: float, t_int: float = None, warn_threshold: float = 50.0) -> str:
     """Форматтер для температурных данных с предупреждениями и HTML-экранированием."""
-    result = f"🌡{t_ext:.1f}°C"
-    if t_int is not None and t_int > warn_threshold:
-        result += f" ⚠️ Блок: {t_int:.1f}°C"
-    return html.escape(result)
+    parts = [f"🌡 АКБ {t_ext:.1f}°C"]
+    if t_int is not None:
+        block_part = f"БП {t_int:.1f}°C"
+        if t_int > warn_threshold:
+            block_part += " ⚠️"
+        parts.append(block_part)
+    return html.escape(" | ".join(parts))
 
 
 def format_status_data(is_on: bool, mode: str, stage: str = None) -> str:
@@ -1452,13 +1455,13 @@ def _compact_dashboard_caption(
         lines.append(f"<b>📊 RD6018 · {profile}{cap_suffix}</b>")
         lines.append(f"<b>Стадия: {stage_name}</b>")
         lines.append(f"V: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
-        lines.append(f"Ah: <b>{ah:.2f}</b>   T: <b>{temp_ext:.1f}°C</b>")
+        lines.append(f"Ah: <b>{ah:.2f}</b>   АКБ: <b>{temp_ext:.1f}°C</b>   БП: <b>{temp_int:.1f}°C</b>")
         lines.append(f"Режим: {html.escape(mode)}  Лимит этапа: {remaining}")
     else:
         state_label = "Готов" if is_on else "Ожидание"
         lines.append(f"<b>📊 RD6018 · {state_label}</b>")
         lines.append(f"АКБ: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
-        lines.append(f"Ah: <b>{ah:.2f}</b>   T: <b>{temp_ext:.1f}°C</b>")
+        lines.append(f"Ah: <b>{ah:.2f}</b>   АКБ: <b>{temp_ext:.1f}°C</b>   БП: <b>{temp_int:.1f}°C</b>")
         lines.append(f"Режим: {html.escape(mode)}")
 
     alerts = []
