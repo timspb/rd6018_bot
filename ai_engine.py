@@ -236,6 +236,8 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
     remaining_time = str(ai_ctx.get("remaining_time", "—"))
     v_batt_now = ai_ctx.get("v_batt_now")
     i_now = ai_ctx.get("i_now")
+    temp_ext_now = ai_ctx.get("temp_ext_now")
+    temp_int_now = ai_ctx.get("temp_int_now")
 
     cap_text = f"{capacity_ah}Ah" if capacity_known else "UNKNOWN"
     trend_block = f"\nКраткий тренд: {trend_summary}\n" if trend_summary else ""
@@ -252,6 +254,7 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
         f"- Capacity_Ah: {cap_text}\n"
         f"- Остаток до защитного лимита этапа: {remaining_time}\n"
         f"- Current snapshot: V_batt={v_batt_now}, I={i_now}\n"
+        f"- Temperatures: temp_ext={temp_ext_now}, temp_int={temp_int_now}\n"
         + trend_block
         + "\nКарточка стратегии контроллера:\n"
         f"{controller_block}\n\n"

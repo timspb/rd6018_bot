@@ -1285,6 +1285,8 @@ async def _build_ai_analysis_text() -> str:
                 "remaining_time": stage_remaining,
                 "v_batt_now": _safe_float(live.get("battery_voltage", 0.0)),
                 "i_now": _safe_float(live.get("current", 0.0)),
+                "temp_ext_now": _safe_float(live.get("temp_ext", 0.0)),
+                "temp_int_now": _safe_float(live.get("temp_int", 0.0)),
             },
             "controller_snapshot": controller_snapshot,
             "recent_events": recent_events,
