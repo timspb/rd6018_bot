@@ -671,6 +671,21 @@ def _md_to_html(text: str) -> str:
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
 
 
+def _sanitize_telegram_html(text: str) -> str:
+    """Экранировать сырой HTML, оставляя только безопасные теги."""
+    if not text:
+        return text
+    escaped = html.escape(text)
+    allowed_tags = ("b", "i", "code", "pre")
+    for tag in allowed_tags:
+        escaped = escaped.replace(f"&lt;{tag}&gt;", f"<{tag}>")
+        escaped = escaped.replace(f"&lt;/{tag}&gt;", f"</{tag}>")
+    escaped = escaped.replace("&lt;br&gt;", "<br>")
+    escaped = escaped.replace("&lt;br/&gt;", "<br/>")
+    escaped = escaped.replace("&lt;br /&gt;", "<br />")
+    return escaped
+
+
 def _format_time(ts: str) -> str:
     """Преобразовать ISO timestamp в HH:MM:SS с пользовательским часовым поясом."""
     if not ts:
@@ -1272,7 +1287,9 @@ async def _build_ai_analysis_text() -> str:
             "recent_events": recent_events,
         }
         result = await ask_deepseek(history)
-        result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+        result_html = _sanitize_telegram_html(
+            _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+        )
         return f"<b>🧠 AI Анализ</b>\n{result_html}"
     except Exception as ex:
         logger.warning("AI analysis failed: %s", ex)
@@ -2737,8 +2754,9 @@ async def handle_dialog_mode(message: Message) -> None:
         if ai_response.startswith("ERROR:"):
             await thinking_msg.edit_text(f"🤖 {ai_response}")
         else:
+            safe_ai_response = _sanitize_telegram_html(ai_response)
             await thinking_msg.edit_text(
-                f"🤖 <b>AI-Консультант:</b>\n\n{ai_response}",
+                f"🤖 <b>AI-Консультант:</b>\n\n{safe_ai_response}",
                 parse_mode=ParseMode.HTML
             )
         schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
