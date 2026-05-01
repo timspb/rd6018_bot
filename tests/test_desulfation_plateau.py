@@ -16,16 +16,17 @@ class DesulfationPlateauTests(unittest.TestCase):
         self.controller.stage_start_time = 0.0
         self.controller.total_start_time = 0.0
 
-    def _tick(self, *, now: float, current: float):
+    def _tick(self, *, now: float, current: float, is_cv: bool = True, controller=None):
+        target = controller or self.controller
         original_time = __import__("time").time
         __import__("time").time = lambda: now
         try:
             return asyncio.run(
-                self.controller.tick(
+                target.tick(
                     voltage=14.8,
                     current=current,
                     temp_ext=23.0,
-                    is_cv=True,
+                    is_cv=is_cv,
                     ah=0.5,
                     output_is_on=True,
                     manual_off_active=False,
@@ -57,8 +58,48 @@ class DesulfationPlateauTests(unittest.TestCase):
         actions = self._tick(now=2701.0, current=0.60)
 
         self.assertEqual(self.controller.current_stage, ChargeController.STAGE_DESULFATION)
-        self.assertIn("десульфатация", actions.get("notify", "").lower())
         self.assertEqual(self.controller.antisulfate_count, 1)
+        self.assertIn("notify", actions)
+        self.assertIn("десульфатация", actions["notify"].lower())
+
+    def test_mix_hold_resets_on_new_minimum_even_without_cv_flag(self):
+        points = [
+            (301.0, 0.29, True),
+            (3901.0, 0.28, False),
+            (7201.0, 0.28, False),
+            (12001.0, 0.28, False),
+        ]
+
+        actions = {}
+        for now, current, is_cv in points:
+            actions = self._tick(now=now, current=current, is_cv=is_cv)
+
+        self.assertEqual(self.controller.current_stage, ChargeController.STAGE_MAIN)
+        self.assertAlmostEqual(self.controller._first_stage_hold_current, 0.28)
+        self.assertAlmostEqual(self.controller._first_stage_hold_since, 3901.0)
+        self.assertNotIn("turn_off", actions)
+
+    def test_agm_hold_resets_on_new_minimum_even_without_cv_flag(self):
+        controller = ChargeController(_FakeHass())
+        controller.start(ChargeController.PROFILE_AGM, 60)
+        controller.current_stage = ChargeController.STAGE_MAIN
+        controller.stage_start_time = 0.0
+        controller.total_start_time = 0.0
+
+        points = [
+            (301.0, 0.19, True),
+            (3901.0, 0.18, False),
+            (7201.0, 0.18, False),
+        ]
+
+        actions = {}
+        for now, current, is_cv in points:
+            actions = self._tick(now=now, current=current, is_cv=is_cv, controller=controller)
+
+        self.assertEqual(controller.current_stage, ChargeController.STAGE_MAIN)
+        self.assertAlmostEqual(controller._first_stage_hold_current, 0.18)
+        self.assertAlmostEqual(controller._first_stage_hold_since, 3901.0)
+        self.assertNotIn("turn_off", actions)
 
 
 if __name__ == "__main__":
