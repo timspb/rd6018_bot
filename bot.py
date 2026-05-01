@@ -1391,6 +1391,9 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
             else:
                 transition_condition = f"🔜 ⏱ {time_display}"
 
+        progress_line = _format_stage_progress_line(live)
+        if progress_line:
+            transition_condition = progress_line
         stage_name = html.escape(_stage_label(charge_controller.current_stage, short=False))
         stage_time_safe = html.escape(stage_time)
         stage_block = (
@@ -1429,6 +1432,118 @@ def _format_eta_compact(raw_eta: Any) -> str:
     return s
 
 
+def _format_seconds_compact(seconds: Any) -> str:
+    """Short human-friendly duration."""
+    try:
+        total = int(float(seconds))
+    except (TypeError, ValueError):
+        return "—"
+    if total <= 0:
+        return "0м"
+    hours = total // 3600
+    mins = (total % 3600) // 60
+    if hours and mins:
+        return f"{hours}ч {mins:02d}м"
+    if hours:
+        return f"{hours}ч"
+    return f"{max(1, mins)}м"
+
+
+def _format_stage_progress_line(live: Dict[str, Any]) -> str:
+    """Compact stage target/fact/remaining line for dashboard cards."""
+    if not charge_controller.is_active:
+        return ""
+
+    snapshot = charge_controller.get_ai_stage_snapshot()
+    timers = snapshot.get("timers") or {}
+    hold = snapshot.get("hold") or {}
+    current_v = _safe_float(live.get("battery_voltage"))
+    current_i = _safe_float(live.get("current"))
+    temp_ext = _safe_float(live.get("temp_ext"))
+    is_cv = str(live.get("is_cv", "")).lower() == "on"
+    is_cc = str(live.get("is_cc", "")).lower() == "on"
+    stage = charge_controller.current_stage
+    remaining = _format_eta_compact(timers.get("remaining_time", "—"))
+
+    def _line(target: str, fact: str, rem: str, reached: bool, suffix: str = "") -> str:
+        mark = "✅" if reached else "⚪"
+        tail = f" {suffix}" if suffix else ""
+        return f"🎯 {target} | {mark} {fact} | ⏳ {rem}{tail}"
+
+    kind = str(hold.get("kind") or "").lower()
+    if hold:
+        if "low-current hold" in kind:
+            threshold = _safe_float(hold.get("threshold_a"))
+            target = f"I≤{threshold:.2f}A"
+            fact = f"I {current_i:.2f}A"
+            reached = bool(hold.get("active")) or current_i <= threshold
+            if reached:
+                return _line(target, fact, html.escape(str(hold.get("remaining_text") or remaining)), True, "до Mix")
+            return _line(target, fact, _format_seconds_compact(hold.get("required_sec")), False, "hold")
+
+        if "desulf timer" in kind:
+            fact = html.escape(str(hold.get("elapsed_text") or timers.get("stage_time", "—")))
+            return _line("2ч", fact, html.escape(str(hold.get("remaining_text") or remaining)), False, "до SAFE_WAIT")
+
+        if "mix delta timer" in kind:
+            fact = html.escape(str(hold.get("elapsed_text") or timers.get("stage_time", "—")))
+            return _line("Δ подтверждена", f"таймер {fact}", html.escape(str(hold.get("remaining_text") or remaining)), True, "до SAFE_WAIT")
+
+        if "safe wait" in kind:
+            threshold_v = _safe_float(hold.get("threshold_v"))
+            target = f"V≤{threshold_v:.2f}V"
+            fact = f"V {current_v:.2f}V"
+            reached = current_v <= threshold_v
+            return _line(target, fact, html.escape(str(hold.get("remaining_text") or remaining)), reached, "до выхода")
+
+    if stage == charge_controller.STAGE_MIX:
+        policy = snapshot.get("mix_exit_policy") or {}
+        if charge_controller.finish_timer_start is not None:
+            if is_cv and charge_controller.i_min_recorded is not None:
+                delta_now = max(0.0, current_i - charge_controller.i_min_recorded)
+                fact = f"ΔI {delta_now:.3f}A"
+                reached = charge_controller._exit_cv_condition(current_i)
+                return _line(f"ΔI≥{DELTA_I_EXIT:.2f}A", fact, remaining, reached, "до SAFE_WAIT")
+            if is_cc and charge_controller.v_max_recorded is not None:
+                delta_now = max(0.0, charge_controller.v_max_recorded - current_v)
+                fact = f"ΔV {delta_now:.3f}V"
+                reached = charge_controller._exit_cc_condition(current_v)
+                return _line(f"ΔV≥{DELTA_V_EXIT:.2f}V", fact, remaining, reached, "до SAFE_WAIT")
+            return _line("Δ подтверждена", "таймер 2ч", remaining, True, "до SAFE_WAIT")
+
+        if is_cv:
+            base_i = charge_controller.i_min_recorded if charge_controller.i_min_recorded is not None else current_i
+            delta_now = max(0.0, current_i - base_i)
+            target = f"ΔI≥{DELTA_I_EXIT:.2f}A"
+            fact = f"ΔI {delta_now:.3f}A"
+            reached = charge_controller._exit_cv_condition(current_i)
+        elif is_cc:
+            base_v = charge_controller.v_max_recorded if charge_controller.v_max_recorded is not None else current_v
+            delta_now = max(0.0, base_v - current_v)
+            target = f"ΔV≥{DELTA_V_EXIT:.2f}V"
+            fact = f"ΔV {delta_now:.3f}V"
+            reached = charge_controller._exit_cc_condition(current_v)
+        else:
+            target = f"ΔV≥{DELTA_V_EXIT:.2f}V / ΔI≥{DELTA_I_EXIT:.2f}A"
+            fact = f"V {current_v:.2f}V, I {current_i:.2f}A"
+            reached = False
+
+        fallback_hours = policy.get("fallback_limit_hours")
+        if isinstance(fallback_hours, (int, float)):
+            fallback_text = f"{int(fallback_hours)}ч" if float(fallback_hours).is_integer() else f"{fallback_hours:.1f}ч"
+        else:
+            fallback_text = remaining
+        return _line(target, fact, fallback_text or remaining, reached, "лимит")
+
+    if stage == charge_controller.STAGE_COOLING:
+        return _line("T≤35°C", f"АКБ {temp_ext:.1f}°C", "возврат после остывания", temp_ext <= 35.0)
+
+    if stage == charge_controller.STAGE_DESULFATION:
+        return _line("2ч", html.escape(str(timers.get("stage_time", "—"))), html.escape(str(timers.get("remaining_time", "—"))), False, "до SAFE_WAIT")
+
+    return ""
+
+
 def _compact_dashboard_caption(
     live: Dict[str, Any],
     chart_mode: str,
@@ -1457,6 +1572,9 @@ def _compact_dashboard_caption(
         lines.append(f"V: <b>{battery_v:.2f}V</b>   I: <b>{current:.2f}A</b>")
         lines.append(f"Ah: <b>{ah:.2f}</b>   АКБ: <b>{temp_ext:.1f}°C</b>   БП: <b>{temp_int:.1f}°C</b>")
         lines.append(f"Режим: {html.escape(mode)}  Лимит этапа: {remaining}")
+        progress_line = _format_stage_progress_line(live)
+        if progress_line:
+            lines.append(progress_line)
     else:
         state_label = "Готов" if is_on else "Ожидание"
         lines.append(f"<b>📊 RD6018 · {state_label}</b>")
