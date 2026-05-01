@@ -1555,6 +1555,7 @@ def _compact_dashboard_caption(
     current = _safe_float(live.get("current"))
     ah = _safe_float(live.get("ah"))
     temp_ext = _safe_float(live.get("temp_ext"))
+    temp_int = _safe_float(live.get("temp_int"))
     is_on = str(live.get("switch", "")).lower() == "on"
     ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
     ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
