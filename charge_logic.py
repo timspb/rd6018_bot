@@ -49,6 +49,14 @@ STORAGE_REPORT_INTERVAL_SEC = 3600
 SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (целевое напряжение следующего этапа − 0.5В)
 SAFE_WAIT_MAX_SEC = 2 * 3600  # макс 2 часа ожидания
 HIGH_V_FOR_SAFE_WAIT = 15.0  # переходы с V > 15В требуют ожидания
+POST_CHARGE_SAMPLE_SEC = 300  # сек — шаг постзарядной диагностики
+POST_CHARGE_MIN_WINDOW_SEC = 15 * 60  # сек — минимальное окно для вывода
+POST_CHARGE_MAX_WINDOW_SEC = 60 * 60  # сек — максимум 1 час на анализ
+POST_CHARGE_MIN_SAMPLES = 4
+POST_CHARGE_IDLE_CURRENT_A = 0.05  # А — почти нулевой ток на SAFE_WAIT
+POST_CHARGE_TEMP_STABLE_C = 0.6  # °C — окно температуры для уверенного вывода
+POST_CHARGE_STRONG_SLOPE_MV_MIN = 8.0
+POST_CHARGE_WATCH_SLOPE_MV_MIN = 4.0
 PHANTOM_CHARGE_MINUTES = 10  # мин — ток < порога за это время = подозрительно быстрый заряд
 BLANKING_SEC = 5 * 60  # сек — после смены фазы игнорировать триггеры
 DELTA_MONITOR_DELAY_SEC = 120  # v2.0: начинать мониторинг dV/dI строго через 120 сек после смены уставок
@@ -707,7 +715,7 @@ class ChargeController:
         if self.current_stage != self.STAGE_SAFE_WAIT or len(self._safe_wait_v_samples) < 2:
             return None
         samples = list(self._safe_wait_v_samples)
-        (t0, v0), (t1, v1) = samples[0], samples[-1]
+        (t0, v0, _, _), (t1, v1, _, _) = samples[0], samples[-1]
         if t1 <= t0 or v0 >= 13.5 and v1 >= 13.5:
             return None
         dt_hours = (t1 - t0) / 3600.0
@@ -718,6 +726,138 @@ class ChargeController:
         if dV_dt > 0.5 and avg_v < 13.5:
             return "⚠️ Высокая скорость падения напряжения: возможно КЗ в банке или сильный саморазряд."
         return None
+
+    def _record_safe_wait_sample(self, now: float, voltage: float, current: float, temp: float) -> None:
+        """Собирать редкие точки окна SAFE_WAIT для постзарядного анализа."""
+        if now - self._last_safe_wait_sample < POST_CHARGE_SAMPLE_SEC:
+            return
+        self._safe_wait_v_samples.append((now, voltage, current, temp))
+        self._last_safe_wait_sample = now
+
+    def _post_charge_relaxation_snapshot(self, now: float) -> Optional[Dict[str, Any]]:
+        """
+        Постзарядная эвристика для окна SAFE_WAIT.
+        Это не доказательство стратификации, а только сигнал для внимания.
+        """
+        if self.current_stage != self.STAGE_SAFE_WAIT:
+            return None
+
+        samples = list(self._safe_wait_v_samples)
+        if len(samples) < POST_CHARGE_MIN_SAMPLES:
+            return {
+                "active": True,
+                "status": "insufficient",
+                "reason": "too_few_samples",
+                "confidence": 0.0,
+                "window_sec": max(0.0, now - self._safe_wait_start),
+                "sample_count": len(samples),
+            }
+
+        window_samples = [s for s in samples if now - s[0] <= POST_CHARGE_MAX_WINDOW_SEC]
+        if len(window_samples) < POST_CHARGE_MIN_SAMPLES:
+            return {
+                "active": True,
+                "status": "insufficient",
+                "reason": "too_few_recent_samples",
+                "confidence": 0.0,
+                "window_sec": max(0.0, now - self._safe_wait_start),
+                "sample_count": len(window_samples),
+            }
+
+        t0, v0, i0, temp0 = window_samples[0]
+        t1, v1, i1, temp1 = window_samples[-1]
+        elapsed_sec = max(0.0, t1 - t0)
+        if elapsed_sec < POST_CHARGE_MIN_WINDOW_SEC:
+            return {
+                "active": True,
+                "status": "insufficient",
+                "reason": "window_too_short",
+                "confidence": 0.0,
+                "window_sec": elapsed_sec,
+                "sample_count": len(window_samples),
+            }
+
+        # Линейный тренд V(t), удобнее читать в мВ/мин.
+        n = len(window_samples)
+        xs = [s[0] - t0 for s in window_samples]
+        ys = [s[1] for s in window_samples]
+        sum_x = sum(xs)
+        sum_y = sum(ys)
+        sum_xx = sum(x * x for x in xs)
+        sum_xy = sum(x * y for x, y in zip(xs, ys))
+        denom = n * sum_xx - sum_x * sum_x
+        slope_v_per_sec = 0.0
+        if abs(denom) > 1e-9:
+            slope_v_per_sec = (n * sum_xy - sum_x * sum_y) / denom
+        slope_mv_min = slope_v_per_sec * 60.0 * 1000.0
+        decay_mv_min = max(0.0, -slope_mv_min)
+        drop_v = v0 - v1
+        temp_values = [s[3] for s in window_samples]
+        temp_min = min(temp_values)
+        temp_max = max(temp_values)
+        temp_span = temp_max - temp_min
+        current_max = max(abs(s[2]) for s in window_samples)
+        current_avg = sum(abs(s[2]) for s in window_samples) / len(window_samples)
+
+        confidence = 0.35
+        if elapsed_sec >= 30 * 60:
+            confidence += 0.2
+        if len(window_samples) >= 6:
+            confidence += 0.15
+        if temp_span <= POST_CHARGE_TEMP_STABLE_C:
+            confidence += 0.2
+        if current_max <= POST_CHARGE_IDLE_CURRENT_A:
+            confidence += 0.1
+        confidence = max(0.0, min(1.0, confidence))
+
+        if temp_span > POST_CHARGE_TEMP_STABLE_C:
+            status = "noisy"
+            reason = "temp_drift"
+        elif decay_mv_min >= POST_CHARGE_STRONG_SLOPE_MV_MIN:
+            status = "watch"
+            reason = "fast_decay"
+        elif decay_mv_min >= POST_CHARGE_WATCH_SLOPE_MV_MIN or drop_v >= 0.08:
+            status = "watch"
+            reason = "moderate_decay"
+        else:
+            status = "stable"
+            reason = "plateau"
+
+        stratification_risk = "low"
+        if status == "watch" and temp_span <= POST_CHARGE_TEMP_STABLE_C and current_max <= POST_CHARGE_IDLE_CURRENT_A:
+            stratification_risk = "medium"
+        if status == "noisy":
+            stratification_risk = "unknown"
+        if status == "stable" and drop_v <= 0.03:
+            stratification_risk = "low"
+
+        return {
+            "active": True,
+            "status": status,
+            "reason": reason,
+            "sample_count": len(window_samples),
+            "window_sec": elapsed_sec,
+            "drop_v": drop_v,
+            "start_v": v0,
+            "end_v": v1,
+            "start_i": i0,
+            "end_i": i1,
+            "slope_mv_min": slope_mv_min,
+            "decay_mv_min": decay_mv_min,
+            "temp_start_c": temp0,
+            "temp_end_c": temp1,
+            "temp_min_c": temp_min,
+            "temp_max_c": temp_max,
+            "temp_span_c": temp_span,
+            "current_max_a": current_max,
+            "current_avg_a": current_avg,
+            "confidence": confidence,
+            "stratification_risk": stratification_risk,
+            "note": (
+                "Косвенный постзарядный сигнал: анализируем падение V при почти нулевом токе и стабильной температуре. "
+                "Это эвристика, а не доказательство стратификации."
+            ),
+        }
 
     def _intelligent_comment(
         self,
@@ -842,6 +982,7 @@ class ChargeController:
         elapsed_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
         pred, comment, health = self.predict_finish(voltage, current, ah, temp)
         ah_total = ah - self._start_ah if self._start_ah > 0 else ah
+        relaxation = self._post_charge_relaxation_snapshot(now)
         return {
             "stage": self.current_stage,
             "elapsed_time": elapsed_str,
@@ -851,6 +992,7 @@ class ChargeController:
             "predicted_time": pred,
             "comment": comment,
             "health_warning": health,
+            "post_charge_relaxation": relaxation,
         }
 
     def get_timers(self) -> Dict[str, Any]:
@@ -1160,6 +1302,7 @@ class ChargeController:
             "finish_timer_active": self.finish_timer_start is not None,
             "mix_exit_policy": mix_exit_policy,
             "session_reason": self._session_start_reason,
+            "post_charge_relaxation": self._post_charge_relaxation_snapshot(now),
         }
 
     def get_telemetry_summary(
@@ -1182,7 +1325,7 @@ class ChargeController:
         v_drop_rate = None
         if self.current_stage == self.STAGE_SAFE_WAIT and len(self._safe_wait_v_samples) >= 2:
             samples = list(self._safe_wait_v_samples)
-            (t0, v0), (t1, v1) = samples[0], samples[-1]
+            (t0, v0, _, _), (t1, v1, _, _) = samples[0], samples[-1]
             dt_h = (t1 - t0) / 3600.0
             if dt_h > 0.01:
                 v_drop_rate = round((v0 - v1) / dt_h, 2)
@@ -1920,9 +2063,7 @@ class ChargeController:
 
         # --- БЕЗОПАСНОЕ ОЖИДАНИЕ (Output OFF, ждём падения V) ---
         elif self.current_stage == self.STAGE_SAFE_WAIT:
-            if now - self._last_safe_wait_sample >= 300:
-                self._safe_wait_v_samples.append((now, voltage))
-                self._last_safe_wait_sample = now
+            self._record_safe_wait_sample(now, voltage, current, temp)
             threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
             wait_elapsed = now - self._safe_wait_start
             if voltage <= threshold:
@@ -2043,8 +2184,7 @@ class ChargeController:
                 self._safe_wait_next_stage = self.STAGE_MAIN
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
-                self._safe_wait_v_samples.append((now, voltage))
-                self._last_safe_wait_sample = now
+                self._record_safe_wait_sample(now, voltage, current, temp)
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "Desulf_timer_2h", f"Время: {elapsed/3600:.1f}ч >= 2ч")
                 actions["turn_off"] = True
                 actions["notify"] = (
@@ -2134,8 +2274,7 @@ class ChargeController:
                     self._safe_wait_next_stage = self.STAGE_DONE
                     self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                     self._safe_wait_start = now
-                    self._safe_wait_v_samples.append((now, voltage))
-                    self._last_safe_wait_sample = now
+                    self._record_safe_wait_sample(now, voltage, current, temp)
                     delta_log = ""
                     if self._exit_cc_condition(voltage):
                         delta_log = f" V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В. Дельта {DELTA_V_EXIT}В достигнута."
@@ -2163,8 +2302,7 @@ class ChargeController:
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
-                self._safe_wait_v_samples.append((now, voltage))
-                self._last_safe_wait_sample = now
+                self._record_safe_wait_sample(now, voltage, current, temp)
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
@@ -2187,8 +2325,7 @@ class ChargeController:
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
-                self._safe_wait_v_samples.append((now, voltage))
-                self._last_safe_wait_sample = now
+                self._record_safe_wait_sample(now, voltage, current, temp)
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_8h", f"Время: {elapsed/3600:.1f}ч >= 8ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
@@ -2210,8 +2347,7 @@ class ChargeController:
                 self._safe_wait_next_stage = self.STAGE_DONE
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
-                self._safe_wait_v_samples.append((now, voltage))
-                self._last_safe_wait_sample = now
+                self._record_safe_wait_sample(now, voltage, current, temp)
                 _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_5h", f"Время: {elapsed/3600:.1f}ч >= 5ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (

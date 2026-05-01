@@ -39,6 +39,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
     hold = snapshot.get("hold") or {}
     safety = snapshot.get("safety", {}) or {}
     mix_exit_policy = snapshot.get("mix_exit_policy") or {}
+    post_charge = snapshot.get("post_charge_relaxation") or {}
 
     stage = snapshot.get("stage", "—")
     profile = snapshot.get("profile", "—")
@@ -97,6 +98,40 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
             lines.append(f"Hold current: {hold.get('current_a'):.2f}A")
         if hold.get("threshold_v") is not None:
             lines.append(f"Hold threshold V: {hold.get('threshold_v'):.2f}V")
+
+    if post_charge:
+        post_status = post_charge.get("status", "—")
+        post_reason = post_charge.get("reason", "—")
+        post_risk = post_charge.get("stratification_risk", "—")
+        post_conf = post_charge.get("confidence")
+        post_drop = post_charge.get("drop_v")
+        post_slope = post_charge.get("slope_mv_min")
+        post_decay = post_charge.get("decay_mv_min")
+        post_temp_span = post_charge.get("temp_span_c")
+        post_window = post_charge.get("window_sec")
+        post_samples = post_charge.get("sample_count")
+        parts = [
+            f"Post-charge: status={post_status}",
+            f"reason={post_reason}",
+            f"risk={post_risk}",
+        ]
+        if isinstance(post_drop, (int, float)):
+            parts.append(f"drop={post_drop:.3f}V")
+        if isinstance(post_decay, (int, float)):
+            parts.append(f"decay={post_decay:.2f}mV/min")
+        elif isinstance(post_slope, (int, float)):
+            parts.append(f"slope={post_slope:.2f}mV/min")
+        if isinstance(post_temp_span, (int, float)):
+            parts.append(f"temp_span={post_temp_span:.2f}C")
+        if isinstance(post_window, (int, float)):
+            parts.append(f"window={int(post_window // 60)}m")
+        if isinstance(post_samples, int):
+            parts.append(f"samples={post_samples}")
+        if isinstance(post_conf, (int, float)):
+            parts.append(f"conf={post_conf:.2f}")
+        lines.append(" | ".join(parts))
+        if post_charge.get("note"):
+            lines.append(f"Post-charge note: {post_charge.get('note')}")
 
     lines.append(
         "Safety: "

@@ -191,6 +191,90 @@ async def get_graph_data(
     return await get_history(limit=limit, since_timestamp=since_timestamp)
 
 
+async def get_graph_data_with_temp(
+    limit: int = 100,
+    since_timestamp: Optional[float] = None,
+) -> Tuple[List[str], List[float], List[float], List[float]]:
+    """
+    Данные для графика с температурой.
+    Возвращает (times, voltages, currents, temps).
+    """
+    times: List[str] = []
+    voltages: List[float] = []
+    currents: List[float] = []
+    temps: List[float] = []
+
+    try:
+        since_iso: Optional[str] = None
+        if since_timestamp and since_timestamp > 0:
+            since_iso = datetime.utcfromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            if since_iso:
+                session_limit = min(limit * 50, 3000)
+                async with db.execute(
+                    """SELECT timestamp, voltage, current, temp_ext FROM sensor_history
+                       WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
+                    (since_iso, session_limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT timestamp, voltage, current, temp_ext FROM sensor_history ORDER BY id DESC LIMIT ?",
+                    (limit * 3,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+
+        if not rows:
+            return times, voltages, currents, temps
+
+        if not since_iso:
+            rows = list(reversed(rows))
+
+        raw_times: List[str] = []
+        raw_v: List[float] = []
+        raw_i: List[float] = []
+        raw_t: List[float] = []
+        for r in rows:
+            ts = r["timestamp"]
+            try:
+                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
+            except (TypeError, ValueError):
+                v = 0.0
+            try:
+                i = float(r["current"]) if r["current"] is not None else 0.0
+            except (TypeError, ValueError):
+                i = 0.0
+            try:
+                t = float(r["temp_ext"]) if r["temp_ext"] is not None else 0.0
+            except (TypeError, ValueError):
+                t = 0.0
+            raw_times.append(ts if ts else "")
+            raw_v.append(v)
+            raw_i.append(i)
+            raw_t.append(t)
+
+        n = len(raw_times)
+        if n <= limit:
+            times, voltages, currents, temps = raw_times, raw_v, raw_i, raw_t
+        else:
+            step = n / limit
+            for idx in range(limit):
+                i = int(idx * step)
+                if i >= n:
+                    break
+                times.append(raw_times[i])
+                voltages.append(raw_v[i])
+                currents.append(raw_i[i])
+                temps.append(raw_t[i])
+
+        return times, voltages, currents, temps
+    except Exception as ex:
+        logger.error("get_graph_data_with_temp failed: %s", ex)
+        return times, voltages, currents, temps
+
+
 async def get_logs_data(limit: int = 5) -> Tuple[List[str], List[float], List[float], List[float]]:
     """
     Получить последние записи для вывода логов (с temp_ext).

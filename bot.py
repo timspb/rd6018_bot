@@ -53,7 +53,7 @@ from config import (
     TEMP_INT_PRECRITICAL,
     TG_TOKEN,
 )
-from database import add_record, cleanup_old_records, get_graph_data, get_logs_data, get_raw_history, init_db
+from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
 from time_utils import format_time_user_tz
@@ -1493,8 +1493,8 @@ async def _build_and_send_dashboard(
 
     _, _, _, _, idle_warning = _build_dashboard_blocks(live)
     chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
-    times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
-    buf = generate_chart(times, voltages, currents)
+    times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
+    buf = generate_chart(times, voltages, currents, temps)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
     ikb = _build_dashboard_keyboard(is_on, user_id)
@@ -3241,6 +3241,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
         temp = _safe_float(live.get("temp_ext"))
         if charge_controller.is_active:
             stats = charge_controller.get_stats(battery_v, i, ah, temp)
+            relaxation = stats.get("post_charge_relaxation")
             stats_block = (
                 "\n──────────────────\n"
                 "📊 <b>СТАТИСТИКА И ПРОГНОЗ</b>\n"
@@ -3253,6 +3254,25 @@ async def info_full_handler(call: CallbackQuery) -> None:
             )
             if stats.get("health_warning"):
                 stats_block += f"\n\n{stats['health_warning']}"
+            if relaxation and relaxation.get("active"):
+                rel_status = relaxation.get("status", "—")
+                rel_risk = relaxation.get("stratification_risk", "—")
+                rel_slope = relaxation.get("slope_mv_min")
+                rel_decay = relaxation.get("decay_mv_min")
+                rel_temp = relaxation.get("temp_span_c")
+                rel_conf = relaxation.get("confidence")
+                extra = []
+                if isinstance(rel_decay, (int, float)):
+                    extra.append(f"decay={rel_decay:.1f}мВ/мин")
+                elif isinstance(rel_slope, (int, float)):
+                    extra.append(f"dV={rel_slope:.1f}мВ/мин")
+                if isinstance(rel_temp, (int, float)):
+                    extra.append(f"ΔT={rel_temp:.2f}°C")
+                if isinstance(rel_conf, (int, float)):
+                    extra.append(f"conf={rel_conf:.2f}")
+                stats_block += f"\n🌙 Постзаряд: {rel_status} · риск {rel_risk}"
+                if extra:
+                    stats_block += f" · {'; '.join(extra)}"
             full_text += stats_block
         if idle_warning:
             full_text += f"\n{idle_warning}"
@@ -3260,8 +3280,8 @@ async def info_full_handler(call: CallbackQuery) -> None:
         caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
         user_id = call.from_user.id if call.from_user else 0
         chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
-        times, voltages, currents = await get_graph_data(limit=limit_pts, since_timestamp=graph_since)
-        buf = generate_chart(times, voltages, currents)
+        times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
+        buf = generate_chart(times, voltages, currents, temps)
         photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
         caption += f"\n📈 Окно графика: {_chart_label(chart_mode)}"
         is_on = str(live.get("switch", "")).lower() == "on"

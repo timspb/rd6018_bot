@@ -84,6 +84,7 @@ def generate_chart(
     times: List[str],
     voltages: List[float],
     currents: List[float],
+    temps: Optional[List[float]] = None,
 ) -> Optional[io.BytesIO]:
     """
     Построить dual-axis график U/I.
@@ -95,16 +96,23 @@ def generate_chart(
 
     v_list = _to_float_list(voltages)
     i_list = _to_float_list(currents)
+    t_list = _to_float_list(temps) if temps is not None else []
     n = min(len(times), len(v_list), len(i_list))
+    if temps is not None:
+        n = min(n, len(t_list))
     if n == 0:
         return None
 
     times_parsed = _parse_timestamps(times[:n])
     v_list = v_list[:n]
     i_list = i_list[:n]
+    if temps is not None:
+        t_list = t_list[:n]
     # Сглаживание рядов (зубья — дискретные замеры; при линейном изменении график плавный)
     v_list = _smooth(v_list, window=5)
     i_list = _smooth(i_list, window=5)
+    if temps is not None:
+        t_list = _smooth(t_list, window=5)
 
     # График от начала до конца сессии — без обрезки по времени (полный диапазон данных)
 
@@ -113,42 +121,96 @@ def generate_chart(
         user_tz = get_user_timezone()
 
         plt.style.use("dark_background")
-        fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
-        ax1.set_facecolor("#1e1e1e")
-        # Метки оси X — в пользовательском часовом поясе (по умолчанию matplotlib использует UTC)
-        ax1.xaxis_date(tz=user_tz)
+        has_temps = temps is not None
+        if has_temps:
+            fig, (ax1, ax2, ax3) = plt.subplots(
+                3,
+                1,
+                figsize=(8, 6),
+                facecolor="#1e1e1e",
+                sharex=True,
+                gridspec_kw={"height_ratios": [2, 1.5, 1]},
+            )
+            for ax in (ax1, ax2, ax3):
+                ax.set_facecolor("#1e1e1e")
+                ax.grid(True, alpha=0.12)
+                ax.xaxis_date(tz=user_tz)
 
-        ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
-        ax1.set_xlabel("Время", color="#fff")
-        ax1.set_ylabel("Voltage (V)", color="#00ffff")
-        ax1.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
-        ax1.tick_params(axis="x", colors="#fff", labelsize=8)
-        ax1.tick_params(axis="y", colors="#00ffff")
+            ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
+            ax1.set_ylabel("Voltage (V)", color="#00ffff")
+            ax1.tick_params(axis="y", colors="#00ffff")
 
-        min_v = min(v_list)
-        max_v = max(v_list)
-        if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0):
-            ax1.set_ylim(0, 20)
+            ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
+            ax2.set_ylabel("Current (A)", color="#ffff00")
+            ax2.tick_params(axis="y", colors="#ffff00")
+
+            ax3.plot(times_parsed, t_list, color="#ff9f43", label="Temp (°C)", linewidth=1.5)
+            ax3.set_ylabel("Temp (°C)", color="#ff9f43")
+            ax3.set_xlabel("Время", color="#fff")
+            ax3.tick_params(axis="x", colors="#fff", labelsize=8)
+            ax3.tick_params(axis="y", colors="#ff9f43")
+            ax3.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
+
+            min_v = min(v_list)
+            max_v = max(v_list)
+            if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0):
+                ax1.set_ylim(0, 20)
+            else:
+                ax1.set_ylim(max(0, min_v * 0.95), max_v * 1.05)
+
+            min_i = min(i_list)
+            max_i = max(i_list)
+            if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0):
+                ax2.set_ylim(0, 20)
+            else:
+                ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
+
+            min_t = min(t_list)
+            max_t = max(t_list)
+            if max_t - min_t < 0.5 or (min_t == 0 and max_t == 0):
+                ax3.set_ylim(max(0, min_t - 1.0), max_t + 1.0 if max_t > 0 else 60)
+            else:
+                ax3.set_ylim(min_t - 0.5, max_t + 0.5)
+
+            if len(times_parsed) > 1:
+                ax1.set_xlim(times_parsed[0], times_parsed[-1])
         else:
-            ax1.set_ylim(max(0, min_v * 0.95), max_v * 1.05)
+            fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
+            ax1.set_facecolor("#1e1e1e")
+            # Метки оси X — в пользовательском часовом поясе (по умолчанию matplotlib использует UTC)
+            ax1.xaxis_date(tz=user_tz)
 
-        ax2 = ax1.twinx()
-        ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
-        ax2.set_ylabel("Current (A)", color="#ffff00")
-        ax2.tick_params(axis="y", colors="#ffff00")
+            ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
+            ax1.set_xlabel("Время", color="#fff")
+            ax1.set_ylabel("Voltage (V)", color="#00ffff")
+            ax1.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
+            ax1.tick_params(axis="x", colors="#fff", labelsize=8)
+            ax1.tick_params(axis="y", colors="#00ffff")
 
-        min_i = min(i_list)
-        max_i = max(i_list)
-        if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0):
-            ax2.set_ylim(0, 20)
-        else:
-            ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
+            min_v = min(v_list)
+            max_v = max(v_list)
+            if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0):
+                ax1.set_ylim(0, 20)
+            else:
+                ax1.set_ylim(max(0, min_v * 0.95), max_v * 1.05)
 
-        # v2.5: Растягиваем ось X от первого до последнего замера (убираем пустую "дыру")
-        if len(times_parsed) > 1:
-            ax1.set_xlim(times_parsed[0], times_parsed[-1])
+            ax2 = ax1.twinx()
+            ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
+            ax2.set_ylabel("Current (A)", color="#ffff00")
+            ax2.tick_params(axis="y", colors="#ffff00")
 
-        fig.legend(loc="upper right", fontsize=8)
+            min_i = min(i_list)
+            max_i = max(i_list)
+            if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0):
+                ax2.set_ylim(0, 20)
+            else:
+                ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
+
+            # v2.5: Растягиваем ось X от первого до последнего замера (убираем пустую "дыру")
+            if len(times_parsed) > 1:
+                ax1.set_xlim(times_parsed[0], times_parsed[-1])
+
+            fig.legend(loc="upper right", fontsize=8)
         fig.autofmt_xdate()
         fig.tight_layout()
 
