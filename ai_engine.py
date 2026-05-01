@@ -62,6 +62,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         f"Next stage: {next_stage}",
         targets_line,
         f"Timers: total={timers.get('total_time', '—')} | stage={timers.get('stage_time', '—')} | remaining={timers.get('remaining_time', '—')}",
+        "Temp semantics: temp_ext=battery | temp_int=controller/BP",
     ]
 
     if stage == "Mix Mode" or mix_exit_policy:
