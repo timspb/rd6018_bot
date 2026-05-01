@@ -729,10 +729,69 @@ class ChargeController:
 
     def _record_safe_wait_sample(self, now: float, voltage: float, current: float, temp: float) -> None:
         """Собирать редкие точки окна SAFE_WAIT для постзарядного анализа."""
-        if now - self._last_safe_wait_sample < POST_CHARGE_SAMPLE_SEC:
+        sample_sec = int(self._post_charge_profile_params().get("sample_sec", POST_CHARGE_SAMPLE_SEC))
+        if now - self._last_safe_wait_sample < sample_sec:
             return
         self._safe_wait_v_samples.append((now, voltage, current, temp))
         self._last_safe_wait_sample = now
+
+    def _post_charge_profile_params(self) -> Dict[str, Any]:
+        """Профильные пороги для постзарядной эвристики."""
+        if self.battery_type == self.PROFILE_AGM:
+            return {
+                "min_window_sec": 20 * 60,
+                "min_samples": 5,
+                "sample_sec": 300,
+                "idle_current_a": 0.04,
+                "temp_stable_c": 0.45,
+                "watch_slope_mv_min": 5.5,
+                "strong_slope_mv_min": 10.0,
+                "watch_drop_v": 0.12,
+                "strong_drop_v": 0.18,
+                "risk_bias": -0.10,
+                "confidence_bias": -0.05,
+            }
+        if self.battery_type == self.PROFILE_EFB:
+            return {
+                "min_window_sec": 15 * 60,
+                "min_samples": 4,
+                "sample_sec": 300,
+                "idle_current_a": 0.05,
+                "temp_stable_c": 0.60,
+                "watch_slope_mv_min": 4.0,
+                "strong_slope_mv_min": 8.0,
+                "watch_drop_v": 0.08,
+                "strong_drop_v": 0.14,
+                "risk_bias": 0.10,
+                "confidence_bias": 0.05,
+            }
+        if self.battery_type == self.PROFILE_CA:
+            return {
+                "min_window_sec": 15 * 60,
+                "min_samples": 4,
+                "sample_sec": 300,
+                "idle_current_a": 0.05,
+                "temp_stable_c": 0.70,
+                "watch_slope_mv_min": 3.5,
+                "strong_slope_mv_min": 7.0,
+                "watch_drop_v": 0.08,
+                "strong_drop_v": 0.14,
+                "risk_bias": 0.10,
+                "confidence_bias": 0.05,
+            }
+        return {
+            "min_window_sec": POST_CHARGE_MIN_WINDOW_SEC,
+            "min_samples": POST_CHARGE_MIN_SAMPLES,
+            "sample_sec": POST_CHARGE_SAMPLE_SEC,
+            "idle_current_a": POST_CHARGE_IDLE_CURRENT_A,
+            "temp_stable_c": POST_CHARGE_TEMP_STABLE_C,
+            "watch_slope_mv_min": POST_CHARGE_WATCH_SLOPE_MV_MIN,
+            "strong_slope_mv_min": POST_CHARGE_STRONG_SLOPE_MV_MIN,
+            "watch_drop_v": 0.08,
+            "strong_drop_v": 0.14,
+            "risk_bias": 0.0,
+            "confidence_bias": 0.0,
+        }
 
     def _post_charge_relaxation_snapshot(self, now: float) -> Optional[Dict[str, Any]]:
         """
@@ -742,8 +801,9 @@ class ChargeController:
         if self.current_stage != self.STAGE_SAFE_WAIT:
             return None
 
+        params = self._post_charge_profile_params()
         samples = list(self._safe_wait_v_samples)
-        if len(samples) < POST_CHARGE_MIN_SAMPLES:
+        if len(samples) < params["min_samples"]:
             return {
                 "active": True,
                 "status": "insufficient",
@@ -754,7 +814,7 @@ class ChargeController:
             }
 
         window_samples = [s for s in samples if now - s[0] <= POST_CHARGE_MAX_WINDOW_SEC]
-        if len(window_samples) < POST_CHARGE_MIN_SAMPLES:
+        if len(window_samples) < params["min_samples"]:
             return {
                 "active": True,
                 "status": "insufficient",
@@ -767,7 +827,7 @@ class ChargeController:
         t0, v0, i0, temp0 = window_samples[0]
         t1, v1, i1, temp1 = window_samples[-1]
         elapsed_sec = max(0.0, t1 - t0)
-        if elapsed_sec < POST_CHARGE_MIN_WINDOW_SEC:
+        if elapsed_sec < params["min_window_sec"]:
             return {
                 "active": True,
                 "status": "insufficient",
@@ -799,24 +859,24 @@ class ChargeController:
         current_max = max(abs(s[2]) for s in window_samples)
         current_avg = sum(abs(s[2]) for s in window_samples) / len(window_samples)
 
-        confidence = 0.35
+        confidence = 0.35 + float(params.get("confidence_bias", 0.0))
         if elapsed_sec >= 30 * 60:
             confidence += 0.2
         if len(window_samples) >= 6:
             confidence += 0.15
-        if temp_span <= POST_CHARGE_TEMP_STABLE_C:
+        if temp_span <= float(params["temp_stable_c"]):
             confidence += 0.2
-        if current_max <= POST_CHARGE_IDLE_CURRENT_A:
+        if current_max <= float(params["idle_current_a"]):
             confidence += 0.1
         confidence = max(0.0, min(1.0, confidence))
 
-        if temp_span > POST_CHARGE_TEMP_STABLE_C:
+        if temp_span > float(params["temp_stable_c"]):
             status = "noisy"
             reason = "temp_drift"
-        elif decay_mv_min >= POST_CHARGE_STRONG_SLOPE_MV_MIN:
+        elif decay_mv_min >= float(params["strong_slope_mv_min"]) or drop_v >= float(params["strong_drop_v"]):
             status = "watch"
             reason = "fast_decay"
-        elif decay_mv_min >= POST_CHARGE_WATCH_SLOPE_MV_MIN or drop_v >= 0.08:
+        elif decay_mv_min >= float(params["watch_slope_mv_min"]) or drop_v >= float(params["watch_drop_v"]):
             status = "watch"
             reason = "moderate_decay"
         else:
@@ -824,11 +884,19 @@ class ChargeController:
             reason = "plateau"
 
         stratification_risk = "low"
-        if status == "watch" and temp_span <= POST_CHARGE_TEMP_STABLE_C and current_max <= POST_CHARGE_IDLE_CURRENT_A:
+        if status == "watch" and temp_span <= float(params["temp_stable_c"]) and current_max <= float(params["idle_current_a"]):
             stratification_risk = "medium"
         if status == "noisy":
             stratification_risk = "unknown"
         if status == "stable" and drop_v <= 0.03:
+            stratification_risk = "low"
+        if status == "stable" and self.battery_type == self.PROFILE_AGM:
+            stratification_risk = "very_low"
+        if status == "watch" and self.battery_type == self.PROFILE_AGM and decay_mv_min < 7.0:
+            stratification_risk = "low"
+        if status == "watch" and self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
+            stratification_risk = "medium"
+        if status == "watch" and float(params.get("risk_bias", 0.0)) < 0 and decay_mv_min < 7.5:
             stratification_risk = "low"
 
         return {
@@ -851,6 +919,7 @@ class ChargeController:
             "temp_span_c": temp_span,
             "current_max_a": current_max,
             "current_avg_a": current_avg,
+            "profile": self.battery_type,
             "confidence": confidence,
             "stratification_risk": stratification_risk,
             "note": (
