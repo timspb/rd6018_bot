@@ -27,7 +27,7 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 
-from ai_engine import ask_deepseek
+from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
 from charge_logic import (
     ChargeController,
@@ -40,7 +40,7 @@ from charge_logic import (
     OVP_OFFSET,
     OCP_OFFSET,
 )
-from charging_log import clear_event_logs, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
+from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from config import (
     ALLOWED_CHAT_IDS,
     DEEPSEEK_API_KEY,
@@ -981,6 +981,17 @@ def _remove_duplicate_events(events: list) -> list:
     restore_count = 0
     last_restore_event = None
     last_restore_stage = None
+    emergency_count = 0
+    last_emergency_event = None
+    last_emergency_stage = None
+    last_emergency_ts = None
+
+    def _parse_ts(event: str):
+        try:
+            raw = event.split(" | ", 1)[0].strip("[]")
+            return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
 
     def _flush_restore_group() -> None:
         nonlocal restore_count, last_restore_event, last_restore_stage
@@ -999,6 +1010,24 @@ def _remove_duplicate_events(events: list) -> list:
         last_restore_event = None
         last_restore_stage = None
 
+    def _flush_emergency_group() -> None:
+        nonlocal emergency_count, last_emergency_event, last_emergency_stage, last_emergency_ts
+        if not last_emergency_event:
+            return
+        if emergency_count > 1:
+            parts = last_emergency_event.split(" | ")
+            if len(parts) > 6:
+                parts[6] = f"EMERGENCY_UNAVAILABLE (x{emergency_count})"
+                filtered_events.append(" | ".join(parts))
+            else:
+                filtered_events.append(last_emergency_event)
+        else:
+            filtered_events.append(last_emergency_event)
+        emergency_count = 0
+        last_emergency_event = None
+        last_emergency_stage = None
+        last_emergency_ts = None
+
     for event in events:
         event_parts = event.split(" | ")
         if len(event_parts) > 6:
@@ -1006,6 +1035,7 @@ def _remove_duplicate_events(events: list) -> list:
             current_event_type = event_field.split()[0] if event_field else ""
             stage = event_parts[1].strip()
             if current_event_type == "RESTORE":
+                _flush_emergency_group()
                 if last_restore_event and last_restore_stage == stage:
                     restore_count += 1
                     last_restore_event = event
@@ -1015,10 +1045,27 @@ def _remove_duplicate_events(events: list) -> list:
                     last_restore_event = event
                     last_restore_stage = stage
                 continue
+            if current_event_type == "EMERGENCY_UNAVAILABLE":
+                current_ts = _parse_ts(event)
+                if last_emergency_event and last_emergency_stage == stage and last_emergency_ts and current_ts:
+                    if (current_ts - last_emergency_ts).total_seconds() <= 600:
+                        emergency_count += 1
+                        last_emergency_event = event
+                        last_emergency_ts = current_ts
+                        continue
+                _flush_restore_group()
+                _flush_emergency_group()
+                emergency_count = 1
+                last_emergency_event = event
+                last_emergency_stage = stage
+                last_emergency_ts = current_ts
+                continue
 
+        _flush_emergency_group()
         _flush_restore_group()
         filtered_events.append(event)
 
+    _flush_emergency_group()
     _flush_restore_group()
     return filtered_events
 
@@ -1046,11 +1093,10 @@ def _should_hide_restore_event(event: str) -> bool:
 def format_log_event(event_line: str) -> str:
     """Форматирование строки события в красивый вид с иконками."""
     try:
-        # Парсим строку формата: [2024-02-12 19:15:23] | Main Charge  | 14.80 | 2.40 | 25.1 |  60.25 | START | Емкость: 60Ah
         parts = event_line.split(' | ')
         if len(parts) < 6:
             return f"<code>{html.escape(event_line)}</code>"
-        
+
         timestamp = parts[0].strip('[]')
         stage = parts[1].strip()
         voltage = parts[2].strip()
@@ -1058,18 +1104,41 @@ def format_log_event(event_line: str) -> str:
         temp = parts[4].strip()
         ah = parts[5].strip()
         event = parts[6].strip() if len(parts) > 6 else ""
-        
-        # Извлекаем только время (ЧЧ:ММ)
+
         time_only = timestamp.split(' ')[1][:5] if ' ' in timestamp else timestamp[-8:-3]
         stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
         stage_escaped = html.escape(stage_short)
 
-        # Завершение этапа: END | Время: ... | Ёмкость: ... | T: ... | V: ... | I: ... | Триггер: ...
+        if event.startswith("SESSION_"):
+            icon = "📘"
+            event_tail = event.replace("SESSION_", "", 1).strip()
+            text = f"[{time_only}] {icon} <b>{stage_escaped}: {html.escape(event_tail.split(' | ')[0])}</b>\n"
+            for part in event.split(" | ")[1:]:
+                part = part.strip()
+                if not part or "=" not in part:
+                    continue
+                k, v = part.split("=", 1)
+                if k.strip() == "rules":
+                    text += f"└ Правила: {html.escape(v.strip())}\n"
+                elif k.strip() == "profile":
+                    text += f"└ Профиль: {html.escape(v.strip())}\n"
+                elif k.strip() == "capacity_ah":
+                    text += f"└ Емкость: {html.escape(v.strip())}Ah\n"
+                elif k.strip() != "kind":
+                    text += f"└ {html.escape(k.strip())}: {html.escape(v.strip())}\n"
+            return text.rstrip()
+
+        if event.startswith("EMERGENCY_UNAVAILABLE"):
+            icon = "🧯"
+            summary = event
+            if "(x" in event:
+                summary = event
+            return f"[{time_only}] {icon} <b>{stage_escaped}</b>: {html.escape(summary)}"
+
         if event.startswith("END |"):
-            icon = "📊"
+            icon = "📉"
             text = f"[{time_only}] {icon} <b>{stage_escaped}: завершён</b>\n"
-            rest = event[5:].strip()  # после "END |"
-            # Парсим пары "Ключ: значение"
+            rest = event[5:].strip()
             for part in rest.split(" | "):
                 part = part.strip()
                 if ":" in part:
@@ -1077,13 +1146,11 @@ def format_log_event(event_line: str) -> str:
                     text += f"└ {k.strip()}: {v.strip()}\n"
             return text.rstrip()
 
-        # Действие по триггеру в текущем этапе (вложенная строка)
         if event.strip().startswith("└"):
-            detail = event.strip()[1:].strip()  # убираем └
+            detail = event.strip()[1:].strip()
             return f"[{time_only}] └ {html.escape(detail)}"
 
-        # Старт этапа: START | Емкость: XAh [| profile=...]
-        if "START" in event:
+        if event.startswith("START"):
             icon = "🏁"
             text = f"[{time_only}] {icon} <b>{stage_escaped}: START</b>\n"
             if "Емкость:" in event:
@@ -1103,7 +1170,6 @@ def format_log_event(event_line: str) -> str:
             transition = event.replace("STAGE_CHANGE |", "", 1).strip()
             return f"[{time_only}] >> <b>{stage_escaped}</b>: {html.escape(transition)}"
 
-        # Остальные события (EMERGENCY, DONE, старый формат и т.д.)
         icon = "📋"
         if "DONE" in event or "FINISH" in event:
             icon = "✅"
@@ -1119,12 +1185,12 @@ def format_log_event(event_line: str) -> str:
             return ""
         event_escaped = html.escape(event)
         return f"[{time_only}] {icon} <b>{stage_escaped}</b>: {event_escaped}"
-            
+
     except Exception as ex:
         logger.error("Failed to format log event: %s", ex)
         return f"<code>{html.escape(event_line[:100])}</code>"
 
- 
+
 def _build_logs_text(limit: int = 50, shown: int = 25) -> str:
     """Собрать текст экрана логов для кнопки/команды."""
     from charging_log import get_recent_events
@@ -1172,6 +1238,20 @@ async def _build_ai_analysis_text() -> str:
                 stage_remaining = charge_controller.get_timers().get("remaining_time", "—")
             except Exception:
                 stage_remaining = "—"
+        controller_snapshot = charge_controller.get_ai_stage_snapshot() if charge_controller.is_active else {
+            "stage": "Idle",
+            "profile": "UNKNOWN",
+            "is_active": False,
+            "summary": "Активный заряд не идет.",
+            "transition": "Нет активного перехода.",
+            "next_stage": "Idle",
+            "timers": {"total_time": "—", "stage_time": "—", "remaining_time": "—"},
+            "hold": None,
+            "safety": {},
+            "target_voltage": 0.0,
+            "target_current": 0.0,
+        }
+        recent_events = get_recent_events(10)
         history = {
             "times": times,
             "voltages": voltages,
@@ -1188,6 +1268,8 @@ async def _build_ai_analysis_text() -> str:
                 "v_batt_now": _safe_float(live.get("battery_voltage", 0.0)),
                 "i_now": _safe_float(live.get("current", 0.0)),
             },
+            "controller_snapshot": controller_snapshot,
+            "recent_events": recent_events,
         }
         result = await ask_deepseek(history)
         result_html = _md_to_html(result).replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
@@ -2227,6 +2309,20 @@ async def get_ai_context() -> str:
         controller_info = ""
         capacity_known = False
         capacity_ah = 0
+        controller_snapshot = {
+            "stage": "Idle",
+            "profile": "UNKNOWN",
+            "is_active": False,
+            "summary": "Активный заряд не идет.",
+            "transition": "Активный переход отсутствует.",
+            "next_stage": "Idle",
+            "timers": {"total_time": "—", "stage_time": "—", "remaining_time": "—"},
+            "hold": None,
+            "safety": {},
+            "target_voltage": 0.0,
+            "target_current": 0.0,
+        }
+        recent_events = get_recent_events(8)
         if charge_controller.is_active:
             timers = charge_controller.get_timers()
             capacity_ah = int(getattr(charge_controller, "ah_capacity", 0) or 0)
@@ -2239,8 +2335,17 @@ async def get_ai_context() -> str:
 - Общее время: {timers['total_time']}
 - Время этапа: {timers['stage_time']}
 - Лимит этапа: {timers['remaining_time']}"""
-        
-        # Явный флаг статуса выхода для AI (Output ON/OFF)
+            controller_snapshot = charge_controller.get_ai_stage_snapshot()
+
+        controller_info += f"""
+
+Карточка стратегии:
+{format_ai_snapshot(controller_snapshot)}"""
+        if recent_events:
+            controller_info += f"""
+
+Последние важные события:
+{format_recent_events(recent_events, limit=8)}"""
         output_status = "ON" if output_on else "OFF"
         
         # Формируем полный контекст
@@ -2619,14 +2724,12 @@ async def handle_dialog_mode(message: Message) -> None:
 === ВОПРОС ПОЛЬЗОВАТЕЛЯ ===
 {user_question}
 
-=== ЗАДАЧА ===
-Проанализируй все доступные данные RD6018 и дай экспертное заключение с учетом:
-- Текущего режима работы (CC/CV/Battery)
-- Соответствия параметров нормальному процессу заряда
-- Возможных проблем или аномалий
-- Рекомендаций по оптимизации процесса"""
-
-        # Асинхронный вызов LLM через executor для неблокирующей работы
+=== КАК ОТВЕЧАТЬ ===
+1. Сначала дай прямой ответ на вопрос.
+2. Если вопрос про текущий этап, время на минимальном токе или переход, используй только факты из контекста, hold-снимка и таймеров.
+3. Не называй ток "минимальным", если hold-снимок не активен или rule_met = NO.
+4. Не делай общих прогнозов и не уходи в рассуждения.
+5. Если данных не хватает, скажи это прямо."""
         ai_response = await asyncio.get_event_loop().run_in_executor(
             executor, _call_deepseek_sync, system_prompt, user_prompt
         )
@@ -3585,3 +3688,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+

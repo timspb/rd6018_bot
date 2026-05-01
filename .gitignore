@@ -180,6 +180,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+.continue/
+.continue/agents/
 .env
 config.py
 
@@ -192,6 +194,8 @@ commit_msg.txt
 # Локальные копии/бэкапы и БД
 bot.py+*
 *.db
+clod.bat
+temp_run.ps1
 
 # Локальные заметки (кириллица)
 промпт.txt

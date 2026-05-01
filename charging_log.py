@@ -6,8 +6,9 @@ import logging
 import os
 import re
 import shutil
+import json
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from time_utils import format_datetime_user_tz
 
@@ -41,15 +42,39 @@ def _event_from_log_line(line: str) -> str:
     return parts[6].strip() if len(parts) > 6 else ""
 
 
+def _compact_value(value: Any) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _append_meta(event: str, meta: Optional[dict[str, Any]] = None) -> str:
+    if not meta:
+        return event
+    items = []
+    for key, value in meta.items():
+        items.append(f"{key}={_compact_value(value)}")
+    if not items:
+        return event
+    return f"{event} | " + " | ".join(items)
+
+
 def _find_current_session_start_idx(lines: list[str]) -> int:
     """Session starts from last START, fallback to last RESTORE."""
     last_start_idx = -1
     last_restore_idx = -1
     for idx, line in enumerate(lines):
         event = _event_from_log_line(line)
-        if event.startswith("START"):
+        if event.startswith("SESSION_START") or event.startswith("START"):
             last_start_idx = idx
-        elif event.startswith("RESTORE"):
+        elif event.startswith("SESSION_RESTORE") or event.startswith("RESTORE"):
             last_restore_idx = idx
     return last_start_idx if last_start_idx != -1 else last_restore_idx
 
@@ -65,6 +90,42 @@ def _extract_current_session_lines(lines: list[str]) -> list[str]:
             continue
         session_lines.append(clean + "\n")
     return session_lines
+
+
+def _collapse_consecutive_events(events: list[str]) -> list[str]:
+    """Схлопнуть подряд идущие одинаковые события, сохранив первую запись."""
+    if not events:
+        return events
+
+    collapsed: list[str] = []
+    last_signature: tuple[str, str, str, str, str, str, str] | None = None
+    last_index = -1
+    repeat_count = 0
+
+    def _flush() -> None:
+        nonlocal repeat_count
+        if last_index == -1:
+            return
+        if repeat_count > 1:
+            parts = collapsed[last_index].split(" | ")
+            if len(parts) > 6:
+                parts[6] = f"{parts[6].strip()} (x{repeat_count})"
+                collapsed[last_index] = " | ".join(parts)
+        repeat_count = 0
+
+    for event in events:
+        parts = event.split(" | ")
+        signature = tuple(parts[1:]) if len(parts) >= 7 else (event, "", "", "", "", "", "")
+        if signature == last_signature:
+            repeat_count += 1
+            continue
+        _flush()
+        collapsed.append(event)
+        last_signature = signature
+        last_index = len(collapsed) - 1
+        repeat_count = 1
+    _flush()
+    return collapsed
 
 
 def _detach_log_file_handler(logger_obj: logging.Logger) -> Optional[logging.Handler]:
@@ -203,13 +264,14 @@ def log_event(
     t_ext: float,
     ah: float,
     event: str,
+    meta: Optional[dict[str, Any]] = None,
 ) -> None:
     """Записать событие в лог с пользовательским часовым поясом."""
     try:
         ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
     except Exception:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {event}"
+    line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {_append_meta(event, meta)}"
     _ensure_logger().info(line)
 
 
@@ -235,6 +297,7 @@ def log_stage_end(
     time_sec: float,
     ah_on_stage: float,
     trigger: str,
+    meta: Optional[dict[str, Any]] = None,
 ) -> None:
     """Записать завершение этапа: время на этапе, ёмкость, T, V, I, триггер."""
     try:
@@ -246,13 +309,37 @@ def log_stage_end(
         f"END | Время: {time_str} | Ёмкость: {ah_on_stage:.2f} Ач | "
         f"T: {t_ext:.1f}°C | V: {v:.2f}В | I: {i:.2f}А | Триггер: {trigger}"
     )
-    line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {event}"
+    line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {_append_meta(event, meta)}"
     _ensure_logger().info(line)
 
 
-def log_checkpoint(stage: str, v: float, i: float, t_ext: float, ah: float) -> None:
+def log_checkpoint(stage: str, v: float, i: float, t_ext: float, ah: float, meta: Optional[dict[str, Any]] = None) -> None:
     """Контрольная точка (каждые 10 мин)."""
-    log_event(stage, v, i, t_ext, ah, "CHECKPOINT")
+    log_event(stage, v, i, t_ext, ah, "CHECKPOINT", meta=meta)
+
+
+def log_session_header(
+    kind: str,
+    stage: str,
+    v: float,
+    i: float,
+    t_ext: float,
+    ah: float,
+    profile: str,
+    capacity_ah: int,
+    rules: str,
+    meta: Optional[dict[str, Any]] = None,
+) -> None:
+    """Записать компактную шапку сессии с ключевыми правилами и ограничениями."""
+    header_meta = {
+        "kind": kind,
+        "profile": profile,
+        "capacity_ah": capacity_ah,
+        "rules": rules,
+    }
+    if meta:
+        header_meta.update(meta)
+    log_event(stage, v, i, t_ext, ah, f"SESSION_{kind.upper()}", meta=header_meta)
 
 
 def clear_event_logs() -> None:
@@ -292,7 +379,8 @@ def get_recent_events(limit: int = 50) -> list:
             line = line.strip()
             if line and "CHECKPOINT" not in line:
                 significant_events.append(line)
-        
+
+        significant_events = _collapse_consecutive_events(significant_events)
         return significant_events[-limit:] if significant_events else []
     except Exception:
         return []

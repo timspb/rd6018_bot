@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from config import MAX_VOLTAGE
+from charging_log import log_session_header
 
 logger = logging.getLogger("rd6018")
 
@@ -235,6 +236,23 @@ class ChargeController:
         self._session_start_reason = "User Command"
         self._clear_restored_targets()
         self._clear_session_file()
+        target_v, target_i = self._get_target_v_i()
+        log_session_header(
+            "start",
+            self.current_stage,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            self.battery_type,
+            self.ah_capacity,
+            self._session_rules_summary(),
+            meta={
+                "session_reason": self._session_start_reason,
+                "target_v": f"{target_v:.2f}",
+                "target_i": f"{target_i:.2f}",
+            },
+        )
         logger.info("ChargeController started: %s %dAh (%s)", battery_type, self.ah_capacity, self._session_start_reason)
 
     def start_custom(self, main_voltage: float, main_current: float, delta_threshold: float, 
@@ -287,6 +305,25 @@ class ChargeController:
         self._session_start_reason = "Custom Mode"
         self._clear_restored_targets()
         self._clear_session_file()
+        target_v, target_i = self._get_target_v_i()
+        log_session_header(
+            "start",
+            self.current_stage,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            self.battery_type,
+            self.ah_capacity,
+            self._session_rules_summary(),
+            meta={
+                "session_reason": self._session_start_reason,
+                "target_v": f"{target_v:.2f}",
+                "target_i": f"{target_i:.2f}",
+                "delta_threshold": f"{self._custom_delta_threshold:.3f}",
+                "time_limit_h": f"{self._custom_time_limit_hours:.1f}",
+            },
+        )
         
         logger.info("ChargeController started CUSTOM: %.1fV/%.1fA delta=%.3fV limit=%.0fh capacity=%dAh", 
                    main_voltage, main_current, delta_threshold, time_limit_hours, ah_capacity)
@@ -586,6 +623,26 @@ class ChargeController:
         if elapsed_sec < 0 or elapsed_sec > ELAPSED_MAX_HOURS * 3600:
             self.stage_start_time = now
             logger.warning("Restore: stage_start_time corrected (elapsed invalid)")
+        restored_stage_limit = self._get_stage_max_hours()
+        restored_target_v, restored_target_i = self._get_target_v_i()
+        log_session_header(
+            "restore",
+            self.current_stage,
+            voltage,
+            current,
+            0.0,
+            ah,
+            self.battery_type,
+            self.ah_capacity,
+            self._session_rules_summary(),
+            meta={
+                "session_reason": self._session_start_reason,
+                "stage_limit_h": f"{restored_stage_limit:.1f}" if restored_stage_limit is not None else "—",
+                "target_v": f"{restored_target_v:.2f}",
+                "target_i": f"{restored_target_i:.2f}",
+                "remaining_min": remaining_min,
+            },
+        )
         return True, msg
 
     def reset_session_data(self) -> None:
@@ -859,6 +916,215 @@ class ChargeController:
             "stage_limit_sec": stage_limit_sec,
         }
 
+    def _format_seconds(self, seconds: Optional[float]) -> str:
+        if seconds is None:
+            return "—"
+        seconds = max(0.0, float(seconds))
+        if seconds < 60:
+            return f"{int(seconds)}с"
+        minutes = seconds / 60
+        if minutes < 60:
+            return f"{int(minutes)}м"
+        hours = int(seconds // 3600)
+        mins = int((seconds % 3600) // 60)
+        if mins:
+            return f"{hours}ч {mins}м"
+        return f"{hours}ч"
+
+    def _session_rules_summary(self) -> str:
+        if self.battery_type == self.PROFILE_CA:
+            return "Main 14.7V; 0.3A/3h -> Mix 16.5V; Mix 8h; SafeWait 2h."
+        if self.battery_type == self.PROFILE_EFB:
+            return "Main 14.8V; 0.3A/3h -> Mix 16.5V; Mix 10h; SafeWait 2h."
+        if self.battery_type == self.PROFILE_AGM:
+            return "Main 14.4/14.6/14.8/15.0V; 0.2A/2h -> Mix 16.3V; Mix 5h; SafeWait 2h."
+        if self.battery_type == self.PROFILE_CUSTOM:
+            return f"Custom {self._custom_main_voltage:.1f}V/{self._custom_main_current:.1f}A; delta={self._custom_delta_threshold:.3f}; limit={self._custom_time_limit_hours:.1f}h."
+        return "Rules unavailable."
+
+    def _get_ai_hold_snapshot(self, now: float) -> Optional[Dict[str, Any]]:
+        """Короткий снимок удержания тока/таймера для AI."""
+        if self.current_stage == self.STAGE_MAIN:
+            if self.battery_type == self.PROFILE_AGM:
+                threshold = DESULF_CURRENT_STUCK_AGM
+                required_sec = AGM_FIRST_STAGE_HOLD_SEC
+                hold_kind = "AGM low-current hold"
+            elif self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
+                threshold = DESULF_CURRENT_STUCK
+                required_sec = FIRST_STAGE_HOLD_SEC
+                hold_kind = "low-current hold"
+            else:
+                return None
+
+            if self._first_stage_hold_since is None or self._first_stage_hold_current is None:
+                return {
+                    "active": False,
+                    "kind": hold_kind,
+                    "threshold_a": threshold,
+                    "required_sec": required_sec,
+                }
+
+            elapsed = max(0.0, now - self._first_stage_hold_since)
+            remaining = max(0.0, required_sec - elapsed)
+            return {
+                "active": True,
+                "kind": hold_kind,
+                "threshold_a": threshold,
+                "required_sec": required_sec,
+                "elapsed_sec": elapsed,
+                "remaining_sec": remaining,
+                "elapsed_text": self._format_seconds(elapsed),
+                "remaining_text": self._format_seconds(remaining),
+                "current_a": self._first_stage_hold_current,
+                "rule_met": elapsed >= required_sec,
+                "needs_new_minimum": True,
+            }
+
+        if self.current_stage == self.STAGE_DESULFATION:
+            elapsed = max(0.0, now - self.stage_start_time)
+            remaining = max(0.0, 2 * 3600 - elapsed)
+            return {
+                "active": True,
+                "kind": "desulf timer",
+                "required_sec": 2 * 3600,
+                "elapsed_sec": elapsed,
+                "remaining_sec": remaining,
+                "elapsed_text": self._format_seconds(elapsed),
+                "remaining_text": self._format_seconds(remaining),
+                "rule_met": elapsed >= 2 * 3600,
+            }
+
+        if self.current_stage == self.STAGE_MIX and self.finish_timer_start is not None:
+            elapsed = max(0.0, now - self.finish_timer_start)
+            remaining = max(0.0, MIX_DONE_TIMER - elapsed)
+            return {
+                "active": True,
+                "kind": "mix delta timer",
+                "required_sec": MIX_DONE_TIMER,
+                "elapsed_sec": elapsed,
+                "remaining_sec": remaining,
+                "elapsed_text": self._format_seconds(elapsed),
+                "remaining_text": self._format_seconds(remaining),
+                "rule_met": elapsed >= MIX_DONE_TIMER,
+            }
+
+        if self.current_stage == self.STAGE_SAFE_WAIT:
+            elapsed = max(0.0, now - self._safe_wait_start)
+            remaining = max(0.0, SAFE_WAIT_MAX_SEC - elapsed)
+            threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
+            return {
+                "active": True,
+                "kind": "safe wait",
+                "required_sec": SAFE_WAIT_MAX_SEC,
+                "elapsed_sec": elapsed,
+                "remaining_sec": remaining,
+                "elapsed_text": self._format_seconds(elapsed),
+                "remaining_text": self._format_seconds(remaining),
+                "threshold_v": threshold,
+                "target_v": self._safe_wait_target_v,
+                "rule_met": elapsed >= SAFE_WAIT_MAX_SEC,
+            }
+
+        return None
+
+    def get_ai_stage_snapshot(self) -> Dict[str, Any]:
+        """Собрать компактный снимок стратегии и состояния для LLM."""
+        now = time.time()
+        target_v, target_i = self._get_target_v_i()
+        timers = self.get_timers()
+        hold = self._get_ai_hold_snapshot(now)
+
+        if self.current_stage == self.STAGE_PREP:
+            summary = "Soft Start 12.0V/0.5A, затем Main."
+            next_stage = self.STAGE_MAIN
+            transition = "Переход в Main по завершении подготовки."
+        elif self.current_stage == self.STAGE_MAIN:
+            if self.battery_type == self.PROFILE_AGM:
+                summary = "Main по ступеням 14.4 -> 14.6 -> 14.8 -> 15.0V."
+                next_stage = self.STAGE_MIX
+                transition = "Следующая ступень и переход в Mix: ток ниже 0.2A 2ч без нового минимума."
+            elif self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
+                summary = f"Main {target_v:.1f}V для профиля; hold по низкому току и возможная Desulfation."
+                next_stage = self.STAGE_MIX
+                transition = "Переход в Mix: ток ниже 0.3A 3ч без нового минимума; при CV-полке >=40 мин возможна Desulfation."
+            else:
+                summary = "Main по пользовательским уставкам и delta-правилу."
+                next_stage = self.STAGE_MIX
+                transition = "Переход по delta-триггеру: 3 подтверждения с интервалом 1 мин после включения мониторинга."
+        elif self.current_stage == self.STAGE_DESULFATION:
+            summary = "Сервисная десульфатация 16.3V / 2%Ah / 2ч."
+            next_stage = self.STAGE_SAFE_WAIT
+            transition = "После 2ч -> SAFE_WAIT, затем возврат в Main."
+        elif self.current_stage == self.STAGE_MIX:
+            if self.finish_timer_start is not None:
+                summary = "Mix после delta-триггера: таймер 2ч до Done."
+                next_stage = self.STAGE_SAFE_WAIT
+                transition = "Завершение по таймеру 2ч после delta, затем SAFE_WAIT."
+            elif self.battery_type == self.PROFILE_EFB:
+                summary = "Mix 16.5V / 0.03C до лимита 10ч."
+                next_stage = self.STAGE_SAFE_WAIT
+                transition = "Переход в SAFE_WAIT после лимита 10ч."
+            elif self.battery_type == self.PROFILE_CA:
+                summary = "Mix 16.5V / 0.03C до лимита 8ч."
+                next_stage = self.STAGE_SAFE_WAIT
+                transition = "Переход в SAFE_WAIT после лимита 8ч."
+            elif self.battery_type == self.PROFILE_AGM:
+                summary = "Mix 16.3V / 0.03C до лимита 5ч."
+                next_stage = self.STAGE_SAFE_WAIT
+                transition = "Переход в SAFE_WAIT после лимита 5ч."
+            else:
+                summary = "Mix по пользовательским правилам."
+                next_stage = self.STAGE_SAFE_WAIT
+                transition = "Переход по пользовательскому delta или таймеру."
+        elif self.current_stage == self.STAGE_SAFE_WAIT:
+            summary = "Штатное безопасное ожидание падения напряжения при выключенном выходе."
+            next_stage = self._safe_wait_next_stage or self.STAGE_MAIN
+            transition = "Переход при падении до порога или по таймауту 2ч."
+        elif self.current_stage == self.STAGE_COOLING:
+            summary = "Пауза на охлаждение до безопасной температуры."
+            next_stage = self._cooling_from_stage or self.STAGE_MAIN
+            transition = "Возврат при T <= 35°C."
+        elif self.current_stage == self.STAGE_DONE:
+            summary = "Завершение/хранение."
+            next_stage = self.STAGE_IDLE
+            transition = "Активный заряд завершён."
+        else:
+            summary = "Idle."
+            next_stage = self.STAGE_IDLE
+            transition = "Активный заряд не идёт."
+
+        safety = {
+            "current_limit_a": MAX_STAGE_CURRENT,
+            "ovp_offset_v": OVP_OFFSET,
+            "ocp_offset_a": OCP_OFFSET,
+            "temp_warning_c": TEMP_WARNING,
+            "temp_pause_c": TEMP_PAUSE,
+            "temp_critical_c": TEMP_CRITICAL,
+            "safe_wait_margin_v": SAFE_WAIT_V_MARGIN,
+            "safe_wait_max_sec": SAFE_WAIT_MAX_SEC,
+            "watchdog_timeout_sec": WATCHDOG_TIMEOUT,
+            "watchdog_high_v_sec": HIGH_V_FAST_TIMEOUT,
+            "watchdog_high_v_threshold": HIGH_V_THRESHOLD,
+        }
+
+        return {
+            "profile": self.battery_type,
+            "stage": self.current_stage,
+            "is_active": self.is_active,
+            "target_voltage": target_v,
+            "target_current": target_i,
+            "timers": timers,
+            "summary": summary,
+            "transition": transition,
+            "next_stage": next_stage,
+            "hold": hold,
+            "safety": safety,
+            "agm_stage_idx": self._agm_stage_idx,
+            "desulf_attempts": self.antisulfate_count,
+            "finish_timer_active": self.finish_timer_start is not None,
+            "session_reason": self._session_start_reason,
+        }
+
     def get_telemetry_summary(
         self,
         voltage: float,
@@ -1009,6 +1275,16 @@ class ChargeController:
             return 0
 
         return int((now - self._stuck_current_since) / 60)
+
+    def _sync_hold_minimum(self, now: float, current: float, threshold: float) -> None:
+        if current >= threshold:
+            self._first_stage_hold_since = None
+            self._first_stage_hold_current = None
+            return
+
+        if self._first_stage_hold_current is None or current < self._first_stage_hold_current:
+            self._first_stage_hold_since = now
+            self._first_stage_hold_current = current
 
     def _exit_cc_condition(self, v_now: float) -> bool:
         """Выход CC: V упало на дельту от пика."""
@@ -1403,6 +1679,8 @@ class ChargeController:
             
             elif self.battery_type == self.PROFILE_AGM:
                 # На всех ступенях до 15В и перед MAIN->MIX: ток <0.2А в течение 2ч без нового минимума
+                if not in_blanking:
+                    self._sync_hold_minimum(now, current, DESULF_CURRENT_STUCK_AGM)
                 if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
                     self._first_stage_hold_since = None
                     self._first_stage_hold_current = None
@@ -1558,6 +1836,8 @@ class ChargeController:
 
             # Переход MAIN->MIX по падению тока: Ca/EFB — ждём 3ч на минимуме <0.3А; AGM — в блоке PROFILE_AGM
             if self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
+                if not in_blanking:
+                    self._sync_hold_minimum(now, current, DESULF_CURRENT_STUCK)
                 if not in_blanking and is_cv and current >= 0.3:
                     self._first_stage_hold_since = None
                     self._first_stage_hold_current = None
