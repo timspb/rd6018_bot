@@ -76,6 +76,7 @@ HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watch
 # Активная безопасность: OVP/OCP (v2.0: при каждой смене этапа)
 OVP_OFFSET = 0.1  # В — OVP = U_target + 0.1V
 OCP_OFFSET = 0.1  # А — OCP = I_limit + 0.1A
+DESULF_OCP_MARGIN = 0.5  # А — запас OCP для десульфатации, чтобы не ловить ложные срабатывания на разгон
 MAX_STAGE_CURRENT = 12.0  # А — жесткий лимит тока на всех этапах
 # Температура: ТОЛЬКО внешний датчик (АКБ). 35/40/45 — три уровня.
 TEMP_WARNING = 35.0  # °C — предупреждение в Telegram (один раз за сессию)
@@ -193,6 +194,12 @@ class ChargeController:
         """v2.0: Добавить OVP/OCP в actions при смене фазы. OVP = U_target + 0.2V, OCP = I_limit + 0.2A."""
         actions["set_ovp"] = target_v + OVP_OFFSET
         actions["set_ocp"] = target_i + OCP_OFFSET
+        self._phase_current_limit = target_i
+
+    def _add_desulf_limits(self, actions: Dict[str, Any], target_v: float, target_i: float) -> None:
+        """Десульфатация требует более широкого OCP-запаса из-за переходных бросков тока."""
+        actions["set_ovp"] = target_v + OVP_OFFSET
+        actions["set_ocp"] = target_i + DESULF_OCP_MARGIN
         self._phase_current_limit = target_i
 
     def _ensure_phase_limits(self, actions: Dict[str, Any]) -> None:
@@ -2017,7 +2024,7 @@ class ChargeController:
                             dv, di = self._desulf_target()
                             actions["set_voltage"] = dv
                             actions["set_current"] = di
-                            self._add_phase_limits(actions, dv, di)
+                            self._add_desulf_limits(actions, dv, di)
                             actions["notify"] = (
                                 f"🔧 <b>AGM Десульфатация #{self.antisulfate_count}</b>\n\n"
                                 f"Ток застрял ≥ <code>{DESULF_CURRENT_STUCK_AGM}</code>А более <code>{stuck_mins}</code> мин. "
@@ -2056,7 +2063,7 @@ class ChargeController:
                         dv, di = self._desulf_target()
                         actions["set_voltage"] = dv
                         actions["set_current"] = di
-                        self._add_phase_limits(actions, dv, di)
+                        self._add_desulf_limits(actions, dv, di)
                         actions["notify"] = (
                             f"🔧 <b>{self.battery_type}: десульфатация #{self.antisulfate_count}</b>\n\n"
                             f"Ток держится на уровне <code>{DESULF_CURRENT_STUCK:.1f}А</code> и выше уже "
