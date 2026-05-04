@@ -195,6 +195,14 @@ class ChargeController:
         actions["set_ocp"] = target_i + OCP_OFFSET
         self._phase_current_limit = target_i
 
+    def _ensure_phase_limits(self, actions: Dict[str, Any]) -> None:
+        """Гарантировать, что при смене уставок в actions не потеряются OVP/OCP."""
+        if actions.get("set_voltage") is None or actions.get("set_current") is None:
+            return
+        if actions.get("set_ovp") is not None and actions.get("set_ocp") is not None:
+            return
+        self._add_phase_limits(actions, float(actions["set_voltage"]), float(actions["set_current"]))
+
     def _reset_delta_and_blanking(self, now: float) -> None:
         """v2.0: Полный сброс при смене этапа/уставок — исключает ложный DELTA_TRIGGER после Main->Mix."""
         self.v_max_recorded = None
@@ -2429,6 +2437,8 @@ class ChargeController:
 
         if "log_event" in actions and not str(actions["log_event"]).strip().startswith("└"):
             actions["log_event"] = f"{actions['log_event']} | {self._session_start_reason}"
+
+        self._ensure_phase_limits(actions)
 
         active = self.current_stage in (
             self.STAGE_PREP,
