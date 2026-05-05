@@ -53,6 +53,7 @@ from config import (
     TEMP_INT_PRECRITICAL,
     TG_TOKEN,
 )
+from protection_utils import should_delay_current_ramp
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
@@ -736,6 +737,28 @@ async def _apply_phase_protection(uv: float, ui: float) -> None:
         await hass.set_ovp(float(uv) + OVP_OFFSET)
     if ENTITY_MAP.get("ocp"):
         await hass.set_ocp(_cap_current(ui) + OCP_OFFSET)
+
+
+OCP_STABILIZE_DELAY_SEC = 0.35
+
+
+async def _apply_current_with_ocp(target_i: float, current_set_i: float, target_ocp_raw: Optional[float]) -> None:
+    """Apply OCP/current in a way that avoids transient trips when current is raised."""
+    if target_ocp_raw is None or not ENTITY_MAP.get("ocp"):
+        await hass.set_current(target_i)
+        return
+
+    target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
+    if target_i < current_set_i:
+        await hass.set_current(target_i)
+        await hass.set_ocp(target_ocp)
+    elif should_delay_current_ramp(target_i, current_set_i, target_ocp_raw, True):
+        await hass.set_ocp(target_ocp)
+        await asyncio.sleep(OCP_STABILIZE_DELAY_SEC)
+        await hass.set_current(target_i)
+    else:
+        await hass.set_ocp(target_ocp)
+        await hass.set_current(target_i)
 
 
 IDLE_SAFE_OVP = MAX_VOLTAGE + OVP_OFFSET
@@ -2170,21 +2193,11 @@ async def data_logger() -> None:
                 # if target current is lower than current setpoint, lower current first, then OCP.
                 target_i_raw = actions.get("set_current")
                 target_ocp_raw = actions.get("set_ocp")
-                has_ocp = target_ocp_raw is not None and ENTITY_MAP.get("ocp")
                 if target_i_raw is not None:
                     target_i = _cap_current(float(target_i_raw))
                     current_set_i = _safe_float(live.get("set_current"), target_i)
-                    if has_ocp:
-                        target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
-                        if target_i < current_set_i:
-                            await hass.set_current(target_i)
-                            await hass.set_ocp(target_ocp)
-                        else:
-                            await hass.set_ocp(target_ocp)
-                            await hass.set_current(target_i)
-                    else:
-                        await hass.set_current(target_i)
-                elif has_ocp:
+                    await _apply_current_with_ocp(target_i, current_set_i, target_ocp_raw if ENTITY_MAP.get("ocp") else None)
+                elif target_ocp_raw is not None and ENTITY_MAP.get("ocp"):
                     target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
                     await hass.set_ocp(target_ocp)
                 if actions.get("turn_on"):
