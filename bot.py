@@ -3481,24 +3481,24 @@ async def info_full_handler(call: CallbackQuery) -> None:
             ah_fallback = _safe_float(live.get("ah"))
             temp_ext_fallback = _safe_float(live.get("temp_ext"))
             temp_int_fallback = _safe_float(live.get("temp_int"))
-            status_line = "?? ?????: ??????????"
+            status_line = "⚠️ Полная информация недоступна"
             live_line = (
-                f"? LIVE: - "
+                f"⚡ LIVE: - "
                 f"{format_electrical_data(battery_v_fallback, current_fallback)} "
                 f"{format_temperature_data(temp_ext_fallback, temp_int_fallback)}"
             )
             stage_block = ""
-            capacity_line = f"Ah: {ah_fallback:.2f}"
-            idle_warning = "?? ?????? ???????? ???????? ??????????"
+            capacity_line = f"Емкость: {ah_fallback:.2f} Ач"
+            idle_warning = "⚠️ Карточка собрана в упрощённом виде из-за ошибки во вспомогательном блоке."
 
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
-        full_text += f"\n? ?????? ???????: {_format_uptime_display(live.get('uptime'))}"
+        full_text += f"\n⏱ Время работы: {_format_uptime_display(live.get('uptime'))}"
         ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
-        full_text += f"\n?? ??????: OVP ? {'??' if ovp_tr else '???'}, OCP ? {'??' if ocp_tr else '???'}"
+        full_text += f"\n🛡 Защиты: OVP {'сработала' if ovp_tr else 'норма'}, OCP {'сработала' if ocp_tr else 'норма'}"
 
         battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
@@ -3508,13 +3508,13 @@ async def info_full_handler(call: CallbackQuery) -> None:
             try:
                 stats = charge_controller.get_stats(battery_v, i, ah, temp)
                 full_text += (
-                    "\n??????????????????\n"
-                    "?? <b>?????????? ? ???????</b>\n"
-                    f"?? ????: {stats['stage']}\n"
-                    f"? ? ??????: {stats['elapsed_time']}\n"
-                    f"?? ??????: {stats['ah_total']:.2f} ??\n"
-                    f"?? ????: {stats['temp_ext']:.1f}?C ({stats['temp_trend']})\n"
-                    f"?? ?????????? ????? {stats['predicted_time']}\n"
+                    "\n━━━━━━━━━━━━━━━━━━\n"
+                    "🧠 <b>Статистика по этапу</b>\n"
+                    f"📍 Этап: {stats['stage']}\n"
+                    f"⏳ Время этапа: {stats['elapsed_time']}\n"
+                    f"🔋 Набрано: {stats['ah_total']:.2f} Ач\n"
+                    f"🌡 АКБ: {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n"
+                    f"🕒 Прогноз завершения: {stats['predicted_time']}\n"
                     f"<i>{stats['comment']}</i>"
                 )
                 if stats.get("health_warning"):
@@ -3522,17 +3522,17 @@ async def info_full_handler(call: CallbackQuery) -> None:
             except Exception as ex:
                 logger.warning("info full stats fallback: %s", ex)
                 full_text += (
-                    "\n??????????????????\n"
-                    "?? <b>?????????? ? ???????</b>\n"
-                    "<i>??????????: ??????? ???? ?????????? ???????? ?? ??????? ???????.</i>"
+                    "\n━━━━━━━━━━━━━━━━━━\n"
+                    "🧠 <b>Статистика по этапу</b>\n"
+                    "<i>Недостаточно данных: временно недоступен расширенный блок статистики.</i>"
                 )
         else:
-            full_text += "\n\n<i>?????????? ???????? ?????? ??? ???????? ??????.</i>"
+            full_text += "\n\n<i>Расширенная статистика доступна только во время активного заряда.</i>"
 
         if idle_warning:
             full_text += f"\n{idle_warning}"
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
-        caption = f"<b>?? ?????? ?????????? ?? ??????</b>\n\n{full_text}"
+        caption = f"<b>📋 Полная информация по заряду</b>\n\n{full_text}"
         user_id = call.from_user.id if call.from_user else 0
         chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
         times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
@@ -3573,9 +3573,9 @@ async def info_full_handler(call: CallbackQuery) -> None:
     except Exception as ex:
         logger.error("info_full: %s", ex)
         try:
-            await call.message.edit_text("?? ??????? ????????? ??????.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="?? ? ????????", callback_data="dash_back")]]))
+            await call.message.edit_text("⚠️ Не удалось открыть полную информацию.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ В дашборд", callback_data="dash_back")]]))
         except Exception:
-            await call.message.answer("?? ??????? ????????? ??????.")
+            await call.message.answer("⚠️ Не удалось открыть полную информацию.")
         schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 @router.callback_query(F.data == "entities_status")
