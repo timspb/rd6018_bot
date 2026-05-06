@@ -49,6 +49,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
     next_stage = snapshot.get("next_stage", "—")
     target_v = snapshot.get("target_voltage", "—")
     target_i = snapshot.get("target_current", "—")
+    temp_comp = snapshot.get("temperature_compensation") or {}
 
     if isinstance(target_v, (int, float)) and isinstance(target_i, (int, float)):
         targets_line = f"Targets: {target_v:.2f}V / {target_i:.2f}A"
@@ -64,6 +65,23 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         f"Timers: total={timers.get('total_time', '—')} | stage={timers.get('stage_time', '—')} | remaining={timers.get('remaining_time', '—')}",
         "Temp semantics: temp_ext=battery | temp_int=controller/BP",
     ]
+
+    if temp_comp:
+        enabled = "YES" if temp_comp.get("enabled") else "NO"
+        restored = "YES" if temp_comp.get("restored") else "NO"
+        temp_c = temp_comp.get("temp_c")
+        coeff = temp_comp.get("coeff_v_per_c")
+        base_v = temp_comp.get("base_v")
+        final_v = temp_comp.get("final_v")
+        delta_v = temp_comp.get("delta_v")
+        temp_text = f"{temp_c:.1f}C" if isinstance(temp_c, (int, float)) else "—"
+        coeff_text = f"{coeff:.3f}V/°C" if isinstance(coeff, (int, float)) else "—"
+        base_text = f"{base_v:.2f}V" if isinstance(base_v, (int, float)) else "—"
+        final_text = f"{final_v:.2f}V" if isinstance(final_v, (int, float)) else "—"
+        delta_text = f"{delta_v:+.2f}V" if isinstance(delta_v, (int, float)) else "—"
+        lines.append(
+            f"Temp comp: enabled={enabled} | restored={restored} | T={temp_text} | coeff={coeff_text} | base={base_text} | delta={delta_text} | final={final_text}"
+        )
 
     if stage == "Mix Mode" or mix_exit_policy:
         if mix_exit_policy:

@@ -1312,7 +1312,8 @@ async def _build_ai_analysis_text() -> str:
                 stage_remaining = charge_controller.get_timers().get("remaining_time", "—")
             except Exception:
                 stage_remaining = "—"
-        controller_snapshot = charge_controller.get_ai_stage_snapshot() if charge_controller.is_active else {
+        temp_ext_now = _safe_float(live.get("temp_ext", 0.0))
+        controller_snapshot = charge_controller.get_ai_stage_snapshot(temp_ext_now) if charge_controller.is_active else {
             "stage": "Idle",
             "profile": "UNKNOWN",
             "is_active": False,
@@ -1512,7 +1513,7 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
     if not charge_controller.is_active:
         return ""
 
-    snapshot = charge_controller.get_ai_stage_snapshot()
+    snapshot = charge_controller.get_ai_stage_snapshot(temp_ext)
     timers = snapshot.get("timers") or {}
     hold = snapshot.get("hold") or {}
     current_v = _safe_float(live.get("battery_voltage"))
@@ -2065,7 +2066,7 @@ async def data_logger() -> None:
                                 await hass.set_current(_cap_current(ui))
                                 await hass.turn_off(ENTITY_MAP["switch"])
                             else:
-                                uv, ui = charge_controller._get_target_v_i()
+                                uv, ui = charge_controller._get_target_v_i(t)
                                 await _apply_phase_protection(uv, ui)
                                 await hass.set_voltage(uv)
                                 await hass.set_current(_cap_current(ui))
@@ -2125,7 +2126,7 @@ async def data_logger() -> None:
                             await _apply_phase_protection(uv, ui)
                             await hass.turn_off(ENTITY_MAP["switch"])
                         else:
-                            uv, ui = charge_controller._get_target_v_i()
+                            uv, ui = charge_controller._get_target_v_i(t)
                             await _apply_phase_protection(uv, ui)
                         await hass.set_voltage(uv)
                         await hass.set_current(_cap_current(ui))
@@ -2531,7 +2532,7 @@ async def get_ai_context() -> str:
 - Общее время: {timers['total_time']}
 - Время этапа: {timers['stage_time']}
 - Лимит этапа: {timers['remaining_time']}"""
-            controller_snapshot = charge_controller.get_ai_stage_snapshot()
+            controller_snapshot = charge_controller.get_ai_stage_snapshot(t_external)
 
         controller_info += f"""
 
@@ -2856,9 +2857,9 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
     charge_controller.start(profile, ah)
     # Сначала OVP/OCP, затем уставки — иначе прибор может не дать включить выход
     if battery_v < 12.0:
-        uv, ui = 12.0, 0.5
+        uv, ui = charge_controller._prep_target(t)
     else:
-        uv, ui = charge_controller._main_target()
+        uv, ui = charge_controller._main_target(t)
     if ENTITY_MAP.get("ovp"):
         await hass.set_ovp(uv + OVP_OFFSET)
     if ENTITY_MAP.get("ocp"):
@@ -3637,7 +3638,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
                 await hass.set_current(_cap_current(ui))
                 await hass.turn_off(ENTITY_MAP["switch"])
             else:
-                uv, ui = charge_controller._get_target_v_i()
+                uv, ui = charge_controller._get_target_v_i(t)
                 await _apply_phase_protection(uv, ui)
                 await hass.set_voltage(uv)
                 await hass.set_current(_cap_current(ui))
@@ -3849,7 +3850,7 @@ async def main() -> None:
                     await hass.set_current(_cap_current(ui))
                     await hass.turn_off(ENTITY_MAP["switch"])
                 else:
-                    uv, ui = charge_controller._get_target_v_i()
+                    uv, ui = charge_controller._get_target_v_i(t)
                     await _apply_phase_protection(uv, ui)
                     await hass.set_voltage(uv)
                     await hass.set_current(_cap_current(ui))

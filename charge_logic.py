@@ -83,6 +83,11 @@ MAX_STAGE_CURRENT = 12.0  # А — жесткий лимит тока на вс�
 TEMP_WARNING = 35.0  # °C — предупреждение в Telegram (один раз за сессию)
 TEMP_PAUSE = 40.0    # °C — пауза заряда (Output OFF), возврат при 35°C
 TEMP_CRITICAL = 45.0  # °C — аварийная остановка ТОЛЬКО по внешнему датчику АКБ
+TEMP_COMP_REF_C = 25.0  # °C — опорная температура для термокомпенсации
+TEMP_COMP_MAX_DELTA_V = 0.60  # В — жёсткий предел поправки, чтобы не раздувать уставки
+TEMP_COMP_CA_EFB_V_PER_C = 0.018  # В/°C на 12V АКБ
+TEMP_COMP_AGM_V_PER_C = 0.016  # AGM чуть осторожнее
+TEMP_COMP_CUSTOM_V_PER_C = 0.018  # Custom использует мягкую свинцовую поправку по умолчанию
 
 
 def _log_phase(phase: str, v: float, i: float, t: float) -> None:
@@ -395,18 +400,18 @@ class ChargeController:
         self._restored_target_v = 0.0
         self._restored_target_i = 0.0
 
-    def _get_target_v_i(self) -> Tuple[float, float]:
+    def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Текущие целевые V и I для фазы. При restore возвращаем сохранённые уставки из сессии."""
         if self._restored_target_v > 0 and self._restored_target_i > 0:
             return (self._restored_target_v, self._restored_target_i)
         if self.current_stage == self.STAGE_PREP:
-            return self._prep_target()
+            return self._prep_target(temp_c)
         if self.current_stage == self.STAGE_MAIN:
-            return self._main_target()
+            return self._main_target(temp_c)
         if self.current_stage == self.STAGE_DESULFATION:
-            return self._desulf_target()
+            return self._desulf_target(temp_c)
         if self.current_stage == self.STAGE_MIX:
-            return self._mix_target()
+            return self._mix_target(temp_c)
         if self.current_stage == self.STAGE_SAFE_WAIT:
             return (0.0, 0.0)  # выход выключен
         if self.current_stage == self.STAGE_COOLING:
@@ -1254,16 +1259,18 @@ class ChargeController:
 
         return None
 
-    def get_ai_stage_snapshot(self) -> Dict[str, Any]:
+    def get_ai_stage_snapshot(self, temp_c: Optional[float] = None) -> Dict[str, Any]:
         """Собрать компактный снимок стратегии и состояния для LLM."""
         now = time.time()
-        target_v, target_i = self._get_target_v_i()
+        target_v, target_i = self._get_target_v_i(temp_c)
+        base_target_v, _ = self._get_target_v_i(None)
         timers = self.get_timers()
         hold = self._get_ai_hold_snapshot(now)
         mix_exit_policy = None
+        temperature_compensation = self._temperature_compensation_snapshot(base_target_v, target_v, temp_c)
 
         if self.current_stage == self.STAGE_PREP:
-            prep_current = self._prep_target()[1]
+            prep_current = self._prep_target(temp_c)[1]
             summary = f"Soft Start 12.0V/{prep_current:.2f}A (0.01C), затем Main."
             next_stage = self.STAGE_MAIN
             transition = "Переход в Main по завершении подготовки."
@@ -1377,6 +1384,8 @@ class ChargeController:
             "is_active": self.is_active,
             "target_voltage": target_v,
             "target_current": target_i,
+            "target_voltage_base": base_target_v,
+            "temperature_compensation": temperature_compensation,
             "timers": timers,
             "summary": summary,
             "transition": transition,
@@ -1446,45 +1455,106 @@ class ChargeController:
         """Процент от ёмкости в А."""
         return min(MAX_STAGE_CURRENT, max(0.1, pct * self.ah_capacity / 100.0))
 
-    def _prep_target(self) -> Tuple[float, float]:
-        # Подготовка: мягкий старт на 0.01C для любой ёмкости, чтобы не давить АКБ лишним током.
-        return (12.0, self._pct_ah(1.0))
+    def _temperature_compensation_coeff(self) -> float:
+        """Коэффициент термокомпенсации напряжения для текущего профиля."""
+        if self.battery_type == self.PROFILE_AGM:
+            return TEMP_COMP_AGM_V_PER_C
+        if self.battery_type == self.PROFILE_CUSTOM:
+            return TEMP_COMP_CUSTOM_V_PER_C
+        return TEMP_COMP_CA_EFB_V_PER_C
 
-    def _main_target(self) -> Tuple[float, float]:
+    def _temperature_compensation_delta(self, temp_c: Optional[float]) -> float:
+        """Поправка к напряжению относительно 25°C, уже с ограничением по максимуму."""
+        if temp_c is None or self.current_stage not in (
+            self.STAGE_PREP,
+            self.STAGE_MAIN,
+            self.STAGE_DESULFATION,
+            self.STAGE_MIX,
+        ):
+            return 0.0
+        try:
+            temp = float(temp_c)
+        except (TypeError, ValueError):
+            return 0.0
+        raw_delta = self._temperature_compensation_coeff() * (TEMP_COMP_REF_C - temp)
+        return max(-TEMP_COMP_MAX_DELTA_V, min(TEMP_COMP_MAX_DELTA_V, raw_delta))
+
+    def _apply_temperature_compensation(self, base_v: float, temp_c: Optional[float]) -> float:
+        """Коррекция напряжения по температуре АКБ без изменения логики этапа."""
+        return round(max(0.0, base_v + self._temperature_compensation_delta(temp_c)), 2)
+
+    def _temperature_compensation_snapshot(self, base_v: float, final_v: float, temp_c: Optional[float]) -> Dict[str, Any]:
+        """Компактное описание температурной поправки для AI/UI."""
+        coeff = self._temperature_compensation_coeff()
+        try:
+            temp = float(temp_c) if temp_c is not None else None
+        except (TypeError, ValueError):
+            temp = None
+        raw_delta = 0.0 if temp is None else coeff * (TEMP_COMP_REF_C - temp)
+        applied_delta = final_v - base_v
+        restored = bool(self._restored_target_v > 0 and self._restored_target_i > 0)
+        enabled = temp is not None and self.current_stage in (
+            self.STAGE_PREP,
+            self.STAGE_MAIN,
+            self.STAGE_DESULFATION,
+            self.STAGE_MIX,
+        ) and not restored
+        return {
+            "enabled": enabled,
+            "restored": restored,
+            "ref_c": TEMP_COMP_REF_C,
+            "temp_c": temp,
+            "coeff_v_per_c": coeff,
+            "base_v": base_v,
+            "final_v": final_v,
+            "raw_delta_v": round(raw_delta, 3),
+            "delta_v": round(applied_delta, 3),
+            "clamped": abs(raw_delta - applied_delta) > 1e-9,
+            "applied_stage": self.current_stage,
+        }
+
+    def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        # Подготовка: мягкий старт на 0.01C для любой ёмкости, чтобы не давить АКБ лишним током.
+        base_v = 12.0
+        return (self._apply_temperature_compensation(base_v, temp_c), self._pct_ah(1.0))
+
+    def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """v2.0: Main Charge — I_target = ah * 0.1 (ёмкостно-ориентированный расчёт)."""
         if self.battery_type == self.PROFILE_CUSTOM:
-            return (self._custom_main_voltage, min(MAX_STAGE_CURRENT, self._custom_main_current))
+            return (self._apply_temperature_compensation(self._custom_main_voltage, temp_c), min(MAX_STAGE_CURRENT, self._custom_main_current))
         i_main = min(MAX_STAGE_CURRENT, self.ah_capacity * 0.1)  # 7.2A для 72Ah
+        base_v = 14.7
         if self.battery_type == self.PROFILE_CA:
-            return (14.7, i_main)
+            return (self._apply_temperature_compensation(base_v, temp_c), i_main)
         if self.battery_type == self.PROFILE_EFB:
-            return (14.8, i_main)
+            base_v = 14.8
+            return (self._apply_temperature_compensation(base_v, temp_c), i_main)
         if self.battery_type == self.PROFILE_AGM:
-            v = AGM_STAGES[min(self._agm_stage_idx, len(AGM_STAGES) - 1)]
-            return (v, i_main)
-        return (14.7, i_main)
+            base_v = AGM_STAGES[min(self._agm_stage_idx, len(AGM_STAGES) - 1)]
+            return (self._apply_temperature_compensation(base_v, temp_c), i_main)
+        return (self._apply_temperature_compensation(base_v, temp_c), i_main)
 
-    def _desulf_target(self) -> Tuple[float, float]:
-        return (16.3, self._pct_ah(2.0))
+    def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        return (self._apply_temperature_compensation(16.3, temp_c), self._pct_ah(2.0))
 
-    def _mix_target(self) -> Tuple[float, float]:
+    def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """v2.0: Mix Mode — I_target = ah * 0.03 (ёмкостно-ориентированный расчёт)."""
         i_mix = min(MAX_STAGE_CURRENT, self.ah_capacity * 0.03)  # 2.16A для 72Ah
         if self.battery_type == self.PROFILE_AGM:
-            return (16.3, i_mix)
-        return (16.5, i_mix)
+            return (self._apply_temperature_compensation(16.3, temp_c), i_mix)
+        return (self._apply_temperature_compensation(16.5, temp_c), i_mix)
 
     def _storage_target(self) -> Tuple[float, float]:
         return (13.8, 1.0)
     
-    def _get_current_targets(self) -> Tuple[float, float]:
+    def _get_current_targets(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Получить текущие целевые параметры V/I в зависимости от этапа."""
         if self.current_stage == self.STAGE_MAIN:
-            return self._main_target()
+            return self._main_target(temp_c)
         elif self.current_stage == self.STAGE_DESULFATION:
-            return self._desulf_target()
+            return self._desulf_target(temp_c)
         elif self.current_stage == self.STAGE_MIX:
-            return self._mix_target()
+            return self._mix_target(temp_c)
         else:
             return (14.0, 1.0)  # безопасные значения по умолчанию
 
@@ -1698,7 +1768,7 @@ class ChargeController:
             actions["log_event_end"] = self._make_log_event_end(
                 now, ah, voltage, current, temp, f"T≥{TEMP_PAUSE}°C ({temp:.1f}°C)"
             )
-            cooling_target_v, cooling_target_i = self._get_current_targets()
+            cooling_target_v, cooling_target_i = self._get_current_targets(temp)
             prev_stage = self.current_stage
             self.current_stage = self.STAGE_COOLING
             self._clear_restored_targets()
@@ -1806,7 +1876,7 @@ class ChargeController:
 
         # --- ПОДГОТОВКА (Soft Start) ---
         if self.current_stage == self.STAGE_PREP:
-            uv, ui = self._prep_target()
+            uv, ui = self._prep_target(temp)
             if voltage < 12.0:
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
@@ -1822,7 +1892,7 @@ class ChargeController:
                 self._start_ah = ah
                 self._reset_delta_and_blanking(now)
                 _log_trigger(prev, self.current_stage, "V_threshold", f"Факт: {voltage:.2f}В >= 12.0В")
-                uv, ui = self._main_target()
+                uv, ui = self._main_target(temp)
                 actions["set_voltage"] = uv
                 actions["set_current"] = ui
                 self._add_phase_limits(actions, uv, ui)
@@ -1834,7 +1904,7 @@ class ChargeController:
 
         # --- MAIN CHARGE ---
         elif self.current_stage == self.STAGE_MAIN:
-            uv, ui = self._get_target_v_i()  # после restore — уставки из сессии, иначе по профилю
+            uv, ui = self._get_target_v_i(temp)  # после restore — уставки из сессии, иначе по профилю
             in_blanking = now < self._blanking_until
 
             # Защитный лимит времени MAIN (72ч авто, пользовательский для CUSTOM)
@@ -1864,7 +1934,7 @@ class ChargeController:
                         _log_trigger(prev, self.current_stage, "TIME_LIMIT_MAIN_TO_MIX_FORCE", f"Limit {max_hours}h reached for {self.battery_type}, forced MIX")
                     else:
                         _log_trigger(prev, self.current_stage, "TIME_LIMIT_MAIN_TO_MIX", f"Limit {max_hours}h, I={current:.2f}A <= {transition_threshold}A")
-                    mxv, mxi = self._mix_target()
+                    mxv, mxi = self._mix_target(temp)
                     actions["set_voltage"] = mxv
                     actions["set_current"] = mxi
                     self._add_phase_limits(actions, mxv, mxi)
@@ -1973,7 +2043,7 @@ class ChargeController:
                             self.stage_start_time = now
                             self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
-                            uv, ui = self._main_target()
+                            uv, ui = self._main_target(temp)
                             _log_trigger(self.STAGE_MAIN, self.STAGE_MAIN, "AGM_stage_2h_hold", f"Ступень {self._agm_stage_idx + 1}/4: ток <0.2А {AGM_FIRST_STAGE_HOLD_HOURS}ч")
                             actions["set_voltage"] = uv
                             actions["set_current"] = ui
@@ -2002,7 +2072,7 @@ class ChargeController:
                             self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
                             _log_trigger(prev, self.current_stage, "I_drop_2h_hold", f"Факт: {current:.2f}А, выдержка {AGM_FIRST_STAGE_HOLD_HOURS}ч")
-                            mxv, mxi = self._mix_target()
+                            mxv, mxi = self._mix_target(temp)
                             actions["set_voltage"] = mxv
                             actions["set_current"] = mxi
                             self._add_phase_limits(actions, mxv, mxi)
@@ -2030,7 +2100,7 @@ class ChargeController:
                             self._stage_start_ah = ah
                             self._reset_delta_and_blanking(now)
                             _log_trigger(prev, self.current_stage, "AGM_I_stuck_0.2A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
-                            dv, di = self._desulf_target()
+                            dv, di = self._desulf_target(temp)
                             actions["set_voltage"] = dv
                             actions["set_current"] = di
                             self._add_desulf_limits(actions, dv, di)
@@ -2069,7 +2139,7 @@ class ChargeController:
                             "CA_EFB_I_stuck_0.3A",
                             f"Факт: {current:.2f}А в течение {stuck_mins} мин, попытка #{self.antisulfate_count}",
                         )
-                        dv, di = self._desulf_target()
+                        dv, di = self._desulf_target(temp)
                         actions["set_voltage"] = dv
                         actions["set_current"] = di
                         self._add_desulf_limits(actions, dv, di)
@@ -2094,7 +2164,7 @@ class ChargeController:
                         self._stage_start_ah = ah
                         self._reset_delta_and_blanking(now)
                         _log_trigger(prev, self.current_stage, "CA_EFB_desulf_limit_to_MIX", f"I={current:.2f}A stuck for {stuck_mins}min, desulf limit reached")
-                        mxv, mxi = self._mix_target()
+                        mxv, mxi = self._mix_target(temp)
                         actions["set_voltage"] = mxv
                         actions["set_current"] = mxi
                         self._add_phase_limits(actions, mxv, mxi)
@@ -2143,7 +2213,7 @@ class ChargeController:
                         self._stage_start_ah = ah
                         self._reset_delta_and_blanking(now)
                         _log_trigger(prev, self.current_stage, "I_drop_3h_hold", f"Факт: {current:.2f}А, выдержка {FIRST_STAGE_HOLD_HOURS}ч")
-                        mxv, mxi = self._mix_target()
+                        mxv, mxi = self._mix_target(temp)
                         actions["set_voltage"] = mxv
                         actions["set_current"] = mxi
                         self._add_phase_limits(actions, mxv, mxi)
@@ -2268,7 +2338,7 @@ class ChargeController:
                     now, ah, voltage, current, temp, "Таймер 2ч"
                 )
                 prev = self.current_stage
-                uv, ui = self._main_target()
+                uv, ui = self._main_target(temp)
                 threshold = uv - SAFE_WAIT_V_MARGIN  # 14.2В при цели 14.7В
                 self.current_stage = self.STAGE_SAFE_WAIT
                 self._clear_restored_targets()
