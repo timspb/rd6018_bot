@@ -3471,6 +3471,9 @@ async def info_full_handler(call: CallbackQuery) -> None:
                 stats_block += f"\n🌙 Постзаряд: {rel_status} · риск {rel_risk}"
                 if extra:
                     stats_block += f" · {'; '.join(extra)}"
+                window_summary = relaxation.get("window_summary")
+                if window_summary:
+                    stats_block += f"\n🪟 Окна: {window_summary}"
             full_text += stats_block
         if idle_warning:
             full_text += f"\n{idle_warning}"

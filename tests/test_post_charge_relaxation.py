@@ -38,10 +38,14 @@ class PostChargeRelaxationTests(unittest.TestCase):
         self.assertEqual(relaxation["stratification_risk"], "medium")
         self.assertGreater(relaxation["decay_mv_min"], 4.0)
         self.assertLessEqual(relaxation["temp_span_c"], 0.6)
+        self.assertIn("windows", relaxation)
+        self.assertTrue(relaxation["windows"])
+        self.assertIn("10m", relaxation["window_summary"])
 
         text = format_ai_snapshot(snapshot)
         self.assertIn("Post-charge: status=watch", text)
         self.assertIn("risk=medium", text)
+        self.assertIn("Post-charge windows:", text)
 
     def test_agm_profile_is_stricter_on_relaxation(self):
         controller = ChargeController(_FakeHass())
@@ -72,6 +76,7 @@ class PostChargeRelaxationTests(unittest.TestCase):
         self.assertEqual(relaxation["status"], "stable")
         self.assertEqual(relaxation["stratification_risk"], "very_low")
         self.assertLess(relaxation["decay_mv_min"], 5.5)
+        self.assertIn("15m", relaxation["window_summary"])
 
     def test_cac_profile_flags_moderate_decay_quickly(self):
         controller = ChargeController(_FakeHass())
@@ -101,6 +106,7 @@ class PostChargeRelaxationTests(unittest.TestCase):
         self.assertEqual(relaxation["status"], "watch")
         self.assertEqual(relaxation["stratification_risk"], "medium")
         self.assertGreaterEqual(relaxation["decay_mv_min"], 3.5)
+        self.assertIn("5m", relaxation["window_summary"])
 
 
 if __name__ == "__main__":

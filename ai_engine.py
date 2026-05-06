@@ -149,6 +149,9 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         if isinstance(post_conf, (int, float)):
             parts.append(f"conf={post_conf:.2f}")
         lines.append(" | ".join(parts))
+        window_summary = post_charge.get("window_summary")
+        if window_summary:
+            lines.append(f"Post-charge windows: {window_summary}")
         if post_charge.get("note"):
             lines.append(f"Post-charge note: {post_charge.get('note')}")
 

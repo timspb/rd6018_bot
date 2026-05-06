@@ -58,6 +58,7 @@ POST_CHARGE_IDLE_CURRENT_A = 0.05  # А — почти нулевой ток н�
 POST_CHARGE_TEMP_STABLE_C = 0.6  # °C — окно температуры для уверенного вывода
 POST_CHARGE_STRONG_SLOPE_MV_MIN = 8.0
 POST_CHARGE_WATCH_SLOPE_MV_MIN = 4.0
+POST_CHARGE_PERIODIC_WINDOWS_SEC = (5 * 60, 10 * 60, 15 * 60)
 PHANTOM_CHARGE_MINUTES = 10  # мин — ток < порога за это время = подозрительно быстрый заряд
 BLANKING_SEC = 5 * 60  # сек — после смены фазы игнорировать триггеры
 DELTA_MONITOR_DELAY_SEC = 120  # v2.0: начинать мониторинг dV/dI строго через 120 сек после смены уставок
@@ -824,8 +825,134 @@ class ChargeController:
             "strong_slope_mv_min": POST_CHARGE_STRONG_SLOPE_MV_MIN,
             "watch_drop_v": 0.08,
             "strong_drop_v": 0.14,
-            "risk_bias": 0.0,
-            "confidence_bias": 0.0,
+                "risk_bias": 0.0,
+                "confidence_bias": 0.0,
+            }
+
+    def _evaluate_post_charge_window(
+        self,
+        samples: List[Tuple[float, float, float, float]],
+        params: Dict[str, Any],
+        window_sec: int,
+    ) -> Dict[str, Any]:
+        """Оценить одно окно постзарядного тренда."""
+        label = f"{int(window_sec // 60)}m"
+        min_samples = 2
+        if len(samples) < min_samples:
+            return {
+                "window_sec": window_sec,
+                "label": label,
+                "status": "insufficient",
+                "reason": "too_few_window_samples",
+                "confidence": 0.0,
+                "sample_count": len(samples),
+            }
+
+        t0, v0, i0, temp0 = samples[0]
+        t1, v1, i1, temp1 = samples[-1]
+        elapsed_sec = max(0.0, t1 - t0)
+        if elapsed_sec <= 0:
+            return {
+                "window_sec": window_sec,
+                "label": label,
+                "status": "insufficient",
+                "reason": "zero_window_span",
+                "confidence": 0.0,
+                "sample_count": len(samples),
+            }
+
+        xs = [s[0] - t0 for s in samples]
+        ys = [s[1] for s in samples]
+        sum_x = sum(xs)
+        sum_y = sum(ys)
+        sum_xx = sum(x * x for x in xs)
+        sum_xy = sum(x * y for x, y in zip(xs, ys))
+        denom = len(samples) * sum_xx - sum_x * sum_x
+        slope_v_per_sec = 0.0
+        if abs(denom) > 1e-9:
+            slope_v_per_sec = (len(samples) * sum_xy - sum_x * sum_y) / denom
+        slope_mv_min = slope_v_per_sec * 60.0 * 1000.0
+        decay_mv_min = max(0.0, -slope_mv_min)
+        drop_v = v0 - v1
+        temp_values = [s[3] for s in samples]
+        temp_min = min(temp_values)
+        temp_max = max(temp_values)
+        temp_span = temp_max - temp_min
+        current_max = max(abs(s[2]) for s in samples)
+        current_avg = sum(abs(s[2]) for s in samples) / len(samples)
+
+        confidence = 0.20 + float(params.get("confidence_bias", 0.0))
+        if window_sec >= 10 * 60:
+            confidence += 0.10
+        if window_sec >= 15 * 60:
+            confidence += 0.10
+        if len(samples) >= 3:
+            confidence += 0.15
+        if len(samples) >= 4:
+            confidence += 0.10
+        if temp_span <= float(params["temp_stable_c"]):
+            confidence += 0.20
+        if current_max <= float(params["idle_current_a"]):
+            confidence += 0.10
+        confidence = max(0.0, min(1.0, confidence))
+
+        if temp_span > float(params["temp_stable_c"]):
+            status = "noisy"
+            reason = "temp_drift"
+        elif current_max > float(params["idle_current_a"]) * 1.8:
+            status = "mixed"
+            reason = "current_not_idle"
+        elif decay_mv_min >= float(params["strong_slope_mv_min"]) or drop_v >= float(params["strong_drop_v"]):
+            status = "watch"
+            reason = "fast_decay"
+        elif decay_mv_min >= float(params["watch_slope_mv_min"]) or drop_v >= float(params["watch_drop_v"]):
+            status = "watch"
+            reason = "moderate_decay"
+        else:
+            status = "stable"
+            reason = "plateau"
+
+        stratification_risk = "low"
+        if status in ("mixed", "noisy"):
+            stratification_risk = "unknown"
+        elif status == "watch" and temp_span <= float(params["temp_stable_c"]) and current_max <= float(params["idle_current_a"]):
+            stratification_risk = "medium"
+        elif status == "stable" and drop_v <= 0.03:
+            stratification_risk = "low"
+
+        if status == "stable" and self.battery_type == self.PROFILE_AGM:
+            stratification_risk = "very_low"
+        if status == "watch" and self.battery_type == self.PROFILE_AGM and decay_mv_min < 7.0:
+            stratification_risk = "low"
+        if status == "watch" and self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
+            stratification_risk = "medium"
+        if status == "watch" and float(params.get("risk_bias", 0.0)) < 0 and decay_mv_min < 7.5:
+            stratification_risk = "low"
+
+        return {
+            "window_sec": window_sec,
+            "label": label,
+            "status": status,
+            "reason": reason,
+            "sample_count": len(samples),
+            "window_span_sec": elapsed_sec,
+            "drop_v": drop_v,
+            "start_v": v0,
+            "end_v": v1,
+            "start_i": i0,
+            "end_i": i1,
+            "slope_mv_min": slope_mv_min,
+            "decay_mv_min": decay_mv_min,
+            "temp_start_c": temp0,
+            "temp_end_c": temp1,
+            "temp_min_c": temp_min,
+            "temp_max_c": temp_max,
+            "temp_span_c": temp_span,
+            "current_max_a": current_max,
+            "current_avg_a": current_avg,
+            "profile": self.battery_type,
+            "confidence": confidence,
+            "stratification_risk": stratification_risk,
         }
 
     def _post_charge_relaxation_snapshot(self, now: float) -> Optional[Dict[str, Any]]:
@@ -846,6 +973,7 @@ class ChargeController:
                 "confidence": 0.0,
                 "window_sec": max(0.0, now - self._safe_wait_start),
                 "sample_count": len(samples),
+                "windows": [],
             }
 
         window_samples = [s for s in samples if now - s[0] <= POST_CHARGE_MAX_WINDOW_SEC]
@@ -857,7 +985,16 @@ class ChargeController:
                 "confidence": 0.0,
                 "window_sec": max(0.0, now - self._safe_wait_start),
                 "sample_count": len(window_samples),
+                "windows": [],
             }
+
+        window_reports = []
+        for window_sec in POST_CHARGE_PERIODIC_WINDOWS_SEC:
+            period_samples = [s for s in window_samples if now - s[0] <= window_sec]
+            window_reports.append(self._evaluate_post_charge_window(period_samples, params, window_sec))
+
+        valid_windows = [w for w in window_reports if w.get("status") not in ("insufficient",)]
+        primary_window = valid_windows[-1] if valid_windows else window_reports[-1]
 
         t0, v0, i0, temp0 = window_samples[0]
         t1, v1, i1, temp1 = window_samples[-1]
@@ -870,93 +1007,36 @@ class ChargeController:
                 "confidence": 0.0,
                 "window_sec": elapsed_sec,
                 "sample_count": len(window_samples),
+                "windows": window_reports,
             }
 
         # Линейный тренд V(t), удобнее читать в мВ/мин.
-        n = len(window_samples)
-        xs = [s[0] - t0 for s in window_samples]
-        ys = [s[1] for s in window_samples]
-        sum_x = sum(xs)
-        sum_y = sum(ys)
-        sum_xx = sum(x * x for x in xs)
-        sum_xy = sum(x * y for x, y in zip(xs, ys))
-        denom = n * sum_xx - sum_x * sum_x
-        slope_v_per_sec = 0.0
-        if abs(denom) > 1e-9:
-            slope_v_per_sec = (n * sum_xy - sum_x * sum_y) / denom
-        slope_mv_min = slope_v_per_sec * 60.0 * 1000.0
-        decay_mv_min = max(0.0, -slope_mv_min)
-        drop_v = v0 - v1
-        temp_values = [s[3] for s in window_samples]
-        temp_min = min(temp_values)
-        temp_max = max(temp_values)
-        temp_span = temp_max - temp_min
-        current_max = max(abs(s[2]) for s in window_samples)
-        current_avg = sum(abs(s[2]) for s in window_samples) / len(window_samples)
-
-        confidence = 0.35 + float(params.get("confidence_bias", 0.0))
-        if elapsed_sec >= 30 * 60:
-            confidence += 0.2
-        if len(window_samples) >= 6:
-            confidence += 0.15
-        if temp_span <= float(params["temp_stable_c"]):
-            confidence += 0.2
-        if current_max <= float(params["idle_current_a"]):
-            confidence += 0.1
-        confidence = max(0.0, min(1.0, confidence))
-
-        if temp_span > float(params["temp_stable_c"]):
-            status = "noisy"
-            reason = "temp_drift"
-        elif decay_mv_min >= float(params["strong_slope_mv_min"]) or drop_v >= float(params["strong_drop_v"]):
-            status = "watch"
-            reason = "fast_decay"
-        elif decay_mv_min >= float(params["watch_slope_mv_min"]) or drop_v >= float(params["watch_drop_v"]):
-            status = "watch"
-            reason = "moderate_decay"
-        else:
-            status = "stable"
-            reason = "plateau"
-
-        stratification_risk = "low"
-        if status == "watch" and temp_span <= float(params["temp_stable_c"]) and current_max <= float(params["idle_current_a"]):
-            stratification_risk = "medium"
-        if status == "noisy":
-            stratification_risk = "unknown"
-        if status == "stable" and drop_v <= 0.03:
-            stratification_risk = "low"
-        if status == "stable" and self.battery_type == self.PROFILE_AGM:
-            stratification_risk = "very_low"
-        if status == "watch" and self.battery_type == self.PROFILE_AGM and decay_mv_min < 7.0:
-            stratification_risk = "low"
-        if status == "watch" and self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
-            stratification_risk = "medium"
-        if status == "watch" and float(params.get("risk_bias", 0.0)) < 0 and decay_mv_min < 7.5:
-            stratification_risk = "low"
-
         return {
             "active": True,
-            "status": status,
-            "reason": reason,
+            "status": primary_window.get("status", "stable"),
+            "reason": primary_window.get("reason", "plateau"),
+            "primary_window_sec": primary_window.get("window_sec"),
+            "windows": window_reports,
+            "window_summary": ", ".join(f"{w['label']}={w['status']}" for w in window_reports),
             "sample_count": len(window_samples),
             "window_sec": elapsed_sec,
-            "drop_v": drop_v,
+            "drop_v": primary_window.get("drop_v"),
             "start_v": v0,
             "end_v": v1,
             "start_i": i0,
             "end_i": i1,
-            "slope_mv_min": slope_mv_min,
-            "decay_mv_min": decay_mv_min,
+            "slope_mv_min": primary_window.get("slope_mv_min"),
+            "decay_mv_min": primary_window.get("decay_mv_min"),
             "temp_start_c": temp0,
             "temp_end_c": temp1,
-            "temp_min_c": temp_min,
-            "temp_max_c": temp_max,
-            "temp_span_c": temp_span,
-            "current_max_a": current_max,
-            "current_avg_a": current_avg,
+            "temp_min_c": primary_window.get("temp_min_c"),
+            "temp_max_c": primary_window.get("temp_max_c"),
+            "temp_span_c": primary_window.get("temp_span_c"),
+            "current_max_a": primary_window.get("current_max_a"),
+            "current_avg_a": primary_window.get("current_avg_a"),
             "profile": self.battery_type,
-            "confidence": confidence,
-            "stratification_risk": stratification_risk,
+            "confidence": primary_window.get("confidence"),
+            "stratification_risk": primary_window.get("stratification_risk"),
             "note": (
                 "Косвенный постзарядный сигнал: анализируем падение V при почти нулевом токе и стабильной температуре. "
                 "Это эвристика, а не доказательство стратификации."
