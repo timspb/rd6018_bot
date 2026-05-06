@@ -25,6 +25,8 @@ SESSION_START_MAX_AGE = 24 * 60 * 60  # сек — если start_time стар�
 DELTA_V_EXIT = 0.03  # В — выход CC при падении V от пика
 MIX_DELTA_I_RATIO = 0.30  # доля полки — выход CV при росте I от минимума
 MIX_DELTA_I_MIN = 0.03  # А — нижний предел, чтобы не ловить микрошум
+# Legacy alias for older imports/UI strings; actual Mix threshold is profile-aware.
+DELTA_I_EXIT = MIX_DELTA_I_MIN
 TEMP_RISE_LIMIT = 2.0  # °C за 5 мин
 TEMP_RISE_WINDOW = 300  # сек (5 мин)
 DESULF_CURRENT_STUCK = 0.3  # А — порог «застревания» для Ca/EFB

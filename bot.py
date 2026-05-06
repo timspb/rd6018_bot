@@ -1555,25 +1555,27 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
             reached = current_v <= threshold_v
             return _line(target, fact, html.escape(str(hold.get("remaining_text") or remaining)), reached, "до выхода")
 
-    if stage == charge_controller.STAGE_MIX:
-        policy = snapshot.get("mix_exit_policy") or {}
-        if charge_controller.finish_timer_start is not None:
-            if is_cv and charge_controller.i_min_recorded is not None:
-                delta_now = max(0.0, current_i - charge_controller.i_min_recorded)
-                fact = f"ΔI {delta_now:.3f}A"
-                reached = charge_controller._exit_cv_condition(current_i)
-                return _line(f"ΔI≥{DELTA_I_EXIT:.2f}A", fact, remaining, reached, "до SAFE_WAIT")
-            if is_cc and charge_controller.v_max_recorded is not None:
-                delta_now = max(0.0, charge_controller.v_max_recorded - current_v)
-                fact = f"ΔV {delta_now:.3f}V"
-                reached = charge_controller._exit_cc_condition(current_v)
-                return _line(f"ΔV≥{DELTA_V_EXIT:.2f}V", fact, remaining, reached, "до SAFE_WAIT")
+        if stage == charge_controller.STAGE_MIX:
+            policy = snapshot.get("mix_exit_policy") or {}
+            mix_delta = charge_controller._mix_current_delta_threshold()
+            if charge_controller.finish_timer_start is not None:
+                if is_cv and charge_controller.i_min_recorded is not None:
+                    delta_now = max(0.0, current_i - charge_controller.i_min_recorded)
+                    fact = f"ΔI {delta_now:.3f}A"
+                    reached = charge_controller._exit_cv_condition(current_i)
+                    return _line(f"ΔI≥{mix_delta:.2f}A", fact, remaining, reached, "до SAFE_WAIT")
+                if is_cc and charge_controller.v_max_recorded is not None:
+                    delta_now = max(0.0, charge_controller.v_max_recorded - current_v)
+                    fact = f"ΔV {delta_now:.3f}V"
+                    reached = charge_controller._exit_cc_condition(current_v)
+                    return _line(f"ΔV≥{DELTA_V_EXIT:.2f}V", fact, remaining, reached, "до SAFE_WAIT")
             return _line("Δ подтверждена", "таймер 2ч", remaining, True, "до SAFE_WAIT")
 
         if is_cv:
             base_i = charge_controller.i_min_recorded if charge_controller.i_min_recorded is not None else current_i
             delta_now = max(0.0, current_i - base_i)
-            target = f"ΔI≥{DELTA_I_EXIT:.2f}A"
+            mix_delta = charge_controller._mix_current_delta_threshold()
+            target = f"ΔI≥{mix_delta:.2f}A"
             fact = f"ΔI {delta_now:.3f}A"
             reached = charge_controller._exit_cv_condition(current_i)
         elif is_cc:
@@ -1583,7 +1585,8 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
             fact = f"ΔV {delta_now:.3f}V"
             reached = charge_controller._exit_cc_condition(current_v)
         else:
-            target = f"ΔV≥{DELTA_V_EXIT:.2f}V / ΔI≥{DELTA_I_EXIT:.2f}A"
+            mix_delta = charge_controller._mix_current_delta_threshold()
+            target = f"ΔV≥{DELTA_V_EXIT:.2f}V / ΔI≥{mix_delta:.2f}A"
             fact = f"V {current_v:.2f}V, I {current_i:.2f}A"
             reached = False
 
