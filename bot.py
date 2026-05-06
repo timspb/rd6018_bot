@@ -1313,19 +1313,7 @@ async def _build_ai_analysis_text() -> str:
             except Exception:
                 stage_remaining = "—"
         temp_ext_now = _safe_float(live.get("temp_ext", 0.0))
-        controller_snapshot = charge_controller.get_ai_stage_snapshot(temp_ext_now) if charge_controller.is_active else {
-            "stage": "Idle",
-            "profile": "UNKNOWN",
-            "is_active": False,
-            "summary": "Активный заряд не идет.",
-            "transition": "Нет активного перехода.",
-            "next_stage": "Idle",
-            "timers": {"total_time": "—", "stage_time": "—", "remaining_time": "—"},
-            "hold": None,
-            "safety": {},
-            "target_voltage": 0.0,
-            "target_current": 0.0,
-        }
+        controller_snapshot = _safe_stage_snapshot(temp_ext_now)
         recent_events = get_recent_events(10)
         history = {
             "times": times,
@@ -1516,7 +1504,7 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
     current_v = _safe_float(live.get("battery_voltage"))
     current_i = _safe_float(live.get("current"))
     temp_ext = _safe_float(live.get("temp_ext"))
-    snapshot = charge_controller.get_ai_stage_snapshot(temp_ext)
+    snapshot = _safe_stage_snapshot(temp_ext)
     timers = snapshot.get("timers") or {}
     hold = snapshot.get("hold") or {}
     is_cv = str(live.get("is_cv", "")).lower() == "on"
@@ -1606,6 +1594,55 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
     return ""
 
 
+def _safe_stage_snapshot(temp_ext: Optional[float]) -> Dict[str, Any]:
+    """Безопасный snapshot стратегии: при сбое вернёт минимальный, но валидный контекст."""
+    if not charge_controller.is_active:
+        return {
+            "stage": "Idle",
+            "profile": "UNKNOWN",
+            "is_active": False,
+            "summary": "Активный заряд не идет.",
+            "transition": "Нет активного перехода.",
+            "next_stage": "Idle",
+            "timers": {"total_time": "—", "stage_time": "—", "remaining_time": "—"},
+            "hold": None,
+            "safety": {},
+            "target_voltage": 0.0,
+            "target_current": 0.0,
+        }
+
+    try:
+        return charge_controller.get_ai_stage_snapshot(temp_ext)
+    except Exception as ex:
+        logger.warning("safe stage snapshot fallback: %s", ex)
+        try:
+            timers = charge_controller.get_timers()
+        except Exception:
+            timers = {"total_time": "—", "stage_time": "—", "remaining_time": "—"}
+
+        try:
+            target_v, target_i = charge_controller._get_target_v_i(temp_ext)
+        except Exception:
+            target_v, target_i = 0.0, 0.0
+
+        return {
+            "stage": charge_controller.current_stage,
+            "profile": charge_controller.battery_type,
+            "is_active": True,
+            "summary": "Снимок стратегии временно недоступен.",
+            "transition": "Fallback snapshot after error.",
+            "next_stage": charge_controller.current_stage,
+            "timers": timers,
+            "hold": None,
+            "safety": {},
+            "target_voltage": target_v,
+            "target_current": target_i,
+            "previous_stage": getattr(charge_controller, "previous_stage", charge_controller.current_stage),
+            "stage_path": getattr(charge_controller, "_stage_history", []),
+            "last_transition_reason": getattr(charge_controller, "_last_transition_reason", ""),
+        }
+
+
 def _compact_dashboard_caption(
     live: Dict[str, Any],
     chart_mode: str,
@@ -1692,7 +1729,11 @@ async def _build_and_send_dashboard(
         is_on = is_cv = is_cc = False
         mode = "ERROR"
 
-    _, _, _, _, idle_warning = _build_dashboard_blocks(live)
+    try:
+        _, _, _, _, idle_warning = _build_dashboard_blocks(live)
+    except Exception as ex:
+        logger.warning("dashboard blocks fallback: %s", ex)
+        idle_warning = "🟡 Данные дашборда частично недоступны"
     chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
     times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
     buf = generate_chart(times, voltages, currents, temps)
@@ -2535,7 +2576,7 @@ async def get_ai_context() -> str:
 - Общее время: {timers['total_time']}
 - Время этапа: {timers['stage_time']}
 - Лимит этапа: {timers['remaining_time']}"""
-            controller_snapshot = charge_controller.get_ai_stage_snapshot(t_external)
+        controller_snapshot = _safe_stage_snapshot(t_external)
 
         controller_info += f"""
 
@@ -3426,68 +3467,72 @@ async def info_full_handler(call: CallbackQuery) -> None:
         pass
     try:
         live = await hass.get_all_live()
-        status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
+        try:
+            status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
+        except Exception as ex:
+            logger.warning("info full dashboard fallback: %s", ex)
+            battery_v_fallback = _safe_float(live.get("battery_voltage"))
+            current_fallback = _safe_float(live.get("current"))
+            ah_fallback = _safe_float(live.get("ah"))
+            temp_ext_fallback = _safe_float(live.get("temp_ext"))
+            temp_int_fallback = _safe_float(live.get("temp_int"))
+            status_line = "?? ?????: ??????????"
+            live_line = (
+                f"? LIVE: - "
+                f"{format_electrical_data(battery_v_fallback, current_fallback)} "
+                f"{format_temperature_data(temp_ext_fallback, temp_int_fallback)}"
+            )
+            stage_block = ""
+            capacity_line = f"Ah: {ah_fallback:.2f}"
+            idle_warning = "?? ?????? ???????? ???????? ??????????"
+
         full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
-        full_text += f"\n⏱ Таймер прибора: {_format_uptime_display(live.get('uptime'))}"
+        full_text += f"\n? ?????? ???????: {_format_uptime_display(live.get('uptime'))}"
         ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
-        full_text += f"\n🛡 Защиты: OVP — {'да' if ovp_tr else 'нет'}, OCP — {'да' if ocp_tr else 'нет'}"
-        # Статистика и прогноз заряда (из бывшего /stats)
+        full_text += f"\n?? ??????: OVP ? {'??' if ovp_tr else '???'}, OCP ? {'??' if ocp_tr else '???'}"
+
         battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
         ah = _safe_float(live.get("ah"))
         temp = _safe_float(live.get("temp_ext"))
         if charge_controller.is_active:
-            stats = charge_controller.get_stats(battery_v, i, ah, temp)
-            relaxation = stats.get("post_charge_relaxation")
-            stats_block = (
-                "\n──────────────────\n"
-                "📊 <b>СТАТИСТИКА И ПРОГНОЗ</b>\n"
-                f"🔋 Этап: {stats['stage']}\n"
-                f"⏱ В работе: {stats['elapsed_time']}\n"
-                f"📥 Залито: {stats['ah_total']:.2f} Ач\n"
-                f"🌡 Темп: {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n"
-                f"🔮 Завершение через {stats['predicted_time']}\n"
-                f"<i>{stats['comment']}</i>"
-            )
-            if stats.get("health_warning"):
-                stats_block += f"\n\n{stats['health_warning']}"
-            if relaxation and relaxation.get("active"):
-                rel_status = relaxation.get("status", "—")
-                rel_risk = relaxation.get("stratification_risk", "—")
-                rel_slope = relaxation.get("slope_mv_min")
-                rel_decay = relaxation.get("decay_mv_min")
-                rel_temp = relaxation.get("temp_span_c")
-                rel_conf = relaxation.get("confidence")
-                extra = []
-                if isinstance(rel_decay, (int, float)):
-                    extra.append(f"decay={rel_decay:.1f}мВ/мин")
-                elif isinstance(rel_slope, (int, float)):
-                    extra.append(f"dV={rel_slope:.1f}мВ/мин")
-                if isinstance(rel_temp, (int, float)):
-                    extra.append(f"ΔT={rel_temp:.2f}°C")
-                if isinstance(rel_conf, (int, float)):
-                    extra.append(f"conf={rel_conf:.2f}")
-                stats_block += f"\n🌙 Постзаряд: {rel_status} · риск {rel_risk}"
-                if extra:
-                    stats_block += f" · {'; '.join(extra)}"
-                window_summary = relaxation.get("window_summary")
-                if window_summary:
-                    stats_block += f"\n🪟 Окна: {window_summary}"
-            full_text += stats_block
+            try:
+                stats = charge_controller.get_stats(battery_v, i, ah, temp)
+                full_text += (
+                    "\n??????????????????\n"
+                    "?? <b>?????????? ? ???????</b>\n"
+                    f"?? ????: {stats['stage']}\n"
+                    f"? ? ??????: {stats['elapsed_time']}\n"
+                    f"?? ??????: {stats['ah_total']:.2f} ??\n"
+                    f"?? ????: {stats['temp_ext']:.1f}?C ({stats['temp_trend']})\n"
+                    f"?? ?????????? ????? {stats['predicted_time']}\n"
+                    f"<i>{stats['comment']}</i>"
+                )
+                if stats.get("health_warning"):
+                    full_text += f"\n\n{stats['health_warning']}"
+            except Exception as ex:
+                logger.warning("info full stats fallback: %s", ex)
+                full_text += (
+                    "\n??????????????????\n"
+                    "?? <b>?????????? ? ???????</b>\n"
+                    "<i>??????????: ??????? ???? ?????????? ???????? ?? ??????? ???????.</i>"
+                )
+        else:
+            full_text += "\n\n<i>?????????? ???????? ?????? ??? ???????? ??????.</i>"
+
         if idle_warning:
             full_text += f"\n{idle_warning}"
         full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
-        caption = f"<b>📋 Полная информация по режиму</b>\n\n{full_text}"
+        caption = f"<b>?? ?????? ?????????? ?? ??????</b>\n\n{full_text}"
         user_id = call.from_user.id if call.from_user else 0
         chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
         times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
         buf = generate_chart(times, voltages, currents, temps)
         photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
-        caption += f"\n📈 Окно графика: {_chart_label(chart_mode)}"
         is_on = str(live.get("switch", "")).lower() == "on"
         ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
         try:
@@ -3523,11 +3568,10 @@ async def info_full_handler(call: CallbackQuery) -> None:
     except Exception as ex:
         logger.error("info_full: %s", ex)
         try:
-            await call.message.edit_text("Не удалось загрузить данные.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")]]))
+            await call.message.edit_text("?? ??????? ????????? ??????.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="?? ? ????????", callback_data="dash_back")]]))
         except Exception:
-            await call.message.answer("Не удалось загрузить данные.")
+            await call.message.answer("?? ??????? ????????? ??????.")
         schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
-
 
 @router.callback_query(F.data == "entities_status")
 async def entities_status_handler(call: CallbackQuery) -> None:
