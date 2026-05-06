@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import PropertyMock, patch
 
-os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abc")
+os.environ["TG_TOKEN"] = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
 
 import bot
 

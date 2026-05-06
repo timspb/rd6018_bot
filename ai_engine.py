@@ -69,7 +69,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         f"Next stage: {next_stage}",
         targets_line,
         f"Timers: total={timers.get('total_time', '—')} | stage={timers.get('stage_time', '—')} | remaining={timers.get('remaining_time', '—')}",
-        "Temp semantics: temp_ext=battery | temp_int=controller/BP",
+        "Temp semantics: temp_ext=battery | temp_int=controller/BP (fan-managed; do not apply battery temp thresholds)",
     ]
 
     if temp_comp:
@@ -165,9 +165,10 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         "Safety: "
         f"I<= {safety.get('current_limit_a', '—')}A, "
         f"OVP/OCP +{safety.get('ovp_offset_v', '—')}V/+{safety.get('ocp_offset_a', '—')}A, "
-        f"T={safety.get('temp_warning_c', '—')}/{safety.get('temp_pause_c', '—')}/{safety.get('temp_critical_c', '—')}C, "
+        f"T_ext={safety.get('temp_warning_c', '—')}/{safety.get('temp_pause_c', '—')}/{safety.get('temp_critical_c', '—')}C, "
         f"SafeWait={safety.get('safe_wait_margin_v', '—')}V / {safety.get('safe_wait_max_sec', '—')}s"
     )
+    lines.append("Temp note: temp_int is only controller/BP thermal monitoring; treat 35-49C as warm, not battery risk.")
     return "\n".join(lines)
 
 
