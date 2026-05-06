@@ -400,10 +400,8 @@ class ChargeController:
         self._restored_target_v = 0.0
         self._restored_target_i = 0.0
 
-    def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        """Текущие целевые V и I для фазы. При restore возвращаем сохранённые уставки из сессии."""
-        if self._restored_target_v > 0 and self._restored_target_i > 0:
-            return (self._restored_target_v, self._restored_target_i)
+    def _get_profile_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        """Профильные целевые V/I без учета restore-сессии."""
         if self.current_stage == self.STAGE_PREP:
             return self._prep_target(temp_c)
         if self.current_stage == self.STAGE_MAIN:
@@ -413,12 +411,18 @@ class ChargeController:
         if self.current_stage == self.STAGE_MIX:
             return self._mix_target(temp_c)
         if self.current_stage == self.STAGE_SAFE_WAIT:
-            return (0.0, 0.0)  # выход выключен
+            return (0.0, 0.0)
         if self.current_stage == self.STAGE_COOLING:
-            return (0.0, 0.0)  # выход выключен во время охлаждения
+            return (0.0, 0.0)
         if self.current_stage == self.STAGE_DONE:
             return self._storage_target()
         return (0.0, 0.0)
+
+    def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        """Текущие целевые V и I для фазы. При restore возвращаем сохранённые уставки из сессии."""
+        if self._restored_target_v > 0 and self._restored_target_i > 0:
+            return (self._restored_target_v, self._restored_target_i)
+        return self._get_profile_target_v_i(temp_c)
 
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
         """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
@@ -1263,7 +1267,7 @@ class ChargeController:
         """Собрать компактный снимок стратегии и состояния для LLM."""
         now = time.time()
         target_v, target_i = self._get_target_v_i(temp_c)
-        base_target_v, _ = self._get_target_v_i(None)
+        base_target_v, _ = self._get_profile_target_v_i(None)
         timers = self.get_timers()
         hold = self._get_ai_hold_snapshot(now)
         mix_exit_policy = None
@@ -1512,6 +1516,24 @@ class ChargeController:
             "clamped": abs(raw_delta - applied_delta) > 1e-9,
             "applied_stage": self.current_stage,
         }
+
+    def _temperature_compensation_update_needed(self, temp_c: Optional[float]) -> bool:
+        """Проверить, пора ли мягко скорректировать уставку по температуре."""
+        if temp_c is None:
+            return False
+        if self.current_stage not in (
+            self.STAGE_PREP,
+            self.STAGE_MAIN,
+            self.STAGE_DESULFATION,
+            self.STAGE_MIX,
+        ):
+            return False
+        if self._device_set_voltage is None or self._device_set_voltage <= 0:
+            return False
+        target_v, _ = self._get_profile_target_v_i(temp_c)
+        if abs(target_v - float(self._device_set_voltage)) < 0.03:
+            return False
+        return True
 
     def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         # Подготовка: мягкий старт на 0.01C для любой ёмкости, чтобы не давить АКБ лишним током.
@@ -2519,6 +2541,19 @@ class ChargeController:
                     f"<b>⏱ AGM Mix:</b> лимит 5ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
                 )
                 actions["log_event"] = "START"
+
+        if self._temperature_compensation_update_needed(temp) and not any(
+            key in actions for key in ("set_voltage", "set_current", "turn_off", "turn_on", "emergency_stop", "full_reset")
+        ):
+            target_v, _ = self._get_profile_target_v_i(temp)
+            current_v = self._device_set_voltage if self._device_set_voltage is not None else voltage
+            if abs(target_v - float(current_v)) >= 0.03:
+                actions["set_voltage"] = target_v
+                actions["set_ovp"] = target_v + OVP_OFFSET
+                if "log_event_sub" not in actions:
+                    actions["log_event_sub"] = (
+                        f"└ Temp comp {temp:.1f}°C: V {float(current_v):.2f}В -> {target_v:.2f}В"
+                    )
 
         if "notify" in actions:
             self.notify(actions["notify"])

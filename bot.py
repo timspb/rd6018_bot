@@ -3174,10 +3174,10 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         
         # Сначала выставляем OVP/OCP, затем U/I — иначе прибор может не дать включить выход после предыдущих настроек
         if ENTITY_MAP.get("ovp"):
-            await hass.set_ovp(params["main_voltage"] + OVP_OFFSET)
+            await hass.set_ovp(charge_controller._main_target(t)[0] + OVP_OFFSET)
         if ENTITY_MAP.get("ocp"):
             await hass.set_ocp(_cap_current(main_current) + OCP_OFFSET)
-        await hass.set_voltage(params["main_voltage"])
+        await hass.set_voltage(charge_controller._main_target(t)[0])
         await hass.set_current(_cap_current(main_current))
         await hass.turn_on(ENTITY_MAP["switch"])
         
