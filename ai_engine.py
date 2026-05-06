@@ -42,6 +42,9 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
     post_charge = snapshot.get("post_charge_relaxation") or {}
 
     stage = snapshot.get("stage", "—")
+    previous_stage = snapshot.get("previous_stage", "—")
+    stage_path = snapshot.get("stage_path") or []
+    last_transition_reason = snapshot.get("last_transition_reason", "—")
     profile = snapshot.get("profile", "—")
     active = "YES" if snapshot.get("is_active") else "NO"
     summary = snapshot.get("summary", "—")
@@ -58,8 +61,11 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
 
     lines = [
         f"Stage: {stage} | Profile: {profile} | Active: {active}",
+        f"Previous stage: {previous_stage}",
+        f"Stage path: {' -> '.join(stage_path) if stage_path else '—'}",
         f"Rule summary: {summary}",
         f"Transition: {transition}",
+        f"Last transition reason: {last_transition_reason}",
         f"Next stage: {next_stage}",
         targets_line,
         f"Timers: total={timers.get('total_time', '—')} | stage={timers.get('stage_time', '—')} | remaining={timers.get('remaining_time', '—')}",

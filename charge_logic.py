@@ -186,6 +186,11 @@ class ChargeController:
         self._device_set_current: Optional[float] = None
         self._temp_comp_last_update_time: float = 0.0
         self._temp_comp_last_temp: Optional[float] = None
+        self._current_stage: str = self.STAGE_IDLE
+        self._stage_tracking_enabled: bool = False
+        self.previous_stage: Optional[str] = None
+        self._last_transition_reason: str = ""
+        self._stage_history: deque = deque(maxlen=8)
         # История замеров V/I за последние 24 часа, обновление раз в минуту
         self.v_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
         self.i_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
@@ -221,6 +226,61 @@ class ChargeController:
             return
         self._add_phase_limits(actions, float(actions["set_voltage"]), float(actions["set_current"]))
 
+    def _record_stage_transition(self, from_stage: str, to_stage: str, reason: str) -> None:
+        """Сохранить компактную историю перехода этапов для AI и восстановления."""
+        if not to_stage:
+            return
+        reason_clean = str(reason or "").strip()
+        self.previous_stage = from_stage
+        self._last_transition_reason = reason_clean
+        self._stage_history.append(
+            {
+                "from": from_stage,
+                "to": to_stage,
+                "reason": reason_clean,
+                "ts": time.time(),
+            }
+        )
+
+    @property
+    def current_stage(self) -> str:
+        return getattr(self, "_current_stage", self.STAGE_IDLE)
+
+    @current_stage.setter
+    def current_stage(self, value: str) -> None:
+        prev = getattr(self, "_current_stage", None)
+        self._current_stage = value
+        if not getattr(self, "_stage_tracking_enabled", False):
+            return
+        if prev is None or prev == value:
+            return
+        self.previous_stage = prev
+        self._stage_history.append(
+            {
+                "from": prev,
+                "to": value,
+                "reason": str(getattr(self, "_last_transition_reason", "") or "").strip(),
+                "ts": time.time(),
+            }
+        )
+        self._last_transition_reason = ""
+
+    def _stage_path(self) -> List[str]:
+        """Короткий путь этапов для AI: Prep -> Main -> Mix ..."""
+        path: List[str] = []
+        for entry in self._stage_history:
+            from_stage = str(entry.get("from") or "").strip()
+            to_stage = str(entry.get("to") or "").strip()
+            if from_stage and not path and from_stage != self.STAGE_IDLE:
+                path.append(from_stage)
+            if to_stage and to_stage != self.STAGE_IDLE and (not path or path[-1] != to_stage):
+                path.append(to_stage)
+        if not path and self.current_stage:
+            path.append(self.current_stage)
+        if len(path) > 6:
+            path = path[-6:]
+        return path
+
     def _reset_delta_and_blanking(self, now: float) -> None:
         """v2.0: Полный сброс при смене этапа/уставок — исключает ложный DELTA_TRIGGER после Main->Mix."""
         self.v_max_recorded = None
@@ -240,6 +300,7 @@ class ChargeController:
         
         self.battery_type = battery_type
         self.ah_capacity = max(1, ah_capacity)
+        self._stage_tracking_enabled = True
         self.current_stage = self.STAGE_PREP
         self.stage_start_time = time.time()
         self._stage_start_ah = 0.0  # будет установлен при первом tick()
@@ -270,6 +331,9 @@ class ChargeController:
         self._session_start_reason = "User Command"
         self._temp_comp_last_update_time = 0.0
         self._temp_comp_last_temp = None
+        self.previous_stage = None
+        self._last_transition_reason = ""
+        self._stage_history.clear()
         self._clear_restored_targets()
         self._clear_session_file()
         target_v, target_i = self._get_target_v_i()
@@ -299,6 +363,7 @@ class ChargeController:
         
         self.battery_type = self.PROFILE_CUSTOM
         self.ah_capacity = max(1, ah_capacity)
+        self._stage_tracking_enabled = True
         self.current_stage = self.STAGE_MAIN  # Ручной режим сразу начинает с MAIN
         self.stage_start_time = time.time()
         self._stage_start_ah = 0.0  # будет установлен при первом tick()
@@ -341,6 +406,9 @@ class ChargeController:
         self._session_start_reason = "Custom Mode"
         self._temp_comp_last_update_time = 0.0
         self._temp_comp_last_temp = None
+        self.previous_stage = None
+        self._last_transition_reason = ""
+        self._stage_history.clear()
         self._clear_restored_targets()
         self._clear_session_file()
         target_v, target_i = self._get_target_v_i()
@@ -480,6 +548,9 @@ class ChargeController:
             "first_stage_hold_current": self._first_stage_hold_current,
             "stuck_current_since": self._stuck_current_since,
             "stuck_current_value": self._stuck_current_value,
+            "previous_stage": self.previous_stage,
+            "last_transition_reason": self._last_transition_reason,
+            "stage_history": list(self._stage_history),
             "saved_at": time.time(),
         }
         try:
@@ -508,6 +579,7 @@ class ChargeController:
             self._clear_session_file()
             return False, None
 
+        self._stage_tracking_enabled = False
         self.battery_type = data.get("profile", self.PROFILE_CA)
         self.ah_capacity = int(data.get("ah_limit", 60))
         self.current_stage = data.get("stage", self.STAGE_MAIN)
@@ -520,6 +592,29 @@ class ChargeController:
         self._safe_wait_target_v = float(data.get("safe_wait_target_v", 0))
         self._safe_wait_target_i = float(data.get("safe_wait_target_i", 0))
         now = time.time()
+        self.previous_stage = data.get("previous_stage")
+        self._last_transition_reason = str(data.get("last_transition_reason", "") or "")
+        self._stage_history.clear()
+        raw_stage_history = data.get("stage_history", [])
+        if isinstance(raw_stage_history, list):
+            for item in raw_stage_history[-self._stage_history.maxlen:]:
+                if not isinstance(item, dict):
+                    continue
+                from_stage = str(item.get("from") or "").strip()
+                to_stage = str(item.get("to") or "").strip()
+                if not from_stage and not to_stage:
+                    continue
+                self._stage_history.append(
+                    {
+                        "from": from_stage,
+                        "to": to_stage,
+                        "reason": str(item.get("reason") or "").strip(),
+                        "ts": float(item.get("ts") or now),
+                    }
+                )
+        if self._stage_history and not self.previous_stage:
+            last_transition = self._stage_history[-1]
+            self.previous_stage = str(last_transition.get("from") or "") or None
         raw_safe_wait_start = data.get("safe_wait_start")
         try:
             self._safe_wait_start = float(raw_safe_wait_start) if raw_safe_wait_start not in (None, 0) else now
@@ -687,6 +782,7 @@ class ChargeController:
                 "remaining_min": remaining_min,
             },
         )
+        self._stage_tracking_enabled = True
         return True, msg
 
     def reset_session_data(self) -> None:
@@ -710,6 +806,10 @@ class ChargeController:
         self._stuck_current_value = None
         self._first_stage_hold_since = None
         self._first_stage_hold_current = None
+        self.previous_stage = None
+        self._last_transition_reason = ""
+        self._stage_history.clear()
+        self._stage_tracking_enabled = False
         
         # Очистка временного лога событий (если будет реализован)
         # self._event_log.clear()  # TODO: добавить когда будет event log
@@ -727,6 +827,10 @@ class ChargeController:
         self._safe_wait_next_stage = None
         self._analytics_history.clear()
         self._safe_wait_v_samples.clear()
+        self.previous_stage = None
+        self._last_transition_reason = ""
+        self._stage_history.clear()
+        self._stage_tracking_enabled = False
 
     @property
     def is_active(self) -> bool:
@@ -1475,6 +1579,9 @@ class ChargeController:
         return {
             "profile": self.battery_type,
             "stage": self.current_stage,
+            "previous_stage": self.previous_stage,
+            "stage_path": self._stage_path(),
+            "last_transition_reason": self._last_transition_reason or transition,
             "is_active": self.is_active,
             "target_voltage": target_v,
             "target_current": target_i,
