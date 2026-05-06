@@ -1513,12 +1513,12 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
     if not charge_controller.is_active:
         return ""
 
-    snapshot = charge_controller.get_ai_stage_snapshot(temp_ext)
-    timers = snapshot.get("timers") or {}
-    hold = snapshot.get("hold") or {}
     current_v = _safe_float(live.get("battery_voltage"))
     current_i = _safe_float(live.get("current"))
     temp_ext = _safe_float(live.get("temp_ext"))
+    snapshot = charge_controller.get_ai_stage_snapshot(temp_ext)
+    timers = snapshot.get("timers") or {}
+    hold = snapshot.get("hold") or {}
     is_cv = str(live.get("is_cv", "")).lower() == "on"
     is_cc = str(live.get("is_cc", "")).lower() == "on"
     stage = charge_controller.current_stage
