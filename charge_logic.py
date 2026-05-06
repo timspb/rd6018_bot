@@ -1464,33 +1464,48 @@ class ChargeController:
                 return "по таймеру", comment, health
             return f"~{int(wait_left / 60)} мин (макс)", comment, health
 
-        i_target = 0.2 if self.battery_type == self.PROFILE_AGM else 0.3
-        if self.current_stage in (self.STAGE_MAIN, self.STAGE_MIX) and self.is_cv and len(recent) >= 4:
-            ts = [r[0] for r in recent]
-            currents = [r[2] for r in recent]
-            t0 = ts[0]
-            vals = [(t - t0, math.log(max(c, 0.01))) for t, c in zip(ts, currents)]
-            if len(vals) >= 4 and currents[-1] > i_target and currents[-1] < currents[0]:
-                try:
-                    n = len(vals)
-                    sum_x = sum(v[0] for v in vals)
-                    sum_y = sum(v[1] for v in vals)
-                    sum_xx = sum(v[0] ** 2 for v in vals)
-                    sum_xy = sum(v[0] * v[1] for v in vals)
-                    denom = n * sum_xx - sum_x * sum_x
-                    if abs(denom) > 1e-9:
-                        slope = (n * sum_xy - sum_x * sum_y) / denom
-                        if slope < 0:
-                            ln_i_now = math.log(max(currents[-1], 0.01))
-                            ln_target = math.log(max(i_target, 0.01))
-                            sec_to_target = (ln_target - ln_i_now) / slope if slope != 0 else 0
-                            if sec_to_target > 0 and sec_to_target < 24 * 3600:
-                                mins = int(sec_to_target / 60)
-                                if mins < 60:
-                                    return f"~{mins} мин", comment, health
-                                return f"~{mins // 60} ч {mins % 60} мин", comment, health
-                except (ZeroDivisionError, ValueError):
-                    pass
+        if self.current_stage == self.STAGE_PREP:
+            prep_eta = self._estimate_prep_eta_seconds(voltage, temp, now)
+            if prep_eta is not None:
+                return self._format_seconds(prep_eta), comment, health
+
+        if self.current_stage == self.STAGE_MAIN:
+            target_v, target_i = self._get_target_v_i(temp)
+            hold_target = AGM_FIRST_STAGE_HOLD_SEC if self.battery_type == self.PROFILE_AGM else FIRST_STAGE_HOLD_SEC
+            hold_elapsed = 0.0
+            if self._first_stage_hold_since:
+                hold_elapsed = max(0.0, now - self._first_stage_hold_since)
+            elif self._cv_since:
+                hold_elapsed = max(0.0, now - self._cv_since)
+
+            if self.is_cv:
+                if current <= target_i + 0.005:
+                    remaining = max(0.0, hold_target - hold_elapsed)
+                    return self._format_seconds(remaining), comment, health
+                current_eta = self._estimate_current_eta_seconds(current, target_i, now)
+                if current_eta is not None:
+                    return self._format_seconds(current_eta + max(0.0, hold_target - hold_elapsed)), comment, health
+
+            voltage_eta = self._estimate_voltage_eta_seconds(voltage, target_v, now, temp)
+            if voltage_eta is not None:
+                return self._format_seconds(voltage_eta + hold_target), comment, health
+
+            stage_elapsed = max(0.0, now - self.stage_start_time)
+            if self._stage_start_voltage > 0 and voltage > self._stage_start_voltage:
+                ratio = max(0.0, (target_v - voltage) / max(0.05, target_v - self._stage_start_voltage))
+                if self.battery_type == self.PROFILE_AGM:
+                    base_hours = 2.0 + (self._agm_stage_idx + 1) * 0.75
+                elif self.battery_type == self.PROFILE_EFB:
+                    base_hours = 4.0
+                else:
+                    base_hours = 3.5
+                fallback = max(
+                    20 * 60.0,
+                    min(24 * 3600.0, base_hours * 3600.0 * ratio * self._temperature_eta_factor(temp) + hold_target),
+                )
+                return self._format_seconds(fallback), comment, health
+            if stage_elapsed > 0:
+                return self._format_seconds(min(24 * 3600.0, stage_elapsed + hold_target)), comment, health
 
         if self.current_stage == self.STAGE_DESULFATION:
             rem = 2 * 3600 - elapsed
@@ -1504,14 +1519,13 @@ class ChargeController:
                 return "< 1 мин", comment, health
             return f"~{int(rem / 60)} мин (2ч таймер)", comment, health
 
-        if self.current_stage == self.STAGE_MIX and self.battery_type == self.PROFILE_EFB:
-            rem = EFB_MIX_MAX_HOURS * 3600 - elapsed
-            if rem <= 0:
-                return "< 1 мин", comment, health
-            return f"~{int(rem / 60)} мин", comment, health
-
-        if self.current_stage == self.STAGE_PREP:
-            return "~5–10 мин", comment, health
+        if self.current_stage == self.STAGE_MIX:
+            stage_limit_hours = self._get_stage_max_hours()
+            if stage_limit_hours is not None:
+                rem = stage_limit_hours * 3600 - elapsed
+                if rem <= 0:
+                    return "< 1 мин", comment, health
+                return f"~{int(rem / 60)} мин (лимит)", comment, health
 
         return "—", comment, health
 
@@ -2164,6 +2178,129 @@ class ChargeController:
         if self.current_stage == self.STAGE_SAFE_WAIT:
             return 2.0
         return None
+
+    def _recent_stage_samples(self, now: float, window_sec: int = 20 * 60) -> List[Tuple[float, float, float, float, float]]:
+        """Последние точки только для текущего этапа."""
+        start_ts = max(0.0, float(self.stage_start_time or 0.0))
+        cutoff = max(start_ts, now - window_sec)
+        return [sample for sample in self._analytics_history if sample[0] >= cutoff]
+
+    def _linear_rate_per_sec(self, samples: List[Tuple[float, float, float, float, float]], value_index: int) -> Optional[float]:
+        """Линейная скорость изменения выбранного параметра (значение/сек)."""
+        if len(samples) < 2:
+            return None
+        t0 = samples[0][0]
+        xs = [sample[0] - t0 for sample in samples]
+        ys = [sample[value_index] for sample in samples]
+        sum_x = sum(xs)
+        sum_y = sum(ys)
+        sum_xx = sum(x * x for x in xs)
+        sum_xy = sum(x * y for x, y in zip(xs, ys))
+        denom = len(samples) * sum_xx - sum_x * sum_x
+        if abs(denom) <= 1e-9:
+            return None
+        return (len(samples) * sum_xy - sum_x * sum_y) / denom
+
+    def _temperature_eta_factor(self, temp: float) -> float:
+        """Мягкая поправка ETA по температуре АКБ."""
+        if temp <= 15.0:
+            return 1.20
+        if temp <= 20.0:
+            return 1.10
+        if temp >= 30.0:
+            return 0.92
+        return 1.0
+
+    def _estimate_voltage_eta_seconds(
+        self,
+        voltage: float,
+        target_voltage: float,
+        now: float,
+        temp: float,
+        window_sec: int = 20 * 60,
+    ) -> Optional[float]:
+        """Оценка времени до достижения целевого напряжения."""
+        if target_voltage <= voltage + 0.01:
+            return 0.0
+
+        rates: List[float] = []
+        samples = self._recent_stage_samples(now, window_sec)
+        recent_rate = self._linear_rate_per_sec(samples, 1)
+        if recent_rate is not None and recent_rate > 0:
+            rates.append(recent_rate)
+
+        elapsed_sec = max(0.0, now - self.stage_start_time)
+        if self._stage_start_voltage > 0 and elapsed_sec > 120 and voltage > self._stage_start_voltage:
+            overall_rate = (voltage - self._stage_start_voltage) / elapsed_sec
+            if overall_rate > 0:
+                rates.append(overall_rate)
+
+        if not rates:
+            return None
+
+        rate_v_per_sec = sum(rates) / len(rates)
+        eta_sec = (target_voltage - voltage) / max(rate_v_per_sec, 1e-9)
+        eta_sec *= self._temperature_eta_factor(temp)
+        if eta_sec <= 0 or eta_sec > 48 * 3600:
+            return None
+        return eta_sec
+
+    def _estimate_current_eta_seconds(
+        self,
+        current: float,
+        target_current: float,
+        now: float,
+        window_sec: int = 20 * 60,
+    ) -> Optional[float]:
+        """Оценка времени до достижения целевого тока."""
+        if current <= target_current + 0.005:
+            return 0.0
+
+        rates: List[float] = []
+        samples = self._recent_stage_samples(now, window_sec)
+        recent_rate = self._linear_rate_per_sec(samples, 2)
+        if recent_rate is not None and recent_rate < 0:
+            rates.append(abs(recent_rate))
+
+        elapsed_sec = max(0.0, now - self.stage_start_time)
+        if self._stage_start_current > 0 and elapsed_sec > 120 and current < self._stage_start_current:
+            overall_rate = (self._stage_start_current - current) / elapsed_sec
+            if overall_rate > 0:
+                rates.append(overall_rate)
+
+        if not rates:
+            return None
+
+        rate_a_per_sec = sum(rates) / len(rates)
+        eta_sec = (current - target_current) / max(rate_a_per_sec, 1e-9)
+        if eta_sec <= 0 or eta_sec > 48 * 3600:
+            return None
+        return eta_sec
+
+    def _estimate_prep_eta_seconds(self, voltage: float, temp: float, now: float) -> Optional[float]:
+        """Прогноз для PREP: когда дойдём до 12V."""
+        target_voltage = 12.0
+        eta = self._estimate_voltage_eta_seconds(voltage, target_voltage, now, temp)
+        if eta is not None:
+            return eta
+
+        start_v = self._stage_start_voltage or voltage
+        gap_now = max(0.0, target_voltage - voltage)
+        gap_start = max(0.05, target_voltage - start_v)
+        if start_v <= 10.4:
+            base_hours = 22.0
+        elif start_v <= 10.8:
+            base_hours = 16.0
+        elif start_v <= 11.2:
+            base_hours = 11.0
+        elif start_v <= 11.6:
+            base_hours = 7.5
+        else:
+            base_hours = 4.5
+        eta = base_hours * 3600.0 * (gap_now / gap_start) * self._temperature_eta_factor(temp)
+        if eta <= 0:
+            return None
+        return min(eta, 48 * 3600.0)
 
     def _check_delta_finish(self, v_now: float, i_now: float) -> bool:
         """Проверка условий выхода из Mix (Delta V или Delta I)."""
