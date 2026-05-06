@@ -30,6 +30,7 @@ TEMP_RISE_WINDOW = 300  # сек (5 мин)
 DESULF_CURRENT_STUCK = 0.3  # А — порог «застревания» для Ca/EFB
 DESULF_CURRENT_STUCK_AGM = 0.2  # А — порог для AGM
 DESULF_STUCK_MIN_MINUTES = 40  # мин — минимум времени застревания перед десульфацией (детектор «полки»)
+DESULF_STUCK_MIN_MINUTES_AGM = 120  # мин — AGM требует более длинного плато перед десульфацией
 ANTISULFATE_MAX_CA_EFB = 3  # макс итераций антисульфата для Ca/Ca и EFB
 ANTISULFATE_MAX_AGM = 4  # макс итераций для AGM
 MIX_DONE_TIMER = 2 * 3600  # сек — таймер после delta до Done
@@ -2307,10 +2308,10 @@ class ChargeController:
                             )
                             actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
                 else:
-                    # AGM: застревание I >= 0.2А 40 мин — десульфация (макс 4 итерации)
+                    # AGM: застревание I >= 0.2А 2ч — десульфация (макс 4 итерации)
                     if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
                         stuck_mins = self._track_stuck_current_plateau(now, current, DESULF_CURRENT_STUCK_AGM) or 0
-                        if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
+                        if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES_AGM:
                             self.antisulfate_count += 1
                             self._stuck_current_since = None
                             self._stuck_current_value = None
@@ -2334,7 +2335,7 @@ class ChargeController:
                                 f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
                             )
                             actions["log_event"] = "START"
-                        elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES:
+                        elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES_AGM:
                             self._stuck_current_since = None
                             self._stuck_current_value = None
                             # Лимит десульфаций исчерпан — остаёмся в MAIN, переход в Mix по правилу 2ч на минимуме тока

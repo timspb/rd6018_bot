@@ -62,6 +62,24 @@ class DesulfationPlateauTests(unittest.TestCase):
         self.assertIn("notify", actions)
         self.assertIn("десульфатация", actions["notify"].lower())
 
+    def test_agm_requires_longer_plateau_before_desulfation(self):
+        controller = ChargeController(_FakeHass())
+        controller.start(ChargeController.PROFILE_AGM, 60)
+        controller.current_stage = ChargeController.STAGE_MAIN
+        controller.stage_start_time = 0.0
+        controller.total_start_time = 0.0
+
+        self._tick(now=301.0, current=0.22, controller=controller)
+        self.assertEqual(controller.current_stage, ChargeController.STAGE_MAIN)
+
+        self._tick(now=7499.0, current=0.22, controller=controller)
+        self.assertEqual(controller.current_stage, ChargeController.STAGE_MAIN)
+
+        actions = self._tick(now=7501.0, current=0.22, controller=controller)
+        self.assertEqual(controller.current_stage, ChargeController.STAGE_DESULFATION)
+        self.assertIn("notify", actions)
+        self.assertIn("десульфатация", actions["notify"].lower())
+
     def test_mix_hold_resets_on_new_minimum_even_without_cv_flag(self):
         points = [
             (301.0, 0.29, True),
