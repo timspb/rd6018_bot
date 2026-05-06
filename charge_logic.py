@@ -88,6 +88,8 @@ TEMP_COMP_MAX_DELTA_V = 0.60  # В — жёсткий предел поправ�
 TEMP_COMP_CA_EFB_V_PER_C = 0.018  # В/°C на 12V АКБ
 TEMP_COMP_AGM_V_PER_C = 0.016  # AGM чуть осторожнее
 TEMP_COMP_CUSTOM_V_PER_C = 0.018  # Custom использует мягкую свинцовую поправку по умолчанию
+TEMP_COMP_MIN_UPDATE_INTERVAL_SEC = 5 * 60  # сек — не дергать уставку слишком часто
+TEMP_COMP_MIN_TEMP_DELTA_C = 0.5  # °C — температурный гистерезис для обновления компенсации
 
 
 def _log_phase(phase: str, v: float, i: float, t: float) -> None:
@@ -181,6 +183,8 @@ class ChargeController:
         self._restored_target_i: float = 0.0
         self._device_set_voltage: Optional[float] = None  # фактические уставки прибора (для сохранения в сессию)
         self._device_set_current: Optional[float] = None
+        self._temp_comp_last_update_time: float = 0.0
+        self._temp_comp_last_temp: Optional[float] = None
         # История замеров V/I за последние 24 часа, обновление раз в минуту
         self.v_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
         self.i_history: deque = deque(maxlen=1440)  # 24 часа при замере каждую минуту
@@ -263,6 +267,8 @@ class ChargeController:
         self._first_stage_hold_since = None
         self._first_stage_hold_current = None
         self._session_start_reason = "User Command"
+        self._temp_comp_last_update_time = 0.0
+        self._temp_comp_last_temp = None
         self._clear_restored_targets()
         self._clear_session_file()
         target_v, target_i = self._get_target_v_i()
@@ -332,6 +338,8 @@ class ChargeController:
         self._last_delta_confirm_time = 0.0
         self._cv_since = None
         self._session_start_reason = "Custom Mode"
+        self._temp_comp_last_update_time = 0.0
+        self._temp_comp_last_temp = None
         self._clear_restored_targets()
         self._clear_session_file()
         target_v, target_i = self._get_target_v_i()
@@ -623,6 +631,8 @@ class ChargeController:
             )
 
         self._reset_delta_and_blanking(now)
+        self._temp_comp_last_update_time = 0.0
+        self._temp_comp_last_temp = None
         if self.current_stage == self.STAGE_MAIN:
             raw_stuck_since = data.get("stuck_current_since")
             try:
@@ -1530,6 +1540,11 @@ class ChargeController:
             return False
         if self._device_set_voltage is None or self._device_set_voltage <= 0:
             return False
+        now = time.time()
+        temp = float(temp_c)
+        if self._temp_comp_last_update_time and now - self._temp_comp_last_update_time < TEMP_COMP_MIN_UPDATE_INTERVAL_SEC:
+            if self._temp_comp_last_temp is not None and abs(temp - self._temp_comp_last_temp) < TEMP_COMP_MIN_TEMP_DELTA_C:
+                return False
         target_v, _ = self._get_profile_target_v_i(temp_c)
         if abs(target_v - float(self._device_set_voltage)) < 0.03:
             return False
@@ -2554,6 +2569,8 @@ class ChargeController:
                     actions["log_event_sub"] = (
                         f"└ Temp comp {temp:.1f}°C: V {float(current_v):.2f}В -> {target_v:.2f}В"
                     )
+                self._temp_comp_last_update_time = now
+                self._temp_comp_last_temp = temp
 
         if "notify" in actions:
             self.notify(actions["notify"])
