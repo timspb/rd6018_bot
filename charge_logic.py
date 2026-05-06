@@ -1262,7 +1262,8 @@ class ChargeController:
         mix_exit_policy = None
 
         if self.current_stage == self.STAGE_PREP:
-            summary = "Soft Start 12.0V/0.5A, затем Main."
+            prep_current = self._prep_target()[1]
+            summary = f"Soft Start 12.0V/{prep_current:.2f}A (0.01C), затем Main."
             next_stage = self.STAGE_MAIN
             transition = "Переход в Main по завершении подготовки."
         elif self.current_stage == self.STAGE_MAIN:
@@ -1445,7 +1446,8 @@ class ChargeController:
         return min(MAX_STAGE_CURRENT, max(0.1, pct * self.ah_capacity / 100.0))
 
     def _prep_target(self) -> Tuple[float, float]:
-        return (12.0, 0.5)
+        # Подготовка: мягкий старт на 0.01C для любой ёмкости, чтобы не давить АКБ лишним током.
+        return (12.0, self._pct_ah(1.0))
 
     def _main_target(self) -> Tuple[float, float]:
         """v2.0: Main Charge — I_target = ah * 0.1 (ёмкостно-ориентированный расчёт)."""

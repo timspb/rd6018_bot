@@ -13,6 +13,7 @@
 ## Авто-цепочка
 
 - `Prep -> Main -> (Desulfation) -> Mix -> SAFE_WAIT -> Done/Storage`
+- `Prep` uses `12.0V` and `0.01C` of the configured capacity for every battery profile.
 - `Cooling` включается только по температуре АКБ и является паузой защиты.
 
 ## Профили
