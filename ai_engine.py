@@ -163,28 +163,62 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
             lines.append(f"Post-charge note: {post_charge.get('note')}")
 
     if bank_fault:
-        bank_status = bank_fault.get("status", "вЂ”")
+        def _bank_status_label(status: Any) -> str:
+            mapping = {
+                "stable": "норма",
+                "watch": "наблюдение",
+                "probable": "вероятен",
+                "high": "высокий",
+            }
+            return mapping.get(str(status or "").lower(), str(status or "—"))
+
+        def _bank_reason_label(reason: str) -> str:
+            mapping = {
+                "prep_start_low": "низкий старт в Подготовке",
+                "prep_slow_to_12V": "медленный выход к 12В в Подготовке",
+                "prep_still_below_12V": "слишком долго ниже 12В в Подготовке",
+                "main_duration": "Main дольше расчётного",
+                "main_slow_v_rise<0.8V": "медленный рост напряжения в Main",
+                "main_slow_v_rise<1.2V": "медленный рост напряжения в Main",
+                "main_low_ah_acceptance": "низкая приёмка заряда в Main",
+                "main_temp_rise": "рост температуры АКБ в Main",
+                "safe_wait_decay_watch": "ускоренное падение напряжения в SAFE_WAIT",
+                "safe_wait_decay_risk": "быстрое падение напряжения в SAFE_WAIT",
+                "safe_wait_decay_high": "очень быстрое падение напряжения в SAFE_WAIT",
+                "safe_wait_decay": "быстрое падение напряжения в SAFE_WAIT",
+                "safe_wait_temp_rise": "рост температуры АКБ в SAFE_WAIT",
+                "self_discharge_warning": "саморазряд",
+                "temp_rise": "рост температуры АКБ",
+            }
+            if "=" in reason:
+                head, tail = reason.split("=", 1)
+                head = mapping.get(head, head)
+                return f"{head}={tail}"
+            return mapping.get(reason, reason)
+
+        bank_status_raw = str(bank_fault.get("status", "—")).lower()
+        bank_status = _bank_status_label(bank_status_raw)
         bank_score = bank_fault.get("score")
-        bank_stage = bank_fault.get("stage", "вЂ”")
+        bank_stage = bank_fault.get("stage", "—")
         bank_elapsed = bank_fault.get("elapsed_text") or _format_seconds(bank_fault.get("elapsed_sec"))
         bank_start_v = bank_fault.get("start_voltage")
         bank_curr_v = bank_fault.get("current_voltage")
         bank_start_t = bank_fault.get("start_temp_c")
         bank_curr_t = bank_fault.get("current_temp_c")
-        bank_reasons = ", ".join(bank_fault.get("reasons") or [])
+        bank_reasons = ", ".join(_bank_reason_label(r) for r in (bank_fault.get("reasons") or []))
         parts = [
-            f"Bank fault: status={bank_status}",
+            f"Риск по банке: {bank_status}",
             f"score={bank_score}",
             f"stage={bank_stage}",
         ]
-        if bank_elapsed and bank_elapsed != "вЂ”":
+        if bank_elapsed and bank_elapsed != "—":
             parts.append(f"elapsed={bank_elapsed}")
         if isinstance(bank_start_v, (int, float)) and isinstance(bank_curr_v, (int, float)):
-            parts.append(f"V={bank_start_v:.2f}->{bank_curr_v:.2f}")
+            parts.append(f"АКБ V={bank_start_v:.2f}->{bank_curr_v:.2f}V")
         if isinstance(bank_start_t, (int, float)) and isinstance(bank_curr_t, (int, float)):
-            parts.append(f"T={bank_start_t:.1f}->{bank_curr_t:.1f}C")
+            parts.append(f"АКБ T={bank_start_t:.1f}->{bank_curr_t:.1f}C")
         if bank_reasons:
-            parts.append(f"reasons={bank_reasons}")
+            parts.append(f"причины={bank_reasons}")
         lines.append(" | ".join(parts))
 
     lines.append(
