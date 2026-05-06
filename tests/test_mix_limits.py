@@ -10,6 +10,16 @@ class _FakeHass:
 
 
 class MixLimitTests(unittest.TestCase):
+    def test_mix_current_delta_is_relative_to_shelf(self):
+        controller = ChargeController(_FakeHass())
+        controller.start(ChargeController.PROFILE_AGM, 70)
+        controller.current_stage = ChargeController.STAGE_MIX
+        controller.i_min_recorded = 1.40
+
+        self.assertAlmostEqual(controller._mix_current_delta_threshold(), 0.42)
+        self.assertTrue(controller._exit_cv_condition(1.83))
+        self.assertFalse(controller._exit_cv_condition(1.79))
+
     def test_agm_mix_entry_sets_new_ovp_ocp(self):
         messages = []
         controller = ChargeController(_FakeHass(), notify_cb=messages.append)
