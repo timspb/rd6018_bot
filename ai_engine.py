@@ -40,6 +40,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
     safety = snapshot.get("safety", {}) or {}
     mix_exit_policy = snapshot.get("mix_exit_policy") or {}
     post_charge = snapshot.get("post_charge_relaxation") or {}
+    bank_fault = snapshot.get("bank_fault_risk") or {}
 
     stage = snapshot.get("stage", "—")
     previous_stage = snapshot.get("previous_stage", "—")
@@ -160,6 +161,31 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
             lines.append(f"Post-charge windows: {window_summary}")
         if post_charge.get("note"):
             lines.append(f"Post-charge note: {post_charge.get('note')}")
+
+    if bank_fault:
+        bank_status = bank_fault.get("status", "вЂ”")
+        bank_score = bank_fault.get("score")
+        bank_stage = bank_fault.get("stage", "вЂ”")
+        bank_elapsed = bank_fault.get("elapsed_text") or _format_seconds(bank_fault.get("elapsed_sec"))
+        bank_start_v = bank_fault.get("start_voltage")
+        bank_curr_v = bank_fault.get("current_voltage")
+        bank_start_t = bank_fault.get("start_temp_c")
+        bank_curr_t = bank_fault.get("current_temp_c")
+        bank_reasons = ", ".join(bank_fault.get("reasons") or [])
+        parts = [
+            f"Bank fault: status={bank_status}",
+            f"score={bank_score}",
+            f"stage={bank_stage}",
+        ]
+        if bank_elapsed and bank_elapsed != "вЂ”":
+            parts.append(f"elapsed={bank_elapsed}")
+        if isinstance(bank_start_v, (int, float)) and isinstance(bank_curr_v, (int, float)):
+            parts.append(f"V={bank_start_v:.2f}->{bank_curr_v:.2f}")
+        if isinstance(bank_start_t, (int, float)) and isinstance(bank_curr_t, (int, float)):
+            parts.append(f"T={bank_start_t:.1f}->{bank_curr_t:.1f}C")
+        if bank_reasons:
+            parts.append(f"reasons={bank_reasons}")
+        lines.append(" | ".join(parts))
 
     lines.append(
         "Safety: "

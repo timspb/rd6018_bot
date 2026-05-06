@@ -1209,6 +1209,11 @@ def format_log_event(event_line: str) -> str:
                 summary = event
             return f"[{time_only}] {icon} <b>{stage_escaped}</b>: {html.escape(summary)}"
 
+        if event.startswith("BANK_FAULT_"):
+            icon = "⚠️"
+            summary = event.replace("BANK_FAULT_", "КЗ банки: ", 1)
+            return f"[{time_only}] {icon} <b>{stage_escaped}</b>: {html.escape(summary)}"
+
         if event.startswith("END |"):
             icon = "📉"
             text = f"[{time_only}] {icon} <b>{stage_escaped}: завершён</b>\n"

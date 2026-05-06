@@ -21,7 +21,7 @@ class DesulfLimitTests(unittest.TestCase):
         controller._stuck_current_value = 1.60
         controller.antisulfate_count = 0
 
-        with patch("charge_logic.time.time", return_value=2400.0):
+        with patch("charge_logic.time.time", return_value=7200.0):
             actions = asyncio.run(
                 controller.tick(
                     voltage=14.8,

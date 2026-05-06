@@ -3,6 +3,7 @@ charge_logic.py — State Machine заряда для Ca/Ca, EFB, AGM.
 Профили: Ca/Ca (Liquid), EFB, AGM с десульфатацией и Mix Mode.
 Auto-Resume: сохранение сессии в charge_session.json, восстановление при перезапуске.
 """
+import html
 import json
 import logging
 import math
@@ -67,6 +68,17 @@ BLANKING_SEC = 5 * 60  # сек — после смены фазы игнори�
 DELTA_MONITOR_DELAY_SEC = 120  # v2.0: начинать мониторинг dV/dI строго через 120 сек после смены уставок
 TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с интервалом 1 мин для срабатывания Delta
 TRIGGER_CONFIRM_INTERVAL_SEC = 60  # сек — интервал между замерами для подтверждения
+BANK_FAULT_WATCH_SCORE = 30
+BANK_FAULT_PROBABLE_SCORE = 50
+BANK_FAULT_HIGH_SCORE = 70
+BANK_FAULT_LOW_START_V = 10.8
+BANK_FAULT_PREP_SLOW_12V_1 = 30 * 60
+BANK_FAULT_PREP_SLOW_12V_2 = 60 * 60
+BANK_FAULT_PREP_SLOW_12V_3 = 120 * 60
+BANK_FAULT_PREP_V_FLOOR = 11.8
+BANK_FAULT_RECENT_WINDOW_SEC = 20 * 60
+BANK_FAULT_SAFE_WAIT_WATCH_SCORE = 20
+BANK_FAULT_SAFE_WAIT_RISK_SCORE = 35
 MAIN_MIX_STUCK_CV_MIN = 40  # мин в CV с током >=0.3А перед MAIN->MIX (desulf limit) для Ca/EFB
 MAIN_STAGE_MAX_HOURS = 72  # защитный лимит для MAIN: 72 часа максимум
 CUSTOM_MODE_DEFAULT_MAX_HOURS = 24  # защитный лимит для ручного режима по умолчанию
@@ -189,6 +201,17 @@ class ChargeController:
         self._device_set_current: Optional[float] = None
         self._temp_comp_last_update_time: float = 0.0
         self._temp_comp_last_temp: Optional[float] = None
+        self._stage_start_voltage: float = 0.0
+        self._stage_start_current: float = 0.0
+        self._stage_start_temp: float = 0.0
+        self._last_voltage: float = 0.0
+        self._last_current: float = 0.0
+        self._last_temp_ext: float = 0.0
+        self._last_ah: float = 0.0
+        self._bank_fault_alerted: bool = False
+        self._bank_fault_last_score: int = 0
+        self._bank_fault_last_status: str = "stable"
+        self._bank_fault_last_reasons: List[str] = []
         self._current_stage: str = self.STAGE_IDLE
         self._stage_tracking_enabled: bool = False
         self.previous_stage: Optional[str] = None
@@ -245,6 +268,214 @@ class ChargeController:
             }
         )
 
+    def _mark_stage_sample(self, voltage: float, current: float, temp: float, ah: float) -> None:
+        """Запомнить последний и стартовый сэмпл текущего этапа."""
+        self._last_voltage = float(voltage)
+        self._last_current = float(current)
+        self._last_temp_ext = float(temp)
+        self._last_ah = float(ah)
+        if self._stage_start_voltage <= 0.0:
+            self._stage_start_voltage = float(voltage)
+        if self._stage_start_current <= 0.0:
+            self._stage_start_current = float(current)
+        if self._stage_start_temp <= 0.0:
+            self._stage_start_temp = float(temp)
+
+    def _reset_stage_metrics(self) -> None:
+        """Сброс стартовых и последних метрик этапа."""
+        self._stage_start_voltage = 0.0
+        self._stage_start_current = 0.0
+        self._stage_start_temp = 0.0
+        self._last_voltage = 0.0
+        self._last_current = 0.0
+        self._last_temp_ext = 0.0
+        self._last_ah = 0.0
+
+    def _reset_bank_fault_state(self) -> None:
+        """Сбросить накопленную историю риска коротнувшей/деградировавшей банки."""
+        self._bank_fault_alerted = False
+        self._bank_fault_last_score = 0
+        self._bank_fault_last_status = "stable"
+        self._bank_fault_last_reasons = []
+
+    def _bank_fault_expected_main_hours(self, start_v: float, temp_c: float) -> float:
+        """Оценка ожидаемой длительности Main с поправкой на стартовое напряжение и температуру."""
+        expected = 10.0
+        if start_v <= 10.4:
+            expected += 4.0
+        elif start_v <= 10.8:
+            expected += 3.0
+        elif start_v <= 11.2:
+            expected += 1.5
+        elif start_v <= 11.8:
+            expected += 0.75
+
+        if temp_c <= 15.0:
+            expected += 1.0
+        elif temp_c <= 20.0:
+            expected += 0.5
+        elif temp_c >= 30.0:
+            expected -= 0.5
+        return max(10.0, expected)
+
+    def _bank_fault_risk_snapshot(
+        self,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Событийная оценка риска коротнувшей/сильно деградировавшей банки."""
+        if self.current_stage in (self.STAGE_IDLE, self.STAGE_DONE):
+            return None
+
+        score = 0
+        reasons: List[str] = []
+        stage = self.current_stage
+        stage_elapsed = max(0.0, now - self.stage_start_time)
+        stage_hours = stage_elapsed / 3600.0
+        start_v = self._stage_start_voltage or voltage
+        start_t = self._stage_start_temp or temp
+        stage_ah = None
+        if ah is not None and self._stage_start_ah > 0:
+            stage_ah = max(0.0, ah - self._stage_start_ah)
+
+        recent = [(t, v, i, a, te) for t, v, i, a, te in self._analytics_history if now - t <= BANK_FAULT_RECENT_WINDOW_SEC]
+        temp_span = 0.0
+        v_delta = 0.0
+        current_avg = current
+        if len(recent) >= 4:
+            t0, v0, _, _, te0 = recent[0]
+            t1, v1, _, _, te1 = recent[-1]
+            _ = (t0, t1)  # keep the shape obvious for reviewers
+            v_delta = v1 - v0
+            temp_span = max(te for _, _, _, _, te in recent) - min(te for _, _, _, _, te in recent)
+            current_avg = sum(i for _, _, i, _, _ in recent) / len(recent)
+
+        if stage == self.STAGE_PREP:
+            if start_v <= BANK_FAULT_LOW_START_V:
+                score += 30
+                reasons.append(f"prep_start_low={start_v:.2f}V")
+            elif start_v <= 11.2:
+                score += 15
+                reasons.append(f"prep_start_low={start_v:.2f}V")
+
+            if stage_elapsed >= BANK_FAULT_PREP_SLOW_12V_1 and voltage < BANK_FAULT_PREP_V_FLOOR:
+                score += 10
+                reasons.append(f"prep_slow_to_12V>{BANK_FAULT_PREP_SLOW_12V_1 // 60}m")
+            if stage_elapsed >= BANK_FAULT_PREP_SLOW_12V_2 and voltage < BANK_FAULT_PREP_V_FLOOR:
+                score += 15
+                reasons.append(f"prep_slow_to_12V>{BANK_FAULT_PREP_SLOW_12V_2 // 60}m")
+            if stage_elapsed >= BANK_FAULT_PREP_SLOW_12V_3 and voltage < 12.0:
+                score += 20
+                reasons.append(f"prep_still_below_12V>{BANK_FAULT_PREP_SLOW_12V_3 // 60}m")
+
+        if stage == self.STAGE_MAIN:
+            expected_main_hours = self._bank_fault_expected_main_hours(start_v, start_t)
+            if stage_hours >= expected_main_hours * 2.5:
+                score += 35
+                reasons.append(f"main_duration>{expected_main_hours * 2.5:.1f}h")
+            elif stage_hours >= expected_main_hours * 1.8:
+                score += 25
+                reasons.append(f"main_duration>{expected_main_hours * 1.8:.1f}h")
+            elif stage_hours >= expected_main_hours * 1.4:
+                score += 15
+                reasons.append(f"main_duration>{expected_main_hours * 1.4:.1f}h")
+
+            if stage_hours >= 2.0 and voltage - start_v < 0.8:
+                score += 10
+                reasons.append("main_slow_v_rise<0.8V")
+            if stage_hours >= 4.0 and voltage - start_v < 1.2:
+                score += 10
+                reasons.append("main_slow_v_rise<1.2V")
+
+            if stage_ah is not None and stage_hours >= 6.0:
+                expected_ah = self.ah_capacity * stage_hours * 0.05
+                if stage_ah < expected_ah * 0.75:
+                    score += 10
+                    reasons.append("main_low_ah_acceptance")
+
+            if temp_span >= 1.0 and (voltage - start_v) < 1.0:
+                score += 15
+                reasons.append(f"main_temp_rise={temp_span:.1f}C")
+            elif temp_span >= 0.7 and (voltage - start_v) < 0.7:
+                score += 10
+                reasons.append(f"main_temp_rise={temp_span:.1f}C")
+
+        if stage == self.STAGE_SAFE_WAIT:
+            relaxation = self._post_charge_relaxation_snapshot(now)
+            if relaxation:
+                status = str(relaxation.get("status") or "stable").lower()
+                if status == "watch":
+                    score += BANK_FAULT_SAFE_WAIT_WATCH_SCORE
+                    reasons.append("safe_wait_decay_watch")
+                elif status == "risk":
+                    score += BANK_FAULT_SAFE_WAIT_RISK_SCORE
+                    reasons.append("safe_wait_decay_risk")
+                elif status == "high":
+                    score += BANK_FAULT_SAFE_WAIT_RISK_SCORE + 10
+                    reasons.append("safe_wait_decay_high")
+
+                decay_mv_min = float(relaxation.get("decay_mv_min") or 0.0)
+                temp_span_c = float(relaxation.get("temp_span_c") or 0.0)
+                current_avg_a = float(relaxation.get("current_avg_a") or 0.0)
+                if decay_mv_min >= 8.0:
+                    score += 15
+                    reasons.append(f"safe_wait_decay={decay_mv_min:.1f}mV/min")
+                if temp_span_c >= 1.0 and current_avg_a <= POST_CHARGE_IDLE_CURRENT_A:
+                    score += 10
+                    reasons.append(f"safe_wait_temp_rise={temp_span_c:.1f}C")
+
+            health = self._self_discharge_warning()
+            if health:
+                score += 20
+                reasons.append("self_discharge_warning")
+
+        if stage in (self.STAGE_MAIN, self.STAGE_PREP) and len(recent) >= 4:
+            if temp_span >= 1.0 and v_delta < 0.8:
+                score += 10
+                reasons.append(f"temp_rise={temp_span:.1f}C")
+            if temp_span >= 1.5 and v_delta < 0.5:
+                score += 10
+                reasons.append(f"temp_rise={temp_span:.1f}C")
+
+        if not reasons:
+            return {
+                "active": False,
+                "status": "stable",
+                "score": 0,
+                "reasons": [],
+                "stage": stage,
+                "profile": self.battery_type,
+            }
+
+        if score >= BANK_FAULT_HIGH_SCORE:
+            status = "high"
+        elif score >= BANK_FAULT_PROBABLE_SCORE:
+            status = "probable"
+        elif score >= BANK_FAULT_WATCH_SCORE:
+            status = "watch"
+        else:
+            status = "stable"
+
+        return {
+            "active": status != "stable",
+            "status": status,
+            "score": score,
+            "reasons": reasons[:6],
+            "stage": stage,
+            "profile": self.battery_type,
+            "elapsed_sec": stage_elapsed,
+            "elapsed_text": self._format_seconds(stage_elapsed),
+            "start_voltage": start_v,
+            "current_voltage": voltage,
+            "start_temp_c": start_t,
+            "current_temp_c": temp,
+            "stage_ah": stage_ah,
+            "recent_samples": len(recent),
+        }
+
     @property
     def current_stage(self) -> str:
         return getattr(self, "_current_stage", self.STAGE_IDLE)
@@ -266,6 +497,7 @@ class ChargeController:
                 "ts": time.time(),
             }
         )
+        self._reset_stage_metrics()
         self._last_transition_reason = ""
 
     def _stage_path(self) -> List[str]:
@@ -307,6 +539,8 @@ class ChargeController:
         self.current_stage = self.STAGE_PREP
         self.stage_start_time = time.time()
         self._stage_start_ah = 0.0  # будет установлен при первом tick()
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
         self.total_start_time = self.stage_start_time  # v2.6: фиксируем общий старт сессии
         self.antisulfate_count = 0
         self.v_max_recorded = None
@@ -370,6 +604,8 @@ class ChargeController:
         self.current_stage = self.STAGE_MAIN  # Ручной режим сразу начинает с MAIN
         self.stage_start_time = time.time()
         self._stage_start_ah = 0.0  # будет установлен при первом tick()
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
         self.total_start_time = self.stage_start_time
         
         # Сохраняем пользовательские параметры
@@ -448,6 +684,8 @@ class ChargeController:
         self.i_min_recorded = None
         if clear_session:
             self._clear_session_file()
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
         logger.info("ChargeController stopped (was: %s)", prev)
 
     def _clear_session_file(self) -> None:
@@ -538,6 +776,9 @@ class ChargeController:
             "ah_limit": self.ah_capacity,
             "start_ah": self._start_ah,
             "stage_start_ah": self._stage_start_ah,
+            "stage_start_voltage": self._stage_start_voltage,
+            "stage_start_current": self._stage_start_current,
+            "stage_start_temp": self._stage_start_temp,
             "current_retries": self.antisulfate_count,
             "target_voltage": uv,
             "target_current": ui,
@@ -591,6 +832,18 @@ class ChargeController:
         self._agm_stage_idx = max(0, min(self._agm_stage_idx, len(AGM_STAGES) - 1))
         self._start_ah = float(data.get("start_ah", 0))
         self._stage_start_ah = float(data.get("stage_start_ah", ah))  # при отсутствии — текущий ah
+        try:
+            self._stage_start_voltage = float(data.get("stage_start_voltage", voltage))
+        except (TypeError, ValueError):
+            self._stage_start_voltage = float(voltage)
+        try:
+            self._stage_start_current = float(data.get("stage_start_current", current))
+        except (TypeError, ValueError):
+            self._stage_start_current = float(current)
+        try:
+            self._stage_start_temp = float(data.get("stage_start_temp", 0.0))
+        except (TypeError, ValueError):
+            self._stage_start_temp = 0.0
         self._safe_wait_next_stage = data.get("safe_wait_next_stage")
         self._safe_wait_target_v = float(data.get("safe_wait_target_v", 0))
         self._safe_wait_target_i = float(data.get("safe_wait_target_i", 0))
@@ -812,7 +1065,11 @@ class ChargeController:
         self.previous_stage = None
         self._last_transition_reason = ""
         self._stage_history.clear()
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
         self._stage_tracking_enabled = False
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
         
         # Очистка временного лога событий (если будет реализован)
         # self._event_log.clear()  # TODO: добавить когда будет event log
@@ -833,7 +1090,11 @@ class ChargeController:
         self.previous_stage = None
         self._last_transition_reason = ""
         self._stage_history.clear()
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
         self._stage_tracking_enabled = False
+        self._reset_stage_metrics()
+        self._reset_bank_fault_state()
 
     @property
     def is_active(self) -> bool:
@@ -1274,6 +1535,9 @@ class ChargeController:
         pred, comment, health = self.predict_finish(voltage, current, ah, temp)
         ah_total = ah - self._start_ah if self._start_ah > 0 else ah
         relaxation = self._post_charge_relaxation_snapshot(now)
+        bank_fault = self._bank_fault_risk_snapshot(now, voltage, current, temp, ah)
+        if bank_fault and bank_fault.get("status") == "stable":
+            bank_fault = None
         return {
             "stage": self.current_stage,
             "elapsed_time": elapsed_str,
@@ -1284,6 +1548,7 @@ class ChargeController:
             "comment": comment,
             "health_warning": health,
             "post_charge_relaxation": relaxation,
+            "bank_fault_risk": bank_fault,
         }
 
     def get_timers(self) -> Dict[str, Any]:
@@ -1469,6 +1734,15 @@ class ChargeController:
         hold = self._get_ai_hold_snapshot(now)
         mix_exit_policy = None
         temperature_compensation = self._temperature_compensation_snapshot(base_target_v, target_v, temp_c)
+        bank_fault = self._bank_fault_risk_snapshot(
+            now,
+            self._last_voltage or self._stage_start_voltage or target_v,
+            self._last_current or self._stage_start_current or target_i,
+            self._last_temp_ext or (temp_c if temp_c is not None else 0.0),
+            self._last_ah if self._last_ah > 0 else None,
+        )
+        if bank_fault and bank_fault.get("status") == "stable":
+            bank_fault = None
 
         if self.current_stage == self.STAGE_PREP:
             prep_current = self._prep_target(temp_c)[1]
@@ -1602,6 +1876,7 @@ class ChargeController:
             "mix_exit_policy": mix_exit_policy,
             "session_reason": self._session_start_reason,
             "post_charge_relaxation": self._post_charge_relaxation_snapshot(now),
+            "bank_fault_risk": bank_fault,
         }
 
     def get_telemetry_summary(
@@ -1637,6 +1912,7 @@ class ChargeController:
             if dt > 60:
                 di_dt = round((cs[-1] - cs[0]) / (dt / 3600.0), 3)
                 dv_dt = round((vs[-1] - vs[0]) / (dt / 3600.0), 3)
+        bank_fault = self._bank_fault_risk_snapshot(now, voltage, current, temp, ah)
         return {
             "timestamp": now,
             "timestamp_iso": datetime.fromtimestamp(now).isoformat(),
@@ -1649,6 +1925,7 @@ class ChargeController:
             "di_dt_per_hour": di_dt,
             "dv_dt_per_hour": dv_dt,
             "battery_type": self.battery_type,
+            "bank_fault_risk": bank_fault,
         }
 
     def _ic(self, factor: float) -> float:
@@ -2015,6 +2292,8 @@ class ChargeController:
             self.notify(msg)
             return actions
 
+        self._mark_stage_sample(voltage, current, temp, ah)
+
         # Обновить последнее известное состояние выхода и сбросить флаг unavailable
         if output_is_on is not None and str(output_is_on).lower() not in ("unavailable", "unknown", ""):
             self._last_known_output_on = (output_is_on is True or str(output_is_on).lower() == "on")
@@ -2248,12 +2527,43 @@ class ChargeController:
                     self._delta_trigger_count = 0
             
             elif self.battery_type == self.PROFILE_AGM:
-                # На всех ступенях до 15В и перед MAIN->MIX: ток <0.2А в течение 2ч без нового минимума
+                # AGM: ток >=0.2A в CV более 2ч -> десульфация; ток <0.2A более 2ч без нового минимума -> следующая ступень/Mix.
                 if not in_blanking:
                     self._sync_hold_minimum(now, current, DESULF_CURRENT_STUCK_AGM)
+
                 if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
                     self._first_stage_hold_since = None
                     self._first_stage_hold_current = None
+                    stuck_mins = self._track_stuck_current_plateau(now, current, DESULF_CURRENT_STUCK_AGM) or 0
+                    if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES_AGM:
+                        self.antisulfate_count += 1
+                        self._stuck_current_since = None
+                        self._stuck_current_value = None
+                        actions["log_event_end"] = self._make_log_event_end(
+                            now, ah, voltage, current, temp, f"I≥0.2А {stuck_mins}мин, десульфация #{self.antisulfate_count}"
+                        )
+                        prev = self.current_stage
+                        self.current_stage = self.STAGE_DESULFATION
+                        self._clear_restored_targets()
+                        self.stage_start_time = now
+                        self._stage_start_ah = ah
+                        self._reset_delta_and_blanking(now)
+                        _log_trigger(prev, self.current_stage, "AGM_I_stuck_0.2A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
+                        dv, di = self._desulf_target(temp)
+                        actions["set_voltage"] = dv
+                        actions["set_current"] = di
+                        self._add_desulf_limits(actions, dv, di)
+                        actions["notify"] = (
+                            f"🔧 <b>AGM Десульфатация #{self.antisulfate_count}</b>\n\n"
+                            f"Ток застрял ≥ <code>{DESULF_CURRENT_STUCK_AGM}</code>А более <code>{stuck_mins}</code> мин. "
+                            f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
+                        )
+                        actions["log_event"] = "START"
+                    elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES_AGM:
+                        self._stuck_current_since = None
+                        self._stuck_current_value = None
+                        # Лимит десульфаций исчерпан — остаёмся в MAIN, переход в Mix по правилу 2ч на минимуме тока
+
                 if not in_blanking and is_cv and current < 0.2:
                     self._stuck_current_since = None
                     self._stuck_current_value = None
@@ -2309,38 +2619,6 @@ class ChargeController:
                                 f"{phantom_note}"
                             )
                             actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
-                else:
-                    # AGM: застревание I >= 0.2А 2ч — десульфация (макс 4 итерации)
-                    if not in_blanking and is_cv and current >= DESULF_CURRENT_STUCK_AGM:
-                        stuck_mins = self._track_stuck_current_plateau(now, current, DESULF_CURRENT_STUCK_AGM) or 0
-                        if self.antisulfate_count < ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES_AGM:
-                            self.antisulfate_count += 1
-                            self._stuck_current_since = None
-                            self._stuck_current_value = None
-                            actions["log_event_end"] = self._make_log_event_end(
-                                now, ah, voltage, current, temp, f"I≥0.2А {stuck_mins}мин, десульфация #{self.antisulfate_count}"
-                            )
-                            prev = self.current_stage
-                            self.current_stage = self.STAGE_DESULFATION
-                            self._clear_restored_targets()
-                            self.stage_start_time = now
-                            self._stage_start_ah = ah
-                            self._reset_delta_and_blanking(now)
-                            _log_trigger(prev, self.current_stage, "AGM_I_stuck_0.2A", f"Факт: {current:.2f}А в течение {stuck_mins}мин, попытка #{self.antisulfate_count}")
-                            dv, di = self._desulf_target(temp)
-                            actions["set_voltage"] = dv
-                            actions["set_current"] = di
-                            self._add_desulf_limits(actions, dv, di)
-                            actions["notify"] = (
-                                f"🔧 <b>AGM Десульфатация #{self.antisulfate_count}</b>\n\n"
-                                f"Ток застрял ≥ <code>{DESULF_CURRENT_STUCK_AGM}</code>А более <code>{stuck_mins}</code> мин. "
-                                f"<code>{dv:.1f}</code>В / <code>{di:.2f}</code>А на 2 ч."
-                            )
-                            actions["log_event"] = "START"
-                        elif self.antisulfate_count >= ANTISULFATE_MAX_AGM and stuck_mins >= DESULF_STUCK_MIN_MINUTES_AGM:
-                            self._stuck_current_since = None
-                            self._stuck_current_value = None
-                            # Лимит десульфаций исчерпан — остаёмся в MAIN, переход в Mix по правилу 2ч на минимуме тока
 
             elif self.battery_type in (self.PROFILE_CA, self.PROFILE_EFB):
                 # Ca/EFB: застревание I >= 0.3А 40 мин -> десульфатация (макс 3 итерации).
@@ -2761,6 +3039,33 @@ class ChargeController:
                     )
                 self._temp_comp_last_update_time = now
                 self._temp_comp_last_temp = temp
+
+        bank_fault = self._bank_fault_risk_snapshot(now, voltage, current, temp, ah)
+        if bank_fault:
+            self._bank_fault_last_score = int(bank_fault.get("score") or 0)
+            self._bank_fault_last_status = str(bank_fault.get("status") or "stable")
+            self._bank_fault_last_reasons = list(bank_fault.get("reasons") or [])
+
+            if self._bank_fault_last_status in ("probable", "high") and not self._bank_fault_alerted:
+                self._bank_fault_alerted = True
+                reasons_text = ", ".join(self._bank_fault_last_reasons[:3]) or "bank risk heuristics"
+                bank_msg = (
+                    f"⚠ <b>Вероятен КЗ банки</b>\n"
+                    f"Уровень: <code>{html.escape(self._bank_fault_last_status)}</code> "
+                    f"(score {self._bank_fault_last_score})\n"
+                    f"Причины: {html.escape(reasons_text)}"
+                )
+                if "notify" in actions and actions["notify"]:
+                    actions["notify"] = f"{actions['notify']}\n\n{bank_msg}"
+                else:
+                    actions["notify"] = bank_msg
+                bank_log = f"BANK_FAULT_{self._bank_fault_last_status.upper()}"
+                if "log_event" not in actions:
+                    actions["log_event"] = bank_log
+                else:
+                    existing_sub = str(actions.get("log_event_sub") or "").strip()
+                    extra = f"⚠ Вероятен КЗ банки: {reasons_text}"
+                    actions["log_event_sub"] = f"{existing_sub} | {extra}".strip(" |") if existing_sub else extra
 
         if "notify" in actions:
             self.notify(actions["notify"])
