@@ -3892,6 +3892,7 @@ async def main() -> None:
         if ok and msg:
             _apply_restore_time_corrections(charge_controller, live)
             last_checkpoint_time = time.time()
+            t_ext = _safe_float(live.get("temp_ext"))
             allow_turn_on = (
                 not ovp_triggered
                 and not ocp_triggered
@@ -3905,12 +3906,11 @@ async def main() -> None:
                     await hass.set_current(_cap_current(ui))
                     await hass.turn_off(ENTITY_MAP["switch"])
                 else:
-                    uv, ui = charge_controller._get_target_v_i(t)
+                    uv, ui = charge_controller._get_target_v_i(t_ext)
                     await _apply_phase_protection(uv, ui)
                     await hass.set_voltage(uv)
                     await hass.set_current(_cap_current(ui))
                     await hass.turn_on(ENTITY_MAP["switch"])
-                t_ext = _safe_float(live.get("temp_ext"))
                 log_event(
                     charge_controller.current_stage,
                     battery_v,
