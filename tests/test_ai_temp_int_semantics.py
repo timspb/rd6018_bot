@@ -35,9 +35,11 @@ class AiTempSemanticsTests(unittest.TestCase):
         }
 
         text = format_ai_snapshot(snapshot)
-        self.assertIn("Температуры: АКБ=temp_ext | БП=temp_int", text)
+        self.assertIn("Температуры: датчик АКБ и датчик БП/контроллера", text)
         self.assertIn("T_ext=35/40/45C", text)
         self.assertIn("Temp note:", text)
+        self.assertNotIn("temp_ext=", text)
+        self.assertNotIn("temp_int=", text)
 
     def test_bank_fault_watch_stays_observation_only(self):
         snapshot = {

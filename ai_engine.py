@@ -70,7 +70,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         f"Next stage: {next_stage}",
         targets_line,
         f"Время: всего={timers.get('total_time', '—')} | этап={timers.get('stage_time', '—')} | остаток={timers.get('remaining_time', '—')}",
-        "Температуры: АКБ=temp_ext | БП=temp_int (вентилятор БП сам управляется; пороги АКБ к БП не применять)",
+        "Температуры: датчик АКБ и датчик БП/контроллера (вентилятор БП сам управляется; пороги АКБ к БП не применять)",
     ]
 
     if temp_comp:
@@ -228,7 +228,7 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         f"T_ext={safety.get('temp_warning_c', '—')}/{safety.get('temp_pause_c', '—')}/{safety.get('temp_critical_c', '—')}C, "
         f"SafeWait={safety.get('safe_wait_margin_v', '—')}V / {safety.get('safe_wait_max_sec', '—')}s"
     )
-    lines.append("Temp note: temp_int is only controller/BP thermal monitoring; treat 35-49C as warm, not battery risk.")
+    lines.append("Temp note: датчик БП/контроллера — только тепловой контроль; 35-49C это обычно тепло, а не риск АКБ.")
     return "\n".join(lines)
 
 
