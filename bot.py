@@ -2597,39 +2597,39 @@ async def get_ai_context() -> str:
         # Формируем полный контекст
         context = f"""ПОЛНЫЙ СЛЕПОК RD6018:
 
-OUTPUT_STATUS: {output_status} (выход зарядного устройства: включен/выключен)
-CAPACITY_KNOWN: {"YES" if capacity_known else "NO"}
-CAPACITY_AH: {capacity_ah if capacity_known else "UNKNOWN"}
+Статус выхода: {output_status} (включен/выключен)
+Емкость известна: {"да" if capacity_known else "нет"}
+Емкость АКБ: {capacity_ah if capacity_known else "UNKNOWN"} Ач
 
 Электрика:
-- V_out: {v_out:.3f}В (напряжение на выходе)
-- I_out: {i_out:.3f}А (ток нагрузки)
-- P_out: {p_out:.2f}Вт (мощность)
-- V_batt: {v_batt:.3f}В (напряжение на клеммах АКБ)
+- Напряжение на выходе: {v_out:.3f}В
+- Ток нагрузки: {i_out:.3f}А
+- Мощность: {p_out:.2f}Вт
+- Напряжение на клеммах АКБ: {v_batt:.3f}В
 
 Счетчики:
-- Ah: {ah:.3f} Ач (накопленная емкость)
-- Wh: {wh:.2f} Вч (накопленная энергия)
+- Накопленная емкость: {ah:.3f} Ач
+- Накопленная энергия: {wh:.2f} Вч
 
 Уставки:
-- V_set: {v_set:.2f}В (целевое напряжение)
-- I_set: {i_set:.2f}А (лимит тока)
-- OVP: {ovp:.1f}В (защита перенапряжения)
-- OCP: {ocp:.1f}А (защита перетока)
+- Целевое напряжение: {v_set:.2f}В
+- Лимит тока: {i_set:.2f}А
+- Защита перенапряжения: {ovp:.1f}В
+- Защита перетока: {ocp:.1f}А
 
 Статусы:
-- Output_on: {output_on} (выход включен/выключен)
-- CV_mode: {cv_mode} (режим стабилизации напряжения)
-- CC_mode: {cc_mode} (режим стабилизации тока)
-- Battery_mode: {battery_mode} (режим измерения АКБ)
+- Выход включен: {'да' if output_on else 'нет'}
+- Режим стабилизации напряжения: {'да' if cv_mode else 'нет'}
+- Режим стабилизации тока: {'да' if cc_mode else 'нет'}
+- Режим измерения АКБ: {'да' if battery_mode else 'нет'}
 
 Температура:
-- T_internal: {t_internal:.1f}°C (температура блока)
-- T_external: {t_external:.1f}°C (температура АКБ)
+- Температура блока: {t_internal:.1f}°C
+- Температура АКБ: {t_external:.1f}°C
 
 Система:
-- V_input: {v_input:.1f}В (входное напряжение БП)
-- Uptime: {uptime}{controller_info}"""
+- Входное напряжение БП: {v_input:.1f}В
+- Время работы: {uptime}{controller_info}"""
         
         # Последние события из лога
         from charging_log import get_recent_events

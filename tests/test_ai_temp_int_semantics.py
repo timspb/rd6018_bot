@@ -35,8 +35,7 @@ class AiTempSemanticsTests(unittest.TestCase):
         }
 
         text = format_ai_snapshot(snapshot)
-        self.assertIn("Temp semantics: temp_ext=battery", text)
-        self.assertIn("temp_int=controller/BP", text)
+        self.assertIn("Температуры: АКБ=temp_ext | БП=temp_int", text)
         self.assertIn("T_ext=35/40/45C", text)
         self.assertIn("Temp note:", text)
 

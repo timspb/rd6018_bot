@@ -56,9 +56,9 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
     temp_comp = snapshot.get("temperature_compensation") or {}
 
     if isinstance(target_v, (int, float)) and isinstance(target_i, (int, float)):
-        targets_line = f"Targets: {target_v:.2f}V / {target_i:.2f}A"
+        targets_line = f"Уставки: {target_v:.2f}V / {target_i:.2f}A"
     else:
-        targets_line = f"Targets: {target_v} / {target_i}"
+        targets_line = f"Уставки: {target_v} / {target_i}"
 
     lines = [
         f"Stage: {stage} | Profile: {profile} | Active: {active}",
@@ -69,8 +69,8 @@ def format_ai_snapshot(snapshot: Dict[str, Any]) -> str:
         f"Last transition reason: {last_transition_reason}",
         f"Next stage: {next_stage}",
         targets_line,
-        f"Timers: total={timers.get('total_time', '—')} | stage={timers.get('stage_time', '—')} | remaining={timers.get('remaining_time', '—')}",
-        "Temp semantics: temp_ext=battery | temp_int=controller/BP (fan-managed; do not apply battery temp thresholds)",
+        f"Время: всего={timers.get('total_time', '—')} | этап={timers.get('stage_time', '—')} | остаток={timers.get('remaining_time', '—')}",
+        "Температуры: АКБ=temp_ext | БП=temp_int (вентилятор БП сам управляется; пороги АКБ к БП не применять)",
     ]
 
     if temp_comp:
@@ -334,15 +334,15 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
 
     prompt = (
         "Контекст RD6018 (из бота):\n"
-        f"- OUTPUT_STATUS: {output_status}\n"
-        f"- Stage: {current_stage}\n"
-        f"- Profile: {battery_type}\n"
-        f"- Mode flags: {mode}\n"
-        f"- Capacity_known: {'YES' if capacity_known else 'NO'}\n"
-        f"- Capacity_Ah: {cap_text}\n"
-        f"- Остаток до защитного лимита этапа: {remaining_time}\n"
-        f"- Current snapshot: V_batt={v_batt_now}, I={i_now}\n"
-        f"- Temperatures: temp_ext={temp_ext_now}, temp_int={temp_int_now}\n"
+        f"- Статус выхода: {output_status}\n"
+        f"- Этап: {current_stage}\n"
+        f"- Профиль: {battery_type}\n"
+        f"- Режимы: {mode}\n"
+        f"- Емкость известна: {'да' if capacity_known else 'нет'}\n"
+        f"- Емкость АКБ: {cap_text}\n"
+        f"- Остаток до лимита этапа: {remaining_time}\n"
+        f"- Текущие значения: напряжение АКБ={v_batt_now}, ток={i_now}\n"
+        f"- Температуры: АКБ={temp_ext_now}, БП={temp_int_now}\n"
         + trend_block
         + "\nКарточка стратегии контроллера:\n"
         f"{controller_block}\n\n"
