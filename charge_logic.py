@@ -440,6 +440,11 @@ class ChargeController:
                 score += 10
                 reasons.append(f"temp_rise={temp_span:.1f}C")
 
+        if stage == self.STAGE_MAIN and current_avg <= 0.15:
+            if score >= BANK_FAULT_PROBABLE_SCORE:
+                score = BANK_FAULT_WATCH_SCORE + 10
+            reasons.append(f"main_low_current_tail={current_avg:.2f}A")
+
         if not reasons:
             return {
                 "active": False,
