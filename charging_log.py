@@ -98,7 +98,7 @@ def _collapse_consecutive_events(events: list[str]) -> list[str]:
         return events
 
     collapsed: list[str] = []
-    last_signature: tuple[str, str, str, str, str, str, str] | None = None
+    last_signature: Optional[tuple[str, str, str, str, str, str, str]] = None
     last_index = -1
     repeat_count = 0
 

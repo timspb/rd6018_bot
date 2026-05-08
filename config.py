@@ -3,12 +3,13 @@ config.py — конфигурация RD6018 Async Bot.
 Все токены и URL берутся из .env.
 """
 import os
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _as_bool(value: str | None, default: bool = False) -> bool:
+def _as_bool(value: Optional[str], default: bool = False) -> bool:
     raw = (value or "").strip().lower()
     if not raw:
         return default
