@@ -195,6 +195,8 @@ class ChargeController:
         self._last_known_output_on: bool = False  # последнее известное состояние выхода (для EMERGENCY_UNAVAILABLE)
         self._was_unavailable: bool = False  # предыдущий тик был unavailable → при восстановлении попробовать restore
         self._link_lost_at: float = 0.0  # время потери связи (для вычитания паузы из таймеров при восстановлении)
+        self._link_loss_notice_count: int = 0  # сколько уведомлений о текущем эпизоде потери связи уже отправлено
+        self._link_loss_last_notice_at: float = 0.0  # когда ушло последнее уведомление о потере связи
         self._restored_target_v: float = 0.0  # уставки из сессии при restore (чтобы не перезаписать дефолтами профиля)
         self._restored_target_i: float = 0.0
         self._device_set_voltage: Optional[float] = None  # фактические уставки прибора (для сохранения в сессию)
@@ -297,6 +299,11 @@ class ChargeController:
         self._bank_fault_last_score = 0
         self._bank_fault_last_status = "stable"
         self._bank_fault_last_reasons = []
+
+    def _reset_link_loss_state(self) -> None:
+        """Сбросить состояние эпизода потери связи."""
+        self._link_loss_notice_count = 0
+        self._link_loss_last_notice_at = 0.0
 
     def _bank_fault_expected_main_hours(self, start_v: float, temp_c: float) -> float:
         """Оценка ожидаемой длительности Main с поправкой на стартовое напряжение и температуру."""
@@ -573,6 +580,7 @@ class ChargeController:
         self._session_start_reason = "User Command"
         self._temp_comp_last_update_time = 0.0
         self._temp_comp_last_temp = None
+        self._reset_link_loss_state()
         self.previous_stage = None
         self._last_transition_reason = ""
         self._stage_history.clear()
@@ -650,6 +658,7 @@ class ChargeController:
         self._session_start_reason = "Custom Mode"
         self._temp_comp_last_update_time = 0.0
         self._temp_comp_last_temp = None
+        self._reset_link_loss_state()
         self.previous_stage = None
         self._last_transition_reason = ""
         self._stage_history.clear()
@@ -1072,6 +1081,7 @@ class ChargeController:
         self._stage_history.clear()
         self._reset_stage_metrics()
         self._reset_bank_fault_state()
+        self._reset_link_loss_state()
         self._stage_tracking_enabled = False
         self._reset_stage_metrics()
         self._reset_bank_fault_state()
@@ -1097,6 +1107,7 @@ class ChargeController:
         self._stage_history.clear()
         self._reset_stage_metrics()
         self._reset_bank_fault_state()
+        self._reset_link_loss_state()
         self._stage_tracking_enabled = False
         self._reset_stage_metrics()
         self._reset_bank_fault_state()
@@ -2369,9 +2380,18 @@ class ChargeController:
             if self._last_known_output_on:
                 # Связь потеряна во время активного заряда: аварийно останавливаем,
                 # но не чистим файл сессии, чтобы можно было восстановиться после возврата связи.
-                msg = "⚠️ Связь потеряна во время заряда!"
-                actions["notify"] = msg
-                self.notify(msg)
+                should_notify = False
+                if self._link_loss_notice_count < 2:
+                    should_notify = True
+                elif now - self._link_loss_last_notice_at >= 3600:
+                    should_notify = True
+
+                if should_notify:
+                    self._link_loss_notice_count += 1
+                    self._link_loss_last_notice_at = now
+                    msg = "⚠️ Связь потеряна во время заряда!"
+                    actions["notify"] = msg
+                    self.notify(msg)
                 if self.is_active:
                     self.stop(clear_session=False)
             else:
@@ -2439,6 +2459,10 @@ class ChargeController:
         # Обновить последнее известное состояние выхода и сбросить флаг unavailable
         if output_is_on is not None and str(output_is_on).lower() not in ("unavailable", "unknown", ""):
             self._last_known_output_on = (output_is_on is True or str(output_is_on).lower() == "on")
+        if self._was_unavailable:
+            self._link_loss_notice_count = 0
+            self._link_loss_last_notice_at = 0.0
+            self._link_lost_at = 0.0
         self._was_unavailable = False
 
         if self.current_stage != self.STAGE_IDLE:
