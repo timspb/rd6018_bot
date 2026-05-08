@@ -141,8 +141,10 @@ python bot.py
 
 ```env
 TG_TOKEN=...
-HA_URL=http://homeassistant:8123
+HA_URL=https://192.168.1.102:8123
 HA_TOKEN=...
+HA_PREFER_LOCAL=1
+HA_INSECURE_LOCAL=1
 
 # Опционально
 DEEPSEEK_API_KEY=

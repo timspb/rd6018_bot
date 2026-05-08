@@ -2,11 +2,12 @@
 hass_api.py — асинхронный клиент Home Assistant API.
 """
 import logging
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-from config import ENTITY_MAP, HA_URL, HA_TOKEN
+from config import ENTITY_MAP, HA_INSECURE_LOCAL, HA_URL, HA_TOKEN
 
 logger = logging.getLogger("rd6018")
 
@@ -19,6 +20,14 @@ class HassClient:
         self.token = token or ""
         self._session: Optional[aiohttp.ClientSession] = None
         self._timeout = aiohttp.ClientTimeout(total=10)
+        self._disable_tls_verify = self._looks_like_local_url(self.base_url) and HA_INSECURE_LOCAL
+
+    @staticmethod
+    def _looks_like_local_url(base_url: str) -> bool:
+        if not base_url:
+            return False
+        host = (urlparse(base_url).hostname or "").lower()
+        return host in {"localhost", "127.0.0.1", "::1", "192.168.1.102"}
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -28,9 +37,11 @@ class HassClient:
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(ssl=False) if self._disable_tls_verify else None
             self._session = aiohttp.ClientSession(
                 headers=self._headers(),
                 timeout=self._timeout,
+                connector=connector,
             )
         return self._session
 

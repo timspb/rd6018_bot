@@ -7,11 +7,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
+
 # Telegram (поддержка TG_TOKEN и TELEGRAM_BOT_TOKEN)
 TG_TOKEN = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 
 # Home Assistant
 HA_URL = (os.getenv("HA_URL") or "").rstrip("/")
+HA_LOCAL_URL = (os.getenv("HA_LOCAL_URL") or "https://192.168.1.102:8123").rstrip("/")
+HA_PREFER_LOCAL = _as_bool(os.getenv("HA_PREFER_LOCAL"), default=True)
+HA_INSECURE_LOCAL = _as_bool(os.getenv("HA_INSECURE_LOCAL"), default=True)
+
+if HA_PREFER_LOCAL and ("rd.timspb.ru" in HA_URL or not HA_URL):
+    HA_URL = HA_LOCAL_URL
+
 HA_TOKEN = os.getenv("HA_TOKEN", "")
 
 # DeepSeek
