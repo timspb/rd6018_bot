@@ -14,6 +14,14 @@ DB_PATH = "rd6018.db"
 _db: Optional[aiosqlite.Connection] = None
 
 
+def _safe_float(value: Optional[float]) -> float:
+    """Безопасно преобразовать значение в float, возвращая 0.0 при ошибке или None."""
+    try:
+        return float(value) if value is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def get_db() -> aiosqlite.Connection:
     """Получить persistent соединение с БД (переиспользуемое между вызовами)."""
     global _db
@@ -37,36 +45,36 @@ async def close_db() -> None:
 
 async def init_db() -> None:
     """Создание таблиц при старте."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS sensor_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                voltage REAL,
-                current REAL,
-                power REAL,
-                temp_ext REAL
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS charge_sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                battery_type TEXT NOT NULL,
-                ah_capacity INTEGER NOT NULL,
-                start_time TEXT NOT NULL,
-                current_stage TEXT,
-                status TEXT DEFAULT 'active'
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS charge_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                message_text TEXT
-            )
-        """)
-        await db.commit()
-        logger.info("Database initialized: %s", DB_PATH)
+    db = await get_db()
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS sensor_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            voltage REAL,
+            current REAL,
+            power REAL,
+            temp_ext REAL
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS charge_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            battery_type TEXT NOT NULL,
+            ah_capacity INTEGER NOT NULL,
+            start_time TEXT NOT NULL,
+            current_stage TEXT,
+            status TEXT DEFAULT 'active'
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS charge_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            message_text TEXT
+        )
+    """)
+    await db.commit()
+    logger.info("Database initialized: %s", DB_PATH)
 
 
 async def cleanup_old_records() -> None:
@@ -130,23 +138,22 @@ async def get_history(
         if since_timestamp and since_timestamp > 0:
             since_iso = datetime.utcfromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            if since_iso:
-                # Сессия заряда: берём все точки от начала до конца (до ~24ч при замере каждые 30 с)
-                session_limit = min(limit * 50, 3000)
-                async with db.execute(
-                    """SELECT timestamp, voltage, current FROM sensor_history
-                       WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
-                    (since_iso, session_limit),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            else:
-                async with db.execute(
-                    "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
-                    (limit * 3,),
-                ) as cursor:
-                    rows = await cursor.fetchall()
+        db = await get_db()
+        if since_iso:
+            # Сессия заряда: берём все точки от начала до конца (до ~24ч при замере каждые 30 с)
+            session_limit = min(limit * 50, 3000)
+            async with db.execute(
+                """SELECT timestamp, voltage, current FROM sensor_history
+                   WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
+                (since_iso, session_limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            async with db.execute(
+                "SELECT timestamp, voltage, current FROM sensor_history ORDER BY id DESC LIMIT ?",
+                (limit * 3,),
+            ) as cursor:
+                rows = await cursor.fetchall()
 
         if not rows:
             return times, voltages, currents
@@ -161,17 +168,9 @@ async def get_history(
         raw_i: List[float] = []
         for r in rows:
             ts = r["timestamp"]
-            try:
-                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
-            except (TypeError, ValueError):
-                v = 0.0
-            try:
-                i = float(r["current"]) if r["current"] is not None else 0.0
-            except (TypeError, ValueError):
-                i = 0.0
             raw_times.append(ts if ts else "")
-            raw_v.append(v)
-            raw_i.append(i)
+            raw_v.append(_safe_float(r["voltage"]))
+            raw_i.append(_safe_float(r["current"]))
 
         # Downsample до limit точек
         n = len(raw_times)
@@ -232,22 +231,21 @@ async def get_graph_data_with_temp(
         if since_timestamp and since_timestamp > 0:
             since_iso = datetime.utcfromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            if since_iso:
-                session_limit = min(limit * 50, 3000)
-                async with db.execute(
-                    """SELECT timestamp, voltage, current, temp_ext FROM sensor_history
-                       WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
-                    (since_iso, session_limit),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            else:
-                async with db.execute(
-                    "SELECT timestamp, voltage, current, temp_ext FROM sensor_history ORDER BY id DESC LIMIT ?",
-                    (limit * 3,),
-                ) as cursor:
-                    rows = await cursor.fetchall()
+        db = await get_db()
+        if since_iso:
+            session_limit = min(limit * 50, 3000)
+            async with db.execute(
+                """SELECT timestamp, voltage, current, temp_ext FROM sensor_history
+                   WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
+                (since_iso, session_limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            async with db.execute(
+                "SELECT timestamp, voltage, current, temp_ext FROM sensor_history ORDER BY id DESC LIMIT ?",
+                (limit * 3,),
+            ) as cursor:
+                rows = await cursor.fetchall()
 
         if not rows:
             return times, voltages, currents, temps
@@ -261,22 +259,10 @@ async def get_graph_data_with_temp(
         raw_t: List[float] = []
         for r in rows:
             ts = r["timestamp"]
-            try:
-                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
-            except (TypeError, ValueError):
-                v = 0.0
-            try:
-                i = float(r["current"]) if r["current"] is not None else 0.0
-            except (TypeError, ValueError):
-                i = 0.0
-            try:
-                t = float(r["temp_ext"]) if r["temp_ext"] is not None else 0.0
-            except (TypeError, ValueError):
-                t = 0.0
             raw_times.append(ts if ts else "")
-            raw_v.append(v)
-            raw_i.append(i)
-            raw_t.append(t)
+            raw_v.append(_safe_float(r["voltage"]))
+            raw_i.append(_safe_float(r["current"]))
+            raw_t.append(_safe_float(r["temp_ext"]))
 
         n = len(raw_times)
         if n <= limit:
@@ -309,13 +295,12 @@ async def get_logs_data(limit: int = 5) -> Tuple[List[str], List[float], List[fl
     temps: List[float] = []
 
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT timestamp, voltage, current, temp_ext FROM sensor_history ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ) as cursor:
-                rows = await cursor.fetchall()
+        db = await get_db()
+        async with db.execute(
+            "SELECT timestamp, voltage, current, temp_ext FROM sensor_history ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
 
         if not rows:
             return times, voltages, currents, temps
@@ -323,22 +308,10 @@ async def get_logs_data(limit: int = 5) -> Tuple[List[str], List[float], List[fl
         rows = list(reversed(rows))
         for r in rows:
             ts = r["timestamp"] if r["timestamp"] else ""
-            try:
-                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
-            except (TypeError, ValueError):
-                v = 0.0
-            try:
-                i = float(r["current"]) if r["current"] is not None else 0.0
-            except (TypeError, ValueError):
-                i = 0.0
-            try:
-                t = float(r["temp_ext"]) if r["temp_ext"] is not None else 0.0
-            except (TypeError, ValueError):
-                t = 0.0
             times.append(ts)
-            voltages.append(v)
-            currents.append(i)
-            temps.append(t)
+            voltages.append(_safe_float(r["voltage"]))
+            currents.append(_safe_float(r["current"]))
+            temps.append(_safe_float(r["temp_ext"]))
 
         return times, voltages, currents, temps
     except Exception as ex:
@@ -361,14 +334,13 @@ async def get_raw_history(
 
     try:
         since = (datetime.utcnow() - timedelta(minutes=max_minutes)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """SELECT timestamp, voltage, current FROM sensor_history
-                   WHERE timestamp >= ? ORDER BY id DESC LIMIT ?""",
-                (since, limit),
-            ) as cursor:
-                rows = await cursor.fetchall()
+        db = await get_db()
+        async with db.execute(
+            """SELECT timestamp, voltage, current FROM sensor_history
+               WHERE timestamp >= ? ORDER BY id DESC LIMIT ?""",
+            (since, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
 
         if not rows:
             return times, voltages, currents
@@ -376,17 +348,9 @@ async def get_raw_history(
         rows = list(reversed(rows))
         for r in rows:
             ts = r["timestamp"] if r["timestamp"] else ""
-            try:
-                v = float(r["voltage"]) if r["voltage"] is not None else 0.0
-            except (TypeError, ValueError):
-                v = 0.0
-            try:
-                i = float(r["current"]) if r["current"] is not None else 0.0
-            except (TypeError, ValueError):
-                i = 0.0
             times.append(ts)
-            voltages.append(v)
-            currents.append(i)
+            voltages.append(_safe_float(r["voltage"]))
+            currents.append(_safe_float(r["current"]))
 
         return times, voltages, currents
     except Exception as ex:
