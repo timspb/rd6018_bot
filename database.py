@@ -11,6 +11,29 @@ logger = logging.getLogger("rd6018")
 
 DB_PATH = "rd6018.db"
 
+_db: Optional[aiosqlite.Connection] = None
+
+
+async def get_db() -> aiosqlite.Connection:
+    """Получить persistent соединение с БД (переиспользуемое между вызовами)."""
+    global _db
+    if _db is None:
+        _db = await aiosqlite.connect(DB_PATH)
+        _db.row_factory = aiosqlite.Row
+    return _db
+
+
+async def close_db() -> None:
+    """Закрыть persistent соединение при shutdown бота."""
+    global _db
+    if _db is not None:
+        try:
+            await _db.close()
+        except Exception:
+            pass
+        _db = None
+
+
 
 async def init_db() -> None:
     """Создание таблиц при старте."""
@@ -49,24 +72,24 @@ async def init_db() -> None:
 async def cleanup_old_records() -> None:
     """Очистка записей старше 30 дней (месяц) для экономии места на сервере. Сравнение по UTC."""
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            cutoff_time = datetime.utcnow() - timedelta(days=30)
-            cutoff_iso = cutoff_time.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+        db = await get_db()
+        cutoff_time = datetime.utcnow() - timedelta(days=30)
+        cutoff_iso = cutoff_time.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
-            await db.execute("DELETE FROM sensor_history WHERE timestamp < ?", (cutoff_iso,))
-            await db.execute("DELETE FROM charge_log WHERE timestamp < ?", (cutoff_iso,))
-            
-            # Оставляем только последние 100 завершенных сессий
-            await db.execute("""
-                DELETE FROM charge_sessions 
-                WHERE id NOT IN (
-                    SELECT id FROM charge_sessions 
-                    ORDER BY id DESC LIMIT 100
-                )
-            """)
-            
-            await db.commit()
-            logger.info("Database cleanup completed")
+        await db.execute("DELETE FROM sensor_history WHERE timestamp < ?", (cutoff_iso,))
+        await db.execute("DELETE FROM charge_log WHERE timestamp < ?", (cutoff_iso,))
+
+        # Оставляем только последние 100 завершенных сессий
+        await db.execute("""
+            DELETE FROM charge_sessions
+            WHERE id NOT IN (
+                SELECT id FROM charge_sessions
+                ORDER BY id DESC LIMIT 100
+            )
+        """)
+
+        await db.commit()
+        logger.info("Database cleanup completed")
     except Exception as ex:
         logger.error("Database cleanup failed: %s", ex)
 
@@ -79,12 +102,12 @@ def _utc_iso() -> str:
 async def add_record(v: float, i: float, p: float, t: float) -> None:
     """Добавить запись в sensor_history (timestamp в UTC)."""
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT INTO sensor_history (timestamp, voltage, current, power, temp_ext) VALUES (?, ?, ?, ?, ?)",
-                (_utc_iso(), v, i, p, t),
-            )
-            await db.commit()
+        db = await get_db()
+        await db.execute(
+            "INSERT INTO sensor_history (timestamp, voltage, current, power, temp_ext) VALUES (?, ?, ?, ?, ?)",
+            (_utc_iso(), v, i, p, t),
+        )
+        await db.commit()
     except Exception as ex:
         logger.error("add_record failed: %s", ex)
 
@@ -173,12 +196,12 @@ async def get_history(
 async def add_charge_log(message: str) -> None:
     """Добавить запись в charge_log."""
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT INTO charge_log (timestamp, message_text) VALUES (?, ?)",
-                (_utc_iso(), message),
-            )
-            await db.commit()
+        db = await get_db()
+        await db.execute(
+            "INSERT INTO charge_log (timestamp, message_text) VALUES (?, ?)",
+            (_utc_iso(), message),
+        )
+        await db.commit()
     except Exception as ex:
         logger.error("add_charge_log failed: %s", ex)
 

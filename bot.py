@@ -58,8 +58,6 @@ from database import add_record, cleanup_old_records, get_graph_data_with_temp, 
 from graphing import generate_chart
 from hass_api import HassClient
 from time_utils import format_time_user_tz
-from concurrent.futures import ThreadPoolExecutor
-import requests
 import html
 
 logging.basicConfig(
@@ -81,49 +79,6 @@ router = Router()
 hass = HassClient(HA_URL, HA_TOKEN)
 
 # Executor для блокирующих операций (DeepSeek API)
-executor = ThreadPoolExecutor(max_workers=2)
-
-
-def _call_deepseek_sync(system_prompt: str, user_prompt: str) -> str:
-    """Синхронный вызов DeepSeek API для использования в executor."""
-    try:
-        url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "max_tokens": 512,
-            "temperature": 0.3,
-        }
-        
-        response = requests.post(
-            url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            timeout=20
-        )
-        
-        if response.status_code != 200:
-            return f"ERROR: API вернул статус {response.status_code}"
-        
-        data = response.json()
-        choices = data.get("choices", [])
-        if not choices:
-            return "ERROR: Пустой ответ от DeepSeek API"
-        
-        ai_response = choices[0].get("message", {}).get("content", "").strip()
-        return ai_response or "ERROR: Пустой контент от AI"
-        
-    except Exception as ex:
-        logger.error("DeepSeek sync call failed: %s", ex)
-        return f"ERROR: Ошибка при обращении к AI - {ex}"
-
-
 def _charge_notify(msg: str, critical: bool = True) -> None:
     """Отправка уведомления в Telegram. critical=True — после него дашборд только по кнопке ОБНОВИТЬ; critical=False — сразу шлём дашборд последним сообщением."""
     global last_chat_id
@@ -1741,7 +1696,7 @@ async def _build_and_send_dashboard(
         idle_warning = "🟡 Данные дашборда частично недоступны"
     chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
     times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
-    buf = generate_chart(times, voltages, currents, temps)
+    buf = await asyncio.to_thread(generate_chart, times, voltages, currents, temps)
     photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
 
     ikb = _build_dashboard_keyboard(is_on, user_id)
@@ -2976,9 +2931,18 @@ async def handle_dialog_mode(message: Message) -> None:
 3. Не называй ток "минимальным", если hold-снимок не активен или rule_met = NO.
 4. Не делай общих прогнозов и не уходи в рассуждения.
 5. Если данных не хватает, скажи это прямо."""
-        ai_response = await asyncio.get_event_loop().run_in_executor(
-            executor, _call_deepseek_sync, system_prompt, user_prompt
-        )
+        ai_response = await ask_deepseek({
+            "times": [],
+            "voltages": [],
+            "currents": [],
+            "ai_context": await get_ai_context_dict(),
+            "controller_snapshot": charge_controller.get_snapshot() if hasattr(charge_controller, 'get_snapshot') else {},
+            "recent_events": get_recent_events(8),
+            "trend_summary": "",
+            "user_question": user_question,
+            "system_prompt_override": system_prompt,
+            "user_prompt_override": user_prompt,
+        })
         
         if ai_response.startswith("ERROR:"):
             await thinking_msg.edit_text(f"🤖 {ai_response}")
@@ -3536,7 +3500,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
         user_id = call.from_user.id if call.from_user else 0
         chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
         times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
-        buf = generate_chart(times, voltages, currents, temps)
+        buf = await asyncio.to_thread(generate_chart, times, voltages, currents, temps)
         photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
         is_on = str(live.get("switch", "")).lower() == "on"
         ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
@@ -3865,9 +3829,45 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
     schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
+
+
+
+async def _periodic_db_cleanup() -> None:
+    """Фоновая очистка БД раз в 24 часа."""
+    while True:
+        await asyncio.sleep(24 * 3600)
+        try:
+            from database import cleanup_old_records
+            await cleanup_old_records()
+        except Exception as ex:
+            logger.error("Periodic DB cleanup failed: %s", ex)
+
+
+
+async def on_shutdown(dispatcher: Dispatcher) -> None:
+    """Graceful shutdown: закрыть HA-сессию, БД, сохранить сессию заряда."""
+    logger.info("Shutting down gracefully...")
+    try:
+        if charge_controller.is_active:
+            charge_controller._save_session(0.0, 0.0, 0.0)
+    except Exception as ex:
+        logger.warning("Failed to save session on shutdown: %s", ex)
+    try:
+        await hass.close()
+    except Exception:
+        pass
+    try:
+        from database import close_db
+        await close_db()
+    except Exception:
+        pass
+    logger.info("Shutdown complete.")
+
+
 async def main() -> None:
     await init_db()
     rotate_if_needed()
+    asyncio.create_task(_periodic_db_cleanup())
     # Очистка журнала событий от записей старше 30 дней
     try:
         n = trim_log_older_than_days(30)
@@ -3946,6 +3946,7 @@ async def main() -> None:
     asyncio.create_task(watchdog_loop())
     logger.info("RD6018 bot starting")
     logger.info("Если появится TelegramConflictError — запущен ещё один экземпляр бота. Остановите все кроме одного: pgrep -af 'bot.py' && kill <PID>")
+    dp.shutdown.register(on_shutdown)
     try:
         await dp.start_polling(bot)
     finally:

@@ -294,6 +294,52 @@ async def ask_deepseek(history_data: Dict[str, Any]) -> str:
     if not DEEPSEEK_API_KEY:
         return "DeepSeek API ключ не настроен."
 
+    # Проверяем override-промпты для диалогового режима
+    system_prompt_override = history_data.get("system_prompt_override")
+    user_prompt_override = history_data.get("user_prompt_override")
+
+    # Если есть user_prompt_override — это диалоговый режим, не требуем историю
+    if user_prompt_override:
+        system_content = system_prompt_override or AI_CONSULTANT_SYSTEM_PROMPT
+        url = f"{DEEPSEEK_BASE_URL.rstrip('/')}/v1/chat/completions"
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_prompt_override},
+            ],
+            "max_tokens": 512,
+            "temperature": 0.2,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.error("DeepSeek API error %d: %s", resp.status, text[:200])
+                        return "Ошибка запроса к AI. Попробуйте позже."
+                    data = await resp.json()
+                    choices = data.get("choices", [])
+                    if not choices:
+                        return "Пустой ответ от AI."
+                    msg = choices[0].get("message", {})
+                    return msg.get("content", "Пустой ответ.").strip()
+        except aiohttp.ClientError as ex:
+            logger.error("DeepSeek request failed: %s", ex)
+            return "Нет связи с AI. Проверьте сеть и API ключ."
+        except Exception as ex:
+            logger.error("ask_deepseek failed: %s", ex)
+            return f"Ошибка: {ex}"
+
+    # Стандартный режим анализа — требуем историю
     times = history_data.get("times", [])
     voltages = history_data.get("voltages", [])
     currents = history_data.get("currents", [])

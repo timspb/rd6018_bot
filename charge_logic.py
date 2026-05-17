@@ -11,7 +11,7 @@ import os
 import time
 from collections import deque
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 from config import MAX_VOLTAGE
 from charging_log import log_session_header
@@ -540,20 +540,18 @@ class ChargeController:
         self._blanking_until = now + DELTA_MONITOR_DELAY_SEC
         self._delta_monitor_after = now + DELTA_MONITOR_DELAY_SEC
 
-    def start(self, battery_type: str, ah_capacity: int) -> None:
-        """Запуск заряда по профилю."""
-        # v2.6 Сброс данных сессии при старте нового заряда
+    def _init_session(self, battery_type: str, ah_capacity: int, start_stage: str) -> None:
+        """Общая инициализация сессии для start() и start_custom(). Устраняет дублирование."""
         self.reset_session_data()
-        
         self.battery_type = battery_type
         self.ah_capacity = max(1, ah_capacity)
         self._stage_tracking_enabled = True
-        self.current_stage = self.STAGE_PREP
+        self.current_stage = start_stage
         self.stage_start_time = time.time()
-        self._stage_start_ah = 0.0  # будет установлен при первом tick()
+        self._stage_start_ah = 0.0
         self._reset_stage_metrics()
         self._reset_bank_fault_state()
-        self.total_start_time = self.stage_start_time  # v2.6: фиксируем общий старт сессии
+        self.total_start_time = self.stage_start_time
         self.antisulfate_count = 0
         self.v_max_recorded = None
         self.i_min_recorded = None
@@ -566,6 +564,9 @@ class ChargeController:
         self._stuck_current_value = None
         self.emergency_hv_disconnect = False
         self._temp_warning_alerted = False
+        self._cooling_from_stage = None
+        self._cooling_target_v = 0.0
+        self._cooling_target_i = 0.0
         self._pending_log_event = None
         self._safe_wait_next_stage = None
         self._safe_wait_target_v = 0.0
@@ -586,6 +587,12 @@ class ChargeController:
         self._stage_history.clear()
         self._clear_restored_targets()
         self._clear_session_file()
+
+
+    def start(self, battery_type: str, ah_capacity: int) -> None:
+        """Запуск заряда по профилю."""
+
+        self._init_session(battery_type, ah_capacity, self.STAGE_PREP)
         target_v, target_i = self._get_target_v_i()
         log_session_header(
             "start",
@@ -608,62 +615,14 @@ class ChargeController:
     def start_custom(self, main_voltage: float, main_current: float, delta_threshold: float, 
                     time_limit_hours: float, ah_capacity: int) -> None:
         """Запуск заряда в ручном режиме с пользовательскими параметрами."""
-        # Сброс данных сессии при старте нового заряда
-        self.reset_session_data()
-        
-        self.battery_type = self.PROFILE_CUSTOM
-        self.ah_capacity = max(1, ah_capacity)
-        self._stage_tracking_enabled = True
-        self.current_stage = self.STAGE_MAIN  # Ручной режим сразу начинает с MAIN
-        self.stage_start_time = time.time()
-        self._stage_start_ah = 0.0  # будет установлен при первом tick()
-        self._reset_stage_metrics()
-        self._reset_bank_fault_state()
-        self.total_start_time = self.stage_start_time
-        
-        # Сохраняем пользовательские параметры
+        self._init_session(self.PROFILE_CUSTOM, ah_capacity, self.STAGE_MAIN)
         self._custom_main_voltage = main_voltage
         self._custom_main_current = min(MAX_STAGE_CURRENT, max(0.1, main_current))
         self._custom_delta_threshold = delta_threshold
-        self._custom_time_limit_hours = max(1.0, time_limit_hours)  # Минимум 1 час
-        
-        # Сброс всех счетчиков и флагов
-        self.antisulfate_count = 0
-        self.v_max_recorded = None
-        self.i_min_recorded = None
-        self.finish_timer_start = None
-        self._phantom_alerted = False
-        self.temp_history.clear()
-        self._agm_stage_idx = 0
-        self._delta_reported = False
-        self._stuck_current_since = None
-        self._stuck_current_value = None
-        self.emergency_hv_disconnect = False
-        self._temp_warning_alerted = False
-        self._cooling_from_stage = None
-        self._cooling_target_v = 0.0
-        self._cooling_target_i = 0.0
-        self._pending_log_event = None
-        self._safe_wait_next_stage = None
-        self._safe_wait_target_v = 0.0
-        self._safe_wait_target_i = 0.0
-        self._safe_wait_start = 0.0
+        self._custom_time_limit_hours = max(1.0, time_limit_hours)
         self._blanking_until = time.time() + DELTA_MONITOR_DELAY_SEC
         self._delta_monitor_after = time.time() + DELTA_MONITOR_DELAY_SEC
-        self._first_stage_hold_since = None
-        self._first_stage_hold_current = None
-        self._delta_trigger_count = 0
-        self._last_delta_confirm_time = 0.0
-        self._cv_since = None
         self._session_start_reason = "Custom Mode"
-        self._temp_comp_last_update_time = 0.0
-        self._temp_comp_last_temp = None
-        self._reset_link_loss_state()
-        self.previous_stage = None
-        self._last_transition_reason = ""
-        self._stage_history.clear()
-        self._clear_restored_targets()
-        self._clear_session_file()
         target_v, target_i = self._get_target_v_i()
         log_session_header(
             "start",

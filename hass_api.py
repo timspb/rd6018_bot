@@ -1,6 +1,7 @@
 """
 hass_api.py — асинхронный клиент Home Assistant API.
 """
+import asyncio
 import logging
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
@@ -85,11 +86,12 @@ class HassClient:
             return None, {}
 
     async def get_states(self, entity_ids: List[str]) -> Dict[str, Tuple[Any, Dict]]:
-        """Получить состояния нескольких сущностей (параллельно)."""
-        result: Dict[str, Tuple[Any, Dict]] = {}
-        for eid in entity_ids:
-            result[eid] = await self.get_state(eid)
-        return result
+        """Получить состояния нескольких сущностей (параллельно через asyncio.gather)."""
+        async def _get_one(eid: str) -> Tuple[str, Tuple[Any, Dict]]:
+            return eid, await self.get_state(eid)
+
+        results = await asyncio.gather(*[_get_one(eid) for eid in entity_ids])
+        return {eid: state for eid, state in results}
 
     async def set_value(self, entity_id: str, value: Any) -> bool:
         """Установить значение number.* через number.set_value."""
@@ -157,10 +159,57 @@ class HassClient:
             logger.error("HA turn_off %s: %s", eid, ex)
             return False
 
+
+
+    async def _fetch_all_states_bulk(self) -> Optional[Dict[str, Any]]:
+        """Получить все сущности HA одним запросом /api/states."""
+        if not self.base_url or not self.token:
+            return None
+        try:
+            session = await self._ensure_session()
+            async with session.get(f"{self.base_url}/api/states") as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return {e["entity_id"]: e for e in data}
+        except Exception as ex:
+            logger.warning("HA bulk /api/states failed: %s", ex)
+            return None
+
+    @staticmethod
+    def _parse_entity_state(ent: Dict[str, Any]) -> Tuple[Any, str]:
+        """Извлечь и распарсить state из entity dict."""
+        state = ent.get("state")
+        if state is None or state == "":
+            return state, "unknown"
+        if str(state).lower() in ("unavailable", "unknown"):
+            return state, str(state).lower()
+        if state not in ("unknown", "unavailable", ""):
+            try:
+                state = float(state)
+            except (ValueError, TypeError):
+                pass
+        return state, "ok"
+
     async def get_all_live(self) -> Dict[str, Any]:
-        """Получить все live-данные для дашборда."""
+        """Получить все live-данные для дашборда. Bulk-запрос + fallback."""
         keys = ["voltage", "battery_voltage", "current", "power", "ah", "wh", "temp_int", "temp_ext", "is_cv", "is_cc", "battery_mode", "keypad_lock", "ovp_triggered", "ocp_triggered", "switch", "set_voltage", "set_current", "ovp", "ocp", "backlight", "input_voltage", "uptime"]
         result: Dict[str, Any] = {}
+
+        bulk = await self._fetch_all_states_bulk()
+        if bulk is not None:
+            for key in keys:
+                eid = ENTITY_MAP.get(key)
+                if not eid:
+                    continue
+                ent = bulk.get(eid)
+                if ent is None:
+                    result[key] = None
+                    continue
+                state, _ = self._parse_entity_state(ent)
+                result[key] = state
+            return result
+
         for key in keys:
             eid = ENTITY_MAP.get(key)
             if not eid:
@@ -170,13 +219,11 @@ class HassClient:
         return result
 
     async def get_entities_status(self) -> List[Dict[str, Any]]:
-        """
-        Опросить статус всех сущностей из ENTITY_MAP.
-        Возвращает список словарей: key, entity_id, state, status, unit, friendly_name.
-        status: "ok" | "unavailable" | "unknown" | "error"
-        """
+        """Опросить статус всех сущностей из ENTITY_MAP. Bulk + fallback."""
         if not self.base_url or not self.token:
             return []
+
+        bulk = await self._fetch_all_states_bulk()
 
         result: List[Dict[str, Any]] = []
         for key, entity_id in ENTITY_MAP.items():
@@ -188,29 +235,43 @@ class HassClient:
                 "unit": "",
                 "friendly_name": entity_id.split(".")[-1].replace("_", " "),
             }
-            try:
-                url = f"{self.base_url}/api/states/{entity_id}"
-                session = await self._ensure_session()
-                async with session.get(url) as resp:
-                    if resp.status != 200:
-                        entry["status"] = "error"
-                        entry["state"] = f"HTTP {resp.status}"
-                        result.append(entry)
-                        continue
-                    data = await resp.json()
-                    state = data.get("state")
-                    attrs = data.get("attributes", {})
-                    entry["state"] = state
-                    entry["unit"] = attrs.get("unit_of_measurement", "")
-                    entry["friendly_name"] = attrs.get("friendly_name", entry["friendly_name"])
-                    if state is None or state == "":
-                        entry["status"] = "unknown"
-                    elif str(state).lower() in ("unavailable", "unknown"):
-                        entry["status"] = str(state).lower()
-                    else:
-                        entry["status"] = "ok"
-            except Exception as ex:
-                entry["status"] = "error"
-                entry["state"] = str(ex)[:50]
+
+            ent = bulk.get(entity_id) if bulk else None
+            if ent is not None:
+                state = ent.get("state")
+                attrs = ent.get("attributes", {})
+                entry["state"] = state
+                entry["unit"] = attrs.get("unit_of_measurement", "")
+                entry["friendly_name"] = attrs.get("friendly_name", entry["friendly_name"])
+                if state is None or state == "":
+                    entry["status"] = "unknown"
+                elif str(state).lower() in ("unavailable", "unknown"):
+                    entry["status"] = str(state).lower()
+                else:
+                    entry["status"] = "ok"
+            else:
+                try:
+                    url = f"{self.base_url}/api/states/{entity_id}"
+                    session = await self._ensure_session()
+                    async with session.get(url) as resp:
+                        if resp.status != 200:
+                            entry["status"] = "error"
+                            entry["state"] = f"HTTP {resp.status}"
+                        else:
+                            data = await resp.json()
+                            state = data.get("state")
+                            attrs = data.get("attributes", {})
+                            entry["state"] = state
+                            entry["unit"] = attrs.get("unit_of_measurement", "")
+                            entry["friendly_name"] = attrs.get("friendly_name", entry["friendly_name"])
+                            if state is None or state == "":
+                                entry["status"] = "unknown"
+                            elif str(state).lower() in ("unavailable", "unknown"):
+                                entry["status"] = str(state).lower()
+                            else:
+                                entry["status"] = "ok"
+                except Exception as ex:
+                    entry["status"] = "error"
+                    entry["state"] = str(ex)[:50]
             result.append(entry)
         return result
