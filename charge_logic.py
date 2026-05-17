@@ -1042,8 +1042,6 @@ class ChargeController:
         self._reset_bank_fault_state()
         self._reset_link_loss_state()
         self._stage_tracking_enabled = False
-        self._reset_stage_metrics()
-        self._reset_bank_fault_state()
         
         # Очистка временного лога событий (если будет реализован)
         # self._event_log.clear()  # TODO: добавить когда будет event log
@@ -1068,8 +1066,6 @@ class ChargeController:
         self._reset_bank_fault_state()
         self._reset_link_loss_state()
         self._stage_tracking_enabled = False
-        self._reset_stage_metrics()
-        self._reset_bank_fault_state()
 
     @property
     def is_active(self) -> bool:

@@ -3642,6 +3642,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         battery_v = _safe_float(live.get("battery_voltage"))
         i = _safe_float(live.get("current"))
         ah = _safe_float(live.get("ah"))
+        temp_ext = _safe_float(live.get("temp_ext"))
         ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
@@ -3657,7 +3658,7 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
                 await hass.set_current(_cap_current(ui))
                 await hass.turn_off(ENTITY_MAP["switch"])
             else:
-                uv, ui = charge_controller._get_target_v_i(t)
+                uv, ui = charge_controller._get_target_v_i(temp_ext)
                 await _apply_phase_protection(uv, ui)
                 await hass.set_voltage(uv)
                 await hass.set_current(_cap_current(ui))
