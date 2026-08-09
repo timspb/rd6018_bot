@@ -165,6 +165,8 @@ class ChargeController:
         self._agm_stage_idx: int = 0
         self._delta_reported: bool = False
         self.is_cv: bool = False
+        self.is_cc: bool = False
+        self._delta_trigger_mode: Optional[str] = None
         self._stuck_current_since: Optional[float] = None  # когда ток впервые вышел на полку выше порога десульфации
         self._stuck_current_value: Optional[float] = None  # минимум тока на текущей полке; новый минимум сбрасывает таймер
         self.last_update_time: float = 0.0  # время последнего вызова tick() — для watchdog
@@ -533,6 +535,7 @@ class ChargeController:
         self.v_max_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
+        self._delta_trigger_mode = None
         self._first_stage_hold_since = None
         self._first_stage_hold_current = None
         self._stuck_current_since = None
@@ -560,6 +563,7 @@ class ChargeController:
         self.temp_history.clear()
         self._agm_stage_idx = 0
         self._delta_reported = False
+        self._delta_trigger_mode = None
         self._stuck_current_since = None
         self._stuck_current_value = None
         self.emergency_hv_disconnect = False
@@ -1054,6 +1058,7 @@ class ChargeController:
         self.finish_timer_start = None
         self._phantom_alerted = False
         self._delta_reported = False
+        self._delta_trigger_mode = None
         self._stuck_current_since = None
         self._stuck_current_value = None
         self._safe_wait_next_stage = None
@@ -2273,11 +2278,24 @@ class ChargeController:
             return None
         return min(eta, 48 * 3600.0)
 
-    def _check_delta_finish(self, v_now: float, i_now: float) -> bool:
-        """Проверка условий выхода из Mix (Delta V или Delta I)."""
-        if self._exit_cc_condition(v_now):
+    def _check_delta_finish(
+        self,
+        v_now: float,
+        i_now: float,
+        *,
+        is_cv: Optional[bool] = None,
+        is_cc: Optional[bool] = None,
+    ) -> bool:
+        """Проверять Delta только по подтверждённому режиму RD6018."""
+        if is_cv is None:
+            is_cv = self.is_cv
+        if is_cc is None:
+            # Совместимость со старыми прямыми вызовами: до появления явного
+            # флага CC !CV трактовался как CC. Production передаёт is_cc.
+            is_cc = not bool(is_cv)
+        if is_cc and self._exit_cc_condition(v_now):
             return True
-        if self._exit_cv_condition(i_now):
+        if is_cv and self._exit_cv_condition(i_now):
             return True
         return False
 
@@ -2311,6 +2329,7 @@ class ChargeController:
         ah: float,
         output_is_on: Optional[Any] = None,
         manual_off_active: bool = False,
+        is_cc: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Основной цикл. Вызывается из фоновой задачи каждые 30 сек.
@@ -2324,6 +2343,10 @@ class ChargeController:
         Используется для расчёта дельты (спад 0.03В) и порогов перехода фаз.
         """
         actions: Dict[str, Any] = {}
+        if is_cc is None:
+            is_cc = not bool(is_cv)
+        self.is_cv = bool(is_cv)
+        self.is_cc = bool(is_cc)
         now = time.time()
         self.last_update_time = now
 
@@ -2482,8 +2505,6 @@ class ChargeController:
             else:
                 self.notify(report)
 
-        self.is_cv = is_cv
-        
         # v2.5: Отслеживание времени в CV-режиме для правила 40 минут
         if is_cv:
             if self._cv_since is None:
@@ -2994,29 +3015,32 @@ class ChargeController:
                     self.i_min_recorded = current
 
                 # Подтверждение: триггер срабатывает только если условие 3 замера подряд с интервалом 1 мин
-                if self._check_delta_finish(voltage, current):
+                if self._check_delta_finish(voltage, current, is_cv=is_cv, is_cc=is_cc):
                     if now - self._last_delta_confirm_time >= TRIGGER_CONFIRM_INTERVAL_SEC:
                         self._last_delta_confirm_time = now
                         self._delta_trigger_count += 1
                 else:
                     self._delta_trigger_count = 0
 
-            if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT and self._check_delta_finish(voltage, current):
+            if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT and self._check_delta_finish(
+                voltage, current, is_cv=is_cv, is_cc=is_cc
+            ):
                 if not self._delta_reported:
                     self._delta_reported = True
                     self.finish_timer_start = now
+                    self._delta_trigger_mode = "CC" if is_cc else ("CV" if is_cv else None)
                     v_peak = self.v_max_recorded or voltage
                     i_min = self.i_min_recorded or current
                     trigger_msg = ""
                     reason_log = ""
-                    if self._exit_cc_condition(voltage):
+                    if is_cc and self._exit_cc_condition(voltage):
                         delta_v = v_peak - voltage
                         trigger_msg = (
                             f"🎯 Триггер достигнут: V_max было {v_peak:.2f}В, "
                             f"текущее {voltage:.2f}В. Дельта {delta_v:.3f}В зафиксирована."
                         )
                         reason_log = f"Дельта V: спад от пика (Порог: {DELTA_V_EXIT}В, V_max={v_peak:.2f}В, Текущий={voltage:.2f}В, Подтверждено: {self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT})"
-                    elif self._exit_cv_condition(current):
+                    elif is_cv and self._exit_cv_condition(current):
                         delta_i_threshold = self._mix_current_delta_threshold()
                         delta_i = current - i_min
                         trigger_msg = (
@@ -3031,26 +3055,30 @@ class ChargeController:
                         "Условие выполнено. Таймер 2ч."
                     )
                     # v2.5: расширенное логирование Delta для лог-файла
-                    if self._exit_cc_condition(voltage):
+                    if is_cc and self._exit_cc_condition(voltage):
                         delta_v = v_peak - voltage
                         actions["log_event"] = (
-                            f"└ Дельта V: V_max={v_peak:.2f}В, dV={delta_v:.3f}В"
+                            f"└ Дельта V [CC]: V_max={v_peak:.2f}В, V={voltage:.2f}В, "
+                            f"dV={delta_v:.3f}В, I={current:.2f}А, T={temp:.1f}°C"
                         )
-                    elif self._exit_cv_condition(current):
+                    elif is_cv and self._exit_cv_condition(current):
                         delta_i_threshold = self._mix_current_delta_threshold()
                         delta_i = current - i_min
                         actions["log_event"] = (
-                            f"└ Дельта I: I_min={i_min:.2f}А, dI={delta_i:.3f}А, порог={delta_i_threshold:.2f}А"
+                            f"└ Дельта I [CV]: I_min={i_min:.2f}А, I={current:.2f}А, "
+                            f"dI={delta_i:.3f}А, порог={delta_i_threshold:.2f}А, "
+                            f"V={voltage:.2f}В, T={temp:.1f}°C"
                         )
                     else:
                         actions["log_event"] = f"└ {trigger_msg[:50]}"
                 if self.finish_timer_start and (now - self.finish_timer_start) >= MIX_DONE_TIMER:
                     v_peak = self.v_max_recorded or voltage
                     i_min = self.i_min_recorded or current
+                    delta_mode = self._delta_trigger_mode
                     trigger_desc = "Таймер 2ч после Delta"
-                    if self._exit_cc_condition(voltage):
+                    if delta_mode == "CC" and self._exit_cc_condition(voltage):
                         trigger_desc = f"ΔV≥{DELTA_V_EXIT}В, V_max={v_peak:.2f}В"
-                    elif self._exit_cv_condition(current) and i_min is not None:
+                    elif delta_mode == "CV" and self._exit_cv_condition(current) and i_min is not None:
                         trigger_desc = f"ΔI≥{self._mix_current_delta_threshold():.2f}А, I_min={i_min:.2f}А"
                     actions["log_event_end"] = self._make_log_event_end(
                         now, ah, voltage, current, temp, trigger_desc

@@ -81,9 +81,18 @@ hass = HassClient(HA_URL, HA_TOKEN)
 # Executor для блокирующих операций (DeepSeek API)
 def _charge_notify(msg: str, critical: bool = True) -> None:
     """Отправка уведомления в Telegram. critical=True — после него дашборд только по кнопке ОБНОВИТЬ; critical=False — сразу шлём дашборд последним сообщением."""
-    global last_chat_id
+    global last_chat_id, last_notification_signature, last_notification_at
     if last_chat_id and msg:
-        asyncio.create_task(_send_notify_safe(msg, critical))
+        enriched = msg
+        if last_live_context and "📊 Факт:" not in msg:
+            enriched = f"{msg}\n\n{last_live_context}"
+        signature = msg.strip()
+        now = time.time()
+        if signature == last_notification_signature and now - last_notification_at < 5:
+            return
+        last_notification_signature = signature
+        last_notification_at = now
+        asyncio.create_task(_send_notify_safe(enriched, critical))
 
 
 async def _send_notify_safe(msg: str, critical: bool = True) -> None:
@@ -191,6 +200,9 @@ user_chart_range: Dict[int, str] = {}
 _action_debounce_until: Dict[str, float] = {}
 last_chat_id: Optional[int] = None
 last_user_id: Optional[int] = None
+last_live_context: str = ""
+last_notification_signature: str = ""
+last_notification_at: float = 0.0
 last_charge_alert_at: Optional[datetime] = None
 last_idle_alert_at: Optional[datetime] = None
 zero_current_since: Optional[datetime] = None
@@ -1908,11 +1920,7 @@ async def charge_monitor() -> None:
                         )
                         logger.info("Charge monitor (idle): %s", msg)
                         last_idle_alert_at = now
-                        if last_chat_id:
-                            try:
-                                await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
-                            except Exception:
-                                pass
+                        _charge_notify(msg)
             else:
                 zero_current_since = None
 
@@ -1928,11 +1936,7 @@ async def charge_monitor() -> None:
                 )
                 logger.info("Charge monitor: %s", msg)
                 last_charge_alert_at = now
-                if last_chat_id:
-                    try:
-                        await bot.send_message(last_chat_id, msg, parse_mode=ParseMode.HTML)
-                    except Exception:
-                        pass
+                _charge_notify(msg)
         except Exception as ex:
             logger.error("charge_monitor (сеть/ошибка): %s", ex)
             await asyncio.sleep(60)
@@ -1940,7 +1944,7 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent
+    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent, last_live_context
     last_cleanup_time = 0.0
     
     while True:
@@ -1957,6 +1961,7 @@ async def data_logger() -> None:
             t = _safe_float(temp_ext)
             ah = _safe_float(live.get("ah"))
             is_cv = str(live.get("is_cv", "")).lower() == "on"
+            is_cc = str(live.get("is_cc", "")).lower() == "on"
             output_switch = live.get("switch")
             output_on = str(output_switch or "").lower() == "on"
             ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
@@ -1964,6 +1969,11 @@ async def data_logger() -> None:
             battery_mode = str(live.get("battery_mode", "")).lower() == "on"
             input_voltage = _safe_float(live.get("input_voltage"), 0.0)
             temp_int = _safe_float(live.get("temp_int"), 0.0)
+            mode = "CV" if is_cv else ("CC" if is_cc else "режим не подтверждён")
+            last_live_context = (
+                f"📊 Факт: V {battery_v:.2f}В | I {i:.2f}А | T {t:.1f}°C | "
+                f"режим {mode}"
+            )
             
             # v2.5 Умный watchdog: обновляем последнее известное состояние выхода
             if output_switch is not None and str(output_switch).lower() not in ("unavailable", "unknown", ""):
@@ -2154,7 +2164,10 @@ async def data_logger() -> None:
             actions = await charge_controller.tick(
                 battery_v, i, temp_ext, is_cv, ah, output_switch,
                 manual_off_active=_has_manual_off_condition(),
+                is_cc=is_cc,
             )
+            if actions.get("notify"):
+                _charge_notify(str(actions["notify"]))
             if prev_stage != charge_controller.current_stage:
                 log_event(
                     charge_controller.current_stage,
