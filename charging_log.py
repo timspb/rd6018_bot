@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from time_utils import format_datetime_user_tz
+from time_utils import format_datetime_user_tz, get_user_timezone, now_user_tz
 
 LOG_FILE = "charging_history.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 МБ
@@ -162,7 +162,7 @@ def _parse_log_line_date(line: str) -> Optional[datetime]:
     if not m:
         return None
     try:
-        return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+        return get_user_timezone().localize(datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))
     except ValueError:
         return None
 
@@ -178,7 +178,7 @@ def trim_log_older_than_days(days: int = LOG_RETENTION_DAYS) -> int:
     logger_obj = _ensure_logger()
     _detach_log_file_handler(logger_obj)
 
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = now_user_tz() - timedelta(days=days)
     removed = 0
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
@@ -225,7 +225,7 @@ def rotate_if_needed(
             lines = f.readlines()
 
         preserved_lines = _extract_current_session_lines(lines) if preserve_current_session else []
-        archive = f"{LOG_FILE}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
+        archive = f"{LOG_FILE}.{now_user_tz().strftime('%Y%m%d_%H%M%S')}.bak"
         shutil.move(LOG_FILE, archive)
 
         with open(LOG_FILE, "w", encoding="utf-8") as f:
@@ -270,7 +270,7 @@ def log_event(
     try:
         ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
     except Exception:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ts = now_user_tz().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] | {stage:12} | {v:5.2f} | {i:5.2f} | {t_ext:5.1f} | {ah:6.2f} | {_append_meta(event, meta)}"
     _ensure_logger().info(line)
 
@@ -303,7 +303,7 @@ def log_stage_end(
     try:
         ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
     except Exception:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ts = now_user_tz().strftime("%Y-%m-%d %H:%M:%S")
     time_str = _format_duration(time_sec)
     event = (
         f"END | Время: {time_str} | Ёмкость: {ah_on_stage:.2f} Ач | "

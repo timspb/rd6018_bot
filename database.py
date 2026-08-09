@@ -2,10 +2,12 @@
 database.py — асинхронное хранение истории сенсоров и сессий заряда.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 import aiosqlite
+
+from time_utils import now_utc
 
 logger = logging.getLogger("rd6018")
 
@@ -81,7 +83,7 @@ async def cleanup_old_records() -> None:
     """Очистка записей старше 30 дней (месяц) для экономии места на сервере. Сравнение по UTC."""
     try:
         db = await get_db()
-        cutoff_time = datetime.utcnow() - timedelta(days=30)
+        cutoff_time = now_utc().replace(tzinfo=None) - timedelta(days=30)
         cutoff_iso = cutoff_time.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
         await db.execute("DELETE FROM sensor_history WHERE timestamp < ?", (cutoff_iso,))
@@ -104,7 +106,7 @@ async def cleanup_old_records() -> None:
 
 def _utc_iso() -> str:
     """Текущее время в UTC в формате ISO с суффиксом Z (для графика в пользовательском часовом поясе)."""
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+    return now_utc().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
 async def add_record(v: float, i: float, p: float, t: float) -> None:
@@ -136,7 +138,7 @@ async def get_history(
     try:
         since_iso: Optional[str] = None
         if since_timestamp and since_timestamp > 0:
-            since_iso = datetime.utcfromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+            since_iso = datetime.fromtimestamp(since_timestamp, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
         db = await get_db()
         if since_iso:
@@ -229,7 +231,7 @@ async def get_graph_data_with_temp(
     try:
         since_iso: Optional[str] = None
         if since_timestamp and since_timestamp > 0:
-            since_iso = datetime.utcfromtimestamp(since_timestamp).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+            since_iso = datetime.fromtimestamp(since_timestamp, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
         db = await get_db()
         if since_iso:
@@ -333,7 +335,7 @@ async def get_raw_history(
     currents: List[float] = []
 
     try:
-        since = (datetime.utcnow() - timedelta(minutes=max_minutes)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+        since = (now_utc() - timedelta(minutes=max_minutes)).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
         db = await get_db()
         async with db.execute(
             """SELECT timestamp, voltage, current FROM sensor_history

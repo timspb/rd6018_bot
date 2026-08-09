@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 from config import MAX_VOLTAGE
 from charging_log import log_session_header
+from time_utils import timestamp_iso_utc
 
 logger = logging.getLogger("rd6018")
 
@@ -1905,7 +1906,7 @@ class ChargeController:
         bank_fault = self._bank_fault_risk_snapshot(now, voltage, current, temp, ah)
         return {
             "timestamp": now,
-            "timestamp_iso": datetime.fromtimestamp(now).isoformat(),
+            "timestamp_iso": timestamp_iso_utc(now),
             "history_minutes": TELEMETRY_HISTORY_MINUTES,
             "history": history,
             "current": {"v": voltage, "i": current, "ah": ah, "temp": temp},

@@ -57,7 +57,7 @@ from protection_utils import should_delay_current_ramp, should_use_startup_settl
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
-from time_utils import format_time_user_tz
+from time_utils import format_time_user_tz, now_user_tz, parse_datetime
 import html
 
 logging.basicConfig(
@@ -614,7 +614,7 @@ def _build_trend_summary(
     """Сформировать краткую таблицу трендов для AI (напр. «10 мин назад: 13.2В | сейчас: 14.4В»)."""
     if not times or not voltages or not currents:
         return ""
-    now = datetime.now()
+    now = now_user_tz()
     n = min(len(times), len(voltages), len(currents))
     indices = [0, max(1, n // 3), max(2, 2 * n // 3), n - 1] if n >= 4 else list(range(n))
     lines = []
@@ -623,7 +623,8 @@ def _build_trend_summary(
         v = voltages[i] if i < len(voltages) else 0.0
         c = currents[i] if i < len(currents) else 0.0
         try:
-            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00")[:19])
+            dt = parse_datetime(str(ts))
+            dt = dt.astimezone(now.tzinfo)
             delta_min = int((now - dt).total_seconds() / 60)
             label = "сейчас" if delta_min < 1 else f"{delta_min} мин назад"
         except Exception:
@@ -1902,7 +1903,7 @@ async def charge_monitor() -> None:
             output_on = str(live.get("switch", "")).lower() == "on"
             battery_v = _safe_float(live.get("battery_voltage"))
             i = _safe_float(live.get("current"))
-            now = datetime.now()
+            now = now_user_tz()
 
             if not output_on:
                 zero_current_since = None
