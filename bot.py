@@ -57,7 +57,7 @@ from protection_utils import should_delay_current_ramp, should_use_startup_settl
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
-from time_utils import format_time_user_tz, now_user_tz, parse_datetime
+from time_utils import format_datetime_user_tz, format_time_user_tz, now_user_tz, parse_datetime, timestamp_to_user_tz
 import html
 
 logging.basicConfig(
@@ -893,6 +893,19 @@ def _format_uptime_display(uptime_raw) -> str:
         h, m = int(elapsed // 3600), int((elapsed % 3600) // 60)
         return f"{h:02d}:{m:02d}"
     return s
+
+
+def _format_charge_start_display() -> str:
+    """Show the start of the current bot-controlled charge session."""
+    start_ts = float(getattr(charge_controller, "total_start_time", 0) or 0)
+    if not getattr(charge_controller, "is_active", False) or start_ts <= 0:
+        return "заряд не активен"
+    elapsed = max(0.0, time.time() - start_ts)
+    start_text = format_datetime_user_tz(
+        timestamp_to_user_tz(start_ts), "%d.%m.%Y %H:%M"
+    )
+    hours, minutes = int(elapsed // 3600), int((elapsed % 3600) // 60)
+    return f"Старт: {start_text} (прошло {hours:02d}:{minutes:02d})"
 
 
 def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> None:
@@ -3473,7 +3486,7 @@ async def info_full_handler(call: CallbackQuery) -> None:
         off_line = _format_manual_off_for_dashboard()
         if off_line:
             full_text += f"\n{off_line}"
-        full_text += f"\n⏱ Время работы: {_format_uptime_display(live.get('uptime'))}"
+        full_text += f"\n⏱ Фактический старт заряда: {_format_charge_start_display()}"
         ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
         full_text += f"\n🛡 Защиты: OVP {'сработала' if ovp_tr else 'норма'}, OCP {'сработала' if ocp_tr else 'норма'}"
