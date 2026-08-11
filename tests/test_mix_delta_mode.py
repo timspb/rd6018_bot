@@ -44,6 +44,35 @@ class MixDeltaModeTests(unittest.TestCase):
             )
         )
 
+    def test_temperature_compensation_step_does_not_fake_voltage_delta(self):
+        controller = ChargeController(_FakeHass())
+        controller.start(ChargeController.PROFILE_CA, 72)
+        controller.current_stage = ChargeController.STAGE_MIX
+        controller.v_max_recorded = 16.55
+        controller.v_max_normalized_recorded = 0.01
+        controller._current_normalized_voltage = 0.00
+
+        # Raw voltage fell by 0.09 V only because the compensated target moved.
+        self.assertFalse(
+            controller._check_delta_finish(
+                16.46, 1.70, is_cv=False, is_cc=True
+            )
+        )
+
+    def test_real_normalized_voltage_delta_finishes_cc(self):
+        controller = ChargeController(_FakeHass())
+        controller.start(ChargeController.PROFILE_CA, 72)
+        controller.current_stage = ChargeController.STAGE_MIX
+        controller.v_max_recorded = 16.55
+        controller.v_max_normalized_recorded = 0.01
+        controller._current_normalized_voltage = -0.04
+
+        self.assertTrue(
+            controller._check_delta_finish(
+                16.42, 1.70, is_cv=False, is_cc=True
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

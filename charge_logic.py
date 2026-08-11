@@ -157,6 +157,8 @@ class ChargeController:
         self.stage_start_time: float = 0.0
         self.antisulfate_count: int = 0
         self.v_max_recorded: Optional[float] = None
+        self.v_max_normalized_recorded: Optional[float] = None
+        self._current_normalized_voltage: Optional[float] = None
         self.i_min_recorded: Optional[float] = None
         self.finish_timer_start: Optional[float] = None
         self._phantom_alerted: bool = False
@@ -534,6 +536,7 @@ class ChargeController:
     def _reset_delta_and_blanking(self, now: float) -> None:
         """v2.0: Полный сброс при смене этапа/уставок — исключает ложный DELTA_TRIGGER после Main->Mix."""
         self.v_max_recorded = None
+        self.v_max_normalized_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
         self._delta_trigger_mode = None
@@ -558,6 +561,7 @@ class ChargeController:
         self.total_start_time = self.stage_start_time
         self.antisulfate_count = 0
         self.v_max_recorded = None
+        self.v_max_normalized_recorded = None
         self.i_min_recorded = None
         self.finish_timer_start = None
         self._phantom_alerted = False
@@ -659,6 +663,7 @@ class ChargeController:
         self.current_stage = self.STAGE_IDLE
         self._clear_restored_targets()
         self.v_max_recorded = None
+        self.v_max_normalized_recorded = None
         self.i_min_recorded = None
         if clear_session:
             self._clear_session_file()
@@ -2008,6 +2013,15 @@ class ChargeController:
             return False
         return True
 
+    def _normalized_voltage(self, voltage: float, temp_c: Optional[float]) -> float:
+        """Remove the current temperature-compensated target from measured voltage."""
+        target_v = self._device_set_voltage
+        if target_v is None or target_v <= 0:
+            target_v, _ = self._get_target_v_i(temp_c)
+        if target_v is None or target_v <= 0:
+            return float(voltage)
+        return float(voltage) - float(target_v)
+
     def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         # Подготовка: мягкий старт на 0.01C для любой ёмкости, чтобы не давить АКБ лишним током.
         base_v = 12.0
@@ -2118,12 +2132,17 @@ class ChargeController:
             self._first_stage_hold_since = now
             self._first_stage_hold_current = current
 
-    def _exit_cc_condition(self, v_now: float) -> bool:
+    def _exit_cc_condition(self, v_now: float, normalized_v_now: Optional[float] = None) -> bool:
         """Выход CC: V упало на дельту от пика."""
-        if self.v_max_recorded is None:
+        peak = self.v_max_normalized_recorded
+        current = normalized_v_now if normalized_v_now is not None else self._current_normalized_voltage
+        if peak is None or current is None:
+            peak = self.v_max_recorded
+            current = v_now
+        if peak is None:
             return False
         delta_v = self._custom_delta_threshold if self.battery_type == self.PROFILE_CUSTOM else DELTA_V_EXIT
-        return v_now <= self.v_max_recorded - delta_v
+        return current <= peak - delta_v
 
     def _mix_current_delta_threshold(self) -> float:
         """Порог выхода CV в Mix: 30% от текущей полки тока, но не ниже floor."""
@@ -2350,6 +2369,8 @@ class ChargeController:
         self.is_cc = bool(is_cc)
         now = time.time()
         self.last_update_time = now
+        normalized_voltage = self._normalized_voltage(voltage, temp_ext)
+        self._current_normalized_voltage = normalized_voltage
 
         if temp_ext is None or temp_ext in ("unavailable", "unknown", ""):
             self._was_unavailable = True
@@ -2627,6 +2648,8 @@ class ChargeController:
                 if now >= self._delta_monitor_after:
                     if self.v_max_recorded is None or voltage > self.v_max_recorded:
                         self.v_max_recorded = voltage
+                    if self.v_max_normalized_recorded is None or normalized_voltage > self.v_max_normalized_recorded:
+                        self.v_max_normalized_recorded = normalized_voltage
                     if self.i_min_recorded is None or current < self.i_min_recorded:
                         self.i_min_recorded = current
                 if now >= self._delta_monitor_after and not in_blanking and self._check_delta_finish(voltage, current):
@@ -2904,6 +2927,7 @@ class ChargeController:
                     self._clear_session_file()
                 else:
                     self.v_max_recorded = None
+                    self.v_max_normalized_recorded = None
                     self.i_min_recorded = None
                     self._blanking_until = now + BLANKING_SEC
                     self._delta_trigger_count = 0
@@ -2936,6 +2960,7 @@ class ChargeController:
                     self._clear_session_file()
                 else:
                     self.v_max_recorded = None
+                    self.v_max_normalized_recorded = None
                     self.i_min_recorded = None
                     self._blanking_until = now + BLANKING_SEC
                     self._delta_trigger_count = 0
@@ -3012,6 +3037,8 @@ class ChargeController:
             else:
                 if self.v_max_recorded is None or voltage > self.v_max_recorded:
                     self.v_max_recorded = voltage
+                if self.v_max_normalized_recorded is None or normalized_voltage > self.v_max_normalized_recorded:
+                    self.v_max_normalized_recorded = normalized_voltage
                 if self.i_min_recorded is None or current < self.i_min_recorded:
                     self.i_min_recorded = current
 
@@ -3031,6 +3058,11 @@ class ChargeController:
                     self.finish_timer_start = now
                     self._delta_trigger_mode = "CC" if is_cc else ("CV" if is_cv else None)
                     v_peak = self.v_max_recorded or voltage
+                    v_peak_normalized = (
+                        self.v_max_normalized_recorded
+                        if self.v_max_normalized_recorded is not None
+                        else normalized_voltage
+                    )
                     i_min = self.i_min_recorded or current
                     trigger_msg = ""
                     reason_log = ""
@@ -3038,9 +3070,10 @@ class ChargeController:
                         delta_v = v_peak - voltage
                         trigger_msg = (
                             f"🎯 Триггер достигнут: V_max было {v_peak:.2f}В, "
-                            f"текущее {voltage:.2f}В. Дельта {delta_v:.3f}В зафиксирована."
+                            f"текущее {voltage:.2f}В. Дельта {delta_v:.3f}В зафиксирована "
+                            f"(с учётом термокомпенсации: {v_peak_normalized - normalized_voltage:.3f}В)."
                         )
-                        reason_log = f"Дельта V: спад от пика (Порог: {DELTA_V_EXIT}В, V_max={v_peak:.2f}В, Текущий={voltage:.2f}В, Подтверждено: {self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT})"
+                        reason_log = f"Дельта V: спад от пика (Порог: {DELTA_V_EXIT}В, V_max={v_peak:.2f}В, Текущий={voltage:.2f}В, норм. V_max={v_peak_normalized:.3f}В, норм. V={normalized_voltage:.3f}В, Подтверждено: {self._delta_trigger_count}/{TRIGGER_CONFIRM_COUNT})"
                     elif is_cv and self._exit_cv_condition(current):
                         delta_i_threshold = self._mix_current_delta_threshold()
                         delta_i = current - i_min
@@ -3060,7 +3093,10 @@ class ChargeController:
                         delta_v = v_peak - voltage
                         actions["log_event"] = (
                             f"└ Дельта V [CC]: V_max={v_peak:.2f}В, V={voltage:.2f}В, "
-                            f"dV={delta_v:.3f}В, I={current:.2f}А, T={temp:.1f}°C"
+                            f"dV={delta_v:.3f}В, норм. V_max={v_peak_normalized:.3f}В, "
+                            f"норм. V={normalized_voltage:.3f}В, "
+                            f"dV_norm={v_peak_normalized - normalized_voltage:.3f}В, "
+                            f"I={current:.2f}А, T={temp:.1f}°C"
                         )
                     elif is_cv and self._exit_cv_condition(current):
                         delta_i_threshold = self._mix_current_delta_threshold()
@@ -3189,6 +3225,12 @@ class ChargeController:
                     )
                 self._temp_comp_last_update_time = now
                 self._temp_comp_last_temp = temp
+                # A target step is not an electrical Delta event. Keep the
+                # normalized peak, but wait for the output to settle before
+                # confirming a new Delta sample.
+                self._delta_trigger_count = 0
+                self._blanking_until = max(self._blanking_until, now + DELTA_MONITOR_DELAY_SEC)
+                self._delta_monitor_after = max(self._delta_monitor_after, now + DELTA_MONITOR_DELAY_SEC)
 
         bank_fault = self._bank_fault_risk_snapshot(now, voltage, current, temp, ah)
         if bank_fault:
