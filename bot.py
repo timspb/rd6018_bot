@@ -31,7 +31,6 @@ from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
 from charge_logic import (
     ChargeController,
-    DELTA_I_EXIT,
     DELTA_V_EXIT,
     HIGH_V_FAST_TIMEOUT,
     HIGH_V_THRESHOLD,
@@ -1389,12 +1388,13 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
         elif "Mix" in raw_stage:
             v_max = charge_controller.v_max_recorded
             i_min = charge_controller.i_min_recorded
+            mix_delta = charge_controller._mix_current_delta_threshold()
             if is_cv:
                 if i_min is not None:
-                    expect_i = i_min + DELTA_I_EXIT
-                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А I≥{expect_i:.2f}А"
+                    expect_i = i_min + mix_delta
+                    transition_condition = f"🔜 ФИНИШ: ΔI +{mix_delta:.2f}А I≥{expect_i:.2f}А"
                 else:
-                    transition_condition = f"🔜 ФИНИШ: ΔI +{DELTA_I_EXIT}А"
+                    transition_condition = f"🔜 ФИНИШ: ΔI +{mix_delta:.2f}А"
             elif is_cc:
                 if v_max is not None:
                     expect_v = v_max - DELTA_V_EXIT
@@ -1402,7 +1402,7 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
                 else:
                     transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В"
             else:
-                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{DELTA_I_EXIT}А (CV)"
+                transition_condition = f"🔜 ФИНИШ: ΔV −{DELTA_V_EXIT}В (CC) или ΔI +{mix_delta:.2f}А (CV)"
         elif "Десульфатация" in raw_stage:
             transition_condition = "🔜 ПЕРЕХОД: 2ч"
         elif "Безопасное ожидание" in raw_stage:
