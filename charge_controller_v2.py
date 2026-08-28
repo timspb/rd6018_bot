@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import time
+import uuid
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from charge_logic import ChargeController
+from charge_logic import ChargeController, SESSION_FILE
 from first_stage_evidence import FirstStageAssessment, assess_first_stage
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from legacy_transition_audit import LegacyTransitionAudit, TransitionAuditSeverity, audit_legacy_transition
@@ -46,6 +49,8 @@ class ChargeControllerV2(ChargeController):
         self._v2_last_stage: Optional[str] = None
         self._v2_last_disagreement: Optional[str] = None
         self._v2_disagreement_repeat_count: int = 0
+        self._v2_trace_session_id: Optional[str] = None
+        self._v2_trace_started_at: float = 0.0
 
     def configure_recovery_context(
         self,
@@ -76,9 +81,17 @@ class ChargeControllerV2(ChargeController):
         self._v2_runtime = runtime
         return runtime
 
-    def _initialize_shadow_session(self) -> None:
-        started_at = self.total_start_time or time.time()
-        self._new_runtime(started_at=started_at)
+    def _begin_trace_identity(self) -> None:
+        self._v2_trace_session_id = uuid.uuid4().hex
+        self._v2_trace_started_at = float(self.total_start_time or time.time())
+
+    def _initialize_shadow_session(self, *, started_at: Optional[float] = None) -> None:
+        runtime_started_at = float(
+            started_at
+            if started_at is not None and float(started_at) > 0
+            else (self._v2_trace_started_at or self.total_start_time or time.time())
+        )
+        self._new_runtime(started_at=runtime_started_at)
         self._v2_last_disagreement = None
         self._v2_disagreement_repeat_count = 0
         try:
@@ -88,9 +101,96 @@ class ChargeControllerV2(ChargeController):
             self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
 
+    @staticmethod
+    def _enum_or_default(enum_cls: Any, value: Any, default: Any) -> Any:
+        try:
+            return enum_cls(str(value))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _read_legacy_session_document() -> Dict[str, Any]:
+        try:
+            with open(SESSION_FILE, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+            return raw if isinstance(raw, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _write_trace_identity_to_session_file(self) -> None:
+        if self.current_stage in (self.STAGE_IDLE, self.STAGE_DONE):
+            return
+        if not self._v2_trace_session_id or self._v2_trace_started_at <= 0:
+            return
+        document = self._read_legacy_session_document()
+        if not document:
+            return
+
+        document["v2_trace_session_id"] = self._v2_trace_session_id
+        document["v2_trace_started_at"] = self._v2_trace_started_at
+        document["v2_battery_id"] = self._v2_battery_id
+        document["v2_intent"] = self._v2_intent.value
+        document["v2_condition_before"] = self._v2_condition_before.value
+
+        tmp_path = f"{SESSION_FILE}.v2.tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(document, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, SESSION_FILE)
+        except OSError as exc:
+            logger.warning("Could not persist V2 trace identity: %s", exc)
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def _restore_trace_identity(self, document: Dict[str, Any]) -> None:
+        raw_started_at = document.get("v2_trace_started_at")
+        if raw_started_at is None:
+            raw_started_at = document.get("total_start_time")
+        if raw_started_at is None:
+            raw_started_at = document.get("saved_at")
+        try:
+            started_at = float(raw_started_at)
+        except (TypeError, ValueError):
+            started_at = float(self.total_start_time or time.time())
+        if not math.isfinite(started_at) or started_at <= 0:
+            started_at = float(self.total_start_time or time.time())
+
+        raw_id = str(document.get("v2_trace_session_id") or "").strip()
+        if not raw_id:
+            # Deterministic migration identity for pre-V2 charge_session.json files.
+            seed = "|".join(
+                [
+                    str(document.get("profile") or self.battery_type),
+                    str(document.get("ah_limit") or self.ah_capacity),
+                    f"{started_at:.6f}",
+                    str(document.get("saved_at") or ""),
+                ]
+            )
+            raw_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-recovery:{seed}").hex
+
+        saved_battery_id = document.get("v2_battery_id")
+        if saved_battery_id:
+            self._v2_battery_id = str(saved_battery_id)
+        self._v2_intent = self._enum_or_default(
+            ChargeIntent,
+            document.get("v2_intent"),
+            self._v2_intent,
+        )
+        self._v2_condition_before = self._enum_or_default(
+            BatteryCondition,
+            document.get("v2_condition_before"),
+            self._v2_condition_before,
+        )
+        self._v2_trace_session_id = raw_id
+        self._v2_trace_started_at = started_at
+
     def start(self, battery_type: str, ah_capacity: int) -> None:
         super().start(battery_type, ah_capacity)
-        self._initialize_shadow_session()
+        self._begin_trace_identity()
+        self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
     def start_custom(
         self,
@@ -107,7 +207,12 @@ class ChargeControllerV2(ChargeController):
             time_limit_hours=time_limit_hours,
             ah_capacity=ah_capacity,
         )
-        self._initialize_shadow_session()
+        self._begin_trace_identity()
+        self._initialize_shadow_session(started_at=self._v2_trace_started_at)
+
+    def _save_session(self, voltage: float, current: float, ah: float) -> None:
+        super()._save_session(voltage, current, ah)
+        self._write_trace_identity_to_session_file()
 
     def try_restore_session(
         self,
@@ -115,18 +220,25 @@ class ChargeControllerV2(ChargeController):
         current: float,
         ah: float,
     ) -> Tuple[bool, Optional[str]]:
+        trace_document = self._read_legacy_session_document()
         ok, message = super().try_restore_session(voltage, current, ah)
         if ok:
-            # A process restart loses the in-memory analyzer, but the durable trace
-            # keeps the same session identity. Replay can reconstruct the full cycle.
-            self._initialize_shadow_session()
+            # `total_start_time` may be re-estimated by the legacy restore path from
+            # Ah/current. Trace identity deliberately comes from the saved immutable
+            # V2 metadata instead, so one physical charge remains one replay session.
+            self._restore_trace_identity(trace_document)
+            self._initialize_shadow_session(started_at=self._v2_trace_started_at)
+            self._write_trace_identity_to_session_file()
         return ok, message
 
     @property
     def recovery_trace_context(self) -> Dict[str, Any]:
-        started_at = float(self.total_start_time or 0.0)
+        started_at = float(self._v2_trace_started_at or self.total_start_time or 0.0)
         battery_id = self._v2_battery_id or f"anonymous:{self.battery_type}:{self.ah_capacity}"
-        session_id = f"{battery_id}:{int(round(started_at * 1000.0))}"
+        session_id = self._v2_trace_session_id
+        if not session_id:
+            seed = f"{battery_id}|{self.battery_type}|{self.ah_capacity}|{started_at:.6f}"
+            session_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-volatile:{seed}").hex
         return {
             "session_id": session_id,
             "started_at": started_at,
@@ -410,7 +522,7 @@ class ChargeControllerV2(ChargeController):
         try:
             runtime = self._v2_runtime
             if runtime is None:
-                runtime = self._new_runtime(started_at=self.total_start_time or timestamp_s)
+                runtime = self._new_runtime(started_at=self._v2_trace_started_at or self.total_start_time or timestamp_s)
 
             record = runtime.observe(
                 RecoveryTracePoint(
