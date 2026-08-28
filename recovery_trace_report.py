@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import json
+from collections import Counter
+from typing import Any, Dict, List, Mapping, Optional
+
+from database import get_db
+from recovery_session import HV_STAGE_NAMES, MAIN_STAGE_NAMES
+from recovery_trace_store import TRACE_TABLE, init_recovery_trace_store
+
+
+MIX_STAGE_NAMES = frozenset({"mix", "mix mode"})
+
+
+def _normalize_stage(stage: Any) -> str:
+    return " ".join(str(stage or "").strip().lower().replace("_", " ").split())
+
+
+def _stage_kind(stage: Any) -> str:
+    key = _normalize_stage(stage)
+    if key in MAIN_STAGE_NAMES:
+        return "main"
+    if key in HV_STAGE_NAMES:
+        return "hv"
+    return "other"
+
+
+def _load_shadow_json(raw: Any) -> Mapping[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, Mapping) else {}
+
+
+def _sample_summary(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
+    first_stage = shadow.get("first_stage")
+    if not isinstance(first_stage, Mapping):
+        first_stage = {}
+    audit = shadow.get("transition_audit")
+    if not isinstance(audit, Mapping):
+        audit = {}
+    return {
+        "timestamp_s": float(row["timestamp_s"]),
+        "stage": row["stage"],
+        "legacy_stage_after": row["legacy_stage_after"],
+        "voltage_v": row["voltage_v"],
+        "current_a": row["current_a"],
+        "temp_c": row["temp_c"],
+        "current_c_rate": first_stage.get("current_c_rate"),
+        "first_stage_state": first_stage.get("state"),
+        "shadow_status": row["shadow_status"],
+        "shadow_decision": row["shadow_decision"],
+        "disagreement": row["disagreement"],
+        "transition_audit_code": row["transition_audit_code"],
+        "transition_audit_severity": row["transition_audit_severity"],
+        "reason": audit.get("reason") or row["shadow_reason"],
+    }
+
+
+async def build_trace_report(
+    session_id: str,
+    *,
+    max_calibration_samples: int = 30,
+) -> Dict[str, Any]:
+    """Summarize one captured live session for legacy↔V2 calibration.
+
+    The report deliberately reports observations and timing. It does not convert a
+    disagreement into an actuator command or a battery health score.
+    """
+    await init_recovery_trace_store()
+    db = await get_db()
+    async with db.execute(
+        f"SELECT * FROM {TRACE_TABLE} WHERE session_id = ? ORDER BY timestamp_s ASC, id ASC",
+        (str(session_id),),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    if not rows:
+        raise KeyError(f"unknown trace session: {session_id}")
+
+    decisions: Counter[str] = Counter()
+    disagreements: Counter[str] = Counter()
+    first_stage_states: Counter[str] = Counter()
+    audit_codes: Counter[str] = Counter()
+    audit_severities: Counter[str] = Counter()
+    legacy_transitions: Counter[str] = Counter()
+
+    shadow_errors = 0
+    calibration_samples: List[Dict[str, Any]] = []
+    first_v2_finish_at: Optional[float] = None
+    first_legacy_mix_exit_at: Optional[float] = None
+    first_main_hv_at: Optional[float] = None
+
+    for row in rows:
+        ts = float(row["timestamp_s"])
+        shadow = _load_shadow_json(row["shadow_json"])
+        first_stage = shadow.get("first_stage")
+        if isinstance(first_stage, Mapping):
+            state = str(first_stage.get("state") or "").strip()
+            if state:
+                first_stage_states[state] += 1
+
+        decision = str(row["shadow_decision"] or "").strip()
+        if decision:
+            decisions[decision] += 1
+        if decision == "finish_stage" and first_v2_finish_at is None:
+            first_v2_finish_at = ts
+
+        disagreement = str(row["disagreement"] or "").strip()
+        if disagreement:
+            disagreements[disagreement] += 1
+
+        if str(row["shadow_status"] or "").lower() == "error":
+            shadow_errors += 1
+
+        audit_code = str(row["transition_audit_code"] or "").strip()
+        audit_severity = str(row["transition_audit_severity"] or "").strip()
+        if audit_code:
+            audit_codes[audit_code] += 1
+        if audit_severity:
+            audit_severities[audit_severity] += 1
+
+        before = str(row["stage"] or "")
+        after = str(row["legacy_stage_after"] or "")
+        if after and _normalize_stage(before) != _normalize_stage(after):
+            legacy_transitions[f"{before} -> {after}"] += 1
+            if _stage_kind(before) == "main" and _stage_kind(after) == "hv" and first_main_hv_at is None:
+                first_main_hv_at = ts
+            if _normalize_stage(before) in MIX_STAGE_NAMES and first_legacy_mix_exit_at is None:
+                first_legacy_mix_exit_at = ts
+
+        noteworthy = (
+            str(row["shadow_status"] or "").lower() == "error"
+            or bool(disagreement)
+            or audit_severity in {"review", "safety"}
+            or decision in {"finish_stage", "rest_and_diagnose", "pause_thermal", "hold_output_off"}
+        )
+        if noteworthy and len(calibration_samples) < max(1, int(max_calibration_samples)):
+            calibration_samples.append(_sample_summary(row, shadow))
+
+    first = rows[0]
+    finish_lead_s: Optional[float] = None
+    if first_v2_finish_at is not None and first_legacy_mix_exit_at is not None:
+        finish_lead_s = first_legacy_mix_exit_at - first_v2_finish_at
+
+    return {
+        "session": {
+            "session_id": str(session_id),
+            "battery_id": first["battery_id"],
+            "battery_type": first["battery_type"],
+            "capacity_ah": first["capacity_ah"],
+            "intent": first["intent"],
+            "condition_before": first["condition_before"],
+            "started_at": float(first["started_at"]),
+            "first_sample_at": float(rows[0]["timestamp_s"]),
+            "last_sample_at": float(rows[-1]["timestamp_s"]),
+        },
+        "samples": {
+            "total": len(rows),
+            "shadow_errors": shadow_errors,
+        },
+        "shadow_decisions": dict(decisions),
+        "disagreements": dict(disagreements),
+        "first_stage_states": dict(first_stage_states),
+        "transition_audits": {
+            "severity": dict(audit_severities),
+            "codes": dict(audit_codes),
+        },
+        "legacy_transitions": dict(legacy_transitions),
+        "timing": {
+            "first_main_to_hv_at": first_main_hv_at,
+            "first_v2_finish_stage_at": first_v2_finish_at,
+            "first_legacy_mix_exit_at": first_legacy_mix_exit_at,
+            "v2_finish_lead_seconds": finish_lead_s,
+        },
+        "calibration_samples": calibration_samples,
+    }
