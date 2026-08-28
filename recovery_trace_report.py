@@ -11,6 +11,18 @@ from recovery_trace_store import TRACE_TABLE, init_recovery_trace_store
 
 
 MIX_STAGE_NAMES = frozenset({"mix", "mix mode"})
+TERMINAL_MIX_EXIT_NAMES = frozenset(
+    {
+        "safe wait",
+        "safe_wait",
+        "безопасное ожидание",
+        "rest",
+        "done",
+        "storage",
+        "хранение",
+        "idle",
+    }
+)
 
 
 def _normalize_stage(stage: Any) -> str:
@@ -24,6 +36,10 @@ def _stage_kind(stage: Any) -> str:
     if key in HV_STAGE_NAMES:
         return "hv"
     return "other"
+
+
+def _is_terminal_mix_exit(stage_after: Any) -> bool:
+    return _normalize_stage(stage_after) in TERMINAL_MIX_EXIT_NAMES
 
 
 def _load_shadow_json(raw: Any) -> Mapping[str, Any]:
@@ -143,11 +159,14 @@ async def build_trace_report(
     audit_codes: Counter[str] = Counter()
     audit_severities: Counter[str] = Counter()
     legacy_transitions: Counter[str] = Counter()
+    terminal_mix_transitions: Counter[str] = Counter()
+    interrupted_mix_transitions: Counter[str] = Counter()
 
     shadow_errors = 0
     calibration_samples: List[Dict[str, Any]] = []
     first_v2_finish_at: Optional[float] = None
     first_legacy_mix_exit_at: Optional[float] = None
+    first_interrupted_mix_exit_at: Optional[float] = None
     first_main_hv_at: Optional[float] = None
     first_v2_finish_reversal: Optional[Dict[str, Optional[float]]] = None
 
@@ -208,12 +227,22 @@ async def build_trace_report(
 
         before = str(row["stage"] or "")
         after = str(row["legacy_stage_after"] or "")
-        if after and _normalize_stage(before) != _normalize_stage(after):
-            legacy_transitions[f"{before} -> {after}"] += 1
+        before_key = _normalize_stage(before)
+        after_key = _normalize_stage(after)
+        if after and before_key != after_key:
+            transition_name = f"{before} -> {after}"
+            legacy_transitions[transition_name] += 1
             if _stage_kind(before) == "main" and _stage_kind(after) == "hv" and first_main_hv_at is None:
                 first_main_hv_at = ts
-            if _normalize_stage(before) in MIX_STAGE_NAMES and first_legacy_mix_exit_at is None:
-                first_legacy_mix_exit_at = ts
+            if before_key in MIX_STAGE_NAMES:
+                if _is_terminal_mix_exit(after):
+                    terminal_mix_transitions[transition_name] += 1
+                    if first_legacy_mix_exit_at is None:
+                        first_legacy_mix_exit_at = ts
+                else:
+                    interrupted_mix_transitions[transition_name] += 1
+                    if first_interrupted_mix_exit_at is None:
+                        first_interrupted_mix_exit_at = ts
 
         noteworthy = (
             str(row["shadow_status"] or "").lower() == "error"
@@ -253,6 +282,14 @@ async def build_trace_report(
             "codes": dict(audit_codes),
         },
         "legacy_transitions": dict(legacy_transitions),
+        "mix_exits": {
+            "terminal_count": sum(terminal_mix_transitions.values()),
+            "interrupted_count": sum(interrupted_mix_transitions.values()),
+            "terminal_transitions": dict(terminal_mix_transitions),
+            "interrupted_transitions": dict(interrupted_mix_transitions),
+            "first_terminal_at": first_legacy_mix_exit_at,
+            "first_interrupted_at": first_interrupted_mix_exit_at,
+        },
         "hv_reversal": {
             "confirmed_count": len(confirmed_reversal_at),
             "first_confirmed_at": confirmed_reversal_at[0] if confirmed_reversal_at else None,
@@ -266,6 +303,7 @@ async def build_trace_report(
             "first_main_to_hv_at": first_main_hv_at,
             "first_v2_finish_stage_at": first_v2_finish_at,
             "first_legacy_mix_exit_at": first_legacy_mix_exit_at,
+            "first_interrupted_mix_exit_at": first_interrupted_mix_exit_at,
             "v2_finish_lead_seconds": finish_lead_s,
         },
         "calibration_samples": calibration_samples,
