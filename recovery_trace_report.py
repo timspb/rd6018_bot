@@ -6,11 +6,13 @@ from collections import Counter
 from typing import Any, Dict, List, Mapping, Optional
 
 from database import get_db
+from legacy_safety import mix_timeout_hours
 from recovery_session import HV_STAGE_NAMES, MAIN_STAGE_NAMES
 from recovery_trace_store import TRACE_TABLE, init_recovery_trace_store
 
 
 MIX_STAGE_NAMES = frozenset({"mix", "mix mode"})
+MIX_FINISH_HOLD_SEC = 2 * 3600
 TERMINAL_MIX_EXIT_NAMES = frozenset(
     {
         "safe wait",
@@ -169,6 +171,50 @@ def _render_stage_reversal(values: Mapping[str, Mapping[str, Any]]) -> Dict[str,
     return rendered
 
 
+def _mix_time_budget(
+    *,
+    profile: str,
+    first_mix_sample_at: Optional[float],
+    first_mix_reversal_at: Optional[float],
+) -> Dict[str, Any]:
+    """Describe whether a confirmed Mix reversal leaves room for the 2h finish hold.
+
+    This is calibration evidence only. A negative nominal margin does not itself
+    authorize extending a live stage; it tells us exactly how much grace the current
+    profile would need to honor an already-observed reversal.
+    """
+    limit_hours = mix_timeout_hours(profile)
+    nominal_deadline = None
+    if first_mix_sample_at is not None and limit_hours is not None:
+        nominal_deadline = first_mix_sample_at + float(limit_hours) * 3600.0
+
+    finish_hold_due_at = None
+    seconds_remaining_at_reversal = None
+    required_grace_seconds = None
+    hold_fits = None
+    reversal_after_nominal_deadline = None
+    if first_mix_reversal_at is not None:
+        finish_hold_due_at = first_mix_reversal_at + MIX_FINISH_HOLD_SEC
+        if nominal_deadline is not None:
+            seconds_remaining_at_reversal = nominal_deadline - first_mix_reversal_at
+            required_grace_seconds = max(0.0, finish_hold_due_at - nominal_deadline)
+            hold_fits = finish_hold_due_at <= nominal_deadline
+            reversal_after_nominal_deadline = first_mix_reversal_at > nominal_deadline
+
+    return {
+        "profile_limit_hours": limit_hours,
+        "finish_hold_seconds": MIX_FINISH_HOLD_SEC,
+        "first_mix_sample_at": first_mix_sample_at,
+        "nominal_deadline_at": nominal_deadline,
+        "first_mix_reversal_at": first_mix_reversal_at,
+        "finish_hold_due_at": finish_hold_due_at,
+        "seconds_remaining_at_reversal": seconds_remaining_at_reversal,
+        "hold_fits_before_nominal_deadline": hold_fits,
+        "required_grace_seconds": required_grace_seconds,
+        "reversal_after_nominal_deadline": reversal_after_nominal_deadline,
+    }
+
+
 async def build_trace_report(
     session_id: str,
     *,
@@ -206,6 +252,8 @@ async def build_trace_report(
     first_legacy_mix_exit_at: Optional[float] = None
     first_interrupted_mix_exit_at: Optional[float] = None
     first_main_hv_at: Optional[float] = None
+    first_mix_sample_at: Optional[float] = None
+    first_mix_reversal_at: Optional[float] = None
     first_v2_finish_reversal: Optional[Dict[str, Any]] = None
     first_v2_mix_finish_reversal: Optional[Dict[str, Any]] = None
     signal_config: Optional[Dict[str, Any]] = None
@@ -228,6 +276,9 @@ async def build_trace_report(
         before_key = _normalize_stage(before)
         after_key = _normalize_stage(after)
         shadow = _load_shadow_json(row["shadow_json"])
+
+        if before_key in MIX_STAGE_NAMES and first_mix_sample_at is None:
+            first_mix_sample_at = ts
 
         captured_config = shadow.get("signal_config")
         if isinstance(captured_config, Mapping):
@@ -260,6 +311,8 @@ async def build_trace_report(
             events = []
         if "current_reversal_confirmed" in events:
             confirmed_reversal_at.append(ts)
+            if before_key in MIX_STAGE_NAMES and first_mix_reversal_at is None:
+                first_mix_reversal_at = ts
             reversal = _reversal_metrics(row, shadow)
             stage_bucket = reversal_by_stage.setdefault(
                 before_key or "unknown",
@@ -352,6 +405,12 @@ async def build_trace_report(
     if first_v2_mix_finish_at is not None and first_legacy_mix_exit_at is not None:
         finish_lead_s = first_legacy_mix_exit_at - first_v2_mix_finish_at
 
+    mix_budget = _mix_time_budget(
+        profile=str(first["battery_type"] or ""),
+        first_mix_sample_at=first_mix_sample_at,
+        first_mix_reversal_at=first_mix_reversal_at,
+    )
+
     return {
         "session": {
             "session_id": str(session_id),
@@ -388,6 +447,7 @@ async def build_trace_report(
             "first_terminal_at": first_legacy_mix_exit_at,
             "first_interrupted_at": first_interrupted_mix_exit_at,
         },
+        "mix_time_budget": mix_budget,
         "hv_reversal": {
             "confirmed_count": len(confirmed_reversal_at),
             "first_confirmed_at": confirmed_reversal_at[0] if confirmed_reversal_at else None,
