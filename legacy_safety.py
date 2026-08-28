@@ -38,11 +38,11 @@ def main_timeout_decision(
 def mix_timeout_hours(profile: str) -> Optional[float]:
     normalized = str(profile).strip().upper()
     if normalized == "EFB":
-        return 10.0
+        return 20.0
     if normalized in {"CA/CA", "CA"}:
-        return 8.0
+        return 20.0
     if normalized == "AGM":
-        return 5.0
+        return 10.0
     return None
 
 
@@ -52,7 +52,12 @@ def mix_timeout_decision(
     elapsed_hours: float,
     finish_timer_active: bool = False,
 ) -> LegacySafetyDecision:
-    """Profile Mix ceilings are hard safety limits, independent of user stop rules."""
+    """Profile Mix observation ceilings are fallback limits.
+
+    Once a delta/reversal has been confirmed and its finish-hold timer is active,
+    that confirmed event owns normal Mix completion. Thermal, telemetry and hardware
+    safety remain independent and can still interrupt the hold.
+    """
     if finish_timer_active:
         return LegacySafetyDecision(False)
     limit = mix_timeout_hours(profile)
@@ -60,5 +65,5 @@ def mix_timeout_decision(
         return LegacySafetyDecision(False)
     return LegacySafetyDecision(
         True,
-        f"{profile} Mix hard safety timeout reached: {float(elapsed_hours):.2f}h >= {limit:.2f}h",
+        f"{profile} Mix fallback timeout reached: {float(elapsed_hours):.2f}h >= {limit:.2f}h",
     )
