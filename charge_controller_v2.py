@@ -162,6 +162,7 @@ class ChargeControllerV2(ChargeController):
             plateau_minutes=plateau_minutes,
             required_plateau_minutes=required_plateau,
             dtemp_c_per_min=metrics.d_temp_c_per_min,
+            dcurrent_a_per_min=metrics.d_current_a_per_min,
             dvoltage_v_per_min=metrics.d_voltage_v_per_min,
         )
 
