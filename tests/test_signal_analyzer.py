@@ -1,6 +1,11 @@
 import unittest
 
-from signal_analyzer import SignalAnalyzer, SignalEvent, SignalSample
+from signal_analyzer import (
+    SignalAnalyzer,
+    SignalAnalyzerConfig,
+    SignalEvent,
+    SignalSample,
+)
 
 
 class SignalAnalyzerTests(unittest.TestCase):
@@ -27,6 +32,7 @@ class SignalAnalyzerTests(unittest.TestCase):
         self.assertIn(SignalEvent.END_OF_CHARGE_LIKELY, result.events)
         self.assertNotIn(SignalEvent.THERMAL_ACCELERATION, result.events)
         self.assertAlmostEqual(result.metrics.current_min_a, 0.50)
+        self.assertAlmostEqual(result.metrics.reversal_threshold_a, 0.15)
 
     def test_current_reversal_plus_temperature_acceleration_is_not_eoc(self):
         analyzer = SignalAnalyzer()
@@ -76,6 +82,37 @@ class SignalAnalyzerTests(unittest.TestCase):
         self.assertNotIn(SignalEvent.TELEMETRY_INVALID, ok.events)
         invalid = analyzer.observe(SignalSample(60, 14.7, 1.0, 25.0, True))
         self.assertIn(SignalEvent.TELEMETRY_INVALID, invalid.events)
+        self.assertAlmostEqual(invalid.metrics.reversal_threshold_a, 0.30)
+
+    def test_reversal_absolute_term_is_measurement_floor_for_tiny_imin(self):
+        analyzer = SignalAnalyzer()
+        analyzer.reset_stage("mix", target_voltage_v=16.3)
+        result = analyzer.observe(SignalSample(0, 16.3, 0.05, 25.0, True))
+        # 30% of 0.05 A would be 0.015 A, below the configured observation floor.
+        self.assertAlmostEqual(result.metrics.reversal_threshold_a, 0.03)
+
+    def test_reversal_relative_term_dominates_above_measurement_floor(self):
+        analyzer = SignalAnalyzer()
+        analyzer.reset_stage("mix", target_voltage_v=16.3)
+        result = analyzer.observe(SignalSample(0, 16.3, 2.0, 25.0, True))
+        self.assertAlmostEqual(result.metrics.reversal_threshold_a, 0.60)
+
+    def test_current_minimum_hysteresis_is_configurable_instrument_floor(self):
+        analyzer = SignalAnalyzer(
+            SignalAnalyzerConfig(current_min_update_hysteresis_a=0.02)
+        )
+        analyzer.reset_stage("mix", target_voltage_v=16.3)
+        first = analyzer.observe(SignalSample(0, 16.3, 0.50, 25.0, True))
+        self.assertAlmostEqual(first.metrics.current_min_a, 0.50)
+
+        # 0.01 A movement is below the explicitly configured sensor hysteresis.
+        second = analyzer.observe(SignalSample(60, 16.3, 0.49, 25.0, True))
+        self.assertAlmostEqual(second.metrics.current_min_a, 0.50)
+        self.assertNotIn(SignalEvent.CURRENT_MINIMUM_UPDATED, second.events)
+
+        third = analyzer.observe(SignalSample(120, 16.3, 0.47, 25.0, True))
+        self.assertAlmostEqual(third.metrics.current_min_a, 0.47)
+        self.assertIn(SignalEvent.CURRENT_MINIMUM_UPDATED, third.events)
 
 
 if __name__ == "__main__":
