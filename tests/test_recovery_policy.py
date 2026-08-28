@@ -20,6 +20,7 @@ def analysis_with(*events: SignalEvent) -> SignalAnalysis:
         current_min_a=0.5,
         seconds_since_current_min=300.0,
         delta_current_from_min_a=0.3,
+        reversal_threshold_a=0.15,
         current_plateau_span_a=0.02,
         current_plateau_center_a=0.5,
         reversal_confirmations=3,
