@@ -133,6 +133,21 @@ def _distribution(values: List[float]) -> Dict[str, Optional[float]]:
     }
 
 
+def _render_stage_reversal(values: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
+    rendered: Dict[str, Any] = {}
+    for stage, bucket in values.items():
+        timestamps = list(bucket.get("timestamps") or [])
+        rendered[stage] = {
+            "confirmed_count": len(timestamps),
+            "first_confirmed_at": timestamps[0] if timestamps else None,
+            "reversal_delta_a": _distribution(list(bucket.get("delta_a") or [])),
+            "reversal_delta_c_rate": _distribution(list(bucket.get("delta_c_rate") or [])),
+            "reversal_delta_over_imin": _distribution(list(bucket.get("delta_over_imin") or [])),
+            "current_min_c_rate": _distribution(list(bucket.get("imin_c_rate") or [])),
+        }
+    return rendered
+
+
 async def build_trace_report(
     session_id: str,
     *,
@@ -177,6 +192,7 @@ async def build_trace_report(
     reversal_delta_c_rate: List[float] = []
     reversal_delta_over_imin: List[float] = []
     reversal_imin_c_rate: List[float] = []
+    reversal_by_stage: Dict[str, Dict[str, Any]] = {}
 
     for row in rows:
         ts = float(row["timestamp_s"])
@@ -209,18 +225,33 @@ async def build_trace_report(
         if "current_reversal_confirmed" in events:
             confirmed_reversal_at.append(ts)
             reversal = _reversal_metrics(row, shadow)
+            stage_bucket = reversal_by_stage.setdefault(
+                before_key or "unknown",
+                {
+                    "timestamps": [],
+                    "delta_a": [],
+                    "delta_c_rate": [],
+                    "delta_over_imin": [],
+                    "imin_c_rate": [],
+                },
+            )
+            stage_bucket["timestamps"].append(ts)
             value = reversal["reversal_delta_a"]
             if value is not None:
                 reversal_delta_a.append(value)
+                stage_bucket["delta_a"].append(value)
             value = reversal["reversal_delta_c_rate"]
             if value is not None:
                 reversal_delta_c_rate.append(value)
+                stage_bucket["delta_c_rate"].append(value)
             value = reversal["reversal_delta_over_imin"]
             if value is not None:
                 reversal_delta_over_imin.append(value)
+                stage_bucket["delta_over_imin"].append(value)
             value = reversal["current_min_c_rate"]
             if value is not None:
                 reversal_imin_c_rate.append(value)
+                stage_bucket["imin_c_rate"].append(value)
 
         disagreement = str(row["disagreement"] or "").strip()
         if disagreement:
@@ -304,6 +335,7 @@ async def build_trace_report(
             "reversal_delta_c_rate": _distribution(reversal_delta_c_rate),
             "reversal_delta_over_imin": _distribution(reversal_delta_over_imin),
             "current_min_c_rate": _distribution(reversal_imin_c_rate),
+            "by_stage": _render_stage_reversal(reversal_by_stage),
             "first_v2_finish_reversal": first_v2_finish_reversal,
             "first_v2_mix_finish_reversal": first_v2_mix_finish_reversal,
         },
