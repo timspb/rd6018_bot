@@ -21,9 +21,11 @@ class RecoveryTracePoint:
     current_a: float
     temp_c: float
     is_cv: bool = False
-    is_cc: bool = False
     target_voltage_v: Optional[float] = None
     ah: Optional[float] = None
+    # Kept at the end to preserve positional compatibility with pre-CC replay/test
+    # callers. Production and new replay documents pass this field by keyword.
+    is_cc: bool = False
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, object]) -> "RecoveryTracePoint":
@@ -38,13 +40,13 @@ class RecoveryTracePoint:
             current_a=float(raw["current_a"]),
             temp_c=float(raw["temp_c"]),
             is_cv=is_cv,
-            is_cc=is_cc,
             target_voltage_v=(
                 float(raw["target_voltage_v"])
                 if raw.get("target_voltage_v") is not None
                 else None
             ),
             ah=float(raw["ah"]) if raw.get("ah") is not None else None,
+            is_cc=is_cc,
         )
 
 
