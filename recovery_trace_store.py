@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from database import get_db
 from pb_domain import BatteryCondition, ChargeIntent
+from signal_analyzer import SignalAnalyzerConfig
 
 
 TRACE_TABLE = "recovery_trace_points"
@@ -46,6 +47,50 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def _enrich_signal_calibration(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Freeze the signal-threshold semantics used when this sample was captured.
+
+    ChargeControllerV2 historically did not expose `reversal_threshold_a` in its
+    public shadow payload even though SignalAnalyzer computes it. RecoverySessionTracker
+    uses the default SignalAnalyzerConfig, so the trace store can reconstruct that exact
+    threshold at capture time and persist the config alongside it. This avoids later
+    replay tools silently applying a newer threshold policy to old measurements.
+    """
+    config = SignalAnalyzerConfig()
+    snapshot["signal_config"] = {
+        "reversal_ratio": config.reversal_ratio,
+        "reversal_abs_floor_a": config.reversal_abs_a,
+        "current_min_update_hysteresis_a": config.current_min_update_hysteresis_a,
+        "plateau_abs_span_a": config.plateau_abs_span_a,
+        "plateau_rel_span": config.plateau_rel_span,
+    }
+
+    metrics = snapshot.get("metrics")
+    if not isinstance(metrics, dict):
+        return snapshot
+
+    existing_threshold = _finite_or_none(metrics.get("reversal_threshold_a"))
+    if existing_threshold is not None:
+        metrics["reversal_threshold_source"] = "analyzer"
+        return snapshot
+
+    current_min_a = _finite_or_none(metrics.get("current_min_a"))
+    if current_min_a is None:
+        metrics["reversal_threshold_a"] = None
+        metrics["reversal_threshold_source"] = "unavailable_without_imin"
+        return snapshot
+
+    relative_threshold = current_min_a * config.reversal_ratio
+    threshold = max(config.reversal_abs_a, relative_threshold)
+    metrics["reversal_threshold_a"] = threshold
+    metrics["reversal_threshold_source"] = (
+        "relative_to_imin"
+        if relative_threshold >= config.reversal_abs_a
+        else "instrument_floor"
+    )
+    return snapshot
 
 
 async def init_recovery_trace_store() -> None:
@@ -133,7 +178,7 @@ async def record_shadow_trace(
     condition_before: BatteryCondition | str,
     shadow: Mapping[str, Any],
 ) -> bool:
-    """Persist one exact live sample emitted by ChargeControllerV2.
+    """Persist one exact live sample plus its capture-time analyzer semantics.
 
     `(session_id, timestamp_s)` is idempotent so a retry of the same poll updates the
     sample instead of creating a fake second observation.
@@ -162,7 +207,7 @@ async def record_shadow_trace(
 
     intent_value = getattr(intent, "value", intent)
     condition_value = getattr(condition_before, "value", condition_before)
-    safe_shadow = _json_safe(dict(shadow))
+    safe_shadow = _enrich_signal_calibration(_json_safe(dict(shadow)))
     shadow_json = json.dumps(
         safe_shadow,
         ensure_ascii=False,
