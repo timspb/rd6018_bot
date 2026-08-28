@@ -4,10 +4,15 @@ from first_stage_evidence import FirstStageAssessment, FirstStageState
 from legacy_transition_audit import TransitionAuditSeverity, audit_legacy_transition
 
 
-def assessment(state: FirstStageState, reason: str = "evidence") -> FirstStageAssessment:
+def assessment(
+    state: FirstStageState,
+    reason: str = "evidence",
+    *,
+    current_c_rate: float = 0.005,
+) -> FirstStageAssessment:
     return FirstStageAssessment(
         state=state,
-        current_c_rate=0.005,
+        current_c_rate=current_c_rate,
         tail_threshold_a=0.28,
         tail_threshold_c=0.004,
         near_target=True,
@@ -67,10 +72,26 @@ class LegacyTransitionAuditTests(unittest.TestCase):
         result = audit_legacy_transition(
             stage_before="Main Charge",
             stage_after="Десульфатация",
-            first_stage=assessment(FirstStageState.STUCK_PLATEAU),
+            first_stage=assessment(
+                FirstStageState.STUCK_PLATEAU,
+                current_c_rate=0.008,
+            ),
         )
         self.assertEqual(result.severity, TransitionAuditSeverity.INFO)
         self.assertIn("chemistry/intent/condition", result.reason)
+
+    def test_high_c_rate_stuck_plateau_requires_review_not_safety_stop(self):
+        result = audit_legacy_transition(
+            stage_before="Main Charge",
+            stage_after="Десульфатация",
+            first_stage=assessment(
+                FirstStageState.STUCK_PLATEAU,
+                current_c_rate=0.020,
+            ),
+        )
+        self.assertEqual(result.severity, TransitionAuditSeverity.REVIEW)
+        self.assertEqual(result.code, "legacy_hv_escalation_after_high_c_rate_plateau")
+        self.assertIn("0.0200C", result.reason)
 
 
 if __name__ == "__main__":
