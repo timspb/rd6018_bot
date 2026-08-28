@@ -22,6 +22,10 @@ class ChargeControllerV2(ChargeController):
     `tick()` remains legacy-authoritative. The V2 stack receives the exact same
     U/I/T sample and records what it *would* decide. Its result is exposed under
     `actions["recovery_shadow"]`; no legacy action is removed or changed.
+
+    A shadow failure is deliberately isolated from the legacy actuator path. Once
+    `super().tick()` has returned successfully, diagnostics are not allowed to turn
+    that successful control decision into an exception.
     """
 
     def __init__(
@@ -94,6 +98,25 @@ class ChargeControllerV2(ChargeController):
         return parsed if math.isfinite(parsed) else math.nan
 
     @staticmethod
+    def _finite_or_none(value: Any) -> Optional[float]:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) else None
+
+    @staticmethod
+    def _normalize_output_on(value: Any) -> Optional[bool]:
+        if value is None:
+            return None
+        raw = str(value).strip().lower()
+        if value is True or raw == "on":
+            return True
+        if value is False or raw == "off":
+            return False
+        return None
+
+    @staticmethod
     def _first_stage_metadata(assessment: FirstStageAssessment) -> Dict[str, Any]:
         return {
             "state": assessment.state.value,
@@ -117,20 +140,52 @@ class ChargeControllerV2(ChargeController):
             ),
         }
 
+    def _trace_point_metadata(
+        self,
+        *,
+        timestamp_s: float,
+        stage_before: str,
+        stage_after: str,
+        target_before: Optional[float],
+        voltage: Any,
+        current: Any,
+        temp_ext: Any,
+        is_cv: bool,
+        is_cc: Optional[bool],
+        ah: Any,
+        output_is_on: Any,
+    ) -> Dict[str, Any]:
+        return {
+            "timestamp_s": float(timestamp_s),
+            "stage": str(stage_before),
+            "legacy_stage_after": str(stage_after),
+            "voltage_v": self._finite_or_none(voltage),
+            "current_a": self._finite_or_none(current),
+            "temp_c": self._finite_or_none(temp_ext),
+            "is_cv": bool(is_cv),
+            "is_cc": bool(is_cc) if is_cc is not None else None,
+            "target_voltage_v": self._finite_or_none(target_before),
+            "ah": self._finite_or_none(ah),
+            "output_on": self._normalize_output_on(output_is_on),
+        }
+
     def _shadow_metadata(
         self,
         record: Any,
         *,
+        trace_point: Dict[str, Any],
         first_stage: Optional[FirstStageAssessment] = None,
         transition_audit: Optional[LegacyTransitionAudit] = None,
     ) -> Dict[str, Any]:
         metrics = record.analysis.metrics
         payload = {
+            "status": "ok",
             "decision": record.decision.decision.value,
             "reason": record.decision.reason,
             "events": sorted(event.value for event in record.analysis.events),
             "disagreement": record.disagreement,
             "legacy_effect": record.legacy_effect,
+            "trace_point": trace_point,
             "metrics": {
                 "d_voltage_v_per_min": metrics.d_voltage_v_per_min,
                 "d_current_a_per_min": metrics.d_current_a_per_min,
@@ -246,6 +301,7 @@ class ChargeControllerV2(ChargeController):
         target_before = self._v2_target_voltage_v
         stuck_since_before = getattr(self, "_stuck_current_since", None)
 
+        # This is the only actuator-authoritative decision in V2 shadow mode.
         actions = await super().tick(
             voltage,
             current,
@@ -258,51 +314,75 @@ class ChargeControllerV2(ChargeController):
         )
 
         timestamp_s = self.last_update_time or time.time()
-        runtime = self._v2_runtime
-        if runtime is None:
-            runtime = self._new_runtime(started_at=self.total_start_time or timestamp_s)
-
-        record = runtime.observe(
-            RecoveryTracePoint(
-                timestamp_s=timestamp_s,
-                stage=stage_before,
-                voltage_v=self._finite_or_nan(voltage),
-                current_a=self._finite_or_nan(current),
-                temp_c=self._finite_or_nan(temp_ext),
-                is_cv=bool(is_cv),
-                target_voltage_v=target_before,
-                ah=self._finite_or_nan(ah),
-            ),
-            legacy_actions=actions,
-            output_is_on=(
-                output_is_on is True or str(output_is_on).lower() == "on"
-                if output_is_on is not None
-                else None
-            ),
-        )
-        self._log_shadow_disagreement(record, stage=stage_before)
-        first_stage = self._assess_main_sample(
-            stage_before=stage_before,
-            target_before=target_before,
-            stuck_since_before=stuck_since_before,
+        trace_point = self._trace_point_metadata(
             timestamp_s=timestamp_s,
-            voltage=voltage,
-            current=current,
-            is_cv=is_cv,
-            record=record,
-        )
-        transition_audit = audit_legacy_transition(
             stage_before=stage_before,
             stage_after=self.current_stage,
-            first_stage=first_stage,
-        )
-        self._log_transition_audit(transition_audit)
-        actions["recovery_shadow"] = self._shadow_metadata(
-            record,
-            first_stage=first_stage,
-            transition_audit=transition_audit,
+            target_before=target_before,
+            voltage=voltage,
+            current=current,
+            temp_ext=temp_ext,
+            is_cv=is_cv,
+            is_cc=is_cc,
+            ah=ah,
+            output_is_on=output_is_on,
         )
 
+        try:
+            runtime = self._v2_runtime
+            if runtime is None:
+                runtime = self._new_runtime(started_at=self.total_start_time or timestamp_s)
+
+            record = runtime.observe(
+                RecoveryTracePoint(
+                    timestamp_s=timestamp_s,
+                    stage=stage_before,
+                    voltage_v=self._finite_or_nan(voltage),
+                    current_a=self._finite_or_nan(current),
+                    temp_c=self._finite_or_nan(temp_ext),
+                    is_cv=bool(is_cv),
+                    target_voltage_v=target_before,
+                    ah=self._finite_or_nan(ah),
+                ),
+                legacy_actions=actions,
+                output_is_on=self._normalize_output_on(output_is_on),
+            )
+            self._log_shadow_disagreement(record, stage=stage_before)
+            first_stage = self._assess_main_sample(
+                stage_before=stage_before,
+                target_before=target_before,
+                stuck_since_before=stuck_since_before,
+                timestamp_s=timestamp_s,
+                voltage=voltage,
+                current=current,
+                is_cv=is_cv,
+                record=record,
+            )
+            transition_audit = audit_legacy_transition(
+                stage_before=stage_before,
+                stage_after=self.current_stage,
+                first_stage=first_stage,
+            )
+            self._log_transition_audit(transition_audit)
+            actions["recovery_shadow"] = self._shadow_metadata(
+                record,
+                trace_point=trace_point,
+                first_stage=first_stage,
+                transition_audit=transition_audit,
+            )
+        except Exception as exc:
+            # Shadow diagnostics must never invalidate an already-computed legacy
+            # control decision. Preserve a structured failure marker for telemetry.
+            logger.exception("RECOVERY_SHADOW failed; legacy actions remain authoritative")
+            actions["recovery_shadow"] = {
+                "status": "error",
+                "decision": None,
+                "reason": "shadow observation failed; legacy actions remain authoritative",
+                "error_type": type(exc).__name__,
+                "trace_point": trace_point,
+            }
+
+        # Setpoints returned by the legacy tick apply to the next telemetry sample.
         next_target = actions.get("set_voltage")
         if next_target is not None:
             self._v2_target_voltage_v = self._finite_or_nan(next_target)
