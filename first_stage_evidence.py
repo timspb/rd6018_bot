@@ -42,6 +42,7 @@ MIN_MEASURABLE_TAIL_A = 0.05
 MAX_TAIL_A = 1.50
 NEAR_TARGET_MARGIN_V = 0.20
 THERMAL_ACCEL_C_PER_MIN = 0.12
+CURRENT_NOT_FALLING_A_PER_MIN = -0.01
 VOLTAGE_SAG_V_PER_MIN = -0.01
 
 
@@ -67,6 +68,7 @@ def assess_first_stage(
     plateau_minutes: float = 0.0,
     required_plateau_minutes: float = 40.0,
     dtemp_c_per_min: Optional[float] = None,
+    dcurrent_a_per_min: Optional[float] = None,
     dvoltage_v_per_min: Optional[float] = None,
 ) -> FirstStageAssessment:
     capacity = float(capacity_ah)
@@ -88,25 +90,48 @@ def assess_first_stage(
 
     current_c = current / capacity
     near_target = voltage >= target - NEAR_TARGET_MARGIN_V
+    current_not_falling = (
+        dcurrent_a_per_min is not None
+        and float(dcurrent_a_per_min) >= CURRENT_NOT_FALLING_A_PER_MIN
+    )
 
-    if dtemp_c_per_min is not None and float(dtemp_c_per_min) >= THERMAL_ACCEL_C_PER_MIN:
+    # Heating during bulk/taper is not sufficient evidence of instability. The
+    # practitioner warning pattern is compound: CV near target + current no longer
+    # falling (or reversing) + temperature acceleration.
+    if (
+        is_cv
+        and near_target
+        and current_not_falling
+        and dtemp_c_per_min is not None
+        and float(dtemp_c_per_min) >= THERMAL_ACCEL_C_PER_MIN
+    ):
         return FirstStageAssessment(
             FirstStageState.THERMALLY_UNSTABLE,
             current_c,
             threshold_a,
             threshold_c,
             near_target,
-            f"dT/dt={float(dtemp_c_per_min):.3f}C/min",
+            (
+                f"CV dI/dt={float(dcurrent_a_per_min):+.3f}A/min with "
+                f"dT/dt={float(dtemp_c_per_min):.3f}C/min"
+            ),
         )
 
-    if dvoltage_v_per_min is not None and float(dvoltage_v_per_min) <= VOLTAGE_SAG_V_PER_MIN:
+    # Likewise, voltage sag matters here when it occurs in the CV/near-target tail,
+    # not as a generic derivative during the normal rise toward absorption voltage.
+    if (
+        is_cv
+        and near_target
+        and dvoltage_v_per_min is not None
+        and float(dvoltage_v_per_min) <= VOLTAGE_SAG_V_PER_MIN
+    ):
         return FirstStageAssessment(
             FirstStageState.VOLTAGE_UNSTABLE,
             current_c,
             threshold_a,
             threshold_c,
             near_target,
-            f"dU/dt={float(dvoltage_v_per_min):.3f}V/min",
+            f"CV dU/dt={float(dvoltage_v_per_min):.3f}V/min near target",
         )
 
     if is_cv and near_target and current <= threshold_a:
