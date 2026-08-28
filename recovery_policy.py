@@ -30,10 +30,13 @@ class RecoveryDecisionPolicy:
     This layer deliberately does not choose voltages, currents or chemistry recipes.
     It answers only what the controller should do with already-observed evidence.
 
-    Practitioner-grounded invariant:
-    - current reversal after a real Imin can be normal end-of-charge evidence;
-    - the same reversal with temperature acceleration is not an EOC signal;
-    - reversal accompanied by voltage sag is a reason to rest/diagnose, not to push harder;
+    Control-mode invariant:
+    - CV: current is the response variable; Imin -> current rise is EOC evidence;
+    - CC: voltage is the response variable; Vmax -> voltage fall is EOC evidence.
+
+    Practitioner-grounded safety invariant:
+    - the same apparent finish with thermal acceleration is not an EOC signal;
+    - CV current reversal accompanied by voltage sag is a reason to rest/diagnose;
     - a flat current plateau by itself is evidence, not an automatic escalation trigger.
     """
 
@@ -72,38 +75,46 @@ class RecoveryDecisionPolicy:
             )
 
         if SignalEvent.THERMAL_ACCELERATION in events:
+            if analysis.sample.is_cc:
+                reason = "cc_voltage_fall_with_temperature_acceleration"
+            else:
+                reason = "cv_current_rise_with_temperature_acceleration"
             return RecoveryDecisionResult(
                 RecoveryDecision.PAUSE_THERMAL,
-                "current_rise_with_temperature_acceleration",
+                reason,
                 events,
             )
 
         if SignalEvent.VOLTAGE_SAG_DURING_REVERSAL in events:
             return RecoveryDecisionResult(
                 RecoveryDecision.REST_AND_DIAGNOSE,
-                "current_reversal_with_voltage_sag",
+                "cv_current_reversal_with_voltage_sag",
                 events,
             )
 
         if stage_key in self.HV_STAGE_NAMES:
             if SignalEvent.END_OF_CHARGE_LIKELY in events:
+                if SignalEvent.VOLTAGE_REVERSAL_CONFIRMED in events or analysis.sample.is_cc:
+                    reason = "confirmed_cc_voltage_reversal_after_vmax_with_stable_t"
+                else:
+                    reason = "confirmed_cv_current_reversal_after_imin_with_stable_u_t"
                 return RecoveryDecisionResult(
                     RecoveryDecision.FINISH_STAGE,
-                    "confirmed_current_reversal_after_imin_with_stable_u_t",
+                    reason,
                     events,
                 )
-            if SignalEvent.CURRENT_PLATEAU in events:
+            if analysis.sample.is_cv and SignalEvent.CURRENT_PLATEAU in events:
                 return RecoveryDecisionResult(
                     RecoveryDecision.CONTINUE,
-                    "hv_current_plateau_observe_for_imin_or_reversal",
+                    "hv_cv_current_plateau_observe_for_imin_or_reversal",
                     events,
                 )
 
         if stage_key in self.MAIN_STAGE_NAMES:
-            if SignalEvent.CURRENT_PLATEAU in events:
+            if analysis.sample.is_cv and SignalEvent.CURRENT_PLATEAU in events:
                 return RecoveryDecisionResult(
                     RecoveryDecision.CONTINUE,
-                    "main_current_plateau_is_evidence_not_forced_escalation",
+                    "main_cv_current_plateau_is_evidence_not_forced_escalation",
                     events,
                 )
 
