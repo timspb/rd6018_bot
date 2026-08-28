@@ -75,11 +75,21 @@ def _enrich_signal_calibration(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         return snapshot
 
     existing_threshold = _finite_or_none(metrics.get("reversal_threshold_a"))
+    current_min_a = _finite_or_none(metrics.get("current_min_a"))
     if existing_threshold is not None:
-        metrics["reversal_threshold_source"] = "analyzer"
+        if current_min_a is not None:
+            relative_threshold = current_min_a * config.reversal_ratio
+            metrics["reversal_threshold_source"] = (
+                "relative_to_imin"
+                if relative_threshold >= config.reversal_abs_a
+                else "instrument_floor"
+            )
+        else:
+            metrics["reversal_threshold_source"] = "analyzer"
+        if _finite_or_none(metrics.get("voltage_reversal_threshold_v")) is not None:
+            metrics["voltage_reversal_threshold_source"] = "instrument_floor"
         return snapshot
 
-    current_min_a = _finite_or_none(metrics.get("current_min_a"))
     if current_min_a is None:
         metrics["reversal_threshold_a"] = None
         metrics["reversal_threshold_source"] = "unavailable_without_imin"

@@ -116,6 +116,38 @@ def _reversal_metrics(
     }
 
 
+def _voltage_reversal_metrics(shadow: Mapping[str, Any]) -> Dict[str, Any]:
+    metrics = shadow.get("metrics")
+    if not isinstance(metrics, Mapping):
+        metrics = {}
+    vmax_v = _finite_float(metrics.get("voltage_max_v"))
+    delta_v = _finite_float(metrics.get("delta_voltage_from_max_v"))
+    threshold_v = _finite_float(metrics.get("voltage_reversal_threshold_v"))
+    return {
+        "voltage_max_v": vmax_v,
+        "reversal_delta_v": delta_v,
+        "reversal_delta_over_vmax": (
+            delta_v / vmax_v
+            if delta_v is not None and vmax_v is not None and vmax_v > 0
+            else None
+        ),
+        "reversal_threshold_v": threshold_v,
+        "reversal_threshold_over_vmax": (
+            threshold_v / vmax_v
+            if threshold_v is not None and vmax_v is not None and vmax_v > 0
+            else None
+        ),
+    }
+
+
+def _finish_reversal_metrics(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
+    is_cv = bool(row["is_cv"])
+    is_cc = bool(row["is_cc"]) if row["is_cc"] is not None else not is_cv
+    if is_cc and not is_cv:
+        return {"mode": "cc", "voltage": _voltage_reversal_metrics(shadow)}
+    return {"mode": "cv", "current": _reversal_metrics(row, shadow)}
+
+
 def _sample_summary(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
     first_stage = shadow.get("first_stage")
     if not isinstance(first_stage, Mapping):
@@ -137,7 +169,9 @@ def _sample_summary(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
         "disagreement": row["disagreement"],
         "transition_audit_code": row["transition_audit_code"],
         "transition_audit_severity": row["transition_audit_severity"],
+        "control_mode": ("cv" if bool(row["is_cv"]) else ("cc" if row["is_cc"] else "unknown")),
         "reversal": _reversal_metrics(row, shadow),
+        "voltage_reversal": _voltage_reversal_metrics(shadow),
         "reason": audit.get("reason") or row["shadow_reason"],
     }
 
@@ -268,6 +302,13 @@ async def build_trace_report(
     reversal_threshold_over_imin: List[float] = []
     reversal_imin_c_rate: List[float] = []
     reversal_by_stage: Dict[str, Dict[str, Any]] = {}
+    voltage_reversal_at: List[float] = []
+    voltage_reversal_delta_v: List[float] = []
+    voltage_reversal_delta_over_vmax: List[float] = []
+    voltage_reversal_threshold_v: List[float] = []
+    voltage_reversal_threshold_over_vmax: List[float] = []
+    voltage_reversal_vmax_v: List[float] = []
+    voltage_reversal_by_stage: Dict[str, Dict[str, Any]] = {}
 
     for row in rows:
         ts = float(row["timestamp_s"])
@@ -298,7 +339,7 @@ async def build_trace_report(
         if decision:
             decisions[decision] += 1
         if decision == "finish_stage":
-            reversal = _reversal_metrics(row, shadow)
+            reversal = _finish_reversal_metrics(row, shadow)
             if first_v2_finish_at is None:
                 first_v2_finish_at = ts
                 first_v2_finish_reversal = reversal
@@ -309,10 +350,12 @@ async def build_trace_report(
         events = shadow.get("events")
         if not isinstance(events, list):
             events = []
-        if "current_reversal_confirmed" in events:
+        current_reversal_confirmed = "current_reversal_confirmed" in events
+        voltage_reversal_confirmed = "voltage_reversal_confirmed" in events
+        if (current_reversal_confirmed or voltage_reversal_confirmed) and before_key in MIX_STAGE_NAMES and first_mix_reversal_at is None:
+            first_mix_reversal_at = ts
+        if current_reversal_confirmed:
             confirmed_reversal_at.append(ts)
-            if before_key in MIX_STAGE_NAMES and first_mix_reversal_at is None:
-                first_mix_reversal_at = ts
             reversal = _reversal_metrics(row, shadow)
             stage_bucket = reversal_by_stage.setdefault(
                 before_key or "unknown",
@@ -361,6 +404,42 @@ async def build_trace_report(
             if value is not None:
                 reversal_imin_c_rate.append(value)
                 stage_bucket["imin_c_rate"].append(value)
+
+        if voltage_reversal_confirmed:
+            voltage_reversal_at.append(ts)
+            reversal_v = _voltage_reversal_metrics(shadow)
+            stage_bucket_v = voltage_reversal_by_stage.setdefault(
+                before_key or "unknown",
+                {
+                    "timestamps": [],
+                    "delta_v": [],
+                    "delta_over_vmax": [],
+                    "threshold_v": [],
+                    "threshold_over_vmax": [],
+                    "vmax_v": [],
+                },
+            )
+            stage_bucket_v["timestamps"].append(ts)
+            value = reversal_v["reversal_delta_v"]
+            if value is not None:
+                voltage_reversal_delta_v.append(value)
+                stage_bucket_v["delta_v"].append(value)
+            value = reversal_v["reversal_delta_over_vmax"]
+            if value is not None:
+                voltage_reversal_delta_over_vmax.append(value)
+                stage_bucket_v["delta_over_vmax"].append(value)
+            value = reversal_v["reversal_threshold_v"]
+            if value is not None:
+                voltage_reversal_threshold_v.append(value)
+                stage_bucket_v["threshold_v"].append(value)
+            value = reversal_v["reversal_threshold_over_vmax"]
+            if value is not None:
+                voltage_reversal_threshold_over_vmax.append(value)
+                stage_bucket_v["threshold_over_vmax"].append(value)
+            value = reversal_v["voltage_max_v"]
+            if value is not None:
+                voltage_reversal_vmax_v.append(value)
+                stage_bucket_v["vmax_v"].append(value)
 
         disagreement = str(row["disagreement"] or "").strip()
         if disagreement:
@@ -462,6 +541,27 @@ async def build_trace_report(
             "by_stage": _render_stage_reversal(reversal_by_stage),
             "first_v2_finish_reversal": first_v2_finish_reversal,
             "first_v2_mix_finish_reversal": first_v2_mix_finish_reversal,
+        },
+        "cc_voltage_reversal": {
+            "confirmed_count": len(voltage_reversal_at),
+            "first_confirmed_at": voltage_reversal_at[0] if voltage_reversal_at else None,
+            "voltage_max_v": _distribution(voltage_reversal_vmax_v),
+            "reversal_delta_v": _distribution(voltage_reversal_delta_v),
+            "reversal_delta_over_vmax": _distribution(voltage_reversal_delta_over_vmax),
+            "reversal_threshold_v": _distribution(voltage_reversal_threshold_v),
+            "reversal_threshold_over_vmax": _distribution(voltage_reversal_threshold_over_vmax),
+            "by_stage": {
+                stage: {
+                    "confirmed_count": len(list(bucket.get("timestamps") or [])),
+                    "first_confirmed_at": (list(bucket.get("timestamps") or [None]))[0],
+                    "voltage_max_v": _distribution(list(bucket.get("vmax_v") or [])),
+                    "reversal_delta_v": _distribution(list(bucket.get("delta_v") or [])),
+                    "reversal_delta_over_vmax": _distribution(list(bucket.get("delta_over_vmax") or [])),
+                    "reversal_threshold_v": _distribution(list(bucket.get("threshold_v") or [])),
+                    "reversal_threshold_over_vmax": _distribution(list(bucket.get("threshold_over_vmax") or [])),
+                }
+                for stage, bucket in voltage_reversal_by_stage.items()
+            },
         },
         "timing": {
             "first_main_to_hv_at": first_main_hv_at,
