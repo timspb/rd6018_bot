@@ -5,6 +5,8 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 from charge_logic import ChargeController
+from first_stage_evidence import FirstStageAssessment, assess_first_stage
+from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
@@ -81,9 +83,25 @@ class ChargeControllerV2(ChargeController):
             return math.nan
         return parsed if math.isfinite(parsed) else math.nan
 
-    def _shadow_metadata(self, record: Any) -> Dict[str, Any]:
-        metrics = record.analysis.metrics
+    @staticmethod
+    def _first_stage_metadata(assessment: FirstStageAssessment) -> Dict[str, Any]:
         return {
+            "state": assessment.state.value,
+            "current_c_rate": assessment.current_c_rate,
+            "tail_threshold_a": assessment.tail_threshold_a,
+            "tail_threshold_c": assessment.tail_threshold_c,
+            "near_target": assessment.near_target,
+            "reason": assessment.reason,
+        }
+
+    def _shadow_metadata(
+        self,
+        record: Any,
+        *,
+        first_stage: Optional[FirstStageAssessment] = None,
+    ) -> Dict[str, Any]:
+        metrics = record.analysis.metrics
+        payload = {
             "decision": record.decision.decision.value,
             "reason": record.decision.reason,
             "events": sorted(event.value for event in record.analysis.events),
@@ -99,6 +117,44 @@ class ChargeControllerV2(ChargeController):
                 "reversal_confirmations": metrics.reversal_confirmations,
             },
         }
+        if first_stage is not None:
+            payload["first_stage"] = self._first_stage_metadata(first_stage)
+        return payload
+
+    def _assess_main_sample(
+        self,
+        *,
+        stage_before: str,
+        target_before: Optional[float],
+        timestamp_s: float,
+        voltage: float,
+        current: float,
+        is_cv: bool,
+        record: Any,
+    ) -> Optional[FirstStageAssessment]:
+        if stage_before != self.STAGE_MAIN or target_before is None:
+            return None
+        if not math.isfinite(float(target_before)):
+            return None
+
+        stuck_since = getattr(self, "_stuck_current_since", None)
+        plateau_minutes = 0.0
+        if stuck_since is not None:
+            plateau_minutes = max(0.0, (timestamp_s - float(stuck_since)) / 60.0)
+        required_plateau = 120.0 if self.battery_type == self.PROFILE_AGM else 40.0
+        metrics = record.analysis.metrics
+        return assess_first_stage(
+            chemistry=chemistry_for_legacy_profile(self.battery_type),
+            capacity_ah=float(self.ah_capacity),
+            voltage_v=self._finite_or_nan(voltage),
+            current_a=self._finite_or_nan(current),
+            target_voltage_v=float(target_before),
+            is_cv=bool(is_cv),
+            plateau_minutes=plateau_minutes,
+            required_plateau_minutes=required_plateau,
+            dtemp_c_per_min=metrics.d_temp_c_per_min,
+            dvoltage_v_per_min=metrics.d_voltage_v_per_min,
+        )
 
     async def tick(
         self,
@@ -150,7 +206,19 @@ class ChargeControllerV2(ChargeController):
                 else None
             ),
         )
-        actions["recovery_shadow"] = self._shadow_metadata(record)
+        first_stage = self._assess_main_sample(
+            stage_before=stage_before,
+            target_before=target_before,
+            timestamp_s=timestamp_s,
+            voltage=voltage,
+            current=current,
+            is_cv=is_cv,
+            record=record,
+        )
+        actions["recovery_shadow"] = self._shadow_metadata(
+            record,
+            first_stage=first_stage,
+        )
 
         # Setpoints in the returned legacy actions apply to the *next* sample.
         next_target = actions.get("set_voltage")
