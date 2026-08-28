@@ -137,6 +137,37 @@ class ChargeControllerV2(ChargeController):
             "condition_before": self._v2_condition_before,
         }
 
+    async def _persist_shadow_trace_if_ready(self, shadow: Dict[str, Any]) -> bool:
+        # `database.init_db()` is called by production before data_logger starts.
+        # Unit tests that instantiate this controller directly never cross this gate.
+        import database
+
+        if not getattr(database, "TRACE_CAPTURE_READY", False):
+            return False
+        trace = shadow.get("trace_point")
+        if not isinstance(trace, dict):
+            return False
+        if str(trace.get("stage") or "") == self.STAGE_IDLE:
+            return False
+
+        context = self.recovery_trace_context
+        if float(context["started_at"]) <= 0:
+            return False
+
+        from recovery_trace_store import record_shadow_trace
+
+        await record_shadow_trace(
+            session_id=context["session_id"],
+            started_at=context["started_at"],
+            battery_id=context["battery_id"],
+            battery_type=context["battery_type"],
+            capacity_ah=context["capacity_ah"],
+            intent=context["intent"],
+            condition_before=context["condition_before"],
+            shadow=shadow,
+        )
+        return True
+
     @staticmethod
     def _finite_or_nan(value: Any) -> float:
         try:
@@ -429,6 +460,15 @@ class ChargeControllerV2(ChargeController):
                 "error_type": type(exc).__name__,
                 "trace_point": trace_point,
             }
+
+        try:
+            if await self._persist_shadow_trace_if_ready(actions["recovery_shadow"]):
+                actions["recovery_shadow"]["persistence"] = "stored"
+        except Exception as exc:
+            # Persistence is observation-only and must not affect the charger.
+            logger.exception("RECOVERY_TRACE persistence failed; legacy actions remain authoritative")
+            actions["recovery_shadow"]["persistence"] = "error"
+            actions["recovery_shadow"]["persistence_error_type"] = type(exc).__name__
 
         # Setpoints returned by the legacy tick apply to the next telemetry sample.
         next_target = actions.get("set_voltage")
