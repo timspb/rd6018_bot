@@ -6,6 +6,8 @@ import database
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_replay import replay_document
 from recovery_trace_store import (
+    TRACE_RETENTION_DAYS,
+    cleanup_old_trace_points,
     export_replay_document,
     latest_trace_session_id,
     list_trace_sessions,
@@ -102,6 +104,20 @@ class RecoveryTraceStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(document["trace_export"]["stored_samples"], 2)
         self.assertEqual(document["trace_export"]["replayable_samples"], 1)
         self.assertEqual(document["trace_export"]["skipped_invalid_samples"], 1)
+
+    async def test_raw_trace_retention_is_bounded_without_touching_cycle_summaries(self):
+        await self._record(self._shadow(100.0, current=0.60))
+        await self._record(self._shadow(200.0, current=0.55))
+
+        deleted = await cleanup_old_trace_points(
+            now_s=100.0 + (TRACE_RETENTION_DAYS + 1) * 86400.0,
+        )
+        self.assertEqual(deleted, 2)
+        self.assertEqual(await list_trace_sessions(), [])
+
+    async def test_invalid_retention_window_is_rejected(self):
+        with self.assertRaises(ValueError):
+            await cleanup_old_trace_points(retention_days=0)
 
     async def test_missing_trace_point_is_rejected(self):
         with self.assertRaises(ValueError):
