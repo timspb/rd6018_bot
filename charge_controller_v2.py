@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from charge_logic import ChargeController
 from first_stage_evidence import FirstStageAssessment, assess_first_stage
@@ -76,8 +76,7 @@ class ChargeControllerV2(ChargeController):
         self._v2_runtime = runtime
         return runtime
 
-    def start(self, battery_type: str, ah_capacity: int) -> None:
-        super().start(battery_type, ah_capacity)
+    def _initialize_shadow_session(self) -> None:
         started_at = self.total_start_time or time.time()
         self._new_runtime(started_at=started_at)
         self._v2_last_disagreement = None
@@ -88,6 +87,55 @@ class ChargeControllerV2(ChargeController):
         except Exception:
             self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
+
+    def start(self, battery_type: str, ah_capacity: int) -> None:
+        super().start(battery_type, ah_capacity)
+        self._initialize_shadow_session()
+
+    def start_custom(
+        self,
+        main_voltage: float,
+        main_current: float,
+        delta_threshold: float,
+        time_limit_hours: float,
+        ah_capacity: int,
+    ) -> None:
+        super().start_custom(
+            main_voltage=main_voltage,
+            main_current=main_current,
+            delta_threshold=delta_threshold,
+            time_limit_hours=time_limit_hours,
+            ah_capacity=ah_capacity,
+        )
+        self._initialize_shadow_session()
+
+    def try_restore_session(
+        self,
+        voltage: float,
+        current: float,
+        ah: float,
+    ) -> Tuple[bool, Optional[str]]:
+        ok, message = super().try_restore_session(voltage, current, ah)
+        if ok:
+            # A process restart loses the in-memory analyzer, but the durable trace
+            # keeps the same session identity. Replay can reconstruct the full cycle.
+            self._initialize_shadow_session()
+        return ok, message
+
+    @property
+    def recovery_trace_context(self) -> Dict[str, Any]:
+        started_at = float(self.total_start_time or 0.0)
+        battery_id = self._v2_battery_id or f"anonymous:{self.battery_type}:{self.ah_capacity}"
+        session_id = f"{battery_id}:{int(round(started_at * 1000.0))}"
+        return {
+            "session_id": session_id,
+            "started_at": started_at,
+            "battery_id": battery_id,
+            "battery_type": self.battery_type,
+            "capacity_ah": float(self.ah_capacity or 0.0),
+            "intent": self._v2_intent,
+            "condition_before": self._v2_condition_before,
+        }
 
     @staticmethod
     def _finite_or_nan(value: Any) -> float:
