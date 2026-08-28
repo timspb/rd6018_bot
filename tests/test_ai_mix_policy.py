@@ -20,7 +20,7 @@ class AiMixPolicyTests(unittest.TestCase):
         self.assertIn("mix_exit_policy", snapshot)
         self.assertEqual(snapshot["mix_exit_policy"]["primary"], "delta")
         self.assertEqual(snapshot["mix_exit_policy"]["mode"], "delta_or_time_fallback")
-        self.assertEqual(snapshot["mix_exit_policy"]["fallback_limit_hours"], 10)
+        self.assertEqual(snapshot["mix_exit_policy"]["fallback_limit_hours"], 20)
 
         text = format_ai_snapshot(snapshot)
         self.assertIn("Mix exit: primary=delta", text)
