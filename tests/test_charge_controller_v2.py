@@ -91,6 +91,46 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(first_stage["tail_threshold_a"], 0.80)
         self.assertAlmostEqual(first_stage["current_c_rate"], 0.0035)
 
+    async def test_transition_audit_uses_plateau_state_before_legacy_resets_it(self):
+        controller = ChargeControllerV2(DummyHass())
+        controller.current_stage = controller.STAGE_MAIN
+        controller.battery_type = controller.PROFILE_EFB
+        controller.ah_capacity = 60
+        controller.stage_start_time = 0.0
+        controller.total_start_time = 0.0
+        controller._v2_target_voltage_v = 14.8
+        controller._last_known_output_on = True
+
+        with patch("charge_logic.time.time", return_value=301.0):
+            await controller.tick(
+                voltage=14.8,
+                current=0.60,
+                temp_ext=23.0,
+                is_cv=True,
+                ah=0.5,
+                output_is_on=True,
+                is_cc=False,
+            )
+        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
+        self.assertAlmostEqual(controller._stuck_current_since or 0.0, 301.0)
+
+        with patch("charge_logic.time.time", return_value=2701.0):
+            actions = await controller.tick(
+                voltage=14.8,
+                current=0.60,
+                temp_ext=23.0,
+                is_cv=True,
+                ah=0.6,
+                output_is_on=True,
+                is_cc=False,
+            )
+
+        self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
+        audit = actions["recovery_shadow"]["transition_audit"]
+        self.assertEqual(audit["first_stage_state"], "stuck_plateau")
+        self.assertEqual(audit["code"], "legacy_hv_escalation_after_stuck_plateau")
+        self.assertEqual(audit["severity"], "info")
+
 
 if __name__ == "__main__":
     unittest.main()
