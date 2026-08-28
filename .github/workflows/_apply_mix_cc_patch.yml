@@ -1,0 +1,153 @@
+name: Apply focused Mix and CC-CV patch
+
+on:
+  push:
+    branches:
+      - refactor/pb-recovery-controller-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/pb-recovery-controller-v2
+      - name: Apply focused source patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, *, count: int | None = None) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              found = text.count(old)
+              if count is not None and found != count:
+                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {found}: {old!r}')
+              if found == 0:
+                  raise SystemExit(f'{path}: pattern not found: {old!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          # Requested practitioner observation windows.
+          replace('charge_logic.py', 'CA_MIX_MAX_HOURS = 8   # Ca/Ca: макс 8 ч на этапе Mix',
+                  'CA_MIX_MAX_HOURS = 20  # Ca/Ca: расширенное окно наблюдения Mix', count=1)
+          replace('charge_logic.py', 'EFB_MIX_MAX_HOURS = 10',
+                  'EFB_MIX_MAX_HOURS = 20', count=1)
+          replace('charge_logic.py', 'AGM_MIX_MAX_HOURS = 5  # AGM: макс 5 ч на этапе Mix',
+                  'AGM_MIX_MAX_HOURS = 10  # AGM: расширенное окно наблюдения Mix', count=1)
+
+          # Once Delta was confirmed, the 2h finish hold is sticky. The current sample
+          # no longer has to remain beyond the threshold every subsequent minute and
+          # the profile fallback timeout cannot pre-empt the active hold.
+          replace(
+              'charge_logic.py',
+              '            if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT and self._check_delta_finish(\n'
+              '                voltage, current, is_cv=is_cv, is_cc=is_cc\n'
+              '            ):',
+              '            if self.finish_timer_start is not None or (\n'
+              '                self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT\n'
+              '                and self._check_delta_finish(voltage, current, is_cv=is_cv, is_cc=is_cc)\n'
+              '            ):',
+              count=1,
+          )
+
+          # Human-facing legacy strings must describe the actual configured windows.
+          for old, new in (
+              ('EFB лимит 10ч', 'EFB лимит 20ч'),
+              ('EFB_Mix_limit_10h', 'EFB_Mix_limit_20h'),
+              ('<b>⏱ EFB Mix:</b> лимит 10ч.', '<b>⏱ EFB Mix:</b> лимит 20ч.'),
+              ('Ca/Ca лимит 8ч', 'Ca/Ca лимит 20ч'),
+              ('CA_Mix_limit_8h', 'CA_Mix_limit_20h'),
+              ('<b>⏱ Ca/Ca Mix:</b> лимит 8ч.', '<b>⏱ Ca/Ca Mix:</b> лимит 20ч.'),
+              ('AGM лимит 5ч', 'AGM лимит 10ч'),
+              ('AGM_Mix_limit_5h', 'AGM_Mix_limit_10h'),
+              ('<b>⏱ AGM Mix:</b> лимит 5ч.', '<b>⏱ AGM Mix:</b> лимит 10ч.'),
+              ('Mix 8h; SafeWait 2h.', 'Mix 20h; SafeWait 2h.'),
+              ('Mix 10h; SafeWait 2h.', 'Mix 20h; SafeWait 2h.'),
+              ('Mix 5h; SafeWait 2h.', 'Mix 10h; SafeWait 2h.'),
+              ('лимит 10ч - fallback', 'лимит 20ч - fallback'),
+              ('ограничение 10ч переводит', 'ограничение 20ч переводит'),
+              ('fallback_limit_hours": EFB_MIX_MAX_HOURS', 'fallback_limit_hours": EFB_MIX_MAX_HOURS'),
+              ('лимит 8ч - fallback', 'лимит 20ч - fallback'),
+              ('ограничение 8ч переводит', 'ограничение 20ч переводит'),
+              ('лимит 5ч - fallback', 'лимит 10ч - fallback'),
+              ('ограничение 5ч переводит', 'ограничение 10ч переводит'),
+          ):
+              text = Path('charge_logic.py').read_text(encoding='utf-8')
+              if old in text:
+                  Path('charge_logic.py').write_text(text.replace(old, new), encoding='utf-8')
+
+          # Pass explicit CC state into the V2 tracker and expose both CV and CC evidence
+          # in the captured shadow payload.
+          replace(
+              'charge_controller_v2.py',
+              '                    is_cv=bool(is_cv),\n                    target_voltage_v=target_before,',
+              '                    is_cv=bool(is_cv),\n'
+              '                    is_cc=(bool(is_cc) if is_cc is not None else not bool(is_cv)),\n'
+              '                    target_voltage_v=target_before,',
+              count=1,
+          )
+          replace(
+              'charge_controller_v2.py',
+              '                "delta_current_from_min_a": metrics.delta_current_from_min_a,\n'
+              '                "reversal_confirmations": metrics.reversal_confirmations,',
+              '                "delta_current_from_min_a": metrics.delta_current_from_min_a,\n'
+              '                "reversal_threshold_a": metrics.reversal_threshold_a,\n'
+              '                "reversal_confirmations": metrics.reversal_confirmations,\n'
+              '                "voltage_max_v": metrics.voltage_max_v,\n'
+              '                "seconds_since_voltage_max": metrics.seconds_since_voltage_max,\n'
+              '                "delta_voltage_from_max_v": metrics.delta_voltage_from_max_v,\n'
+              '                "voltage_reversal_threshold_v": metrics.voltage_reversal_threshold_v,\n'
+              '                "voltage_reversal_confirmations": metrics.voltage_reversal_confirmations,',
+              count=1,
+          )
+
+          # Freeze CC voltage-threshold semantics at capture time and preserve is_cc in
+          # exported replay documents.
+          replace(
+              'recovery_trace_store.py',
+              '        "plateau_rel_span": config.plateau_rel_span,\n    }',
+              '        "plateau_rel_span": config.plateau_rel_span,\n'
+              '        "voltage_max_update_hysteresis_v": config.voltage_max_update_hysteresis_v,\n'
+              '        "voltage_reversal_abs_v": config.voltage_reversal_abs_v,\n'
+              '        "voltage_reversal_confirmations": config.voltage_reversal_confirmations,\n'
+              '    }',
+              count=1,
+          )
+          replace(
+              'recovery_trace_store.py',
+              '            "is_cv": bool(row["is_cv"]),\n        }',
+              '            "is_cv": bool(row["is_cv"]),\n'
+              '            "is_cc": (bool(row["is_cc"]) if row["is_cc"] is not None else not bool(row["is_cv"])),\n'
+              '        }',
+              count=1,
+          )
+
+          # Keep the assistant strategy doc aligned with the configured fallback limits.
+          strategy = Path('docs/assistant/CHARGE_STRATEGY.md')
+          if strategy.exists():
+              text = strategy.read_text(encoding='utf-8')
+              text = text.replace('Mix 16.5V max8h', 'Mix 16.5V max20h')
+              text = text.replace('Mix16.5 max10h', 'Mix16.5 max20h')
+              text = text.replace('Mix16.3 max5h', 'Mix16.3 max10h')
+              text = text.replace('Mix 8h', 'Mix 20h')
+              text = text.replace('Mix 10h', 'Mix 20h')
+              text = text.replace('Mix 5h', 'Mix 10h')
+              strategy.write_text(text, encoding='utf-8')
+
+          # Self-delete: this workflow is only a transport for a focused textual patch.
+          Path('.github/workflows/_apply_mix_cc_patch.yml').unlink()
+          PY
+      - name: Commit source patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: extend Mix windows and carry CC voltage evidence'
+          git push origin HEAD:refactor/pb-recovery-controller-v2
