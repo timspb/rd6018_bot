@@ -19,9 +19,6 @@ CyclePersister = Callable[[RecoveryCycleEvidence], Awaitable[int]]
 
 
 async def _registry_battery_exists(battery_id: str) -> bool:
-    # Recovery storage is an extension of the legacy DB. The bot historically calls
-    # database.init_db() only, so live recovery tracking must be safe even before the
-    # UI grows an explicit registry-initialization step.
     await init_battery_registry()
     return await get_battery(battery_id) is not None
 
@@ -33,13 +30,7 @@ class RecoveryRuntimeObservation:
 
 
 class RecoveryRuntime:
-    """Own one active recovery session and bridge live telemetry to domain evidence.
-
-    The runtime deliberately has no Telegram/HA dependencies. Production code feeds it
-    the same validated U/I/T/stage data already used by the controller. It returns a
-    conservative recovery-policy decision and persists exactly one completed evidence
-    row when `complete()` is called.
-    """
+    """Own one recovery session and bridge validated telemetry to V2 evidence."""
 
     def __init__(
         self,
@@ -103,6 +94,7 @@ class RecoveryRuntime:
         current_a: float,
         temp_c: float,
         is_cv: bool,
+        is_cc: Optional[bool] = None,
         target_voltage_v: Optional[float] = None,
         ah: Optional[float] = None,
         output_is_on: Optional[bool] = True,
@@ -110,6 +102,9 @@ class RecoveryRuntime:
         if self._tracker is None or self._policy is None:
             raise RuntimeError("no active recovery session")
 
+        # New production telemetry carries both flags explicitly. The !CV fallback is
+        # retained only for older callers/replay adapters that predate explicit CC.
+        resolved_is_cc = bool(is_cc) if is_cc is not None else not bool(is_cv)
         point = RecoveryTracePoint(
             timestamp_s=float(timestamp_s),
             stage=str(stage),
@@ -117,6 +112,7 @@ class RecoveryRuntime:
             current_a=float(current_a),
             temp_c=float(temp_c),
             is_cv=bool(is_cv),
+            is_cc=resolved_is_cc,
             target_voltage_v=(
                 float(target_voltage_v) if target_voltage_v is not None else None
             ),
@@ -160,7 +156,6 @@ class RecoveryRuntime:
         return evidence
 
     def abort(self) -> None:
-        """Discard an unpersisted active session (for explicit operator cancellation)."""
         self._reset()
 
     def _reset(self) -> None:
