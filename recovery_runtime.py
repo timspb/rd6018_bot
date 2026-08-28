@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
-from battery_registry import RecoveryCycleEvidence, get_battery, record_recovery_cycle
+from battery_registry import (
+    RecoveryCycleEvidence,
+    get_battery,
+    init_battery_registry,
+    record_recovery_cycle,
+)
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecisionPolicy, RecoveryDecisionResult
 from recovery_session import RecoverySessionTracker, RecoveryTracePoint
@@ -14,6 +19,10 @@ CyclePersister = Callable[[RecoveryCycleEvidence], Awaitable[int]]
 
 
 async def _registry_battery_exists(battery_id: str) -> bool:
+    # Recovery storage is an extension of the legacy DB. The bot historically calls
+    # database.init_db() only, so live recovery tracking must be safe even before the
+    # UI grows an explicit registry-initialization step.
+    await init_battery_registry()
     return await get_battery(battery_id) is not None
 
 
