@@ -66,6 +66,31 @@ class RecoverySessionTrackerTests(unittest.TestCase):
         self.assertAlmostEqual(tracker.evidence.relax_v_1h, 12.9)
         self.assertIsNone(tracker.evidence.relax_v_12h)
 
+    def test_safe_wait_alias_is_a_relaxation_stage(self):
+        tracker = RecoverySessionTracker(
+            battery_id="bat-safe-wait",
+            started_at=0.0,
+            intent=ChargeIntent.RECOVERY,
+        )
+        tracker.observe(RecoveryTracePoint(1000, "safe_wait", 13.5, 0.0, 25.0))
+        tracker.observe(RecoveryTracePoint(1300, "safe_wait", 13.2, 0.0, 24.9))
+        self.assertAlmostEqual(tracker.evidence.relax_v_5m, 13.2)
+
+    def test_later_relax_episode_does_not_inherit_elapsed_time(self):
+        tracker = RecoverySessionTracker(
+            battery_id="bat-rest-episodes",
+            started_at=0.0,
+            intent=ChargeIntent.RECOVERY,
+        )
+        tracker.observe(RecoveryTracePoint(1000, "safe_wait", 13.5, 0.0, 25.0))
+        tracker.observe(RecoveryTracePoint(1300, "safe_wait", 13.2, 0.0, 24.9))
+        tracker.observe(RecoveryTracePoint(1600, "Mix Mode", 16.2, 0.5, 25.0, True, 16.3))
+        tracker.observe(RecoveryTracePoint(5000, "safe_wait", 13.4, 0.0, 24.8))
+
+        # The second rest has just started. Its first sample must not be treated
+        # as a one-hour point just because the first rest happened long ago.
+        self.assertIsNone(tracker.evidence.relax_v_1h)
+
     def test_invalid_sample_does_not_poison_evidence(self):
         tracker = RecoverySessionTracker(
             battery_id="bat-1",
@@ -126,6 +151,23 @@ class RecoverySessionTrackerTests(unittest.TestCase):
         # cycle evidence keeps the best Imin seen during Main.
         self.assertAlmostEqual(tracker.evidence.main_imin_a, 0.4)
         self.assertAlmostEqual(tracker.evidence.main_target_v, 14.6)
+
+    def test_voltage_step_time_to_target_tracks_latest_target(self):
+        tracker = RecoverySessionTracker(
+            battery_id="agm-step-time",
+            started_at=0.0,
+            intent=ChargeIntent.RECOVERY,
+        )
+        tracker.observe(RecoveryTracePoint(0, "Main Charge", 14.35, 0.8, 25.0, True, 14.4))
+        tracker.observe(RecoveryTracePoint(120, "Main Charge", 14.4, 0.6, 25.1, True, 14.4))
+        self.assertAlmostEqual(tracker.evidence.main_time_to_target_s, 0.0)
+
+        tracker.observe(RecoveryTracePoint(600, "Main Charge", 14.4, 0.7, 25.2, True, 15.0))
+        self.assertEqual(tracker.evidence.main_target_v, 15.0)
+        self.assertIsNone(tracker.evidence.main_time_to_target_s)
+
+        tracker.observe(RecoveryTracePoint(900, "Main Charge", 14.82, 0.5, 25.3, True, 15.0))
+        self.assertAlmostEqual(tracker.evidence.main_time_to_target_s, 300.0)
 
 
 if __name__ == "__main__":
