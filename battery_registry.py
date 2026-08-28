@@ -105,6 +105,23 @@ async def init_battery_registry() -> None:
         )
         """
     )
+    # `battery_id + started_at` is the durable session identity. Keep old test/dev
+    # databases migratable: if duplicates were created before this invariant existed,
+    # retain the earliest row and remove the accidental retry copies first.
+    await db.execute(
+        """
+        DELETE FROM recovery_cycles
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM recovery_cycles
+            GROUP BY battery_id, started_at
+        )
+        """
+    )
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_cycles_session "
+        "ON recovery_cycles(battery_id, started_at)"
+    )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_recovery_cycles_battery_started "
         "ON recovery_cycles(battery_id, started_at)"
@@ -242,7 +259,7 @@ async def record_recovery_cycle(evidence: RecoveryCycleEvidence) -> int:
     db = await get_db()
     cursor = await db.execute(
         """
-        INSERT INTO recovery_cycles (
+        INSERT OR IGNORE INTO recovery_cycles (
             battery_id, started_at, completed_at, intent, condition_before,
             main_target_v, main_imin_a, main_time_to_target_s, main_ah_in,
             hv_target_v, hv_imin_a, hv_time_to_target_s, hv_reversal_delta_a,
@@ -282,11 +299,23 @@ async def record_recovery_cycle(evidence: RecoveryCycleEvidence) -> int:
             evidence.notes,
         ),
     )
-    await db.commit()
-    row_id = int(cursor.lastrowid)
+    inserted = cursor.rowcount == 1
     await cursor.close()
 
-    if evidence.completed_at is not None:
+    async with db.execute(
+        "SELECT id FROM recovery_cycles WHERE battery_id = ? AND started_at = ?",
+        (evidence.battery_id, evidence.started_at),
+    ) as id_cursor:
+        row = await id_cursor.fetchone()
+    if row is None:
+        await db.rollback()
+        raise RuntimeError("recovery cycle insert did not produce a durable row")
+    row_id = int(row["id"])
+
+    # A retry of the same completed runtime must not increment lifecycle counters or
+    # replace longitudinal metrics a second time. Only the first durable insert owns
+    # the lifecycle side effect.
+    if inserted and evidence.completed_at is not None:
         record = await get_battery(evidence.battery_id)
         assert record is not None
         lifecycle = record.lifecycle
@@ -302,6 +331,8 @@ async def record_recovery_cycle(evidence: RecoveryCycleEvidence) -> int:
             lifecycle,
             updated_at=evidence.completed_at,
         )
+    else:
+        await db.commit()
 
     return row_id
 
