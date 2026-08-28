@@ -1,0 +1,38 @@
+name: Apply V2 shadow bot migration
+
+on:
+  push:
+    branches:
+      - refactor/pb-recovery-controller-v2
+    paths:
+      - tools/apply_v2_shadow_bot.py
+      - .github/workflows/apply-v2-shadow-bot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/pb-recovery-controller-v2
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply guarded migration
+        run: python tools/apply_v2_shadow_bot.py
+      - name: Validate syntax and diff
+        run: |
+          python -m compileall -q bot.py charge_controller_v2.py
+          git diff --check
+          git diff --exit-code --quiet && { echo 'Migration produced no changes'; exit 1; } || true
+      - name: Commit patched bot
+        run: |
+          git config user.name 'timspb'
+          git config user.email '5390894+timspb@users.noreply.github.com'
+          git add bot.py
+          git commit -m 'refactor: run V2 recovery sidecar in production shadow mode'
+          git push origin HEAD:refactor/pb-recovery-controller-v2
