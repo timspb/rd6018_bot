@@ -59,7 +59,6 @@ def build_legacy_charge_context(
     )
     return ChargeContext(
         identity=identity,
-        lifecycle=None,
         intent=intent,
         condition=condition,
     )
