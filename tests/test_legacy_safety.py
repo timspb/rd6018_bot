@@ -22,9 +22,9 @@ class LegacySafetyInvariantTests(unittest.TestCase):
         self.assertIn("hard safety timeout", decision.reason)
 
     def test_mix_profile_limits_are_explicit(self):
-        self.assertEqual(mix_timeout_hours("EFB"), 10.0)
-        self.assertEqual(mix_timeout_hours("Ca/Ca"), 8.0)
-        self.assertEqual(mix_timeout_hours("AGM"), 5.0)
+        self.assertEqual(mix_timeout_hours("EFB"), 20.0)
+        self.assertEqual(mix_timeout_hours("Ca/Ca"), 20.0)
+        self.assertEqual(mix_timeout_hours("AGM"), 10.0)
         self.assertIsNone(mix_timeout_hours("Custom"))
 
     def test_mix_timeout_cannot_be_disabled_by_external_stop_policy(self):
@@ -32,7 +32,7 @@ class LegacySafetyInvariantTests(unittest.TestCase):
         self.assertTrue(
             mix_timeout_decision(
                 profile="EFB",
-                elapsed_hours=10.01,
+                elapsed_hours=20.01,
                 finish_timer_active=False,
             ).stop
         )
@@ -41,7 +41,7 @@ class LegacySafetyInvariantTests(unittest.TestCase):
         self.assertFalse(
             mix_timeout_decision(
                 profile="AGM",
-                elapsed_hours=8.0,
+                elapsed_hours=12.0,
                 finish_timer_active=True,
             ).stop
         )
