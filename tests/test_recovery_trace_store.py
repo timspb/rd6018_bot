@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from pb_domain import BatteryCondition, ChargeIntent
 from recovery_replay import replay_document
 from recovery_trace_store import (
     TRACE_RETENTION_DAYS,
+    TRACE_TABLE,
     cleanup_old_trace_points,
     export_replay_document,
     latest_trace_session_id,
@@ -88,6 +90,35 @@ class RecoveryTraceStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["cycles"]), 1)
         self.assertEqual(result["cycles"][0]["battery_id"], "efb-70")
         self.assertEqual(result["cycles"][0]["condition_before"], "sulfated_suspected")
+
+    async def test_capture_freezes_reversal_threshold_semantics(self):
+        relative = self._shadow(100.0)
+        relative["metrics"] = {
+            "current_min_a": 0.50,
+            "delta_current_from_min_a": 0.16,
+        }
+        floor = self._shadow(130.0)
+        floor["metrics"] = {
+            "current_min_a": 0.05,
+            "delta_current_from_min_a": 0.031,
+        }
+        await self._record(relative)
+        await self._record(floor)
+
+        db = await database.get_db()
+        async with db.execute(
+            f"SELECT shadow_json FROM {TRACE_TABLE} ORDER BY timestamp_s ASC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        first = json.loads(rows[0]["shadow_json"])
+        second = json.loads(rows[1]["shadow_json"])
+        self.assertAlmostEqual(first["signal_config"]["reversal_ratio"], 0.30)
+        self.assertAlmostEqual(first["signal_config"]["reversal_abs_floor_a"], 0.03)
+        self.assertAlmostEqual(first["metrics"]["reversal_threshold_a"], 0.15)
+        self.assertEqual(first["metrics"]["reversal_threshold_source"], "relative_to_imin")
+        self.assertAlmostEqual(second["metrics"]["reversal_threshold_a"], 0.03)
+        self.assertEqual(second["metrics"]["reversal_threshold_source"], "instrument_floor")
 
     async def test_invalid_sensor_sample_is_preserved_for_audit_but_skipped_by_replay(self):
         await self._record(self._shadow(100.0, current=0.60))
