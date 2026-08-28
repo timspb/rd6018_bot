@@ -33,6 +33,34 @@ class SignalAnalyzerTests(unittest.TestCase):
         self.assertNotIn(SignalEvent.THERMAL_ACCELERATION, result.events)
         self.assertAlmostEqual(result.metrics.current_min_a, 0.50)
         self.assertAlmostEqual(result.metrics.reversal_threshold_a, 0.15)
+        self.assertIsNone(result.metrics.voltage_max_v)
+
+    def test_cc_vmax_then_voltage_fall_is_eoc_evidence(self):
+        analyzer = SignalAnalyzer()
+        analyzer.reset_stage("mix", target_voltage_v=16.5)
+
+        samples = [
+            SignalSample(0, 15.90, 1.50, 25.0, is_cc=True),
+            SignalSample(60, 16.10, 1.50, 25.0, is_cc=True),
+            SignalSample(120, 16.30, 1.50, 25.0, is_cc=True),
+            SignalSample(180, 16.29, 1.50, 25.0, is_cc=True),
+            SignalSample(240, 16.26, 1.50, 25.0, is_cc=True),
+            SignalSample(300, 16.25, 1.50, 25.0, is_cc=True),
+            SignalSample(360, 16.24, 1.50, 25.1, is_cc=True),
+        ]
+
+        result = None
+        for sample in samples:
+            result = analyzer.observe(sample)
+
+        assert result is not None
+        self.assertIn(SignalEvent.VOLTAGE_REVERSAL_CONFIRMED, result.events)
+        self.assertIn(SignalEvent.END_OF_CHARGE_LIKELY, result.events)
+        self.assertNotIn(SignalEvent.CURRENT_REVERSAL_CONFIRMED, result.events)
+        self.assertIsNone(result.metrics.current_min_a)
+        self.assertAlmostEqual(result.metrics.voltage_max_v, 16.30)
+        self.assertAlmostEqual(result.metrics.delta_voltage_from_max_v, 0.06)
+        self.assertAlmostEqual(result.metrics.voltage_reversal_threshold_v, 0.03)
 
     def test_current_reversal_plus_temperature_acceleration_is_not_eoc(self):
         analyzer = SignalAnalyzer()
@@ -53,6 +81,24 @@ class SignalAnalyzerTests(unittest.TestCase):
 
         assert result is not None
         self.assertIn(SignalEvent.CURRENT_REVERSAL_CONFIRMED, result.events)
+        self.assertIn(SignalEvent.THERMAL_ACCELERATION, result.events)
+        self.assertNotIn(SignalEvent.END_OF_CHARGE_LIKELY, result.events)
+
+    def test_cc_voltage_fall_plus_temperature_acceleration_is_not_eoc(self):
+        analyzer = SignalAnalyzer()
+        analyzer.reset_stage("mix", target_voltage_v=16.5)
+        samples = [
+            SignalSample(0, 16.30, 1.50, 25.0, is_cc=True),
+            SignalSample(60, 16.29, 1.50, 25.2, is_cc=True),
+            SignalSample(120, 16.26, 1.50, 25.6, is_cc=True),
+            SignalSample(180, 16.25, 1.50, 26.1, is_cc=True),
+            SignalSample(240, 16.24, 1.50, 26.7, is_cc=True),
+        ]
+        result = None
+        for sample in samples:
+            result = analyzer.observe(sample)
+        assert result is not None
+        self.assertIn(SignalEvent.VOLTAGE_REVERSAL_CONFIRMED, result.events)
         self.assertIn(SignalEvent.THERMAL_ACCELERATION, result.events)
         self.assertNotIn(SignalEvent.END_OF_CHARGE_LIKELY, result.events)
 
@@ -113,6 +159,22 @@ class SignalAnalyzerTests(unittest.TestCase):
         third = analyzer.observe(SignalSample(120, 16.3, 0.47, 25.0, True))
         self.assertAlmostEqual(third.metrics.current_min_a, 0.47)
         self.assertIn(SignalEvent.CURRENT_MINIMUM_UPDATED, third.events)
+
+    def test_cc_voltage_maximum_hysteresis_is_configurable_instrument_floor(self):
+        analyzer = SignalAnalyzer(
+            SignalAnalyzerConfig(voltage_max_update_hysteresis_v=0.02)
+        )
+        analyzer.reset_stage("mix", target_voltage_v=16.5)
+        first = analyzer.observe(SignalSample(0, 16.30, 1.0, 25.0, is_cc=True))
+        self.assertAlmostEqual(first.metrics.voltage_max_v, 16.30)
+
+        second = analyzer.observe(SignalSample(60, 16.31, 1.0, 25.0, is_cc=True))
+        self.assertAlmostEqual(second.metrics.voltage_max_v, 16.30)
+        self.assertNotIn(SignalEvent.VOLTAGE_MAXIMUM_UPDATED, second.events)
+
+        third = analyzer.observe(SignalSample(120, 16.33, 1.0, 25.0, is_cc=True))
+        self.assertAlmostEqual(third.metrics.voltage_max_v, 16.33)
+        self.assertIn(SignalEvent.VOLTAGE_MAXIMUM_UPDATED, third.events)
 
 
 if __name__ == "__main__":
