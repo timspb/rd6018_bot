@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Optional
 from charge_logic import ChargeController
 from first_stage_evidence import FirstStageAssessment, assess_first_stage
 from legacy_recipe_adapter import chemistry_for_legacy_profile
+from legacy_transition_audit import LegacyTransitionAudit, TransitionAuditSeverity, audit_legacy_transition
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
@@ -103,11 +104,25 @@ class ChargeControllerV2(ChargeController):
             "reason": assessment.reason,
         }
 
+    @staticmethod
+    def _transition_audit_metadata(audit: LegacyTransitionAudit) -> Dict[str, Any]:
+        return {
+            "code": audit.code,
+            "severity": audit.severity.value,
+            "reason": audit.reason,
+            "stage_before": audit.stage_before,
+            "stage_after": audit.stage_after,
+            "first_stage_state": (
+                audit.first_stage_state.value if audit.first_stage_state is not None else None
+            ),
+        }
+
     def _shadow_metadata(
         self,
         record: Any,
         *,
         first_stage: Optional[FirstStageAssessment] = None,
+        transition_audit: Optional[LegacyTransitionAudit] = None,
     ) -> Dict[str, Any]:
         metrics = record.analysis.metrics
         payload = {
@@ -128,6 +143,8 @@ class ChargeControllerV2(ChargeController):
         }
         if first_stage is not None:
             payload["first_stage"] = self._first_stage_metadata(first_stage)
+        if transition_audit is not None:
+            payload["transition_audit"] = self._transition_audit_metadata(transition_audit)
         return payload
 
     def _assess_main_sample(
@@ -195,6 +212,25 @@ class ChargeControllerV2(ChargeController):
             record.decision.reason,
         )
 
+    @staticmethod
+    def _log_transition_audit(audit: Optional[LegacyTransitionAudit]) -> None:
+        if audit is None:
+            return
+        log_fn = logger.warning if audit.severity in {
+            TransitionAuditSeverity.REVIEW,
+            TransitionAuditSeverity.SAFETY,
+        } else logger.info
+        log_fn(
+            "RECOVERY_TRANSITION_AUDIT severity=%s code=%s from=%s to=%s "
+            "first_stage=%s reason=%s",
+            audit.severity.value,
+            audit.code,
+            audit.stage_before,
+            audit.stage_after,
+            audit.first_stage_state.value if audit.first_stage_state is not None else "none",
+            audit.reason,
+        )
+
     async def tick(
         self,
         voltage: float,
@@ -255,9 +291,16 @@ class ChargeControllerV2(ChargeController):
             is_cv=is_cv,
             record=record,
         )
+        transition_audit = audit_legacy_transition(
+            stage_before=stage_before,
+            stage_after=self.current_stage,
+            first_stage=first_stage,
+        )
+        self._log_transition_audit(transition_audit)
         actions["recovery_shadow"] = self._shadow_metadata(
             record,
             first_stage=first_stage,
+            transition_audit=transition_audit,
         )
 
         # Setpoints in the returned legacy actions apply to the *next* sample.
