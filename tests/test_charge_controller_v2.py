@@ -9,6 +9,11 @@ class DummyHass:
     pass
 
 
+class ExplodingShadowRuntime:
+    def observe(self, *args, **kwargs):
+        raise RuntimeError("synthetic shadow failure")
+
+
 class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_tick_keeps_legacy_actions_and_adds_shadow_only(self):
         controller = ChargeControllerV2(DummyHass())
@@ -22,6 +27,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
             is_cc=False,
         )
         self.assertIn("recovery_shadow", actions)
+        self.assertEqual(actions["recovery_shadow"]["status"], "ok")
         self.assertEqual(actions["recovery_shadow"]["decision"], "continue")
         self.assertNotIn("turn_on", actions)
         self.assertNotIn("turn_off", actions)
@@ -90,6 +96,12 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first_stage["state"], "tail_ready")
         self.assertAlmostEqual(first_stage["tail_threshold_a"], 0.80)
         self.assertAlmostEqual(first_stage["current_c_rate"], 0.0035)
+        trace = actions["recovery_shadow"]["trace_point"]
+        self.assertEqual(trace["stage"], controller.STAGE_MAIN)
+        self.assertAlmostEqual(trace["target_voltage_v"], 14.8)
+        self.assertTrue(trace["is_cv"])
+        self.assertFalse(trace["is_cc"])
+        self.assertTrue(trace["output_on"])
 
     async def test_transition_audit_uses_plateau_state_before_legacy_resets_it(self):
         controller = ChargeControllerV2(DummyHass())
@@ -130,6 +142,35 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(audit["first_stage_state"], "stuck_plateau")
         self.assertEqual(audit["code"], "legacy_hv_escalation_after_stuck_plateau")
         self.assertEqual(audit["severity"], "info")
+
+    async def test_shadow_exception_does_not_invalidate_legacy_actions(self):
+        controller = ChargeControllerV2(DummyHass())
+        controller.current_stage = controller.STAGE_MAIN
+        controller.battery_type = controller.PROFILE_EFB
+        controller.ah_capacity = 70
+        controller.stage_start_time = 900.0
+        controller.total_start_time = 900.0
+        controller._v2_target_voltage_v = 14.8
+        controller._v2_runtime = ExplodingShadowRuntime()
+        controller._last_known_output_on = True
+
+        with patch("charge_logic.time.time", return_value=1000.0):
+            actions = await controller.tick(
+                voltage=14.2,
+                current=2.0,
+                temp_ext=25.0,
+                is_cv=False,
+                ah=4.0,
+                output_is_on=True,
+                is_cc=True,
+            )
+
+        shadow = actions["recovery_shadow"]
+        self.assertEqual(shadow["status"], "error")
+        self.assertEqual(shadow["error_type"], "RuntimeError")
+        self.assertEqual(shadow["trace_point"]["stage"], controller.STAGE_MAIN)
+        self.assertNotIn("emergency_stop", actions)
+        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
 
 
 if __name__ == "__main__":
