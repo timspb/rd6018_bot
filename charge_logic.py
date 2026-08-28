@@ -38,9 +38,9 @@ DESULF_STUCK_MIN_MINUTES_AGM = 120  # мин — AGM требует более �
 ANTISULFATE_MAX_CA_EFB = 3  # макс итераций антисульфата для Ca/Ca и EFB
 ANTISULFATE_MAX_AGM = 4  # макс итераций для AGM
 MIX_DONE_TIMER = 2 * 3600  # сек — таймер после delta до Done
-CA_MIX_MAX_HOURS = 8   # Ca/Ca: макс 8 ч на этапе Mix
-EFB_MIX_MAX_HOURS = 10
-AGM_MIX_MAX_HOURS = 5  # AGM: макс 5 ч на этапе Mix
+CA_MIX_MAX_HOURS = 20  # Ca/Ca: расширенное окно наблюдения Mix
+EFB_MIX_MAX_HOURS = 20
+AGM_MIX_MAX_HOURS = 10  # AGM: расширенное окно наблюдения Mix
 AGM_STAGES = [14.4, 14.6, 14.8, 15.0]  # В — четырёхступенчатый подъём
 AGM_STAGE_MIN_MINUTES = 15  # мин на каждой ступени перед переходом (резерв)
 # Ожидание на минимальном токе: Ca/EFB — 3ч на I<0.3А; AGM — на всех ступенях 2ч на I<0.2А без нового минимума
@@ -1625,11 +1625,11 @@ class ChargeController:
 
     def _session_rules_summary(self) -> str:
         if self.battery_type == self.PROFILE_CA:
-            return "Main 14.7V; 0.3A/3h -> Mix 16.5V; Mix 8h; SafeWait 2h."
+            return "Main 14.7V; 0.3A/3h -> Mix 16.5V; Mix 20h; SafeWait 2h."
         if self.battery_type == self.PROFILE_EFB:
-            return "Main 14.8V; 0.3A/3h -> Mix 16.5V; Mix 10h; SafeWait 2h."
+            return "Main 14.8V; 0.3A/3h -> Mix 16.5V; Mix 20h; SafeWait 2h."
         if self.battery_type == self.PROFILE_AGM:
-            return "Main 14.4/14.6/14.8/15.0V; 0.2A/2h -> Mix 16.3V; Mix 5h; SafeWait 2h."
+            return "Main 14.4/14.6/14.8/15.0V; 0.2A/2h -> Mix 16.3V; Mix 10h; SafeWait 2h."
         if self.battery_type == self.PROFILE_CUSTOM:
             return f"Custom {self._custom_main_voltage:.1f}V/{self._custom_main_current:.1f}A; delta={self._custom_delta_threshold:.3f}; limit={self._custom_time_limit_hours:.1f}h."
         return "Rules unavailable."
@@ -1773,9 +1773,9 @@ class ChargeController:
                     "fallback_limit_hours": None,
                 }
             elif self.battery_type == self.PROFILE_EFB:
-                summary = "Mix 16.5V / 0.03C: нормальный выход по ΔV/ΔI, лимит 10ч - fallback."
+                summary = "Mix 16.5V / 0.03C: нормальный выход по ΔV/ΔI, лимит 20ч - fallback."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 10ч переводит в SAFE_WAIT."
+                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 20ч переводит в SAFE_WAIT."
                 mix_exit_policy = {
                     "mode": "delta_or_time_fallback",
                     "primary": "delta",
@@ -1784,9 +1784,9 @@ class ChargeController:
                     "fallback_limit_hours": EFB_MIX_MAX_HOURS,
                 }
             elif self.battery_type == self.PROFILE_CA:
-                summary = "Mix 16.5V / 0.03C: нормальный выход по ΔV/ΔI, лимит 8ч - fallback."
+                summary = "Mix 16.5V / 0.03C: нормальный выход по ΔV/ΔI, лимит 20ч - fallback."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 8ч переводит в SAFE_WAIT."
+                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 20ч переводит в SAFE_WAIT."
                 mix_exit_policy = {
                     "mode": "delta_or_time_fallback",
                     "primary": "delta",
@@ -1795,9 +1795,9 @@ class ChargeController:
                     "fallback_limit_hours": CA_MIX_MAX_HOURS,
                 }
             elif self.battery_type == self.PROFILE_AGM:
-                summary = "Mix 16.3V / 0.03C: нормальный выход по ΔV/ΔI, лимит 5ч - fallback."
+                summary = "Mix 16.3V / 0.03C: нормальный выход по ΔV/ΔI, лимит 10ч - fallback."
                 next_stage = self.STAGE_SAFE_WAIT
-                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 5ч переводит в SAFE_WAIT."
+                transition = "Нормальный выход: по ΔV/ΔI; если delta не сработает, ограничение 10ч переводит в SAFE_WAIT."
                 mix_exit_policy = {
                     "mode": "delta_or_time_fallback",
                     "primary": "delta",
@@ -2990,8 +2990,9 @@ class ChargeController:
                 else:
                     self._delta_trigger_count = 0
 
-            if self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT and self._check_delta_finish(
-                voltage, current, is_cv=is_cv, is_cc=is_cc
+            if self.finish_timer_start is not None or (
+                self._delta_trigger_count >= TRIGGER_CONFIRM_COUNT
+                and self._check_delta_finish(voltage, current, is_cv=is_cv, is_cc=is_cc)
             ):
                 if not self._delta_reported:
                     self._delta_reported = True
@@ -3077,7 +3078,7 @@ class ChargeController:
             elif self.battery_type == self.PROFILE_EFB and elapsed >= EFB_MIX_MAX_HOURS * 3600:
                 v_peak = self.v_max_recorded or voltage
                 actions["log_event_end"] = self._make_log_event_end(
-                    now, ah, voltage, current, temp, f"EFB лимит 10ч, V_max={v_peak:.2f}В"
+                    now, ah, voltage, current, temp, f"EFB лимит 20ч, V_max={v_peak:.2f}В"
                 )
                 prev = self.current_stage
                 uv, ui = self._storage_target()
@@ -3090,17 +3091,17 @@ class ChargeController:
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_20h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
-                    f"<b>⏱ EFB Mix:</b> лимит 10ч. Ожидание падения до {threshold:.1f}В. "
+                    f"<b>⏱ EFB Mix:</b> лимит 20ч. Ожидание падения до {threshold:.1f}В. "
                     f"V_max={v_peak:.2f}В. Выход выключен."
                 )
                 actions["log_event"] = "START"
             elif self.battery_type == self.PROFILE_CA and elapsed >= CA_MIX_MAX_HOURS * 3600:
                 v_peak = self.v_max_recorded or voltage
                 actions["log_event_end"] = self._make_log_event_end(
-                    now, ah, voltage, current, temp, f"Ca/Ca лимит 8ч, V_max={v_peak:.2f}В"
+                    now, ah, voltage, current, temp, f"Ca/Ca лимит 20ч, V_max={v_peak:.2f}В"
                 )
                 prev = self.current_stage
                 uv, ui = self._storage_target()
@@ -3113,16 +3114,16 @@ class ChargeController:
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_8h", f"Время: {elapsed/3600:.1f}ч >= 8ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_20h", f"Время: {elapsed/3600:.1f}ч >= 8ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
-                    f"<b>⏱ Ca/Ca Mix:</b> лимит 8ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
+                    f"<b>⏱ Ca/Ca Mix:</b> лимит 20ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
                 )
                 actions["log_event"] = "START"
             elif self.battery_type == self.PROFILE_AGM and elapsed >= AGM_MIX_MAX_HOURS * 3600:
                 v_peak = self.v_max_recorded or voltage
                 actions["log_event_end"] = self._make_log_event_end(
-                    now, ah, voltage, current, temp, f"AGM лимит 5ч, V_max={v_peak:.2f}В"
+                    now, ah, voltage, current, temp, f"AGM лимит 10ч, V_max={v_peak:.2f}В"
                 )
                 prev = self.current_stage
                 uv, ui = self._storage_target()
@@ -3135,10 +3136,10 @@ class ChargeController:
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_5h", f"Время: {elapsed/3600:.1f}ч >= 5ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 5ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
-                    f"<b>⏱ AGM Mix:</b> лимит 5ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
+                    f"<b>⏱ AGM Mix:</b> лимит 10ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
                 )
                 actions["log_event"] = "START"
 

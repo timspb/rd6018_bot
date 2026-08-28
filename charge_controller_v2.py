@@ -384,7 +384,13 @@ class ChargeControllerV2(ChargeController):
                 "current_min_a": metrics.current_min_a,
                 "seconds_since_current_min": metrics.seconds_since_current_min,
                 "delta_current_from_min_a": metrics.delta_current_from_min_a,
+                "reversal_threshold_a": metrics.reversal_threshold_a,
                 "reversal_confirmations": metrics.reversal_confirmations,
+                "voltage_max_v": metrics.voltage_max_v,
+                "seconds_since_voltage_max": metrics.seconds_since_voltage_max,
+                "delta_voltage_from_max_v": metrics.delta_voltage_from_max_v,
+                "voltage_reversal_threshold_v": metrics.voltage_reversal_threshold_v,
+                "voltage_reversal_confirmations": metrics.voltage_reversal_confirmations,
             },
         }
         if first_stage is not None:
@@ -532,6 +538,7 @@ class ChargeControllerV2(ChargeController):
                     current_a=self._finite_or_nan(current),
                     temp_c=self._finite_or_nan(temp_ext),
                     is_cv=bool(is_cv),
+                    is_cc=(bool(is_cc) if is_cc is not None else not bool(is_cv)),
                     target_voltage_v=target_before,
                     ah=self._finite_or_nan(ah),
                 ),

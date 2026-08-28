@@ -65,6 +65,9 @@ def _enrich_signal_calibration(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "current_min_update_hysteresis_a": config.current_min_update_hysteresis_a,
         "plateau_abs_span_a": config.plateau_abs_span_a,
         "plateau_rel_span": config.plateau_rel_span,
+        "voltage_max_update_hysteresis_v": config.voltage_max_update_hysteresis_v,
+        "voltage_reversal_abs_v": config.voltage_reversal_abs_v,
+        "voltage_reversal_confirmations": config.voltage_reversal_confirmations,
     }
 
     metrics = snapshot.get("metrics")
@@ -364,6 +367,7 @@ async def export_replay_document(session_id: str) -> Dict[str, Any]:
             "current_a": float(row["current_a"]),
             "temp_c": float(row["temp_c"]),
             "is_cv": bool(row["is_cv"]),
+            "is_cc": (bool(row["is_cc"]) if row["is_cc"] is not None else not bool(row["is_cv"])),
         }
         if row["target_voltage_v"] is not None:
             point["target_voltage_v"] = float(row["target_voltage_v"])
