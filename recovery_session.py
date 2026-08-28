@@ -86,6 +86,14 @@ class RecoverySessionTracker:
             return "relax"
         return "other"
 
+    @staticmethod
+    def _aggregate_min(existing: Optional[float], candidate: Optional[float]) -> Optional[float]:
+        if candidate is None:
+            return existing
+        if existing is None:
+            return candidate
+        return min(existing, candidate)
+
     def _enter_stage(self, point: RecoveryTracePoint) -> None:
         key = self._normalize_stage(point.stage)
         self._stage_key = key
@@ -135,7 +143,7 @@ class RecoverySessionTracker:
         if kind == "main":
             kwargs = {
                 "main_target_v": target if target is not None else self.evidence.main_target_v,
-                "main_imin_a": imin if imin is not None else self.evidence.main_imin_a,
+                "main_imin_a": self._aggregate_min(self.evidence.main_imin_a, imin),
             }
             if time_to_target is not None:
                 kwargs["main_time_to_target_s"] = time_to_target
@@ -146,7 +154,7 @@ class RecoverySessionTracker:
 
         kwargs = {
             "hv_target_v": target if target is not None else self.evidence.hv_target_v,
-            "hv_imin_a": imin if imin is not None else self.evidence.hv_imin_a,
+            "hv_imin_a": self._aggregate_min(self.evidence.hv_imin_a, imin),
         }
         if time_to_target is not None:
             kwargs["hv_time_to_target_s"] = time_to_target
