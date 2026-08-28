@@ -127,6 +127,7 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["disagreements"]["v2_would_finish_stage"], 1)
         self.assertEqual(report["timing"]["first_main_to_hv_at"], 100.0)
         self.assertEqual(report["timing"]["first_v2_finish_stage_at"], 200.0)
+        self.assertEqual(report["timing"]["first_v2_mix_finish_at"], 200.0)
         self.assertEqual(report["timing"]["first_interrupted_mix_exit_at"], 300.0)
         self.assertEqual(report["timing"]["first_legacy_mix_exit_at"], 500.0)
         self.assertEqual(report["timing"]["v2_finish_lead_seconds"], 300.0)
@@ -149,6 +150,8 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         first_finish = reversal["first_v2_finish_reversal"]
         self.assertAlmostEqual(first_finish["reversal_delta_over_imin"], 0.32)
         self.assertAlmostEqual(first_finish["reversal_delta_c_rate"], 0.16 / 70.0)
+        first_mix_finish = reversal["first_v2_mix_finish_reversal"]
+        self.assertAlmostEqual(first_mix_finish["reversal_delta_over_imin"], 0.32)
 
     async def test_interrupted_mix_exit_without_terminal_exit_has_no_finish_lag(self):
         await self._record(
@@ -172,6 +175,44 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["timing"]["first_interrupted_mix_exit_at"], 200.0)
         self.assertIsNone(report["timing"]["first_legacy_mix_exit_at"])
         self.assertIsNone(report["timing"]["v2_finish_lead_seconds"])
+
+    async def test_desulf_finish_does_not_contaminate_mix_finish_lead(self):
+        await self._record(
+            100.0,
+            stage="Десульфатация",
+            decision="finish_stage",
+            events=["current_reversal_confirmed", "end_of_charge_likely"],
+            current_min_a=0.50,
+            reversal_delta_a=0.16,
+        )
+        await self._record(
+            250.0,
+            stage="Mix Mode",
+            decision="finish_stage",
+            events=["current_reversal_confirmed", "end_of_charge_likely"],
+            current_min_a=0.45,
+            reversal_delta_a=0.15,
+        )
+        await self._record(
+            550.0,
+            stage="Mix Mode",
+            after="Безопасное ожидание",
+            decision="finish_stage",
+        )
+
+        report = await build_trace_report("calibration-session")
+        self.assertEqual(report["timing"]["first_v2_finish_stage_at"], 100.0)
+        self.assertEqual(report["timing"]["first_v2_mix_finish_at"], 250.0)
+        self.assertEqual(report["timing"]["first_legacy_mix_exit_at"], 550.0)
+        self.assertEqual(report["timing"]["v2_finish_lead_seconds"], 300.0)
+        self.assertAlmostEqual(
+            report["hv_reversal"]["first_v2_finish_reversal"]["reversal_delta_over_imin"],
+            0.32,
+        )
+        self.assertAlmostEqual(
+            report["hv_reversal"]["first_v2_mix_finish_reversal"]["reversal_delta_over_imin"],
+            0.15 / 0.45,
+        )
 
     async def test_review_and_safety_samples_are_kept_for_calibration(self):
         await self._record(
