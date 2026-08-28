@@ -141,11 +141,16 @@ def _voltage_reversal_metrics(shadow: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _finish_reversal_metrics(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return mode-specific finish evidence without breaking the existing CV shape."""
     is_cv = bool(row["is_cv"])
     is_cc = bool(row["is_cc"]) if row["is_cc"] is not None else not is_cv
     if is_cc and not is_cv:
-        return {"mode": "cc", "voltage": _voltage_reversal_metrics(shadow)}
-    return {"mode": "cv", "current": _reversal_metrics(row, shadow)}
+        result = _voltage_reversal_metrics(shadow)
+        result["mode"] = "cc"
+        return result
+    result = _reversal_metrics(row, shadow)
+    result["mode"] = "cv"
+    return result
 
 
 def _sample_summary(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:

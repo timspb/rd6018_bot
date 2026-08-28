@@ -3091,7 +3091,7 @@ class ChargeController:
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_20h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "EFB_Mix_limit_20h", f"Время: {elapsed/3600:.1f}ч >= 20ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ EFB Mix:</b> лимит 20ч. Ожидание падения до {threshold:.1f}В. "
@@ -3114,7 +3114,7 @@ class ChargeController:
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_20h", f"Время: {elapsed/3600:.1f}ч >= 8ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "CA_Mix_limit_20h", f"Время: {elapsed/3600:.1f}ч >= 20ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ Ca/Ca Mix:</b> лимит 20ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
@@ -3136,7 +3136,7 @@ class ChargeController:
                 self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
                 self._safe_wait_start = now
                 self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 5ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
+                _log_trigger(prev, self.STAGE_SAFE_WAIT, "AGM_Mix_limit_10h", f"Время: {elapsed/3600:.1f}ч >= 10ч. V_max было {v_peak:.2f}В, закончили на {voltage:.2f}В.")
                 actions["turn_off"] = True
                 actions["notify"] = (
                     f"<b>⏱ AGM Mix:</b> лимит 10ч. Ожидание падения до {threshold:.1f}В. V_max={v_peak:.2f}В."
