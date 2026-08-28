@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import Any, Dict, List, Mapping, Optional
 
 from database import get_db
@@ -9,6 +10,9 @@ from pb_domain import BatteryCondition, ChargeIntent
 
 
 TRACE_TABLE = "recovery_trace_points"
+TRACE_RETENTION_DAYS = 180
+TRACE_RETENTION_SWEEP_SEC = 24 * 3600
+_last_retention_cleanup_s = 0.0
 
 
 def _finite_or_none(value: Any) -> Optional[float]:
@@ -91,6 +95,33 @@ async def init_recovery_trace_store() -> None:
     await db.commit()
 
 
+async def cleanup_old_trace_points(
+    *,
+    now_s: Optional[float] = None,
+    retention_days: int = TRACE_RETENTION_DAYS,
+) -> int:
+    """Delete raw diagnostic samples older than the retention window.
+
+    Summarized recovery-cycle evidence lives in `recovery_cycles` and is not touched.
+    Raw 30-second traces are intentionally bounded so shadow diagnostics cannot grow
+    `rd6018.db` forever.
+    """
+    if int(retention_days) <= 0:
+        raise ValueError("retention_days must be positive")
+    reference = float(time.time() if now_s is None else now_s)
+    cutoff = reference - int(retention_days) * 86400.0
+    await init_recovery_trace_store()
+    db = await get_db()
+    cursor = await db.execute(
+        f"DELETE FROM {TRACE_TABLE} WHERE timestamp_s < ?",
+        (cutoff,),
+    )
+    await db.commit()
+    deleted = int(cursor.rowcount) if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
+    await cursor.close()
+    return deleted
+
+
 async def record_shadow_trace(
     *,
     session_id: str,
@@ -107,6 +138,8 @@ async def record_shadow_trace(
     `(session_id, timestamp_s)` is idempotent so a retry of the same poll updates the
     sample instead of creating a fake second observation.
     """
+    global _last_retention_cleanup_s
+
     trace = shadow.get("trace_point")
     if not isinstance(trace, Mapping):
         raise ValueError("shadow.trace_point is required")
@@ -206,6 +239,20 @@ async def record_shadow_trace(
             shadow_json,
         ),
     )
+
+    # Sweep at most once per day per process. The first live sample after restart
+    # performs the sweep, which also makes retention independent of bot uptime.
+    if (
+        _last_retention_cleanup_s <= 0
+        or timestamp_s - _last_retention_cleanup_s >= TRACE_RETENTION_SWEEP_SEC
+    ):
+        cutoff = timestamp_s - TRACE_RETENTION_DAYS * 86400.0
+        await db.execute(
+            f"DELETE FROM {TRACE_TABLE} WHERE timestamp_s < ?",
+            (cutoff,),
+        )
+        _last_retention_cleanup_s = timestamp_s
+
     await db.commit()
     return True
 
