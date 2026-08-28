@@ -33,16 +33,25 @@ class SignalAnalyzerConfig:
     rate_window_s: float = 15 * 60
     plateau_window_s: float = 15 * 60
     plateau_min_samples: int = 5
+
+    # Absolute current terms below are instrumentation/noise floors, not Pb chemistry
+    # limits. Battery-scale decisions belong in C-rate policy/audit layers.
     plateau_abs_span_a: float = 0.03
     plateau_rel_span: float = 0.05
+    current_min_update_hysteresis_a: float = 0.005
+
+    # Reversal is principally relative to the observed Imin. The absolute term only
+    # prevents sub-resolution current noise from looking like a meaningful reversal.
     reversal_ratio: float = 0.30
     reversal_abs_a: float = 0.03
     reversal_confirmations: int = 3
     reversal_confirmation_spacing_s: float = 50.0
     reversal_min_age_s: float = 120.0
+
     target_voltage_tolerance_v: float = 0.20
     voltage_sag_v: float = 0.15
     thermal_warn_c_per_min: float = 0.12
+    # Likewise a measurement-rate floor, not a capacity-relative thermal criterion.
     min_current_rise_for_thermal_a_per_min: float = 0.005
 
 
@@ -54,6 +63,7 @@ class SignalMetrics:
     current_min_a: Optional[float]
     seconds_since_current_min: Optional[float]
     delta_current_from_min_a: Optional[float]
+    reversal_threshold_a: Optional[float]
     current_plateau_span_a: Optional[float]
     current_plateau_center_a: Optional[float]
     reversal_confirmations: int
@@ -74,6 +84,10 @@ class SignalAnalyzer:
 
     The analyzer deliberately does not decide which voltage a recipe may use.
     It only turns the trajectory into deterministic, testable evidence.
+
+    Absolute ampere thresholds in this class represent observation resolution/noise
+    floors. They are intentionally not scaled with battery Ah capacity. Chemistry and
+    capacity-sensitive interpretation is performed later by the evidence/policy layer.
     """
 
     def __init__(self, config: Optional[SignalAnalyzerConfig] = None) -> None:
@@ -158,10 +172,33 @@ class SignalAnalyzer:
         )
         return span, center, span <= limit
 
+    def _reversal_threshold_a(self) -> Optional[float]:
+        if self._current_min_a is None:
+            return None
+        return max(
+            self.config.reversal_abs_a,
+            self._current_min_a * self.config.reversal_ratio,
+        )
+
+    def _empty_metrics(self) -> SignalMetrics:
+        return SignalMetrics(
+            d_voltage_v_per_min=None,
+            d_current_a_per_min=None,
+            d_temp_c_per_min=None,
+            current_min_a=self._current_min_a,
+            seconds_since_current_min=None,
+            delta_current_from_min_a=None,
+            reversal_threshold_a=self._reversal_threshold_a(),
+            current_plateau_span_a=None,
+            current_plateau_center_a=None,
+            reversal_confirmations=self._reversal_confirmations,
+        )
+
     def _update_minimum(self, sample: SignalSample, events: set[SignalEvent]) -> None:
         if not sample.is_cv:
             return
-        if self._current_min_a is None or sample.current_a < self._current_min_a - 0.005:
+        hysteresis = max(0.0, float(self.config.current_min_update_hysteresis_a))
+        if self._current_min_a is None or sample.current_a < self._current_min_a - hysteresis:
             self._current_min_a = sample.current_a
             self._current_min_time_s = sample.timestamp_s
             self._reversal_confirmations = 0
@@ -177,10 +214,9 @@ class SignalAnalyzer:
         if sample.timestamp_s - self._current_min_time_s < self.config.reversal_min_age_s:
             return
 
-        threshold = max(
-            self.config.reversal_abs_a,
-            self._current_min_a * self.config.reversal_ratio,
-        )
+        threshold = self._reversal_threshold_a()
+        if threshold is None:
+            return
         delta = sample.current_a - self._current_min_a
         qualifies = delta >= threshold
 
@@ -209,34 +245,14 @@ class SignalAnalyzer:
         if not self._valid_sample(sample):
             return SignalAnalysis(
                 sample=sample,
-                metrics=SignalMetrics(
-                    d_voltage_v_per_min=None,
-                    d_current_a_per_min=None,
-                    d_temp_c_per_min=None,
-                    current_min_a=self._current_min_a,
-                    seconds_since_current_min=None,
-                    delta_current_from_min_a=None,
-                    current_plateau_span_a=None,
-                    current_plateau_center_a=None,
-                    reversal_confirmations=self._reversal_confirmations,
-                ),
+                metrics=self._empty_metrics(),
                 events=frozenset({SignalEvent.TELEMETRY_INVALID}),
             )
 
         if self._samples and sample.timestamp_s <= self._samples[-1].timestamp_s:
             return SignalAnalysis(
                 sample=sample,
-                metrics=SignalMetrics(
-                    d_voltage_v_per_min=None,
-                    d_current_a_per_min=None,
-                    d_temp_c_per_min=None,
-                    current_min_a=self._current_min_a,
-                    seconds_since_current_min=None,
-                    delta_current_from_min_a=None,
-                    current_plateau_span_a=None,
-                    current_plateau_center_a=None,
-                    reversal_confirmations=self._reversal_confirmations,
-                ),
+                metrics=self._empty_metrics(),
                 events=frozenset({SignalEvent.TELEMETRY_INVALID}),
             )
 
@@ -304,6 +320,7 @@ class SignalAnalyzer:
                 current_min_a=self._current_min_a,
                 seconds_since_current_min=seconds_since_min,
                 delta_current_from_min_a=delta_from_min,
+                reversal_threshold_a=self._reversal_threshold_a(),
                 current_plateau_span_a=plateau_span,
                 current_plateau_center_a=plateau_center,
                 reversal_confirmations=self._reversal_confirmations,
