@@ -152,6 +152,7 @@ class ChargeControllerV2(ChargeController):
         *,
         stage_before: str,
         target_before: Optional[float],
+        stuck_since_before: Optional[float],
         timestamp_s: float,
         voltage: float,
         current: float,
@@ -163,10 +164,9 @@ class ChargeControllerV2(ChargeController):
         if not math.isfinite(float(target_before)):
             return None
 
-        stuck_since = getattr(self, "_stuck_current_since", None)
         plateau_minutes = 0.0
-        if stuck_since is not None:
-            plateau_minutes = max(0.0, (timestamp_s - float(stuck_since)) / 60.0)
+        if stuck_since_before is not None:
+            plateau_minutes = max(0.0, (timestamp_s - float(stuck_since_before)) / 60.0)
         required_plateau = 120.0 if self.battery_type == self.PROFILE_AGM else 40.0
         metrics = record.analysis.metrics
         return assess_first_stage(
@@ -196,8 +196,6 @@ class ChargeControllerV2(ChargeController):
             self._v2_last_disagreement = disagreement
             self._v2_disagreement_repeat_count = 1
 
-        # First occurrence is always visible; a persistent disagreement repeats every
-        # 20 samples (~10 minutes at the current 30 second production poll interval).
         if self._v2_disagreement_repeat_count != 1 and self._v2_disagreement_repeat_count % 20 != 0:
             return
 
@@ -242,10 +240,11 @@ class ChargeControllerV2(ChargeController):
         manual_off_active: bool = False,
         is_cc: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        # The measurement belongs to the stage/setpoint that was active before
-        # legacy tick() potentially performs a transition for the next interval.
+        # Everything describing the current sample must be captured before the
+        # authoritative legacy tick mutates timers/stage on a transition.
         stage_before = self.current_stage
         target_before = self._v2_target_voltage_v
+        stuck_since_before = getattr(self, "_stuck_current_since", None)
 
         actions = await super().tick(
             voltage,
@@ -285,6 +284,7 @@ class ChargeControllerV2(ChargeController):
         first_stage = self._assess_main_sample(
             stage_before=stage_before,
             target_before=target_before,
+            stuck_since_before=stuck_since_before,
             timestamp_s=timestamp_s,
             voltage=voltage,
             current=current,
@@ -303,7 +303,6 @@ class ChargeControllerV2(ChargeController):
             transition_audit=transition_audit,
         )
 
-        # Setpoints in the returned legacy actions apply to the *next* sample.
         next_target = actions.get("set_voltage")
         if next_target is not None:
             self._v2_target_voltage_v = self._finite_or_nan(next_target)
