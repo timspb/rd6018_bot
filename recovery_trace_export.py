@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from recovery_replay import replay_document
+from recovery_trace_report import build_trace_report
 from recovery_trace_store import export_replay_document, latest_trace_session_id, list_trace_sessions
 
 
@@ -23,7 +24,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--analyze",
         action="store_true",
-        help="Run recovery_replay on the exported document and print the decision summary",
+        help="Run replay plus the stored legacy-vs-V2 calibration report",
     )
     return parser
 
@@ -58,11 +59,13 @@ async def _main(args: argparse.Namespace) -> int:
 
     if args.analyze:
         result = replay_document(document)
+        calibration = await build_trace_report(session_id)
         print(
             json.dumps(
                 {
                     "decision_summary": result["decision_summary"],
                     "trend": result["trend"],
+                    "live_calibration": calibration,
                 },
                 ensure_ascii=False,
                 indent=2,
