@@ -147,6 +147,9 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(reversal["reversal_delta_over_imin"]["median"], 0.32)
         self.assertAlmostEqual(reversal["reversal_delta_c_rate"]["median"], 0.16 / 70.0)
         self.assertAlmostEqual(reversal["current_min_c_rate"]["median"], 0.50 / 70.0)
+        mix = reversal["by_stage"]["mix mode"]
+        self.assertEqual(mix["confirmed_count"], 1)
+        self.assertAlmostEqual(mix["reversal_delta_over_imin"]["median"], 0.32)
         first_finish = reversal["first_v2_finish_reversal"]
         self.assertAlmostEqual(first_finish["reversal_delta_over_imin"], 0.32)
         self.assertAlmostEqual(first_finish["reversal_delta_c_rate"], 0.16 / 70.0)
@@ -213,6 +216,17 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
             report["hv_reversal"]["first_v2_mix_finish_reversal"]["reversal_delta_over_imin"],
             0.15 / 0.45,
         )
+        by_stage = report["hv_reversal"]["by_stage"]
+        self.assertEqual(by_stage["десульфатация"]["confirmed_count"], 1)
+        self.assertEqual(by_stage["mix mode"]["confirmed_count"], 1)
+        self.assertAlmostEqual(
+            by_stage["десульфатация"]["reversal_delta_over_imin"]["median"],
+            0.32,
+        )
+        self.assertAlmostEqual(
+            by_stage["mix mode"]["reversal_delta_over_imin"]["median"],
+            0.15 / 0.45,
+        )
 
     async def test_review_and_safety_samples_are_kept_for_calibration(self):
         await self._record(
@@ -244,6 +258,7 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reversal["confirmed_count"], 1)
         self.assertIsNone(reversal["reversal_delta_over_imin"]["median"])
         self.assertIsNone(reversal["reversal_delta_c_rate"]["median"])
+        self.assertIsNone(reversal["by_stage"]["mix mode"]["reversal_delta_over_imin"]["median"])
 
     async def test_unknown_session_is_rejected(self):
         with self.assertRaises(KeyError):
