@@ -165,10 +165,12 @@ async def build_trace_report(
     shadow_errors = 0
     calibration_samples: List[Dict[str, Any]] = []
     first_v2_finish_at: Optional[float] = None
+    first_v2_mix_finish_at: Optional[float] = None
     first_legacy_mix_exit_at: Optional[float] = None
     first_interrupted_mix_exit_at: Optional[float] = None
     first_main_hv_at: Optional[float] = None
     first_v2_finish_reversal: Optional[Dict[str, Optional[float]]] = None
+    first_v2_mix_finish_reversal: Optional[Dict[str, Optional[float]]] = None
 
     confirmed_reversal_at: List[float] = []
     reversal_delta_a: List[float] = []
@@ -178,6 +180,10 @@ async def build_trace_report(
 
     for row in rows:
         ts = float(row["timestamp_s"])
+        before = str(row["stage"] or "")
+        after = str(row["legacy_stage_after"] or "")
+        before_key = _normalize_stage(before)
+        after_key = _normalize_stage(after)
         shadow = _load_shadow_json(row["shadow_json"])
         first_stage = shadow.get("first_stage")
         if isinstance(first_stage, Mapping):
@@ -188,9 +194,14 @@ async def build_trace_report(
         decision = str(row["shadow_decision"] or "").strip()
         if decision:
             decisions[decision] += 1
-        if decision == "finish_stage" and first_v2_finish_at is None:
-            first_v2_finish_at = ts
-            first_v2_finish_reversal = _reversal_metrics(row, shadow)
+        if decision == "finish_stage":
+            reversal = _reversal_metrics(row, shadow)
+            if first_v2_finish_at is None:
+                first_v2_finish_at = ts
+                first_v2_finish_reversal = reversal
+            if before_key in MIX_STAGE_NAMES and first_v2_mix_finish_at is None:
+                first_v2_mix_finish_at = ts
+                first_v2_mix_finish_reversal = reversal
 
         events = shadow.get("events")
         if not isinstance(events, list):
@@ -225,10 +236,6 @@ async def build_trace_report(
         if audit_severity:
             audit_severities[audit_severity] += 1
 
-        before = str(row["stage"] or "")
-        after = str(row["legacy_stage_after"] or "")
-        before_key = _normalize_stage(before)
-        after_key = _normalize_stage(after)
         if after and before_key != after_key:
             transition_name = f"{before} -> {after}"
             legacy_transitions[transition_name] += 1
@@ -255,8 +262,8 @@ async def build_trace_report(
 
     first = rows[0]
     finish_lead_s: Optional[float] = None
-    if first_v2_finish_at is not None and first_legacy_mix_exit_at is not None:
-        finish_lead_s = first_legacy_mix_exit_at - first_v2_finish_at
+    if first_v2_mix_finish_at is not None and first_legacy_mix_exit_at is not None:
+        finish_lead_s = first_legacy_mix_exit_at - first_v2_mix_finish_at
 
     return {
         "session": {
@@ -298,10 +305,12 @@ async def build_trace_report(
             "reversal_delta_over_imin": _distribution(reversal_delta_over_imin),
             "current_min_c_rate": _distribution(reversal_imin_c_rate),
             "first_v2_finish_reversal": first_v2_finish_reversal,
+            "first_v2_mix_finish_reversal": first_v2_mix_finish_reversal,
         },
         "timing": {
             "first_main_to_hv_at": first_main_hv_at,
             "first_v2_finish_stage_at": first_v2_finish_at,
+            "first_v2_mix_finish_at": first_v2_mix_finish_at,
             "first_legacy_mix_exit_at": first_legacy_mix_exit_at,
             "first_interrupted_mix_exit_at": first_interrupted_mix_exit_at,
             "v2_finish_lead_seconds": finish_lead_s,
