@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping
+from typing import Any, Dict, Mapping, Tuple
 
 from battery_registry import RecoveryCycleEvidence
 from pb_domain import BatteryCondition, ChargeIntent
+from recovery_policy import RecoveryDecisionPolicy
 from recovery_session import RecoverySessionTracker, RecoveryTracePoint
 from recovery_trends import analyze_recovery_trend
 
@@ -22,7 +24,9 @@ def evidence_to_dict(evidence: RecoveryCycleEvidence) -> Dict[str, Any]:
     return data
 
 
-def replay_cycle(document: Mapping[str, Any]) -> RecoveryCycleEvidence:
+def _replay_cycle_internal(
+    document: Mapping[str, Any],
+) -> Tuple[RecoveryCycleEvidence, list[Dict[str, Any]]]:
     points_raw = document.get("trace")
     if not isinstance(points_raw, list) or not points_raw:
         raise ValueError("cycle.trace must be a non-empty list")
@@ -42,10 +46,29 @@ def replay_cycle(document: Mapping[str, Any]) -> RecoveryCycleEvidence:
         intent=intent,
         condition_before=condition,
     )
+    policy = RecoveryDecisionPolicy()
+    decisions: list[Dict[str, Any]] = []
+
     for raw in points_raw:
         if not isinstance(raw, Mapping):
             raise ValueError("every trace point must be an object")
-        tracker.observe(RecoveryTracePoint.from_mapping(raw))
+        point = RecoveryTracePoint.from_mapping(raw)
+        analysis = tracker.observe(point)
+        result = policy.decide(
+            analysis,
+            stage=point.stage,
+            intent=intent,
+            output_is_on=True,
+        )
+        decisions.append(
+            {
+                "timestamp_s": point.timestamp_s,
+                "stage": point.stage,
+                "decision": result.decision.value,
+                "reason": result.reason,
+                "events": sorted(event.value for event in result.evidence),
+            }
+        )
 
     completed_at_raw = document.get("completed_at")
     completed_at = (
@@ -53,7 +76,7 @@ def replay_cycle(document: Mapping[str, Any]) -> RecoveryCycleEvidence:
         if completed_at_raw is not None
         else float(points_raw[-1]["timestamp_s"])
     )
-    return tracker.complete(
+    evidence = tracker.complete(
         completed_at=completed_at,
         outcome=str(document.get("outcome", "replayed")),
         measured_capacity_ah=(
@@ -69,6 +92,12 @@ def replay_cycle(document: Mapping[str, Any]) -> RecoveryCycleEvidence:
         ),
         notes=str(document.get("notes", "")),
     )
+    return evidence, decisions
+
+
+def replay_cycle(document: Mapping[str, Any]) -> RecoveryCycleEvidence:
+    evidence, _ = _replay_cycle_internal(document)
+    return evidence
 
 
 def replay_document(document: Mapping[str, Any]) -> Dict[str, Any]:
@@ -76,10 +105,31 @@ def replay_document(document: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw_cycles, list) or not raw_cycles:
         raise ValueError("document.cycles must be a non-empty list")
 
-    cycles = [replay_cycle(cycle) for cycle in raw_cycles]
+    replayed = [_replay_cycle_internal(cycle) for cycle in raw_cycles]
+    cycles = [item[0] for item in replayed]
+    decision_traces = [item[1] for item in replayed]
     trend = analyze_recovery_trend(cycles)
+
+    counts = Counter(
+        row["decision"]
+        for trace in decision_traces
+        for row in trace
+    )
+    non_continue = [
+        row
+        for trace in decision_traces
+        for row in trace
+        if row["decision"] != "continue"
+    ]
+
     return {
         "cycles": [evidence_to_dict(cycle) for cycle in cycles],
+        "decision_traces": decision_traces,
+        "decision_summary": {
+            "counts": dict(sorted(counts.items())),
+            "non_continue_count": len(non_continue),
+            "first_non_continue": non_continue[0] if non_continue else None,
+        },
         "trend": {
             "status": trend.status.value,
             "confidence": trend.confidence.value,
