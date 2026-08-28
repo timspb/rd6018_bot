@@ -58,7 +58,7 @@ class FirstStageEvidenceTests(unittest.TestCase):
         self.assertNotIn("desulf", result.reason.lower())
         self.assertNotIn("mix", result.reason.lower())
 
-    def test_thermal_acceleration_overrides_apparent_tail(self):
+    def test_thermal_acceleration_requires_current_not_falling(self):
         result = assess_first_stage(
             chemistry=BatteryChemistry.AGM,
             capacity_ah=70,
@@ -67,8 +67,35 @@ class FirstStageEvidenceTests(unittest.TestCase):
             target_voltage_v=14.8,
             is_cv=True,
             dtemp_c_per_min=0.15,
+            dcurrent_a_per_min=0.02,
         )
         self.assertEqual(result.state, FirstStageState.THERMALLY_UNSTABLE)
+
+    def test_bulk_heating_does_not_create_false_thermal_instability(self):
+        result = assess_first_stage(
+            chemistry=BatteryChemistry.EFB,
+            capacity_ah=70,
+            voltage_v=13.8,
+            current_a=6.0,
+            target_voltage_v=14.8,
+            is_cv=False,
+            dtemp_c_per_min=0.20,
+            dcurrent_a_per_min=-0.10,
+        )
+        self.assertEqual(result.state, FirstStageState.BULK_OR_TAPER)
+
+    def test_cv_heating_while_current_is_still_falling_is_not_runaway_evidence(self):
+        result = assess_first_stage(
+            chemistry=BatteryChemistry.AGM,
+            capacity_ah=70,
+            voltage_v=14.75,
+            current_a=0.25,
+            target_voltage_v=14.8,
+            is_cv=True,
+            dtemp_c_per_min=0.15,
+            dcurrent_a_per_min=-0.05,
+        )
+        self.assertEqual(result.state, FirstStageState.BULK_OR_TAPER)
 
     def test_voltage_sag_overrides_stuck_plateau(self):
         result = assess_first_stage(
