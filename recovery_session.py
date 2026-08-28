@@ -10,7 +10,7 @@ from signal_analyzer import SignalAnalysis, SignalAnalyzer, SignalEvent, SignalS
 
 MAIN_STAGE_NAMES = frozenset({"main", "main charge", "bulk", "absorption"})
 HV_STAGE_NAMES = frozenset({"mix", "mix mode", "desulfation", "десульфатация", "conditioning", "recovery"})
-RELAX_STAGE_NAMES = frozenset({"relax", "safe_wait", "безопасное ожидание", "rest"})
+RELAX_STAGE_NAMES = frozenset({"relax", "safe wait", "safe_wait", "безопасное ожидание", "rest"})
 
 
 @dataclass(frozen=True)
@@ -94,14 +94,24 @@ class RecoverySessionTracker:
             return candidate
         return min(existing, candidate)
 
+    @staticmethod
+    def _target_changed(previous: Optional[float], current: Optional[float]) -> bool:
+        if previous is None or current is None:
+            return False
+        return abs(float(previous) - float(current)) > 1e-6
+
     def _enter_stage(self, point: RecoveryTracePoint) -> None:
         key = self._normalize_stage(point.stage)
         self._stage_key = key
         self._stage_started_at = point.timestamp_s
         self._stage_start_ah = point.ah
         self._analyzer.reset_stage(key, target_voltage_v=point.target_voltage_v)
-        if self._stage_kind(point.stage) == "relax" and self._relax_started_at is None:
+        if self._stage_kind(point.stage) == "relax":
+            # Every distinct rest episode owns its own clock. Do not let a later
+            # SAFE_WAIT inherit elapsed time from an earlier HV->LV transition.
             self._relax_started_at = point.timestamp_s
+        else:
+            self._relax_started_at = None
 
     def _update_temperature(self, point: RecoveryTracePoint, analysis: SignalAnalysis) -> None:
         temp_start = self.evidence.temp_start_c
@@ -127,26 +137,33 @@ class RecoverySessionTracker:
             return
 
         target = point.target_voltage_v
-        time_to_target: Optional[float] = None
+        if kind == "main":
+            previous_target = self.evidence.main_target_v
+            previous_time = self.evidence.main_time_to_target_s
+        else:
+            previous_target = self.evidence.hv_target_v
+            previous_time = self.evidence.hv_time_to_target_s
+
+        target_changed = self._target_changed(previous_target, target)
+        if target_changed:
+            # AGM and expert recovery can step voltage while keeping the same named
+            # stage. A time recorded for 14.4 V must not later be presented as the
+            # time-to-target for 15.0 V.
+            previous_time = None
+
+        time_to_target: Optional[float] = previous_time
         if target is not None and self._stage_started_at is not None:
             reached = point.voltage_v >= target - self.target_tolerance_v
-            if reached:
-                current = (
-                    self.evidence.main_time_to_target_s
-                    if kind == "main"
-                    else self.evidence.hv_time_to_target_s
-                )
-                if current is None:
-                    time_to_target = point.timestamp_s - self._stage_started_at
+            if reached and time_to_target is None:
+                time_to_target = point.timestamp_s - self._stage_started_at
 
         imin = analysis.metrics.current_min_a
         if kind == "main":
             kwargs = {
                 "main_target_v": target if target is not None else self.evidence.main_target_v,
                 "main_imin_a": self._aggregate_min(self.evidence.main_imin_a, imin),
+                "main_time_to_target_s": time_to_target,
             }
-            if time_to_target is not None:
-                kwargs["main_time_to_target_s"] = time_to_target
             if point.ah is not None and self._stage_start_ah is not None:
                 kwargs["main_ah_in"] = max(0.0, point.ah - self._stage_start_ah)
             self.evidence = replace(self.evidence, **kwargs)
@@ -155,9 +172,8 @@ class RecoverySessionTracker:
         kwargs = {
             "hv_target_v": target if target is not None else self.evidence.hv_target_v,
             "hv_imin_a": self._aggregate_min(self.evidence.hv_imin_a, imin),
+            "hv_time_to_target_s": time_to_target,
         }
-        if time_to_target is not None:
-            kwargs["hv_time_to_target_s"] = time_to_target
         if analysis.has(SignalEvent.CURRENT_REVERSAL_CONFIRMED):
             delta = analysis.metrics.delta_current_from_min_a
             if delta is not None:
