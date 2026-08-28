@@ -65,12 +65,15 @@ def _finite_float(value: Any) -> Optional[float]:
 def _reversal_metrics(
     row: Any,
     shadow: Mapping[str, Any],
-) -> Dict[str, Optional[float]]:
+) -> Dict[str, Any]:
     metrics = shadow.get("metrics")
     if not isinstance(metrics, Mapping):
         metrics = {}
     imin_a = _finite_float(metrics.get("current_min_a"))
     delta_a = _finite_float(metrics.get("delta_current_from_min_a"))
+    threshold_a = _finite_float(metrics.get("reversal_threshold_a"))
+    threshold_source_raw = str(metrics.get("reversal_threshold_source") or "").strip()
+    threshold_source = threshold_source_raw or None
     capacity_ah = _finite_float(row["capacity_ah"])
 
     imin_c_rate = (
@@ -83,9 +86,19 @@ def _reversal_metrics(
         if delta_a is not None and capacity_ah is not None and capacity_ah > 0
         else None
     )
+    threshold_c_rate = (
+        threshold_a / capacity_ah
+        if threshold_a is not None and capacity_ah is not None and capacity_ah > 0
+        else None
+    )
     delta_over_imin = (
         delta_a / imin_a
         if delta_a is not None and imin_a is not None and imin_a > 0
+        else None
+    )
+    threshold_over_imin = (
+        threshold_a / imin_a
+        if threshold_a is not None and imin_a is not None and imin_a > 0
         else None
     )
     return {
@@ -94,6 +107,10 @@ def _reversal_metrics(
         "reversal_delta_a": delta_a,
         "reversal_delta_c_rate": delta_c_rate,
         "reversal_delta_over_imin": delta_over_imin,
+        "reversal_threshold_a": threshold_a,
+        "reversal_threshold_c_rate": threshold_c_rate,
+        "reversal_threshold_over_imin": threshold_over_imin,
+        "reversal_threshold_source": threshold_source,
     }
 
 
@@ -143,6 +160,10 @@ def _render_stage_reversal(values: Mapping[str, Mapping[str, Any]]) -> Dict[str,
             "reversal_delta_a": _distribution(list(bucket.get("delta_a") or [])),
             "reversal_delta_c_rate": _distribution(list(bucket.get("delta_c_rate") or [])),
             "reversal_delta_over_imin": _distribution(list(bucket.get("delta_over_imin") or [])),
+            "reversal_threshold_a": _distribution(list(bucket.get("threshold_a") or [])),
+            "reversal_threshold_c_rate": _distribution(list(bucket.get("threshold_c_rate") or [])),
+            "reversal_threshold_over_imin": _distribution(list(bucket.get("threshold_over_imin") or [])),
+            "threshold_source": dict(bucket.get("threshold_source") or {}),
             "current_min_c_rate": _distribution(list(bucket.get("imin_c_rate") or [])),
         }
     return rendered
@@ -176,6 +197,7 @@ async def build_trace_report(
     legacy_transitions: Counter[str] = Counter()
     terminal_mix_transitions: Counter[str] = Counter()
     interrupted_mix_transitions: Counter[str] = Counter()
+    threshold_sources: Counter[str] = Counter()
 
     shadow_errors = 0
     calibration_samples: List[Dict[str, Any]] = []
@@ -184,13 +206,18 @@ async def build_trace_report(
     first_legacy_mix_exit_at: Optional[float] = None
     first_interrupted_mix_exit_at: Optional[float] = None
     first_main_hv_at: Optional[float] = None
-    first_v2_finish_reversal: Optional[Dict[str, Optional[float]]] = None
-    first_v2_mix_finish_reversal: Optional[Dict[str, Optional[float]]] = None
+    first_v2_finish_reversal: Optional[Dict[str, Any]] = None
+    first_v2_mix_finish_reversal: Optional[Dict[str, Any]] = None
+    signal_config: Optional[Dict[str, Any]] = None
+    signal_config_changed = False
 
     confirmed_reversal_at: List[float] = []
     reversal_delta_a: List[float] = []
     reversal_delta_c_rate: List[float] = []
     reversal_delta_over_imin: List[float] = []
+    reversal_threshold_a: List[float] = []
+    reversal_threshold_c_rate: List[float] = []
+    reversal_threshold_over_imin: List[float] = []
     reversal_imin_c_rate: List[float] = []
     reversal_by_stage: Dict[str, Dict[str, Any]] = {}
 
@@ -201,6 +228,15 @@ async def build_trace_report(
         before_key = _normalize_stage(before)
         after_key = _normalize_stage(after)
         shadow = _load_shadow_json(row["shadow_json"])
+
+        captured_config = shadow.get("signal_config")
+        if isinstance(captured_config, Mapping):
+            current_config = dict(captured_config)
+            if signal_config is None:
+                signal_config = current_config
+            elif current_config != signal_config:
+                signal_config_changed = True
+
         first_stage = shadow.get("first_stage")
         if isinstance(first_stage, Mapping):
             state = str(first_stage.get("state") or "").strip()
@@ -232,6 +268,10 @@ async def build_trace_report(
                     "delta_a": [],
                     "delta_c_rate": [],
                     "delta_over_imin": [],
+                    "threshold_a": [],
+                    "threshold_c_rate": [],
+                    "threshold_over_imin": [],
+                    "threshold_source": Counter(),
                     "imin_c_rate": [],
                 },
             )
@@ -248,6 +288,22 @@ async def build_trace_report(
             if value is not None:
                 reversal_delta_over_imin.append(value)
                 stage_bucket["delta_over_imin"].append(value)
+            value = reversal["reversal_threshold_a"]
+            if value is not None:
+                reversal_threshold_a.append(value)
+                stage_bucket["threshold_a"].append(value)
+            value = reversal["reversal_threshold_c_rate"]
+            if value is not None:
+                reversal_threshold_c_rate.append(value)
+                stage_bucket["threshold_c_rate"].append(value)
+            value = reversal["reversal_threshold_over_imin"]
+            if value is not None:
+                reversal_threshold_over_imin.append(value)
+                stage_bucket["threshold_over_imin"].append(value)
+            source = reversal["reversal_threshold_source"]
+            if source:
+                threshold_sources[str(source)] += 1
+                stage_bucket["threshold_source"][str(source)] += 1
             value = reversal["current_min_c_rate"]
             if value is not None:
                 reversal_imin_c_rate.append(value)
@@ -312,6 +368,10 @@ async def build_trace_report(
             "total": len(rows),
             "shadow_errors": shadow_errors,
         },
+        "signal_config": {
+            "captured": signal_config,
+            "changed_within_session": signal_config_changed,
+        },
         "shadow_decisions": dict(decisions),
         "disagreements": dict(disagreements),
         "first_stage_states": dict(first_stage_states),
@@ -334,6 +394,10 @@ async def build_trace_report(
             "reversal_delta_a": _distribution(reversal_delta_a),
             "reversal_delta_c_rate": _distribution(reversal_delta_c_rate),
             "reversal_delta_over_imin": _distribution(reversal_delta_over_imin),
+            "reversal_threshold_a": _distribution(reversal_threshold_a),
+            "reversal_threshold_c_rate": _distribution(reversal_threshold_c_rate),
+            "reversal_threshold_over_imin": _distribution(reversal_threshold_over_imin),
+            "threshold_source": dict(threshold_sources),
             "current_min_c_rate": _distribution(reversal_imin_c_rate),
             "by_stage": _render_stage_reversal(reversal_by_stage),
             "first_v2_finish_reversal": first_v2_finish_reversal,
