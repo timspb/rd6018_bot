@@ -89,11 +89,34 @@ class RecoveryReplayTests(unittest.TestCase):
         self.assertGreater(result["trend"]["score"], 0)
         self.assertAlmostEqual(result["cycles"][0]["main_imin_a"], 0.4)
         self.assertAlmostEqual(result["cycles"][1]["main_imin_a"], 0.32)
+        self.assertEqual(len(result["decision_traces"]), 2)
+        self.assertGreater(result["decision_summary"]["counts"]["continue"], 0)
         # Imin changed substantially, but remains score-neutral evidence.
         imin_metric = next(
             metric for metric in result["trend"]["metrics"] if metric["name"] == "Main Imin"
         )
         self.assertEqual(imin_metric["score"], 0)
+
+    def test_replay_surfaces_clean_hv_reversal_as_finish_decision(self):
+        cycle = {
+            "battery_id": "battery-reversal",
+            "started_at": 0,
+            "intent": "recovery",
+            "trace": [
+                {"timestamp_s": 0, "stage": "Main Charge", "voltage_v": 14.7, "current_a": 0.5, "temp_c": 25.0, "is_cv": True, "target_voltage_v": 14.8},
+                {"timestamp_s": 600, "stage": "Mix Mode", "voltage_v": 16.40, "current_a": 0.40, "temp_c": 25.4, "is_cv": True, "target_voltage_v": 16.5},
+                {"timestamp_s": 720, "stage": "Mix Mode", "voltage_v": 16.47, "current_a": 0.20, "temp_c": 25.4, "is_cv": True, "target_voltage_v": 16.5},
+                {"timestamp_s": 840, "stage": "Mix Mode", "voltage_v": 16.49, "current_a": 0.20, "temp_c": 25.4, "is_cv": True, "target_voltage_v": 16.5},
+                {"timestamp_s": 900, "stage": "Mix Mode", "voltage_v": 16.49, "current_a": 0.27, "temp_c": 25.5, "is_cv": True, "target_voltage_v": 16.5},
+                {"timestamp_s": 960, "stage": "Mix Mode", "voltage_v": 16.49, "current_a": 0.28, "temp_c": 25.5, "is_cv": True, "target_voltage_v": 16.5},
+                {"timestamp_s": 1020, "stage": "Mix Mode", "voltage_v": 16.49, "current_a": 0.29, "temp_c": 25.6, "is_cv": True, "target_voltage_v": 16.5},
+            ],
+        }
+        result = replay_document({"cycles": [cycle]})
+        first = result["decision_summary"]["first_non_continue"]
+        self.assertIsNotNone(first)
+        self.assertEqual(first["decision"], "finish_stage")
+        self.assertIn("end_of_charge_likely", first["events"])
 
     def test_invalid_document_is_rejected(self):
         with self.assertRaises(ValueError):
