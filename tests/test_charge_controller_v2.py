@@ -15,8 +15,11 @@ class ExplodingShadowRuntime:
 
 
 class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
+    def _shadow_controller(self):
+        return ChargeControllerV2(DummyHass(), authoritative=False)
+
     async def test_idle_tick_keeps_legacy_actions_and_adds_shadow_only(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         actions = await controller.tick(
             voltage=12.7,
             current=0.0,
@@ -29,11 +32,12 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("recovery_shadow", actions)
         self.assertEqual(actions["recovery_shadow"]["status"], "ok")
         self.assertEqual(actions["recovery_shadow"]["decision"], "continue")
+        self.assertEqual(actions["recovery_shadow"]["authority"], "legacy")
         self.assertNotIn("turn_on", actions)
         self.assertNotIn("turn_off", actions)
 
     async def test_invalid_temperature_is_fail_closed_in_both_layers(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller._last_known_output_on = True
         actions = await controller.tick(
@@ -49,7 +53,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(actions["recovery_shadow"]["disagreement"])
 
     async def test_context_can_be_configured_while_idle(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         controller.configure_recovery_context(
             battery_id="varta-agm-95",
             intent=ChargeIntent.RECOVERY,
@@ -67,13 +71,13 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.recovery_shadow_summary["evidence"].battery_id, "varta-agm-95")
 
     async def test_configure_context_is_blocked_during_active_charge(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         with self.assertRaises(RuntimeError):
             controller.configure_recovery_context(battery_id="other")
 
     async def test_main_shadow_exposes_capacity_normalized_tail(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 200
@@ -104,7 +108,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(trace["output_on"])
 
     async def test_transition_audit_uses_plateau_state_before_legacy_resets_it(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
@@ -144,7 +148,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(audit["severity"], "info")
 
     async def test_shadow_exception_does_not_invalidate_legacy_actions(self):
-        controller = ChargeControllerV2(DummyHass())
+        controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 70
