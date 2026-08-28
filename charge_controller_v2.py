@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import time
 from typing import Any, Callable, Dict, Optional
@@ -10,6 +11,8 @@ from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
+
+logger = logging.getLogger("rd6018.recovery.shadow")
 
 
 class ChargeControllerV2(ChargeController):
@@ -36,6 +39,8 @@ class ChargeControllerV2(ChargeController):
         self._v2_runtime: Optional[ShadowRecoveryRuntime] = None
         self._v2_target_voltage_v: Optional[float] = None
         self._v2_last_stage: Optional[str] = None
+        self._v2_last_disagreement: Optional[str] = None
+        self._v2_disagreement_repeat_count: int = 0
 
     def configure_recovery_context(
         self,
@@ -50,6 +55,8 @@ class ChargeControllerV2(ChargeController):
         self._v2_intent = intent
         self._v2_condition_before = condition_before
         self._v2_runtime = None
+        self._v2_last_disagreement = None
+        self._v2_disagreement_repeat_count = 0
 
     def _new_runtime(self, *, started_at: float) -> ShadowRecoveryRuntime:
         battery_id = self._v2_battery_id or (
@@ -68,6 +75,8 @@ class ChargeControllerV2(ChargeController):
         super().start(battery_type, ah_capacity)
         started_at = self.total_start_time or time.time()
         self._new_runtime(started_at=started_at)
+        self._v2_last_disagreement = None
+        self._v2_disagreement_repeat_count = 0
         try:
             target_v, _ = self._get_target_v_i()
             self._v2_target_voltage_v = float(target_v)
@@ -156,6 +165,35 @@ class ChargeControllerV2(ChargeController):
             dvoltage_v_per_min=metrics.d_voltage_v_per_min,
         )
 
+    def _log_shadow_disagreement(self, record: Any, *, stage: str) -> None:
+        disagreement = record.disagreement
+        if disagreement is None:
+            self._v2_last_disagreement = None
+            self._v2_disagreement_repeat_count = 0
+            return
+
+        if disagreement == self._v2_last_disagreement:
+            self._v2_disagreement_repeat_count += 1
+        else:
+            self._v2_last_disagreement = disagreement
+            self._v2_disagreement_repeat_count = 1
+
+        # First occurrence is always visible; a persistent disagreement repeats every
+        # 20 samples (~10 minutes at the current 30 second production poll interval).
+        if self._v2_disagreement_repeat_count != 1 and self._v2_disagreement_repeat_count % 20 != 0:
+            return
+
+        logger.warning(
+            "RECOVERY_SHADOW disagreement=%s repeats=%d decision=%s legacy=%s "
+            "stage=%s reason=%s",
+            disagreement,
+            self._v2_disagreement_repeat_count,
+            record.decision.decision.value,
+            record.legacy_effect,
+            stage,
+            record.decision.reason,
+        )
+
     async def tick(
         self,
         voltage: float,
@@ -206,6 +244,7 @@ class ChargeControllerV2(ChargeController):
                 else None
             ),
         )
+        self._log_shadow_disagreement(record, stage=stage_before)
         first_stage = self._assess_main_sample(
             stage_before=stage_before,
             target_before=target_before,
@@ -232,5 +271,14 @@ class ChargeControllerV2(ChargeController):
     @property
     def recovery_shadow_summary(self) -> Dict[str, Any]:
         if self._v2_runtime is None:
-            return {"samples": 0, "decision_counts": {}, "disagreement_counts": {}}
-        return self._v2_runtime.summary()
+            return {
+                "samples": 0,
+                "decision_counts": {},
+                "disagreement_counts": {},
+                "last_disagreement": None,
+                "last_disagreement_repeats": 0,
+            }
+        summary = dict(self._v2_runtime.summary())
+        summary["last_disagreement"] = self._v2_last_disagreement
+        summary["last_disagreement_repeats"] = self._v2_disagreement_repeat_count
+        return summary
