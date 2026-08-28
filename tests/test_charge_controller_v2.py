@@ -107,7 +107,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(trace["is_cc"])
         self.assertTrue(trace["output_on"])
 
-    async def test_transition_audit_uses_plateau_state_before_legacy_resets_it(self):
+    async def test_fallback_audit_keeps_v2_evidence_independent_from_legacy_timer(self):
         controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
@@ -143,9 +143,11 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
         audit = actions["recovery_shadow"]["transition_audit"]
-        self.assertEqual(audit["first_stage_state"], "stuck_plateau")
-        self.assertEqual(audit["code"], "legacy_hv_escalation_after_stuck_plateau")
-        self.assertEqual(audit["severity"], "info")
+        # Legacy's own timer fired, but two sparse points are not enough for V2's
+        # independent 15-minute plateau window. That disagreement must stay visible.
+        self.assertEqual(audit["first_stage_state"], "bulk_or_taper")
+        self.assertEqual(audit["code"], "legacy_hv_escalation_while_tail_evolving")
+        self.assertEqual(audit["severity"], "review")
 
     async def test_shadow_exception_does_not_invalidate_legacy_actions(self):
         controller = self._shadow_controller()
