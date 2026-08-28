@@ -19,11 +19,7 @@ class RecoveryStartResult:
 
 
 class RecoveryOrchestrator:
-    """Coordinate a physical battery, recipe envelope, safe output and evidence runtime.
-
-    This is the application boundary for the V2 path. Telegram handlers should not
-    independently select chemistry limits, program RD6018 and start telemetry tracking.
-    """
+    """Coordinate battery context, recipe authorization, safe output and V2 evidence."""
 
     def __init__(self, output_adapter, *, runtime: Optional[RecoveryRuntime] = None) -> None:
         self.output_adapter = output_adapter
@@ -71,11 +67,7 @@ class RecoveryOrchestrator:
             custom_voltage_ceiling_v=custom_voltage_ceiling_v,
         )
         if not authorization.allowed:
-            return RecoveryStartResult(
-                False,
-                authorization.reason,
-                authorization=authorization,
-            )
+            return RecoveryStartResult(False, authorization.reason, authorization=authorization)
 
         enable_result = await enable_authorized_recipe_target(
             self.output_adapter,
@@ -98,8 +90,6 @@ class RecoveryOrchestrator:
                 condition_before=record.lifecycle.condition,
             )
         except Exception:
-            # Output was enabled but evidence ownership could not be established.
-            # Fail closed: never leave an untracked recovery output active.
             await self.output_adapter.turn_off()
             raise
 
@@ -120,6 +110,7 @@ class RecoveryOrchestrator:
         current_a: float,
         temp_c: float,
         is_cv: bool,
+        is_cc: Optional[bool] = None,
         target_voltage_v: Optional[float] = None,
         ah: Optional[float] = None,
         output_is_on: Optional[bool] = True,
@@ -131,6 +122,7 @@ class RecoveryOrchestrator:
             current_a=current_a,
             temp_c=temp_c,
             is_cv=is_cv,
+            is_cc=is_cc,
             target_voltage_v=target_voltage_v,
             ah=ah,
             output_is_on=output_is_on,
