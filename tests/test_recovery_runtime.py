@@ -1,11 +1,30 @@
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
-from recovery_runtime import RecoveryRuntime
+from recovery_runtime import RecoveryRuntime, _registry_battery_exists
 
 
 class RecoveryRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_default_registry_lookup_initializes_schema_first(self):
+        order = []
+
+        async def init_registry():
+            order.append("init")
+
+        async def get_registered(_battery_id):
+            order.append("get")
+            return object()
+
+        with patch("recovery_runtime.init_battery_registry", side_effect=init_registry), patch(
+            "recovery_runtime.get_battery", side_effect=get_registered
+        ):
+            exists = await _registry_battery_exists("bat-1")
+
+        self.assertTrue(exists)
+        self.assertEqual(order, ["init", "get"])
+
     async def test_unknown_battery_is_rejected(self):
         async def missing(_battery_id):
             return False
