@@ -21,18 +21,24 @@ class RecoveryTracePoint:
     current_a: float
     temp_c: float
     is_cv: bool = False
+    is_cc: bool = False
     target_voltage_v: Optional[float] = None
     ah: Optional[float] = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, object]) -> "RecoveryTracePoint":
+        is_cv = bool(raw.get("is_cv", False))
+        # Old replay fixtures predate explicit CC telemetry and historically treated
+        # !CV as CC. Preserve that compatibility, while new live traces store is_cc.
+        is_cc = bool(raw["is_cc"]) if "is_cc" in raw else not is_cv
         return cls(
             timestamp_s=float(raw["timestamp_s"]),
             stage=str(raw["stage"]),
             voltage_v=float(raw["voltage_v"]),
             current_a=float(raw["current_a"]),
             temp_c=float(raw["temp_c"]),
-            is_cv=bool(raw.get("is_cv", False)),
+            is_cv=is_cv,
+            is_cc=is_cc,
             target_voltage_v=(
                 float(raw["target_voltage_v"])
                 if raw.get("target_voltage_v") is not None
@@ -157,6 +163,8 @@ class RecoverySessionTracker:
             if reached and time_to_target is None:
                 time_to_target = point.timestamp_s - self._stage_started_at
 
+        # Imin is meaningful only while the supply is in CV. SignalAnalyzer deliberately
+        # leaves it unset in CC, where voltage is the response variable instead.
         imin = analysis.metrics.current_min_a
         if kind == "main":
             kwargs = {
@@ -218,6 +226,7 @@ class RecoverySessionTracker:
                 current_a=point.current_a,
                 temp_c=point.temp_c,
                 is_cv=point.is_cv,
+                is_cc=point.is_cc,
             )
         )
         if analysis.has(SignalEvent.TELEMETRY_INVALID):
