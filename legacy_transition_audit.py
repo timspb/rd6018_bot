@@ -35,6 +35,12 @@ HV_NAMES = frozenset(
     }
 )
 
+# A persistent Main CV plateau is useful recovery evidence, but its magnitude still
+# matters. Above ~1%C it is no longer a low tail phenomenon; keep that case visible
+# for review instead of giving every STUCK_PLATEAU the same benign INFO label.
+# This is diagnostic only and does not authorize or block an HV recipe.
+HIGH_PLATEAU_REVIEW_C_RATE = 0.010
+
 
 def _stage_key(value: str) -> str:
     return " ".join(str(value).strip().lower().replace("_", " ").split())
@@ -118,12 +124,27 @@ def audit_legacy_transition(
             first_stage_state=state,
         )
     if state == FirstStageState.STUCK_PLATEAU:
+        c_rate = first_stage.current_c_rate
+        if c_rate is not None and c_rate > HIGH_PLATEAU_REVIEW_C_RATE:
+            return LegacyTransitionAudit(
+                code="legacy_hv_escalation_after_high_c_rate_plateau",
+                severity=TransitionAuditSeverity.REVIEW,
+                reason=(
+                    f"persistent Main CV plateau is still high at {c_rate:.4f}C; "
+                    "review battery condition and recovery eligibility before treating "
+                    "this as an ordinary low-tail plateau"
+                ),
+                stage_before=stage_before,
+                stage_after=stage_after,
+                first_stage_state=state,
+            )
         return LegacyTransitionAudit(
             code="legacy_hv_escalation_after_stuck_plateau",
             severity=TransitionAuditSeverity.INFO,
             reason=(
-                "V2 also sees a persistent CV plateau; chemistry/intent/condition still "
-                "determine whether an HV recovery recipe is appropriate"
+                "V2 also sees a persistent CV plateau at a moderate C-rate; "
+                "chemistry/intent/condition still determine whether an HV recovery "
+                "recipe is appropriate"
             ),
             stage_before=stage_before,
             stage_after=stage_after,
