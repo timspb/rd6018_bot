@@ -41,6 +41,7 @@ from charge_logic import (
     OCP_OFFSET,
 )
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
+from charge_controller_v2 import ChargeControllerV2
 from config import (
     ALLOWED_CHAT_IDS,
     DEEPSEEK_API_KEY,
@@ -166,7 +167,7 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
         return None
 
 
-charge_controller = ChargeController(hass, notify_cb=_charge_notify)
+charge_controller = ChargeControllerV2(hass, notify_cb=_charge_notify)
 
 
 def _is_chat_allowed(chat_id: int) -> bool:
