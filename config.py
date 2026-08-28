@@ -36,11 +36,20 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 # v2.6 Часовой пояс для всех временных меток
 USER_TIMEZONE = os.getenv("USER_TIMEZONE", "Europe/Moscow")
 
-# Разрешённые chat_id (через запятую). Пусто = доступ у всех.
+# Разрешённые chat_id (через запятую).
+# По умолчанию управление физическим выходом fail-closed: пустой whitelist
+# не означает «доступ всем». Для намеренно публичного/тестового бота требуется
+# явный ALLOW_ALL_CHATS=1.
+ALLOW_ALL_CHATS = _as_bool(os.getenv("ALLOW_ALL_CHATS"), default=False)
+
+
 def _parse_allowed_chat_ids() -> tuple:
     raw = (os.getenv("ALLOWED_CHAT_IDS") or "").strip()
     if not raw:
-        return ()
+        # bot._is_chat_allowed() исторически трактует пустой tuple как allow-all.
+        # Поэтому используем невозможный Telegram chat_id sentinel, пока UI слой
+        # не будет переведён на явный policy object.
+        return () if ALLOW_ALL_CHATS else (-1,)
     result = []
     for s in raw.split(","):
         s = s.strip()
@@ -50,7 +59,9 @@ def _parse_allowed_chat_ids() -> tuple:
             result.append(int(s))
         except ValueError:
             pass
-    return tuple(result)
+    if result:
+        return tuple(result)
+    return () if ALLOW_ALL_CHATS else (-1,)
 
 
 ALLOWED_CHAT_IDS = _parse_allowed_chat_ids()
@@ -82,7 +93,7 @@ ENTITY_MAP = {
 }
 
 # Лимиты безопасности
-MAX_VOLTAGE = 16.6  # V — предупреждение
+MAX_VOLTAGE = 16.6  # V — legacy profile ceiling; expert V2 recipes have their own explicit ceiling
 MIN_INPUT_VOLTAGE = 60.0  # В — не включать заряд при входном напряжении ниже
 TEMP_INT_PRECRITICAL = 55.0  # °C — выключение выхода при температуре блока (защита БП)
-# Температура АКБ: 34°C (предупреждение), 37°C (авария) — в charge_logic.py
+# Температура АКБ: фактические уровни 35/40/45°C определены в charge_logic.py
