@@ -32,6 +32,9 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         c_rate=None,
         audit_code=None,
         audit_severity=None,
+        events=None,
+        current_min_a=None,
+        reversal_delta_a=None,
     ):
         shadow = {
             "status": "ok",
@@ -39,6 +42,11 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
             "reason": "test decision",
             "legacy_effect": "continue",
             "disagreement": disagreement,
+            "events": list(events or []),
+            "metrics": {
+                "current_min_a": current_min_a,
+                "delta_current_from_min_a": reversal_delta_a,
+            },
             "trace_point": {
                 "timestamp_s": ts,
                 "stage": stage,
@@ -90,12 +98,17 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
             stage="Mix Mode",
             decision="finish_stage",
             disagreement="v2_would_finish_stage",
+            events=["current_reversal_confirmed", "end_of_charge_likely"],
+            current_min_a=0.50,
+            reversal_delta_a=0.16,
         )
         await self._record(
             500.0,
             stage="Mix Mode",
             after="Безопасное ожидание",
             decision="finish_stage",
+            current_min_a=0.50,
+            reversal_delta_a=0.18,
         )
 
         report = await build_trace_report("calibration-session")
@@ -110,6 +123,17 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["timing"]["first_v2_finish_stage_at"], 200.0)
         self.assertEqual(report["timing"]["first_legacy_mix_exit_at"], 500.0)
         self.assertEqual(report["timing"]["v2_finish_lead_seconds"], 300.0)
+
+        reversal = report["hv_reversal"]
+        self.assertEqual(reversal["confirmed_count"], 1)
+        self.assertEqual(reversal["first_confirmed_at"], 200.0)
+        self.assertAlmostEqual(reversal["reversal_delta_a"]["median"], 0.16)
+        self.assertAlmostEqual(reversal["reversal_delta_over_imin"]["median"], 0.32)
+        self.assertAlmostEqual(reversal["reversal_delta_c_rate"]["median"], 0.16 / 70.0)
+        self.assertAlmostEqual(reversal["current_min_c_rate"]["median"], 0.50 / 70.0)
+        first_finish = reversal["first_v2_finish_reversal"]
+        self.assertAlmostEqual(first_finish["reversal_delta_over_imin"], 0.32)
+        self.assertAlmostEqual(first_finish["reversal_delta_c_rate"], 0.16 / 70.0)
 
     async def test_review_and_safety_samples_are_kept_for_calibration(self):
         await self._record(
@@ -128,6 +152,19 @@ class RecoveryTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sample["first_stage_state"], "thermally_unstable")
         self.assertAlmostEqual(sample["current_c_rate"], 0.009)
         self.assertEqual(sample["transition_audit_severity"], "safety")
+
+    async def test_reversal_metrics_are_empty_without_real_analyzer_values(self):
+        await self._record(
+            100.0,
+            stage="Mix Mode",
+            decision="finish_stage",
+            events=["current_reversal_confirmed"],
+        )
+        report = await build_trace_report("calibration-session")
+        reversal = report["hv_reversal"]
+        self.assertEqual(reversal["confirmed_count"], 1)
+        self.assertIsNone(reversal["reversal_delta_over_imin"]["median"])
+        self.assertIsNone(reversal["reversal_delta_c_rate"]["median"])
 
     async def test_unknown_session_is_rejected(self):
         with self.assertRaises(KeyError):
