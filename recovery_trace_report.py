@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 from collections import Counter
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -35,6 +36,51 @@ def _load_shadow_json(raw: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _finite_float(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed or parsed in (float("inf"), float("-inf")):
+        return None
+    return parsed
+
+
+def _reversal_metrics(
+    row: Any,
+    shadow: Mapping[str, Any],
+) -> Dict[str, Optional[float]]:
+    metrics = shadow.get("metrics")
+    if not isinstance(metrics, Mapping):
+        metrics = {}
+    imin_a = _finite_float(metrics.get("current_min_a"))
+    delta_a = _finite_float(metrics.get("delta_current_from_min_a"))
+    capacity_ah = _finite_float(row["capacity_ah"])
+
+    imin_c_rate = (
+        imin_a / capacity_ah
+        if imin_a is not None and capacity_ah is not None and capacity_ah > 0
+        else None
+    )
+    delta_c_rate = (
+        delta_a / capacity_ah
+        if delta_a is not None and capacity_ah is not None and capacity_ah > 0
+        else None
+    )
+    delta_over_imin = (
+        delta_a / imin_a
+        if delta_a is not None and imin_a is not None and imin_a > 0
+        else None
+    )
+    return {
+        "current_min_a": imin_a,
+        "current_min_c_rate": imin_c_rate,
+        "reversal_delta_a": delta_a,
+        "reversal_delta_c_rate": delta_c_rate,
+        "reversal_delta_over_imin": delta_over_imin,
+    }
+
+
 def _sample_summary(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
     first_stage = shadow.get("first_stage")
     if not isinstance(first_stage, Mapping):
@@ -56,7 +102,18 @@ def _sample_summary(row: Any, shadow: Mapping[str, Any]) -> Dict[str, Any]:
         "disagreement": row["disagreement"],
         "transition_audit_code": row["transition_audit_code"],
         "transition_audit_severity": row["transition_audit_severity"],
+        "reversal": _reversal_metrics(row, shadow),
         "reason": audit.get("reason") or row["shadow_reason"],
+    }
+
+
+def _distribution(values: List[float]) -> Dict[str, Optional[float]]:
+    if not values:
+        return {"min": None, "median": None, "max": None}
+    return {
+        "min": min(values),
+        "median": statistics.median(values),
+        "max": max(values),
     }
 
 
@@ -92,6 +149,13 @@ async def build_trace_report(
     first_v2_finish_at: Optional[float] = None
     first_legacy_mix_exit_at: Optional[float] = None
     first_main_hv_at: Optional[float] = None
+    first_v2_finish_reversal: Optional[Dict[str, Optional[float]]] = None
+
+    confirmed_reversal_at: List[float] = []
+    reversal_delta_a: List[float] = []
+    reversal_delta_c_rate: List[float] = []
+    reversal_delta_over_imin: List[float] = []
+    reversal_imin_c_rate: List[float] = []
 
     for row in rows:
         ts = float(row["timestamp_s"])
@@ -107,6 +171,26 @@ async def build_trace_report(
             decisions[decision] += 1
         if decision == "finish_stage" and first_v2_finish_at is None:
             first_v2_finish_at = ts
+            first_v2_finish_reversal = _reversal_metrics(row, shadow)
+
+        events = shadow.get("events")
+        if not isinstance(events, list):
+            events = []
+        if "current_reversal_confirmed" in events:
+            confirmed_reversal_at.append(ts)
+            reversal = _reversal_metrics(row, shadow)
+            value = reversal["reversal_delta_a"]
+            if value is not None:
+                reversal_delta_a.append(value)
+            value = reversal["reversal_delta_c_rate"]
+            if value is not None:
+                reversal_delta_c_rate.append(value)
+            value = reversal["reversal_delta_over_imin"]
+            if value is not None:
+                reversal_delta_over_imin.append(value)
+            value = reversal["current_min_c_rate"]
+            if value is not None:
+                reversal_imin_c_rate.append(value)
 
         disagreement = str(row["disagreement"] or "").strip()
         if disagreement:
@@ -169,6 +253,15 @@ async def build_trace_report(
             "codes": dict(audit_codes),
         },
         "legacy_transitions": dict(legacy_transitions),
+        "hv_reversal": {
+            "confirmed_count": len(confirmed_reversal_at),
+            "first_confirmed_at": confirmed_reversal_at[0] if confirmed_reversal_at else None,
+            "reversal_delta_a": _distribution(reversal_delta_a),
+            "reversal_delta_c_rate": _distribution(reversal_delta_c_rate),
+            "reversal_delta_over_imin": _distribution(reversal_delta_over_imin),
+            "current_min_c_rate": _distribution(reversal_imin_c_rate),
+            "first_v2_finish_reversal": first_v2_finish_reversal,
+        },
         "timing": {
             "first_main_to_hv_at": first_main_hv_at,
             "first_v2_finish_stage_at": first_v2_finish_at,
