@@ -13,24 +13,43 @@ from recipe_engine import RecipeEnvelope, select_recipe_envelope
 
 
 class ProductionChargeControllerV2(ChargeControllerV2):
-    """Live controller with recipe envelopes enforced at target generation.
+    """Live controller with recipe envelopes enforced at target generation."""
 
-    ChargeControllerV2 owns evidence-driven transitions. This final production layer
-    makes the selected chemistry + intent + condition envelope authoritative for every
-    generated target, including temperature-compensated targets and restore-derived
-    stage transitions. The absolute RD6018 safety layer still sits below this class.
-
-    Expert EFB conditioning is intentionally *not* enabled here automatically. An
-    explicit expert workflow can opt into that envelope later; the standard Telegram
-    V2 path is bounded by the normal/recovery ceiling selected by the intent.
-    """
+    _OPERATOR_REASON_TEXT = {
+        "main_tail_hold_complete_recovery_hv_authorized": (
+            "Хвост основного заряда стабилен; восстановительный HV-этап разрешён."
+        ),
+        "main_tail_hold_complete_normal_charge": (
+            "Хвост основного заряда стабилен; основной заряд завершён."
+        ),
+        "moderate_stable_cv_plateau_recovery_evidence": (
+            "Подтверждена стабильная CV-полка; разрешён сервисный этап восстановления."
+        ),
+        "moderate_plateau_after_desulfation_budget": (
+            "CV-полка сохраняется после допустимых сервисных попыток; переход в Mix."
+        ),
+        "agm_tail_hold_complete_advance_voltage_step": (
+            "AGM-хвост стабилен; переход на следующую ступень напряжения."
+        ),
+        "persistent_main_plateau_requires_recovery_intent": (
+            "Устойчивая полка требует отдельного режима восстановления."
+        ),
+        "main_plateau_too_high_for_automatic_hv_escalation": (
+            "Ток на полке слишком высок для безопасного автоматического HV-перехода."
+        ),
+        "confirmed_delta_finish_hold_complete": (
+            "Подтверждённая Delta выдержана 2 часа; активный этап завершён."
+        ),
+        "mix_profile_observation_window_exhausted": (
+            "Достигнут максимальный безопасный интервал наблюдения Mix."
+        ),
+        "mode_specific_end_of_charge_evidence_confirmed": (
+            "Подтверждён признак окончания заряда; запущена двухчасовая контрольная выдержка."
+        ),
+    }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # The analyzer's ``seconds_since_current_min`` is useful evidence, but it is
-        # the age of an absolute minimum, not proof that the battery stayed in the
-        # tail continuously. Production authority therefore keeps a second monotonic
-        # tail clock which resets on any excursion out of TAIL_READY or stage restart.
         self._v2_continuous_tail_since: Optional[float] = None
         self._v2_continuous_tail_stage_start: Optional[float] = None
 
@@ -102,7 +121,6 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         )
 
     def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        """Bound restored/device targets by the current recipe as well as new targets."""
         return self._bound_target(
             super()._get_target_v_i(temp_c),
             self._recipe_envelope(),
@@ -121,12 +139,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         self._v2_continuous_tail_stage_start = None
 
     def _assess_main_sample(self, **kwargs: Any) -> Optional[FirstStageAssessment]:
-        """Require a continuous TAIL_READY residence before production authority.
-
-        The base V2 authority also checks ``seconds_since_current_min``. Keep that
-        check as corroborating analyzer evidence, but never let an old Imin timestamp
-        substitute for an uninterrupted 2 h AGM / 3 h other-profile tail hold.
-        """
+        """Require an uninterrupted TAIL_READY residence before production authority."""
         assessment = super()._assess_main_sample(**kwargs)
         stage_before = kwargs.get("stage_before")
         if stage_before != self.STAGE_MAIN or assessment is None:
@@ -160,11 +173,35 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             ),
         )
 
+    @classmethod
+    def _operatorize_notification(cls, text: str) -> str:
+        """Keep machine reason codes in trace/logs, never in operator Telegram text."""
+        result = str(text or "")
+        for reason, human in cls._OPERATOR_REASON_TEXT.items():
+            result = result.replace(reason, human)
+        replacements = {
+            "<b>🚀 V2 → Mix Mode</b>": "<b>🚀 Переход в Mix</b>",
+            "<b>🎯 V2 Delta подтверждена</b>": "<b>🎯 Delta подтверждена</b>",
+            "<b>✅ V2: этап завершён.</b>": "<b>✅ Этап завершён.</b>",
+            "<b>🛑 V2 остановил автоматическую эскалацию.</b>": (
+                "<b>🛑 Автоматический переход остановлен.</b>"
+            ),
+            "<b>🚀 V2 AGM ступень": "<b>🚀 AGM ступень",
+            "🔧 <b>V2 десульфатация": "🔧 <b>Десульфатация",
+            "Sticky finish-hold: 2ч.": "Контрольная выдержка: 2 ч.",
+        }
+        for old, new in replacements.items():
+            result = result.replace(old, new)
+        return result
+
     async def tick(self, *args, **kwargs):
-        """Run managed V2 without legacy hourly Telegram chatter."""
+        """Run managed V2 without legacy chatter and developer-facing Telegram text."""
         if self.is_active and self.battery_type != self.PROFILE_CUSTOM:
             self._last_hourly_report = time.time()
-        return await super().tick(*args, **kwargs)
+        actions = await super().tick(*args, **kwargs)
+        if isinstance(actions.get("notify"), str):
+            actions["notify"] = self._operatorize_notification(actions["notify"])
+        return actions
 
     def try_restore_session(
         self,
@@ -178,9 +215,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         if not ok:
             return ok, message
 
-        # Continuous tail residence is intentionally not reconstructed from an old
-        # minimum timestamp after process restart. Re-proving the hold is conservative
-        # and prevents stale persisted timing from granting HV authority.
+        # Never reconstruct continuous tail residence from the age of a persisted Imin.
         self._reset_continuous_tail_hold()
 
         if not document.get("v2_intent"):
