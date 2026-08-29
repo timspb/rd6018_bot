@@ -54,14 +54,25 @@ class FakeHass:
         self.result = result
         self.enable_kwargs = None
         self.turn_off_calls = 0
-
-    async def get_all_live(self):
-        return {
+        self.turn_off_result = True
+        self.live = {
             "battery_voltage": 12.6,
             "current": 0.0,
             "temp_ext": 25.0,
+            "temp_int": 32.0,
+            "input_voltage": 64.0,
+            "switch": "off",
+            "ovp_triggered": "off",
+            "ocp_triggered": "off",
+            "set_voltage": 14.8,
+            "set_current": 7.0,
+            "ovp": 14.9,
+            "ocp": 7.1,
             "ah": 0.0,
         }
+
+    async def get_all_live(self):
+        return dict(self.live)
 
     async def safe_enable_output(self, **kwargs):
         self.enable_kwargs = kwargs
@@ -69,7 +80,9 @@ class FakeHass:
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
-        return True
+        if self.turn_off_result:
+            self.live["switch"] = "off"
+        return self.turn_off_result
 
 
 class FakeApp:
@@ -131,7 +144,7 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(app.hass.enable_kwargs["recipe_voltage_ceiling_v"], 16.5)
         self.assertIn("V2 заряд запущен", message.answers[-1][0])
 
-    async def test_failed_enable_rolls_controller_back_and_forces_output_off(self):
+    async def test_failed_enable_rolls_controller_back_only_after_confirmed_off(self):
         app = FakeApp(
             EnableResult(
                 enabled=False,
@@ -146,22 +159,54 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertTrue(app.charge_controller.stopped)
         self.assertEqual(app.hass.turn_off_calls, 1)
-        self.assertIn("запуск отменён", message.answers[-1][0])
+        self.assertIn("подтверждён OFF", message.answers[-1][0])
         self.assertNotIn("заряд запущен", message.answers[-1][0])
+
+    async def test_unconfirmed_off_keeps_controller_alive_and_warns_operator(self):
+        app = FakeApp(
+            EnableResult(
+                enabled=False,
+                violations=frozenset({SafetyViolation.OUTPUT_ENABLE_FAILED}),
+                detail="output state unknown",
+            )
+        )
+        app.hass.turn_off_result = False
+        message = FakeMessage()
+
+        ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertFalse(ok)
+        self.assertTrue(app.charge_controller.is_active)
+        self.assertFalse(app.charge_controller.stopped)
+        self.assertIn("OFF НЕ подтверждён", message.answers[-1][0])
 
     async def test_missing_external_temperature_never_starts_controller(self):
         app = FakeApp(EnableResult(enabled=True))
+        app.hass.live["temp_ext"] = "unavailable"
         message = FakeMessage()
 
-        async def bad_live():
-            return {
-                "battery_voltage": 12.6,
-                "current": 0.0,
-                "temp_ext": "unavailable",
-                "ah": 0.0,
-            }
+        ok = await start_profile_transactional(app, message, PENDING)
 
-        app.hass.get_all_live = bad_live
+        self.assertFalse(ok)
+        self.assertFalse(app.charge_controller.started)
+        self.assertIsNone(app.hass.enable_kwargs)
+
+    async def test_missing_internal_temperature_never_starts_controller(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.hass.live["temp_int"] = None
+        message = FakeMessage()
+
+        ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertFalse(ok)
+        self.assertFalse(app.charge_controller.started)
+        self.assertIsNone(app.hass.enable_kwargs)
+
+    async def test_existing_output_on_never_starts_new_session(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.hass.live["switch"] = "on"
+        message = FakeMessage()
+
         ok = await start_profile_transactional(app, message, PENDING)
 
         self.assertFalse(ok)
