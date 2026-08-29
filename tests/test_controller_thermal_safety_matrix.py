@@ -33,13 +33,20 @@ class ControllerThermalSafetyMatrixTests(unittest.IsolatedAsyncioTestCase):
                 is_cc=True,
             )
 
-    async def test_missing_battery_temperature_is_emergency_fail_closed(self):
+    async def test_missing_battery_temperature_is_resumable_fail_closed(self):
         controller = self._controller()
         actions = await self._tick(controller, now=10000.0, temp=None)
 
+        # None/unavailable is a communication-loss condition, not proof of a bad
+        # physical temperature. It must stop the active controller immediately but
+        # preserve the saved session so a later, independently safe restore remains
+        # possible after telemetry returns. The shared runtime guard/edge lease owns
+        # the physical verified-OFF guarantee outside this pure FSM unit test.
         self.assertTrue(actions.get("emergency_stop"))
-        self.assertTrue(actions.get("full_reset"))
-        self.assertEqual(actions.get("log_event"), "EMERGENCY_TEMP_INVALID")
+        self.assertEqual(actions.get("log_event"), "EMERGENCY_UNAVAILABLE")
+        self.assertFalse(actions.get("full_reset", False))
+        self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
+        self.assertTrue(controller._was_unavailable)
 
     async def test_35c_warns_but_does_not_pause(self):
         controller = self._controller()
