@@ -18,6 +18,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     not only in controller call sites:
 
     * an idle controller cannot energize the output;
+    * a live hardware OVP/OCP trip independently requests and verifies OFF;
     * PSU over-temperature is an immediate live fail-close;
     * OVP/OCP may not be lowered below the already programmed live V/I envelope.
 
@@ -28,6 +29,16 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     async def get_all_live(self) -> dict[str, Any]:
         live = await super().get_all_live()
         output_state = _binary(live.get("switch"))
+
+        # Do not rely exclusively on the data_logger's next action dispatch for a real
+        # hardware trip. Request OFF here too, then return the original trip snapshot
+        # so the legacy handler can still record OVP/OCP as the session-ending reason.
+        if output_state is True and (
+            _binary(live.get("ovp_triggered")) is True
+            or _binary(live.get("ocp_triggered")) is True
+        ):
+            await self._ensure_output_off("hardware OVP/OCP protection trip")
+
         temp_int = _finite(live.get("temp_int"))
         if output_state is True and temp_int is not None and temp_int >= float(TEMP_INT_PRECRITICAL):
             await self._fail_closed(
