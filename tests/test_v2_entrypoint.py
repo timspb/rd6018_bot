@@ -22,6 +22,7 @@ class V2EntrypointTests(unittest.TestCase):
         }
         self.assertIn("v2_profile_agm", callbacks)
         self.assertIn("v2_batteries", callbacks)
+        self.assertIn("v2_mix", callbacks)
 
         dashboard = bot._build_dashboard_keyboard(False, 1)
         dashboard_callbacks = {

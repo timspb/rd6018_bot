@@ -12,6 +12,7 @@ import sys
 
 import bot_legacy as _legacy
 from v2_bootstrap import init_v2_storage, install_v2
+from v2_mix_mode import install_mix_only_mode
 
 
 def _env_enabled(name: str, default: bool = True) -> bool:
@@ -24,7 +25,10 @@ def _env_enabled(name: str, default: bool = True) -> bool:
 # Production controller + actuator safety are always installed. V2_UI controls only
 # presentation, exactly as documented; rolling the Telegram UI back must not remove
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
-install_v2(_legacy, install_ui=_env_enabled("V2_UI", True))
+_v2_ui_enabled = _env_enabled("V2_UI", True)
+install_v2(_legacy, install_ui=_v2_ui_enabled)
+if _v2_ui_enabled:
+    install_mix_only_mode(_legacy)
 
 _legacy_main = _legacy.main
 
