@@ -32,7 +32,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     """
 
     # HA/ESPHome may expose command readback before the measured V/I sample reflects
-    # the new hardware operating point.  Live protection tightening therefore waits
+    # the new hardware operating point. Live protection tightening therefore waits
     # through at least one normal 5 s RD polling interval before concluding that a
     # transition failed to settle.
     TRANSITION_SETTLE_TIMEOUT_S = 6.5
@@ -172,13 +172,14 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         trip_key: str,
     ) -> bool:
         """Wait for measured hardware state, not only command/setpoint readback."""
-        attempts = max(
-            1,
-            int(self.TRANSITION_SETTLE_TIMEOUT_S / self.TRANSITION_SETTLE_POLL_S) + 1,
-        )
+        # Keep this fail-safe even if a test/operator misconfigures the timing values.
+        # A zero/negative poll interval must never crash an active transition.
+        poll_s = max(0.001, float(self.TRANSITION_SETTLE_POLL_S))
+        timeout_s = max(0.0, float(self.TRANSITION_SETTLE_TIMEOUT_S))
+        attempts = max(1, int(timeout_s / poll_s) + 1)
         for attempt in range(attempts):
             if attempt:
-                await asyncio.sleep(self.TRANSITION_SETTLE_POLL_S)
+                await asyncio.sleep(poll_s)
             try:
                 live = await self._raw_live()
             except Exception:
@@ -199,10 +200,10 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     ) -> None:
         """Throttle current before a live HV transition raises the voltage setpoint.
 
-        Main -> Desulfation/Mix raises voltage while reducing the allowed current.  The
+        Main -> Desulfation/Mix raises voltage while reducing the allowed current. The
         legacy action dispatcher writes voltage before current; without this interlock
         RD6018 can briefly drive the old high-current setpoint and then trip when OCP is
-        tightened.  The strict boundary derives only the controller's already-selected
+        tightened. The strict boundary derives only the controller's already-selected
         stage target and applies the safer half of the same transition first.
         """
         live_set_v = _finite(live.get("set_voltage"))
@@ -242,7 +243,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         if target_i + self.READBACK_TOLERANCE >= live_set_i:
             return
 
-        # Keep the old/wider OCP while reducing current.  Base set_current verifies the
+        # Keep the old/wider OCP while reducing current. Base set_current verifies the
         # new current setpoint; then additionally wait for the measured current before
         # permitting the voltage raise.
         await super().set_current(target_i)
