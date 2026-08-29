@@ -6,15 +6,25 @@ from typing import Any
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
+from safe_output import snapshot_from_live
 from v2_ui import intent_label
+
+
+async def _confirm_failed_start_is_off(app: Any) -> bool:
+    """Request shutdown and return True only when the HA boundary confirms OFF."""
+    try:
+        return bool(await app.hass.turn_off(app.ENTITY_MAP["switch"]))
+    except Exception:
+        return False
 
 
 async def start_profile_transactional(app: Any, event: Any, pending: Any) -> bool:
     """Start one V2 profile only through the recipe-aware safe output coordinator.
 
-    The UI may prepare controller state before the hardware transaction, but a failed
-    programming/readback/preflight/enable step always stops the controller again and
-    forces output OFF. No success message is emitted unless RD6018 confirmed ON.
+    No success message is emitted unless RD6018 confirmed ON. Conversely, a failed
+    start may be described as safely OFF only when the hardware boundary confirms OFF;
+    if shutdown cannot be proved, the controller session stays alive/inhibited so
+    monitoring can keep retrying instead of forgetting a potentially energized output.
     """
     message = event.message if hasattr(event, "message") and event.message is not None else event
     user = getattr(event, "from_user", None) or getattr(message, "from_user", None)
@@ -25,16 +35,22 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         return False
 
     live = await app.hass.get_all_live()
-    temp_raw = live.get("temp_ext")
-    if temp_raw in (None, "", "unknown", "unavailable"):
+    snapshot = snapshot_from_live(live)
+    if snapshot is None:
         await message.answer(
-            "❌ Нет валидной температуры temp_ext. V2 не разрешает запуск без датчика АКБ."
+            "❌ Нет полного набора защитной телеметрии "
+            "(U/I/temp_ext/temp_int/input/switch/OVP/OCP). V2 запуск запрещён."
+        )
+        return False
+    if snapshot.output_on:
+        await message.answer(
+            "❌ RD6018 уже показывает Output ON. Новый запуск не разрешён до подтверждённого OFF."
         )
         return False
 
-    battery_v = app._safe_float(live.get("battery_voltage"))
-    current = app._safe_float(live.get("current"))
-    temp_ext = app._safe_float(temp_raw)
+    battery_v = snapshot.battery_voltage_v
+    current = snapshot.current_a
+    temp_ext = snapshot.temp_ext_c
     ah_now = app._safe_float(live.get("ah"))
 
     app.charge_controller.configure_recovery_context(
@@ -72,25 +88,35 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             recipe_voltage_ceiling_v=float(envelope.voltage_ceiling_v),
         )
     except Exception as exc:
-        app.charge_controller.stop(clear_session=True)
-        try:
-            await app.hass.turn_off(app.ENTITY_MAP["switch"])
-        except Exception:
-            pass
+        off_confirmed = await _confirm_failed_start_is_off(app)
+        if off_confirmed:
+            app.charge_controller.stop(clear_session=True)
+            suffix = " Выход подтверждён OFF."
+        else:
+            suffix = (
+                " 🚨 <b>Output OFF НЕ подтверждён.</b> Автовключение заблокировано; "
+                "проверьте RD6018/HA и при необходимости отключите выход или питание вручную."
+            )
         await message.answer(
-            f"❌ V2 запуск отменён: ошибка безопасной транзакции ({html.escape(type(exc).__name__)})."
+            f"❌ V2 запуск отменён: ошибка безопасной транзакции "
+            f"({html.escape(type(exc).__name__)}).{suffix}",
+            parse_mode=app.ParseMode.HTML,
         )
         return False
 
     if not result.enabled:
-        app.charge_controller.stop(clear_session=True)
-        try:
-            await app.hass.turn_off(app.ENTITY_MAP["switch"])
-        except Exception:
-            pass
+        off_confirmed = await _confirm_failed_start_is_off(app)
+        if off_confirmed:
+            app.charge_controller.stop(clear_session=True)
+            state_text = "Выход подтверждён OFF."
+        else:
+            state_text = (
+                "🚨 <b>Output OFF НЕ подтверждён.</b> Контроллер оставлен активным/заблокированным "
+                "для дальнейшего safety-контроля; проверьте RD6018/HA."
+            )
         detail = html.escape(result.detail or "RD6018 не подтвердил безопасное включение")
         await message.answer(
-            f"❌ <b>V2 запуск отменён.</b> Выход оставлен OFF.\n<code>{detail}</code>",
+            f"❌ <b>V2 запуск отменён.</b> {state_text}\n<code>{detail}</code>",
             parse_mode=app.ParseMode.HTML,
         )
         return False
