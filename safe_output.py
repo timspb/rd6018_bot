@@ -7,6 +7,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, FrozenSet, Optional, Protocol
 
+from rd6018_telemetry import (
+    ProtectionStatus,
+    RegulationMode,
+    as_bool,
+    finite_float,
+    resolve_protection,
+    resolve_regulation,
+    telemetry_freshness,
+)
+
 logger = logging.getLogger("rd6018")
 
 
@@ -16,8 +26,12 @@ class SafetyViolation(str, Enum):
     BATTERY_TOO_COLD = "battery_too_cold"
     BATTERY_TOO_HOT = "battery_too_hot"
     POWER_SUPPLY_TOO_HOT = "power_supply_too_hot"
+    # Kept as a compatibility enum for old logs/API consumers. Vin is PSU-health
+    # telemetry in V2 and no longer grants/denies charge authority.
     INPUT_VOLTAGE_LOW = "input_voltage_low"
     PROTECTION_ALREADY_TRIPPED = "protection_already_tripped"
+    UNKNOWN_HARDWARE_PROTECTION = "unknown_hardware_protection"
+    UNSAFE_HARDWARE_CONFIGURATION = "unsafe_hardware_configuration"
     OUTPUT_ALREADY_ON = "output_already_on"
     REQUEST_OVER_RECIPE_CEILING = "request_over_recipe_ceiling"
     REQUEST_OVER_ABSOLUTE_CEILING = "request_over_absolute_ceiling"
@@ -35,8 +49,12 @@ class SafetyViolation(str, Enum):
 class SafetyPolicy:
     """Non-negotiable controller envelope, independent from Pb recipe logic."""
 
-    absolute_voltage_ceiling_v: float = 18.0
-    absolute_ovp_ceiling_v: float = 18.2
+    # User-facing/manual setpoint ceiling. 17.5 V is accepted; anything above it
+    # is rejected before the RD6018 output is armed.
+    absolute_voltage_ceiling_v: float = 17.5
+    # OVP is calculated from the target, so it needs one protection margin above
+    # the maximum accepted 17.5 V working setpoint.
+    absolute_ovp_ceiling_v: float = 17.6
     absolute_current_ceiling_a: float = 12.0
     absolute_ocp_ceiling_a: float = 12.2
     min_battery_voltage_v: float = 2.0
@@ -45,6 +63,7 @@ class SafetyPolicy:
     pause_temp_c: float = 40.0
     critical_temp_c: float = 45.0
     max_internal_temp_c: float = 55.0
+    # Retained as a PSU-health reference only; it is deliberately not a safety gate.
     min_input_voltage_v: float = 60.0
     min_ovp_margin_v: float = 0.05
     min_ocp_margin_a: float = 0.05
@@ -68,10 +87,17 @@ class TelemetrySnapshot:
     current_a: float
     temp_ext_c: float
     temp_int_c: float
-    input_voltage_v: float
     output_on: bool
     ovp_triggered: bool
     ocp_triggered: bool
+    input_voltage_v: Optional[float] = None
+    protection_status: ProtectionStatus = ProtectionStatus.NORMAL
+    protection_unknown: bool = False
+    regulation_mode: RegulationMode = RegulationMode.UNKNOWN
+    battery_mode: Optional[bool] = None
+    boot_power: Optional[bool] = None
+    take_out: Optional[bool] = None
+    take_ok: Optional[bool] = None
     set_voltage_v: Optional[float] = None
     set_current_a: Optional[float] = None
     ovp_v: Optional[float] = None
@@ -102,75 +128,87 @@ class OutputAdapter(Protocol):
     async def turn_off(self, entity_id: Optional[str] = None) -> bool: ...
 
 
-def _finite_float(value: Any) -> Optional[float]:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if math.isfinite(parsed) else None
-
-
-def _as_on(value: Any) -> Optional[bool]:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if value == 1:
-            return True
-        if value == 0:
-            return False
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"on", "true", "1"}:
-            return True
-        if normalized in {"off", "false", "0"}:
-            return False
-    return None
+def _protection_freshness_keys(live: Dict[str, Any]) -> list[str]:
+    if live.get("protection_code") not in (None, "", "unknown", "unavailable"):
+        return ["protection_code"]
+    return ["ovp_triggered", "ocp_triggered"]
 
 
 def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
-    battery_voltage = _finite_float(live.get("battery_voltage"))
-    current = _finite_float(live.get("current"))
-    temp_ext = _finite_float(live.get("temp_ext"))
-    temp_int = _finite_float(live.get("temp_int"))
-    input_voltage = _finite_float(live.get("input_voltage"))
-    output_on = _as_on(live.get("switch"))
-    ovp_triggered = _as_on(live.get("ovp_triggered"))
-    ocp_triggered = _as_on(live.get("ocp_triggered"))
+    battery_voltage = finite_float(live.get("battery_voltage"))
+    current = finite_float(live.get("current"))
+    temp_ext = finite_float(live.get("temp_ext"))
+    temp_int = finite_float(live.get("temp_int"))
+    input_voltage = finite_float(live.get("input_voltage"))
+    output_on = as_bool(live.get("switch"))
+    protection = resolve_protection(live)
 
-    required = (
-        battery_voltage,
-        current,
-        temp_ext,
-        temp_int,
-        input_voltage,
-        output_on,
-        ovp_triggered,
-        ocp_triggered,
-    )
+    # BAT_MODE is deliberately not a permission to start charging. It is RD6018
+    # physical-state feedback: the hardware itself decides whether it can close the
+    # battery relay. Keep it observational in this snapshot.
+    battery_mode = as_bool(live.get("battery_mode"))
+    boot_power = as_bool(live.get("boot_power"))
+    take_out = as_bool(live.get("take_out"))
+    take_ok = as_bool(live.get("take_ok"))
+
+    required = (battery_voltage, current, temp_ext, temp_int, output_on)
     if any(value is None for value in required):
         return None
 
+    freshness_keys = ["battery_voltage", "current", "temp_ext", "temp_int", "switch"]
+    freshness_keys.extend(_protection_freshness_keys(live))
+    for key in ("set_voltage", "set_current", "ovp", "ocp"):
+        if live.get(key) not in (None, "", "unknown", "unavailable"):
+            freshness_keys.append(key)
+    freshness = telemetry_freshness(live, freshness_keys)
+    if not freshness.valid:
+        logger.warning("Rejecting stale/incoherent HA telemetry: %s", freshness.detail)
+        return None
+
     return TelemetrySnapshot(
-        battery_voltage_v=battery_voltage,
-        current_a=current,
-        temp_ext_c=temp_ext,
-        temp_int_c=temp_int,
+        battery_voltage_v=float(battery_voltage),
+        current_a=float(current),
+        temp_ext_c=float(temp_ext),
+        temp_int_c=float(temp_int),
         input_voltage_v=input_voltage,
         output_on=bool(output_on),
-        ovp_triggered=bool(ovp_triggered),
-        ocp_triggered=bool(ocp_triggered),
-        set_voltage_v=_finite_float(live.get("set_voltage")),
-        set_current_a=_finite_float(live.get("set_current")),
-        ovp_v=_finite_float(live.get("ovp")),
-        ocp_a=_finite_float(live.get("ocp")),
+        ovp_triggered=protection.ovp,
+        ocp_triggered=protection.ocp,
+        protection_status=protection.status,
+        protection_unknown=protection.unknown,
+        regulation_mode=resolve_regulation(live),
+        battery_mode=battery_mode,
+        boot_power=boot_power,
+        take_out=take_out,
+        take_ok=take_ok,
+        set_voltage_v=finite_float(live.get("set_voltage")),
+        set_current_a=finite_float(live.get("set_current")),
+        ovp_v=finite_float(live.get("ovp")),
+        ocp_a=finite_float(live.get("ocp")),
     )
 
 
 class SafetySupervisor:
     def __init__(self, policy: Optional[SafetyPolicy] = None) -> None:
         self.policy = policy or SafetyPolicy()
+
+    @staticmethod
+    def _hardware_config_violations(telemetry: TelemetrySnapshot) -> set[SafetyViolation]:
+        violations: set[SafetyViolation] = set()
+        # These registers are optional during migration. If exposed, an automatically
+        # enabling RD6018 configuration is incompatible with managed charging.
+        if telemetry.boot_power is True or telemetry.take_out is True:
+            violations.add(SafetyViolation.UNSAFE_HARDWARE_CONFIGURATION)
+        return violations
+
+    @staticmethod
+    def _protection_violations(telemetry: TelemetrySnapshot) -> set[SafetyViolation]:
+        violations: set[SafetyViolation] = set()
+        if telemetry.protection_unknown:
+            violations.add(SafetyViolation.UNKNOWN_HARDWARE_PROTECTION)
+        elif telemetry.protection_status is not ProtectionStatus.NORMAL:
+            violations.add(SafetyViolation.PROTECTION_ALREADY_TRIPPED)
+        return violations
 
     def preflight(self, request: OutputRequest, telemetry: TelemetrySnapshot) -> SafetyDecision:
         p = self.policy
@@ -188,7 +226,6 @@ class SafetySupervisor:
             telemetry.current_a,
             telemetry.temp_ext_c,
             telemetry.temp_int_c,
-            telemetry.input_voltage_v,
         )
         if not all(math.isfinite(v) for v in requested + observed):
             violations.add(SafetyViolation.TELEMETRY_INVALID)
@@ -201,10 +238,10 @@ class SafetySupervisor:
             violations.add(SafetyViolation.BATTERY_TOO_HOT)
         if telemetry.temp_int_c >= p.max_internal_temp_c:
             violations.add(SafetyViolation.POWER_SUPPLY_TOO_HOT)
-        if telemetry.input_voltage_v < p.min_input_voltage_v:
-            violations.add(SafetyViolation.INPUT_VOLTAGE_LOW)
-        if telemetry.ovp_triggered or telemetry.ocp_triggered:
-            violations.add(SafetyViolation.PROTECTION_ALREADY_TRIPPED)
+        # Vin is intentionally diagnostic-only. A weak/failed upstream PSU may be
+        # reported by health diagnostics but cannot redefine the battery chemistry FSM.
+        violations.update(self._protection_violations(telemetry))
+        violations.update(self._hardware_config_violations(telemetry))
         if telemetry.output_on:
             violations.add(SafetyViolation.OUTPUT_ALREADY_ON)
 
@@ -252,9 +289,7 @@ class SafetySupervisor:
                     f"{name} actual={actual:.3f} expected={expected:.3f} tol={tolerance:.3f}"
                 )
 
-        violations = (
-            frozenset({SafetyViolation.READBACK_MISMATCH}) if mismatches else frozenset()
-        )
+        violations = frozenset({SafetyViolation.READBACK_MISMATCH}) if mismatches else frozenset()
         return SafetyDecision(
             allowed=not mismatches,
             violations=violations,
@@ -262,13 +297,7 @@ class SafetySupervisor:
         )
 
     def verify_live_output(self, request: OutputRequest, telemetry: TelemetrySnapshot) -> SafetyDecision:
-        """Verify the still-live safety envelope after Output ON.
-
-        Unlike ``preflight`` this expects the output to be ON and therefore does not
-        classify that state as a violation. It rechecks PSU/battery/input protection
-        and the programmed V/I/OVP/OCP values so an enable cannot succeed merely
-        because the pre-ON snapshot was good.
-        """
+        """Verify the still-live safety envelope after Output ON."""
         p = self.policy
         violations: set[SafetyViolation] = set()
         details: list[str] = []
@@ -280,10 +309,8 @@ class SafetySupervisor:
             violations.add(SafetyViolation.BATTERY_TOO_HOT)
         if telemetry.temp_int_c >= p.max_internal_temp_c:
             violations.add(SafetyViolation.POWER_SUPPLY_TOO_HOT)
-        if telemetry.input_voltage_v < p.min_input_voltage_v:
-            violations.add(SafetyViolation.INPUT_VOLTAGE_LOW)
-        if telemetry.ovp_triggered or telemetry.ocp_triggered:
-            violations.add(SafetyViolation.PROTECTION_ALREADY_TRIPPED)
+        violations.update(self._protection_violations(telemetry))
+        violations.update(self._hardware_config_violations(telemetry))
         if telemetry.current_a > p.absolute_ocp_ceiling_a + p.current_readback_tolerance_a:
             violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
 
@@ -301,13 +328,7 @@ class SafetySupervisor:
 
 
 class SafeOutputCoordinator:
-    """Fail-closed output enable sequence.
-
-    Protections are programmed first, then setpoints, then all four values are
-    positively read back. Because ESPHome can publish RD6018 Modbus state several
-    seconds after Home Assistant accepts number.set_value, the pre-ON readback polls
-    for a bounded window instead of treating the first cached HA state as final.
-    """
+    """Fail-closed output enable sequence with setpoint readback."""
 
     def __init__(
         self,
@@ -436,11 +457,7 @@ class SafeOutputCoordinator:
 
         _programmed, readback = await self._wait_for_programmed_readback(request)
         if not readback.allowed:
-            return await self._failure(
-                readback.violations,
-                readback.detail,
-                force_off=True,
-            )
+            return await self._failure(readback.violations, readback.detail, force_off=True)
 
         try:
             enabled = await self.adapter.turn_on()

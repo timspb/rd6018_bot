@@ -1,0 +1,253 @@
+# RD6018 corrected telemetry / hardware diagnostics package for PB Recovery V2.
+# Additive migration package for the same ESPHome node that owns modbus_controller id powersupply.
+# Never expose calibration registers as writable numbers from this package.
+
+sensor:
+  - platform: modbus_controller
+    id: rd6018_model_number_v2
+    name: "Model Number V2"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 0
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: rd6018_serial_number_v2
+    name: "Serial Number V2"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 1
+    register_type: holding
+    value_type: U_DWORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: rd6018_firmware_version_v2
+    name: "Firmware Version V2"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 3
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # RD stores temperature sign and magnitude in separate 16-bit registers.
+  - platform: modbus_controller
+    id: rd6018_temp_int_sign_raw
+    modbus_controller_id: powersupply
+    address: 4
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: rd6018_temp_int_magnitude_raw
+    modbus_controller_id: powersupply
+    address: 5
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 0
+
+  - platform: template
+    id: rd6018_temperature_internal_v2
+    name: "Temperature Internal V2"
+    device_class: temperature
+    state_class: measurement
+    entity_category: diagnostic
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      if (isnan(id(rd6018_temp_int_sign_raw).state) ||
+          isnan(id(rd6018_temp_int_magnitude_raw).state)) return NAN;
+      const float magnitude = id(rd6018_temp_int_magnitude_raw).state;
+      return id(rd6018_temp_int_sign_raw).state >= 0.5f ? -magnitude : magnitude;
+
+  # P_OUT is register 13. Register 12 is not a U_DWORD power value.
+  - platform: modbus_controller
+    id: rd6018_output_power_v2
+    name: "Output Power V2"
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: "W"
+    modbus_controller_id: powersupply
+    address: 13
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # Register 16 is a status code: 0 normal / 1 OVP / 2 OCP / 3 OPP.
+  - platform: modbus_controller
+    id: rd6018_protection_status_code
+    name: "Protection Status Code"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 16
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  # Register 17 is a status code: 0 CV / 1 CC.
+  - platform: modbus_controller
+    id: rd6018_regulation_mode_code
+    name: "Regulation Mode Code"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 17
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: rd6018_active_preset_v2
+    name: "Active Preset V2"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 19
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: rd6018_temp_ext_sign_raw
+    modbus_controller_id: powersupply
+    address: 34
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: rd6018_temp_ext_magnitude_raw
+    modbus_controller_id: powersupply
+    address: 35
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 0
+
+  - platform: template
+    id: rd6018_temperature_external_v2
+    name: "Temperature External V2"
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      if (isnan(id(rd6018_temp_ext_sign_raw).state) ||
+          isnan(id(rd6018_temp_ext_magnitude_raw).state)) return NAN;
+      const float magnitude = id(rd6018_temp_ext_magnitude_raw).state;
+      return id(rd6018_temp_ext_sign_raw).state >= 0.5f ? -magnitude : magnitude;
+
+  # Read-only calibration fingerprint. A change invalidates historical ADC/relay baselines.
+  - platform: modbus_controller
+    name: "Cal Vout Zero"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 55
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Vout Scale"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 56
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Vbat Zero"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 57
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Vbat Scale"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 58
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Iout Zero"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 59
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Iout Scale"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 60
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Ibat Zero"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 61
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    name: "Cal Ibat Scale"
+    entity_category: diagnostic
+    disabled_by_default: true
+    modbus_controller_id: powersupply
+    address: 62
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+binary_sensor:
+  - platform: modbus_controller
+    id: rd6018_take_ok_v2
+    name: "Take OK V2"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 66
+    register_type: holding
+    bitmask: 0x1
+
+  - platform: modbus_controller
+    id: rd6018_take_out_v2
+    name: "Take Out V2"
+    entity_category: diagnostic
+    device_class: problem
+    modbus_controller_id: powersupply
+    address: 67
+    register_type: holding
+    bitmask: 0x1
+
+  - platform: modbus_controller
+    id: rd6018_boot_power_v2
+    name: "Boot Power V2"
+    entity_category: diagnostic
+    device_class: problem
+    modbus_controller_id: powersupply
+    address: 68
+    register_type: holding
+    bitmask: 0x1

@@ -4,12 +4,14 @@ hass_api.py — асинхронный клиент Home Assistant API.
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
 from config import ENTITY_MAP, HA_INSECURE_LOCAL, HA_URL, HA_TOKEN
+from rd6018_telemetry import canonicalize_live
 from safe_output import (
     EnableResult,
     OutputRequest,
@@ -35,9 +37,6 @@ class HassClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._timeout = aiohttp.ClientTimeout(total=10)
         self._disable_tls_verify = self._looks_like_local_url(self.base_url) and HA_INSECURE_LOCAL
-        # Every direct output enable must be preceded by one fresh complete
-        # programming transaction. This lives in the hardware adapter so a
-        # forgotten Telegram/UI code path cannot bypass it.
         self._programming_state: Dict[str, Tuple[float, float]] = {}
         self._safety_supervisor = SafetySupervisor()
 
@@ -65,16 +64,29 @@ class HassClient:
         return self._session
 
     async def close(self) -> None:
-        """Закрыть сессию."""
         if self._session and not self._session.closed:
             await self._session.close()
 
+    @staticmethod
+    def _entity_metadata(entity_id: str, data: Dict[str, Any], status: str) -> Dict[str, Any]:
+        last_updated = data.get("last_updated")
+        age_s = None
+        if isinstance(last_updated, str):
+            try:
+                text = last_updated[:-1] + "+00:00" if last_updated.endswith("Z") else last_updated
+                age_s = max(0.0, time.time() - datetime.fromisoformat(text).timestamp())
+            except (TypeError, ValueError, OverflowError):
+                age_s = None
+        return {
+            "entity_id": entity_id,
+            "status": status,
+            "last_updated": last_updated,
+            "last_changed": data.get("last_changed"),
+            "age_s": age_s,
+        }
+
     async def get_state(self, entity_id: str) -> Tuple[Any, Dict]:
-        """
-        Получить состояние сущности.
-        Возвращает (state, attributes).
-        При ошибке — (None, {}).
-        """
+        """Получить состояние сущности; HA source timestamps сохраняются в attrs."""
         if not self.base_url or not self.token:
             logger.warning("HassClient not configured")
             return None, {}
@@ -88,7 +100,9 @@ class HassClient:
                     return None, {}
                 data = await resp.json()
                 state = data.get("state")
-                attrs = data.get("attributes", {})
+                attrs = dict(data.get("attributes", {}))
+                attrs["_ha_last_updated"] = data.get("last_updated")
+                attrs["_ha_last_changed"] = data.get("last_changed")
 
                 if state is not None and state not in ("unknown", "unavailable", ""):
                     try:
@@ -104,7 +118,6 @@ class HassClient:
             return None, {}
 
     async def get_states(self, entity_ids: List[str]) -> Dict[str, Tuple[Any, Dict]]:
-        """Получить состояния нескольких сущностей (параллельно через asyncio.gather)."""
         async def _get_one(eid: str) -> Tuple[str, Tuple[Any, Dict]]:
             return eid, await self.get_state(eid)
 
@@ -112,10 +125,8 @@ class HassClient:
         return {eid: state for eid, state in results}
 
     async def set_value(self, entity_id: str, value: Any) -> bool:
-        """Установить значение number.* через number.set_value."""
         if not self.base_url or not self.token:
             return False
-
         try:
             val = float(value)
         except (ValueError, TypeError):
@@ -147,19 +158,15 @@ class HassClient:
         return ok
 
     async def set_voltage(self, value: float) -> bool:
-        """Установить напряжение."""
         return await self._tracked_set("voltage", ENTITY_MAP["set_voltage"], value)
 
     async def set_current(self, value: float) -> bool:
-        """Установить ток."""
         return await self._tracked_set("current", ENTITY_MAP["set_current"], value)
 
     async def set_ovp(self, value: float) -> bool:
-        """Установить OVP (Over Voltage Protection)."""
         return await self._tracked_set("ovp", ENTITY_MAP["ovp"], value)
 
     async def set_ocp(self, value: float) -> bool:
-        """Установить OCP (Over Current Protection)."""
         return await self._tracked_set("ocp", ENTITY_MAP["ocp"], value)
 
     def _recent_programming_request(self) -> Optional[OutputRequest]:
@@ -176,20 +183,13 @@ class HassClient:
                 return None
             values[key] = value
             timestamps[key] = timestamp
-
-        # OVP must be in place before the voltage setpoint is programmed. OCP
-        # and current also both have to be explicitly refreshed before ON.
         if timestamps["voltage"] < timestamps["ovp"]:
             return None
-
         return OutputRequest(
             voltage_v=values["voltage"],
             current_a=values["current"],
             ovp_v=values["ovp"],
             ocp_a=values["ocp"],
-            # Legacy callers do not yet carry chemistry/intent. They still
-            # pass through the absolute controller envelope. New V2 recipe
-            # paths must use safe_enable_output() with an explicit ceiling.
             recipe_voltage_ceiling_v=self._safety_supervisor.policy.absolute_voltage_ceiling_v,
         )
 
@@ -214,32 +214,22 @@ class HassClient:
             return False
 
     async def turn_on(self, entity_id: Optional[str] = None) -> bool:
-        """Fail-closed output enable.
-
-        Direct callers are accepted only after a fresh complete programming
-        transaction (OVP, OCP, voltage and current). Required live telemetry
-        and setpoint readback are verified before the switch service is called.
-        """
+        """Fail-closed enable after complete programming transaction + readback."""
         request = self._recent_programming_request()
         if request is None:
-            logger.error(
-                "HA turn_on blocked: no fresh complete OVP/OCP/V/I programming transaction"
-            )
+            logger.error("HA turn_on blocked: no fresh complete OVP/OCP/V/I programming transaction")
             return False
 
-        live = await self.get_all_live()
-        before = snapshot_from_live(live)
+        before = snapshot_from_live(await self.get_all_live())
         if before is None:
-            logger.error("HA turn_on blocked: required live telemetry is invalid")
+            logger.error("HA turn_on blocked: required live telemetry is invalid/stale")
             self._clear_programming_state()
             return False
-
         decision = self._safety_supervisor.preflight(request, before)
         if not decision.allowed:
             logger.error("HA turn_on blocked by safety preflight: %s", decision.detail)
             self._clear_programming_state()
             return False
-
         verified = self._safety_supervisor.verify_programmed(request, before)
         if not verified.allowed:
             logger.error("HA turn_on blocked by setpoint readback: %s", verified.detail)
@@ -259,15 +249,14 @@ class HassClient:
             if final is not None and final.output_on:
                 break
 
-        if (
-            final is None
-            or not final.output_on
-            or final.ovp_triggered
-            or final.ocp_triggered
-            or final.temp_ext_c >= self._safety_supervisor.policy.pause_temp_c
-            or final.input_voltage_v < self._safety_supervisor.policy.min_input_voltage_v
-        ):
-            logger.error("HA turn_on post-enable verification failed; forcing output OFF")
+        final_decision = (
+            self._safety_supervisor.verify_live_output(request, final)
+            if final is not None
+            else None
+        )
+        if final_decision is None or not final_decision.allowed:
+            detail = "telemetry invalid/stale" if final_decision is None else final_decision.detail
+            logger.error("HA turn_on post-enable verification failed (%s); forcing output OFF", detail)
             await self._switch_service("turn_off", entity_id)
             self._clear_programming_state()
             return False
@@ -276,7 +265,6 @@ class HassClient:
         return True
 
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
-        """Выключить switch и сбросить незавершённую транзакцию включения."""
         self._clear_programming_state()
         return await self._switch_service("turn_off", entity_id)
 
@@ -291,13 +279,8 @@ class HassClient:
         policy: Optional[SafetyPolicy] = None,
         readback_delay_s: float = 0.0,
     ) -> EnableResult:
-        """Explicit recipe-aware output enable for new V2 code paths."""
         supervisor = SafetySupervisor(policy or self._safety_supervisor.policy)
-        coordinator = SafeOutputCoordinator(
-            self,
-            supervisor,
-            readback_delay_s=readback_delay_s,
-        )
+        coordinator = SafeOutputCoordinator(self, supervisor, readback_delay_s=readback_delay_s)
         return await coordinator.enable(
             OutputRequest(
                 voltage_v=float(voltage_v),
@@ -309,7 +292,6 @@ class HassClient:
         )
 
     async def _fetch_all_states_bulk(self) -> Optional[Dict[str, Any]]:
-        """Получить все сущности HA одним запросом /api/states."""
         if not self.base_url or not self.token:
             return None
         try:
@@ -325,25 +307,28 @@ class HassClient:
 
     @staticmethod
     def _parse_entity_state(ent: Dict[str, Any]) -> Tuple[Any, str]:
-        """Извлечь и распарсить state из entity dict."""
         state = ent.get("state")
         if state is None or state == "":
             return state, "unknown"
         if str(state).lower() in ("unavailable", "unknown"):
             return state, str(state).lower()
-        if state not in ("unknown", "unavailable", ""):
-            try:
-                state = float(state)
-            except (ValueError, TypeError):
-                pass
-        return state, "ok"
+        try:
+            return float(state), "ok"
+        except (ValueError, TypeError):
+            return state, "ok"
+
+    @staticmethod
+    def _live_keys() -> List[str]:
+        # One authoritative list: all mapped RD entities are available to diagnostics.
+        return list(ENTITY_MAP.keys())
 
     async def get_all_live(self) -> Dict[str, Any]:
-        """Получить все live-данные для дашборда. Bulk-запрос + fallback."""
-        keys = ["voltage", "battery_voltage", "current", "power", "ah", "wh", "temp_int", "temp_ext", "is_cv", "is_cc", "battery_mode", "keypad_lock", "ovp_triggered", "ocp_triggered", "switch", "set_voltage", "set_current", "ovp", "ocp", "backlight", "input_voltage", "uptime"]
+        """Return values plus source freshness metadata; prefer corrected V2 sensors."""
+        keys = self._live_keys()
         result: Dict[str, Any] = {}
-
+        meta: Dict[str, Any] = {}
         bulk = await self._fetch_all_states_bulk()
+
         if bulk is not None:
             for key in keys:
                 eid = ENTITY_MAP.get(key)
@@ -352,26 +337,40 @@ class HassClient:
                 ent = bulk.get(eid)
                 if ent is None:
                     result[key] = None
+                    meta[key] = {"entity_id": eid, "status": "missing", "last_updated": None, "last_changed": None, "age_s": None}
                     continue
-                state, _ = self._parse_entity_state(ent)
+                state, status = self._parse_entity_state(ent)
                 result[key] = state
-            return result
+                meta[key] = self._entity_metadata(eid, ent, status)
+            result["_meta"] = meta
+            return dict(canonicalize_live(result))
 
+        # Fallback preserves timestamps copied into attrs by get_state().
+        now_iso = datetime.now(timezone.utc).isoformat()
         for key in keys:
             eid = ENTITY_MAP.get(key)
             if not eid:
                 continue
-            state, _ = await self.get_state(eid)
+            state, attrs = await self.get_state(eid)
             result[key] = state
-        return result
+            last_updated = attrs.get("_ha_last_updated")
+            status = "ok" if state not in (None, "unknown", "unavailable", "") else "unknown"
+            meta[key] = {
+                "entity_id": eid,
+                "status": status,
+                "last_updated": last_updated,
+                "last_changed": attrs.get("_ha_last_changed"),
+                # Do not invent freshness if HA did not provide a source timestamp.
+                "age_s": None if last_updated is None else 0.0,
+                "fetched_at": now_iso,
+            }
+        result["_meta"] = meta
+        return dict(canonicalize_live(result))
 
     async def get_entities_status(self) -> List[Dict[str, Any]]:
-        """Опросить статус всех сущностей из ENTITY_MAP. Bulk + fallback."""
         if not self.base_url or not self.token:
             return []
-
         bulk = await self._fetch_all_states_bulk()
-
         result: List[Dict[str, Any]] = []
         for key, entity_id in ENTITY_MAP.items():
             entry: Dict[str, Any] = {
@@ -382,7 +381,6 @@ class HassClient:
                 "unit": "",
                 "friendly_name": entity_id.split(".")[-1].replace("_", " "),
             }
-
             ent = bulk.get(entity_id) if bulk else None
             if ent is not None:
                 state = ent.get("state")
@@ -398,9 +396,8 @@ class HassClient:
                     entry["status"] = "ok"
             else:
                 try:
-                    url = f"{self.base_url}/api/states/{entity_id}"
                     session = await self._ensure_session()
-                    async with session.get(url) as resp:
+                    async with session.get(f"{self.base_url}/api/states/{entity_id}") as resp:
                         if resp.status != 200:
                             entry["status"] = "error"
                             entry["state"] = f"HTTP {resp.status}"
