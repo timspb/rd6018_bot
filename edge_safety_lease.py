@@ -2,36 +2,63 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
 
+def _env(name: str, default: str) -> str:
+    value = str(os.getenv(name) or "").strip()
+    return value or default
+
+
+# Home Assistant generated these IDs for the deployed RD6018 ESPHome node.
+# Keep the prefix configurable so a renamed/recreated device does not require a code
+# patch; individual entity IDs remain overrideable for unusual HA registries.
+EDGE_ENTITY_PREFIX = _env("RD6018_EDGE_ENTITY_PREFIX", "rd6018_rd_6018")
+
+
 @dataclass(frozen=True)
 class EdgeSafetyLeaseConfig:
-    """Contract with the local ESPHome safety lease running beside RD6018.
+    """Contract with the local ESPHome safety lease running beside RD6018."""
 
-    The lease is deliberately shorter than any Pb recovery stage. The bot must
-    periodically prove that it can still reach the edge node *and* that the edge
-    node is still receiving fresh Modbus data from RD6018. If renewals stop, the
-    ESPHome node turns the RD output off locally without depending on HA or the bot.
-    """
-
-    renew_entity: str = "button.rd_6018_safety_lease_renew"
-    disarm_entity: str = "button.rd_6018_safety_lease_disarm"
-    armed_entity: str = "binary_sensor.rd_6018_safety_lease_armed"
-    generation_entity: str = "sensor.rd_6018_safety_lease_generation"
-    modbus_age_entity: str = "sensor.rd_6018_safety_modbus_age"
-    remaining_entity: str = "sensor.rd_6018_safety_lease_remaining"
+    renew_entity: str = _env(
+        "RD6018_EDGE_RENEW_ENTITY",
+        f"button.{EDGE_ENTITY_PREFIX}_safety_lease_renew",
+    )
+    disarm_entity: str = _env(
+        "RD6018_EDGE_DISARM_ENTITY",
+        f"button.{EDGE_ENTITY_PREFIX}_safety_lease_disarm",
+    )
+    armed_entity: str = _env(
+        "RD6018_EDGE_ARMED_ENTITY",
+        f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed",
+    )
+    tripped_entity: str = _env(
+        "RD6018_EDGE_TRIPPED_ENTITY",
+        f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_tripped",
+    )
+    boot_quarantine_entity: str = _env(
+        "RD6018_EDGE_BOOT_QUARANTINE_ENTITY",
+        f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_boot_quarantine",
+    )
+    generation_entity: str = _env(
+        "RD6018_EDGE_GENERATION_ENTITY",
+        f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_generation",
+    )
+    modbus_age_entity: str = _env(
+        "RD6018_EDGE_MODBUS_AGE_ENTITY",
+        f"sensor.{EDGE_ENTITY_PREFIX}_safety_modbus_age",
+    )
+    remaining_entity: str = _env(
+        "RD6018_EDGE_REMAINING_ENTITY",
+        f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_remaining",
+    )
 
     lease_ttl_s: float = 30.0 * 60.0
-    # 10/30 gives room for two missed renewal opportunities. The originally
-    # proposed 15/30 cadence is safe too, but leaves less scheduling/network margin.
     renew_interval_s: float = 10.0 * 60.0
     max_modbus_age_s: float = 20.0
-    # A generation change alone is insufficient: after a valid renewal the edge node
-    # must report essentially a new full lease. This catches stale HA state and an
-    # accidentally deployed edge package with a materially shorter timeout.
     ack_remaining_slack_s: float = 15.0
     ack_attempts: int = 12
     ack_delay_s: float = 0.25
@@ -40,6 +67,8 @@ class EdgeSafetyLeaseConfig:
 @dataclass(frozen=True)
 class EdgeLeaseState:
     armed: bool
+    tripped: bool
+    boot_quarantine: bool
     generation: int
     modbus_age_s: float
     remaining_s: Optional[float]
@@ -80,10 +109,9 @@ class EdgeSafetyLease:
     """Positive-acknowledged lease for the local RD6018 ESPHome watchdog.
 
     A HTTP 200 from Home Assistant is not considered a renewal. A renewal is valid
-    only when the edge node publishes a *different* generation, says the lease is
-    armed, reports a recent direct Modbus observation from RD6018, and exposes a
-    newly replenished near-full timeout. This prevents stale HA state or a wrongly
-    configured short lease from masquerading as a healthy control path.
+    only when the edge node publishes a different generation, says the lease is
+    armed, reports a recent direct Modbus observation from RD6018, exposes a newly
+    replenished near-full timeout, and is neither tripped nor in boot quarantine.
     """
 
     def __init__(
@@ -123,18 +151,51 @@ class EdgeSafetyLease:
         return state
 
     async def read_state(self) -> EdgeLeaseState:
-        armed_raw, generation_raw, modbus_age_raw, remaining_raw = await asyncio.gather(
+        (
+            armed_raw,
+            tripped_raw,
+            boot_quarantine_raw,
+            generation_raw,
+            modbus_age_raw,
+            remaining_raw,
+        ) = await asyncio.gather(
             self._state_value(self.config.armed_entity),
+            self._state_value(self.config.tripped_entity),
+            self._state_value(self.config.boot_quarantine_entity),
             self._state_value(self.config.generation_entity),
             self._state_value(self.config.modbus_age_entity),
             self._state_value(self.config.remaining_entity),
         )
         armed = _bool_state(armed_raw)
+        tripped = _bool_state(tripped_raw)
+        boot_quarantine = _bool_state(boot_quarantine_raw)
         generation_f = _finite_float(generation_raw)
         modbus_age = _finite_float(modbus_age_raw)
         remaining = _finite_float(remaining_raw)
-        if armed is None or generation_f is None or modbus_age is None or remaining is None:
-            raise EdgeSafetyLeaseError("edge lease telemetry is missing/unavailable")
+        if (
+            armed is None
+            or tripped is None
+            or boot_quarantine is None
+            or generation_f is None
+            or modbus_age is None
+            or remaining is None
+        ):
+            missing = []
+            if armed is None:
+                missing.append(self.config.armed_entity)
+            if tripped is None:
+                missing.append(self.config.tripped_entity)
+            if boot_quarantine is None:
+                missing.append(self.config.boot_quarantine_entity)
+            if generation_f is None:
+                missing.append(self.config.generation_entity)
+            if modbus_age is None:
+                missing.append(self.config.modbus_age_entity)
+            if remaining is None:
+                missing.append(self.config.remaining_entity)
+            raise EdgeSafetyLeaseError(
+                "edge lease telemetry is missing/unavailable: " + ", ".join(missing)
+            )
         generation = int(generation_f)
         if generation < 0 or abs(generation_f - generation) > 1e-6:
             raise EdgeSafetyLeaseError("edge lease generation is invalid")
@@ -144,16 +205,14 @@ class EdgeSafetyLease:
             raise EdgeSafetyLeaseError("edge lease remaining time is invalid")
         return EdgeLeaseState(
             armed=armed,
+            tripped=tripped,
+            boot_quarantine=boot_quarantine,
             generation=generation,
             modbus_age_s=modbus_age,
             remaining_s=remaining,
         )
 
     async def _press(self, entity_id: str) -> bool:
-        # Prefer an explicit adapter method when available (handy for tests and future
-        # refactors), but the current HassClient already exposes its authenticated
-        # aiohttp session. Keep the actual service call here so the lease can be added
-        # without broadening the generic power-supply API surface.
         press = getattr(self.hass, "press_button", None)
         try:
             if press is not None:
@@ -187,13 +246,25 @@ class EdgeSafetyLease:
             self.config.lease_ttl_s - self.config.ack_remaining_slack_s
         )
 
+    def _assert_armable(self, state: EdgeLeaseState) -> None:
+        if state.boot_quarantine:
+            raise EdgeSafetyLeaseError("edge safety boot quarantine is active")
+        if state.tripped:
+            raise EdgeSafetyLeaseError("edge safety lease trip is latched")
+        if not self._fresh_modbus(state):
+            raise EdgeSafetyLeaseError(
+                f"RD6018 Modbus is stale at edge ({state.modbus_age_s:.1f}s)"
+            )
+
     async def renew(self, *, force: bool = False) -> EdgeLeaseState:
         if not force and not self.renewal_due():
             state = await self.read_state()
+            if state.boot_quarantine:
+                raise EdgeSafetyLeaseError("edge safety boot quarantine is active")
+            if state.tripped:
+                raise EdgeSafetyLeaseError("edge safety lease trip is latched")
             if not state.armed or not self._fresh_modbus(state):
                 raise EdgeSafetyLeaseError("edge lease is not healthy between renewals")
-            # Between renewals the remaining value naturally drops, so only require
-            # enough budget to reach the next scheduled renewal with the same slack.
             assert state.remaining_s is not None
             required_remaining = self.config.renew_interval_s + self.config.ack_remaining_slack_s
             if state.remaining_s <= required_remaining:
@@ -201,10 +272,7 @@ class EdgeSafetyLease:
             return state
 
         before = await self.read_state()
-        if not self._fresh_modbus(before):
-            raise EdgeSafetyLeaseError(
-                f"RD6018 Modbus is stale at edge ({before.modbus_age_s:.1f}s)"
-            )
+        self._assert_armable(before)
         if not await self._press(self.config.renew_entity):
             raise EdgeSafetyLeaseError("edge lease renew command was rejected")
 
@@ -216,6 +284,8 @@ class EdgeSafetyLease:
             latest = await self.read_state()
             if (
                 latest.armed
+                and not latest.tripped
+                and not latest.boot_quarantine
                 and latest.generation != before.generation
                 and self._fresh_modbus(latest)
                 and self._full_lease_ack(latest)
@@ -234,9 +304,6 @@ class EdgeSafetyLease:
         return await self.renew(force=False)
 
     async def disarm(self) -> bool:
-        # OFF has already been verified by the caller before this is invoked. A failed
-        # disarm therefore cannot make the power path unsafe; it intentionally leaves
-        # the edge lease armed, which only causes additional local OFF attempts.
         if not await self._press(self.config.disarm_entity):
             return False
         attempts = max(1, int(self.config.ack_attempts))
@@ -247,7 +314,7 @@ class EdgeSafetyLease:
                 state = await self.read_state()
             except EdgeSafetyLeaseError:
                 continue
-            if not state.armed:
+            if not state.armed and not state.boot_quarantine:
                 self._last_ack_monotonic = None
                 return True
         return False

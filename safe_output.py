@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, FrozenSet, Optional, Protocol
+
+logger = logging.getLogger("rd6018")
 
 
 class SafetyViolation(str, Enum):
@@ -234,45 +237,41 @@ class SafetySupervisor:
 
     def verify_programmed(self, request: OutputRequest, telemetry: TelemetrySnapshot) -> SafetyDecision:
         p = self.policy
-        violations: set[SafetyViolation] = set()
-        readbacks = (
-            telemetry.set_voltage_v,
-            telemetry.set_current_a,
-            telemetry.ovp_v,
-            telemetry.ocp_a,
+        mismatches: list[str] = []
+        checks = (
+            ("set_voltage", telemetry.set_voltage_v, request.voltage_v, p.voltage_readback_tolerance_v),
+            ("set_current", telemetry.set_current_a, request.current_a, p.current_readback_tolerance_a),
+            ("ovp", telemetry.ovp_v, request.ovp_v, p.protection_readback_tolerance),
+            ("ocp", telemetry.ocp_a, request.ocp_a, p.protection_readback_tolerance),
         )
-        if any(value is None for value in readbacks):
-            violations.add(SafetyViolation.READBACK_MISMATCH)
-        else:
-            assert telemetry.set_voltage_v is not None
-            assert telemetry.set_current_a is not None
-            assert telemetry.ovp_v is not None
-            assert telemetry.ocp_a is not None
-            if abs(telemetry.set_voltage_v - request.voltage_v) > p.voltage_readback_tolerance_v:
-                violations.add(SafetyViolation.READBACK_MISMATCH)
-            if abs(telemetry.set_current_a - request.current_a) > p.current_readback_tolerance_a:
-                violations.add(SafetyViolation.READBACK_MISMATCH)
-            if abs(telemetry.ovp_v - request.ovp_v) > p.protection_readback_tolerance:
-                violations.add(SafetyViolation.READBACK_MISMATCH)
-            if abs(telemetry.ocp_a - request.ocp_a) > p.protection_readback_tolerance:
-                violations.add(SafetyViolation.READBACK_MISMATCH)
+        for name, actual, expected, tolerance in checks:
+            if actual is None:
+                mismatches.append(f"{name}=missing expected={expected:.3f}")
+            elif abs(actual - expected) > tolerance:
+                mismatches.append(
+                    f"{name} actual={actual:.3f} expected={expected:.3f} tol={tolerance:.3f}"
+                )
 
+        violations = (
+            frozenset({SafetyViolation.READBACK_MISMATCH}) if mismatches else frozenset()
+        )
         return SafetyDecision(
-            allowed=not violations,
-            violations=frozenset(violations),
-            detail=", ".join(sorted(v.value for v in violations)),
+            allowed=not mismatches,
+            violations=violations,
+            detail="; ".join(mismatches),
         )
 
     def verify_live_output(self, request: OutputRequest, telemetry: TelemetrySnapshot) -> SafetyDecision:
         """Verify the still-live safety envelope after Output ON.
 
         Unlike ``preflight`` this expects the output to be ON and therefore does not
-        classify that state as a violation.  It rechecks PSU/battery/input protection
+        classify that state as a violation. It rechecks PSU/battery/input protection
         and the programmed V/I/OVP/OCP values so an enable cannot succeed merely
         because the pre-ON snapshot was good.
         """
         p = self.policy
         violations: set[SafetyViolation] = set()
+        details: list[str] = []
         if not telemetry.output_on:
             violations.add(SafetyViolation.POST_ENABLE_VERIFY_FAILED)
         if not (p.min_battery_voltage_v <= telemetry.battery_voltage_v <= p.max_battery_voltage_v):
@@ -290,10 +289,14 @@ class SafetySupervisor:
 
         programmed = self.verify_programmed(request, telemetry)
         violations.update(programmed.violations)
+        if programmed.detail:
+            details.append(programmed.detail)
+        if not details and violations:
+            details.append(", ".join(sorted(v.value for v in violations)))
         return SafetyDecision(
             allowed=not violations,
             violations=frozenset(violations),
-            detail=", ".join(sorted(v.value for v in violations)),
+            detail="; ".join(details),
         )
 
 
@@ -301,9 +304,9 @@ class SafeOutputCoordinator:
     """Fail-closed output enable sequence.
 
     Protections are programmed first, then setpoints, then all four values are
-    read back. Output is enabled only after those checks pass. Any failure tries
-    to force the output OFF; if OFF itself cannot be confirmed, that fact is
-    propagated explicitly instead of reporting a falsely safe state.
+    positively read back. Because ESPHome can publish RD6018 Modbus state several
+    seconds after Home Assistant accepts number.set_value, the pre-ON readback polls
+    for a bounded window instead of treating the first cached HA state as final.
     """
 
     def __init__(
@@ -312,10 +315,14 @@ class SafeOutputCoordinator:
         supervisor: Optional[SafetySupervisor] = None,
         *,
         readback_delay_s: float = 0.0,
+        readback_timeout_s: float = 6.0,
+        readback_poll_interval_s: float = 0.25,
     ) -> None:
         self.adapter = adapter
         self.supervisor = supervisor or SafetySupervisor()
         self.readback_delay_s = max(0.0, readback_delay_s)
+        self.readback_timeout_s = max(0.0, readback_timeout_s)
+        self.readback_poll_interval_s = max(0.01, readback_poll_interval_s)
 
     async def _force_off(self) -> bool:
         try:
@@ -334,7 +341,62 @@ class SafeOutputCoordinator:
         if force_off and not await self._force_off():
             merged.add(SafetyViolation.OUTPUT_OFF_UNCONFIRMED)
             detail = f"{detail}; output OFF was not confirmed"
+        logger.warning(
+            "Safe output enable failed: %s [%s]",
+            detail,
+            ",".join(sorted(v.value for v in merged)),
+        )
         return EnableResult(False, frozenset(merged), detail)
+
+    async def _wait_for_programmed_readback(
+        self,
+        request: OutputRequest,
+    ) -> tuple[Optional[TelemetrySnapshot], SafetyDecision]:
+        if self.readback_delay_s:
+            await asyncio.sleep(self.readback_delay_s)
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.readback_timeout_s
+        last_mismatch = SafetyDecision(
+            False,
+            frozenset({SafetyViolation.READBACK_MISMATCH}),
+            "programmed values were not observed",
+        )
+        last_exception: Optional[Exception] = None
+
+        while True:
+            programmed: Optional[TelemetrySnapshot] = None
+            try:
+                programmed_live = await self.adapter.get_all_live()
+                programmed = snapshot_from_live(programmed_live)
+                last_exception = None
+            except Exception as exc:
+                last_exception = exc
+
+            if programmed is not None:
+                second_preflight = self.supervisor.preflight(request, programmed)
+                if not second_preflight.allowed:
+                    return programmed, second_preflight
+
+                verified = self.supervisor.verify_programmed(request, programmed)
+                if verified.allowed:
+                    return programmed, verified
+                last_mismatch = verified
+
+            now = loop.time()
+            if now >= deadline:
+                if programmed is None:
+                    detail = "programmed readback telemetry missing/invalid"
+                    if last_exception is not None:
+                        detail += f": {type(last_exception).__name__}: {last_exception}"
+                    return None, SafetyDecision(
+                        False,
+                        frozenset({SafetyViolation.TELEMETRY_INVALID}),
+                        detail,
+                    )
+                return programmed, last_mismatch
+
+            await asyncio.sleep(min(self.readback_poll_interval_s, max(0.0, deadline - now)))
 
     async def enable(self, request: OutputRequest) -> EnableResult:
         live = await self.adapter.get_all_live()
@@ -351,59 +413,47 @@ class SafeOutputCoordinator:
             return EnableResult(False, decision.violations, decision.detail)
 
         operations = (
-            (self.adapter.set_ovp, request.ovp_v),
-            (self.adapter.set_ocp, request.ocp_a),
-            (self.adapter.set_voltage, request.voltage_v),
-            (self.adapter.set_current, request.current_a),
+            ("ovp", self.adapter.set_ovp, request.ovp_v),
+            ("ocp", self.adapter.set_ocp, request.ocp_a),
+            ("voltage", self.adapter.set_voltage, request.voltage_v),
+            ("current", self.adapter.set_current, request.current_a),
         )
-        for setter, value in operations:
+        for name, setter, value in operations:
             try:
                 ok = await setter(value)
-            except Exception:
-                ok = False
+            except Exception as exc:
+                return await self._failure(
+                    frozenset({SafetyViolation.PROGRAMMING_FAILED}),
+                    f"failed to program {name}={value:.3f}: {type(exc).__name__}: {exc}",
+                    force_off=True,
+                )
             if not ok:
                 return await self._failure(
                     frozenset({SafetyViolation.PROGRAMMING_FAILED}),
-                    f"failed to program {value}",
+                    f"failed to program {name}={value:.3f}",
                     force_off=True,
                 )
 
-        if self.readback_delay_s:
-            await asyncio.sleep(self.readback_delay_s)
-
-        programmed_live = await self.adapter.get_all_live()
-        programmed = snapshot_from_live(programmed_live)
-        if programmed is None:
+        _programmed, readback = await self._wait_for_programmed_readback(request)
+        if not readback.allowed:
             return await self._failure(
-                frozenset({SafetyViolation.READBACK_MISMATCH}),
-                "programmed values could not be read back",
-                force_off=True,
-            )
-
-        second_preflight = self.supervisor.preflight(request, programmed)
-        if not second_preflight.allowed:
-            return await self._failure(
-                second_preflight.violations,
-                second_preflight.detail,
-                force_off=True,
-            )
-
-        verified = self.supervisor.verify_programmed(request, programmed)
-        if not verified.allowed:
-            return await self._failure(
-                verified.violations,
-                verified.detail,
+                readback.violations,
+                readback.detail,
                 force_off=True,
             )
 
         try:
             enabled = await self.adapter.turn_on()
-        except Exception:
-            enabled = False
+        except Exception as exc:
+            return await self._failure(
+                frozenset({SafetyViolation.OUTPUT_ENABLE_FAILED}),
+                f"output enable raised {type(exc).__name__}: {exc}",
+                force_off=True,
+            )
         if not enabled:
             return await self._failure(
                 frozenset({SafetyViolation.OUTPUT_ENABLE_FAILED}),
-                "output enable command failed",
+                "output enable command returned false",
                 force_off=True,
             )
 

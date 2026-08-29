@@ -35,10 +35,14 @@ class FakeAdapter:
         self.calls = []
         self.fail_method = None
         self.readback_override = {}
+        self.readback_sequence = []
+        self.turn_on_exception = None
 
     async def get_all_live(self):
         self.calls.append("get_all_live")
         data = dict(self.live)
+        if self.readback_sequence:
+            data.update(self.readback_sequence.pop(0))
         data.update(self.readback_override)
         return data
 
@@ -63,6 +67,8 @@ class FakeAdapter:
 
     async def turn_on(self, entity_id=None):
         self.calls.append("turn_on")
+        if self.turn_on_exception is not None:
+            raise self.turn_on_exception
         if self.fail_method == "turn_on":
             return False
         self.live["switch"] = "on"
@@ -115,6 +121,18 @@ class SafetySupervisorTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertIn(SafetyViolation.POWER_SUPPLY_TOO_HOT, decision.violations)
 
+    def test_readback_detail_identifies_exact_values(self):
+        supervisor = SafetySupervisor()
+        telemetry = snapshot_from_live(live_state(set_voltage=14.0, ocp=None))
+        assert telemetry is not None
+        decision = supervisor.verify_programmed(
+            OutputRequest(16.3, 2.0, 16.4, 2.1, 16.3),
+            telemetry,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertIn("set_voltage actual=14.000 expected=16.300", decision.detail)
+        self.assertIn("ocp=missing expected=2.100", decision.detail)
+
 
 class SafeOutputCoordinatorTests(unittest.TestCase):
     def setUp(self):
@@ -144,17 +162,60 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
         self.assertFalse(result.enabled)
         self.assertIn(SafetyViolation.PROGRAMMING_FAILED, result.violations)
+        self.assertIn("current=2.000", result.detail)
         self.assertIn("turn_off", adapter.calls)
         self.assertNotIn("turn_on", adapter.calls)
 
-    def test_readback_mismatch_forces_output_off(self):
+    def test_readback_mismatch_forces_output_off_with_detail(self):
         adapter = FakeAdapter()
         adapter.readback_override = {"set_voltage": 14.0}
-        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+        result = asyncio.run(
+            SafeOutputCoordinator(adapter, readback_timeout_s=0.0).enable(self.request)
+        )
         self.assertFalse(result.enabled)
         self.assertIn(SafetyViolation.READBACK_MISMATCH, result.violations)
+        self.assertIn("set_voltage actual=14.000 expected=16.300", result.detail)
         self.assertIn("turn_off", adapter.calls)
         self.assertNotIn("turn_on", adapter.calls)
+
+    def test_programmed_readback_polls_through_stale_ha_state(self):
+        adapter = FakeAdapter()
+        adapter.readback_sequence = [
+            {},
+            {"set_voltage": 14.0, "set_current": 1.0, "ovp": 14.1, "ocp": 1.1},
+            {"set_voltage": 14.0, "set_current": 1.0, "ovp": 14.1, "ocp": 1.1},
+        ]
+        result = asyncio.run(
+            SafeOutputCoordinator(
+                adapter,
+                readback_timeout_s=0.2,
+                readback_poll_interval_s=0.01,
+            ).enable(self.request)
+        )
+        self.assertTrue(result.enabled)
+        self.assertGreaterEqual(adapter.calls.count("get_all_live"), 4)
+
+    def test_missing_programmed_telemetry_is_not_reported_as_mismatch(self):
+        adapter = FakeAdapter()
+        adapter.readback_override = {"battery_voltage": None}
+        result = asyncio.run(
+            SafeOutputCoordinator(adapter, readback_timeout_s=0.0).enable(self.request)
+        )
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.TELEMETRY_INVALID, result.violations)
+        self.assertNotIn(SafetyViolation.READBACK_MISMATCH, result.violations)
+
+    def test_output_enable_exception_preserves_root_cause(self):
+        adapter = FakeAdapter()
+        adapter.turn_on_exception = RuntimeError(
+            "edge safety lease arm failed: edge lease telemetry is missing/unavailable"
+        )
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.OUTPUT_ENABLE_FAILED, result.violations)
+        self.assertIn("RuntimeError", result.detail)
+        self.assertIn("edge safety lease arm failed", result.detail)
+        self.assertIn("turn_off", adapter.calls)
 
     def test_output_already_on_is_never_reprogrammed_in_enable_path(self):
         adapter = FakeAdapter()
@@ -195,6 +256,7 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
 
         self.assertFalse(result.enabled)
         self.assertIn(SafetyViolation.READBACK_MISMATCH, result.violations)
+        self.assertIn("set_voltage actual=15.000 expected=16.300", result.detail)
         self.assertEqual(adapter.live["switch"], "off")
 
     def test_failed_cleanup_reports_unconfirmed_off(self):
