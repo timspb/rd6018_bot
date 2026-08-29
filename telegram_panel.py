@@ -10,17 +10,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 logger = logging.getLogger("rd6018.ui")
 
-# These callbacks intentionally turn the current dashboard message into a secondary
-# workspace (menu/details). Preserve that source message, then publish a fresh terminal
-# dashboard below it.
-_PRESERVE_SOURCE_CALLBACKS = {
-    "charge_modes",
-    "logs",
-    "info_full",
-    "ai_analysis",
-}
-
-# These callbacks already leave a dashboard as the terminal message and do not create
+# Callbacks that already leave a dashboard as the terminal message and do not create
 # a newer chat message that needs to be followed by another dashboard.
 _ADOPT_CALLBACKS = {
     "refresh",
@@ -29,15 +19,38 @@ _ADOPT_CALLBACKS = {
     "custom_cancel",
 }
 
+# Navigation/detail/program callbacks are an operator workspace. Do NOT append a fresh
+# dashboard after every click: that used to push the active program-selection card up
+# the chat and made the main panel steal focus after each step. The dashboard remains
+# available above the workspace and is rendered again explicitly on back/start/stop.
+_WORKSPACE_CALLBACKS = {
+    "charge_modes",
+    "logs",
+    "info_full",
+    "ai_analysis",
+    "entities_status",
+    "menu_off",
+}
+_WORKSPACE_CALLBACK_PREFIXES = (
+    "v2_",
+    "off_",
+    "profile_",
+    "custom_",
+)
+
+
+def _is_workspace_callback(data: str) -> bool:
+    data = str(data or "")
+    return data in _WORKSPACE_CALLBACKS or data.startswith(_WORKSPACE_CALLBACK_PREFIXES)
+
 
 class TerminalPanelManager:
-    """Keep one authoritative RD6018 dashboard as the last bot message in each chat.
+    """Keep one authoritative RD6018 dashboard per chat without stealing UI focus.
 
-    Telegram edits do not change message ordering. The legacy UI historically edited
-    the old dashboard after sending notices/prompts, so the operator often ended with
-    a text message below the controls. This manager deliberately republishes the
-    dashboard as a new message after interactive output, then removes only the prior
-    dashboard message it owns. Secondary menus/details are preserved above it.
+    Telegram edits do not change message ordering. A dashboard is republished when an
+    action genuinely finishes at the top level (or after an asynchronous notification),
+    but menu/program/detail workflows are allowed to remain the newest messages while
+    the operator is using them.
     """
 
     def __init__(self, app: Any) -> None:
@@ -125,26 +138,30 @@ class TerminalPanelManager:
                 self.adopt(chat_id, user_id)
                 return
 
-            preserve = (
-                event.message.message_id
-                if data in _PRESERVE_SOURCE_CALLBACKS
-                else None
-            )
-            await self.ensure_last(
-                chat_id,
-                user_id,
-                preserve_message_id=preserve,
-            )
+            # Program selection, battery cards, details and nested menus deliberately
+            # stay in the foreground. Their handlers own their own Back/Start flow.
+            if _is_workspace_callback(data):
+                return
+
+            await self.ensure_last(chat_id, user_id)
             return
 
         if isinstance(event, Message):
             chat_id = event.chat.id
             user_id = event.from_user.id if event.from_user else 0
-            text = str(event.text or "").strip().lower()
+            text = str(event.text or "").strip()
+            lower = text.lower()
             # /start already creates a new dashboard as its final response. Adopt it
             # instead of creating a pointless second copy.
-            if text == "/start" or text.startswith("/start@"):
+            if lower == "/start" or lower.startswith("/start@"):
                 self.adopt(chat_id, user_id)
+                return
+
+            # Plain text is frequently part of a multi-step program workflow (Ah,
+            # battery registration, custom values). Never inject the dashboard below
+            # the freshly produced preview/input response. Top-level slash commands
+            # still restore the panel after they finish.
+            if not text.startswith("/"):
                 return
             await self.ensure_last(chat_id, user_id)
 
@@ -170,8 +187,8 @@ class PanelLastMiddleware(BaseMiddleware):
         try:
             result = await handler(event, data)
         except Exception:
-            # Even when a handler fails, attempt to leave controls at the bottom, then
-            # re-raise the original exception unchanged for normal error handling.
+            # Even when a handler fails, apply normal ordering policy, then re-raise the
+            # original exception unchanged for normal error handling.
             await self._restore_panel(event)
             raise
         await self._restore_panel(event)
@@ -190,9 +207,8 @@ def install_panel_last(app: Any) -> TerminalPanelManager:
     app.router.callback_query.outer_middleware(PanelLastMiddleware(manager))
 
     # The legacy 60-second "bring dashboard back" timer becomes counterproductive once
-    # ordering is managed transactionally after every handler. Replace it with a no-op;
-    # user-driven events are covered by middleware and background safety notifications
-    # are covered by the wrapper below.
+    # ordering is managed transactionally. User-driven top-level events are covered by
+    # middleware and background safety notifications by the wrapper below.
     def _panel_ordering_owned(_chat_id: int, _user_id: int = 0) -> None:
         return None
 
