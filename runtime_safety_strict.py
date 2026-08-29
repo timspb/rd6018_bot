@@ -31,10 +31,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     locally instead of allowing a high-voltage stage to run indefinitely.
     """
 
-    # HA/ESPHome may expose command readback before the measured V/I sample reflects
-    # the new hardware operating point. Live protection tightening therefore waits
-    # through at least one normal 5 s RD polling interval before concluding that a
-    # transition failed to settle.
     TRANSITION_SETTLE_TIMEOUT_S = 6.5
     TRANSITION_SETTLE_POLL_S = 0.20
     CURRENT_SETTLE_MARGIN_A = 0.05
@@ -50,7 +46,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         if explicit_lease is None and production_adapter:
             explicit_lease = EdgeSafetyLease(self.hass)
             app.edge_safety_lease = explicit_lease
-
         self.edge_safety_lease = explicit_lease
         self.edge_lease_enforced = _env_enabled("RD6018_EDGE_LEASE_REQUIRED", True) and (
             production_adapter or explicit_lease is not None
@@ -101,14 +96,12 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     async def get_all_live(self) -> dict[str, Any]:
         live = await super().get_all_live()
         output_state = _binary(live.get("switch"))
-
         if output_state is True and (
             _binary(live.get("ovp_triggered")) is True
             or _binary(live.get("ocp_triggered")) is True
         ):
             await self._ensure_output_off("hardware OVP/OCP protection trip")
             return live
-
         temp_int = _finite(live.get("temp_int"))
         if output_state is True and temp_int is not None and temp_int >= float(TEMP_INT_PRECRITICAL):
             await self._fail_closed(
@@ -116,7 +109,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                 f"температура RD6018 {temp_int:.1f}°C >= {float(TEMP_INT_PRECRITICAL):.1f}°C",
                 output_state=True,
             )
-
         if output_state is True and self.controller_active:
             await self._renew_edge_lease_or_fail(output_state=True)
         return live
@@ -132,7 +124,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                     entity_id,
                 )
             raise RuntimeSafetyError("turn-on blocked: no active controller session")
-
         await self._arm_edge_lease()
         try:
             enabled = await super().turn_on(entity_id)
@@ -193,7 +184,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         requested_voltage: float,
         live: dict[str, Any],
     ) -> None:
-        """Throttle current before a live HV transition raises the voltage setpoint."""
         live_set_v = _finite(live.get("set_voltage"))
         live_set_i = _finite(live.get("set_current"))
         if live_set_v is None or live_set_i is None:
@@ -205,7 +195,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             )
         if requested_voltage <= live_set_v + self.READBACK_TOLERANCE:
             return
-
         _target_v, target_i = self._stage_target(live)
         if target_i is None or target_i <= 0:
             await self._ensure_output_off(
@@ -216,8 +205,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             )
         if target_i + self.READBACK_TOLERANCE >= live_set_i:
             return
-
-        # Keep the old/wider OCP while lowering the current regulator first.
         await super().set_current(target_i)
         if not await self._wait_measured_below(
             key="current",
@@ -236,33 +223,25 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         requested_ovp: float,
         live: dict[str, Any],
     ) -> dict[str, Any]:
-        """Lower Vset before lowering OVP when both belong to the same stage target.
-
-        The inherited dispatcher writes OVP before Vset. That is safe for voltage
-        increases, but unsafe for a temperature-compensation decrease: tightening OVP
-        through the old higher Vset can trip or force a needless shutdown. Derive the
-        already-selected stage target, lower Vset under the still-wide OVP, wait for the
-        measured output to settle, and only then permit OVP tightening.
-        """
+        """Lower Vset first when a paired live OVP decrease needs real margin."""
         current_ovp = _finite(live.get("ovp"))
         live_set_v = _finite(live.get("set_voltage"))
         if current_ovp is None or live_set_v is None:
             return live
         if requested_ovp + self.READBACK_TOLERANCE >= current_ovp:
             return live
-        if requested_ovp + self.READBACK_TOLERANCE >= live_set_v + self.PROTECTION_MARGIN:
+        # Protection geometry is physical, not a readback comparison. Do not let the
+        # 60 mV readback tolerance erase the required OVP margin over the old Vset.
+        if requested_ovp >= live_set_v + self.PROTECTION_MARGIN:
             return live
-
         target_v, _target_i = self._stage_target(live)
         if (
             target_v is None
             or target_v <= 0
-            or target_v + self.PROTECTION_MARGIN > requested_ovp + self.READBACK_TOLERANCE
+            or target_v + self.PROTECTION_MARGIN > requested_ovp
             or target_v >= live_set_v - self.READBACK_TOLERANCE
         ):
             return live
-
-        # Old OVP stays in force while Vset is reduced.
         await super().set_voltage(target_v)
         if not await self._wait_measured_below(
             key="voltage",
@@ -300,7 +279,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                     f"OVP {requested:.3f}V would no longer protect live voltage {set_v:.3f}V"
                 )
                 raise RuntimeSafetyError("OVP change blocked: active voltage envelope would be unprotected")
-
             current_ovp = _finite(live.get("ovp"))
             measured_v = _finite(live.get("voltage"))
             if (
@@ -336,7 +314,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                     f"OCP {requested:.3f}A would no longer protect live current {set_i:.3f}A"
                 )
                 raise RuntimeSafetyError("OCP change blocked: active current envelope would be unprotected")
-
             current_ocp = _finite(live.get("ocp"))
             measured_i = _finite(live.get("current"))
             settle_ceiling = max(0.0, requested - self.PROTECTION_MARGIN)
@@ -366,7 +343,6 @@ def install_strict_runtime_safety(app: Any) -> StrictRuntimeSafetyGuard:
         return existing
     if existing is not None:
         raise RuntimeError("runtime safety guard was installed before strict production guard")
-
     guard = StrictRuntimeSafetyGuard(app)
     guard.install()
     app.runtime_safety_guard = guard
