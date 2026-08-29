@@ -21,8 +21,10 @@ def _env_enabled(name: str, default: bool = True) -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
-if _env_enabled("V2_UI", True):
-    install_v2(_legacy)
+# Production controller + actuator safety are always installed. V2_UI controls only
+# presentation, exactly as documented; rolling the Telegram UI back must not remove
+# recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
+install_v2(_legacy, install_ui=_env_enabled("V2_UI", True))
 
 _legacy_main = _legacy.main
 
