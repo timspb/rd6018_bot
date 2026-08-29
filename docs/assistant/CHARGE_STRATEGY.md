@@ -2,133 +2,99 @@
 
 Этот документ — короткий source of truth по текущей production-стратегии V2.
 
-Перед изменением FSM/evidence сначала сверяться с:
-
-1. `V2_DECISION_LOG.md` — принятые решения;
-2. `V2_OPEN_QUESTIONS.md` — то, что ещё **не** решено;
-3. этим документом;
-4. `PB_RECOVERY_V2.md`;
-5. `V1_BEHAVIORAL_AUDIT.md` — фактическое поведение V1.
-
-Полная иерархия описана в `docs/assistant/README.md`.
+Порядок проверки: `V2_DECISION_LOG.md` -> `V2_OPEN_QUESTIONS.md` -> этот документ -> `PB_RECOVERY_V2.md` -> `V1_BEHAVIORAL_AUDIT.md`.
 
 ## Главная модель
 
-В V2 независимы:
+Для автоматических программ независимы:
 
-- **chemistry**: AGM / EFB / Ca/Ca / Flooded / Custom;
-- **intent**: Normal / Recovery / Conditioning / Diagnostic;
-- **condition**: Unknown / Healthy / Sulfated suspected / Dry suspected / Rehydrated / Overwet suspected / Stratified suspected / Degraded;
-- **stage/mode**: Prep / Main / Desulfation / Mix / SAFE_WAIT / Cooling / Done; Manual проектируется как отдельный явный режим.
+- chemistry: AGM / EFB / Ca/Ca / Flooded;
+- intent: Normal / Recovery / Conditioning / Diagnostic;
+- condition: состояние конкретной АКБ;
+- stage: Prep / Main / Desulfation / Mix / SAFE_WAIT / Cooling / Done.
 
-`AGM + NORMAL` и `AGM + REHYDRATED + RECOVERY` — разные controller contexts.
+`MANUAL` — отдельный authority mode, а не разновидность chemistry FSM.
 
 ## Production authority
 
-- `ProductionChargeControllerV2` — live controller.
-- `ChargeControllerV2` владеет Main/Mix decisions для non-Custom V2 paths.
-- Legacy `ChargeController.tick()` пока используется как scaffold для зрелых общих механизмов: базовая telemetry validation, temperature safety, SAFE_WAIT, restore/persistence и совместимые safety mechanics.
-- Legacy Main/Mix transition triggers маскируются там, где authority принадлежит V2.
-- `V2_AUTHORITATIVE=0` — аварийный rollback actuator-логики.
-- `V2_UI=0` — rollback нового Telegram UI без автоматического снятия hardware safety.
+- `ProductionChargeControllerV2` владеет автоматической Pb-логикой.
+- Legacy `ChargeController` пока остаётся scaffold для части зрелых mechanics, но его конфликтующие Main/Mix decisions маскируются V2 authority.
+- `ManualSessionManager` владеет ручным режимом и не запускает автоматические Pb transitions.
+- `V2RuntimeSafetyGuard`/edge lease/readback — независимая неотключаемая аппаратная граница над обоими режимами.
 
-## Сигналы и термины
+## Сигналы
 
-### Напряжение
-
-- `battery_voltage` — батарейное напряжение для chemistry decisions;
-- RD output voltage — фактическое выходное напряжение источника и hardware-watchdog сигнал.
-
-Это разные сущности.
-
-### Температура
-
-- `temp_ext` — температура АКБ, источник chemistry temperature compensation и battery thermal decisions;
-- `temp_int` — температура RD6018/БП, только hardware protection/PSU health.
-
-### Vin
-
-`input_voltage`/Vin — мониторинг здоровья входного БП. Он **не** является Pb-FSM authority и не должен блокировать/разрешать chemistry transition сам по себе.
-
-### CV / CC
-
+- `battery_voltage` — батарейное U для chemistry/diagnostics;
+- RD output voltage — hardware/output сигнал;
+- `temp_ext` — температура АКБ;
+- `temp_int` — температура RD6018/БП;
+- Vin — PSU-health telemetry, не Pb-FSM authority;
 - CV: U controlled, I response -> `Imin -> ΔI`;
-- CC: I controlled, U response -> `Vmax -> ΔV`.
-
-Не использовать `!CV` как production-доказательство CC при наличии явного `is_cc`.
+- CC: I controlled, U response -> `Vmax -> ΔV`;
+- `BAT_MODE` — наблюдение за физическим состоянием RD, не software permission.
 
 ## Аппаратная граница
 
-В V2 различаются:
+Различать:
 
 1. commanded setpoint;
 2. configured/readback setpoint;
 3. measured physical value.
 
-Output enable должен проходить через fail-closed transaction:
+Managed Output enable:
 
-1. fresh required charge/safety telemetry;
-2. recipe + absolute envelope validation;
-3. OVP;
-4. OCP;
-5. voltage;
-6. current;
-7. readback V/I/OVP/OCP;
-8. повторная проверка;
-9. Output ON;
-10. post-enable Output/protection/temperature/readback verification;
-11. force OFF при любой ошибке.
+```text
+fresh telemetry
+-> envelope validation
+-> OVP/OCP
+-> V/I
+-> readback verify
+-> Output ON
+-> post-enable verify
+-> edge safety lease/watchdogs
+```
 
-Абсолютный software voltage ceiling V2: **17.5 V**. Это внешний envelope, а не стандартная recovery-уставка.
+Любая непроверяемая ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; stage/recipe ceiling может быть ниже.
 
-`BAT_MODE` наблюдается, но не является разрешением на запуск.
+## AUTO targets
 
-## Базовые targets
-
-Глобальный stage-current ceiling: **12 A**.
+Global stage-current ceiling: 12 A.
 
 ### PREP
-
-- ~12.0 V + temperature compensation;
+- ~12.0 V + temp compensation;
 - ~0.01 C;
-- смысл: при `Vbat < ~12 V` ток должен оставаться маленьким.
+- при `Vbat < ~12 V` ток остаётся маленьким.
 
-Вопрос о прямом атомарном старте в Main при `Vbat >=12 V` ещё открыт; не воспроизводить V1 logical/physical mismatch как обязательный контракт.
+Прямой старт в Main при initial >=12 V всё ещё Q001.
 
 ### Main
-
 - ~0.1 C, max 12 A;
-- Ca/Ca: 14.7 V base;
-- EFB: 14.8 V base;
-- AGM: 14.4 -> 14.6 -> 14.8 -> 15.0 V.
+- Ca/Ca 14.7 V;
+- EFB 14.8 V;
+- AGM 14.4 -> 14.6 -> 14.8 -> 15.0 V.
 
 ### Intermediate recovery / Desulfation
-
 - 16.3 V base;
 - ~0.02 C;
-- 2 h service attempt;
-- это промежуточная recovery-попытка внутри Main/recovery loop, а не final Mix.
+- 2 h;
+- промежуточная recovery attempt, не final Mix.
 
 ### Mix
-
-- Ca/Ca: 16.5 V base;
-- EFB: 16.5 V base;
-- AGM: 16.3 V base;
+- Ca/Ca 16.5 V;
+- EFB 16.5 V;
+- AGM 16.3 V;
 - ~0.03 C, max 12 A.
 
 ### Done / Storage
-
-Нормальный `Done` означает managed float/storage:
+Normal completion:
 
 ```text
-13.8 V / 1.0 A / Output ON
+SAFE_WAIT -> Done/Storage -> ~13.8 V / 1.0 A -> Output ON
 ```
 
-Hard stop/fault — отдельная OFF-семантика; не путать с Done.
+Fault/hard-stop — отдельная OFF-семантика.
 
 ## Temperature compensation
-
-Legacy formula сохраняется как базовая:
 
 ```text
 V_comp = V_base + k * (25 - temp_ext)
@@ -136,36 +102,29 @@ V_comp = V_base + k * (25 - temp_ext)
 
 - Ca/Ca, EFB: 0.018 V/°C;
 - AGM: 0.016 V/°C;
-- Custom: 0.018 V/°C;
-- legacy correction clamp: примерно ±0.60 V.
+- legacy correction clamp ~±0.60 V;
+- после расчёта всегда применить recipe/absolute envelope.
 
-После расчёта production V2 обязан применить recipe/absolute envelope.
+Manual V является прямой операторской рабочей уставкой; автоматическая chemistry temperature compensation не должна неожиданно менять её. Thermal safety всё равно действует.
 
-## Main: normal tail и stuck plateau — разные механизмы
+## Main evidence
 
-### Normal tail
+Normal tail и stuck plateau — разные механизмы.
 
-V1 baseline:
+V1 baseline normal tail:
+- Ca/EFB: CV + ~I<0.30A, 3h без нового минимума;
+- AGM: CV + ~I<0.20A, 2h, staged Main.
 
-- Ca/Ca/EFB: CV + low-current tail порядка 0.30 A и 3 h без нового минимума;
-- AGM: CV + порядка 0.20 A и 2 h, со staged Main voltages.
+Stuck plateau:
+- Ca/EFB исторически ~40m flat CV plateau;
+- AGM ~2h;
+- плавное падение тока = progress, не plateau.
 
-V2 evidence может нормализовать thresholds относительно capacity/C-rate, но не должен терять смысл “новый минимум = новый отсчёт tail evidence”.
+Universal `>~1%C => HV veto` отклонён. High current — только один diagnostic signal среди U/I/T/regulation/cell evidence.
 
-### Stuck plateau
+## Recovery budget
 
-Отдельно детектируется lack of progress:
-
-- Ca/Ca/EFB: исторически ~40 min flat CV plateau;
-- AGM: ~2 h, намеренно более консервативно.
-
-Плавное падение тока — это progress, не plateau.
-
-Один C-rate cutoff сам по себе не доказывает fault. Ранее временно введённое правило `>~1%C => automatic HV veto` **отклонено и удалено**. Fault/HV decisions должны учитывать более полное U/I/T и diagnostic evidence.
-
-## Recovery-attempt budget
-
-Для Ca/Ca/EFB принята session-wide модель:
+Ca/EFB:
 
 ```text
 plateau -> recovery #1 -> Main
@@ -174,181 +133,162 @@ later plateau -> recovery #3 -> Main
 next confirmed plateau -> final Mix
 ```
 
-Progress между попытками не обнуляет count. Счётчик обнуляется только новой charge session.
-
-AGM policy остаётся отдельной и консервативной; финальные детали бюджета AGM перечислены в open questions.
+Progress не обнуляет count; новая charging session обнуляет. AGM policy остаётся отдельной, Q009.
 
 ## Main hard timeout
 
-V1 Ca/EFB ~72 h Main -> Mix не считается найденным багом.
+Legacy Ca/EFB ~72h fallback считается намеренным behavior, а не найденным defect. Его interaction с V2 intent — Q008.
 
-Stuck-current recovery срабатывает раньше отдельным механизмом. 72 h — fallback для длительных non-completing trajectories, например очень медленного непрерывного снижения тока.
+## Mix
 
-Как этот fallback должен взаимодействовать с новым `intent` model перед merge — ещё открытый вопрос.
+После target change ~120s blanking.
 
-## Mix: mode-specific evidence
+CV: Imin -> confirmed ΔI rise, ориентир `max(0.03A, 30%*Imin)`.
 
-После target change действует ~120 s blanking.
+CC: Vmax -> confirmed ΔV fall, ориентир ~0.03V.
 
-### CV
+Нужно 3 spaced confirmations (~minute-class). После подтверждения запускается sticky 2h finish hold; hard safety всегда выше.
 
-- фиксируется реальный `Imin`;
-- finish candidate: подтверждённый рост `ΔI`;
-- ориентир threshold: `max(0.03 A, 30% * Imin)`.
-
-### CC
-
-- фиксируется `Vmax`;
-- finish candidate: подтверждённый спад `ΔV`;
-- ориентир threshold: ~0.03 V.
-
-### Confirmation
-
-- 3 spaced confirmations;
-- примерно minute-class spacing;
-- одиночный crossing не является finish evidence.
-
-### Sticky finish hold
-
-После подтверждения запускается sticky **2 h** finish hold. Небольшой возврат через threshold не стирает уже подтверждённое событие.
-
-Настоящие safety events имеют приоритет над hold.
-
-### Mix fallback maxima
-
-Принятые V2 maximum observation windows:
+Fallback maxima:
 
 | Chemistry | Max Mix fallback |
 |---|---:|
 | Ca/Ca | 20 h |
-| EFB | **24 h** |
+| EFB | 24 h |
 | AGM | 10 h |
 
-Это не ETA и не нормальная длительность стадии. Если valid sticky 2 h finish hold уже запущен, crossing fallback boundary сам по себе его не отменяет.
+Это не ETA. Активный valid 2h finish hold не стирается crossing fallback boundary.
 
 ## SAFE_WAIT
 
-После HV Output выключается и начинается relaxation bridge.
-
-Contract:
+После HV Output OFF:
 
 ```text
-threshold reached early -> continue immediately
-not reached -> wait max ~2 h -> continue to lower-energy target anyway
+relax threshold reached early -> continue immediately
+otherwise -> wait max ~2h -> continue anyway
 ```
 
-2 h — anti-stall maximum, не fault timeout.
-
-Slow/fast relaxation остаётся diagnostic evidence.
+2h — anti-stall maximum, не fault timeout. Relaxation остаётся diagnostic evidence.
 
 ## Cooling
 
-Cooling — **pause chemistry time**, не новая батарейная evidence-stage.
+Cooling — pause active chemistry/program time.
 
-Принятые semantics:
-
+AUTO:
 - Output OFF;
-- source stage/target preserved;
-- stage elapsed clock paused;
-- recovery budget preserved;
-- established diagnostic extrema preserved;
-- continuity-dependent evidence invalidated;
-- partial Mix reversal confirmations cleared;
-- stuck plateau must be proved again after resume;
-- already-confirmed sticky finish hold remains confirmed, but its clock is paused;
-- Cooling state is persisted so restart cannot silently re-enable stale pre-Cooling state.
+- exact source stage/target preserved;
+- stage/tail/finish clocks frozen;
+- recovery budget, AGM step, established extrema and confirmed sticky delta preserved;
+- stuck plateau and incomplete delta confirmations invalidated;
+- durable restore required.
 
-Battery thresholds remain approximately warning/pause/critical = 35/40/45 °C.
+MANUAL использует тот же принцип: >=40°C -> OFF/Cooling, <=35°C -> safe re-enable exact same V/I, >=45°C -> terminal stop. Active Manual timer freezes during Cooling.
 
-`temp_int` hardware precritical remains around 55 °C class.
+## MANUAL
 
-## Manual mode
+Manual — полноценный режим управления, не debug escape hatch и не legacy `Idle + Output ON`.
 
-Manual operation is a supported product feature, not debug escape hatch.
+Operator owns:
+- working V;
+- working I;
+- optional timer;
+- V>= / V<= / I>= / I<= stop conditions;
+- optional mode-aware delta stop;
+- metadata/battery identity where useful.
 
-Target V2 principle:
+Operator does **not** own OVP/OCP:
 
-- explicit MANUAL representation;
-- richer operator input;
-- global absolute envelope;
-- automatic OVP/OCP derivation unless explicitly designed otherwise;
-- readback verification;
-- battery and PSU thermal safety;
-- watchdogs;
-- persistent Manual OFF conditions.
+```text
+OVP = target V + protection margin
+OCP = target I + protection margin
+```
 
-Exact schema/restore semantics remain open.
+и не может их ослабить.
 
-## Manual OFF
+Limits:
+- `0 < V <= 17.5 V`;
+- `0 < I <= 12 A`;
+- >17.5V command is rejected before hardware enable.
 
-Independent operator kill conditions remain supported:
+Manual normal completion is defined only by operator stop conditions. Automatic Pb rules such as plateau->Recovery, tail->Mix, chemistry timeout->stage change, Done/Storage do not execute.
 
-- V>=;
-- V<=;
-- I>=;
-- I<=;
-- timer;
-- combinations.
+Every Manual start/restart uses the same transactional safe-enable/readback/edge-lease boundary as automatic charging.
 
-They are stop conditions, not chemistry finish evidence. Exact priority versus automatic completion/recovery remains open; hard safety can never be suppressed.
+Persisted active Manual after process restart becomes `INTERRUPTED`; it is **not** silently re-energized. Fresh operator re-authorization is required.
 
-## Battery diagnostics / bank-fault
+The old five-step Custom dialog currently acts only as an input compatibility adapter. Native V2 UI/full 17.5V presentation and migration of old direct `V I` commands are Q002.
 
-V1 bank-fault detector is heuristic and advisory. V2 must not call a specific cell fault proven from one V/I observation.
+## Battery diagnostics / Bank Fault
 
-Desired direction:
+V1 one-score `bank_fault` is evidence, not proof. V2 separates hypotheses:
 
-- separate hypotheses;
-- longitudinal evidence per physical battery;
-- relaxation behavior;
-- capacity/CCA/Ri where available;
-- potentially controlled `ΔI -> ΔV` probes;
-- per-cell inputs if operator supplies them.
+- cell fault;
+- self-discharge;
+- sulfation/poor acceptance;
+- stratification;
+- capacity loss;
+- abnormal thermal behavior;
+- charger/path problem.
 
-The threshold at which a confirmed diagnostic may block further HV is still open.
+Diagnostics may actively request/perform bounded tests only in a safer/equal-energy direction. Do **not** raise HV merely to test a hypothesis.
+
+### Per-cell specific gravity
+
+For accessible flooded cells V2 stores:
+- six positional cell slots;
+- raw SG (never destroy original with guessed correction);
+- measurement temperature;
+- timestamp/context/source/notes;
+- explicit missing cells.
+
+Current conservative interpretation: complete six-cell spread >=0.030 -> `VERIFY`, not “shorted cell”. SG imbalance can indicate an equalization/stratification problem, so SG alone must not automatically block the very recovery that may correct it.
+
+### RD6018 resistance-related evidence
+
+Displayed `V/I` is **not battery internal resistance**.
+
+A controlled current reduction can yield:
+
+```text
+dynamic_loop = ΔV_BAT / ΔI
+```
+
+but with the normal black+green two-wire charging path this includes battery, cables, contacts, internal path and polarization. Store/label it only as dynamic two-wire loop response. Direct trend comparison requires unchanged connection identity.
+
+### Diagnostic authority
+
+A strong, multi-signal confirmed cell-fault hypothesis may block a next automatic HV escalation. One score, one SG sample or one U/I point cannot. Exact deterministic criteria are Q004/Q013.
 
 ## Physical battery registry
 
-V2 can bind evidence to a saved physical battery:
+Longitudinal evidence binds to physical battery identity: chemistry/Ah, manufacturer/model, condition/history, capacity/CCA/external Ri if available, recovery traces, SG and dynamic-loop probes. Prefer compare-with-self trends over universal one-number judgments.
 
-- chemistry and nominal Ah;
-- manufacturer/model;
-- condition;
-- refill/water history;
-- cycles since refill;
-- measured capacity / CCA / Ri;
-- recovery traces and outcomes.
+## RD health context
 
-This enables “compare battery with itself” instead of relying only on universal table values.
+Model/serial/firmware and read-only calibration fingerprint are diagnostic context. `Boot Power`/`Take Out` auto-energizing is incompatible with managed charging when exposed. Changes to hardware/firmware/calibration invalidate old precision baselines.
 
-## Watchdog principle
+## Watchdogs
 
-Preserve the V1 invariant:
+Preserve invariant:
 
 ```text
 higher-energy state -> shorter allowed blind-operation interval
 ```
 
-High-voltage control/telemetry loss must trip faster than ordinary low-energy monitoring loss.
+Readback, verified OFF and local edge lease are part of safety, not chemistry.
 
 ## AI boundary
 
-AI/LLM remains explanation-only:
-
-```text
-deterministic controller owns hardware
-AI explains evidence
-```
-
-AI does not choose setpoints, authorize HV or override hard safety.
+Deterministic controller owns hardware. AI explains evidence only; it cannot authorize HV, choose setpoints or override safety.
 
 ## Operator/documentation rules
 
-- Не называй current “Imin”, пока analyzer действительно не сформировал minimum evidence.
-- В CV описывай `Imin -> ΔI`; в CC — `Vmax -> ΔV`.
+- Не называй current `Imin`, пока analyzer реально не сформировал minimum evidence.
+- CV: `Imin -> ΔI`; CC: `Vmax -> ΔV`.
 - Не называй fallback-window ETA полного заряда.
 - Не считай SAFE_WAIT timeout fault сам по себе.
-- Не считай один высокий ток доказательством cell fault.
+- Не считай высокий ток или SG imbalance в одиночку доказательством shorted cell.
 - Не путай Done/Storage с Output OFF.
-- Не путай Vin/`temp_int` с battery chemistry evidence.
+- Не называй RD `V/I` или two-wire `ΔV/ΔI` внутренним сопротивлением АКБ.
+- Vin/temp_int не являются battery chemistry evidence.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
