@@ -2,8 +2,10 @@ import json
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from first_stage_evidence import FirstStageState
 from pb_domain import BatteryCondition, ChargeIntent
 from production_controller import ProductionChargeControllerV2
 
@@ -22,6 +24,38 @@ class ProductionControllerTests(unittest.TestCase):
         )
         controller.start(profile, capacity)
         return controller
+
+    @staticmethod
+    def _flat_record():
+        return SimpleNamespace(
+            analysis=SimpleNamespace(
+                metrics=SimpleNamespace(
+                    d_temp_c_per_min=0.0,
+                    d_current_a_per_min=0.0,
+                    d_voltage_v_per_min=0.0,
+                )
+            )
+        )
+
+    def _assess_tail(
+        self,
+        controller,
+        *,
+        timestamp_s,
+        current_a=0.09,
+        voltage_v=14.70,
+        is_cv=True,
+    ):
+        return controller._assess_main_sample(
+            stage_before=controller.STAGE_MAIN,
+            target_before=14.70,
+            plateau_since=None,
+            timestamp_s=timestamp_s,
+            voltage=voltage_v,
+            current=current_a,
+            is_cv=is_cv,
+            record=self._flat_record(),
+        )
 
     def test_normal_agm_cold_main_is_bounded_by_normal_recipe_ceiling(self):
         controller = self._controller(controller_profile := "AGM", ChargeIntent.NORMAL)
@@ -59,6 +93,73 @@ class ProductionControllerTests(unittest.TestCase):
 
         self.assertAlmostEqual(voltage_v, 16.5)
         self.assertLessEqual(current_a, 5.0)
+
+    def test_old_imin_age_cannot_replace_continuous_tail_hold(self):
+        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+        controller.current_stage = controller.STAGE_MAIN
+        controller.stage_start_time = 1000.0
+
+        # A first low-current sample is valid TAIL_READY chemically, but production
+        # authority must start a fresh continuous residence clock instead of treating
+        # any old analyzer Imin timestamp as an already-completed 3 h hold.
+        assessment = self._assess_tail(controller, timestamp_s=20_000.0)
+
+        self.assertEqual(assessment.state, FirstStageState.BULK_OR_TAPER)
+        self.assertIn("continuous tail hold", assessment.reason)
+        self.assertAlmostEqual(controller._v2_continuous_tail_since, 20_000.0)
+
+    def test_caca_tail_becomes_authoritative_only_after_three_continuous_hours(self):
+        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+        controller.current_stage = controller.STAGE_MAIN
+        controller.stage_start_time = 1000.0
+        start = 20_000.0
+
+        first = self._assess_tail(controller, timestamp_s=start)
+        almost = self._assess_tail(controller, timestamp_s=start + 3 * 3600 - 1)
+        ready = self._assess_tail(controller, timestamp_s=start + 3 * 3600)
+
+        self.assertEqual(first.state, FirstStageState.BULK_OR_TAPER)
+        self.assertEqual(almost.state, FirstStageState.BULK_OR_TAPER)
+        self.assertEqual(ready.state, FirstStageState.TAIL_READY)
+
+    def test_excursion_above_tail_resets_continuous_hold(self):
+        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+        controller.current_stage = controller.STAGE_MAIN
+        controller.stage_start_time = 1000.0
+        start = 20_000.0
+
+        self._assess_tail(controller, timestamp_s=start)
+        self._assess_tail(controller, timestamp_s=start + 2 * 3600)
+        excursion = self._assess_tail(
+            controller,
+            timestamp_s=start + 2 * 3600 + 60,
+            current_a=0.50,
+        )
+        returned = self._assess_tail(controller, timestamp_s=start + 3 * 3600 + 60)
+
+        self.assertNotEqual(excursion.state, FirstStageState.TAIL_READY)
+        self.assertEqual(returned.state, FirstStageState.BULK_OR_TAPER)
+        self.assertAlmostEqual(
+            controller._v2_continuous_tail_since,
+            start + 3 * 3600 + 60,
+        )
+
+    def test_stage_restart_resets_continuous_tail_hold(self):
+        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+        controller.current_stage = controller.STAGE_MAIN
+        controller.stage_start_time = 1000.0
+        start = 20_000.0
+
+        self._assess_tail(controller, timestamp_s=start)
+        self._assess_tail(controller, timestamp_s=start + 2 * 3600)
+        controller.stage_start_time = start + 2 * 3600 + 30
+        after_restart = self._assess_tail(controller, timestamp_s=start + 3 * 3600)
+
+        self.assertEqual(after_restart.state, FirstStageState.BULK_OR_TAPER)
+        self.assertAlmostEqual(
+            controller._v2_continuous_tail_since,
+            start + 3 * 3600,
+        )
 
     @staticmethod
     def _legacy_session(*, intent=None):
