@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from datetime import datetime
 from typing import Any
 
 from aiogram import F
@@ -77,6 +79,79 @@ def _operator_modes_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+async def _managed_aware_charge_monitor_poll(app: Any) -> None:
+    """Run one legacy informational-monitor poll without contradicting managed control.
+
+    The inherited monitor used a chemistry-agnostic ``V >= 13.5 and I < 0.1`` rule to
+    announce that charging was finished. During a controller-managed session that rule
+    is not authoritative: V2 owns completion from stage/mode-specific evidence (for
+    example CV Imin→ΔI or CC Vmax→ΔV). Keep the old reminders only for an unmanaged
+    RD6018 output, where they are still useful as operator hints.
+    """
+    live = await app.hass.get_all_live()
+    output_on = str(live.get("switch", "")).lower() == "on"
+    battery_v = app._safe_float(live.get("battery_voltage"))
+    current_a = app._safe_float(live.get("current"))
+    now = datetime.now()
+
+    if not output_on:
+        app.zero_current_since = None
+        return
+
+    # Managed charge completion and anomalies belong to the controller/safety layers.
+    # Never let the old 0.1 A heuristic contradict the active evidence model.
+    if app.charge_controller.is_active:
+        app.zero_current_since = None
+        return
+
+    # Preserve legacy reminders for an unmanaged/manual RD6018 Output ON.
+    if current_a <= 0.0:
+        if app.zero_current_since is None:
+            app.zero_current_since = now
+        elif (now - app.zero_current_since).total_seconds() >= app.ZERO_CURRENT_THRESHOLD_MINUTES * 60:
+            if not app.last_idle_alert_at or (now - app.last_idle_alert_at) >= app.IDLE_ALERT_COOLDOWN:
+                msg = (
+                    "⚠️ Выход включен, но потребление отсутствует. "
+                    "Не забудьте выключить прибор."
+                )
+                app.logger.info("Charge monitor (idle): %s", msg)
+                app.last_idle_alert_at = now
+                app._charge_notify(msg)
+    else:
+        app.zero_current_since = None
+
+    if battery_v >= 13.5 and current_a < 0.1:
+        cooldown = app.STORAGE_ALERT_COOLDOWN if battery_v < 14.0 else app.CHARGE_ALERT_COOLDOWN
+        if app.last_charge_alert_at and (now - app.last_charge_alert_at) < cooldown:
+            return
+        msg = (
+            f"⚠️ Заряд завершён или аккумулятор почти полон. "
+            f"Ток упал до {current_a:.2f}А при напряжении {battery_v:.2f}В."
+        )
+        app.logger.info("Charge monitor (unmanaged): %s", msg)
+        app.last_charge_alert_at = now
+        app._charge_notify(msg)
+
+
+def _install_managed_charge_monitor_guard(app: Any) -> None:
+    if getattr(app, "_v2_managed_charge_monitor_guard_installed", False):
+        return
+
+    async def managed_aware_charge_monitor() -> None:
+        while True:
+            await asyncio.sleep(15 * 60)
+            try:
+                await _managed_aware_charge_monitor_poll(app)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                app.logger.error("charge_monitor (network/error): %s", exc)
+                await asyncio.sleep(60)
+
+    app.charge_monitor = managed_aware_charge_monitor
+    app._v2_managed_charge_monitor_guard_installed = True
+
+
 def install_v2(app: Any, *, install_ui: bool = True) -> None:
     """Install production V2 controller/safety and the operator-facing Telegram UI."""
     if not isinstance(app.charge_controller, ProductionChargeControllerV2):
@@ -87,6 +162,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
     # Safety is independent from presentation and remains installed even with V2_UI=0.
     install_strict_runtime_safety(app)
+    _install_managed_charge_monitor_guard(app)
 
     if not install_ui:
         return
