@@ -1,36 +1,52 @@
 # Pb Recovery Controller V2
 
-## Goal
+## Status
 
-Evolve the bot from a profile/timer charger into an evidence-driven Pb recovery controller without discarding the existing `ChargeController` FSM.
+V2 is now the production code path on this branch, not a shadow-only experiment.
 
-The central rule is that **chemistry, charge intent, battery condition and safety are different dimensions**. A generic `AGM` label must not imply whether the battery is healthy, dry, recently rehydrated, being normally charged or undergoing an expert recovery cycle.
+- `bot.py` is a small production entrypoint.
+- the previous monolithic Telegram/HA runtime is preserved byte-for-byte as `bot_legacy.py`;
+- `ProductionChargeControllerV2` is installed by default;
+- `ChargeControllerV2` is actuator-authoritative for non-Custom Main/Mix transitions;
+- `v2_bot_ui` provides battery registry, intent selection, program preview and mode-specific evidence cards;
+- hardware enable is transactional/fail-closed;
+- raw evidence/trace capture and replay remain available for calibration.
 
-## Architecture
+`main` is not changed by this document; deployment/merge remains a separate operational decision.
+
+## Design principle
+
+Chemistry, charge intent, battery condition and safety are independent dimensions.
+
+A generic `AGM` label does not say whether the battery is healthy, dry, rehydrated or whether the operator wants a normal charge versus recovery.
 
 ```text
-Battery Registry / Lifecycle
-        |
-Telemetry -> SignalAnalyzer -> deterministic evidence
-        |                         |
-        |                         v
-        |                  State / trend model
-        |                         |
-        +-----------------> RecipeEngine
-                                  |
-                                  v
-                         ChargeController FSM
-                                  |
-                                  v
-                         SafetySupervisor
-                                  |
-                                  v
-                               RD6018
+Physical Battery + Lifecycle
+          |
+          v
+Chemistry + Intent + Condition
+          |
+          v
+Recipe Envelope
+          |
+Telemetry -> SignalAnalyzer -> V2 Authority
+          |                     |
+          |                     v
+          +--------------> Stage decision
+                                |
+                                v
+                  ProductionChargeControllerV2
+                                |
+                                v
+                    non-bypassable HA safety
+                                |
+                                v
+                             RD6018
 ```
 
-AI is an explanation layer only. It must not own voltage/current decisions.
+AI remains explanation-only and cannot own actuator decisions.
 
-## Domain model
+## Domain
 
 ### Chemistry
 
@@ -58,86 +74,209 @@ AI is an explanation layer only. It must not own voltage/current decisions.
 - Stratified suspected
 - Degraded
 
-A battery can therefore be `AGM + REHYDRATED + RECOVERY`, which is intentionally different from `AGM + HEALTHY + NORMAL`.
+Examples:
+
+- `AGM + HEALTHY + NORMAL`
+- `AGM + REHYDRATED + RECOVERY`
+- `EFB + STRATIFIED_SUSPECTED + CONDITIONING`
+
+These are deliberately different controller contexts.
+
+## Authority boundary
+
+### V2-owned
+
+For non-Custom profiles V2 owns:
+
+- Main evidence interpretation;
+- AGM Main stage advancement;
+- permission/denial of Desulfation;
+- permission/denial of Mix/HV;
+- Mix CV `Imin -> ΔI` finish evidence;
+- Mix CC `Vmax -> ΔV` finish evidence;
+- sticky 2h finish hold;
+- abnormal plateau / thermal / voltage-instability stop-and-diagnose decisions.
+
+### Legacy scaffold retained
+
+The old FSM still supplies mature common mechanics:
+
+- basic telemetry validation;
+- temperature safety and Cooling;
+- hard Main timeout;
+- SAFE_WAIT mechanics;
+- session persistence / restore;
+- watchdog-compatible state;
+- existing logging/statistics surfaces.
+
+During V2-authoritative Main/Mix, legacy transition triggers are masked so they cannot independently escalate voltage or finish the stage.
+
+### Custom
+
+Custom remains the explicit operator-defined legacy contract. It is not silently reinterpreted as Pb Recovery V2.
 
 ## Signal model
 
-The controller should reason about trajectories, not isolated thresholds. The first implementation extracts:
+The controller reasons about trajectories, not single thresholds:
 
 - `dU/dt`
 - `dI/dt`
 - `dT/dt`
 - CV current minimum (`Imin`)
 - current plateau
-- current reversal after `Imin`
-- voltage sag during current reversal
-- thermal acceleration during current reversal
+- CV current reversal after Imin
+- CC voltage maximum (`Vmax`)
+- CC voltage reversal after Vmax
+- voltage stability during current reversal
+- thermal acceleration
 
-A current increase after a well-defined CV minimum is **not automatically a fault**. It is end-of-charge evidence only when voltage remains near target and temperature/current dynamics remain benign. A rising current together with accelerating temperature or loss of target voltage is treated as suspicious evidence instead.
+A current rise after a well-defined CV minimum is not automatically a fault. It can be normal end-of-charge evidence when target voltage remains stable and temperature behavior is benign.
 
-## Safety model
+Conversely, current rise plus thermal acceleration and/or inability to hold U is suspicious. In CC, voltage fall plus thermal acceleration is suspicious; regulated current is not used as an independent finish signal.
 
-Recipe limits are not the same as absolute controller limits.
+## Main -> HV policy
 
-The model therefore separates:
+High voltage is an explicitly authorized recovery tool, not a chemistry default.
 
-- requested target voltage/current;
-- recipe voltage ceiling;
-- absolute controller voltage/current ceiling;
-- OVP/OCP envelope.
+- `Normal` and `Diagnostic`: automatic HV/Mix is forbidden.
+- `Recovery` and `Conditioning`: HV is possible only after V2 evidence.
+- a stable moderate plateau may lead to a service Desulfation step;
+- a persistent plateau above roughly `1%C` is not auto-promoted to HV;
+- invalid telemetry, thermal instability or voltage instability stops automatic escalation.
 
-This permits an explicit expert EFB conditioning recipe to use (for example) 17.5 V while still preventing an AGM recipe capped at 16.3 V from accidentally requesting 16.4 V.
+This preserves practitioner recovery behavior without reducing it to “16.x V is dangerous” or “all old batteries should be pushed to 16.x V”.
 
-### Output enable invariant
+## Recipe envelope
 
-Every future output-enable path must converge on one fail-closed transaction:
+`recipe_engine.py` separates requested stage target from chemistry+intent ceilings.
+`ProductionChargeControllerV2` applies the envelope to targets after legacy temperature compensation, so compensation cannot silently escape the selected program.
 
-1. read required live telemetry;
-2. reject missing/invalid battery voltage, current, external battery temperature, input voltage, protection state or output state;
+Standard Telegram V2 does not automatically authorize expert EFB >16.5 V. The policy model contains an expert EFB envelope up to 17.5 V for a future explicit expert workflow, but normal V2 UI does not opt into it.
+
+## Output enable invariant
+
+Every new V2 start goes through `HassClient.safe_enable_output()` and `SafeOutputCoordinator`:
+
+1. read complete live telemetry;
+2. reject invalid battery voltage/current/temp/input/protection/output state;
 3. validate recipe and absolute limits;
 4. program OVP;
 5. program OCP;
 6. program voltage;
 7. program current;
-8. read all four values back;
-9. re-run preflight because temperature/input/protection state may have changed;
+8. verify readback;
+9. repeat preflight;
 10. enable output;
-11. verify output state and protection state;
+11. verify output ON and protection/temperature/input state;
 12. force OFF on any failed step.
 
-No manual override, recovery recipe or Telegram shortcut may bypass this layer.
+A Telegram success message is emitted only after `enabled=True`. Failed programming/readback/enable rolls the controller session back and keeps output OFF.
 
-## Recovery history (next layer)
+## Physical battery registry
 
-Persist longitudinal evidence per physical battery rather than only per charge session:
+The V2 UI supports saved physical batteries with longitudinal lifecycle:
 
+- chemistry;
+- nominal capacity;
+- manufacturer/model;
+- condition;
 - water added total/per cell;
+- refill timestamp;
 - cycles since refill;
 - measured capacity;
 - CCA;
-- internal resistance;
-- `Imin` at main voltage;
-- `Imin` and current reversal at high-voltage stage;
-- time to target voltage;
-- `Tmax` and maximum `dT/dt`;
-- relaxation voltage at 5m/15m/1h/12h/24h.
+- internal resistance.
 
-The eventual recovery score must be explainable and trend-based; it must compare the battery primarily with its own previous cycles rather than a single manufacturer table.
+Recovery-cycle evidence can then compare a battery primarily with itself over repeated cycles.
 
-## Migration plan
+## Recovery evidence/history
 
-1. Add domain types, signal analysis and fail-closed safety primitives (this change).
-2. Route all output-enable paths through `SafeOutputCoordinator`.
-3. Feed `SignalAnalyzer` from the live logger and expose evidence to `ChargeController` without changing existing recipes yet.
-4. Split recipe selection by chemistry + intent + condition.
-5. Add battery registry/lifecycle persistence and recovery history.
-6. Introduce explicit expert conditioning recipes (including EFB current-driven mixing) behind operator opt-in.
-7. Add trace-replay tests based on real charge logs.
+Persisted evidence includes:
 
-## Non-goals for phase 1
+- Main target / Imin / time-to-target / Ah;
+- HV target / Imin / reversal;
+- temperature start/max/max dT/dt;
+- relaxation at 5m/15m/1h/12h/24h;
+- measured capacity;
+- CCA;
+- Ri;
+- outcome/notes.
 
-- Do not remove the existing AGM staged Main profile.
-- Do not globally ban 16.3/16.5 V recovery stages.
-- Do not silently increase any existing voltage target.
-- Do not let AI choose hardware setpoints.
-- Do not treat manufacturer consumer-mode recommendations as the only empirical source of Pb recovery behavior.
+Raw 30-second V2 traces also retain explicit CV/CC mode and frozen thresholds, so historic sessions stay interpretable after analyzer tuning.
+
+## Telegram workflow
+
+Production V2 UI adds:
+
+```text
+Modes
+  -> chemistry OR saved physical battery
+  -> intent
+  -> capacity (for ad-hoc profile)
+  -> program preview
+  -> explicit Start
+```
+
+Dashboard additions:
+
+- `🔋 АКБ` — physical battery registry;
+- `🧭 V2` — active controller/evidence card.
+
+The active card is mode-specific:
+
+- CV: Imin / ΔI / current trend;
+- CC: Vmax / ΔV / voltage trend;
+- temperature trend and current V2 decision in both modes.
+
+## Entry point / rollback
+
+Production:
+
+```bash
+python bot.py
+```
+
+Independent rollback switches:
+
+```bash
+V2_UI=0 python bot.py
+```
+
+keeps the old Telegram UI while leaving V2 actuator authority at its configured value.
+
+```bash
+V2_AUTHORITATIVE=0 python bot.py
+```
+
+restores legacy Main/Mix authority while the new UI may remain enabled.
+
+Full emergency legacy presentation + legacy actuator authority:
+
+```bash
+V2_UI=0 V2_AUTHORITATIVE=0 python bot.py
+```
+
+The preserved monolith can also be run directly for diagnosis:
+
+```bash
+V2_AUTHORITATIVE=0 python bot_legacy.py
+```
+
+## Testing
+
+CI compiles the repository and runs the complete unittest matrix on Python 3.10, 3.11 and 3.12.
+
+Coverage includes:
+
+- safe output transaction and readback failure;
+- V2 Main/Mix authority;
+- CV/CC evidence separation;
+- sticky finish hold;
+- battery registry/idempotent recovery history;
+- trace persistence/replay/calibration;
+- recipe envelopes;
+- production controller target bounding;
+- V2 UI formatting/catalog;
+- transactional Telegram V2 startup.
+
+Hardware/on-device smoke and real-battery trace review remain operational validation steps, not substitutes for deterministic CI.
