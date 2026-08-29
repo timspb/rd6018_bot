@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import time
-from typing import Optional, Tuple
+from dataclasses import replace
+from typing import Any, Optional, Tuple
 
+from charge_logic import AGM_FIRST_STAGE_HOLD_SEC, FIRST_STAGE_HOLD_SEC
 from charge_controller_v2 import ChargeControllerV2
+from first_stage_evidence import FirstStageAssessment, FirstStageState
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
@@ -21,6 +24,15 @@ class ProductionChargeControllerV2(ChargeControllerV2):
     explicit expert workflow can opt into that envelope later; the standard Telegram
     V2 path is bounded by the normal/recovery ceiling selected by the intent.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # The analyzer's ``seconds_since_current_min`` is useful evidence, but it is
+        # the age of an absolute minimum, not proof that the battery stayed in the
+        # tail continuously. Production authority therefore keeps a second monotonic
+        # tail clock which resets on any excursion out of TAIL_READY or stage restart.
+        self._v2_continuous_tail_since: Optional[float] = None
+        self._v2_continuous_tail_stage_start: Optional[float] = None
 
     def _recipe_envelope(self) -> Optional[RecipeEnvelope]:
         if self.battery_type == self.PROFILE_CUSTOM:
@@ -97,13 +109,59 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             hv=self._current_stage_is_hv(),
         )
 
-    async def tick(self, *args, **kwargs):
-        """Run managed V2 without legacy hourly Telegram chatter.
+    def _continuous_tail_hold_seconds(self) -> float:
+        return float(
+            AGM_FIRST_STAGE_HOLD_SEC
+            if self.battery_type == self.PROFILE_AGM
+            else FIRST_STAGE_HOLD_SEC
+        )
 
-        The legacy scaffold still owns safety/mechanics, but its generic hourly
-        ``Прошло Nч из ...`` report duplicates the terminal dashboard and, for Main,
-        can display an undefined stage limit. Keep it for Custom/legacy operation only.
+    def _reset_continuous_tail_hold(self) -> None:
+        self._v2_continuous_tail_since = None
+        self._v2_continuous_tail_stage_start = None
+
+    def _assess_main_sample(self, **kwargs: Any) -> Optional[FirstStageAssessment]:
+        """Require a continuous TAIL_READY residence before production authority.
+
+        The base V2 authority also checks ``seconds_since_current_min``. Keep that
+        check as corroborating analyzer evidence, but never let an old Imin timestamp
+        substitute for an uninterrupted 2 h AGM / 3 h other-profile tail hold.
         """
+        assessment = super()._assess_main_sample(**kwargs)
+        stage_before = kwargs.get("stage_before")
+        if stage_before != self.STAGE_MAIN or assessment is None:
+            self._reset_continuous_tail_hold()
+            return assessment
+
+        timestamp_s = float(kwargs.get("timestamp_s") or 0.0)
+        stage_marker = float(self.stage_start_time or 0.0)
+        if self._v2_continuous_tail_stage_start != stage_marker:
+            self._v2_continuous_tail_stage_start = stage_marker
+            self._v2_continuous_tail_since = None
+
+        if assessment.state != FirstStageState.TAIL_READY:
+            self._v2_continuous_tail_since = None
+            return assessment
+
+        if self._v2_continuous_tail_since is None:
+            self._v2_continuous_tail_since = timestamp_s
+
+        held_s = max(0.0, timestamp_s - self._v2_continuous_tail_since)
+        required_s = self._continuous_tail_hold_seconds()
+        if held_s + 1e-6 >= required_s:
+            return assessment
+
+        return replace(
+            assessment,
+            state=FirstStageState.BULK_OR_TAPER,
+            reason=(
+                f"continuous tail hold {held_s / 3600.0:.2f}h / "
+                f"{required_s / 3600.0:.2f}h"
+            ),
+        )
+
+    async def tick(self, *args, **kwargs):
+        """Run managed V2 without legacy hourly Telegram chatter."""
         if self.is_active and self.battery_type != self.PROFILE_CUSTOM:
             self._last_hourly_report = time.time()
         return await super().tick(*args, **kwargs)
@@ -114,18 +172,16 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         current: float,
         ah: float,
     ) -> Tuple[bool, Optional[str]]:
-        """Restore V2 sessions without granting recovery authority to legacy files.
-
-        ChargeControllerV2 already persists battery/intent/condition in new session
-        files. A pre-V2 session has no such intent. Treat that absence as NORMAL,
-        never as the constructor's historical RECOVERY default, then rebuild the V2
-        analyzer runtime with the conservative context. `_get_target_v_i()` also
-        applies the resulting recipe envelope to any restored V/I pair.
-        """
+        """Restore V2 sessions without granting recovery authority to legacy files."""
         document = self._read_legacy_session_document()
         ok, message = super().try_restore_session(voltage, current, ah)
         if not ok:
             return ok, message
+
+        # Continuous tail residence is intentionally not reconstructed from an old
+        # minimum timestamp after process restart. Re-proving the hold is conservative
+        # and prevents stale persisted timing from granting HV authority.
+        self._reset_continuous_tail_hold()
 
         if not document.get("v2_intent"):
             self._v2_intent = ChargeIntent.NORMAL
@@ -133,8 +189,6 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
             self._write_trace_identity_to_session_file()
 
-        # Keep cached restored values inside the same envelope as every subsequent
-        # use. This also makes diagnostics/session snapshots show the bounded target.
         if self._restored_target_v > 0 and self._restored_target_i > 0:
             bounded_v, bounded_i = self._bound_target(
                 (self._restored_target_v, self._restored_target_i),
