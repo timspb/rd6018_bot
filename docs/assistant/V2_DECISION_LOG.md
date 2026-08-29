@@ -1,386 +1,129 @@
 # V2 Decision Log
 
-> This is the durable record of decisions made after the V1 behavioral audit.
->
-> Do not infer a new strategy from implementation details alone. If a decision changes, update this document in the same commit as the code/tests that implement the change.
+> Durable source of truth for decisions made after the V1 behavioral audit.
+> Do not infer strategy from implementation details alone. If behavior changes, update this file with code/tests.
 
-Status labels:
+Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch; **OPEN** = unresolved; **REJECTED** = explicitly not intended.
 
-- **ACCEPTED** — agreed target behavior;
-- **IMPLEMENTED** — present on `refactor/pb-recovery-controller-v2` and expected to have tests;
-- **OPEN** — not yet decided; see `V2_OPEN_QUESTIONS.md`;
-- **REJECTED** — explicitly not the intended rule.
-
-## D001 — V1 must be treated as a multi-layer behavioral system
-
-**Status: ACCEPTED**
-
-V2 migration is not “rewrite `charge_logic.py`”. The preserved contract includes:
-
-- operator/UI state;
-- chemistry FSM;
-- physical actuator ordering;
-- HA/RD readback;
-- watchdogs;
-- manual/unmanaged paths;
-- persistence/restore;
-- diagnostics and logging.
-
-Reference: `V1_BEHAVIORAL_AUDIT.md`.
+## D001 — V1 is a multi-layer behavioral system
+**ACCEPTED.** V2 must preserve/review operator UI, chemistry FSM, actuator sequencing, HA/RD readback, watchdogs, Manual/unmanaged paths, persistence/restore, diagnostics/logging. Reference: `V1_BEHAVIORAL_AUDIT.md`.
 
 ## D002 — Vin is PSU-health telemetry, not Pb FSM authority
+**ACCEPTED / IMPLEMENTED.** `input_voltage` may be logged and used to diagnose the upstream PSU, but it does not grant/deny battery-stage authority and low/missing Vin is not itself a battery shutdown condition in production V2. `runtime_safety_v2.py` deliberately supersedes the older generic Vin kill while rollback code remains reproducible.
 
-**Status: ACCEPTED / IMPLEMENTED**
-
-`input_voltage`/Vin may be displayed, logged and used to diagnose the RD6018 input supply, but battery charge-stage authority must not depend on it.
-
-V2 output safety must fail closed on battery/output/control telemetry that actually determines safe charging, not turn a PSU-health sensor into chemistry evidence.
-
-This supersedes older code/docs that treated `Vin < 60 V` as a general output-enable veto.
-
-## D003 — RD6018 absolute manual/programmed voltage ceiling is 17.5 V
-
-**Status: ACCEPTED / IMPLEMENTED**
-
-The V2 absolute software ceiling is 17.5 V. Chemistry/intent recipe ceilings remain lower unless an explicit expert path authorizes a higher target.
-
-This does **not** mean all EFB/Ca recovery programs should use 17.5 V. It is the outer controller envelope, not a default recipe.
+## D003 — Absolute V2 working-voltage ceiling is 17.5 V
+**ACCEPTED / IMPLEMENTED.** `17.5 V` is accepted; anything above is rejected before hardware enable. Chemistry/intent recipes may impose lower limits. This is an outer envelope, not a default recovery target.
 
 ## D004 — BAT_MODE is observation, not permission
+**ACCEPTED / IMPLEMENTED.** RD6018 decides whether its battery relay can close. V2 observes `BAT_MODE`; it does not require it as a software start permission.
 
-**Status: ACCEPTED / IMPLEMENTED**
+## D005 — commanded, configured and measured values are distinct
+**ACCEPTED / IMPLEMENTED FOUNDATION.** V2 distinguishes requested V/I/OVP/OCP, RD configured/readback values, and measured physical U/I. HA HTTP success alone is insufficient. Program -> readback -> verify -> Output ON -> verify again.
 
-RD6018 battery mode may be collected for telemetry/diagnostics. It must not be treated as a prerequisite or authorization for starting a charge program.
+## D006 — raw RD telemetry semantics must be explicit
+**ACCEPTED / IMPLEMENTED FOUNDATION.** Explicit CV/CC mode, raw protection status (`Normal/OVP/OCP/OPP`), corrected Pout/temp decode, model/serial/firmware, calibration/system state and HA source freshness are first-class telemetry. Legacy entities are migration fallbacks only.
 
-## D005 — commanded, configured and measured values are different states
+## D007 — below ~12 V current remains small
+**ACCEPTED.** `Vbat < ~12 V` keeps PREP-like ~0.01C treatment. Whether initial `Vbat >=12 V` atomically skips PREP is still Q001.
 
-**Status: ACCEPTED / IMPLEMENTED FOUNDATION**
+## D008 — Main normal-tail and stuck-plateau are separate evidence
+**ACCEPTED.** A successful stable tail is not the same event as lack of progress. Slowly declining current is not a flat plateau.
 
-V2 must distinguish:
+## D009 — Ca/EFB recovery attempts are session-wide
+**ACCEPTED / IMPLEMENTED.** Three bounded recovery attempts belong to the whole Main/recovery session. Progress does not reset the counter; only a new charge session does.
 
-1. requested/commanded V/I/OVP/OCP;
-2. RD6018 configured/readback V/I/OVP/OCP;
-3. measured physical voltage/current.
+## D010 — after Ca/EFB recovery budget, next confirmed stuck plateau -> final Mix
+**ACCEPTED / IMPLEMENTED.** Safety/thermal/telemetry faults still outrank this transition.
 
-A successful HA service call is not sufficient evidence that the controller is programmed correctly.
+## D011 — AGM is intentionally conservative/asymmetric
+**ACCEPTED.** AGM is not Ca/EFB with different constants. Preserve longer proof, staged Main, lower current emphasis and conservative HV behavior. Exact final AGM recovery budget remains Q009.
 
-The safe-output path therefore programs, reads back, verifies within tolerance, enables Output, and verifies again.
+## D012 — 72 h Ca/EFB Main fallback is intentional legacy behavior
+**ACCEPTED.** It covers non-completing trajectories distinct from fixed-current plateau recovery. Interaction with V2 intent is Q008.
 
-## D006 — correct raw RD telemetry must be explicit
+## D013 — SAFE_WAIT 2 h is a maximum relaxation wait
+**ACCEPTED.** Reach threshold earlier -> continue immediately. Otherwise continue after max 2h. Slow relaxation is diagnostic evidence, not automatically a fault.
 
-**Status: ACCEPTED / IMPLEMENTED FOUNDATION**
+## D014 — Mix delta is mode-specific
+**ACCEPTED.** CV: `Imin -> confirmed ΔI rise`. CC: `Vmax -> confirmed ΔV fall`. Controlled variable is never treated as independent finish evidence.
 
-V2 telemetry foundation records/decode semantics including:
+## D015 — Mix needs spaced confirmations
+**ACCEPTED.** Approximately 3 confirmations, ~60s spacing, with ~120s post-setpoint blanking.
 
-- explicit CV/CC state;
-- raw protection code (`Normal/OVP/OCP/OPP`);
-- corrected output-power decode;
-- internal/external temperature distinction;
-- model/serial/firmware where available;
-- calibration/system state useful for diagnostics;
-- telemetry freshness.
-
-Legacy HA entities remain migration fallbacks only where the corrected V2 entity is not yet available.
-
-## D007 — below 12 V, charge current must remain small
-
-**Status: ACCEPTED**
-
-The chemistry principle is preserved:
-
-```text
-Vbat < ~12 V -> PREP-like low-current treatment (~0.01 C)
-```
-
-The V1 one-tick logical PREP / physical Main mismatch is not a required behavior.
-
-Whether initial `Vbat >= 12 V` should atomically start directly in Main is still an implementation/UX decision; see open questions.
-
-## D008 — Main normal-tail and stuck-plateau logic are independent
-
-**Status: ACCEPTED**
-
-V2 must not collapse these into one generic “current low/high” rule.
-
-- normal tail = successful end-of-Main evidence;
-- stuck plateau = lack-of-progress evidence that may authorize a bounded recovery attempt.
-
-A slowly continuing current decline is not the same as a flat plateau.
-
-## D009 — Ca/EFB recovery attempts are a session-wide budget
-
-**Status: ACCEPTED / IMPLEMENTED**
-
-For one charging session, recovery attempts are counted across the whole Main/recovery loop.
-
-Progress after a recovery attempt does **not** reset the counter.
-
-Target behavior:
-
-```text
-plateau #1 -> recovery #1 -> Main
-plateau #2 -> recovery #2 -> Main
-plateau #3 -> recovery #3 -> Main
-next confirmed plateau -> final Mix
-```
-
-The counter resets only on a new charging session.
-
-Reason: the battery must not cycle indefinitely through recovery attempts at successive current plateaus.
-
-## D010 — after exhausted Ca/EFB recovery budget, the next confirmed stuck plateau goes to final Mix
-
-**Status: ACCEPTED / IMPLEMENTED**
-
-Stopping solely because the bounded recovery budget is exhausted is not the intended legacy/recovery strategy. Final Mix is the remaining controlled recovery tool when the prerequisite evidence is still satisfied.
-
-Safety/telemetry/thermal faults still outrank this transition.
-
-## D011 — AGM is intentionally asymmetric and conservative
-
-**Status: ACCEPTED**
-
-AGM is not Ca/EFB with different voltage constants.
-
-Dry/absorbed-mat AGM behavior requires a conservative strategy:
-
-- reduce current as far as practicable before HV;
-- use longer plateau confirmation;
-- preserve staged Main voltage behavior;
-- do not automatically copy flooded-battery recovery heuristics.
-
-Any V2 change that makes AGM more aggressive requires explicit review.
-
-## D012 — 72 h Ca/EFB Main -> Mix is a profile fallback, not a discovered V1 defect
-
-**Status: ACCEPTED**
-
-V1 already handles a genuinely stuck current earlier through plateau detection and intermediate recovery attempts.
-
-The long Main timeout covers other non-completing trajectories such as extremely slow continuous progress.
-
-Therefore it must not be removed merely because it “looks fail-open” when viewed without the earlier recovery loop.
-
-Any future change to this fallback requires a separate strategy decision.
-
-## D013 — SAFE_WAIT 2 h is maximum relaxation wait, not fault timeout
-
-**Status: ACCEPTED**
-
-After a high-voltage stage:
-
-```text
-if V reaches next-stage threshold early -> continue immediately
-else -> wait at most 2 h -> continue anyway
-```
-
-Failure to cross the relaxation threshold within 2 h is diagnostic evidence, not automatic proof of a failed battery.
-
-Do not convert SAFE_WAIT timeout into a generic fault state.
-
-## D014 — Mix delta confirmation is mode-specific
-
-**Status: ACCEPTED**
-
-CV:
-
-```text
-Imin -> confirmed ΔI rise
-```
-
-CC:
-
-```text
-Vmax -> confirmed ΔV fall
-```
-
-Do not use current reversal as independent CC evidence; current is the controlled variable in CC.
-
-## D015 — Mix requires three spaced confirmations
-
-**Status: ACCEPTED**
-
-A single threshold crossing is insufficient.
-
-The target contract keeps approximately:
-
-- 3 confirmations;
-- ~1 minute class spacing;
-- ~120 s blanking after a new setpoint before evidence is trusted.
-
-## D016 — confirmed Mix delta starts a sticky 2 h finish hold
-
-**Status: ACCEPTED / IMPLEMENTED**
-
-After three valid confirmations the event is considered established.
-
-Small subsequent movement back through the exact delta threshold does not erase the event or restart the proof from zero.
-
-Hard safety events still override the active finish hold.
+## D016 — confirmed Mix delta starts sticky 2 h finish hold
+**ACCEPTED / IMPLEMENTED.** Small later threshold recrossing does not erase the established event. Hard safety still wins.
 
 ## D017 — Mix fallback maxima are Ca 20 h / EFB 24 h / AGM 10 h
-
-**Status: ACCEPTED / IMPLEMENTED**
-
-These are **maximum observation/fallback windows when no normal delta completion occurs**, not normal target durations.
-
-```text
-Ca/Ca  20 h
-EFB    24 h
-AGM    10 h
-```
-
-An already-started valid 2 h finish hold owns normal completion and is not cancelled merely because the fallback clock crosses its nominal maximum.
-
-This supersedes V1 values (8/10/5 h) and any intermediate V2 documentation that listed EFB as 20 h.
+**ACCEPTED / IMPLEMENTED.** These are fallback observation maxima, not normal target durations. An already-started valid 2h finish hold owns normal completion.
 
 ## D018 — Done means managed Storage/float remains ON
+**ACCEPTED.** Normal completion: `SAFE_WAIT -> Done/Storage -> ~13.8 V / 1 A -> Output ON`. Fault/hard-stop must be represented separately.
 
-**Status: ACCEPTED**
+## D019 — Cooling is a pause, not a chemistry stage
+**ACCEPTED / IMPLEMENTED.** Output OFF; exact source target preserved; active clocks frozen; recovery budget/AGM step/extrema/confirmed delta preserved; stuck plateau and incomplete delta continuity invalidated; sticky finish hold timer paused; state persisted/restorable.
 
-Normal program completion means:
+## D020 — Manual is a first-class supported mode
+**ACCEPTED / IMPLEMENTED FOUNDATION.** `ManualSessionManager` owns Manual output independently from the Pb chemistry FSM. Manual is not `Idle + Output ON` and is not legacy Custom chemistry authority.
 
-```text
-SAFE_WAIT -> Done/Storage -> ~13.8 V / 1.0 A -> Output ON
-```
+## D021 — Manual working inputs are operator-defined; protections are not
+**ACCEPTED / IMPLEMENTED.** Operator may define V/I and stop conditions. OVP/OCP are always derived from V/I and cannot be weakened manually. Backend Manual accepts up to 17.5 V and 12 A. Legacy five-step UI is currently only a compatibility input surface and still needs native V2 UX cleanup (Q002).
 
-`Done` must not be silently redefined as hardware OFF.
+## D022 — Manual completion belongs to the operator, safety outranks everything
+**ACCEPTED / IMPLEMENTED FOUNDATION.** Automatic Pb transitions (`plateau -> recovery`, `tail -> Mix`, chemistry timeouts, Storage transitions) do not run in Manual. Operator stop conditions (timer, V/I thresholds, optional mode-aware delta) own normal Manual completion. Hard thermal/electrical/readback/watchdog safety is non-bypassable.
 
-A separate hard-stop/fault state is required when output is intentionally de-energized.
+## D023 — Manual Cooling preserves the exact manual program
+**ACCEPTED / IMPLEMENTED.** At battery T >=40C Manual goes OFF/COOLING; active timer pauses; at <=35C the exact same V/I and freshly derived protections are safely re-applied; continuity-dependent delta proof resets. >=45C is terminal stop.
 
-## D019 — Cooling is a pause in chemistry time, not a new evidence stage
+## D024 — Manual does not silently re-energize after process restart
+**ACCEPTED SAFETY INVARIANT / IMPLEMENTED.** Persisted active/arming/cooling Manual state restores as `INTERRUPTED`; the saved request remains for review, but Output ON requires fresh operator re-authorization and normal safe-enable checks.
 
-**Status: ACCEPTED / IMPLEMENTED**
+## D025 — Manual OFF / manual stop conditions are operator kill conditions
+**ACCEPTED.** V>=, V<=, I>=, I<=, timer and equivalent Manual stop conditions are not chemistry evidence. For explicit Manual, they own normal stop behavior. Their remaining interaction with automatic-profile legacy `manual_off` compatibility is Q003.
 
-At thermal pause:
+## D026 — bank/cell fault inference must be hypothesis-specific
+**ACCEPTED / FOUNDATION IMPLEMENTED.** Replace one generic “bad battery” score with hypotheses such as cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality and charger/path fault. V1 heuristic score remains evidence, never proof.
 
-- output is OFF;
-- source stage/target is preserved;
-- active stage elapsed-time accounting is frozen;
-- recovery budget is preserved;
-- diagnostic extrema already established are preserved;
-- uninterrupted continuity evidence is invalidated where OFF time makes it no longer valid;
-- partial reversal-confirmation sequences are cleared;
-- stuck-plateau proof must be re-established after resume;
-- already-confirmed sticky finish hold remains confirmed, with its timer paused rather than erased.
+## D027 — Bank Fault becomes an active diagnostic contour
+**ACCEPTED.** Diagnostics may request/perform bounded experiments to confirm/refute hypotheses. They may alter charge only in a safer/equal-energy direction (for example a controlled current reduction or OFF relaxation window), must restore prior setpoints transactionally, and must never invent extra HV merely to “test” a battery.
 
-Cooling state must be durably persisted so restart cannot silently resume a stale hot pre-Cooling state.
+## D028 — confirmed cell-fault evidence may block further automatic HV
+**ACCEPTED PRINCIPLE / THRESHOLDS OPEN.** Strong multi-signal evidence can deny the next automatic Recovery/Mix escalation. A heuristic score or a single SG/U/I sample cannot. Immediate unsafe thermal/electrical behavior remains hard-safety authority. Exact confirmation criteria are Q013.
 
-## D020 — raw manual operation is a supported product mode
+## D029 — per-cell specific gravity is first-class external evidence
+**ACCEPTED / IMPLEMENTED FOUNDATION.** For accessible flooded cells, store all six positions, raw SG, measurement temperature, timestamp, context, source and notes. Missing/inaccessible cells remain explicit `None`. A full-cell spread >=0.030 currently escalates to `VERIFY`, not “shorted cell”. Manufacturer/hydrometer-specific temperature correction must not overwrite the raw measurement.
 
-**Status: ACCEPTED / NOT YET FULLY IMPLEMENTED**
+## D030 — RD6018 displayed V/I resistance is not battery internal resistance
+**ACCEPTED.** Ordinary `V/I` adds no independent battery-Ri evidence during charging and must not be labelled battery resistance.
 
-Manual operation is not a debug escape hatch.
+## D031 — controlled ΔV/ΔI is a two-wire dynamic-loop response
+**ACCEPTED / IMPLEMENTED FOUNDATION.** With black+green charging on the same two wires, a current-step response contains battery + cables + contacts + internal path/polarization. Store it as `dynamic_loop`, not laboratory battery Ri. Direct longitudinal comparison requires an explicit unchanged `connection_id`.
 
-Target V2 design must expose an explicit MANUAL concept with richer operator inputs while keeping non-bypassable global safety/readback/watchdog authority.
+## D032 — RD identity/calibration/system state are diagnostic context
+**ACCEPTED / IMPLEMENTED FOUNDATION.** Model/serial/firmware and read-only calibration fingerprint help invalidate stale baselines after hardware/firmware/calibration changes. `Boot Power`/`Take Out` automatic energizing is incompatible with managed charging when exposed.
 
-The old semantic “controller Idle, but output may be ON” should be replaced with an explicit managed representation.
+## D033 — AI remains advisory only
+**ACCEPTED.** AI may explain evidence/hypotheses; it cannot choose or execute setpoints or override deterministic authority.
 
-Exact manual schema is still open.
+## D034 — higher-energy state means shorter blind-operation tolerance
+**ACCEPTED.** Preserve the V1 fast-HV-watchdog principle. Edge safety lease/readback hardening may improve implementation, never weaken it.
 
-## D021 — Manual OFF remains an independent kill-condition system
+## D035 — chemistry strategy and actuator safety are separate layers
+**ACCEPTED.** Allowed chemistry transition still requires fresh telemetry, thermal checks, envelope validation, OVP/OCP programming, readback, Output confirmation and watchdog coverage. Conversely, operational telemetry such as Vin does not become chemistry evidence merely because it is useful.
 
-**Status: ACCEPTED / PRIORITY DETAILS OPEN**
+## D036 — universal `>~1%C plateau => HV veto` is rejected
+**REJECTED / REMOVED.** High current can contribute to diagnostics together with U/T trajectory, regulation and cell evidence, but is not a one-number universal veto.
 
-Persistent conditions such as V>=, V<=, I>=, I<= and timer remain useful and should survive the refactor.
+## D037 — 24–48 h post-heavy-charge rest is useful but not yet a lockout
+**OPEN IMPLEMENTATION.** Treat as diagnostic/operator recommendation until Q006 is explicitly resolved.
 
-They are operator stop conditions, not chemistry finish evidence.
+## Current implementation checkpoints
 
-Hard safety always outranks them. Their interaction with normal automatic stage completion/recovery is not yet fully specified.
-
-## D022 — bank-fault/cell-fault inference must remain evidence-based
-
-**Status: ACCEPTED PRINCIPLE / AUTHORITY OPEN**
-
-V1 bank-fault risk is heuristic and must not be presented as proof of a specific failed cell.
-
-V2 diagnostics should separate hypotheses and collect stronger evidence where possible, including longitudinal response, relaxation and controlled probes.
-
-Whether a sufficiently strong deterministic cell-fault diagnosis gains authority to block further HV remains open.
-
-## D023 — AI remains advisory only
-
-**Status: ACCEPTED**
-
-AI may explain traces, evidence and likely mechanisms. It does not choose or execute hardware setpoints and does not overrule deterministic safety/controller authority.
-
-## D024 — higher-energy state means shorter blind-operation tolerance
-
-**Status: ACCEPTED**
-
-The V1 high-voltage fast watchdog principle is preserved:
-
-```text
-higher voltage / higher risk -> shorter maximum control/telemetry blind interval
-```
-
-V2 implementation may improve the exact watchdog architecture, but not weaken this invariant.
-
-## D025 — chemistry strategy and actuator safety are separate layers
-
-**Status: ACCEPTED**
-
-A chemistry transition being allowed does not mean hardware may be enabled without:
-
-- valid/fresh required telemetry;
-- temperature checks;
-- recipe/absolute envelope validation;
-- protection programming;
-- setpoint readback;
-- Output state confirmation;
-- watchdog coverage.
-
-Conversely, a hardware sensor such as Vin should not be promoted into chemistry evidence merely because it is useful operational telemetry.
-
-## D026 — the `>~1%C plateau => automatic HV veto` heuristic is rejected as a universal rule
-
-**Status: REJECTED / REMOVED FROM CURRENT V2 AUTHORITY**
-
-An absolute C-rate cutoff by itself is not sufficient evidence that a stable plateau represents a dangerous bank/cell fault.
-
-The prior provisional V2 rule that automatically stopped recovery above about 1%C was too coarse and has been removed.
-
-High current may contribute to diagnostics together with U/T trajectory, inability to regulate, cell-level evidence or other fault signals, but it is not a universal one-number veto.
-
-## D027 — 1–2 day post-heavy-charge rest is a useful operational idea, not yet an FSM lockout
-
-**Status: OPEN IMPLEMENTATION**
-
-A rest period after aggressive recovery may be beneficial for evaluation and battery settling. The project has **not** yet decided to enforce a 24–48 h software lockout.
-
-Until decided otherwise, treat this as an operator/diagnostic recommendation rather than a mandatory state transition.
-
-## Implementation checkpoints on the current V2 branch
-
-As of the commits immediately following the V1 audit:
-
-### Telemetry / actuator foundation
-
-Implemented in commit `1bd67cb875afeed4ae722a4e5fd335d6eecdd8cd`:
-
-- corrected RD telemetry foundation;
-- freshness model;
-- protection decode including OPP;
-- 17.5 V absolute ceiling;
-- Vin removed from charge authority;
-- readback-aware fail-closed output enable.
-
-### Cooling / timing / recovery strategy
-
-Implemented in commit `abfcbda97b947a73a474a3c11cb9d198b4bbf1f1`:
-
-- Cooling evidence/time pause semantics;
-- durable Cooling-related state handling;
-- recovery-budget behavior aligned with the session-wide contract;
-- Mix maxima updated to 20/24/10 h;
-- coarse >1%C automatic HV veto removed.
+- `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
+- `abfcbda...`: Cooling pause semantics, session-wide recovery budget, Mix 20/24/10h.
+- `0dbf744...` + `690f82d...`: hypothesis/SG/dynamic-loop evidence and durable storage.
+- `085eb08...`: production V2 runtime safety aligned with Vin-as-diagnostics semantics.
+- `1e11138...` + `57fbea3...`: first-class Manual authority wired into production V2; legacy Custom dialog becomes an input adapter only.
+- `8b660b0...`: Manual contract tests; CI green on Python 3.10/3.11/3.12.
 
 ## Maintenance rule
-
-Whenever controller behavior changes:
-
-1. update or add a numbered decision here;
-2. update `CHARGE_STRATEGY.md` if production strategy changes;
-3. update `V2_OPEN_QUESTIONS.md` if an open item is resolved;
-4. add/modify deterministic tests;
-5. commit docs and code together when practical.
+Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
