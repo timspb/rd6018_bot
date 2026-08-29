@@ -1,6 +1,8 @@
 import unittest
+from types import SimpleNamespace
 
-from manual_text_v2 import parse_manual_command
+import v2_sg_ui
+from manual_text_v2 import _another_dialog_owns_text, parse_manual_command
 
 
 class ManualTextV2Tests(unittest.TestCase):
@@ -47,6 +49,20 @@ class ManualTextV2Tests(unittest.TestCase):
     def test_numeric_manual_prefix_with_unknown_condition_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "неизвестное условие"):
             parse_manual_command("14.7 5 bananas")
+
+    def test_pending_specific_gravity_dialog_owns_six_numeric_values(self):
+        user_id = 4242
+        app = SimpleNamespace(custom_mode_state={}, awaiting_ah={})
+        v2_sg_ui._pending_sg_battery[user_id] = object()
+        try:
+            self.assertTrue(_another_dialog_owns_text(app, user_id))
+            # The payload is intentionally numeric and would otherwise look like a
+            # quick Manual prefix before the SG dialog gets to parse all six cells.
+            payload = "1.275 1.272 1.270 1.180 1.274 1.271; t=25"
+            with self.assertRaises(ValueError):
+                parse_manual_command(payload)
+        finally:
+            v2_sg_ui._pending_sg_battery.pop(user_id, None)
 
 
 if __name__ == "__main__":
