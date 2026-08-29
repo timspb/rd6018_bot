@@ -9,6 +9,7 @@ import v2_bot_ui
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
+from v2_battery_input import parse_battery_spec
 from v2_startup import start_profile_transactional
 
 
@@ -32,6 +33,31 @@ def install_v2(app: Any) -> None:
     # the large Telegram adapter stable and inject the production-safe boundaries here.
     v2_bot_ui.upsert_battery = _upsert_from_ui
     v2_bot_ui._start_profile = start_profile_transactional
+    v2_bot_ui.parse_battery_spec = parse_battery_spec
+
+    # Keep the old pipe syntax backward compatible, but do not make the operator type
+    # punctuation just to create a battery.  The primary UI now advertises natural
+    # whitespace/comma input; the parser also accepts the historical pipe form.
+    original_safe_answer = v2_bot_ui._safe_answer
+
+    async def _safe_answer_natural_battery_input(event, text: str, *, reply_markup=None) -> None:
+        if "ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель" in text:
+            text = text.replace(
+                "Одним сообщением:",
+                "Одним сообщением — через пробелы или запятые:",
+            )
+            text = text.replace(
+                "ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель",
+                "ID AGM/EFB/Ca/Ca Ah Производитель Модель",
+            )
+            text = text.replace(
+                "varta70 | AGM | 70 | Varta | Silver Dynamic AGM",
+                "varta70 AGM 70 Varta Silver Dynamic AGM",
+            )
+            text += "\n\n<small>Запятые и старый разделитель | тоже поддерживаются.</small>"
+        await original_safe_answer(event, text, reply_markup=reply_markup)
+
+    v2_bot_ui._safe_answer = _safe_answer_natural_battery_input
     v2_bot_ui.install_v2_ui(app)
 
     # A stale legacy profile button can still populate awaiting_ah without a V2 intent.
