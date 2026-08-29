@@ -1,0 +1,215 @@
+# RD6018 local dead-man safety lease
+#
+# Include this file as an ESPHome package in the *same node* that owns the
+# RD6018 Modbus controller. It assumes that controller has id: powersupply,
+# matching the current rdtech ESPHome layout.
+#
+# Safety model:
+#   bot/HA -> renew every 10 min
+#   local lease TTL -> 30 min
+#   missed renewals -> local Modbus Output OFF, retried every 5 s
+#   stale direct RD6018 Modbus (>20 s) -> latch trip and attempt OFF immediately
+#   ESPHome reboot during a managed charge -> latch trip and attempt OFF
+#
+# The trip is latched. A late bot cannot simply renew an expired lease and resume
+# an old high-voltage session. Disarm is accepted only when direct Modbus is fresh
+# and the locally-read RD6018 output state is OFF.
+
+substitutions:
+  rd6018_safety_lease_ttl_ms: "1800000"       # 30 minutes
+  rd6018_safety_modbus_stale_ms: "20000"      # 20 seconds
+
+esphome:
+  on_boot:
+    # Run after components are set up. If power was lost/rebooted during a managed
+    # charge, fail closed instead of assuming the old session may continue.
+    priority: -100
+    then:
+      - lambda: |-
+          if (id(rd6018_safety_managed_session)) {
+            id(rd6018_safety_lease_tripped) = true;
+          }
+
+# Only the managed-session bit is persistent. The 10-minute heartbeat itself is
+# deliberately RAM-only to avoid flash writes on every renewal.
+globals:
+  - id: rd6018_safety_managed_session
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+
+  - id: rd6018_safety_lease_tripped
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: rd6018_safety_last_renew_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: rd6018_safety_last_modbus_rx_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: rd6018_safety_generation
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+# Duplicate internal read of a frequently changing standard RD60xx register.
+# Every successful Modbus publish proves that the ESP node is actually talking
+# to RD6018; HA/API reachability alone is not sufficient evidence.
+sensor:
+  - platform: modbus_controller
+    id: rd6018_safety_modbus_probe
+    modbus_controller_id: powersupply
+    address: 10
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+    on_value:
+      then:
+        - lambda: |-
+            id(rd6018_safety_last_modbus_rx_ms) = millis();
+
+  - platform: template
+    id: rd6018_safety_lease_generation_sensor
+    name: "Safety Lease Generation"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      return (float) id(rd6018_safety_generation);
+
+  - platform: template
+    id: rd6018_safety_modbus_age_sensor
+    name: "Safety Modbus Age"
+    entity_category: diagnostic
+    unit_of_measurement: "s"
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      const uint32_t last = id(rd6018_safety_last_modbus_rx_ms);
+      if (last == 0) return NAN;
+      return ((uint32_t) (millis() - last)) / 1000.0f;
+
+  - platform: template
+    id: rd6018_safety_lease_remaining_sensor
+    name: "Safety Lease Remaining"
+    entity_category: diagnostic
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      if (!id(rd6018_safety_managed_session) || id(rd6018_safety_lease_tripped)) {
+        return 0.0f;
+      }
+      const uint32_t elapsed = (uint32_t) (millis() - id(rd6018_safety_last_renew_ms));
+      const uint32_t ttl = ${rd6018_safety_lease_ttl_ms}UL;
+      if (elapsed >= ttl) return 0.0f;
+      return (ttl - elapsed) / 1000.0f;
+
+binary_sensor:
+  - platform: template
+    id: rd6018_safety_lease_armed_sensor
+    name: "Safety Lease Armed"
+    entity_category: diagnostic
+    lambda: |-
+      return id(rd6018_safety_managed_session) && !id(rd6018_safety_lease_tripped);
+
+  - platform: template
+    id: rd6018_safety_lease_tripped_sensor
+    name: "Safety Lease Tripped"
+    entity_category: diagnostic
+    device_class: problem
+    lambda: |-
+      return id(rd6018_safety_lease_tripped);
+
+# A private second view of the standard RD60xx Output register. It lets the local
+# watchdog write OFF without HA, Wi-Fi, Telegram or the Python process.
+switch:
+  - platform: modbus_controller
+    id: rd6018_safety_output
+    modbus_controller_id: powersupply
+    address: 18
+    register_type: holding
+    bitmask: 0x1
+    internal: true
+
+button:
+  - platform: template
+    id: rd6018_safety_lease_renew_button
+    name: "Safety Lease Renew"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const bool modbus_fresh = last_rx != 0 &&
+              ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+
+            // Trip is latched. Only a verified-OFF disarm may clear it.
+            if (id(rd6018_safety_lease_tripped)) return;
+            if (!modbus_fresh) {
+              id(rd6018_safety_lease_tripped) = true;
+              return;
+            }
+
+            // Avoid rewriting the persistent bool on every heartbeat.
+            if (!id(rd6018_safety_managed_session)) {
+              id(rd6018_safety_managed_session) = true;
+            }
+            id(rd6018_safety_last_renew_ms) = now;
+            id(rd6018_safety_generation)++;
+
+  - platform: template
+    id: rd6018_safety_lease_disarm_button
+    name: "Safety Lease Disarm"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const bool modbus_fresh = last_rx != 0 &&
+              ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+
+            // Never clear a safety trip based only on an HA command. RD6018 must
+            // itself have answered recently and its local Output register must be OFF.
+            if (!modbus_fresh || id(rd6018_safety_output).state) return;
+            if (id(rd6018_safety_managed_session)) {
+              id(rd6018_safety_managed_session) = false;
+            }
+            id(rd6018_safety_lease_tripped) = false;
+            id(rd6018_safety_last_renew_ms) = 0;
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (!id(rd6018_safety_managed_session)) return;
+
+          const uint32_t now = millis();
+          const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
+          const bool modbus_fresh = last_rx != 0 &&
+            ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          const uint32_t elapsed = (uint32_t) (now - id(rd6018_safety_last_renew_ms));
+
+          if (!modbus_fresh || elapsed >= ${rd6018_safety_lease_ttl_ms}UL) {
+            id(rd6018_safety_lease_tripped) = true;
+          }
+      - if:
+          condition:
+            lambda: |-
+              return id(rd6018_safety_managed_session) &&
+                     id(rd6018_safety_lease_tripped);
+          then:
+            # Repeated OFF is intentional. If the UART was temporarily unavailable,
+            # the first successful Modbus opportunity after recovery must still be OFF.
+            - switch.turn_off: rd6018_safety_output
