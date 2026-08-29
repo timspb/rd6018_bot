@@ -10,6 +10,7 @@ def live_state(**overrides):
         "battery_voltage": 12.4,
         "current": 0.0,
         "temp_ext": 25.0,
+        "temp_int": 32.0,
         "input_voltage": 64.0,
         "switch": "off",
         "ovp_triggered": "off",
@@ -55,6 +56,12 @@ class FakeHassClient(HassClient):
 
 
 class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
+    async def _program(self, client):
+        self.assertTrue(await client.set_ovp(16.4))
+        self.assertTrue(await client.set_ocp(2.1))
+        self.assertTrue(await client.set_voltage(16.3))
+        self.assertTrue(await client.set_current(2.0))
+
     async def test_direct_turn_on_without_programming_transaction_is_blocked(self):
         client = FakeHassClient()
         self.assertFalse(await client.turn_on())
@@ -62,10 +69,7 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_complete_programming_is_read_back_before_enable(self):
         client = FakeHassClient()
-        self.assertTrue(await client.set_ovp(16.4))
-        self.assertTrue(await client.set_ocp(2.1))
-        self.assertTrue(await client.set_voltage(16.3))
-        self.assertTrue(await client.set_current(2.0))
+        await self._program(client)
 
         self.assertTrue(await client.turn_on())
         self.assertEqual(client.service_calls, ["turn_on"])
@@ -73,10 +77,23 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_battery_temperature_blocks_enable(self):
         client = FakeHassClient()
         client.live["temp_ext"] = None
-        await client.set_ovp(16.4)
-        await client.set_ocp(2.1)
-        await client.set_voltage(16.3)
-        await client.set_current(2.0)
+        await self._program(client)
+
+        self.assertFalse(await client.turn_on())
+        self.assertEqual(client.service_calls, [])
+
+    async def test_missing_internal_temperature_blocks_enable(self):
+        client = FakeHassClient()
+        client.live["temp_int"] = "unavailable"
+        await self._program(client)
+
+        self.assertFalse(await client.turn_on())
+        self.assertEqual(client.service_calls, [])
+
+    async def test_hot_power_supply_blocks_enable(self):
+        client = FakeHassClient()
+        client.live["temp_int"] = 56.0
+        await self._program(client)
 
         self.assertFalse(await client.turn_on())
         self.assertEqual(client.service_calls, [])
