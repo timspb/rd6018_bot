@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 
 from charge_controller_v2 import ChargeControllerV2
 from legacy_recipe_adapter import chemistry_for_legacy_profile
-from pb_domain import BatteryIdentity, ChargeContext
+from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
 
 
@@ -57,6 +57,9 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             min(current_a, float(current_limit)),
         )
 
+    def _current_stage_is_hv(self) -> bool:
+        return self.current_stage in {self.STAGE_DESULFATION, self.STAGE_MIX}
+
     def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         return self._bound_target(
             super()._prep_target(temp_c),
@@ -84,3 +87,49 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self._recipe_envelope(),
             hv=True,
         )
+
+    def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        """Bound restored/device targets by the current recipe as well as new targets."""
+        return self._bound_target(
+            super()._get_target_v_i(temp_c),
+            self._recipe_envelope(),
+            hv=self._current_stage_is_hv(),
+        )
+
+    def try_restore_session(
+        self,
+        voltage: float,
+        current: float,
+        ah: float,
+    ) -> Tuple[bool, Optional[str]]:
+        """Restore V2 sessions without granting recovery authority to legacy files.
+
+        ChargeControllerV2 already persists battery/intent/condition in new session
+        files. A pre-V2 session has no such intent. Treat that absence as NORMAL,
+        never as the constructor's historical RECOVERY default, then rebuild the V2
+        analyzer runtime with the conservative context. `_get_target_v_i()` also
+        applies the resulting recipe envelope to any restored V/I pair.
+        """
+        document = self._read_legacy_session_document()
+        ok, message = super().try_restore_session(voltage, current, ah)
+        if not ok:
+            return ok, message
+
+        if not document.get("v2_intent"):
+            self._v2_intent = ChargeIntent.NORMAL
+            self._v2_condition_before = BatteryCondition.UNKNOWN
+            self._initialize_shadow_session(started_at=self._v2_trace_started_at)
+            self._write_trace_identity_to_session_file()
+
+        # Keep cached restored values inside the same envelope as every subsequent
+        # use. This also makes diagnostics/session snapshots show the bounded target.
+        if self._restored_target_v > 0 and self._restored_target_i > 0:
+            bounded_v, bounded_i = self._bound_target(
+                (self._restored_target_v, self._restored_target_i),
+                self._recipe_envelope(),
+                hv=self._current_stage_is_hv(),
+            )
+            self._restored_target_v = bounded_v
+            self._restored_target_i = bounded_i
+
+        return ok, message
