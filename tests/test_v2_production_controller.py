@@ -120,7 +120,7 @@ class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(actions["set_voltage"], 16.5)
         self.assertEqual(actions["recovery_shadow"]["authority_decision"]["action"], "enter_mix")
 
-    async def test_high_c_rate_plateau_is_stopped_not_escalated(self):
+    async def test_confirmed_recovery_plateau_is_not_blocked_by_c_rate_alone(self):
         now = 30000.0
         controller = self._controller(intent=ChargeIntent.RECOVERY, now=now)
         controller.ah_capacity = 60
@@ -138,10 +138,12 @@ class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         with patch("charge_logic.time.time", return_value=now), patch("charge_controller_v2.time.time", return_value=now):
             actions = await controller.tick(14.8, 1.0, 25.0, True, 20.0, True, is_cc=False)
 
-        self.assertEqual(controller.current_stage, controller.STAGE_DONE)
-        self.assertTrue(actions.get("turn_off"))
-        self.assertNotIn("set_voltage", actions)
-        self.assertIn("plateau_too_high", actions["recovery_shadow"]["authority_decision"]["reason"])
+        self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
+        self.assertFalse(actions.get("turn_off", False))
+        self.assertAlmostEqual(actions["set_voltage"], 16.3)
+        decision = actions["recovery_shadow"]["authority_decision"]
+        self.assertEqual(decision["action"], "enter_desulfation")
+        self.assertEqual(decision["reason"], "moderate_stable_cv_plateau_recovery_evidence")
 
     async def test_mix_finish_evidence_starts_sticky_hold_then_completes(self):
         start = 40000.0
