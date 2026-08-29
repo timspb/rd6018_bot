@@ -25,6 +25,7 @@ class FakeHass:
         }
         self.presses = []
         self.renew_ack = True
+        self.renew_remaining_s = 1800.0
         self.disarm_ack = True
 
     async def get_state(self, entity_id):
@@ -36,7 +37,7 @@ class FakeHass:
             if self.renew_ack:
                 self.states["binary_sensor.rd_6018_safety_lease_armed"] = "on"
                 self.states["sensor.rd_6018_safety_lease_generation"] += 1
-                self.states["sensor.rd_6018_safety_lease_remaining"] = 1800.0
+                self.states["sensor.rd_6018_safety_lease_remaining"] = self.renew_remaining_s
             return True
         if entity_id.endswith("safety_lease_disarm"):
             if self.disarm_ack:
@@ -61,6 +62,10 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(state.armed)
         self.assertEqual(state.generation, 11)
         self.assertLessEqual(state.modbus_age_s, 20.0)
+        self.assertGreaterEqual(
+            state.remaining_s,
+            lease.config.lease_ttl_s - lease.config.ack_remaining_slack_s,
+        )
         self.assertEqual(lease.last_ack_age_s, 0.0)
         self.assertEqual(len(hass.presses), 1)
 
@@ -82,6 +87,25 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(hass.presses, [])
 
+    async def test_missing_remaining_time_is_not_valid_lease_telemetry(self):
+        hass, _clock, lease = self._lease()
+        hass.states["sensor.rd_6018_safety_lease_remaining"] = None
+
+        with self.assertRaises(EdgeSafetyLeaseError):
+            await lease.arm()
+
+        self.assertEqual(hass.presses, [])
+
+    async def test_short_timeout_cannot_ack_a_nominal_thirty_minute_lease(self):
+        hass, _clock, lease = self._lease()
+        hass.renew_remaining_s = 900.0
+
+        with self.assertRaises(EdgeSafetyLeaseError):
+            await lease.arm()
+
+        self.assertEqual(len(hass.presses), 1)
+        self.assertIsNone(lease.last_ack_age_s)
+
     async def test_ten_minute_renewal_cadence_preserves_thirty_minute_lease(self):
         hass, clock, lease = self._lease()
         await lease.arm()
@@ -96,7 +120,19 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         state = await lease.renew_if_due()
         self.assertGreater(state.generation, first_generation)
         self.assertEqual(len(hass.presses), 2)
-        self.assertGreater(state.remaining_s, lease.config.renew_interval_s)
+        self.assertGreaterEqual(
+            state.remaining_s,
+            lease.config.lease_ttl_s - lease.config.ack_remaining_slack_s,
+        )
+
+    async def test_between_renewals_unexpectedly_short_remaining_time_fails(self):
+        hass, clock, lease = self._lease()
+        await lease.arm()
+        clock.now += 5 * 60
+        hass.states["sensor.rd_6018_safety_lease_remaining"] = 500.0
+
+        with self.assertRaises(EdgeSafetyLeaseError):
+            await lease.renew_if_due()
 
     async def test_disarm_requires_edge_to_report_not_armed(self):
         hass, _clock, lease = self._lease()
@@ -108,6 +144,13 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         hass.states["binary_sensor.rd_6018_safety_lease_armed"] = "on"
         hass.disarm_ack = False
         self.assertFalse(await lease.disarm())
+
+    def test_invalid_renewal_geometry_is_rejected(self):
+        with self.assertRaises(ValueError):
+            EdgeSafetyLease(
+                FakeHass(),
+                EdgeSafetyLeaseConfig(lease_ttl_s=600.0, renew_interval_s=600.0),
+            )
 
 
 if __name__ == "__main__":
