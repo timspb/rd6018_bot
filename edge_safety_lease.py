@@ -29,6 +29,10 @@ class EdgeSafetyLeaseConfig:
     # proposed 15/30 cadence is safe too, but leaves less scheduling/network margin.
     renew_interval_s: float = 10.0 * 60.0
     max_modbus_age_s: float = 20.0
+    # A generation change alone is insufficient: after a valid renewal the edge node
+    # must report essentially a new full lease. This catches stale HA state and an
+    # accidentally deployed edge package with a materially shorter timeout.
+    ack_remaining_slack_s: float = 15.0
     ack_attempts: int = 12
     ack_delay_s: float = 0.25
 
@@ -77,8 +81,9 @@ class EdgeSafetyLease:
 
     A HTTP 200 from Home Assistant is not considered a renewal. A renewal is valid
     only when the edge node publishes a *different* generation, says the lease is
-    armed, and reports a recent direct Modbus observation from RD6018. This prevents
-    stale HA state from masquerading as a healthy control path.
+    armed, reports a recent direct Modbus observation from RD6018, and exposes a
+    newly replenished near-full timeout. This prevents stale HA state or a wrongly
+    configured short lease from masquerading as a healthy control path.
     """
 
     def __init__(
@@ -92,6 +97,13 @@ class EdgeSafetyLease:
         self.config = config or EdgeSafetyLeaseConfig()
         self._monotonic = monotonic
         self._last_ack_monotonic: Optional[float] = None
+
+        if self.config.lease_ttl_s <= 0:
+            raise ValueError("edge lease TTL must be positive")
+        if not (0 < self.config.renew_interval_s < self.config.lease_ttl_s):
+            raise ValueError("edge lease renewal interval must be between zero and TTL")
+        if not (0 <= self.config.ack_remaining_slack_s < self.config.lease_ttl_s):
+            raise ValueError("edge lease acknowledgement slack is invalid")
 
     @property
     def last_ack_age_s(self) -> Optional[float]:
@@ -121,13 +133,15 @@ class EdgeSafetyLease:
         generation_f = _finite_float(generation_raw)
         modbus_age = _finite_float(modbus_age_raw)
         remaining = _finite_float(remaining_raw)
-        if armed is None or generation_f is None or modbus_age is None:
+        if armed is None or generation_f is None or modbus_age is None or remaining is None:
             raise EdgeSafetyLeaseError("edge lease telemetry is missing/unavailable")
         generation = int(generation_f)
-        if generation < 0:
+        if generation < 0 or abs(generation_f - generation) > 1e-6:
             raise EdgeSafetyLeaseError("edge lease generation is invalid")
         if modbus_age < 0:
             raise EdgeSafetyLeaseError("edge Modbus age is invalid")
+        if remaining < 0 or remaining > self.config.lease_ttl_s + self.config.ack_remaining_slack_s:
+            raise EdgeSafetyLeaseError("edge lease remaining time is invalid")
         return EdgeLeaseState(
             armed=armed,
             generation=generation,
@@ -167,11 +181,23 @@ class EdgeSafetyLease:
     def _fresh_modbus(self, state: EdgeLeaseState) -> bool:
         return state.modbus_age_s <= self.config.max_modbus_age_s
 
+    def _full_lease_ack(self, state: EdgeLeaseState) -> bool:
+        assert state.remaining_s is not None
+        return state.remaining_s >= (
+            self.config.lease_ttl_s - self.config.ack_remaining_slack_s
+        )
+
     async def renew(self, *, force: bool = False) -> EdgeLeaseState:
         if not force and not self.renewal_due():
             state = await self.read_state()
             if not state.armed or not self._fresh_modbus(state):
                 raise EdgeSafetyLeaseError("edge lease is not healthy between renewals")
+            # Between renewals the remaining value naturally drops, so only require
+            # enough budget to reach the next scheduled renewal with the same slack.
+            assert state.remaining_s is not None
+            required_remaining = self.config.renew_interval_s + self.config.ack_remaining_slack_s
+            if state.remaining_s <= required_remaining:
+                raise EdgeSafetyLeaseError("edge lease remaining time is unexpectedly short")
             return state
 
         before = await self.read_state()
@@ -192,10 +218,7 @@ class EdgeSafetyLease:
                 latest.armed
                 and latest.generation != before.generation
                 and self._fresh_modbus(latest)
-                and (
-                    latest.remaining_s is None
-                    or latest.remaining_s > self.config.renew_interval_s
-                )
+                and self._full_lease_ack(latest)
             ):
                 self._last_ack_monotonic = self._monotonic()
                 return latest
