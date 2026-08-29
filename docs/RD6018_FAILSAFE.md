@@ -69,13 +69,37 @@ be safely controlled and positively verified over a documented register interfac
 UniSoft firmware documents a Current Session timer:
 
 - `Timer Mode = Single`;
-- `Timer Off` counts down while output is enabled and turns Output OFF at zero;
+- `Timer Off` defines the output-on time limit and turns Output OFF at expiry;
 - `Timer On = 00:00:00` leaves the output off after expiry;
-- `Timer Reset` can restart timer timing when settings are applied to an already-on
-  output.
+- timer accounting is anchored to when RD6018 Output was enabled;
+- if Output is already ON and timer settings are changed with `Timer Reset = OFF`, the
+  elapsed ON time is **not** reset. The new Timer Off value behaves like an absolute
+  cutoff for the current ON session;
+- `Timer Reset = ON` is the documented mechanism that resets/restarts timer timing when
+  the settings are applied while Output is already ON.
 
-That is exactly the correct lowest-level primitive for a second 30-minute lease, because
-it runs in RD6018 itself and survives loss of the external UART controller.
+This distinction is critical. Example: if the current Output-on elapsed time is 13:20
+and `Timer Off` is changed to 14:00 with `Timer Reset = OFF`, only about 00:40 remains.
+It is **not** a fresh 14-hour countdown. Likewise, repeatedly writing `Timer Off = 00:30`
+while a session has already been ON for longer than 30 minutes would not implement a
+rolling 30-minute lease unless the timer is explicitly reset at each refresh.
+
+The UniSoft documentation gives an even stronger example: if Output has already been ON
+for more than one minute, then a one-minute Timer Off is applied without resetting the
+timer origin, Output may turn OFF immediately because that minute has already elapsed.
+Enabling Timer Reset forces the timer to begin again when the settings are applied.
+
+Therefore the proposed RD-internal dead-man design must not merely "rewrite Timer Off
+periodically". It must either:
+
+1. positively control and verify `Timer Reset` together with each refresh, proving on the
+   physical unit that the update is atomic and does not glitch Output; or
+2. use a different pre-armed deadline strategy that never requires mutating Timer Mode
+   while Output is already ON.
+
+The first option would provide the desired rolling lease semantics, e.g. a 30-minute
+native cutoff refreshed every 10 minutes. The second is safer if live reset semantics
+cannot be proven.
 
 However, the public standard RD60xx Modbus maps used by the current ESPHome integration
 expose the normal operating registers (V/I, Output, OVP/OCP, battery telemetry, etc.) but
@@ -101,10 +125,13 @@ Use a dummy load / non-battery load and keep Output OFF during register discover
 7. With Output OFF, write only a confirmed candidate and verify the panel/readback.
 8. With a current-limited dummy load, prove a short timer (for example 60 s) turns
    Output OFF without any ESPHome/HA traffic.
-9. Verify whether refreshing the timer while Output ON is atomic and safe. If it is not,
-   do not implement the user's periodic-refresh idea directly; choose a timer arming
-   scheme whose entire mutation happens before Output ON.
-10. Only after these tests add the native timer as another mandatory lease backend.
+9. Prove the elapsed-session rule explicitly: turn Output ON, wait e.g. 90 s, apply a
+   120 s Timer Off with Timer Reset OFF, and verify that only about 30 s remains.
+10. Then repeat with Timer Reset ON and verify that a fresh full 120 s begins when the
+    settings are applied.
+11. Verify whether the required Timer Off/Timer Reset refresh can be written and read
+    back atomically while Output remains ON, without a transient OFF/ON or mode glitch.
+12. Only after these tests add the native timer as another mandatory lease backend.
 
 ## Why the edge lease applies to all managed charging
 
