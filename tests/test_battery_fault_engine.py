@@ -1,16 +1,20 @@
 import unittest
 
-from battery_diagnostics import SpecificGravityMeasurement, assess_specific_gravity
+from battery_diagnostics import (
+    DiagnosticHypothesis,
+    DiagnosticLevel,
+    SpecificGravityMeasurement,
+    assess_specific_gravity,
+)
 from battery_fault_engine import (
     BatteryFaultContext,
     DiagnosticAuthority,
     assess_battery_fault,
 )
-from battery_diagnostics import DiagnosticHypothesis, DiagnosticLevel
 
 
 class BatteryFaultEngineTests(unittest.TestCase):
-    def test_first_sg_imbalance_requests_verification_not_hv_block(self):
+    def test_first_sg_imbalance_supports_diagnosis_without_blocking_equalization(self):
         sg = assess_specific_gravity(
             SpecificGravityMeasurement.from_iterable(
                 battery_id="flooded",
@@ -19,10 +23,10 @@ class BatteryFaultEngineTests(unittest.TestCase):
             )
         )
         result = assess_battery_fault(BatteryFaultContext(specific_gravity=sg))
-        self.assertEqual(result.authority, DiagnosticAuthority.VERIFY_BEFORE_HV)
+        self.assertEqual(result.authority, DiagnosticAuthority.ALLOW)
         self.assertEqual(
             result.evidence(DiagnosticHypothesis.STRATIFICATION).level,
-            DiagnosticLevel.VERIFY,
+            DiagnosticLevel.PROBABLE,
         )
         self.assertLess(result.evidence(DiagnosticHypothesis.CELL_FAULT).score, 80)
 
@@ -88,14 +92,8 @@ class BatteryFaultEngineTests(unittest.TestCase):
         result = assess_battery_fault(
             BatteryFaultContext(dynamic_loop_worsened=True)
         )
-        self.assertGreater(
-            result.evidence(DiagnosticHypothesis.CHARGER_PATH).score,
-            0,
-        )
-        self.assertGreater(
-            result.evidence(DiagnosticHypothesis.CAPACITY_LOSS).score,
-            0,
-        )
+        self.assertGreater(result.evidence(DiagnosticHypothesis.CHARGER_PATH).score, 0)
+        self.assertGreater(result.evidence(DiagnosticHypothesis.CAPACITY_LOSS).score, 0)
         self.assertEqual(result.authority, DiagnosticAuthority.ALLOW)
 
 
