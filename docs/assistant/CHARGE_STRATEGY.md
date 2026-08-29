@@ -1,227 +1,354 @@
 # Charge Strategy Reference
 
-Этот документ — короткий source of truth по production-стратегии заряда в V2.
-Если есть сомнение в логике этапов, сначала смотри сюда, затем `production_controller.py`, `charge_controller_v2.py`, `v2_authority.py` и только потом legacy `charge_logic.py`.
+Этот документ — короткий source of truth по текущей production-стратегии V2.
+
+Перед изменением FSM/evidence сначала сверяться с:
+
+1. `V2_DECISION_LOG.md` — принятые решения;
+2. `V2_OPEN_QUESTIONS.md` — то, что ещё **не** решено;
+3. этим документом;
+4. `PB_RECOVERY_V2.md`;
+5. `V1_BEHAVIORAL_AUDIT.md` — фактическое поведение V1.
+
+Полная иерархия описана в `docs/assistant/README.md`.
 
 ## Главная модель
 
-В V2 четыре независимых измерения:
+В V2 независимы:
 
 - **chemistry**: AGM / EFB / Ca/Ca / Flooded / Custom;
 - **intent**: Normal / Recovery / Conditioning / Diagnostic;
 - **condition**: Unknown / Healthy / Sulfated suspected / Dry suspected / Rehydrated / Overwet suspected / Stratified suspected / Degraded;
-- **stage**: Prep / Main / Desulfation / Mix / SAFE_WAIT / Cooling / Done.
+- **stage/mode**: Prep / Main / Desulfation / Mix / SAFE_WAIT / Cooling / Done; Manual проектируется как отдельный явный режим.
 
-`AGM + NORMAL` и `AGM + REHYDRATED + RECOVERY` — разные программы, даже если физическая химия одна.
+`AGM + NORMAL` и `AGM + REHYDRATED + RECOVERY` — разные controller contexts.
 
 ## Production authority
 
 - `ProductionChargeControllerV2` — live controller.
-- `ChargeControllerV2` владеет решениями `Main`/`Mix` для всех non-Custom профилей.
-- Legacy `ChargeController.tick()` используется как проверенный scaffold для telemetry validation, temperature safety, hard timeout, SAFE_WAIT/Cooling, restore и persistence, но его обычные `Main -> HV` и `Mix -> finish` триггеры маскируются при V2 authority.
-- `V2_AUTHORITATIVE=0` — независимый аварийный rollback actuator-логики.
-- `V2_UI=0` — rollback нового Telegram UI без отключения V2 actuator authority.
-- Custom остаётся legacy-authoritative: это отдельный операторский контракт.
+- `ChargeControllerV2` владеет Main/Mix decisions для non-Custom V2 paths.
+- Legacy `ChargeController.tick()` пока используется как scaffold для зрелых общих механизмов: базовая telemetry validation, temperature safety, SAFE_WAIT, restore/persistence и совместимые safety mechanics.
+- Legacy Main/Mix transition triggers маскируются там, где authority принадлежит V2.
+- `V2_AUTHORITATIVE=0` — аварийный rollback actuator-логики.
+- `V2_UI=0` — rollback нового Telegram UI без автоматического снятия hardware safety.
 
-## Сигналы
+## Сигналы и термины
 
-- `temp_ext` — внешний датчик АКБ и единственная основная температура батареи.
-- `temp_int` — температура блока/БП, используется только для защиты железа.
-- `is_cv` — стабилизация напряжения: управляется U, поэтому независимый отклик АКБ читаем прежде всего по I (`Imin -> ΔI`).
-- `is_cc` — стабилизация тока: управляется I, поэтому независимый отклик читаем по U (`Vmax -> ΔV`).
-- Токовый CV-критерий нельзя переносить на CC.
+### Напряжение
 
-`SignalAnalyzer` дополнительно вычисляет `dU/dt`, `dI/dt`, `dT/dt`, минимум/максимум, plateau и mode-specific reversal confirmations. Одиночный sample не является основанием для HV или финиша.
+- `battery_voltage` — батарейное напряжение для chemistry decisions;
+- RD output voltage — фактическое выходное напряжение источника и hardware-watchdog сигнал.
 
-## Intent-specific цепочки
+Это разные сущности.
 
-### Normal
+### Температура
+
+- `temp_ext` — температура АКБ, источник chemistry temperature compensation и battery thermal decisions;
+- `temp_int` — температура RD6018/БП, только hardware protection/PSU health.
+
+### Vin
+
+`input_voltage`/Vin — мониторинг здоровья входного БП. Он **не** является Pb-FSM authority и не должен блокировать/разрешать chemistry transition сам по себе.
+
+### CV / CC
+
+- CV: U controlled, I response -> `Imin -> ΔI`;
+- CC: I controlled, U response -> `Vmax -> ΔV`.
+
+Не использовать `!CV` как production-доказательство CC при наличии явного `is_cc`.
+
+## Аппаратная граница
+
+В V2 различаются:
+
+1. commanded setpoint;
+2. configured/readback setpoint;
+3. measured physical value.
+
+Output enable должен проходить через fail-closed transaction:
+
+1. fresh required charge/safety telemetry;
+2. recipe + absolute envelope validation;
+3. OVP;
+4. OCP;
+5. voltage;
+6. current;
+7. readback V/I/OVP/OCP;
+8. повторная проверка;
+9. Output ON;
+10. post-enable Output/protection/temperature/readback verification;
+11. force OFF при любой ошибке.
+
+Абсолютный software voltage ceiling V2: **17.5 V**. Это внешний envelope, а не стандартная recovery-уставка.
+
+`BAT_MODE` наблюдается, но не является разрешением на запуск.
+
+## Базовые targets
+
+Глобальный stage-current ceiling: **12 A**.
+
+### PREP
+
+- ~12.0 V + temperature compensation;
+- ~0.01 C;
+- смысл: при `Vbat < ~12 V` ток должен оставаться маленьким.
+
+Вопрос о прямом атомарном старте в Main при `Vbat >=12 V` ещё открыт; не воспроизводить V1 logical/physical mismatch как обязательный контракт.
+
+### Main
+
+- ~0.1 C, max 12 A;
+- Ca/Ca: 14.7 V base;
+- EFB: 14.8 V base;
+- AGM: 14.4 -> 14.6 -> 14.8 -> 15.0 V.
+
+### Intermediate recovery / Desulfation
+
+- 16.3 V base;
+- ~0.02 C;
+- 2 h service attempt;
+- это промежуточная recovery-попытка внутри Main/recovery loop, а не final Mix.
+
+### Mix
+
+- Ca/Ca: 16.5 V base;
+- EFB: 16.5 V base;
+- AGM: 16.3 V base;
+- ~0.03 C, max 12 A.
+
+### Done / Storage
+
+Нормальный `Done` означает managed float/storage:
 
 ```text
-Prep -> Main -> SAFE_WAIT/Done
+13.8 V / 1.0 A / Output ON
 ```
 
-- автоматический HV/Mix запрещён;
-- если Main-tail стабилен и выдержка завершена — штатное завершение без recovery HV;
-- persistent abnormal plateau не конвертируется автоматически в повышенное напряжение: V2 останавливает автоэскалацию и требует диагностики.
+Hard stop/fault — отдельная OFF-семантика; не путать с Done.
 
-### Diagnostic
+## Temperature compensation
 
-Поведение по HV такое же консервативное, как Normal: автоматическая HV-эскалация запрещена. Цель — получить интерпретируемые evidence, а не «додавить» АКБ.
-
-### Recovery / Conditioning
+Legacy formula сохраняется как базовая:
 
 ```text
-Prep -> Main -> (Desulfation) -> Mix -> SAFE_WAIT -> Done/Storage
+V_comp = V_base + k * (25 - temp_ext)
 ```
 
-HV разрешён только после V2 evidence. Сам факт выбора AGM/EFB/Ca/Ca не разрешает Mix.
-
-- Main-tail должен быть реально сформирован и выдержан;
-- стабильная умеренная полка может разрешить сервисный Desulfation;
-- полка выше примерно `1%C` не считается «обычным хвостом» и не переводится автоматически в HV;
-- thermal instability / voltage instability / invalid telemetry прекращают автоэскалацию.
-
-`Conditioning` без отдельного expert authorization использует тот же recovery voltage envelope. EFB 17.2–17.5 V не включается автоматически.
-
-## Recipe envelope
-
-`ProductionChargeControllerV2` ограничивает **каждую сгенерированную уставку после термокомпенсации** chemistry+intent envelope. Поэтому temperature compensation не может незаметно вывести этап выше разрешённой программы.
-
-Текущие ceilings:
-
-| Chemistry | Normal/Diagnostic | Recovery | Conditioning без expert |
-|---|---:|---:|---:|
-| AGM | 15.0 V | 16.3 V | 16.3 V |
-| EFB | 14.8 V | 16.5 V | 16.5 V |
-| Ca/Ca | 14.7 V | 16.5 V | 16.5 V |
-| Flooded | 14.8 V | 16.5 V | 16.5 V |
-
-Expert EFB envelope до 17.5 V существует в policy model, но production Telegram workflow его не авторизует автоматически.
-
-## Термокомпенсация
-
-Legacy formula остаётся источником базовой поправки:
-
-```text
-V_compensated = V_base + k * (25 - temp_ext)
-```
-
-- ref: 25°C;
 - Ca/Ca, EFB: 0.018 V/°C;
 - AGM: 0.016 V/°C;
 - Custom: 0.018 V/°C;
-- legacy delta clamp: ±0.60 V.
+- legacy correction clamp: примерно ±0.60 V.
 
-После расчёта V2 production layer дополнительно ограничивает результат recipe envelope текущего intent. На SAFE_WAIT/Cooling/Done/Idle компенсация не применяется.
+После расчёта production V2 обязан применить recipe/absolute envelope.
 
-## Профильные базовые targets
+## Main: normal tail и stuck plateau — разные механизмы
 
-### Ca/Ca
+### Normal tail
 
-- Main base: 14.7 V;
-- Recovery Mix base: 16.5 V;
-- Mix fallback observation window: 20 h.
+V1 baseline:
 
-### EFB
+- Ca/Ca/EFB: CV + low-current tail порядка 0.30 A и 3 h без нового минимума;
+- AGM: CV + порядка 0.20 A и 2 h, со staged Main voltages.
 
-- Main base: 14.8 V;
-- Recovery Mix base: 16.5 V;
-- Mix fallback observation window: 20 h.
+V2 evidence может нормализовать thresholds относительно capacity/C-rate, но не должен терять смысл “новый минимум = новый отсчёт tail evidence”.
 
-### AGM
+### Stuck plateau
 
-- Main bases: 14.4 -> 14.6 -> 14.8 -> 15.0 V;
-- переход на следующую AGM Main-ступень требует V2 tail evidence и выдержку;
-- Recovery Mix base: 16.3 V;
-- Mix fallback observation window: 10 h.
+Отдельно детектируется lack of progress:
 
-### Custom
+- Ca/Ca/EFB: исторически ~40 min flat CV plateau;
+- AGM: ~2 h, намеренно более консервативно.
 
-- использует операторские уставки и отдельную legacy delta/time contract;
-- V2 Pb recovery authority на Custom не распространяется.
+Плавное падение тока — это progress, не plateau.
 
-## Main evidence
+Один C-rate cutoff сам по себе не доказывает fault. Ранее временно введённое правило `>~1%C => automatic HV veto` **отклонено и удалено**. Fault/HV decisions должны учитывать более полное U/I/T и diagnostic evidence.
 
-Вместо универсального абсолютного «0.2/0.3 A = готово» V2 нормализует tail относительно ёмкости АКБ.
+## Recovery-attempt budget
 
-- для Ca/Ca/EFB историческая логика соответствует примерно capacity-normalized tail;
-- AGM также оценивается относительно C-rate;
-- новый минимум сбрасывает возраст tail;
-- только достаточно старый стабильный tail может разрешить следующий transition;
-- высокий persistent plateau (>~1%C) не считается безопасным поводом автоматически поднять U.
+Для Ca/Ca/EFB принята session-wide модель:
 
-## Mix: CV и CC — разные критерии
+```text
+plateau -> recovery #1 -> Main
+later plateau -> recovery #2 -> Main
+later plateau -> recovery #3 -> Main
+next confirmed plateau -> final Mix
+```
+
+Progress между попытками не обнуляет count. Счётчик обнуляется только новой charge session.
+
+AGM policy остаётся отдельной и консервативной; финальные детали бюджета AGM перечислены в open questions.
+
+## Main hard timeout
+
+V1 Ca/EFB ~72 h Main -> Mix не считается найденным багом.
+
+Stuck-current recovery срабатывает раньше отдельным механизмом. 72 h — fallback для длительных non-completing trajectories, например очень медленного непрерывного снижения тока.
+
+Как этот fallback должен взаимодействовать с новым `intent` model перед merge — ещё открытый вопрос.
+
+## Mix: mode-specific evidence
+
+После target change действует ~120 s blanking.
 
 ### CV
 
 - фиксируется реальный `Imin`;
-- кандидат финиша — подтверждённый рост `ΔI` от Imin;
-- рабочая гипотеза threshold: `max(0.03 A, 30% от Imin)`;
-- `I↑` само по себе не fault;
-- тревожная корреляция: `I↑ + T ускоряется` и/или U перестаёт удерживаться.
+- finish candidate: подтверждённый рост `ΔI`;
+- ориентир threshold: `max(0.03 A, 30% * Imin)`.
 
 ### CC
 
-- ток специально удерживается регулятором и не является независимым finish signal;
 - фиксируется `Vmax`;
-- кандидат финиша — подтверждённый спад `ΔV` от Vmax;
-- текущий threshold: 0.03 V;
-- тревожная корреляция: `U↓ + T ускоряется`.
+- finish candidate: подтверждённый спад `ΔV`;
+- ориентир threshold: ~0.03 V.
+
+### Confirmation
+
+- 3 spaced confirmations;
+- примерно minute-class spacing;
+- одиночный crossing не является finish evidence.
 
 ### Sticky finish hold
 
-После подтверждённого mode-specific delta V2 запускает обязательный 2 h finish-hold. Небольшие обратные колебания через threshold не отменяют уже подтверждённое событие.
+После подтверждения запускается sticky **2 h** finish hold. Небольшой возврат через threshold не стирает уже подтверждённое событие.
 
-Профильные 10/20 h — fallback-окно поиска evidence. Они не обрывают уже активный 2 h hold. Настоящие safety events имеют приоритет над hold.
+Настоящие safety events имеют приоритет над hold.
 
-## Desulfation
+### Mix fallback maxima
 
-Desulfation — сервисный recovery stage, не финиш и не автоматическая реакция на любое «долго».
+Принятые V2 maximum observation windows:
 
-Он разрешается только при Recovery/Conditioning и достаточно стабильной умеренной CV-полке. Количество итераций ограничено; после исчерпания бюджета дальнейший transition всё равно проходит через V2 authority.
+| Chemistry | Max Mix fallback |
+|---|---:|
+| Ca/Ca | 20 h |
+| EFB | **24 h** |
+| AGM | 10 h |
 
-## SAFE_WAIT / relaxation
+Это не ETA и не нормальная длительность стадии. Если valid sticky 2 h finish hold уже запущен, crossing fallback boundary сам по себе его не отменяет.
 
-После HV штатный путь идёт через output-OFF SAFE_WAIT.
+## SAFE_WAIT
 
-Смотрятся:
+После HV Output выключается и начинается relaxation bridge.
 
-- U relaxation;
-- dU/dt;
-- T stability;
-- ток около нуля;
-- окна 5m / 10m / 15m, далее longitudinal evidence может хранить 1h / 12h / 24h.
+Contract:
 
-Быстрый спад U — диагностический evidence, но сам по себе не доказательство КЗ банки или стратификации.
+```text
+threshold reached early -> continue immediately
+not reached -> wait max ~2 h -> continue to lower-energy target anyway
+```
+
+2 h — anti-stall maximum, не fault timeout.
+
+Slow/fast relaxation остаётся diagnostic evidence.
+
+## Cooling
+
+Cooling — **pause chemistry time**, не новая батарейная evidence-stage.
+
+Принятые semantics:
+
+- Output OFF;
+- source stage/target preserved;
+- stage elapsed clock paused;
+- recovery budget preserved;
+- established diagnostic extrema preserved;
+- continuity-dependent evidence invalidated;
+- partial Mix reversal confirmations cleared;
+- stuck plateau must be proved again after resume;
+- already-confirmed sticky finish hold remains confirmed, but its clock is paused;
+- Cooling state is persisted so restart cannot silently re-enable stale pre-Cooling state.
+
+Battery thresholds remain approximately warning/pause/critical = 35/40/45 °C.
+
+`temp_int` hardware precritical remains around 55 °C class.
+
+## Manual mode
+
+Manual operation is a supported product feature, not debug escape hatch.
+
+Target V2 principle:
+
+- explicit MANUAL representation;
+- richer operator input;
+- global absolute envelope;
+- automatic OVP/OCP derivation unless explicitly designed otherwise;
+- readback verification;
+- battery and PSU thermal safety;
+- watchdogs;
+- persistent Manual OFF conditions.
+
+Exact schema/restore semantics remain open.
+
+## Manual OFF
+
+Independent operator kill conditions remain supported:
+
+- V>=;
+- V<=;
+- I>=;
+- I<=;
+- timer;
+- combinations.
+
+They are stop conditions, not chemistry finish evidence. Exact priority versus automatic completion/recovery remains open; hard safety can never be suppressed.
+
+## Battery diagnostics / bank-fault
+
+V1 bank-fault detector is heuristic and advisory. V2 must not call a specific cell fault proven from one V/I observation.
+
+Desired direction:
+
+- separate hypotheses;
+- longitudinal evidence per physical battery;
+- relaxation behavior;
+- capacity/CCA/Ri where available;
+- potentially controlled `ΔI -> ΔV` probes;
+- per-cell inputs if operator supplies them.
+
+The threshold at which a confirmed diagnostic may block further HV is still open.
 
 ## Physical battery registry
 
-V2 умеет работать с сохранённой физической АКБ:
+V2 can bind evidence to a saved physical battery:
 
-- chemistry, nominal Ah, manufacturer/model;
+- chemistry and nominal Ah;
+- manufacturer/model;
 - condition;
 - refill/water history;
 - cycles since refill;
-- measured capacity, CCA, Ri;
-- recovery-cycle evidence и traces.
+- measured capacity / CCA / Ri;
+- recovery traces and outcomes.
 
-Для rehydrated AGM ранние циклы сравниваются прежде всего с последующими циклами этой же АКБ, а не с одним универсальным табличным числом.
+This enables “compare battery with itself” instead of relying only on universal table values.
 
-## Non-bypassable output safety
+## Watchdog principle
 
-Любой новый V2 запуск идёт через `HassClient.safe_enable_output()` / `SafeOutputCoordinator`:
+Preserve the V1 invariant:
 
-1. fresh required telemetry;
-2. recipe + absolute envelope validation;
-3. OVP;
-4. OCP;
-5. V;
-6. I;
-7. readback;
-8. повторный preflight;
-9. Output ON;
-10. post-enable verification;
-11. force OFF при любой ошибке.
+```text
+higher-energy state -> shorter allowed blind-operation interval
+```
 
-Telegram success показывается только после подтверждённого `enabled=True`. Ошибка programming/readback/enable откатывает controller session и оставляет output OFF.
+High-voltage control/telemetry loss must trip faster than ordinary low-energy monitoring loss.
 
-## Temperature / hardware safety
+## AI boundary
 
-Legacy hard safety сохраняется независимо от recipe:
+AI/LLM remains explanation-only:
 
-- global current ceiling 12 A;
-- battery warning/pause/critical thresholds;
-- OVP/OCP;
-- watchdog / fast high-voltage watchdog;
-- HA communication loss handling;
-- `temp_int` защищает БП/контроллер, а не диагностирует АКБ.
+```text
+deterministic controller owns hardware
+AI explains evidence
+```
 
-## Для ассистента и UI
+AI does not choose setpoints, authorize HV or override hard safety.
 
-- Не называй ток «минимальным», если analyzer не сформировал Imin/evidence.
-- В CV говори про `Imin -> ΔI`; в CC — про `Vmax -> ΔV`.
-- Не путай остаток fallback-window с ETA полного заряда.
-- Не утверждай, что 16.3/16.5 V сами по себе являются fault: контекст intent/condition/U-I-T важнее одной цифры.
-- Не разрешай Normal/Diagnostic автоматически уходить в HV.
-- AI объясняет evidence, но не выбирает и не исполняет hardware setpoints.
+## Operator/documentation rules
+
+- Не называй current “Imin”, пока analyzer действительно не сформировал minimum evidence.
+- В CV описывай `Imin -> ΔI`; в CC — `Vmax -> ΔV`.
+- Не называй fallback-window ETA полного заряда.
+- Не считай SAFE_WAIT timeout fault сам по себе.
+- Не считай один высокий ток доказательством cell fault.
+- Не путай Done/Storage с Output OFF.
+- Не путай Vin/`temp_int` с battery chemistry evidence.
+- Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
