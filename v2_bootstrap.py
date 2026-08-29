@@ -12,7 +12,8 @@ import v2_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
-from manual_mode import ManualSessionManager
+from manual_runtime_v2 import ProductionManualSessionManager
+from manual_text_v2 import install_manual_text_v2
 from pb_domain import ChargeIntent
 from runtime_safety_v2 import install_v2_runtime_safety
 from telegram_panel import install_panel_last
@@ -75,7 +76,7 @@ def _operator_modes_keyboard() -> InlineKeyboardMarkup:
                 sg_menu_button(),
             ],
             [
-                InlineKeyboardButton(text="Ручной режим", callback_data="profile_custom"),
+                InlineKeyboardButton(text="Ручной режим", callback_data="v2_manual"),
                 InlineKeyboardButton(text="Условие OFF", callback_data="menu_off"),
             ],
             [InlineKeyboardButton(text="⬅ К панели", callback_data="charge_back")],
@@ -156,16 +157,20 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             notify_cb=app._charge_notify,
         )
 
-    if not isinstance(getattr(app, "manual_session_manager", None), ManualSessionManager):
-        app.manual_session_manager = ManualSessionManager(app)
+    if not isinstance(
+        getattr(app, "manual_session_manager", None),
+        ProductionManualSessionManager,
+    ):
+        app.manual_session_manager = ProductionManualSessionManager(app)
 
-    # The legacy five-step Custom dialog remains a compatibility input surface only.
-    # Its final action is replaced with first-class Manual authority; it no longer starts
-    # ChargeController's chemistry-aware Custom/Main FSM.
+    # The old five-step Custom dialog is retained only as a stale-message/rollback
+    # compatibility surface. Its final action is first-class Manual authority, never the
+    # chemistry-aware Custom/Main FSM. Current V2 UI uses the native Manual command DSL.
     app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui
 
     install_v2_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
+    install_manual_text_v2(app)
 
     if not install_ui:
         return
