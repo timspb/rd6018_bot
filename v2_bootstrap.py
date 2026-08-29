@@ -11,26 +11,81 @@ from battery_registry import init_battery_registry, upsert_battery as registry_u
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
 from runtime_safety_strict import install_strict_runtime_safety
+from telegram_panel import install_panel_last
 from v2_battery_input import parse_battery_spec
 from v2_startup import start_profile_transactional
-from v2_ui_polish import install_dashboard_polish
+from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
+
+
+def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Обычный", callback_data=f"{prefix}_normal"),
+                InlineKeyboardButton(text="Восстановление", callback_data=f"{prefix}_recovery"),
+            ],
+            [
+                InlineKeyboardButton(text="Кондиционирование", callback_data=f"{prefix}_conditioning"),
+                InlineKeyboardButton(text="Диагностика", callback_data=f"{prefix}_diagnostic"),
+            ],
+            [InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")],
+        ]
+    )
+
+
+def _operator_preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="▶ Запустить программу", callback_data=start_callback)],
+            [InlineKeyboardButton(text="⬅ Изменить", callback_data="charge_modes")],
+        ]
+    )
+
+
+def _operator_modes_text() -> str:
+    return (
+        "<b>Программа заряда</b>\n\n"
+        "Рекомендуемый путь — выбрать сохранённый аккумулятор: его химия, ёмкость и история "
+        "будут привязаны к одной физической АКБ. Для разового запуска можно выбрать химию ниже.\n\n"
+        "<b>Цель программы</b>\n"
+        "Обычный — штатный заряд без автоматического высоковольтного этапа.\n"
+        "Восстановление — высоковольтный этап разрешается только по подтверждённым признакам.\n"
+        "Кондиционирование — сервисный режим внутри ограничений профиля.\n"
+        "Диагностика — наблюдение без автоматической HV-эскалации.\n\n"
+        "В CV окончание оценивается по Imin→ΔI; в CC — по Vmax→ΔV."
+    )
+
+
+def _operator_modes_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔋 Мои аккумуляторы", callback_data="v2_batteries")],
+            [
+                InlineKeyboardButton(text="Ca/Ca", callback_data="v2_profile_caca"),
+                InlineKeyboardButton(text="EFB", callback_data="v2_profile_efb"),
+                InlineKeyboardButton(text="AGM", callback_data="v2_profile_agm"),
+            ],
+            [
+                InlineKeyboardButton(text="＋ Добавить АКБ", callback_data="v2_battery_add"),
+                InlineKeyboardButton(text="Ручной режим", callback_data="profile_custom"),
+            ],
+            [
+                InlineKeyboardButton(text="Условие OFF", callback_data="menu_off"),
+                InlineKeyboardButton(text="⬅ К панели", callback_data="charge_back"),
+            ],
+        ]
+    )
 
 
 def install_v2(app: Any, *, install_ui: bool = True) -> None:
-    """Install the production V2 controller/safety boundary and optional V2 UI.
-
-    Actuator safety and ProductionChargeControllerV2 are deliberately independent
-    from the Telegram presentation.  ``V2_UI=0`` may roll back the UI, but it must
-    never silently remove recipe envelopes or the live fail-closed hardware guard.
-    """
+    """Install production V2 controller/safety and the operator-facing Telegram UI."""
     if not isinstance(app.charge_controller, ProductionChargeControllerV2):
         app.charge_controller = ProductionChargeControllerV2(
             app.hass,
             notify_cb=app._charge_notify,
         )
 
-    # This wraps the one HassClient instance used by every legacy/V2 caller. Install
-    # it before any background task can start or any UI handler can actuate RD6018.
+    # Safety is independent from presentation and remains installed even with V2_UI=0.
     install_strict_runtime_safety(app)
 
     if not install_ui:
@@ -44,15 +99,11 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             updated_at=time.time(),
         )
 
-    # v2_bot_ui callback bodies resolve these module globals at execution time. Keep
-    # the large Telegram adapter stable and inject the production-safe boundaries here.
     v2_bot_ui.upsert_battery = _upsert_from_ui
     v2_bot_ui._start_profile = start_profile_transactional
     v2_bot_ui.parse_battery_spec = parse_battery_spec
 
-    # Keep the old pipe syntax backward compatible, but do not make the operator type
-    # punctuation just to create a battery.  The primary UI now advertises natural
-    # whitespace/comma input; the parser also accepts the historical pipe form.
+    # Keep old pipe syntax backward compatible while advertising normal free-form input.
     original_safe_answer = v2_bot_ui._safe_answer
 
     async def _safe_answer_natural_battery_input(event, text: str, *, reply_markup=None) -> None:
@@ -70,15 +121,14 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
                 "varta70 AGM 70 Varta Silver Dynamic AGM",
             )
             text += "\n\nЗапятые и старый разделитель | тоже поддерживаются."
+        text = text.replace("🧭 V2 controller", "Контроллер заряда")
         await original_safe_answer(event, text, reply_markup=reply_markup)
 
     v2_bot_ui._safe_answer = _safe_answer_natural_battery_input
+    v2_bot_ui._intent_keyboard = _operator_intent_keyboard
+    v2_bot_ui._preview_keyboard = _operator_preview_keyboard
 
-    # IMPORTANT: register the exact saved-battery Start callback BEFORE installing
-    # v2_bot_ui.  That module also has a generic `v2_battery_*` selector registered
-    # before its own exact Start handler.  Aiogram stops at the first matching handler,
-    # so `v2_battery_start` used to be swallowed by the selector as a non-numeric id.
-    # Keep this narrow routing guard until the legacy adapter is retired/refactored.
+    # Exact saved-battery Start must precede the generic v2_battery_* selector.
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _v2_battery_start_route(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -87,7 +137,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         user_id = call.from_user.id if call.from_user else 0
         pending = v2_bot_ui._pending_start.get(user_id)
         if pending is None:
-            await call.answer("Preview устарел — выберите АКБ заново", show_alert=True)
+            await call.answer("Предпросмотр устарел — выберите АКБ заново", show_alert=True)
             return
         if await start_profile_transactional(app, call, pending):
             v2_bot_ui._pending_start.pop(user_id, None)
@@ -95,8 +145,27 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui.install_v2_ui(app)
     install_dashboard_polish(app, v2_bot_ui)
 
-    # A stale legacy profile button can still populate awaiting_ah without a V2 intent.
-    # Migration must be conservative: missing intent means NORMAL, never RECOVERY.
+    # Replace the inherited legacy navigation hierarchy with one stable operator panel.
+    app._charge_modes_text = _operator_modes_text
+    app._build_charge_modes_keyboard = _operator_modes_keyboard
+
+    def _build_operator_dashboard(
+        is_on: bool,
+        user_id: int,
+        *,
+        back_to_dashboard: bool = False,
+    ) -> InlineKeyboardMarkup:
+        return build_operator_dashboard_keyboard(
+            app,
+            is_on,
+            user_id,
+            back_to_dashboard=back_to_dashboard,
+        )
+
+    app._build_dashboard_keyboard = _build_operator_dashboard
+
+    # A stale legacy profile button can still populate awaiting_ah without an explicit
+    # intent. Missing intent is conservative NORMAL, never implicit Recovery.
     installed_handle_ah = app.handle_ah_input
 
     async def _handle_ah_conservative(message, profile: str, user_id: int) -> None:
@@ -105,44 +174,13 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
     app.handle_ah_input = _handle_ah_conservative
 
-    # In V2, an idle dashboard must not expose the old "turn on whatever setpoints are
-    # currently in RD6018" shortcut. Starting always goes through chemistry -> intent
-    # -> preview -> transactional enable. STOP remains the legacy hard-stop callback.
-    installed_dashboard_keyboard = app._build_dashboard_keyboard
-
-    def _build_v2_dashboard_keyboard(
-        is_on: bool,
-        user_id: int,
-        *,
-        back_to_dashboard: bool = False,
-    ) -> InlineKeyboardMarkup:
-        markup = installed_dashboard_keyboard(
-            is_on,
-            user_id,
-            back_to_dashboard=back_to_dashboard,
-        )
-        if is_on:
-            return markup
-
-        rows = []
-        for row in markup.inline_keyboard:
-            new_row = []
-            for button in row:
-                if button.callback_data == "power_toggle":
-                    new_row.append(
-                        InlineKeyboardButton(
-                            text="🚀 ПРОГРАММА",
-                            callback_data="charge_modes",
-                        )
-                    )
-                else:
-                    new_row.append(button)
-            rows.append(new_row)
-        return InlineKeyboardMarkup(inline_keyboard=rows)
-
-    app._build_dashboard_keyboard = _build_v2_dashboard_keyboard
+    # Telegram message order is part of the operator UX: every prompt/notice/detail is
+    # allowed to live above the terminal dashboard, but the control panel itself is
+    # always restored as the last bot message. This is presentation-only and never
+    # actuates HA/RD6018 on its own.
+    install_panel_last(app)
 
 
 async def init_v2_storage() -> None:
-    """Create/migrate the physical battery and recovery-history tables at startup."""
+    """Create/migrate physical battery and recovery-history tables at startup."""
     await init_battery_registry()

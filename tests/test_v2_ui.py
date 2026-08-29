@@ -17,17 +17,16 @@ from v2_ui import (
 
 
 class V2UiTests(unittest.TestCase):
-    def test_normal_preview_explicitly_has_no_hv(self):
+    def test_normal_preview_explicitly_forbids_high_voltage_stage(self):
         preview = build_program_preview(
             profile="AGM",
             capacity_ah=70,
             intent=ChargeIntent.NORMAL,
             condition=BatteryCondition.HEALTHY,
         )
-        self.assertIn("HV/Mix", preview.text)
-        self.assertIn("не разрешён", preview.text)
-        self.assertIn("15.00V", preview.text)
-        self.assertNotIn("16.3V</b>", preview.text)
+        self.assertIn("Высоковольтный этап: запрещён", preview.text)
+        self.assertIn("Ограничение профиля: <b>15.00 V</b>", preview.text)
+        self.assertNotIn("Mix: до <b>16.3 V</b>", preview.text)
 
     def test_recovery_preview_exposes_hv_and_mode_specific_finish(self):
         preview = build_program_preview(
@@ -36,12 +35,14 @@ class V2UiTests(unittest.TestCase):
             intent=ChargeIntent.RECOVERY,
             condition=BatteryCondition.SULFATED_SUSPECTED,
         )
-        self.assertIn("16.5V", preview.text)
-        self.assertIn("20ч", preview.text)
+        self.assertIn("Высоковольтный этап", preview.text)
+        self.assertIn("16.5 V", preview.text)
+        self.assertIn("20 ч", preview.text)
         self.assertIn("Imin → ΔI", preview.text)
         self.assertIn("Vmax → ΔV", preview.text)
+        self.assertIn("финальная выдержка 2 ч", preview.text)
 
-    def test_cv_card_uses_current_evidence_only(self):
+    def test_cv_detail_uses_current_evidence_only(self):
         text = format_active_evidence(
             {
                 "authoritative": True,
@@ -61,11 +62,11 @@ class V2UiTests(unittest.TestCase):
                 },
             }
         )
-        self.assertIn("CV — анализ по току", text)
+        self.assertIn("CV · анализ по току", text)
         self.assertIn("Imin", text)
         self.assertNotIn("Vmax", text)
 
-    def test_cc_card_uses_voltage_evidence_only(self):
+    def test_cc_detail_uses_voltage_evidence_only(self):
         text = format_active_evidence(
             {
                 "authoritative": True,
@@ -85,12 +86,12 @@ class V2UiTests(unittest.TestCase):
                 },
             }
         )
-        self.assertIn("CC — анализ по напряжению", text)
+        self.assertIn("CC · анализ по напряжению", text)
         self.assertIn("Vmax", text)
         self.assertNotIn("Imin", text)
-        self.assertIn("finish hold 2ч", text)
+        self.assertIn("финальная выдержка 2 ч", text)
 
-    def test_battery_card_surfaces_longitudinal_state(self):
+    def test_battery_card_surfaces_longitudinal_state_without_dev_labels(self):
         lifecycle = BatteryLifecycle(
             condition=BatteryCondition.REHYDRATED,
             water_added_total_ml=240,
@@ -112,9 +113,10 @@ class V2UiTests(unittest.TestCase):
         card = format_battery_card(record)
         self.assertIn("rehydrated", card)
         self.assertIn("240 мл", card)
-        self.assertIn("Capacity 61Ah", card)
-        self.assertIn("CCA 610A", card)
-        self.assertIn("Ri 6.3mΩ", card)
+        self.assertIn("Ёмкость 61 Ah", card)
+        self.assertIn("CCA 610 A", card)
+        self.assertIn("Ri 6.3 mΩ", card)
+        self.assertNotIn("Capacity", card)
         self.assertIn("Varta", battery_button_label(record))
 
 

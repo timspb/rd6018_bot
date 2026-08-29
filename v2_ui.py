@@ -16,10 +16,10 @@ from recipe_engine import select_recipe_envelope
 
 
 INTENT_LABELS = {
-    ChargeIntent.NORMAL: "⚡ Обычный заряд",
-    ChargeIntent.RECOVERY: "🛠 Восстановление",
-    ChargeIntent.CONDITIONING: "🔄 Кондиционирование",
-    ChargeIntent.DIAGNOSTIC: "🔬 Диагностика",
+    ChargeIntent.NORMAL: "Обычный заряд",
+    ChargeIntent.RECOVERY: "Восстановление",
+    ChargeIntent.CONDITIONING: "Кондиционирование",
+    ChargeIntent.DIAGNOSTIC: "Диагностика",
 }
 
 CONDITION_LABELS = {
@@ -110,7 +110,7 @@ def battery_button_label(record: BatteryRecord) -> str:
     if not name:
         name = identity.battery_id
     chem = CHEMISTRY_LABELS[identity.chemistry]
-    return f"🔋 {name} · {chem} {identity.nominal_capacity_ah:g}Ah"[:60]
+    return f"🔋 {name} · {chem} {identity.nominal_capacity_ah:g} Ah"[:60]
 
 
 def format_battery_card(record: BatteryRecord) -> str:
@@ -120,8 +120,8 @@ def format_battery_card(record: BatteryRecord) -> str:
     if not title:
         title = identity.battery_id
     lines = [
-        f"<b>🔋 {html.escape(title)}</b>",
-        f"ID: <code>{html.escape(identity.battery_id)}</code>",
+        f"<b>{html.escape(title)}</b>",
+        f"<code>{html.escape(identity.battery_id)}</code> · "
         f"{CHEMISTRY_LABELS[identity.chemistry]} · {identity.nominal_capacity_ah:g} Ah",
         f"Состояние: <b>{html.escape(condition_label(lifecycle.condition))}</b>",
     ]
@@ -131,11 +131,11 @@ def format_battery_card(record: BatteryRecord) -> str:
         lines.append(f"Долито воды: <b>{lifecycle.water_added_total_ml:g} мл</b>")
     metrics = []
     if lifecycle.measured_capacity_ah is not None:
-        metrics.append(f"Capacity {lifecycle.measured_capacity_ah:g}Ah")
+        metrics.append(f"Ёмкость {lifecycle.measured_capacity_ah:g} Ah")
     if lifecycle.cca_a is not None:
-        metrics.append(f"CCA {lifecycle.cca_a:g}A")
+        metrics.append(f"CCA {lifecycle.cca_a:g} A")
     if lifecycle.internal_resistance_mohm is not None:
-        metrics.append(f"Ri {lifecycle.internal_resistance_mohm:g}mΩ")
+        metrics.append(f"Ri {lifecycle.internal_resistance_mohm:g} mΩ")
     if metrics:
         lines.append(" · ".join(metrics))
     return "\n".join(lines)
@@ -163,38 +163,42 @@ def build_program_preview(
     )
 
     lines = [
-        f"<b>🧭 V2 программа · {html.escape(profile)} {capacity_ah:g}Ah</b>",
-        f"Режим: <b>{html.escape(intent_label(intent))}</b>",
-        f"Состояние: {html.escape(condition_label(condition))}",
+        f"<b>Программа заряда · {html.escape(profile)} {capacity_ah:g} Ah</b>",
+        f"Цель: <b>{html.escape(intent_label(intent))}</b>",
+        f"Состояние АКБ: {html.escape(condition_label(condition))}",
         "",
-        f"Prep: <b>12.0V / 0.01C</b>",
-        f"Main: <b>{MAIN_TARGETS[chemistry]}</b> · до {envelope.main_current_limit_a:g}A",
+        "<b>Основной этап</b>",
+        f"Напряжение: {MAIN_TARGETS[chemistry]}",
+        f"Ограничение тока: до {envelope.main_current_limit_a:g} A",
     ]
 
     if intent in {ChargeIntent.RECOVERY, ChargeIntent.CONDITIONING}:
         mix_v = MIX_TARGETS_V[chemistry]
         lines.extend(
             [
-                "Desulf: только при подтверждённой устойчивой CV-полке и допустимом C-rate",
-                f"Mix: <b>{mix_v:.1f}V</b> · до {envelope.hv_current_limit_a:g}A · окно {MIX_LIMIT_HOURS[chemistry]}ч",
-                "Финиш CV: <b>Imin → ΔI</b>",
-                "Финиш CC: <b>Vmax → ΔV</b>",
-                "После подтверждения Δ: sticky hold 2ч → SAFE_WAIT",
+                "",
+                "<b>Высоковольтный этап</b>",
+                "Разрешается только после подтверждённых признаков по данным заряда.",
+                f"Mix: до <b>{mix_v:.1f} V</b> · до {envelope.hv_current_limit_a:g} A · контрольное окно {MIX_LIMIT_HOURS[chemistry]} ч",
+                "Финиш в CV: Imin → ΔI",
+                "Финиш в CC: Vmax → ΔV",
+                "После подтверждения Δ: финальная выдержка 2 ч → безопасное ожидание.",
             ]
         )
     else:
         lines.extend(
             [
-                "HV/Mix: <b>не разрешён этим intent</b>",
-                "После подтверждённого Main-tail: SAFE_WAIT → Done/Storage",
+                "",
+                "<b>Высоковольтный этап: запрещён</b>",
+                "После подтверждённого хвоста основного этапа — безопасное ожидание и завершение.",
             ]
         )
 
     lines.extend(
         [
             "",
-            f"Recipe ceiling: <b>{envelope.voltage_ceiling_v:.2f}V</b>",
-            "Напряжение рабочих этапов корректируется по temp_ext в пределах recipe/safety envelope.",
+            f"Ограничение профиля: <b>{envelope.voltage_ceiling_v:.2f} V</b>",
+            "Рабочее напряжение корректируется по температуре АКБ только внутри разрешённого диапазона.",
         ]
     )
     return ProgramPreview(
@@ -231,52 +235,52 @@ def format_active_evidence(
     current_a: Optional[float] = None,
     temp_c: Optional[float] = None,
 ) -> str:
-    """Compact, regulator-mode-specific status for the active Telegram card."""
+    """Detailed controller evidence for the secondary controller-status screen."""
 
     metrics = dict(snapshot.get("metrics") or {})
     is_cv = bool(snapshot.get("is_cv"))
     is_cc = bool(snapshot.get("is_cc"))
     lines = []
 
-    authority = "V2" if snapshot.get("authoritative") else "legacy fallback"
+    authority = "V2" if snapshot.get("authoritative") else "резервная legacy-логика"
     intent_raw = str(snapshot.get("intent") or ChargeIntent.RECOVERY.value)
     try:
         intent = ChargeIntent(intent_raw)
         intent_text = INTENT_LABELS[intent]
     except ValueError:
         intent_text = intent_raw
-    lines.append(f"🧭 <b>{authority}</b> · {html.escape(intent_text)}")
+    lines.append(f"Контур: <b>{html.escape(authority)}</b> · {html.escape(intent_text)}")
 
     if is_cv:
         imin = metrics.get("current_min_a")
         delta = metrics.get("delta_current_from_min_a")
         threshold = metrics.get("reversal_threshold_a")
         age = metrics.get("seconds_since_current_min")
-        lines.append("🟢 <b>CV — анализ по току</b>")
+        lines.append("<b>CV · анализ по току</b>")
         lines.append(
-            f"Imin {_fmt(imin, 3, 'A')} · ΔI {_fmt(delta, 3, 'A')} / {_fmt(threshold, 3, 'A')} · после Imin {_duration(age)}"
+            f"Imin {_fmt(imin, 3, ' A')} · ΔI {_fmt(delta, 3, ' A')} / {_fmt(threshold, 3, ' A')} · после Imin {_duration(age)}"
         )
     elif is_cc:
         vmax = metrics.get("voltage_max_v")
         delta_v = metrics.get("delta_voltage_from_max_v")
         threshold_v = metrics.get("voltage_reversal_threshold_v")
         age = metrics.get("seconds_since_voltage_max")
-        lines.append("🟠 <b>CC — анализ по напряжению</b>")
+        lines.append("<b>CC · анализ по напряжению</b>")
         lines.append(
-            f"Vmax {_fmt(vmax, 3, 'V')} · ΔV {_fmt(delta_v, 3, 'V')} / {_fmt(threshold_v, 3, 'V')} · после Vmax {_duration(age)}"
+            f"Vmax {_fmt(vmax, 3, ' V')} · ΔV {_fmt(delta_v, 3, ' V')} / {_fmt(threshold_v, 3, ' V')} · после Vmax {_duration(age)}"
         )
     else:
-        lines.append("⚪ Режим регулятора пока не подтверждён")
+        lines.append("Режим регулятора пока не подтверждён")
 
     trend = metrics.get("d_temp_c_per_min")
     decision = str(snapshot.get("decision") or "continue")
     lines.append(
-        f"T trend {_fmt(trend, 3, '°C/min')} · decision <code>{html.escape(decision)}</code>"
+        f"Температурный тренд {_fmt(trend, 3, ' °C/мин')} · решение <code>{html.escape(decision)}</code>"
     )
     if snapshot.get("finish_hold_started_at") is not None:
-        lines.append("🎯 Delta подтверждена · <b>finish hold 2ч</b>")
+        lines.append("Δ подтверждена · <b>финальная выдержка 2 ч</b>")
     if voltage_v is not None or current_a is not None or temp_c is not None:
         lines.append(
-            f"Факт: {_fmt(voltage_v, 2, 'V')} · {_fmt(current_a, 2, 'A')} · {_fmt(temp_c, 1, '°C')}"
+            f"Факт: {_fmt(voltage_v, 2, ' V')} · {_fmt(current_a, 2, ' A')} · {_fmt(temp_c, 1, ' °C')}"
         )
     return "\n".join(lines)
