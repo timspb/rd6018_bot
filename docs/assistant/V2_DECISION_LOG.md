@@ -63,22 +63,22 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED / IMPLEMENTED.** Output OFF; exact source target preserved; active clocks frozen; recovery budget/AGM step/extrema/confirmed delta preserved; stuck plateau and incomplete delta continuity invalidated; sticky finish hold timer paused; state persisted/restorable.
 
 ## D020 — Manual is a first-class supported mode
-**ACCEPTED / IMPLEMENTED FOUNDATION.** `ManualSessionManager` owns Manual output independently from the Pb chemistry FSM. Manual is not `Idle + Output ON` and is not legacy Custom chemistry authority.
+**ACCEPTED / IMPLEMENTED.** The production Manual runtime owns Manual output independently from the Pb chemistry FSM. Manual is not `Idle + Output ON` and is not legacy Custom chemistry authority.
 
 ## D021 — Manual working inputs are operator-defined; protections are not
-**ACCEPTED / IMPLEMENTED.** Operator may define V/I and stop conditions. OVP/OCP are always derived from V/I and cannot be weakened manually. Backend Manual accepts up to 17.5 V and 12 A. Legacy five-step UI is currently only a compatibility input surface and still needs native V2 UX cleanup (Q002).
+**ACCEPTED / IMPLEMENTED.** Operator may define V/I and stop conditions. OVP/OCP are always derived from V/I and cannot be weakened manually. Production Manual UI/text authority exposes the full 17.5 V / 12 A envelope. The old five-step Custom dialog remains only for stale-message/rollback compatibility and its final action is redirected into Manual authority.
 
 ## D022 — Manual completion belongs to the operator, safety outranks everything
-**ACCEPTED / IMPLEMENTED FOUNDATION.** Automatic Pb transitions (`plateau -> recovery`, `tail -> Mix`, chemistry timeouts, Storage transitions) do not run in Manual. Operator stop conditions (timer, V/I thresholds, optional mode-aware delta) own normal Manual completion. Hard thermal/electrical/readback/watchdog safety is non-bypassable.
+**ACCEPTED / IMPLEMENTED.** Automatic Pb transitions (`plateau -> recovery`, `tail -> Mix`, chemistry timeouts, Storage transitions) do not run in Manual. Operator stop conditions (timer, V/I thresholds, exact reach, optional mode-aware delta) own normal Manual completion. Hard thermal/electrical/readback/watchdog safety is non-bypassable.
 
 ## D023 — Manual Cooling preserves the exact manual program
-**ACCEPTED / IMPLEMENTED.** At battery T >=40C Manual goes OFF/COOLING; active timer pauses; at <=35C the exact same V/I and freshly derived protections are safely re-applied; continuity-dependent delta proof resets. >=45C is terminal stop.
+**ACCEPTED / IMPLEMENTED.** At battery T >=40C Manual goes OFF/COOLING; active timer pauses; at <=35C the exact same V/I and freshly derived protections are safely re-applied; continuity-dependent delta/reach sampling proof resets. >=45C is terminal stop.
 
 ## D024 — Manual does not silently re-energize after process restart
-**ACCEPTED SAFETY INVARIANT / IMPLEMENTED.** Persisted active/arming/cooling Manual state restores as `INTERRUPTED`; the saved request remains for review, but Output ON requires fresh operator re-authorization and normal safe-enable checks.
+**ACCEPTED SAFETY INVARIANT / IMPLEMENTED.** Persisted active/arming/cooling Manual state restores as `INTERRUPTED`; the saved request and exact-reach metadata remain for review, but Output ON requires fresh operator re-authorization and normal safe-enable checks.
 
 ## D025 — Manual OFF / manual stop conditions are operator kill conditions
-**ACCEPTED.** V>=, V<=, I>=, I<=, timer and equivalent Manual stop conditions are not chemistry evidence. For explicit Manual, they own normal stop behavior. Their remaining interaction with automatic-profile legacy `manual_off` compatibility is Q003.
+**ACCEPTED / IMPLEMENTED FOR MANUAL.** V>=, V<=, V=/reach, I>=, I<=, I=/reach, timer and equivalent Manual stop conditions are not chemistry evidence. For explicit Manual they own normal stop behavior. The persistent legacy Manual-OFF overlay is observed by the managed Manual runtime so another path cannot turn Output off while Manual remains logically ACTIVE. Interaction with automatic-profile legacy `manual_off` is still Q003.
 
 ## D026 — bank/cell fault inference must be hypothesis-specific
 **ACCEPTED / FOUNDATION IMPLEMENTED.** Replace one generic “bad battery” score with hypotheses such as cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality and charger/path fault. V1 heuristic score remains evidence, never proof.
@@ -87,10 +87,10 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED.** Diagnostics may request/perform bounded experiments to confirm/refute hypotheses. They may alter charge only in a safer/equal-energy direction (for example a controlled current reduction or OFF relaxation window), must restore prior setpoints transactionally, and must never invent extra HV merely to “test” a battery.
 
 ## D028 — confirmed cell-fault evidence may block further automatic HV
-**ACCEPTED PRINCIPLE / THRESHOLDS OPEN.** Strong multi-signal evidence can deny the next automatic Recovery/Mix escalation. A heuristic score or a single SG/U/I sample cannot. Immediate unsafe thermal/electrical behavior remains hard-safety authority. Exact confirmation criteria are Q013.
+**ACCEPTED / IMPLEMENTED CONSERVATIVELY.** A new automatic Recovery/Mix escalation may be denied only by strong cell-fault evidence. Current implementation requires explicit external confirmation or high-confidence independent multi-signal evidence; a heuristic score, one U/I sample or first SG imbalance cannot veto corrective equalization. Diagnostic inference cannot itself create `HARD_STOP`; immediate unsafe thermal/electrical behavior remains hard-safety authority. Calibration remains Q004/Q013.
 
 ## D029 — per-cell specific gravity is first-class external evidence
-**ACCEPTED / IMPLEMENTED FOUNDATION.** For accessible flooded cells, store all six positions, raw SG, measurement temperature, timestamp, context, source and notes. Missing/inaccessible cells remain explicit `None`. A full-cell spread >=0.030 currently escalates to `VERIFY`, not “shorted cell”. Manufacturer/hydrometer-specific temperature correction must not overwrite the raw measurement.
+**ACCEPTED / IMPLEMENTED FOUNDATION + UI.** For accessible flooded cells, store all six positions, raw SG, measurement temperature, timestamp, context, source and notes. Missing/inaccessible cells remain explicit `None`. Telegram V2 can enter SG for a saved physical battery. A first full-cell spread >=0.030 is imbalance/stratification evidence, not “shorted cell” and not an automatic equalization veto. Manufacturer/hydrometer-specific correction policy remains open.
 
 ## D030 — RD6018 displayed V/I resistance is not battery internal resistance
 **ACCEPTED.** Ordinary `V/I` adds no independent battery-Ri evidence during charging and must not be labelled battery resistance.
@@ -116,6 +116,18 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D037 — 24–48 h post-heavy-charge rest is useful but not yet a lockout
 **OPEN IMPLEMENTATION.** Treat as diagnostic/operator recommendation until Q006 is explicitly resolved.
 
+## D038 — every production Manual text entry converges on one managed authority
+**ACCEPTED / IMPLEMENTED.** Native V2 Manual and historic quick `V I` / `V I third-condition` text are intercepted before the legacy catch-all handler and become `ManualSession` operations. Production V2 no longer permits those commands to write raw setpoints while the controller remains Idle/unmanaged.
+
+## D039 — active Manual reconfiguration is transactional, not live raw setpoint mutation
+**ACCEPTED / IMPLEMENTED.** Changing V/I during an active Manual session uses verified Output OFF, retires the previous Manual runner, then performs a fresh protected/readback-verified enable. This intentionally accepts a brief output interruption in exchange for one unambiguous protection envelope and runner ownership.
+
+## D040 — historic `V I third` “reach” semantics are not encoded as contradictory inequalities
+**ACCEPTED / IMPLEMENTED.** `15V` or `1.0A` means reach/cross that value. V2 tracks sample-to-sample crossing with a small tolerance and persists the target. Encoding equality as both >= and <= is forbidden because it can stop immediately on the wrong side of the target.
+
+## D041 — controlled current probe exists but automatic trigger policy is not guessed
+**ACCEPTED / IMPLEMENTED EXECUTOR.** The diagnostic executor can only lower current, gathers median U/I evidence, restores the exact prior current, and forces Output OFF if restoration/readback cannot be proven. Automatic amplitude/window/stage selection stays disabled until Q005/Q014 are calibrated on the physical RD6018 path.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -124,6 +136,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `085eb08...`: production V2 runtime safety aligned with Vin-as-diagnostics semantics.
 - `1e11138...` + `57fbea3...`: first-class Manual authority wired into production V2; legacy Custom dialog becomes an input adapter only.
 - `8b660b0...`: Manual contract tests; CI green on Python 3.10/3.11/3.12.
+- `a693090...` + `54fd424...`: native/unified Manual text authority, exact-reach compatibility, verified Manual reconfiguration and tests.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
