@@ -1,205 +1,341 @@
-# RD6018 Telegram Bot
+# RD6018 Telegram Bot — Pb Recovery Controller V2
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![Aiogram](https://img.shields.io/badge/Aiogram-3.x-green.svg)](https://aiogram.dev)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Telegram controller for an RD6018 power supply through Home Assistant, with evidence-driven lead-acid charging/recovery logic.
 
-Бот для управления RD6018 через Home Assistant из Telegram:
-- авто-режимы заряда Ca/Ca, EFB, AGM;
-- ручной режим (Custom);
-- график и компактный дашборд в одном сообщении;
-- логирование этапов, триггеров, защит и восстановлений;
-- AI-анализ (опционально, через DeepSeek), который опирается на реальную стратегию, а не на догадки.
+This branch is the production V2 cutover. It is safety-critical code: the bot can command real voltage/current to a physical battery.
 
-## Что важно знать
+## Production entrypoint
 
-- Этапы в авто: `Подготовка -> Main -> (Desulfation) -> Mix -> SAFE_WAIT -> Done/Storage`.
-- Подготовка использует `12.0V` и ток `0.01C` от заданной ёмкости для любого профиля.
-- Жесткий лимит тока на всех этапах: **12.0A** (`MAX_STAGE_CURRENT`).
-- Защитные лимиты RD6018 при смене этапа: `OVP = U_target + 0.1V`, `OCP = I_target + 0.1A`.
-- Main ограничен `72ч`; для **Ca/Ca** и **EFB** при тайм-ауте допускается принудительный переход в Mix.
-- `Mix` завершается по подтвержденной дельте: `ΔV = 0.03V` от пика, `ΔI = 30%` от текущей токовой полки, но не ниже `0.03A`; таймер после дельты является fallback-лимитом.
-- После `Mix` всегда идет `SAFE_WAIT`.
-- `SAFE_WAIT` ведет короткую постзарядную релаксацию по окнам `5m`, `10m`, `15m` и показывает компактную сводку по падению напряжения.
-- Температурная защита по внешнему датчику АКБ: `35C` предупреждение, `40C` пауза, `45C` аварийный стоп.
-- Термокомпенсация уставок по `temp_ext`: опорные `25C`, коррекция только напряжения, `Ca/Ca` и `EFB` - `0.018V/°C`, `AGM` - `0.016V/°C`, `Custom` - `0.018V/°C`.
-- Компенсация пересчитывается на входе в этап, при восстановлении сессии и может плавно подстраивать напряжение в процессе заряда с гистерезисом и ограничением частоты обновления.
-- `temp_ext` — это температура АКБ, `temp_int` — температура блока/БП; для стратегии и AI ориентируйтесь на [docs/assistant/CHARGE_STRATEGY.md](docs/assistant/CHARGE_STRATEGY.md). Для AI `temp_int` до ~50°C считается рабочим мониторингом, а не риском батареи.
-- При подозрении на коротнувшую/сильно деградировавшую банку бот может выдать одноразовое событие `Вероятен КЗ банки` по совокупности косвенных признаков: Prep, Main, SAFE_WAIT, температура и приёмка заряда.
+```bash
+python bot.py
+```
 
-## Роль AI
+`bot.py` is intentionally a small V2 entrypoint. The previous large Telegram/HA runtime is preserved as `bot_legacy.py` and is wrapped by the V2 bootstrap.
 
-- Кнопка `AI-анализ` дает компактный технический отчет по текущему этапу, текущим уставкам, удержанию, безопасным лимитам и последним событиям.
-- Диалоговый `/ai` отвечает более развернуто, но все равно опирается на текущую FSM, а не на “общие рассуждения”.
-- AI видит:
-  - текущий этап и следующий переход;
-  - `hold`-логику, `Mix`-дельту и таймеры;
-  - `SAFE_WAIT`-релаксацию;
-  - `temp_ext` и `temp_int` как разные сигналы;
-  - последние события и шумовые повторы, уже сжатые в краткий вид.
+Production controller:
 
-## Профили заряда
+```text
+ProductionChargeControllerV2
+  -> ChargeControllerV2 evidence/transition authority
+  -> legacy safety/mechanics scaffold
+  -> chemistry + intent recipe envelope
+  -> SafeOutputCoordinator / HassClient
+  -> Home Assistant
+  -> RD6018
+```
 
-### Ca/Ca
-- Main: `14.7V`, ток `0.1C` (но не выше 12A)
-- Переход Main -> Mix: `CV и I < 0.3A` в течение `3ч` без нового минимума
-- Mix: `16.5V`, ток `0.03C` (не выше 12A), лимит `8ч`
+For deployment and rollback use [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Agents should also read [`AGENTS.md`](AGENTS.md).
 
-### EFB
-- Main: `14.8V`, ток `0.1C` (но не выше 12A)
-- Переход Main -> Mix: `CV и I < 0.3A` в течение `3ч` без нового минимума
-- Mix: `16.5V`, ток `0.03C` (не выше 12A), лимит `10ч`
+## Core V2 model
 
-### AGM
-- Main по ступеням: `14.4 -> 14.6 -> 14.8 -> 15.0V`
-- Переход между ступенями и в Mix: `CV и I < 0.2A` в течение `2ч` без нового минимума
-- Mix: `16.3V`, ток `0.03C` (не выше 12A), лимит `5ч`
+Charging is no longer described only by a battery profile. Four dimensions are separate:
 
-## Desulfation (авто)
-- Триггер: ток «застрял» в CV не менее `40` минут для Ca/Ca и EFB, и `2` часов для AGM
-- Порог застревания: `>=0.3A` (Ca/Ca, EFB), `>=0.2A` (AGM)
-- Уставки: `16.3V` и `2% от Ah` (не выше 12A)
-- Лимит: `2ч` на цикл
-- Макс циклов: `3` для Ca/Ca/EFB, `4` для AGM
+- **chemistry**: AGM / EFB / Ca/Ca / Flooded / Custom;
+- **intent**: Normal / Recovery / Conditioning / Diagnostic;
+- **condition**: Unknown / Healthy / Sulfated suspected / Dry suspected / Rehydrated / Overwet suspected / Stratified suspected / Degraded;
+- **stage**: Prep / Main / Desulfation / Mix / SAFE_WAIT / Cooling / Done.
 
-## Custom режим
+Examples:
 
-Пользователь задаёт:
-- Main напряжение
-- Main ток
-- Delta-порог
-- Лимит времени Main
-- Емкость АКБ (Ah)
+```text
+AGM + NORMAL
+AGM + REHYDRATED + RECOVERY
+```
 
-Особенности:
-- Main стартует сразу, без этапа Подготовка.
-- Завершение по delta (dV/dI) или по лимиту времени.
-- Для delta используется подтверждение: `3` срабатывания подряд с интервалом `1 мин`.
-- Мониторинг delta включается через `120 сек` после смены уставок.
+are intentionally different controller contexts.
 
-## Команды Telegram
+The detailed strategy source of truth is [`docs/assistant/CHARGE_STRATEGY.md`](docs/assistant/CHARGE_STRATEGY.md).
 
-- `/start` — открыть/обновить дашборд
-- `/modes` — выбор профиля заряда
-- `/off` — меню «Off по условию»
-- `/logs` — логи текущей сессии
-- `/ai` — AI-анализ телеметрии
-- `/stats` — подсказка где смотреть расширенную инфу
-- `/entities` — статус HA-сущностей
-- `/help` — краткая справка по режимам
+## Production authority
 
-## Off по условию
+For non-Custom profiles, V2 is actuator-authoritative for Main/Mix transition decisions.
 
-Можно задать выключение по любому из условий:
-- напряжение (`V>=`, `V<=`)
-- ток (`I>=`, `I<=`)
-- таймер (`H:MM`)
+- Normal and Diagnostic never automatically escalate to Recovery HV/Mix.
+- Recovery and Conditioning may enter HV only after V2 evidence and recipe authorization.
+- legacy `ChargeController.tick()` remains as the proven scaffold for telemetry validation, temperature safety, hard timeout, SAFE_WAIT/Cooling, restore and persistence;
+- ordinary legacy `Main -> HV` and `Mix -> finish` triggers are masked while V2 authority is enabled;
+- Custom remains legacy-authoritative because it is an explicit operator-defined contract.
 
-Примеры:
-- `off I<=1.20`
-- `off V>=16.4`
-- `off 2:00`
-- `off I>=2 V<=13.5 2:00`
-- `off` — сброс условия
+Emergency rollback:
 
-Состояние сохраняется в `manual_off_state.json` и восстанавливается после перезапуска.
+```bash
+V2_AUTHORITATIVE=0 python bot.py
+```
 
-## Дашборд
+## CV and CC are different physical observations
 
-- Бот поддерживает **одно рабочее сообщение дашборда** на чат/пользователя: обновление идёт через edit/delete, без бесконечного наращивания сообщений.
-- Кнопки диапазона графика: `Норма`, `30м`, `2ч`, `Сессия`.
-- В «Полная инфо» показываются текущий этап, уставки, лимиты и состояние сессии.
-- В «Логи» выводятся события текущей сессии с фильтрацией служебного шума.
-- В компактной карточке видно условие перехода, факт его достижения и оставшееся время после достижения.
-- Для постзарядной релаксации в «Полная инфо» показывается короткая сводка по окнам `5m/10m/15m`.
+V2 never interprets every finish through current.
 
-## Установка
+### CV — voltage is controlled
 
-### Требования
-- Python 3.10+
-- Home Assistant с интеграцией RD6018
-- Telegram bot token
-- DeepSeek API key (опционально)
+The independent battery response is current:
 
-### Быстрый старт
+```text
+I falls -> Imin -> confirmed current rise (delta-I)
+```
+
+Current working Mix reversal threshold:
+
+```text
+max(0.03 A instrument floor, 0.30 * Imin)
+```
+
+A current rise by itself is not treated as thermal runaway. Voltage and temperature behavior provide the context.
+
+### CC — current is controlled
+
+The independent battery response is voltage:
+
+```text
+U rises -> Vmax -> confirmed voltage fall (delta-V)
+```
+
+Current CC observation threshold is `0.03 V` with confirmation/hysteresis.
+
+In CC, regulated current is not used as the independent chemical finish signal.
+
+## Mix timing
+
+Recovery Mix base/fallback windows:
+
+| Chemistry | Mix base | Evidence-search fallback window |
+|---|---:|---:|
+| AGM | 16.3 V | 10 h |
+| EFB | 16.5 V | 20 h |
+| Ca/Ca | 16.5 V | 20 h |
+
+After a valid CV delta-I or CC delta-V is confirmed, V2 starts a **sticky 2-hour finish hold**.
+
+The profile window is a fallback deadline while searching for evidence. It does not cancel an already-active finish hold. Thermal, telemetry, communication and hardware safety always outrank the hold.
+
+## Main / HV behavior
+
+V2 replaces the old universal `0.2 A / 0.3 A` interpretation with capacity-normalized evidence.
+
+- tail current is interpreted relative to battery Ah;
+- a new minimum resets tail age;
+- sufficiently old/stable tail may allow progression;
+- persistent plateau above roughly `1%C` is not treated as an automatic reason to increase voltage;
+- abnormal thermal or voltage behavior prevents automatic HV escalation.
+
+AGM Main still uses stepped base targets:
+
+```text
+14.4 -> 14.6 -> 14.8 -> 15.0 V
+```
+
+but V2 evidence owns advancement toward recovery HV.
+
+## Recipe envelopes
+
+Every production target is bounded **after temperature compensation** by chemistry + intent.
+
+| Chemistry | Normal / Diagnostic | Recovery | Conditioning without expert authorization |
+|---|---:|---:|---:|
+| AGM | 15.0 V | 16.3 V | 16.3 V |
+| EFB | 14.8 V | 16.5 V | 16.5 V |
+| Ca/Ca | 14.7 V | 16.5 V | 16.5 V |
+| Flooded | 14.8 V | 16.5 V | 16.5 V |
+
+The policy model contains an explicit EFB expert envelope up to 17.5 V, but the normal Telegram V2 workflow does **not** authorize it automatically.
+
+Pre-V2 session files have no intent. They are migrated conservatively as `NORMAL`, and restored setpoints are re-bounded by the resulting recipe envelope.
+
+## Temperature compensation and safety
+
+Base legacy compensation remains:
+
+```text
+V_compensated = V_base + k * (25 - temp_ext)
+```
+
+- Ca/Ca and EFB: `0.018 V/°C`;
+- AGM: `0.016 V/°C`;
+- Custom: `0.018 V/°C`;
+- legacy compensation delta is clamped to ±0.60 V;
+- V2 recipe envelope is applied afterwards.
+
+`temp_ext` is battery temperature. `temp_int` is controller/power-supply temperature and must not be interpreted as battery chemistry evidence.
+
+Existing hard safety remains independent of the recipe, including global current ceiling, battery thermal protection, OVP/OCP, watchdogs and HA communication-loss handling.
+
+## Fail-closed RD6018 output enable
+
+New V2 starts use `HassClient.safe_enable_output()` / `SafeOutputCoordinator`.
+
+The required sequence is:
+
+```text
+fresh telemetry
+-> recipe + absolute envelope validation
+-> OVP
+-> OCP
+-> voltage
+-> current
+-> readback verification
+-> second preflight
+-> output ON
+-> post-enable verification
+```
+
+Any failure forces/leaves output OFF. Telegram reports a successful start only after output enable is confirmed.
+
+There is intentionally no V2 idle action that simply turns RD6018 ON with arbitrary old setpoints.
+
+## Telegram V2 workflow
+
+Normal program flow:
+
+```text
+chemistry or saved physical battery
+-> intent
+-> capacity (for ad-hoc profile)
+-> program preview
+-> explicit Start
+```
+
+Main V2 surfaces include:
+
+- `🔋 АКБ` — physical battery registry/history;
+- `🧭 V2` — current evidence/controller card;
+- lifecycle fields: condition, refill/water history, cycles since refill, measured capacity, CCA and Ri;
+- CV status emphasizes Imin/delta-I/current trend;
+- CC status emphasizes Vmax/delta-V/voltage trend;
+- Normal preview explicitly states that automatic recovery HV is disabled.
+
+UI rollback only:
+
+```bash
+V2_UI=0 python bot.py
+```
+
+## Battery history, traces and replay
+
+V2 persists longitudinal battery/recovery evidence:
+
+- physical battery identity and chemistry;
+- condition and rehydration/refill state;
+- Main/HV evidence and time-to-target;
+- temperature behavior;
+- relaxation windows;
+- measured capacity, CCA and internal resistance;
+- raw mode-specific CV/CC traces;
+- replay/calibration reports with frozen thresholds.
+
+Replay tooling is documented in [`docs/RECOVERY_TRACE_REPLAY.md`](docs/RECOVERY_TRACE_REPLAY.md).
+
+## Installation
+
+Requirements:
+
+- Python 3.10+;
+- Home Assistant with the RD6018 entities configured in `config.py`;
+- Telegram bot token;
+- external battery temperature telemetry for safe V2 start;
+- DeepSeek API key only if AI analysis is used.
+
+Basic development launch:
 
 ```bash
 git clone https://github.com/timspb/rd6018_bot.git
 cd rd6018_bot
+git checkout refactor/pb-recovery-controller-v2
 python -m venv .venv
-# Linux/macOS:
 source .venv/bin/activate
-# Windows PowerShell:
-# .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m compileall -q .
+python -m unittest discover -s tests -p 'test_*.py'
 python bot.py
 ```
 
-Перед запуском создайте `.env` в корне проекта.
+Do not treat this example as the deployment procedure for an existing node. Existing-node deployment is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-Пример `.env`:
+## Configuration
+
+Runtime configuration is environment-based (`.env` / service environment). Important values include:
 
 ```env
 TG_TOKEN=...
-HA_URL=https://192.168.1.102:8123
+HA_URL=...
 HA_TOKEN=...
 HA_PREFER_LOCAL=1
 HA_INSECURE_LOCAL=1
+ALLOWED_CHAT_IDS=...
 
-# Опционально
+# Optional AI
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-USER_TIMEZONE=Asia/Vladivostok
-ALLOWED_CHAT_IDS=
 ```
 
-## Home Assistant сущности
+Never commit real tokens. Do not replace an existing node's `.env` during deployment.
 
-Имена задаются в `ENTITY_MAP` файла `config.py`.
+HA entity names are defined by `ENTITY_MAP` in `config.py`.
 
-Ключевые группы:
-- телеметрия: напряжение/ток/мощность/Ah/температуры;
-- состояние: `switch`, `is_cv`, `is_cc`, `uptime`;
-- управление: `set_voltage`, `set_current`, `ovp`, `ocp`.
+## Validation
 
-## Запуск как сервис (systemd)
-
-Пример команд на хосте:
+Local/CI preflight:
 
 ```bash
-cd /root/rd6018_bot
-git pull
-systemctl restart rd6018-bot
-systemctl status rd6018-bot --no-pager
-journalctl -u rd6018-bot -n 100 --no-pager
+python -m compileall -q .
+python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-## Файлы проекта
+CI runs the suite on Python 3.10, 3.11 and 3.12.
 
-- `bot.py` — Telegram-бот, интерфейс, команды, дашборд
-- `charge_logic.py` — FSM заряда, этапы, триггеры, защиты
-- `ai_engine.py` / `ai_system_prompt.py` — AI-аналитика и системный промпт
-- `docs/assistant/CHARGE_STRATEGY.md` — краткая опора по этапам, триггерам и температурным сигналам
-- `config.py` — env и карта HA-сущностей
-- `charging_log.py` — лог событий
-- `database.py` — SQLite и данные для графиков
-- `graphing.py` — генерация графиков
-- `docs/assistant/CHARGE_STRATEGY.md` — источник истины по стратегиям, переходам, температурам и безопасным границам
+Passing CI proves software regressions covered by the test suite; it does **not** prove physical RD6018/Home Assistant/battery behavior. Physical charging validation must be a separate controlled step.
 
-## Безопасность
+## Rollback
 
-- Не запускайте заряд без контроля на длительное время.
-- Перед высоковольтными режимами (до 16.5V) отключайте АКБ от бортовой сети авто.
-- Используйте внешний датчик температуры АКБ.
+```bash
+# Old Telegram UI only
+V2_UI=0 python bot.py
 
-## Лицензия
+# Legacy Main/Mix authority only
+V2_AUTHORITATIVE=0 python bot.py
 
-MIT. Использование на ваш риск.
+# Full rollback through production entrypoint
+V2_UI=0 V2_AUTHORITATIVE=0 python bot.py
 
-## Assistant Memory
+# Preserved old runtime directly
+V2_AUTHORITATIVE=0 python bot_legacy.py
+```
 
-For repeatable work across sessions, these files were added:
-- docs/assistant/HISTORY.md - short project history and accepted decisions.
-- docs/assistant/INSTRUCTIONS.md - working rules and sync flow.
-- docs/assistant/PROMPTS.md - reusable prompt templates.
-- docs/assistant/USER_PROMPT_MEMORY.md - ready-to-use prompt to load memory in a new chat.
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before changing a live node.
+
+## Repository map
+
+- `bot.py` — small production V2 entrypoint;
+- `bot_legacy.py` — preserved previous Telegram/HA runtime;
+- `v2_bootstrap.py` / `v2_bot_ui.py` / `v2_ui.py` — V2 bootstrap and presentation;
+- `production_controller.py` — final recipe-bounded production controller;
+- `charge_controller_v2.py` — V2 authority integration;
+- `v2_authority.py` — evidence-driven Main/Mix decisions;
+- `signal_analyzer.py` — CV/CC signal analysis;
+- `recipe_engine.py` — chemistry/intent envelopes;
+- `safe_output.py` / `hass_api.py` — fail-closed actuator boundary;
+- `battery_registry.py` — physical battery and longitudinal recovery history;
+- `recovery_trace_store.py` / replay/report modules — live evidence and calibration;
+- `charge_logic.py` — legacy FSM/safety/mechanics scaffold and Custom behavior;
+- `docs/assistant/CHARGE_STRATEGY.md` — charging strategy source of truth;
+- `docs/assistant/PB_RECOVERY_V2.md` — architecture/invariants;
+- `docs/DEPLOYMENT.md` — operational runbook;
+- `AGENTS.md` — instructions for automation/coding agents.
+
+## Documentation order for maintainers and agents
+
+1. `AGENTS.md`
+2. `README.md`
+3. `docs/DEPLOYMENT.md` for operations
+4. `docs/assistant/CHARGE_STRATEGY.md` for charging semantics
+5. `docs/assistant/PB_RECOVERY_V2.md` for architecture
+6. code/tests
+
+Do not infer current production behavior from old commit history or legacy comments when these sources disagree.
+
+## Safety notice
+
+This software controls a real programmable power supply. High-voltage recovery modes can damage a battery, vehicle electronics or surrounding equipment if used incorrectly. Use an external battery temperature sensor, isolate the battery from vehicle electronics before recovery/HV work, and do not perform unattended hardware validation merely because CI is green.
+
+## License
+
+MIT. Use at your own risk.
