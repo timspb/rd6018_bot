@@ -9,10 +9,11 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import v2_bot_ui
+from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
-from runtime_safety_strict import install_strict_runtime_safety
+from runtime_safety_v2 import install_v2_runtime_safety
 from telegram_panel import install_panel_last
 from v2_battery_input import parse_battery_spec
 from v2_startup import start_profile_transactional
@@ -161,7 +162,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         )
 
     # Safety is independent from presentation and remains installed even with V2_UI=0.
-    install_strict_runtime_safety(app)
+    install_v2_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
 
     if not install_ui:
@@ -269,5 +270,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
 
 async def init_v2_storage() -> None:
-    """Create/migrate physical battery and recovery-history tables at startup."""
+    """Create/migrate physical battery, recovery and diagnostic evidence storage."""
     await init_battery_registry()
+    await init_battery_diagnostics_store()
