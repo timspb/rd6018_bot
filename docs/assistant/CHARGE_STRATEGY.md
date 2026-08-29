@@ -6,7 +6,7 @@
 
 ## Главная модель
 
-Для автоматических программ независимы chemistry, intent, condition и stage. `MANUAL` — отдельный authority mode, а не разновидность chemistry FSM.
+Для автоматических программ независимы chemistry, intent, condition, entry/program mode и stage. `MANUAL` — отдельный authority mode, а не разновидность chemistry FSM.
 
 ### Intent
 
@@ -15,10 +15,13 @@
 - **Conditioning** — сервисная программа внутри разрешённого envelope; expert EFB 17.2–17.5 V остаётся отдельным неготовым workflow.
 - **Diagnostic** — наблюдение/проверка без автоматического создания Recovery/Mix.
 
+`Auto Mix` — не intent. Это отдельный direct-entry program mode: оператор явно просит начать сразу с Mix.
+
 ## Production authority
 
 - `AutoStrategyProductionChargeControllerV2` владеет production AUTO Main/timeout/Mix strategy поверх зрелого legacy scaffold.
 - `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto перед применением выбранного HV transition.
+- `v2_mix_mode` создаёт direct-entry Mix session, но не обходит controller/runtime safety authority.
 - `ProductionManualSessionManager` владеет Manual.
 - `V2RuntimeSafetyGuard`/readback/verified OFF/edge lease — отдельная неотключаемая аппаратная граница.
 
@@ -54,7 +57,7 @@ fresh telemetry
 
 ## AUTO start / PREP
 
-Старт выбирается **до первого Output ON**:
+Обычный полный AUTO выбирает старт **до первого Output ON**:
 
 ```text
 Vbat < 12.0 V  -> PREP, ~12 V + temp compensation, ~0.01C
@@ -62,6 +65,38 @@ Vbat >= 12.0 V -> MAIN сразу + PREP_SKIPPED audit event
 ```
 
 Это устраняет V1-состояние “логически PREP, физически уже Main”. Restore не пересчитывает этот выбор: восстанавливается сохранённая stage/target semantics.
+
+## AUTO Mix-only
+
+`Auto Mix` — отдельная операторски выбранная автоматическая программа:
+
+```text
+operator selects Auto Mix
+        -> validate Vbat/safety/diagnostics
+        -> create session directly in STAGE_MIX
+        -> protected/readback-verified Output enable
+        -> Mix evidence/fallback
+        -> SAFE_WAIT
+        -> Done/Storage
+```
+
+Контракт:
+
+- PREP не выполняется;
+- Main не выполняется;
+- intermediate Recovery/Desulfation не выполняется;
+- `Vbat < 12.0 V` -> **reject start**, а не скрытый fallback в PREP;
+- Ca/Ca/EFB -> стандартный Mix до 16.5 V;
+- AGM -> стандартный Mix до 16.3 V;
+- ток ~0.03C, max 12 A;
+- после старта работают те же ~120 s blanking, CV `Imin -> ΔI`, CC `Vmax -> ΔV`, 3 spaced confirmations и sticky 2 h hold;
+- fallback остаётся Ca20/EFB24/AGM10;
+- после Mix работает обычный SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
+- strong `BLOCK_AUTOMATIC_HV` veto применяется **до** включения;
+- readback, OVP/OCP, thermal safety, edge lease и watchdog не ослабляются;
+- Auto Mix использует только standard Mix recipe envelope и **не** даёт implicit access к expert EFB 17.2–17.5 V.
+
+То есть это «начать автоматическую программу с финального Mix», а не Manual и не новый `ChargeIntent`.
 
 ## AUTO targets
 
@@ -167,7 +202,9 @@ Fallback maxima:
 
 Сначала strategy выбирает действие. Затем hypothesis engine может veto только **новое** `ENTER_DESULFATION`/`ENTER_MIX` при `BLOCK_AUTOMATIC_HV`.
 
-Это применяется одинаково к Normal/Recovery/Conditioning и timeout-generated Mix. AGM voltage-step внутри Main не считается HV escalation. Один score/SG/U/I sample veto не создаёт.
+Для direct-entry `Auto Mix` тот же veto проверяется как preflight до создания/включения HV-сессии.
+
+Обычный transition-veto применяется одинаково к Normal/Recovery/Conditioning и timeout-generated Mix. AGM voltage-step внутри Main не считается HV escalation. Один score/SG/U/I sample veto не создаёт.
 
 ## SAFE_WAIT
 
@@ -191,6 +228,8 @@ AUTO:
 - recovery budget, AGM step, extrema, confirmed sticky delta preserved;
 - stuck plateau and incomplete delta confirmations invalidated;
 - durable restore required.
+
+Для Auto Mix source stage = Mix, поэтому Cooling возвращает ровно в Mix с теми же pause semantics.
 
 MANUAL: >=40°C -> OFF/Cooling, <=35°C -> safe re-enable exact same V/I, >=45°C -> terminal stop. Active timer freezes; unfinished reach/delta continuity starts fresh after resume.
 
