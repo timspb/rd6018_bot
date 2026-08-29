@@ -19,7 +19,7 @@
 
 - `ProductionChargeControllerV2` владеет автоматической Pb-логикой.
 - Legacy `ChargeController` пока остаётся scaffold для части зрелых mechanics, но его конфликтующие Main/Mix decisions маскируются V2 authority.
-- `ManualSessionManager` владеет ручным режимом и не запускает автоматические Pb transitions.
+- `ProductionManualSessionManager` владеет ручным режимом и не запускает автоматические Pb transitions.
 - `V2RuntimeSafetyGuard`/edge lease/readback — независимая неотключаемая аппаратная граница над обоими режимами.
 
 ## Сигналы
@@ -182,7 +182,7 @@ AUTO:
 - stuck plateau and incomplete delta confirmations invalidated;
 - durable restore required.
 
-MANUAL использует тот же принцип: >=40°C -> OFF/Cooling, <=35°C -> safe re-enable exact same V/I, >=45°C -> terminal stop. Active Manual timer freezes during Cooling.
+MANUAL использует тот же принцип: >=40°C -> OFF/Cooling, <=35°C -> safe re-enable exact same V/I, >=45°C -> terminal stop. Active Manual timer freezes during Cooling; unfinished exact-reach/delta continuity starts fresh after resume.
 
 ## MANUAL
 
@@ -191,8 +191,9 @@ Manual — полноценный режим управления, не debug es
 Operator owns:
 - working V;
 - working I;
-- optional timer;
-- V>= / V<= / I>= / I<= stop conditions;
+- optional active-time timer;
+- V>= / V<= / V=reach stop conditions;
+- I>= / I<= / I=reach stop conditions;
 - optional mode-aware delta stop;
 - metadata/battery identity where useful.
 
@@ -212,11 +213,13 @@ Limits:
 
 Manual normal completion is defined only by operator stop conditions. Automatic Pb rules such as plateau->Recovery, tail->Mix, chemistry timeout->stage change, Done/Storage do not execute.
 
-Every Manual start/restart uses the same transactional safe-enable/readback/edge-lease boundary as automatic charging.
+Every Manual start uses the same transactional safe-enable/readback/edge-lease boundary as automatic charging. Active Manual reconfiguration deliberately performs verified Output OFF and a fresh safe-enable; raw live setpoint mutation is not a supported production authority path.
 
 Persisted active Manual after process restart becomes `INTERRUPTED`; it is **not** silently re-energized. Fresh operator re-authorization is required.
 
-The old five-step Custom dialog currently acts only as an input compatibility adapter. Native V2 UI/full 17.5V presentation and migration of old direct `V I` commands are Q002.
+Current V2 menu exposes native Manual input and the full 17.5V envelope. Historical direct `V I` and `V I third-condition` text commands are intercepted before the legacy catch-all handler and become managed Manual sessions; third-token `15V`/`1.0A` keeps exact reach/crossing semantics. The old five-step Custom dialog remains only a stale-message/rollback compatibility adapter whose final action also enters Manual authority. Optional saved-battery binding and interrupted-session review UX remain Q002.
+
+The persistent legacy Manual-OFF overlay remains an independent operator kill system. During a managed Manual session its conditions are also observed by the Manual manager so a physical Output OFF cannot leave Manual logically ACTIVE. Its interaction with automatic profiles remains Q003.
 
 ## Battery diagnostics / Bank Fault
 
@@ -241,7 +244,9 @@ For accessible flooded cells V2 stores:
 - timestamp/context/source/notes;
 - explicit missing cells.
 
-Current conservative interpretation: complete six-cell spread >=0.030 -> `VERIFY`, not “shorted cell”. SG imbalance can indicate an equalization/stratification problem, so SG alone must not automatically block the very recovery that may correct it.
+Telegram V2 can record this evidence against a saved physical battery. SG dialog ownership outranks the global numeric Manual parser, because a six-cell numeric SG payload must never be interpreted as `V I`.
+
+Current conservative interpretation: complete six-cell spread >=0.030 -> imbalance/stratification evidence, not “shorted cell” and not an automatic equalization veto. Persistent imbalance after corrective equalization/retest plus independent evidence can contribute to a cell-fault HV veto.
 
 ### RD6018 resistance-related evidence
 
@@ -255,9 +260,11 @@ dynamic_loop = ΔV_BAT / ΔI
 
 but with the normal black+green two-wire charging path this includes battery, cables, contacts, internal path and polarization. Store/label it only as dynamic two-wire loop response. Direct trend comparison requires unchanged connection identity.
 
+The fail-closed probe executor exists: it only lowers an existing current target, samples U/I, restores the exact prior current, and forces Output OFF if restoration/readback cannot be proven. Automatic probe trigger/amplitude/window policy is intentionally disabled until Q005/Q014 are calibrated on the physical RD path.
+
 ### Diagnostic authority
 
-A strong, multi-signal confirmed cell-fault hypothesis may block a next automatic HV escalation. One score, one SG sample or one U/I point cannot. Exact deterministic criteria are Q004/Q013.
+A new automatic HV escalation may be vetoed only by strong cell-fault evidence: explicit external confirmation or high-confidence independent multi-signal evidence. One heuristic score, one SG sample or one U/I point cannot. Diagnostic inference itself does not produce a hard safety stop; immediate unsafe U/I/T/protection remains the separate hard-safety layer. Calibration remains Q004/Q013.
 
 ## Physical battery registry
 
