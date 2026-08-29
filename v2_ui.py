@@ -61,6 +61,13 @@ MIX_TARGETS_V = {
     BatteryChemistry.FLOODED: 16.5,
 }
 
+MAIN_TARGETS = {
+    BatteryChemistry.AGM: "14.4 → 14.6 → 14.8 → 15.0 V",
+    BatteryChemistry.EFB: "14.8 V",
+    BatteryChemistry.CA_CA: "14.7 V",
+    BatteryChemistry.FLOODED: "14.8 V",
+}
+
 MIX_LIMIT_HOURS = {
     BatteryChemistry.AGM: 10,
     BatteryChemistry.EFB: 24,
