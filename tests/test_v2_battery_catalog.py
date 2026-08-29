@@ -3,7 +3,7 @@ import tempfile
 import unittest
 
 import database
-from battery_registry import upsert_battery
+from battery_registry import init_battery_registry, upsert_battery
 from pb_domain import BatteryChemistry, BatteryIdentity, BatteryLifecycle
 from v2_battery_catalog import list_batteries
 
@@ -14,6 +14,7 @@ class V2BatteryCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.old_db_path = database.DB_PATH
         database.DB_PATH = os.path.join(self.tempdir.name, "catalog.db")
+        await init_battery_registry()
 
     async def asyncTearDown(self):
         await database.close_db()
