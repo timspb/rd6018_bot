@@ -17,6 +17,7 @@ from pb_domain import ChargeIntent
 from runtime_safety_v2 import install_v2_runtime_safety
 from telegram_panel import install_panel_last
 from v2_battery_input import parse_battery_spec
+from v2_sg_ui import install_sg_ui, sg_menu_button
 from v2_startup import start_profile_transactional
 from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
 
@@ -71,12 +72,13 @@ def _operator_modes_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="＋ Добавить АКБ", callback_data="v2_battery_add"),
-                InlineKeyboardButton(text="Ручной режим", callback_data="profile_custom"),
+                sg_menu_button(),
             ],
             [
+                InlineKeyboardButton(text="Ручной режим", callback_data="profile_custom"),
                 InlineKeyboardButton(text="Условие OFF", callback_data="menu_off"),
-                InlineKeyboardButton(text="⬅ К панели", callback_data="charge_back"),
             ],
+            [InlineKeyboardButton(text="⬅ К панели", callback_data="charge_back")],
         ]
     )
 
@@ -230,6 +232,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             v2_bot_ui._pending_start.pop(user_id, None)
 
     v2_bot_ui.install_v2_ui(app)
+    install_sg_ui(app)
     install_dashboard_polish(app, v2_bot_ui)
 
     app._charge_modes_text = _operator_modes_text
