@@ -2,13 +2,7 @@
 
 > Only unresolved strategy/product questions live here. Resolved behavior belongs in `V2_DECISION_LOG.md`.
 
-## Q001 — Initial Vbat >=12 V: atomically skip PREP?
-Known: below ~12V current must remain small. V1 can be logically PREP while physically applying Main target for an initially >=12V battery. Decide exact boundary/hysteresis and restore behavior for:
-
-```text
-Vbat < threshold  -> PREP
-Vbat >= threshold -> MAIN directly + PREP-skipped audit event
-```
+Q001, Q007, Q008 and Q009 are intentionally retired: initial PREP handling, intent semantics, 72 h Main fallback and AGM recovery policy are now accepted/implemented decisions.
 
 ## Q002 — Manual battery identity and interrupted-session re-authorization UX
 Core Manual authority and input migration are implemented:
@@ -68,26 +62,6 @@ Decide whether this is:
 
 Do not add a mandatory lockout implicitly.
 
-## Q007 — User-facing meaning of Normal / Recovery / Conditioning
-Current V2 model makes Normal/Diagnostic non-HV and Recovery/Conditioning HV-capable by evidence, while legacy automatic Ca/EFB historically included Mix in its normal chain. Before merge to main, explicitly confirm naming/workflow compatibility so operator expectations are not changed by terminology alone.
-
-## Q008 — 72 h Main fallback under intent model
-V1 72h Ca/EFB fallback is accepted behavior. Decide V2 interaction:
-- only Recovery/Conditioning -> Mix;
-- legacy-compatible auto regardless of intent naming;
-- Normal -> diagnose/finish rather than Mix;
-- operator confirmation at timeout.
-
-This is separate from stuck-current recovery attempts.
-
-## Q009 — Final AGM recovery-attempt policy
-AGM conservative asymmetry is accepted. Still decide:
-- max intermediate recovery attempts;
-- whether budget is session-wide exactly like Ca/EFB;
-- behavior after budget exhausted;
-- conditions for final Mix after 15.0V Main;
-- whether REHYDRATED AGM modifies transitions or only envelope/diagnostics.
-
 ## Q010 — Persistence matrix for diagnostic sub-states
 Manual restart behavior is resolved: active Manual restores `INTERRUPTED`, never auto-ON. Exact-reach compatibility conditions are persisted with the Manual request.
 
@@ -118,7 +92,7 @@ Still define:
 - how applicability metadata should distinguish flooded batteries from EFB designs with inaccessible cells.
 
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
-The hypothesis engine now separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and a conservative automatic-HV veto boundary. Thresholds/confidence still need validation against stored traces rather than cosmetic tuning.
+The hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and a conservative automatic-HV veto boundary. Thresholds/confidence still need validation against stored traces rather than cosmetic tuning.
 
 ## Q014 — RD6018 dynamic-loop/relay-path calibration
 Need on-device characterization of:
@@ -130,9 +104,11 @@ Need on-device characterization of:
 
 ## Q015 — Final main-merge compatibility plan
 Before merging V2 to `main`, verify traceably:
-- auto start and PREP boundary;
-- Ca/EFB recovery cycles and 72h fallback;
-- AGM staged Main;
+- atomic auto start: `<12.0V -> PREP`, `>=12.0V -> MAIN`;
+- Normal full automatic recovery/Mix behavior;
+- Diagnostic no-automatic-HV behavior;
+- Ca/EFB three-attempt session recovery budget and 72h fallback;
+- AGM four-attempt session recovery budget, staged Main and conservative 72h behavior;
 - Mix 20/24/10 and sticky finish hold;
 - SAFE_WAIT;
 - Done/Storage Output ON;
