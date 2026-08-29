@@ -11,9 +11,9 @@ from typing import Any, Optional
 class EdgeSafetyLeaseConfig:
     """Contract with the local ESPHome safety lease running beside RD6018.
 
-    The lease is deliberately shorter than any Pb recovery stage.  The bot must
+    The lease is deliberately shorter than any Pb recovery stage. The bot must
     periodically prove that it can still reach the edge node *and* that the edge
-    node is still receiving fresh Modbus data from RD6018.  If renewals stop, the
+    node is still receiving fresh Modbus data from RD6018. If renewals stop, the
     ESPHome node turns the RD output off locally without depending on HA or the bot.
     """
 
@@ -25,7 +25,7 @@ class EdgeSafetyLeaseConfig:
     remaining_entity: str = "sensor.rd_6018_safety_lease_remaining"
 
     lease_ttl_s: float = 30.0 * 60.0
-    # 10/30 gives room for two missed renewal opportunities.  The originally
+    # 10/30 gives room for two missed renewal opportunities. The originally
     # proposed 15/30 cadence is safe too, but leaves less scheduling/network margin.
     renew_interval_s: float = 10.0 * 60.0
     max_modbus_age_s: float = 20.0
@@ -75,9 +75,9 @@ def _bool_state(value: Any) -> Optional[bool]:
 class EdgeSafetyLease:
     """Positive-acknowledged lease for the local RD6018 ESPHome watchdog.
 
-    A HTTP 200 from Home Assistant is not considered a renewal.  A renewal is valid
+    A HTTP 200 from Home Assistant is not considered a renewal. A renewal is valid
     only when the edge node publishes a *different* generation, says the lease is
-    armed, and reports a recent direct Modbus observation from RD6018.  This prevents
+    armed, and reports a recent direct Modbus observation from RD6018. This prevents
     stale HA state from masquerading as a healthy control path.
     """
 
@@ -104,7 +104,10 @@ class EdgeSafetyLease:
         return age is None or age >= self.config.renew_interval_s
 
     async def _state_value(self, entity_id: str) -> Any:
-        state, _attrs = await self.hass.get_state(entity_id)
+        get_state = getattr(self.hass, "get_state", None)
+        if get_state is None:
+            raise EdgeSafetyLeaseError("Home Assistant adapter cannot read lease entities")
+        state, _attrs = await get_state(entity_id)
         return state
 
     async def read_state(self) -> EdgeLeaseState:
@@ -133,13 +136,33 @@ class EdgeSafetyLease:
         )
 
     async def _press(self, entity_id: str) -> bool:
+        # Prefer an explicit adapter method when available (handy for tests and future
+        # refactors), but the current HassClient already exposes its authenticated
+        # aiohttp session. Keep the actual service call here so the lease can be added
+        # without broadening the generic power-supply API surface.
         press = getattr(self.hass, "press_button", None)
-        if press is None:
-            raise EdgeSafetyLeaseError("Home Assistant adapter cannot press safety lease buttons")
         try:
-            return bool(await press(entity_id))
+            if press is not None:
+                return bool(await press(entity_id))
+
+            ensure_session = getattr(self.hass, "_ensure_session", None)
+            base_url = str(getattr(self.hass, "base_url", "") or "").rstrip("/")
+            if ensure_session is None or not base_url:
+                raise EdgeSafetyLeaseError(
+                    "Home Assistant adapter cannot press safety lease buttons"
+                )
+            session = await ensure_session()
+            async with session.post(
+                f"{base_url}/api/services/button/press",
+                json={"entity_id": entity_id},
+            ) as response:
+                return response.status in (200, 201)
+        except EdgeSafetyLeaseError:
+            raise
         except Exception as exc:
-            raise EdgeSafetyLeaseError(f"edge lease service call failed: {type(exc).__name__}") from exc
+            raise EdgeSafetyLeaseError(
+                f"edge lease service call failed: {type(exc).__name__}"
+            ) from exc
 
     def _fresh_modbus(self, state: EdgeLeaseState) -> bool:
         return state.modbus_age_s <= self.config.max_modbus_age_s
