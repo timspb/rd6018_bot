@@ -51,7 +51,7 @@ def _operator_modes_text() -> str:
         "Обычный — штатный заряд без автоматического высоковольтного этапа.\n"
         "Восстановление — высоковольтный этап разрешается только по подтверждённым признакам.\n"
         "Кондиционирование — сервисный режим внутри ограничений профиля.\n"
-        "Диагностика — наблюдение без автоматической HV-эскалации.\n\n"
+        "Диагностика — наблюдение без автоматического перехода на высокое напряжение.\n\n"
         "В CV окончание оценивается по Imin→ΔI; в CC — по Vmax→ΔV."
     )
 
@@ -103,10 +103,10 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui._start_profile = start_profile_transactional
     v2_bot_ui.parse_battery_spec = parse_battery_spec
 
-    # Keep old pipe syntax backward compatible while advertising normal free-form input.
+    # Keep old pipe syntax backward compatible while presenting operator terminology.
     original_safe_answer = v2_bot_ui._safe_answer
 
-    async def _safe_answer_natural_battery_input(event, text: str, *, reply_markup=None) -> None:
+    async def _safe_answer_operator(event, text: str, *, reply_markup=None) -> None:
         if "ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель" in text:
             text = text.replace(
                 "Одним сообщением:",
@@ -121,10 +121,22 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
                 "varta70 AGM 70 Varta Silver Dynamic AGM",
             )
             text += "\n\nЗапятые и старый разделитель | тоже поддерживаются."
-        text = text.replace("🧭 V2 controller", "Контроллер заряда")
+
+        replacements = {
+            "🧭 V2 controller": "Контроллер заряда",
+            "Stage:": "Этап:",
+            "Выберите intent. Высоковольтный этап доступен только Recovery/Conditioning.": (
+                "Выберите цель программы. Высоковольтный этап доступен только для "
+                "восстановления или кондиционирования."
+            ),
+            "Preview устарел": "Предпросмотр устарел",
+            "auto-profile": "автоматической программы",
+        }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
         await original_safe_answer(event, text, reply_markup=reply_markup)
 
-    v2_bot_ui._safe_answer = _safe_answer_natural_battery_input
+    v2_bot_ui._safe_answer = _safe_answer_operator
     v2_bot_ui._intent_keyboard = _operator_intent_keyboard
     v2_bot_ui._preview_keyboard = _operator_preview_keyboard
 
@@ -174,10 +186,9 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
     app.handle_ah_input = _handle_ah_conservative
 
-    # Telegram message order is part of the operator UX: every prompt/notice/detail is
-    # allowed to live above the terminal dashboard, but the control panel itself is
-    # always restored as the last bot message. This is presentation-only and never
-    # actuates HA/RD6018 on its own.
+    # Telegram message order is part of the operator UX: every prompt/notice/detail may
+    # live above the terminal dashboard, but the control panel itself is always restored
+    # as the last bot message. The ordering layer issues no actuator command directly.
     install_panel_last(app)
 
 

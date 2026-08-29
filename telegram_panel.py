@@ -36,11 +36,8 @@ class TerminalPanelManager:
     Telegram edits do not change message ordering. The legacy UI historically edited
     the old dashboard after sending notices/prompts, so the operator often ended with
     a text message below the controls. This manager deliberately republishes the
-    dashboard as a *new* message after interactive output, then removes only the prior
+    dashboard as a new message after interactive output, then removes only the prior
     dashboard message it owns. Secondary menus/details are preserved above it.
-
-    The manager never calls HA or RD6018 directly. It delegates rendering to the
-    existing dashboard builder, so this module is presentation-only.
     """
 
     def __init__(self, app: Any) -> None:
@@ -156,19 +153,28 @@ class PanelLastMiddleware(BaseMiddleware):
     def __init__(self, manager: TerminalPanelManager) -> None:
         self.manager = manager
 
+    async def _restore_panel(self, event: TelegramObject) -> None:
+        try:
+            await self.manager.after_event(event)
+        except Exception as exc:
+            # Message ordering is a UI invariant, but it must never replace the real
+            # handler outcome or turn a successful actuator command into a UI error.
+            logger.warning("terminal panel refresh failed: %s", exc)
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
-        result = await handler(event, data)
         try:
-            await self.manager.after_event(event)
-        except Exception as exc:
-            # UI ordering must never turn a successful actuator command into a failed
-            # command. Surface the problem in logs and leave the existing panel intact.
-            logger.warning("terminal panel refresh failed: %s", exc)
+            result = await handler(event, data)
+        except Exception:
+            # Even when a handler fails, attempt to leave controls at the bottom, then
+            # re-raise the original exception unchanged for normal error handling.
+            await self._restore_panel(event)
+            raise
+        await self._restore_panel(event)
         return result
 
 

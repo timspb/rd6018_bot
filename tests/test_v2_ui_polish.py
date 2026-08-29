@@ -137,7 +137,7 @@ class V2UiPolishTests(unittest.TestCase):
             "",
         )
         self.assertIn("RD6018 · Ca/Ca 72 Ah · Восстановление", text)
-        self.assertIn("Основной · CV · 03:12 · Output ON", text)
+        self.assertIn("<b>Основной</b> · CV · 03:12 · Output ON", text)
         self.assertIn("14.72 V", text)
         self.assertIn("0.84 A", text)
         self.assertIn("Уставки 14.72 V / 7.20 A", text)

@@ -1,6 +1,6 @@
 import unittest
 
-from telegram_panel import TerminalPanelManager, install_panel_last
+from telegram_panel import PanelLastMiddleware, TerminalPanelManager, install_panel_last
 
 
 class FakeBot:
@@ -58,6 +58,14 @@ class FakeApp:
 
     async def _send_notify_safe(self, msg, critical=True):
         self.notifications.append((msg, critical))
+
+
+class FakeEventManager:
+    def __init__(self):
+        self.events = []
+
+    async def after_event(self, event):
+        self.events.append(event)
 
 
 class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
@@ -121,6 +129,33 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(first, second)
         self.assertEqual(len(app.router.message.middleware), 1)
         self.assertEqual(len(app.router.callback_query.middleware), 1)
+
+    async def test_middleware_restores_panel_after_successful_handler(self):
+        manager = FakeEventManager()
+        middleware = PanelLastMiddleware(manager)
+        event = object()
+
+        async def handler(received, data):
+            self.assertIs(received, event)
+            return "ok"
+
+        result = await middleware(handler, event, {})
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(manager.events, [event])
+
+    async def test_middleware_restores_panel_then_reraises_original_handler_error(self):
+        manager = FakeEventManager()
+        middleware = PanelLastMiddleware(manager)
+        event = object()
+
+        async def handler(received, data):
+            raise RuntimeError("synthetic handler failure")
+
+        with self.assertRaisesRegex(RuntimeError, "synthetic handler failure"):
+            await middleware(handler, event, {})
+
+        self.assertEqual(manager.events, [event])
 
 
 if __name__ == "__main__":

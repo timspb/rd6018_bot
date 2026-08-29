@@ -19,19 +19,13 @@ async def _confirm_failed_start_is_off(app: Any) -> bool:
 
 
 async def start_profile_transactional(app: Any, event: Any, pending: Any) -> bool:
-    """Start one V2 profile only through the recipe-aware safe output coordinator.
-
-    No success message is emitted unless RD6018 confirmed ON. Conversely, a failed
-    start may be described as safely OFF only when the hardware boundary confirms OFF;
-    if shutdown cannot be proved, the controller session stays alive/inhibited so
-    monitoring can keep retrying instead of forgetting a potentially energized output.
-    """
+    """Start one profile only through the recipe-aware safe output coordinator."""
     message = event.message if hasattr(event, "message") and event.message is not None else event
     user = getattr(event, "from_user", None) or getattr(message, "from_user", None)
     user_id = user.id if user else 0
 
     if app.charge_controller.is_active:
-        await message.answer("⚠️ Сначала остановите текущую сессию.")
+        await message.answer("⚠️ Сначала остановите текущую программу.")
         return False
 
     live = await app.hass.get_all_live()
@@ -39,12 +33,12 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     if snapshot is None:
         await message.answer(
             "❌ Нет полного набора защитной телеметрии "
-            "(U/I/temp_ext/temp_int/input/switch/OVP/OCP). V2 запуск запрещён."
+            "(U/I/температуры/вход/Output/OVP/OCP). Запуск запрещён системой защиты."
         )
         return False
     if snapshot.output_on:
         await message.answer(
-            "❌ RD6018 уже показывает Output ON. Новый запуск не разрешён до подтверждённого OFF."
+            "❌ RD6018 уже показывает Output ON. Новый запуск разрешён только после подтверждённого OFF."
         )
         return False
 
@@ -98,7 +92,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
                 "проверьте RD6018/HA и при необходимости отключите выход или питание вручную."
             )
         await message.answer(
-            f"❌ V2 запуск отменён: ошибка безопасной транзакции "
+            f"❌ Запуск отменён: ошибка безопасного включения "
             f"({html.escape(type(exc).__name__)}).{suffix}",
             parse_mode=app.ParseMode.HTML,
         )
@@ -111,12 +105,12 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             state_text = "Выход подтверждён OFF."
         else:
             state_text = (
-                "🚨 <b>Output OFF НЕ подтверждён.</b> Контроллер оставлен активным/заблокированным "
-                "для дальнейшего safety-контроля; проверьте RD6018/HA."
+                "🚨 <b>Output OFF НЕ подтверждён.</b> Контроллер оставлен активным и заблокированным "
+                "для контроля безопасности; проверьте RD6018/HA."
             )
         detail = html.escape(result.detail or "RD6018 не подтвердил безопасное включение")
         await message.answer(
-            f"❌ <b>V2 запуск отменён.</b> {state_text}\n<code>{detail}</code>",
+            f"❌ <b>Запуск отменён.</b> {state_text}\n<code>{detail}</code>",
             parse_mode=app.ParseMode.HTML,
         )
         return False
@@ -133,8 +127,8 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         f"V2_START | intent={pending.intent.value} battery={pending.battery_id}",
     )
     await message.answer(
-        f"✅ <b>V2 заряд запущен</b>\n"
-        f"{html.escape(pending.profile)} {pending.capacity_ah:g}Ah · "
+        f"✅ <b>Заряд запущен</b>\n"
+        f"{html.escape(pending.profile)} {pending.capacity_ah:g} Ah · "
         f"{html.escape(intent_label(pending.intent))}\n"
         f"АКБ: <code>{html.escape(pending.battery_id)}</code>",
         parse_mode=app.ParseMode.HTML,

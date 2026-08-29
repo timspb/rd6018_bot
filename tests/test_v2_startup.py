@@ -142,7 +142,8 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 14.8)
         self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 7.0)
         self.assertAlmostEqual(app.hass.enable_kwargs["recipe_voltage_ceiling_v"], 16.5)
-        self.assertIn("V2 заряд запущен", message.answers[-1][0])
+        self.assertIn("Заряд запущен", message.answers[-1][0])
+        self.assertNotIn("V2 заряд", message.answers[-1][0])
 
     async def test_failed_enable_rolls_controller_back_only_after_confirmed_off(self):
         app = FakeApp(
@@ -160,7 +161,7 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(app.charge_controller.stopped)
         self.assertEqual(app.hass.turn_off_calls, 1)
         self.assertIn("подтверждён OFF", message.answers[-1][0])
-        self.assertNotIn("заряд запущен", message.answers[-1][0])
+        self.assertNotIn("заряд запущен", message.answers[-1][0].lower())
 
     async def test_unconfirmed_off_keeps_controller_alive_and_warns_operator(self):
         app = FakeApp(
