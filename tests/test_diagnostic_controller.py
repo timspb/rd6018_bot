@@ -2,23 +2,12 @@ import unittest
 
 from battery_fault_engine import DiagnosticAuthority
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
-from first_stage_evidence import FirstStageAssessment, FirstStageState
 from pb_domain import ChargeIntent
+from v2_authority import AuthorityAction, AuthorityDecision
 
 
 class DummyHass:
     pass
-
-
-def stage_assessment(state: FirstStageState) -> FirstStageAssessment:
-    return FirstStageAssessment(
-        state=state,
-        current_c_rate=0.01,
-        tail_threshold_a=0.3,
-        tail_threshold_c=0.004,
-        near_target=True,
-        reason=state.value,
-    )
 
 
 class DiagnosticControllerTests(unittest.TestCase):
@@ -31,22 +20,16 @@ class DiagnosticControllerTests(unittest.TestCase):
 
     def test_initial_sg_imbalance_does_not_veto_recovery(self):
         controller = self._controller()
-        # A first SG imbalance belongs to the stratification/equalization hypothesis,
-        # not to confirmed cell-fault authority.
         controller.update_diagnostic_context()
-        self.assertEqual(
-            controller.battery_fault_assessment.authority,
-            DiagnosticAuthority.ALLOW,
-        )
-        self.assertIsNone(
-            controller._diagnostic_hv_veto(stage_assessment(FirstStageState.STUCK_PLATEAU))
-        )
+        self.assertEqual(controller.battery_fault_assessment.authority, DiagnosticAuthority.ALLOW)
+        decision = AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
+        self.assertIsNone(controller._diagnostic_hv_veto(decision))
 
     def test_confirmed_failed_cell_vetoes_new_recovery_hv(self):
         controller = self._controller()
         controller.update_diagnostic_context(external_failed_cell_confirmed=True)
         veto = controller._diagnostic_hv_veto(
-            stage_assessment(FirstStageState.STUCK_PLATEAU)
+            AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
         )
         self.assertIsNotNone(veto)
         assert veto is not None
@@ -54,28 +37,29 @@ class DiagnosticControllerTests(unittest.TestCase):
 
     def test_agm_intermediate_main_step_is_not_misclassified_as_hv(self):
         controller = self._controller(profile="AGM")
-        controller._agm_stage_idx = 0
         controller.update_diagnostic_context(external_failed_cell_confirmed=True)
         self.assertIsNone(
-            controller._diagnostic_hv_veto(stage_assessment(FirstStageState.TAIL_READY))
+            controller._diagnostic_hv_veto(
+                AuthorityDecision(AuthorityAction.ADVANCE_AGM_STEP, "fixture")
+            )
         )
 
-    def test_agm_final_tail_is_hv_candidate_and_can_be_vetoed(self):
+    def test_agm_final_tail_mix_is_hv_candidate_and_can_be_vetoed(self):
         controller = self._controller(profile="AGM")
-        controller._agm_stage_idx = 3
         controller.update_diagnostic_context(external_failed_cell_confirmed=True)
         veto = controller._diagnostic_hv_veto(
-            stage_assessment(FirstStageState.TAIL_READY)
+            AuthorityDecision(AuthorityAction.ENTER_MIX, "fixture")
         )
         self.assertIsNotNone(veto)
 
-    def test_normal_intent_has_no_diagnostic_hv_veto_because_no_hv_is_authorized(self):
+    def test_normal_hv_is_also_subject_to_diagnostic_veto(self):
         controller = self._controller()
         controller._v2_intent = ChargeIntent.NORMAL
         controller.update_diagnostic_context(external_failed_cell_confirmed=True)
-        self.assertIsNone(
-            controller._diagnostic_hv_veto(stage_assessment(FirstStageState.STUCK_PLATEAU))
+        veto = controller._diagnostic_hv_veto(
+            AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
         )
+        self.assertIsNotNone(veto)
 
 
 if __name__ == "__main__":

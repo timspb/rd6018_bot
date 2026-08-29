@@ -61,16 +61,9 @@ MIX_TARGETS_V = {
     BatteryChemistry.FLOODED: 16.5,
 }
 
-MAIN_TARGETS = {
-    BatteryChemistry.AGM: "14.4 → 14.6 → 14.8 → 15.0 V",
-    BatteryChemistry.EFB: "14.8 V",
-    BatteryChemistry.CA_CA: "14.7 V",
-    BatteryChemistry.FLOODED: "14.8 V",
-}
-
 MIX_LIMIT_HOURS = {
     BatteryChemistry.AGM: 10,
-    BatteryChemistry.EFB: 20,
+    BatteryChemistry.EFB: 24,
     BatteryChemistry.CA_CA: 20,
     BatteryChemistry.FLOODED: 20,
 }
@@ -172,13 +165,18 @@ def build_program_preview(
         f"Ограничение тока: до {envelope.main_current_limit_a:g} A",
     ]
 
-    if intent in {ChargeIntent.RECOVERY, ChargeIntent.CONDITIONING}:
+    if intent in {ChargeIntent.NORMAL, ChargeIntent.RECOVERY, ChargeIntent.CONDITIONING}:
         mix_v = MIX_TARGETS_V[chemistry]
+        qualifier = (
+            "Штатная автоматическая цепочка V1-compatible: recovery/Mix включаются только по критериям."
+            if intent == ChargeIntent.NORMAL
+            else "Высоковольтный этап разрешается только по подтверждённым критериям программы."
+        )
         lines.extend(
             [
                 "",
                 "<b>Высоковольтный этап</b>",
-                "Разрешается только после подтверждённых признаков по данным заряда.",
+                qualifier,
                 f"Mix: до <b>{mix_v:.1f} V</b> · до {envelope.hv_current_limit_a:g} A · контрольное окно {MIX_LIMIT_HOURS[chemistry]} ч",
                 "Финиш в CV: Imin → ΔI",
                 "Финиш в CC: Vmax → ΔV",
@@ -190,7 +188,7 @@ def build_program_preview(
             [
                 "",
                 "<b>Высоковольтный этап: запрещён</b>",
-                "После подтверждённого хвоста основного этапа — безопасное ожидание и завершение.",
+                "Diagnostic наблюдает/проверяет состояние без автоматического Recovery/Mix.",
             ]
         )
 
