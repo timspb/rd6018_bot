@@ -8,14 +8,14 @@
 #   bot/HA -> renew every 10 min
 #   local lease TTL -> 30 min
 #   missed renewals -> local Modbus Output OFF, retried every 5 s
-#   stale direct RD6018 Modbus (>20 s) -> latch trip and attempt OFF immediately
+#   stale direct RD6018 Modbus/control readback (>20 s) -> latch trip and retry OFF
 #   every ESPHome reboot -> boot quarantine: repeatedly force Output OFF before
 #                           any new lease can be armed
 #   reboot during a persisted managed charge -> trip remains latched after OFF
 #
 # The trip is latched. A late bot cannot simply renew an expired lease and resume
 # an old high-voltage session. Disarm is accepted only when direct Modbus is fresh
-# and the locally-read RD6018 output state is OFF.
+# and a recent direct read of register 18 confirms RD6018 Output OFF.
 
 substitutions:
   rd6018_safety_lease_ttl_ms: "1800000"       # 30 minutes
@@ -63,14 +63,24 @@ globals:
     restore_value: no
     initial_value: "0"
 
+  - id: rd6018_safety_last_output_rx_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: rd6018_safety_output_on_readback
+    type: bool
+    restore_value: no
+    initial_value: "true"
+
   - id: rd6018_safety_generation
     type: uint32_t
     restore_value: no
     initial_value: "0"
 
-# Duplicate internal read of a frequently changing standard RD60xx register.
-# Every successful Modbus publish proves that the ESP node is actually talking
-# to RD6018; HA/API reachability alone is not sufficient evidence.
+# Duplicate internal reads of standard RD60xx registers. Register 10 proves general
+# Modbus telemetry is moving. Register 18 separately proves the critical Output state
+# was actually read; an uninitialized in-memory switch value is never accepted as OFF.
 sensor:
   - platform: modbus_controller
     id: rd6018_safety_modbus_probe
@@ -86,6 +96,20 @@ sensor:
       then:
         - lambda: |-
             id(rd6018_safety_last_modbus_rx_ms) = millis();
+
+  - platform: modbus_controller
+    id: rd6018_safety_output_probe
+    modbus_controller_id: powersupply
+    address: 18
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - lambda: |-
+            id(rd6018_safety_last_output_rx_ms) = millis();
+            id(rd6018_safety_output_on_readback) = (((uint16_t) x) & 0x1U) != 0;
 
   - platform: template
     id: rd6018_safety_lease_generation_sensor
@@ -104,9 +128,13 @@ sensor:
     accuracy_decimals: 1
     update_interval: 1s
     lambda: |-
-      const uint32_t last = id(rd6018_safety_last_modbus_rx_ms);
-      if (last == 0) return NAN;
-      return ((uint32_t) (millis() - last)) / 1000.0f;
+      const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+      const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+      if (telemetry_rx == 0 || output_rx == 0) return NAN;
+      const uint32_t telemetry_age = (uint32_t) (millis() - telemetry_rx);
+      const uint32_t output_age = (uint32_t) (millis() - output_rx);
+      const uint32_t worst_age = telemetry_age > output_age ? telemetry_age : output_age;
+      return worst_age / 1000.0f;
 
   - platform: template
     id: rd6018_safety_lease_remaining_sensor
@@ -152,8 +180,8 @@ binary_sensor:
     lambda: |-
       return id(rd6018_safety_boot_quarantine);
 
-# A private second view of the standard RD60xx Output register. It lets the local
-# watchdog write OFF without HA, Wi-Fi, Telegram or the Python process.
+# A private second view of the standard RD60xx Output register. It is used only for
+# writes. Safety decisions use rd6018_safety_output_probe + its timestamp above.
 switch:
   - platform: modbus_controller
     id: rd6018_safety_output
@@ -172,16 +200,26 @@ button:
       then:
         - lambda: |-
             const uint32_t now = millis();
-            const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
-            const bool modbus_fresh = last_rx != 0 &&
-              ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool control_fresh = telemetry_fresh && output_fresh;
 
             // No lease may be armed until reboot quarantine has proved RD is OFF.
             // Trip is also latched; only a verified-OFF disarm may clear it.
             if (id(rd6018_safety_boot_quarantine)) return;
             if (id(rd6018_safety_lease_tripped)) return;
-            if (!modbus_fresh) {
+            if (!control_fresh) {
               id(rd6018_safety_lease_tripped) = true;
+              return;
+            }
+
+            // Initial arm additionally requires a fresh, direct Output OFF readback.
+            // Ordinary heartbeats occur while Output is legitimately ON.
+            if (!id(rd6018_safety_managed_session) && id(rd6018_safety_output_on_readback)) {
               return;
             }
 
@@ -200,13 +238,16 @@ button:
       then:
         - lambda: |-
             const uint32_t now = millis();
-            const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
-            const bool modbus_fresh = last_rx != 0 &&
-              ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
 
             // Never clear a safety trip based only on an HA command. RD6018 must
-            // itself have answered recently and its local Output register must be OFF.
-            if (!modbus_fresh || id(rd6018_safety_output).state) return;
+            // itself have answered recently and register 18 must freshly confirm OFF.
+            if (!telemetry_fresh || !output_fresh || id(rd6018_safety_output_on_readback)) return;
             if (id(rd6018_safety_managed_session)) {
               id(rd6018_safety_managed_session) = false;
             }
@@ -219,13 +260,17 @@ interval:
     then:
       - lambda: |-
           const uint32_t now = millis();
-          const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
-          const bool modbus_fresh = last_rx != 0 &&
-            ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+          const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+          const bool telemetry_fresh = telemetry_rx != 0 &&
+            ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          const bool output_fresh = output_rx != 0 &&
+            ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          const bool control_fresh = telemetry_fresh && output_fresh;
 
           if (id(rd6018_safety_managed_session)) {
             const uint32_t elapsed = (uint32_t) (now - id(rd6018_safety_last_renew_ms));
-            if (!modbus_fresh || elapsed >= ${rd6018_safety_lease_ttl_ms}UL) {
+            if (!control_fresh || elapsed >= ${rd6018_safety_lease_ttl_ms}UL) {
               id(rd6018_safety_lease_tripped) = true;
             }
           }
@@ -240,14 +285,17 @@ interval:
             # the first successful Modbus opportunity after recovery must still be OFF.
             - switch.turn_off: rd6018_safety_output
       - lambda: |-
-          // Boot quarantine clears automatically only after there is direct proof
-          // that Modbus is alive and RD6018 itself reports Output OFF. A persisted
-          // managed-session trip remains latched until explicit verified-OFF disarm.
+          // Boot quarantine clears automatically only after a fresh direct read of
+          // Output register 18 confirms OFF. Do not trust the switch object's default
+          // in-memory state before that register has actually been observed.
           if (!id(rd6018_safety_boot_quarantine)) return;
           const uint32_t now = millis();
-          const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
-          const bool modbus_fresh = last_rx != 0 &&
-            ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
-          if (modbus_fresh && !id(rd6018_safety_output).state) {
+          const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+          const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+          const bool telemetry_fresh = telemetry_rx != 0 &&
+            ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          const bool output_fresh = output_rx != 0 &&
+            ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          if (telemetry_fresh && output_fresh && !id(rd6018_safety_output_on_readback)) {
             id(rd6018_safety_boot_quarantine) = false;
           }
