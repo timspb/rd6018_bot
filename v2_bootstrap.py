@@ -10,7 +10,7 @@ import v2_bot_ui
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
-from runtime_safety import install_runtime_safety
+from runtime_safety_strict import install_strict_runtime_safety
 from v2_battery_input import parse_battery_spec
 from v2_startup import start_profile_transactional
 from v2_ui_polish import install_dashboard_polish
@@ -31,7 +31,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
     # This wraps the one HassClient instance used by every legacy/V2 caller. Install
     # it before any background task can start or any UI handler can actuate RD6018.
-    install_runtime_safety(app)
+    install_strict_runtime_safety(app)
 
     if not install_ui:
         return
