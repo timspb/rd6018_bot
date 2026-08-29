@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Optional
 
@@ -29,6 +30,15 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     HA, Wi-Fi/API path, or Python process disappears, the edge node turns RD6018 OFF
     locally instead of allowing a high-voltage stage to run indefinitely.
     """
+
+    # HA/ESPHome may expose command readback before the measured V/I sample reflects
+    # the new hardware operating point.  Live protection tightening therefore waits
+    # through at least one normal 5 s RD polling interval before concluding that a
+    # transition failed to settle.
+    TRANSITION_SETTLE_TIMEOUT_S = 6.5
+    TRANSITION_SETTLE_POLL_S = 0.20
+    CURRENT_SETTLE_MARGIN_A = 0.05
+    VOLTAGE_SETTLE_MARGIN_V = 0.05
 
     def __init__(self, app: Any) -> None:
         super().__init__(app)
@@ -154,6 +164,109 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             await self._disarm_edge_lease_best_effort()
         return confirmed
 
+    async def _wait_measured_below(
+        self,
+        *,
+        key: str,
+        ceiling: float,
+        trip_key: str,
+    ) -> bool:
+        """Wait for measured hardware state, not only command/setpoint readback."""
+        attempts = max(
+            1,
+            int(self.TRANSITION_SETTLE_TIMEOUT_S / self.TRANSITION_SETTLE_POLL_S) + 1,
+        )
+        for attempt in range(attempts):
+            if attempt:
+                await asyncio.sleep(self.TRANSITION_SETTLE_POLL_S)
+            try:
+                live = await self._raw_live()
+            except Exception:
+                continue
+            if _binary(live.get("switch")) is False:
+                return False
+            if _binary(live.get(trip_key)) is True:
+                return False
+            measured = _finite(live.get(key))
+            if measured is not None and measured <= float(ceiling):
+                return True
+        return False
+
+    async def _precondition_current_before_voltage_raise(
+        self,
+        requested_voltage: float,
+        live: dict[str, Any],
+    ) -> None:
+        """Throttle current before a live HV transition raises the voltage setpoint.
+
+        Main -> Desulfation/Mix raises voltage while reducing the allowed current.  The
+        legacy action dispatcher writes voltage before current; without this interlock
+        RD6018 can briefly drive the old high-current setpoint and then trip when OCP is
+        tightened.  The strict boundary derives only the controller's already-selected
+        stage target and applies the safer half of the same transition first.
+        """
+        live_set_v = _finite(live.get("set_voltage"))
+        live_set_i = _finite(live.get("set_current"))
+        if live_set_v is None or live_set_i is None:
+            await self._ensure_output_off(
+                "voltage transition attempted without live setpoint readback"
+            )
+            raise RuntimeSafetyError(
+                "voltage transition blocked: live V/I setpoint unavailable"
+            )
+        if requested_voltage <= live_set_v + self.READBACK_TOLERANCE:
+            return
+
+        target_fn = getattr(self.app.charge_controller, "_get_target_v_i", None)
+        if not callable(target_fn):
+            return
+        temp_ext = _finite(live.get("temp_ext"))
+        try:
+            _target_v, stage_target_i = target_fn(temp_ext)
+        except Exception as exc:
+            await self._ensure_output_off(
+                "voltage transition could not resolve current-stage target"
+            )
+            raise RuntimeSafetyError(
+                "voltage transition blocked: current-stage target unavailable"
+            ) from exc
+        target_i = _finite(stage_target_i)
+        if target_i is None or target_i <= 0:
+            await self._ensure_output_off(
+                "voltage transition resolved an invalid current-stage target"
+            )
+            raise RuntimeSafetyError(
+                "voltage transition blocked: invalid current-stage target"
+            )
+
+        if target_i + self.READBACK_TOLERANCE >= live_set_i:
+            return
+
+        # Keep the old/wider OCP while reducing current.  Base set_current verifies the
+        # new current setpoint; then additionally wait for the measured current before
+        # permitting the voltage raise.
+        await super().set_current(target_i)
+        measured_ceiling = target_i + self.CURRENT_SETTLE_MARGIN_A
+        if not await self._wait_measured_below(
+            key="current",
+            ceiling=measured_ceiling,
+            trip_key="ocp_triggered",
+        ):
+            await self._ensure_output_off(
+                "current did not settle before live voltage increase"
+            )
+            raise RuntimeSafetyError(
+                "voltage transition blocked: measured current did not settle"
+            )
+
+    async def set_voltage(self, value: float) -> bool:
+        requested = _finite(value)
+        output_state = await self._output_state_raw()
+        if output_state is True and requested is not None:
+            live = await self._raw_live()
+            await self._precondition_current_before_voltage_raise(requested, live)
+        return await super().set_voltage(value)
+
     async def set_ovp(self, value: float) -> bool:
         requested = _finite(value)
         output_state = await self._output_state_raw()
@@ -168,6 +281,26 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                     f"OVP {requested:.3f}V would no longer protect live voltage {set_v:.3f}V"
                 )
                 raise RuntimeSafetyError("OVP change blocked: active voltage envelope would be unprotected")
+
+            current_ovp = _finite(live.get("ovp"))
+            measured_v = _finite(live.get("voltage"))
+            if (
+                current_ovp is not None
+                and requested + self.READBACK_TOLERANCE < current_ovp
+                and measured_v is not None
+                and measured_v > requested - self.VOLTAGE_SETTLE_MARGIN_V
+            ):
+                if not await self._wait_measured_below(
+                    key="voltage",
+                    ceiling=requested - self.VOLTAGE_SETTLE_MARGIN_V,
+                    trip_key="ovp_triggered",
+                ):
+                    await self._ensure_output_off(
+                        "output voltage did not settle before OVP tightening"
+                    )
+                    raise RuntimeSafetyError(
+                        "OVP change blocked: measured voltage did not settle"
+                    )
         return await super().set_ovp(value)
 
     async def set_ocp(self, value: float) -> bool:
@@ -184,6 +317,27 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                     f"OCP {requested:.3f}A would no longer protect live current {set_i:.3f}A"
                 )
                 raise RuntimeSafetyError("OCP change blocked: active current envelope would be unprotected")
+
+            current_ocp = _finite(live.get("ocp"))
+            measured_i = _finite(live.get("current"))
+            settle_ceiling = max(0.0, requested - self.PROTECTION_MARGIN)
+            if (
+                current_ocp is not None
+                and requested + self.READBACK_TOLERANCE < current_ocp
+                and measured_i is not None
+                and measured_i > settle_ceiling
+            ):
+                if not await self._wait_measured_below(
+                    key="current",
+                    ceiling=settle_ceiling,
+                    trip_key="ocp_triggered",
+                ):
+                    await self._ensure_output_off(
+                        "measured current did not settle before OCP tightening"
+                    )
+                    raise RuntimeSafetyError(
+                        "OCP change blocked: measured current did not settle"
+                    )
         return await super().set_ocp(value)
 
 
