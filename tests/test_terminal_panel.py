@@ -1,6 +1,11 @@
 import unittest
 
-from telegram_panel import PanelLastMiddleware, TerminalPanelManager, install_panel_last
+from telegram_panel import (
+    PanelLastMiddleware,
+    TerminalPanelManager,
+    _is_workspace_callback,
+    install_panel_last,
+)
 
 
 class FakeBot:
@@ -93,6 +98,27 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new_id, 101)
         self.assertEqual(app.bot.deleted, [])
         self.assertEqual(manager.panel_id(10), 101)
+
+    def test_program_and_nested_menu_callbacks_are_workspace(self):
+        for callback in (
+            "charge_modes",
+            "v2_batteries",
+            "v2_profile_caca",
+            "v2_bat_intent_recovery",
+            "v2_battery_start",
+            "logs",
+            "info_full",
+            "entities_status",
+            "menu_off",
+            "off_2h",
+            "profile_custom",
+        ):
+            with self.subTest(callback=callback):
+                self.assertTrue(_is_workspace_callback(callback))
+
+        for callback in ("power_toggle", "refresh", "dash_back", "chart_30m"):
+            with self.subTest(callback=callback):
+                self.assertFalse(_is_workspace_callback(callback))
 
     async def test_adopt_updates_both_dashboard_indexes(self):
         app = FakeApp()
