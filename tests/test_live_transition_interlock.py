@@ -39,10 +39,11 @@ class FakeController:
 
 
 class FakeHass:
-    def __init__(self, live=None):
+    def __init__(self, live=None, *, follow_voltage_setpoint=False):
         self.live = live_state() if live is None else dict(live)
         self.setter_calls = []
         self.turn_off_calls = 0
+        self.follow_voltage_setpoint = follow_voltage_setpoint
 
     async def get_all_live(self):
         return dict(self.live)
@@ -62,7 +63,10 @@ class FakeHass:
         return True
 
     async def set_voltage(self, value):
-        return await self._set("set_voltage", "set_voltage", value)
+        ok = await self._set("set_voltage", "set_voltage", value)
+        if ok and self.follow_voltage_setpoint:
+            self.live["voltage"] = float(value)
+        return ok
 
     async def set_current(self, value):
         return await self._set("set_current", "set_current", value)
@@ -75,8 +79,18 @@ class FakeHass:
 
 
 class FakeApp:
-    def __init__(self, *, live=None, target_v=16.50, target_i=2.16):
-        self.hass = FakeHass(live)
+    def __init__(
+        self,
+        *,
+        live=None,
+        target_v=16.50,
+        target_i=2.16,
+        follow_voltage_setpoint=False,
+    ):
+        self.hass = FakeHass(
+            live,
+            follow_voltage_setpoint=follow_voltage_setpoint,
+        )
         self.charge_controller = FakeController(target_v=target_v, target_i=target_i)
         self.notices = []
 
@@ -134,6 +148,31 @@ class LiveTransitionInterlockTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         self.assertEqual(app.hass.setter_calls, [("set_voltage", 16.00)])
 
+    async def test_temperature_compensation_drop_lowers_voltage_before_ovp(self):
+        app = FakeApp(
+            live=live_state(
+                set_voltage=14.82,
+                voltage=14.82,
+                set_current=7.20,
+                current=0.40,
+                ovp=14.92,
+                ocp=7.30,
+            ),
+            target_v=14.72,
+            target_i=7.20,
+            follow_voltage_setpoint=True,
+        )
+        guard = self._guard(app)
+
+        ok = await guard.set_ovp(14.82)
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            app.hass.setter_calls[:2],
+            [("set_voltage", 14.72), ("set_ovp", 14.82)],
+        )
+        self.assertEqual(app.hass.live["switch"], "on")
+
     async def test_ocp_tightening_refuses_to_cut_through_unsettled_measured_current(self):
         app = FakeApp(
             live=live_state(
@@ -185,7 +224,7 @@ class LiveTransitionInterlockTests(unittest.IsolatedAsyncioTestCase):
             await guard.set_ovp(14.82)
 
         self.assertFalse(any(name == "set_ovp" for name, _ in app.hass.setter_calls))
-        self.assertEqual(app.hass.live["switch"], "off")
+        self.assertEqual(app.hass.turn_off_calls, 1)
 
 
 if __name__ == "__main__":
