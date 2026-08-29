@@ -11,9 +11,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import v2_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
+from diagnostic_controller import DiagnosticProductionChargeControllerV2
 from manual_mode import ManualSessionManager
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeControllerV2
 from runtime_safety_v2 import install_v2_runtime_safety
 from telegram_panel import install_panel_last
 from v2_battery_input import parse_battery_spec
@@ -95,12 +95,10 @@ async def _managed_aware_charge_monitor_poll(app: Any) -> None:
 
     manual = getattr(app, "manual_session_manager", None)
     manual_active = bool(manual is not None and manual.is_active)
-    # Managed automatic and managed Manual sessions own their own completion rules.
     if app.charge_controller.is_active or manual_active:
         app.zero_current_since = None
         return
 
-    # Preserve the old hint only for truly unmanaged output.
     if current_a <= 0.0:
         if app.zero_current_since is None:
             app.zero_current_since = now
@@ -150,8 +148,8 @@ def _install_managed_charge_monitor_guard(app: Any) -> None:
 
 def install_v2(app: Any, *, install_ui: bool = True) -> None:
     """Install production V2 controller/safety and the operator-facing Telegram UI."""
-    if not isinstance(app.charge_controller, ProductionChargeControllerV2):
-        app.charge_controller = ProductionChargeControllerV2(
+    if not isinstance(app.charge_controller, DiagnosticProductionChargeControllerV2):
+        app.charge_controller = DiagnosticProductionChargeControllerV2(
             app.hass,
             notify_cb=app._charge_notify,
         )
@@ -164,7 +162,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     # ChargeController's chemistry-aware Custom/Main FSM.
     app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui
 
-    # Safety is independent from presentation and remains installed even with V2_UI=0.
     install_v2_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
 
@@ -183,7 +180,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui._start_profile = start_profile_transactional
     v2_bot_ui.parse_battery_spec = parse_battery_spec
 
-    # Keep old pipe syntax backward compatible while presenting operator terminology.
     original_safe_answer = v2_bot_ui._safe_answer
 
     async def _safe_answer_operator(event, text: str, *, reply_markup=None) -> None:
@@ -220,7 +216,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui._intent_keyboard = _operator_intent_keyboard
     v2_bot_ui._preview_keyboard = _operator_preview_keyboard
 
-    # Exact saved-battery Start must precede the generic v2_battery_* selector.
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _v2_battery_start_route(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
