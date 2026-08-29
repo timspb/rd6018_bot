@@ -1,11 +1,8 @@
 import types
 import unittest
 
-from runtime_safety import (
-    OutputOffNotConfirmed,
-    RuntimeSafetyError,
-    install_runtime_safety,
-)
+from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime_safety_strict import install_strict_runtime_safety
 
 
 def live_state(**overrides):
@@ -91,7 +88,7 @@ class FakeApp:
 
 class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     def _install(self, app):
-        guard = install_runtime_safety(app)
+        guard = install_strict_runtime_safety(app)
         guard.VERIFY_ATTEMPTS = 2
         guard.VERIFY_DELAY_S = 0.0
         return guard
@@ -115,6 +112,16 @@ class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hass.turn_off_calls, 1)
         self.assertEqual(app.hass.live["switch"], "off")
         self.assertTrue(app.notices)
+
+    async def test_psu_overtemperature_forces_verified_off_at_shared_boundary(self):
+        app = FakeApp(live=live_state(temp_int=55.0))
+        self._install(app)
+
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.get_all_live()
+
+        self.assertEqual(app.hass.turn_off_calls, 1)
+        self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_missing_telemetry_while_already_off_freezes_session_without_reenable(self):
         app = FakeApp(live=live_state(switch="off", temp_ext=None))
@@ -155,6 +162,36 @@ class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hass.live["switch"], "off")
         self.assertFalse(any(name == "set_voltage" for name, _ in app.hass.setter_calls))
 
+    async def test_live_current_change_requires_confirmed_ocp_margin(self):
+        app = FakeApp(live=live_state(ocp=2.1, set_current=2.0))
+        self._install(app)
+
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.set_current(4.0)
+
+        self.assertEqual(app.hass.live["switch"], "off")
+        self.assertFalse(any(name == "set_current" for name, _ in app.hass.setter_calls))
+
+    async def test_ovp_cannot_be_lowered_below_active_voltage_envelope(self):
+        app = FakeApp(live=live_state(set_voltage=14.8, ovp=14.9))
+        self._install(app)
+
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.set_ovp(14.0)
+
+        self.assertEqual(app.hass.live["switch"], "off")
+        self.assertFalse(any(name == "set_ovp" for name, _ in app.hass.setter_calls))
+
+    async def test_ocp_cannot_be_lowered_below_active_current_envelope(self):
+        app = FakeApp(live=live_state(set_current=2.0, ocp=2.1))
+        self._install(app)
+
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.set_ocp(1.0)
+
+        self.assertEqual(app.hass.live["switch"], "off")
+        self.assertFalse(any(name == "set_ocp" for name, _ in app.hass.setter_calls))
+
     async def test_failed_live_ovp_programming_aborts_sequence_and_forces_off(self):
         app = FakeApp()
         app.hass.fail_setter = "set_ovp"
@@ -165,6 +202,19 @@ class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(app.hass.live["switch"], "off")
         self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_idle_controller_cannot_energize_output(self):
+        app = FakeApp(
+            active=False,
+            live=live_state(switch="off", current=0.0),
+        )
+        self._install(app)
+
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.turn_on()
+
+        self.assertEqual(app.hass.turn_on_calls, 0)
+        self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_unconfirmed_off_blocks_future_enable(self):
         app = FakeApp()
