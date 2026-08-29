@@ -22,11 +22,11 @@ class DiagnosticAuthority(str, Enum):
 class BatteryFaultContext:
     """Independent diagnostic evidence collected around one physical battery.
 
-    The engine intentionally distinguishes observation context from values.  Rested OCV
-    is only strong cell-fault evidence when the battery was known fully charged and
-    isolated from external loads.  Specific-gravity imbalance alone is not a failed-cell
-    verdict because corrective equalization may be the appropriate flooded-battery
-    treatment; persistence after a corrective equalization is stronger evidence.
+    Rested OCV is strong cell-fault evidence only when the battery was known fully
+    charged and isolated from external loads. A first SG imbalance is not a failed-cell
+    verdict: flooded-battery manufacturers use that finding as a reason to perform
+    corrective equalization and retest. Persistence after that corrective path is a
+    qualitatively stronger signal.
     """
 
     legacy_risk_score: int = 0
@@ -94,8 +94,7 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
         scores[hypothesis] = _bounded(scores[hypothesis] + points)
         reasons[hypothesis].append(reason)
 
-    # Keep the old detector as weak generic evidence only.  It cannot prove a cell
-    # failure and therefore never contributes an independent confirmation class.
+    # Legacy risk is weak generic evidence only and never an independent confirmation.
     legacy = _bounded(context.legacy_risk_score)
     if legacy >= 70:
         add(DiagnosticHypothesis.CELL_FAULT, 10, "legacy_risk_high")
@@ -104,9 +103,8 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
         add(DiagnosticHypothesis.CELL_FAULT, 5, "legacy_risk_probable")
         add(DiagnosticHypothesis.CAPACITY_LOSS, 5, "legacy_risk_probable")
 
-    # A roughly five-cell total-voltage pattern after a known complete charge/rest is
-    # strong evidence only when external loads were absent.  Wide limits deliberately
-    # avoid pretending RD6018 voltage is a laboratory cell analyzer.
+    # Approximate five-cell total-voltage pattern. Wide bounds deliberately avoid
+    # pretending RD6018 is a laboratory per-cell analyzer.
     if (
         context.rested_ocv_v is not None
         and context.fully_charged_before_rest
@@ -145,8 +143,6 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
             and sg.spread >= 0.030
             and sg.valid_cell_count == 6
         ):
-            # Persistence after the manufacturer-recommended corrective/retest path is
-            # qualitatively different from a first imbalance reading.
             add(DiagnosticHypothesis.CELL_FAULT, 35, "sg_imbalance_persists_after_corrective_equalization")
             cell_classes.add("persistent_sg")
 
@@ -156,8 +152,6 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
             add(DiagnosticHypothesis.CAPACITY_LOSS, 20, "three_recovery_attempts_without_response")
             cell_classes.add("recovery_nonresponse")
         elif context.recovery_response_improved is True:
-            # Response to recovery is positive contradictory evidence for an irreversible
-            # structural fault and stronger support for recoverable sulfation.
             add(DiagnosticHypothesis.SULFATION, 35, "recovery_response_improved")
             scores[DiagnosticHypothesis.CELL_FAULT] = max(
                 0, scores[DiagnosticHypothesis.CELL_FAULT] - 20
@@ -166,13 +160,10 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
 
     if context.dynamic_loop_worsened:
         add(DiagnosticHypothesis.CAPACITY_LOSS, 15, "dynamic_loop_response_worsened")
-        # Two-wire loop response also includes cables/contacts, so it simultaneously
-        # raises path suspicion rather than pretending the change is battery-only.
         add(DiagnosticHypothesis.CHARGER_PATH, 15, "dynamic_loop_response_is_two_wire")
 
     if context.charger_path_suspected:
         add(DiagnosticHypothesis.CHARGER_PATH, 45, "charger_or_connection_path_suspected")
-        # Do not punish the battery for evidence that points at the charger path.
         scores[DiagnosticHypothesis.CELL_FAULT] = max(
             0, scores[DiagnosticHypothesis.CELL_FAULT] - 15
         )
@@ -203,6 +194,7 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
         )
 
     cell = hypothesis_map[DiagnosticHypothesis.CELL_FAULT]
+    thermal = hypothesis_map[DiagnosticHypothesis.THERMAL_ABNORMALITY]
     authority = DiagnosticAuthority.ALLOW
     authority_reasons: list[str] = []
 
@@ -222,15 +214,13 @@ def assess_battery_fault(context: BatteryFaultContext) -> BatteryFaultAssessment
         authority_reasons.append("multi_signal_cell_fault_high_confidence")
     elif (
         cell.level in {DiagnosticLevel.PROBABLE, DiagnosticLevel.HIGH}
-        or (sg is not None and sg.level is DiagnosticLevel.VERIFY)
-        or hypothesis_map[DiagnosticHypothesis.THERMAL_ABNORMALITY].level
-        in {DiagnosticLevel.PROBABLE, DiagnosticLevel.HIGH}
+        or thermal.level in {DiagnosticLevel.PROBABLE, DiagnosticLevel.HIGH}
     ):
         authority = DiagnosticAuthority.VERIFY_BEFORE_HV
         authority_reasons.append("fault_evidence_requires_verification_before_hv")
 
-    # HARD_STOP is intentionally not produced from diagnostic inference. Immediate
-    # unsafe U/I/T/protection conditions belong to the independent hard-safety layer.
+    # HARD_STOP is intentionally never produced from inference. Immediate unsafe U/I/T
+    # and protection trips belong to the independent hard-safety layer.
     return BatteryFaultAssessment(
         hypotheses=hypothesis_map,
         authority=authority,
