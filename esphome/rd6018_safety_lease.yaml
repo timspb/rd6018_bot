@@ -2,14 +2,16 @@
 #
 # Include this file as an ESPHome package in the *same node* that owns the
 # RD6018 Modbus controller. It assumes that controller has id: powersupply,
-# matching the current rdtech ESPHome layout.
+# matching the current rdtech ESPHome layout (whose controller poll interval is 5 s).
 #
 # Safety model:
 #   bot/HA -> renew every 10 min
 #   local lease TTL -> 30 min
 #   missed renewals -> local Modbus Output OFF, retried every 5 s
 #   stale direct RD6018 Modbus (>20 s) -> latch trip and attempt OFF immediately
-#   ESPHome reboot during a managed charge -> latch trip and attempt OFF
+#   every ESPHome reboot -> boot quarantine: repeatedly force Output OFF before
+#                           any new lease can be armed
+#   reboot during a persisted managed charge -> trip remains latched after OFF
 #
 # The trip is latched. A late bot cannot simply renew an expired lease and resume
 # an old high-voltage session. Disarm is accepted only when direct Modbus is fresh
@@ -21,17 +23,20 @@ substitutions:
 
 esphome:
   on_boot:
-    # Run after components are set up. If power was lost/rebooted during a managed
-    # charge, fail closed instead of assuming the old session may continue.
+    # Do not trust an old output state across a controller reboot. Even if the
+    # persistent managed-session preference had not yet reached flash, quarantine
+    # independently forces RD6018 OFF as soon as direct Modbus becomes usable.
     priority: -100
     then:
       - lambda: |-
+          id(rd6018_safety_boot_quarantine) = true;
           if (id(rd6018_safety_managed_session)) {
             id(rd6018_safety_lease_tripped) = true;
           }
 
 # Only the managed-session bit is persistent. The 10-minute heartbeat itself is
-# deliberately RAM-only to avoid flash writes on every renewal.
+# deliberately RAM-only to avoid flash writes on every renewal. Boot quarantine
+# makes safety independent from the small persistence-write timing window.
 globals:
   - id: rd6018_safety_managed_session
     type: bool
@@ -42,6 +47,11 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
+
+  - id: rd6018_safety_boot_quarantine
+    type: bool
+    restore_value: no
+    initial_value: "true"
 
   - id: rd6018_safety_last_renew_ms
     type: uint32_t
@@ -106,7 +116,9 @@ sensor:
     accuracy_decimals: 0
     update_interval: 1s
     lambda: |-
-      if (!id(rd6018_safety_managed_session) || id(rd6018_safety_lease_tripped)) {
+      if (id(rd6018_safety_boot_quarantine) ||
+          !id(rd6018_safety_managed_session) ||
+          id(rd6018_safety_lease_tripped)) {
         return 0.0f;
       }
       const uint32_t elapsed = (uint32_t) (millis() - id(rd6018_safety_last_renew_ms));
@@ -120,7 +132,9 @@ binary_sensor:
     name: "Safety Lease Armed"
     entity_category: diagnostic
     lambda: |-
-      return id(rd6018_safety_managed_session) && !id(rd6018_safety_lease_tripped);
+      return id(rd6018_safety_managed_session) &&
+             !id(rd6018_safety_lease_tripped) &&
+             !id(rd6018_safety_boot_quarantine);
 
   - platform: template
     id: rd6018_safety_lease_tripped_sensor
@@ -129,6 +143,14 @@ binary_sensor:
     device_class: problem
     lambda: |-
       return id(rd6018_safety_lease_tripped);
+
+  - platform: template
+    id: rd6018_safety_boot_quarantine_sensor
+    name: "Safety Boot Quarantine"
+    entity_category: diagnostic
+    device_class: problem
+    lambda: |-
+      return id(rd6018_safety_boot_quarantine);
 
 # A private second view of the standard RD60xx Output register. It lets the local
 # watchdog write OFF without HA, Wi-Fi, Telegram or the Python process.
@@ -154,7 +176,9 @@ button:
             const bool modbus_fresh = last_rx != 0 &&
               ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
 
-            // Trip is latched. Only a verified-OFF disarm may clear it.
+            // No lease may be armed until reboot quarantine has proved RD is OFF.
+            // Trip is also latched; only a verified-OFF disarm may clear it.
+            if (id(rd6018_safety_boot_quarantine)) return;
             if (id(rd6018_safety_lease_tripped)) return;
             if (!modbus_fresh) {
               id(rd6018_safety_lease_tripped) = true;
@@ -187,29 +211,43 @@ button:
               id(rd6018_safety_managed_session) = false;
             }
             id(rd6018_safety_lease_tripped) = false;
+            id(rd6018_safety_boot_quarantine) = false;
             id(rd6018_safety_last_renew_ms) = 0;
 
 interval:
   - interval: 5s
     then:
       - lambda: |-
-          if (!id(rd6018_safety_managed_session)) return;
-
           const uint32_t now = millis();
           const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
           const bool modbus_fresh = last_rx != 0 &&
             ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
-          const uint32_t elapsed = (uint32_t) (now - id(rd6018_safety_last_renew_ms));
 
-          if (!modbus_fresh || elapsed >= ${rd6018_safety_lease_ttl_ms}UL) {
-            id(rd6018_safety_lease_tripped) = true;
+          if (id(rd6018_safety_managed_session)) {
+            const uint32_t elapsed = (uint32_t) (now - id(rd6018_safety_last_renew_ms));
+            if (!modbus_fresh || elapsed >= ${rd6018_safety_lease_ttl_ms}UL) {
+              id(rd6018_safety_lease_tripped) = true;
+            }
           }
       - if:
           condition:
             lambda: |-
-              return id(rd6018_safety_managed_session) &&
-                     id(rd6018_safety_lease_tripped);
+              return id(rd6018_safety_boot_quarantine) ||
+                     (id(rd6018_safety_managed_session) &&
+                      id(rd6018_safety_lease_tripped));
           then:
             # Repeated OFF is intentional. If the UART was temporarily unavailable,
             # the first successful Modbus opportunity after recovery must still be OFF.
             - switch.turn_off: rd6018_safety_output
+      - lambda: |-
+          // Boot quarantine clears automatically only after there is direct proof
+          // that Modbus is alive and RD6018 itself reports Output OFF. A persisted
+          // managed-session trip remains latched until explicit verified-OFF disarm.
+          if (!id(rd6018_safety_boot_quarantine)) return;
+          const uint32_t now = millis();
+          const uint32_t last_rx = id(rd6018_safety_last_modbus_rx_ms);
+          const bool modbus_fresh = last_rx != 0 &&
+            ((uint32_t) (now - last_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+          if (modbus_fresh && !id(rd6018_safety_output).state) {
+            id(rd6018_safety_boot_quarantine) = false;
+          }
