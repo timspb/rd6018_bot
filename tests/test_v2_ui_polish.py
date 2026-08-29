@@ -147,7 +147,7 @@ class V2UiPolishTests(unittest.TestCase):
         self.assertNotIn("decision", text)
         self.assertIs(ui_module.format_active_evidence, format_active_evidence_pretty)
 
-    def test_operator_keyboard_has_one_primary_action(self):
+    def test_operator_keyboard_has_one_primary_action_and_icons(self):
         controller = types.SimpleNamespace(is_active=False)
         app = types.SimpleNamespace(
             charge_controller=controller,
@@ -163,11 +163,20 @@ class V2UiPolishTests(unittest.TestCase):
             for button in row
             if button.callback_data
         ]
-        self.assertEqual(idle.inline_keyboard[0][0].text, "▶ Новая программа")
+        texts = [button.text for row in idle.inline_keyboard for button in row]
+        self.assertEqual(idle.inline_keyboard[0][0].text, "▶️ Новая программа")
         self.assertIn("charge_modes", callbacks)
         self.assertNotIn("power_toggle", callbacks)
         self.assertIn("v2_batteries", callbacks)
         self.assertIn("entities_status", callbacks)
+        self.assertIn("🔄 Обновить", texts)
+        self.assertIn("ℹ️ Подробнее", texts)
+        self.assertIn("🔋 АКБ", texts)
+        self.assertIn("📋 События", texts)
+        self.assertIn("🎛 Контроллер", texts)
+        self.assertIn("🩺 Диагностика", texts)
+        self.assertIn("⏱ Условие OFF", texts)
+        self.assertTrue(any("📈 30м" in text for text in texts))
 
         controller.is_active = True
         active = build_operator_dashboard_keyboard(app, True, 1)
@@ -179,6 +188,7 @@ class V2UiPolishTests(unittest.TestCase):
         markup = build_operator_dashboard_keyboard(app, True, 1, back_to_dashboard=True)
         self.assertEqual(len(markup.inline_keyboard), 1)
         self.assertEqual(markup.inline_keyboard[0][0].callback_data, "dash_back")
+        self.assertEqual(markup.inline_keyboard[0][0].text, "⬅️ К панели")
 
 
 if __name__ == "__main__":
