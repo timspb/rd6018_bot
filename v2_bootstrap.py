@@ -12,6 +12,7 @@ from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
 from v2_battery_input import parse_battery_spec
 from v2_startup import start_profile_transactional
+from v2_ui_polish import install_dashboard_polish
 
 
 def install_v2(app: Any) -> None:
@@ -55,7 +56,7 @@ def install_v2(app: Any) -> None:
                 "varta70 | AGM | 70 | Varta | Silver Dynamic AGM",
                 "varta70 AGM 70 Varta Silver Dynamic AGM",
             )
-            text += "\n\n<small>Запятые и старый разделитель | тоже поддерживаются.</small>"
+            text += "\n\nЗапятые и старый разделитель | тоже поддерживаются."
         await original_safe_answer(event, text, reply_markup=reply_markup)
 
     v2_bot_ui._safe_answer = _safe_answer_natural_battery_input
@@ -79,6 +80,7 @@ def install_v2(app: Any) -> None:
             v2_bot_ui._pending_start.pop(user_id, None)
 
     v2_bot_ui.install_v2_ui(app)
+    install_dashboard_polish(app, v2_bot_ui)
 
     # A stale legacy profile button can still populate awaiting_ah without a V2 intent.
     # Migration must be conservative: missing intent means NORMAL, never RECOVERY.
