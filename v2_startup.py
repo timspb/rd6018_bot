@@ -10,12 +10,54 @@ from safe_output import snapshot_from_live
 from v2_ui import intent_label
 
 
+INITIAL_MAIN_THRESHOLD_V = 12.0
+
+
 async def _confirm_failed_start_is_off(app: Any) -> bool:
     """Request shutdown and return True only when the HA boundary confirms OFF."""
     try:
         return bool(await app.hass.turn_off(app.ENTITY_MAP["switch"]))
     except Exception:
         return False
+
+
+def _select_initial_auto_target(
+    app: Any,
+    *,
+    battery_v: float,
+    temp_ext: float,
+    ah_now: float,
+) -> tuple[float, float, bool]:
+    """Atomically choose PREP or Main before the first Output ON.
+
+    V1 could expose one tick where logical stage=PREP while physical setpoints already
+    belonged to Main. V2 removes that split: <12.0 V remains PREP at ~0.01C; >=12.0 V
+    starts directly in Main and records the skipped PREP as an audit event.
+    """
+    controller = app.charge_controller
+    if float(battery_v) < INITIAL_MAIN_THRESHOLD_V:
+        target_v, target_i = controller._prep_target(temp_ext)
+        return float(target_v), float(target_i), False
+
+    now = float(app.time.time())
+    controller.current_stage = controller.STAGE_MAIN
+    controller.stage_start_time = now
+    controller._stage_start_ah = float(ah_now)
+    controller._start_ah = float(ah_now)
+    clear_restored = getattr(controller, "_clear_restored_targets", None)
+    if callable(clear_restored):
+        clear_restored()
+    reset_blanking = getattr(controller, "_reset_delta_and_blanking", None)
+    if callable(reset_blanking):
+        reset_blanking(now)
+    if hasattr(controller, "_v2_main_plateau_since"):
+        controller._v2_main_plateau_since = None
+    target_v, target_i = controller._main_target(temp_ext)
+    if hasattr(controller, "_v2_target_voltage_v"):
+        controller._v2_target_voltage_v = float(target_v)
+    if hasattr(controller, "_v2_last_stage"):
+        controller._v2_last_stage = controller.STAGE_MAIN
+    return float(target_v), float(target_i), True
 
 
 async def start_profile_transactional(app: Any, event: Any, pending: Any) -> bool:
@@ -33,7 +75,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     if snapshot is None:
         await message.answer(
             "❌ Нет полного набора защитной телеметрии "
-            "(U/I/температуры/вход/Output/OVP/OCP). Запуск запрещён системой защиты."
+            "(U/I/температуры/Output/OVP/OCP). Запуск запрещён системой защиты."
         )
         return False
     if snapshot.output_on:
@@ -54,11 +96,14 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     )
     app.charge_controller.start(pending.profile, int(round(pending.capacity_ah)))
 
+    prep_skipped = False
     try:
-        if battery_v < 12.0:
-            target_v, target_i = app.charge_controller._prep_target(temp_ext)
-        else:
-            target_v, target_i = app.charge_controller._main_target(temp_ext)
+        target_v, target_i, prep_skipped = _select_initial_auto_target(
+            app,
+            battery_v=battery_v,
+            temp_ext=temp_ext,
+            ah_now=ah_now,
+        )
 
         identity = BatteryIdentity(
             battery_id=pending.battery_id,
@@ -118,19 +163,29 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     app.last_checkpoint_time = app.time.time()
     app.last_chat_id = message.chat.id
     app.last_user_id = user_id
+    start_reason = (
+        f"V2_START | PREP_SKIPPED_INITIAL_VOLTAGE={battery_v:.3f}V | "
+        if prep_skipped
+        else "V2_START | PREP_REQUIRED | "
+    )
     app.log_event(
         app.charge_controller.current_stage,
         battery_v,
         current,
         temp_ext,
         ah_now,
-        f"V2_START | intent={pending.intent.value} battery={pending.battery_id}",
+        f"{start_reason}intent={pending.intent.value} battery={pending.battery_id}",
+    )
+    prep_line = (
+        f"\nPREP пропущен: Uакб={battery_v:.2f} V ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
+        if prep_skipped
+        else f"\nPREP: мягкий ток до Uакб ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
     )
     await message.answer(
         f"✅ <b>Заряд запущен</b>\n"
         f"{html.escape(pending.profile)} {pending.capacity_ah:g} Ah · "
         f"{html.escape(intent_label(pending.intent))}\n"
-        f"АКБ: <code>{html.escape(pending.battery_id)}</code>",
+        f"АКБ: <code>{html.escape(pending.battery_id)}</code>{prep_line}",
         parse_mode=app.ParseMode.HTML,
     )
     try:

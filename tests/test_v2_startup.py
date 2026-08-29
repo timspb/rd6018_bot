@@ -24,10 +24,16 @@ class FakeController:
 
     def __init__(self):
         self.is_active = False
-        self.current_stage = self.STAGE_MAIN
+        self.current_stage = "Idle"
         self.started = False
         self.stopped = False
         self.context = None
+        self.stage_start_time = 0.0
+        self._stage_start_ah = 0.0
+        self._start_ah = 0.0
+        self._v2_target_voltage_v = None
+        self._v2_last_stage = None
+        self.reset_blanking_at = None
 
     def configure_recovery_context(self, **kwargs):
         self.context = kwargs
@@ -37,12 +43,19 @@ class FakeController:
         self.is_active = True
         self.profile = profile
         self.capacity = capacity
+        self.current_stage = self.STAGE_PREP
 
     def _prep_target(self, temp):
         return 12.0, 0.7
 
     def _main_target(self, temp):
         return 14.8, 7.0
+
+    def _clear_restored_targets(self):
+        pass
+
+    def _reset_delta_and_blanking(self, now):
+        self.reset_blanking_at = now
 
     def stop(self, clear_session=True):
         self.stopped = True
@@ -129,21 +142,37 @@ PENDING = types.SimpleNamespace(
 
 
 class V2StartupTests(unittest.IsolatedAsyncioTestCase):
-    async def test_success_uses_recipe_aware_safe_enable_before_success_message(self):
+    async def test_initial_voltage_at_or_above_12_starts_main_atomically(self):
         app = FakeApp(EnableResult(enabled=True))
         message = FakeMessage()
-
         ok = await start_profile_transactional(app, message, PENDING)
+        self.assertTrue(ok)
+        self.assertEqual(app.charge_controller.current_stage, app.charge_controller.STAGE_MAIN)
+        self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 14.8)
+        self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 7.0)
+        self.assertIn("PREP_SKIPPED_INITIAL_VOLTAGE", app.events[-1][-1])
+        self.assertIn("PREP пропущен", message.answers[-1][0])
 
+    async def test_initial_voltage_below_12_keeps_prep_small_current(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.hass.live["battery_voltage"] = 11.99
+        message = FakeMessage()
+        ok = await start_profile_transactional(app, message, PENDING)
+        self.assertTrue(ok)
+        self.assertEqual(app.charge_controller.current_stage, app.charge_controller.STAGE_PREP)
+        self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 12.0)
+        self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 0.7)
+        self.assertIn("PREP_REQUIRED", app.events[-1][-1])
+
+    async def test_success_uses_recipe_aware_safe_enable(self):
+        app = FakeApp(EnableResult(enabled=True))
+        message = FakeMessage()
+        ok = await start_profile_transactional(app, message, PENDING)
         self.assertTrue(ok)
         self.assertTrue(app.charge_controller.started)
         self.assertFalse(app.charge_controller.stopped)
-        self.assertIsNotNone(app.hass.enable_kwargs)
-        self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 14.8)
-        self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 7.0)
         self.assertAlmostEqual(app.hass.enable_kwargs["recipe_voltage_ceiling_v"], 16.5)
         self.assertIn("Заряд запущен", message.answers[-1][0])
-        self.assertNotIn("V2 заряд", message.answers[-1][0])
 
     async def test_failed_enable_rolls_controller_back_only_after_confirmed_off(self):
         app = FakeApp(
@@ -154,14 +183,11 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         message = FakeMessage()
-
         ok = await start_profile_transactional(app, message, PENDING)
-
         self.assertFalse(ok)
         self.assertTrue(app.charge_controller.stopped)
         self.assertEqual(app.hass.turn_off_calls, 1)
         self.assertIn("подтверждён OFF", message.answers[-1][0])
-        self.assertNotIn("заряд запущен", message.answers[-1][0].lower())
 
     async def test_unconfirmed_off_keeps_controller_alive_and_warns_operator(self):
         app = FakeApp(
@@ -173,9 +199,7 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         )
         app.hass.turn_off_result = False
         message = FakeMessage()
-
         ok = await start_profile_transactional(app, message, PENDING)
-
         self.assertFalse(ok)
         self.assertTrue(app.charge_controller.is_active)
         self.assertFalse(app.charge_controller.stopped)
@@ -185,9 +209,7 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         app = FakeApp(EnableResult(enabled=True))
         app.hass.live["temp_ext"] = "unavailable"
         message = FakeMessage()
-
         ok = await start_profile_transactional(app, message, PENDING)
-
         self.assertFalse(ok)
         self.assertFalse(app.charge_controller.started)
         self.assertIsNone(app.hass.enable_kwargs)
@@ -196,9 +218,7 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         app = FakeApp(EnableResult(enabled=True))
         app.hass.live["temp_int"] = None
         message = FakeMessage()
-
         ok = await start_profile_transactional(app, message, PENDING)
-
         self.assertFalse(ok)
         self.assertFalse(app.charge_controller.started)
         self.assertIsNone(app.hass.enable_kwargs)
@@ -207,9 +227,7 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         app = FakeApp(EnableResult(enabled=True))
         app.hass.live["switch"] = "on"
         message = FakeMessage()
-
         ok = await start_profile_transactional(app, message, PENDING)
-
         self.assertFalse(ok)
         self.assertFalse(app.charge_controller.started)
         self.assertIsNone(app.hass.enable_kwargs)

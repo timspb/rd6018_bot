@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Dict, Optional
 
-from battery_diagnostics import DiagnosticHypothesis, assess_specific_gravity
+from auto_strategy_v2 import AutoStrategyProductionChargeControllerV2
+from battery_diagnostics import assess_specific_gravity
 from battery_diagnostics_store import list_specific_gravity
 from battery_fault_engine import (
     BatteryFaultAssessment,
@@ -11,22 +12,19 @@ from battery_fault_engine import (
     DiagnosticAuthority,
     assess_battery_fault,
 )
-from charge_logic import AGM_STAGES
-from first_stage_evidence import FirstStageAssessment, FirstStageState
-from pb_domain import ChargeIntent
-from production_controller import ProductionChargeControllerV2
+from first_stage_evidence import FirstStageAssessment
 from v2_authority import AuthorityAction, AuthorityDecision
 
 
-_RECOVERY_INTENTS = frozenset({ChargeIntent.RECOVERY, ChargeIntent.CONDITIONING})
+_HV_ACTIONS = frozenset({AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX})
 
 
-class DiagnosticProductionChargeControllerV2(ProductionChargeControllerV2):
-    """Production V2 with hypothesis-specific diagnostic evidence.
+class DiagnosticProductionChargeControllerV2(AutoStrategyProductionChargeControllerV2):
+    """Production AUTO controller with hypothesis-specific diagnostic evidence.
 
-    Diagnostic inference never emits HARD_STOP.  It may veto a *new automatic HV
-    escalation* only when the fault engine returns BLOCK_AUTOMATIC_HV.  Hard safety
-    remains the independent U/I/T/protection/readback/watchdog layer.
+    Diagnostic inference never emits HARD_STOP. It can veto a *new* automatic HV
+    transition only when the fault engine returns BLOCK_AUTOMATIC_HV. The decision is
+    inspected before the transition is applied, including Normal and 72 h fallbacks.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -51,8 +49,6 @@ class DiagnosticProductionChargeControllerV2(ProductionChargeControllerV2):
         try:
             measurements = await list_specific_gravity(battery_id, limit=1)
         except Exception:
-            # Diagnostic storage is auxiliary evidence. A DB/read failure must not
-            # masquerade as battery evidence or invalidate the deterministic controller.
             return
         if not measurements:
             return
@@ -113,25 +109,8 @@ class DiagnosticProductionChargeControllerV2(ProductionChargeControllerV2):
             }
         return result
 
-    def _next_main_transition_is_hv(
-        self,
-        first_stage: Optional[FirstStageAssessment],
-    ) -> bool:
-        if first_stage is None or self._v2_intent not in _RECOVERY_INTENTS:
-            return False
-        if first_stage.state is FirstStageState.STUCK_PLATEAU:
-            return True
-        if first_stage.state is not FirstStageState.TAIL_READY:
-            return False
-        if self.battery_type == self.PROFILE_AGM and self._agm_stage_idx < len(AGM_STAGES) - 1:
-            return False
-        return True
-
-    def _diagnostic_hv_veto(
-        self,
-        first_stage: Optional[FirstStageAssessment],
-    ) -> Optional[AuthorityDecision]:
-        if not self._next_main_transition_is_hv(first_stage):
+    def _diagnostic_hv_veto(self, decision: AuthorityDecision) -> Optional[AuthorityDecision]:
+        if decision.action not in _HV_ACTIONS:
             return None
         if self._diagnostic_assessment.authority is not DiagnosticAuthority.BLOCK_AUTOMATIC_HV:
             return None
@@ -163,19 +142,43 @@ class DiagnosticProductionChargeControllerV2(ProductionChargeControllerV2):
             temp=temp,
             ah=ah,
         )
-        veto = self._diagnostic_hv_veto(first_stage)
-        if veto is not None and stage_before == self.STAGE_MAIN and self.current_stage == stage_before:
-            self._stop_and_diagnose(
+
+        if (
+            stage_before == self.STAGE_MAIN
+            and self._is_authoritative_stage(stage_before)
+            and self.current_stage == stage_before
+        ):
+            decision = self._decide_main_authority(
+                record=record,
+                first_stage=first_stage,
+                timestamp_s=timestamp_s,
+                current=current,
+                is_cv=is_cv,
+            )
+            veto = self._diagnostic_hv_veto(decision)
+            if veto is not None:
+                self._stop_and_diagnose(
+                    actions=actions,
+                    now=timestamp_s,
+                    voltage=voltage,
+                    current=current,
+                    temp=temp,
+                    ah=ah,
+                    reason=veto.reason,
+                )
+                actions["battery_diagnostics"] = self.diagnostic_snapshot()
+                return veto
+            applied = self._apply_main_authority_decision(
+                decision,
                 actions=actions,
-                now=timestamp_s,
+                timestamp_s=timestamp_s,
                 voltage=voltage,
                 current=current,
                 temp=temp,
                 ah=ah,
-                reason=veto.reason,
             )
             actions["battery_diagnostics"] = self.diagnostic_snapshot()
-            return veto
+            return applied
 
         decision = super()._apply_authoritative_decision(
             record=record,

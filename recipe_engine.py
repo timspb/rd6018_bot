@@ -36,7 +36,7 @@ POLICIES: Dict[BatteryChemistry, ChemistryPolicy] = {
     BatteryChemistry.EFB: ChemistryPolicy(14.8, 16.5, 17.5, 0.10, 0.05),
     BatteryChemistry.CA_CA: ChemistryPolicy(14.7, 16.5, 16.5, 0.10, 0.03),
     BatteryChemistry.FLOODED: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.05),
-    BatteryChemistry.CUSTOM: ChemistryPolicy(16.6, 16.6, 18.0, 0.20, 0.20),
+    BatteryChemistry.CUSTOM: ChemistryPolicy(16.6, 16.6, 17.5, 0.20, 0.20),
 }
 
 
@@ -51,11 +51,11 @@ def select_recipe_envelope(
     custom_voltage_ceiling_v: Optional[float] = None,
     hardware_max_current_a: float = 12.0,
 ) -> RecipeEnvelope:
-    """Select policy limits; this does not choose stage setpoints.
+    """Select the allowed target envelope; stage logic chooses actual setpoints.
 
-    Existing ChargeController targets remain the recipe implementation during
-    migration. This envelope answers the narrower authorization question:
-    which target space is allowed for chemistry + intent + condition?
+    NORMAL intentionally preserves the accepted V1 full automatic charge chain, which
+    includes bounded recovery/final Mix. DIAGNOSTIC is the explicit no-automatic-HV
+    intent and therefore keeps the normal/Main voltage ceiling.
     """
     policy = POLICIES[context.identity.chemistry]
     chemistry = context.identity.chemistry
@@ -73,9 +73,12 @@ def select_recipe_envelope(
             f"Custom operator ceiling {requested:.2f}V, bounded by "
             f"{hard:.2f}V policy envelope."
         )
-    elif intent in {ChargeIntent.NORMAL, ChargeIntent.DIAGNOSTIC}:
+    elif intent == ChargeIntent.DIAGNOSTIC:
         ceiling = policy.normal_voltage_ceiling_v
-        rationale = "Normal/diagnostic envelope; no recovery high-voltage authorization."
+        rationale = "Diagnostic envelope; automatic recovery/Mix high voltage is disabled."
+    elif intent == ChargeIntent.NORMAL:
+        ceiling = policy.recovery_voltage_ceiling_v
+        rationale = "V1-compatible normal automatic envelope including bounded recovery/Mix."
     elif intent == ChargeIntent.RECOVERY:
         ceiling = policy.recovery_voltage_ceiling_v
         rationale = "Recovery envelope explicitly selected by operator/workflow."
@@ -85,7 +88,7 @@ def select_recipe_envelope(
             rationale = "Expert conditioning envelope explicitly authorized."
         else:
             ceiling = policy.recovery_voltage_ceiling_v
-            rationale = "Conditioning without expert high-voltage authorization."
+            rationale = "Conditioning within the standard recovery envelope."
     else:
         ceiling = policy.normal_voltage_ceiling_v
         rationale = "Conservative fallback envelope."

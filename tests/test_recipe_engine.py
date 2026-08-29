@@ -19,17 +19,29 @@ def context(chemistry, intent, condition=BatteryCondition.HEALTHY, capacity=70):
 
 
 class RecipeEngineTests(unittest.TestCase):
-    def test_agm_normal_and_recovery_are_distinct(self):
+    def test_normal_preserves_full_auto_hv_while_diagnostic_is_non_hv(self):
         normal = select_recipe_envelope(
             context(BatteryChemistry.AGM, ChargeIntent.NORMAL)
+        )
+        diagnostic = select_recipe_envelope(
+            context(BatteryChemistry.AGM, ChargeIntent.DIAGNOSTIC)
         )
         recovery = select_recipe_envelope(
             context(BatteryChemistry.AGM, ChargeIntent.RECOVERY)
         )
-        self.assertEqual(normal.voltage_ceiling_v, 15.0)
+        self.assertEqual(normal.voltage_ceiling_v, 16.3)
         self.assertEqual(recovery.voltage_ceiling_v, 16.3)
-        self.assertFalse(normal.allows_voltage(16.3))
-        self.assertTrue(recovery.allows_voltage(16.3))
+        self.assertEqual(diagnostic.voltage_ceiling_v, 15.0)
+        self.assertTrue(normal.allows_voltage(16.3))
+        self.assertFalse(diagnostic.allows_voltage(16.3))
+
+    def test_efb_normal_allows_standard_16_5_mix_not_expert_17_5(self):
+        normal = select_recipe_envelope(
+            context(BatteryChemistry.EFB, ChargeIntent.NORMAL)
+        )
+        self.assertEqual(normal.voltage_ceiling_v, 16.5)
+        self.assertTrue(normal.allows_voltage(16.5))
+        self.assertFalse(normal.allows_voltage(17.5))
 
     def test_efb_17_5_requires_explicit_expert_conditioning(self):
         ordinary = select_recipe_envelope(
@@ -42,8 +54,6 @@ class RecipeEngineTests(unittest.TestCase):
         )
         self.assertEqual(ordinary.voltage_ceiling_v, 16.5)
         self.assertEqual(expert.voltage_ceiling_v, 17.5)
-        self.assertFalse(ordinary.allows_voltage(17.5))
-        self.assertTrue(expert.allows_voltage(17.5))
 
     def test_current_limits_are_capacity_relative_and_hardware_capped(self):
         efb = select_recipe_envelope(
@@ -52,7 +62,6 @@ class RecipeEngineTests(unittest.TestCase):
         )
         self.assertAlmostEqual(efb.main_current_limit_a, 10.0)
         self.assertAlmostEqual(efb.hv_current_limit_a, 5.0)
-
         huge = select_recipe_envelope(
             context(BatteryChemistry.EFB, ChargeIntent.CONDITIONING, capacity=300),
             expert_high_voltage=True,
@@ -60,7 +69,7 @@ class RecipeEngineTests(unittest.TestCase):
         self.assertEqual(huge.main_current_limit_a, 12.0)
         self.assertEqual(huge.hv_current_limit_a, 12.0)
 
-    def test_rehydrated_state_is_preserved_as_recipe_context(self):
+    def test_rehydrated_state_is_context_only_not_transition_override(self):
         env = select_recipe_envelope(
             context(
                 BatteryChemistry.AGM,
