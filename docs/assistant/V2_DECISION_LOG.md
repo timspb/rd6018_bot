@@ -128,6 +128,9 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D041 — controlled current probe exists but automatic trigger policy is not guessed
 **ACCEPTED / IMPLEMENTED EXECUTOR.** The diagnostic executor can only lower current, gathers median U/I evidence, restores the exact prior current, and forces Output OFF if restoration/readback cannot be proven. Automatic amplitude/window/stage selection stays disabled until Q005/Q014 are calibrated on the physical RD6018 path.
 
+## D042 — structured dialogs outrank the global numeric Manual quick parser
+**ACCEPTED / IMPLEMENTED.** A numeric payload is not automatically a Manual command when another explicit dialog owns the next message. In particular, pending six-cell SG input bypasses the Manual middleware before parsing; otherwise its first two SG values could be mistaken for `V I`. Regression coverage locks this ordering.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -137,6 +140,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `1e11138...` + `57fbea3...`: first-class Manual authority wired into production V2; legacy Custom dialog becomes an input adapter only.
 - `8b660b0...`: Manual contract tests; CI green on Python 3.10/3.11/3.12.
 - `a693090...` + `54fd424...`: native/unified Manual text authority, exact-reach compatibility, verified Manual reconfiguration and tests.
+- `bb3ff05...` + `b68f943...`: structured SG dialog precedence over the numeric Manual quick parser.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
