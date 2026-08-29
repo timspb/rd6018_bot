@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Optional, Tuple
 
 from charge_controller_v2 import ChargeControllerV2
@@ -95,6 +96,17 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self._recipe_envelope(),
             hv=self._current_stage_is_hv(),
         )
+
+    async def tick(self, *args, **kwargs):
+        """Run managed V2 without legacy hourly Telegram chatter.
+
+        The legacy scaffold still owns safety/mechanics, but its generic hourly
+        ``Прошло Nч из ...`` report duplicates the terminal dashboard and, for Main,
+        can display an undefined stage limit. Keep it for Custom/legacy operation only.
+        """
+        if self.is_active and self.battery_type != self.PROFILE_CUSTOM:
+            self._last_hourly_report = time.time()
+        return await super().tick(*args, **kwargs)
 
     def try_restore_session(
         self,
