@@ -3,8 +3,11 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 import v2_bot_ui
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
+from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
 from v2_startup import start_profile_transactional
 
@@ -30,6 +33,53 @@ def install_v2(app: Any) -> None:
     v2_bot_ui.upsert_battery = _upsert_from_ui
     v2_bot_ui._start_profile = start_profile_transactional
     v2_bot_ui.install_v2_ui(app)
+
+    # A stale legacy profile button can still populate awaiting_ah without a V2 intent.
+    # Migration must be conservative: missing intent means NORMAL, never RECOVERY.
+    installed_handle_ah = app.handle_ah_input
+
+    async def _handle_ah_conservative(message, profile: str, user_id: int) -> None:
+        v2_bot_ui._pending_intent.setdefault(user_id, ChargeIntent.NORMAL)
+        await installed_handle_ah(message, profile, user_id)
+
+    app.handle_ah_input = _handle_ah_conservative
+
+    # In V2, an idle dashboard must not expose the old "turn on whatever setpoints are
+    # currently in RD6018" shortcut. Starting always goes through chemistry -> intent
+    # -> preview -> transactional enable. STOP remains the legacy hard-stop callback.
+    installed_dashboard_keyboard = app._build_dashboard_keyboard
+
+    def _build_v2_dashboard_keyboard(
+        is_on: bool,
+        user_id: int,
+        *,
+        back_to_dashboard: bool = False,
+    ) -> InlineKeyboardMarkup:
+        markup = installed_dashboard_keyboard(
+            is_on,
+            user_id,
+            back_to_dashboard=back_to_dashboard,
+        )
+        if is_on:
+            return markup
+
+        rows = []
+        for row in markup.inline_keyboard:
+            new_row = []
+            for button in row:
+                if button.callback_data == "power_toggle":
+                    new_row.append(
+                        InlineKeyboardButton(
+                            text="🚀 ПРОГРАММА",
+                            callback_data="charge_modes",
+                        )
+                    )
+                else:
+                    new_row.append(button)
+            rows.append(new_row)
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    app._build_dashboard_keyboard = _build_v2_dashboard_keyboard
 
 
 async def init_v2_storage() -> None:
