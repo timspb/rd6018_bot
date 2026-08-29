@@ -11,6 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import v2_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
+from manual_mode import ManualSessionManager
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
 from runtime_safety_v2 import install_v2_runtime_safety
@@ -81,14 +82,7 @@ def _operator_modes_keyboard() -> InlineKeyboardMarkup:
 
 
 async def _managed_aware_charge_monitor_poll(app: Any) -> None:
-    """Run one legacy informational-monitor poll without contradicting managed control.
-
-    The inherited monitor used a chemistry-agnostic ``V >= 13.5 and I < 0.1`` rule to
-    announce that charging was finished. During a controller-managed session that rule
-    is not authoritative: V2 owns completion from stage/mode-specific evidence (for
-    example CV Imin→ΔI or CC Vmax→ΔV). Keep the old reminders only for an unmanaged
-    RD6018 output, where they are still useful as operator hints.
-    """
+    """Run one legacy informational-monitor poll without contradicting managed control."""
     live = await app.hass.get_all_live()
     output_on = str(live.get("switch", "")).lower() == "on"
     battery_v = app._safe_float(live.get("battery_voltage"))
@@ -99,13 +93,14 @@ async def _managed_aware_charge_monitor_poll(app: Any) -> None:
         app.zero_current_since = None
         return
 
-    # Managed charge completion and anomalies belong to the controller/safety layers.
-    # Never let the old 0.1 A heuristic contradict the active evidence model.
-    if app.charge_controller.is_active:
+    manual = getattr(app, "manual_session_manager", None)
+    manual_active = bool(manual is not None and manual.is_active)
+    # Managed automatic and managed Manual sessions own their own completion rules.
+    if app.charge_controller.is_active or manual_active:
         app.zero_current_since = None
         return
 
-    # Preserve legacy reminders for an unmanaged/manual RD6018 Output ON.
+    # Preserve the old hint only for truly unmanaged output.
     if current_a <= 0.0:
         if app.zero_current_since is None:
             app.zero_current_since = now
@@ -160,6 +155,14 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             app.hass,
             notify_cb=app._charge_notify,
         )
+
+    if not isinstance(getattr(app, "manual_session_manager", None), ManualSessionManager):
+        app.manual_session_manager = ManualSessionManager(app)
+
+    # The legacy five-step Custom dialog remains a compatibility input surface only.
+    # Its final action is replaced with first-class Manual authority; it no longer starts
+    # ChargeController's chemistry-aware Custom/Main FSM.
+    app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui
 
     # Safety is independent from presentation and remains installed even with V2_UI=0.
     install_v2_runtime_safety(app)
@@ -234,7 +237,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui.install_v2_ui(app)
     install_dashboard_polish(app, v2_bot_ui)
 
-    # Replace the inherited legacy navigation hierarchy with one stable operator panel.
     app._charge_modes_text = _operator_modes_text
     app._build_charge_modes_keyboard = _operator_modes_keyboard
 
@@ -253,8 +255,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
     app._build_dashboard_keyboard = _build_operator_dashboard
 
-    # A stale legacy profile button can still populate awaiting_ah without an explicit
-    # intent. Missing intent is conservative NORMAL, never implicit Recovery.
     installed_handle_ah = app.handle_ah_input
 
     async def _handle_ah_conservative(message, profile: str, user_id: int) -> None:
@@ -263,9 +263,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
 
     app.handle_ah_input = _handle_ah_conservative
 
-    # Telegram message order is part of the operator UX: every prompt/notice/detail may
-    # live above the terminal dashboard, but the control panel itself is always restored
-    # as the last bot message. The ordering layer issues no actuator command directly.
     install_panel_last(app)
 
 
