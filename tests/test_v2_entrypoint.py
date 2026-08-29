@@ -45,6 +45,17 @@ class V2EntrypointTests(unittest.TestCase):
         }
         self.assertIn("power_toggle", callbacks)
 
+    def test_saved_battery_start_route_precedes_generic_battery_selector(self):
+        handlers = bot.router.observers["callback_query"].handlers
+        callback_names = [handler.callback.__name__ for handler in handlers]
+        self.assertIn("_v2_battery_start_route", callback_names)
+        self.assertIn("battery_select_handler", callback_names)
+        self.assertLess(
+            callback_names.index("_v2_battery_start_route"),
+            callback_names.index("battery_select_handler"),
+            "v2_battery_start must not be swallowed by the generic v2_battery_* selector",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
