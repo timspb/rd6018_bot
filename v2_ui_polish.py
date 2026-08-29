@@ -160,7 +160,7 @@ def build_operator_dashboard_keyboard(
     if back_to_dashboard:
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⬅ К панели", callback_data="dash_back")],
+                [InlineKeyboardButton(text="⬅️ К панели", callback_data="dash_back")],
             ]
         )
 
@@ -169,18 +169,18 @@ def build_operator_dashboard_keyboard(
 
     def chart_button(mode: str, label: str) -> InlineKeyboardButton:
         selected = "● " if chart_mode == mode else ""
-        return InlineKeyboardButton(text=f"{selected}{label}", callback_data=f"chart_{mode}")
+        return InlineKeyboardButton(text=f"{selected}📈 {label}", callback_data=f"chart_{mode}")
 
     rows = [
         [
             InlineKeyboardButton(
-                text="🛑 Остановить заряд" if active else "▶ Новая программа",
+                text="🛑 Остановить заряд" if active else "▶️ Новая программа",
                 callback_data="power_toggle" if active else "charge_modes",
             )
         ],
         [
-            InlineKeyboardButton(text="↻ Обновить", callback_data="refresh"),
-            InlineKeyboardButton(text="Подробнее", callback_data="info_full"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+            InlineKeyboardButton(text="ℹ️ Подробнее", callback_data="info_full"),
         ],
         [
             chart_button(app.CHART_RANGE_30M, "30м"),
@@ -188,17 +188,17 @@ def build_operator_dashboard_keyboard(
             chart_button(app.CHART_RANGE_SESSION, "Сессия"),
         ],
         [
-            InlineKeyboardButton(text="АКБ", callback_data="v2_batteries"),
-            InlineKeyboardButton(text="События", callback_data="logs"),
+            InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
+            InlineKeyboardButton(text="📋 События", callback_data="logs"),
         ],
         [
-            InlineKeyboardButton(text="Контроллер", callback_data="v2_status"),
-            InlineKeyboardButton(text="Диагностика", callback_data="entities_status"),
+            InlineKeyboardButton(text="🎛 Контроллер", callback_data="v2_status"),
+            InlineKeyboardButton(text="🩺 Диагностика", callback_data="entities_status"),
         ],
     ]
     if not active:
         rows.append(
-            [InlineKeyboardButton(text="Условие OFF", callback_data="menu_off")]
+            [InlineKeyboardButton(text="⏱ Условие OFF", callback_data="menu_off")]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
