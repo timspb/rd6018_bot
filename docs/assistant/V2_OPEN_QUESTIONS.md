@@ -10,47 +10,46 @@ Vbat < threshold  -> PREP
 Vbat >= threshold -> MAIN directly + PREP-skipped audit event
 ```
 
-## Q002 — Native V2 Manual UI and command migration
-Manual backend/authority is now defined and implemented:
+## Q002 — Manual battery identity and interrupted-session re-authorization UX
+Core Manual authority and input migration are implemented:
 - operator V/I;
 - derived, non-overridable OVP/OCP;
 - absolute 17.5V / 12A envelope;
-- operator stop conditions own normal completion;
+- arbitrary combinations of timer/V>=/V<=/V=/I>=/I<=/I=/delta stop conditions;
 - no chemistry transitions;
 - Cooling pause/resume;
-- no silent Output re-enable after restart.
+- no silent Output re-enable after restart;
+- native V2 Manual entry/help;
+- old direct `V I` / `V I third-condition` commands are intercepted before the legacy handler and become managed Manual sessions;
+- active Manual reconfiguration uses verified OFF -> fresh safe-enable rather than live unverified setpoint writes.
 
 Still open:
-- replace the legacy five-step Custom dialog with a native V2 Manual UI;
-- expose the full 17.5V range in UI (legacy dialog still presents 17.0V max);
-- expose arbitrary combinations of timer/V>=/V<=/I>=/I<=/delta cleanly;
-- bind an optional saved battery identity for history without granting chemistry authority;
-- migrate old direct `V I` / `V I third-condition` text commands into the managed Manual session instead of unmanaged setpoint writes;
-- define operator re-authorization UX for an `INTERRUPTED` persisted Manual request.
+- bind an optional saved battery identity for longitudinal history without granting chemistry authority;
+- define the operator review/re-authorization UX for a persisted `INTERRUPTED` Manual request.
 
 ## Q003 — Legacy Manual-OFF interaction with automatic profiles
-For explicit Manual, resolved: user conditions own normal completion; hard safety wins; chemistry rules do not run.
+For explicit Manual, resolved: user conditions own normal completion; hard safety wins; chemistry rules do not run. The persistent legacy Manual-OFF overlay is also observed by the managed Manual runtime so Output cannot be OFF while Manual remains logically ACTIVE.
 
 Remaining question applies only to automatic profiles that still use the legacy persistent `manual_off` engine: should arming a user stop condition suppress any automatic non-safety completion/escalation, or merely provide an additional earlier kill condition? Normalize this before removing the legacy side channel.
 
-## Q004 — Exact cell-fault/HV-block confirmation rule
-Architecture is decided: hypothesis-specific diagnostics may block further automatic HV when a cell fault is strongly confirmed. A generic score or one sample cannot.
+## Q004 — Cell-fault/HV-block calibration and false-positive strategy
+Architecture and an initial deterministic rule are implemented: ordinary heuristic risk or first SG imbalance does not veto corrective HV; automatic HV is denied only for strong cell-fault evidence, including explicit external confirmation or high-confidence multi-signal evidence with independent confirmation classes. Diagnostic inference itself cannot create a hard safety stop.
 
-Need deterministic multi-signal criteria and false-positive strategy. Candidate evidence classes:
-- post-charge/rest total OCV inconsistent with six healthy cells;
-- repeatable abnormal relaxation/self-discharge while battery is known isolated;
-- cell-level SG imbalance plus supporting total-voltage/trajectory evidence;
+Still validate/calibrate the thresholds against real stored traces and bench observations, especially combinations of:
+- post-charge/rest total OCV while the battery is known full and isolated;
+- repeatable abnormal relaxation/self-discharge;
+- persistent cell-level SG imbalance after corrective equalization/retest;
 - abnormal thermal response;
 - repeated recovery non-response;
 - controlled dynamic-loop response trend under unchanged connection;
 - external conductance/load/CCA evidence when available.
 
-This must distinguish “equalization may help” (e.g. flooded SG imbalance/stratification) from “additional HV may be unsafe” (credible failed/shorted cell).
+The calibration must continue to distinguish “equalization may help” from “additional HV may be unsafe”.
 
 ## Q005 — Controlled diagnostic-probe execution parameters
-Principle is accepted: diagnostic probes may only reduce/equal energy, restore the exact prior setpoints transactionally, and `ΔV/ΔI` is a two-wire dynamic-loop response, not battery Ri.
+Principle and fail-closed executor are implemented: a probe may only reduce/equal energy, samples median U/I, restores the exact prior current transactionally, and forces Output OFF if restoration cannot be proven. `ΔV/ΔI` remains a two-wire dynamic-loop response, not battery Ri.
 
-Still define:
+Still define before automatic triggering:
 - stages where automatic probe is allowed;
 - step amplitude relative to current/C-rate;
 - baseline and response windows;
@@ -90,7 +89,7 @@ AGM conservative asymmetry is accepted. Still decide:
 - whether REHYDRATED AGM modifies transitions or only envelope/diagnostics.
 
 ## Q010 — Persistence matrix for diagnostic sub-states
-Manual restart behavior is now resolved: active Manual restores `INTERRUPTED`, never auto-ON.
+Manual restart behavior is resolved: active Manual restores `INTERRUPTED`, never auto-ON. Exact-reach compatibility conditions are persisted with the Manual request.
 
 Still define persistence/restore for:
 - diagnostic probe in progress (likely abort + mark invalid rather than resume mid-probe);
@@ -104,23 +103,22 @@ For each: persist? expire? restore automatically? require fresh telemetry/operat
 ## Q011 — Expert EFB 17.2–17.5 V workflow
 17.5V exists as the absolute controller/manual ceiling, not a standard recipe. Before expert EFB HV becomes selectable define prerequisites/evidence, confirmation UX, current/time/thermal limits, exclusions, watchdog/readback requirements and audit label.
 
-## Q012 — Specific-gravity workflow/UI and correction policy
-Foundation implemented:
+## Q012 — Specific-gravity correction/prompt policy
+Foundation and Telegram entry are implemented:
+- saved physical battery selection;
 - six positional cell slots;
 - missing cell explicitly `None`;
 - raw SG retained;
 - timestamp, measurement temperature, context/source/notes stored;
-- full spread >=0.030 currently means `VERIFY`, not confirmed fault.
+- full spread >=0.030 means imbalance/stratification evidence, not confirmed failed cell and not an automatic equalization veto.
 
 Still define:
-- Telegram entry/edit UX;
-- flooded/EFB applicability metadata;
 - manufacturer/hydrometer-specific temperature correction policy;
-- which charge/diagnostic points should ask the operator for SG;
-- how SG evidence feeds Q004 without confusing stratification/equalization need with short-cell risk.
+- which charge/diagnostic points should proactively ask the operator for SG;
+- how applicability metadata should distinguish flooded batteries from EFB designs with inaccessible cells.
 
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
-The old single V1 score must be decomposed. Need scoring/likelihood calibration for `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, `charger_path`, including confidence and contradictory evidence. Thresholds must be validated against stored traces rather than chosen cosmetically.
+The hypothesis engine now separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and a conservative automatic-HV veto boundary. Thresholds/confidence still need validation against stored traces rather than cosmetic tuning.
 
 ## Q014 — RD6018 dynamic-loop/relay-path calibration
 Need on-device characterization of:
@@ -138,8 +136,8 @@ Before merging V2 to `main`, verify traceably:
 - Mix 20/24/10 and sticky finish hold;
 - SAFE_WAIT;
 - Done/Storage Output ON;
-- Manual native UI + direct-command migration;
-- Manual stop conditions;
+- Manual native UI, direct-command migration and interrupted-session UX;
+- Manual stop conditions and persistent Manual-OFF interaction;
 - Cooling;
 - restart/restore;
 - link loss / edge lease / fast HV watchdog;
