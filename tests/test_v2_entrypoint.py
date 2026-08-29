@@ -32,6 +32,18 @@ class V2EntrypointTests(unittest.TestCase):
         }
         self.assertIn("v2_status", dashboard_callbacks)
         self.assertIn("v2_batteries", dashboard_callbacks)
+        self.assertIn("charge_modes", dashboard_callbacks)
+        self.assertNotIn("power_toggle", dashboard_callbacks)
+
+    def test_active_dashboard_keeps_hard_stop_callback(self):
+        dashboard = bot._build_dashboard_keyboard(True, 1)
+        callbacks = {
+            button.callback_data
+            for row in dashboard.inline_keyboard
+            for button in row
+            if button.callback_data
+        }
+        self.assertIn("power_toggle", callbacks)
 
 
 if __name__ == "__main__":
