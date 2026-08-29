@@ -15,6 +15,7 @@ def live_state(**overrides):
         "battery_voltage": 12.4,
         "current": 0.0,
         "temp_ext": 25.0,
+        "temp_int": 32.0,
         "input_voltage": 64.0,
         "switch": "off",
         "ovp_triggered": "off",
@@ -69,6 +70,8 @@ class FakeAdapter:
 
     async def turn_off(self, entity_id=None):
         self.calls.append("turn_off")
+        if self.fail_method == "turn_off":
+            return False
         self.live["switch"] = "off"
         return True
 
@@ -97,6 +100,20 @@ class SafetySupervisorTests(unittest.TestCase):
 
     def test_missing_external_temperature_fails_closed(self):
         self.assertIsNone(snapshot_from_live(live_state(temp_ext=None)))
+
+    def test_missing_internal_temperature_fails_closed(self):
+        self.assertIsNone(snapshot_from_live(live_state(temp_int="unavailable")))
+
+    def test_hot_power_supply_blocks_enable(self):
+        supervisor = SafetySupervisor()
+        telemetry = snapshot_from_live(live_state(temp_int=55.0))
+        assert telemetry is not None
+        decision = supervisor.preflight(
+            OutputRequest(16.3, 2.0, 16.4, 2.1, recipe_voltage_ceiling_v=16.3),
+            telemetry,
+        )
+        self.assertFalse(decision.allowed)
+        self.assertIn(SafetyViolation.POWER_SUPPLY_TOO_HOT, decision.violations)
 
 
 class SafeOutputCoordinatorTests(unittest.TestCase):
@@ -146,6 +163,55 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         self.assertFalse(result.enabled)
         self.assertIn(SafetyViolation.OUTPUT_ALREADY_ON, result.violations)
         self.assertEqual(adapter.calls, ["get_all_live"])
+
+    def test_post_enable_input_drop_forces_output_off(self):
+        adapter = FakeAdapter()
+        original_turn_on = adapter.turn_on
+
+        async def turn_on_then_drop(entity_id=None):
+            result = await original_turn_on(entity_id)
+            adapter.live["input_voltage"] = 55.0
+            return result
+
+        adapter.turn_on = turn_on_then_drop
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.INPUT_VOLTAGE_LOW, result.violations)
+        self.assertIn(SafetyViolation.POST_ENABLE_VERIFY_FAILED, result.violations)
+        self.assertEqual(adapter.live["switch"], "off")
+
+    def test_post_enable_setpoint_drift_forces_output_off(self):
+        adapter = FakeAdapter()
+        original_turn_on = adapter.turn_on
+
+        async def turn_on_then_drift(entity_id=None):
+            result = await original_turn_on(entity_id)
+            adapter.live["set_voltage"] = 15.0
+            return result
+
+        adapter.turn_on = turn_on_then_drift
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.READBACK_MISMATCH, result.violations)
+        self.assertEqual(adapter.live["switch"], "off")
+
+    def test_failed_cleanup_reports_unconfirmed_off(self):
+        adapter = FakeAdapter()
+        adapter.fail_method = "set_current"
+
+        async def cannot_confirm_off(entity_id=None):
+            adapter.calls.append("turn_off")
+            return False
+
+        adapter.turn_off = cannot_confirm_off
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.PROGRAMMING_FAILED, result.violations)
+        self.assertIn(SafetyViolation.OUTPUT_OFF_UNCONFIRMED, result.violations)
+        self.assertIn("OFF was not confirmed", result.detail)
 
 
 if __name__ == "__main__":
