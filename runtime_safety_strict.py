@@ -52,9 +52,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             app.edge_safety_lease = explicit_lease
 
         self.edge_safety_lease = explicit_lease
-        # Default is deliberately fail-closed for the real HassClient. Unit-test and
-        # non-HA adapters without the required primitives are not silently promoted
-        # into production; they simply do not claim this hardware boundary exists.
         self.edge_lease_enforced = _env_enabled("RD6018_EDGE_LEASE_REQUIRED", True) and (
             production_adapter or explicit_lease is not None
         )
@@ -95,10 +92,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         except Exception:
             ok = False
         if not ok:
-            # Output is already physically confirmed OFF before this helper is called.
-            # Leaving the lease armed is fail-safe: the edge node will only keep issuing
-            # more OFF commands. Surface the maintenance problem but do not turn a safe
-            # shutdown into an unsafe exception.
             self._notify(
                 "edge_lease_disarm_failed",
                 "⚠️ RD6018 уже подтверждён OFF, но локальный safety lease не удалось "
@@ -109,9 +102,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         live = await super().get_all_live()
         output_state = _binary(live.get("switch"))
 
-        # Do not rely exclusively on the data_logger's next action dispatch for a real
-        # hardware trip. Request OFF here too, then return the original trip snapshot
-        # so the legacy handler can still record OVP/OCP as the session-ending reason.
         if output_state is True and (
             _binary(live.get("ovp_triggered")) is True
             or _binary(live.get("ocp_triggered")) is True
@@ -132,7 +122,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         return live
 
     async def turn_on(self, entity_id: Optional[str] = None) -> bool:
-        # Preserve the stronger latched-OFF invariant before doing any new work.
         if self._off_unconfirmed:
             return await super().turn_on(entity_id)
         if not self.controller_active:
@@ -144,9 +133,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                 )
             raise RuntimeSafetyError("turn-on blocked: no active controller session")
 
-        # Arm the local dead-man timer before any path is allowed to energize RD6018.
-        # A missing ESPHome package/entity therefore blocks ON rather than degrading to
-        # an ordinary network watchdog that cannot stop the PSU after communications die.
         await self._arm_edge_lease()
         try:
             enabled = await super().turn_on(entity_id)
@@ -172,8 +158,6 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         trip_key: str,
     ) -> bool:
         """Wait for measured hardware state, not only command/setpoint readback."""
-        # Keep this fail-safe even if a test/operator misconfigures the timing values.
-        # A zero/negative poll interval must never crash an active transition.
         poll_s = max(0.001, float(self.TRANSITION_SETTLE_POLL_S))
         timeout_s = max(0.0, float(self.TRANSITION_SETTLE_TIMEOUT_S))
         attempts = max(1, int(timeout_s / poll_s) + 1)
@@ -193,19 +177,23 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                 return True
         return False
 
+    def _stage_target(self, live: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+        target_fn = getattr(self.app.charge_controller, "_get_target_v_i", None)
+        if not callable(target_fn):
+            return None, None
+        temp_ext = _finite(live.get("temp_ext"))
+        try:
+            target_v, target_i = target_fn(temp_ext)
+        except Exception:
+            return None, None
+        return _finite(target_v), _finite(target_i)
+
     async def _precondition_current_before_voltage_raise(
         self,
         requested_voltage: float,
         live: dict[str, Any],
     ) -> None:
-        """Throttle current before a live HV transition raises the voltage setpoint.
-
-        Main -> Desulfation/Mix raises voltage while reducing the allowed current. The
-        legacy action dispatcher writes voltage before current; without this interlock
-        RD6018 can briefly drive the old high-current setpoint and then trip when OCP is
-        tightened. The strict boundary derives only the controller's already-selected
-        stage target and applies the safer half of the same transition first.
-        """
+        """Throttle current before a live HV transition raises the voltage setpoint."""
         live_set_v = _finite(live.get("set_voltage"))
         live_set_i = _finite(live.get("set_current"))
         if live_set_v is None or live_set_i is None:
@@ -218,39 +206,22 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         if requested_voltage <= live_set_v + self.READBACK_TOLERANCE:
             return
 
-        target_fn = getattr(self.app.charge_controller, "_get_target_v_i", None)
-        if not callable(target_fn):
-            return
-        temp_ext = _finite(live.get("temp_ext"))
-        try:
-            _target_v, stage_target_i = target_fn(temp_ext)
-        except Exception as exc:
+        _target_v, target_i = self._stage_target(live)
+        if target_i is None or target_i <= 0:
             await self._ensure_output_off(
-                "voltage transition could not resolve current-stage target"
+                "voltage transition could not resolve a valid current-stage target"
             )
             raise RuntimeSafetyError(
                 "voltage transition blocked: current-stage target unavailable"
-            ) from exc
-        target_i = _finite(stage_target_i)
-        if target_i is None or target_i <= 0:
-            await self._ensure_output_off(
-                "voltage transition resolved an invalid current-stage target"
             )
-            raise RuntimeSafetyError(
-                "voltage transition blocked: invalid current-stage target"
-            )
-
         if target_i + self.READBACK_TOLERANCE >= live_set_i:
             return
 
-        # Keep the old/wider OCP while reducing current. Base set_current verifies the
-        # new current setpoint; then additionally wait for the measured current before
-        # permitting the voltage raise.
+        # Keep the old/wider OCP while lowering the current regulator first.
         await super().set_current(target_i)
-        measured_ceiling = target_i + self.CURRENT_SETTLE_MARGIN_A
         if not await self._wait_measured_below(
             key="current",
-            ceiling=measured_ceiling,
+            ceiling=target_i + self.CURRENT_SETTLE_MARGIN_A,
             trip_key="ocp_triggered",
         ):
             await self._ensure_output_off(
@@ -259,6 +230,52 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             raise RuntimeSafetyError(
                 "voltage transition blocked: measured current did not settle"
             )
+
+    async def _precondition_voltage_before_ovp_tighten(
+        self,
+        requested_ovp: float,
+        live: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Lower Vset before lowering OVP when both belong to the same stage target.
+
+        The inherited dispatcher writes OVP before Vset. That is safe for voltage
+        increases, but unsafe for a temperature-compensation decrease: tightening OVP
+        through the old higher Vset can trip or force a needless shutdown. Derive the
+        already-selected stage target, lower Vset under the still-wide OVP, wait for the
+        measured output to settle, and only then permit OVP tightening.
+        """
+        current_ovp = _finite(live.get("ovp"))
+        live_set_v = _finite(live.get("set_voltage"))
+        if current_ovp is None or live_set_v is None:
+            return live
+        if requested_ovp + self.READBACK_TOLERANCE >= current_ovp:
+            return live
+        if requested_ovp + self.READBACK_TOLERANCE >= live_set_v + self.PROTECTION_MARGIN:
+            return live
+
+        target_v, _target_i = self._stage_target(live)
+        if (
+            target_v is None
+            or target_v <= 0
+            or target_v + self.PROTECTION_MARGIN > requested_ovp + self.READBACK_TOLERANCE
+            or target_v >= live_set_v - self.READBACK_TOLERANCE
+        ):
+            return live
+
+        # Old OVP stays in force while Vset is reduced.
+        await super().set_voltage(target_v)
+        if not await self._wait_measured_below(
+            key="voltage",
+            ceiling=max(0.0, requested_ovp - self.VOLTAGE_SETTLE_MARGIN_V),
+            trip_key="ovp_triggered",
+        ):
+            await self._ensure_output_off(
+                "output voltage did not settle before OVP tightening"
+            )
+            raise RuntimeSafetyError(
+                "OVP change blocked: measured voltage did not settle"
+            )
+        return await self._raw_live()
 
     async def set_voltage(self, value: float) -> bool:
         requested = _finite(value)
@@ -273,6 +290,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         output_state = await self._output_state_raw()
         if output_state is True and requested is not None:
             live = await self._raw_live()
+            live = await self._precondition_voltage_before_ovp_tighten(requested, live)
             set_v = _finite(live.get("set_voltage"))
             if set_v is None:
                 await self._ensure_output_off("OVP change attempted without live voltage readback")
