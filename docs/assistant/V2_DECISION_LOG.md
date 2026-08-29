@@ -149,6 +149,9 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D048 — production presentation must use production timing/intent semantics
 **ACCEPTED / IMPLEMENTED.** Telegram previews/status and V2 timers must show Normal as full automatic, Diagnostic as no-auto-HV, and Mix fallbacks Ca20/EFB24/AGM10. Legacy rollback constants are not allowed to leak into the production operator contract.
 
+## D049 — Auto Mix is a first-class direct-entry automatic program, not a new intent
+**ACCEPTED / IMPLEMENTED.** Operator may explicitly start an automatic Mix-only program for Ca/Ca, EFB or AGM. It creates the session directly in `STAGE_MIX`; PREP, Main and intermediate Recovery/Desulfation are not entered even transiently. This is an entry/program mode, while `ChargeIntent` keeps describing charging purpose. Auto Mix uses the chemistry's standard Mix target (Ca/EFB 16.5 V, AGM 16.3 V), ~0.03C current, normal 120 s evidence blanking, mode-specific Delta confirmation, sticky 2 h finish hold, Ca20/EFB24/AGM10 fallback, SAFE_WAIT and Storage. It uses the normal recipe envelope only; expert EFB 17.2–17.5 V is not implicitly authorized. `Vbat < 12.0 V` rejects Auto Mix rather than silently falling back to PREP. Strong `BLOCK_AUTOMATIC_HV` diagnostic evidence and all ordinary V2 safety/readback/watchdog gates apply before Output enable.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -159,6 +162,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `bb3ff05...` + `b68f943...`: structured SG dialog precedence over numeric Manual parser.
 - `60d1bc96...`: V1-compatible AUTO intent/72h/AGM strategy plus atomic PREP skip.
 - `44738236...`: production UI/tests aligned with the accepted AUTO semantics.
+- `97a16efd...`: first-class transactional Auto Mix direct-entry program and Telegram workflow.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
