@@ -21,7 +21,9 @@ naturally converges to local `Output OFF`.
   - the ESPHome lease generation changes;
   - `Safety Lease Armed` is ON;
   - the ESPHome node reports a direct RD6018 Modbus observation no older than 20 s;
-  - the reported remaining lease exceeds the normal renewal interval.
+  - the reported remaining lease is effectively a freshly replenished 30-minute lease
+    (production ACK allows only a small telemetry/publication slack).
+- Between scheduled renewals the bot also rejects an unexpectedly short remaining lease.
 - A missed/invalid renewal while communication is still available immediately requests
   and verifies RD6018 `Output OFF` through the existing actuator safety boundary.
 - If the bot/HA/network is completely gone, the ESPHome node expires the lease locally
@@ -29,8 +31,12 @@ naturally converges to local `Output OFF`.
 - Once the edge lease trips it is **latched**. A late process cannot simply renew the old
   charge. The trip can be cleared only after the edge node itself has fresh Modbus and
   reads RD6018 Output OFF.
-- If the ESPHome node reboots while a managed session flag was persisted, it starts in
-  the tripped state and repeatedly requests Output OFF.
+- **Every ESPHome reboot enters a boot quarantine**, whether or not a managed-session
+  preference was already flushed to flash. The node repeatedly requests RD6018 Output
+  OFF until direct Modbus is fresh and the locally-read Output state is OFF; no lease
+  can be armed during this quarantine.
+- If a managed-session preference survives the reboot, its trip remains latched after
+  the boot quarantine and requires an explicit verified-OFF disarm before a new start.
 
 The ESPHome package is `esphome/rd6018_safety_lease.yaml`.
 
@@ -45,17 +51,18 @@ it must not be treated as the normal operating configuration.
 | Python bot crashes | Cannot act | OFF within 30 min | bounded |
 | HA process stops | Cannot act | OFF within 30 min | bounded |
 | Wi-Fi / HA API path dies | Cannot act | ESPHome timer continues locally; OFF within 30 min | bounded if ESPHome<->RD Modbus remains usable |
-| HA returns stale cached numeric states | Can be fooled | next generation ACK fails; local TTL still expires | bounded |
+| HA returns stale cached numeric states | Can be fooled | generation + near-full remaining + direct-Modbus ACK prevents false renewal; local TTL still expires | bounded |
 | Bot alive but lease renewal fails | Immediate verified OFF | lease remains fail-safe | bounded |
-| ESPHome reboots mid-charge | Bot may temporarily lose HA | persisted managed-session bit causes local trip/OFF | bounded |
+| ESPHome reboots mid-charge | Bot may temporarily lose HA | unconditional boot quarantine repeatedly forces local OFF; persisted managed session additionally latches trip | bounded if ESPHome<->RD Modbus becomes usable |
+| ESPHome loses power and stays down while RD6018 stays powered | Cannot act | Edge CPU is absent | **needs RD-internal timer** |
 | ESPHome<->RD6018 UART/Modbus dies | Cannot command RD through HA | lease latches and retries OFF as soon as Modbus returns | **RD may remain ON while UART is physically unavailable** |
 | RD6018 firmware itself hangs with output ON | No reliable command path | No reliable command path | requires an RD-internal independent mechanism |
 | External battery temperature telemetry disappears | Runtime fail-close/verified OFF if command path exists | lease remains armed until OFF | bounded if Modbus usable |
 
-The remaining hard failure domain is therefore **loss of the ESPHome-to-RD6018 Modbus
-control path while RD6018 itself continues sourcing power**.  The correct next layer is
-the RD6018 firmware's own output timer, if it can be safely controlled and positively
-verified over a documented register interface.
+The remaining hard failure domain is therefore **loss of the ESPHome-to-RD6018 control
+path while RD6018 itself continues sourcing power** (including a dead/unpowered ESPHome
+controller). The correct next layer is the RD6018 firmware's own output timer, if it can
+be safely controlled and positively verified over a documented register interface.
 
 ## Native RD6018 Timer Off -- intended third layer
 
@@ -94,8 +101,9 @@ Use a dummy load / non-battery load and keep Output OFF during register discover
 7. With Output OFF, write only a confirmed candidate and verify the panel/readback.
 8. With a current-limited dummy load, prove a short timer (for example 60 s) turns
    Output OFF without any ESPHome/HA traffic.
-9. Verify whether refreshing the timer while Output ON is atomic and safe.  If not,
-   arm a longer RD-internal timer once at stage entry rather than refreshing it live.
+9. Verify whether refreshing the timer while Output ON is atomic and safe. If it is not,
+   do not implement the user's periodic-refresh idea directly; choose a timer arming
+   scheme whose entire mutation happens before Output ON.
 10. Only after these tests add the native timer as another mandatory lease backend.
 
 ## Why the edge lease applies to all managed charging
