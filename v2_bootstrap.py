@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import v2_bot_ui
@@ -58,6 +59,25 @@ def install_v2(app: Any) -> None:
         await original_safe_answer(event, text, reply_markup=reply_markup)
 
     v2_bot_ui._safe_answer = _safe_answer_natural_battery_input
+
+    # IMPORTANT: register the exact saved-battery Start callback BEFORE installing
+    # v2_bot_ui.  That module also has a generic `v2_battery_*` selector registered
+    # before its own exact Start handler.  Aiogram stops at the first matching handler,
+    # so `v2_battery_start` used to be swallowed by the selector as a non-numeric id.
+    # Keep this narrow routing guard until the legacy adapter is retired/refactored.
+    @app.router.callback_query(F.data == "v2_battery_start")
+    async def _v2_battery_start_route(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        await call.answer()
+        user_id = call.from_user.id if call.from_user else 0
+        pending = v2_bot_ui._pending_start.get(user_id)
+        if pending is None:
+            await call.answer("Preview устарел — выберите АКБ заново", show_alert=True)
+            return
+        if await start_profile_transactional(app, call, pending):
+            v2_bot_ui._pending_start.pop(user_id, None)
+
     v2_bot_ui.install_v2_ui(app)
 
     # A stale legacy profile button can still populate awaiting_ah without a V2 intent.
