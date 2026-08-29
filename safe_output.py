@@ -12,6 +12,7 @@ class SafetyViolation(str, Enum):
     BATTERY_NOT_PLAUSIBLE = "battery_not_plausible"
     BATTERY_TOO_COLD = "battery_too_cold"
     BATTERY_TOO_HOT = "battery_too_hot"
+    POWER_SUPPLY_TOO_HOT = "power_supply_too_hot"
     INPUT_VOLTAGE_LOW = "input_voltage_low"
     PROTECTION_ALREADY_TRIPPED = "protection_already_tripped"
     OUTPUT_ALREADY_ON = "output_already_on"
@@ -24,6 +25,7 @@ class SafetyViolation(str, Enum):
     READBACK_MISMATCH = "readback_mismatch"
     OUTPUT_ENABLE_FAILED = "output_enable_failed"
     POST_ENABLE_VERIFY_FAILED = "post_enable_verify_failed"
+    OUTPUT_OFF_UNCONFIRMED = "output_off_unconfirmed"
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class SafetyPolicy:
     min_start_temp_c: float = 10.0
     pause_temp_c: float = 40.0
     critical_temp_c: float = 45.0
+    max_internal_temp_c: float = 55.0
     min_input_voltage_v: float = 60.0
     min_ovp_margin_v: float = 0.05
     min_ocp_margin_a: float = 0.05
@@ -61,6 +64,7 @@ class TelemetrySnapshot:
     battery_voltage_v: float
     current_a: float
     temp_ext_c: float
+    temp_int_c: float
     input_voltage_v: float
     output_on: bool
     ovp_triggered: bool
@@ -126,6 +130,7 @@ def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
     battery_voltage = _finite_float(live.get("battery_voltage"))
     current = _finite_float(live.get("current"))
     temp_ext = _finite_float(live.get("temp_ext"))
+    temp_int = _finite_float(live.get("temp_int"))
     input_voltage = _finite_float(live.get("input_voltage"))
     output_on = _as_on(live.get("switch"))
     ovp_triggered = _as_on(live.get("ovp_triggered"))
@@ -135,6 +140,7 @@ def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
         battery_voltage,
         current,
         temp_ext,
+        temp_int,
         input_voltage,
         output_on,
         ovp_triggered,
@@ -147,6 +153,7 @@ def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
         battery_voltage_v=battery_voltage,
         current_a=current,
         temp_ext_c=temp_ext,
+        temp_int_c=temp_int,
         input_voltage_v=input_voltage,
         output_on=bool(output_on),
         ovp_triggered=bool(ovp_triggered),
@@ -177,6 +184,7 @@ class SafetySupervisor:
             telemetry.battery_voltage_v,
             telemetry.current_a,
             telemetry.temp_ext_c,
+            telemetry.temp_int_c,
             telemetry.input_voltage_v,
         )
         if not all(math.isfinite(v) for v in requested + observed):
@@ -188,6 +196,8 @@ class SafetySupervisor:
             violations.add(SafetyViolation.BATTERY_TOO_COLD)
         if telemetry.temp_ext_c >= p.pause_temp_c:
             violations.add(SafetyViolation.BATTERY_TOO_HOT)
+        if telemetry.temp_int_c >= p.max_internal_temp_c:
+            violations.add(SafetyViolation.POWER_SUPPLY_TOO_HOT)
         if telemetry.input_voltage_v < p.min_input_voltage_v:
             violations.add(SafetyViolation.INPUT_VOLTAGE_LOW)
         if telemetry.ovp_triggered or telemetry.ocp_triggered:
@@ -253,13 +263,47 @@ class SafetySupervisor:
             detail=", ".join(sorted(v.value for v in violations)),
         )
 
+    def verify_live_output(self, request: OutputRequest, telemetry: TelemetrySnapshot) -> SafetyDecision:
+        """Verify the still-live safety envelope after Output ON.
+
+        Unlike ``preflight`` this expects the output to be ON and therefore does not
+        classify that state as a violation.  It rechecks PSU/battery/input protection
+        and the programmed V/I/OVP/OCP values so an enable cannot succeed merely
+        because the pre-ON snapshot was good.
+        """
+        p = self.policy
+        violations: set[SafetyViolation] = set()
+        if not telemetry.output_on:
+            violations.add(SafetyViolation.POST_ENABLE_VERIFY_FAILED)
+        if not (p.min_battery_voltage_v <= telemetry.battery_voltage_v <= p.max_battery_voltage_v):
+            violations.add(SafetyViolation.BATTERY_NOT_PLAUSIBLE)
+        if telemetry.temp_ext_c >= p.pause_temp_c:
+            violations.add(SafetyViolation.BATTERY_TOO_HOT)
+        if telemetry.temp_int_c >= p.max_internal_temp_c:
+            violations.add(SafetyViolation.POWER_SUPPLY_TOO_HOT)
+        if telemetry.input_voltage_v < p.min_input_voltage_v:
+            violations.add(SafetyViolation.INPUT_VOLTAGE_LOW)
+        if telemetry.ovp_triggered or telemetry.ocp_triggered:
+            violations.add(SafetyViolation.PROTECTION_ALREADY_TRIPPED)
+        if telemetry.current_a > p.absolute_ocp_ceiling_a + p.current_readback_tolerance_a:
+            violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
+
+        programmed = self.verify_programmed(request, telemetry)
+        violations.update(programmed.violations)
+        return SafetyDecision(
+            allowed=not violations,
+            violations=frozenset(violations),
+            detail=", ".join(sorted(v.value for v in violations)),
+        )
+
 
 class SafeOutputCoordinator:
     """Fail-closed output enable sequence.
 
     Protections are programmed first, then setpoints, then all four values are
     read back. Output is enabled only after those checks pass. Any failure tries
-    to force the output OFF.
+    to force the output OFF; if OFF itself cannot be confirmed, that fact is
+    propagated explicitly instead of reporting a falsely safe state.
     """
 
     def __init__(
@@ -273,11 +317,24 @@ class SafeOutputCoordinator:
         self.supervisor = supervisor or SafetySupervisor()
         self.readback_delay_s = max(0.0, readback_delay_s)
 
-    async def _force_off(self) -> None:
+    async def _force_off(self) -> bool:
         try:
-            await self.adapter.turn_off()
+            return bool(await self.adapter.turn_off())
         except Exception:
-            pass
+            return False
+
+    async def _failure(
+        self,
+        violations: FrozenSet[SafetyViolation],
+        detail: str,
+        *,
+        force_off: bool,
+    ) -> EnableResult:
+        merged = set(violations)
+        if force_off and not await self._force_off():
+            merged.add(SafetyViolation.OUTPUT_OFF_UNCONFIRMED)
+            detail = f"{detail}; output OFF was not confirmed"
+        return EnableResult(False, frozenset(merged), detail)
 
     async def enable(self, request: OutputRequest) -> EnableResult:
         live = await self.adapter.get_all_live()
@@ -305,11 +362,10 @@ class SafeOutputCoordinator:
             except Exception:
                 ok = False
             if not ok:
-                await self._force_off()
-                return EnableResult(
-                    False,
+                return await self._failure(
                     frozenset({SafetyViolation.PROGRAMMING_FAILED}),
                     f"failed to program {value}",
+                    force_off=True,
                 )
 
         if self.readback_delay_s:
@@ -318,51 +374,56 @@ class SafeOutputCoordinator:
         programmed_live = await self.adapter.get_all_live()
         programmed = snapshot_from_live(programmed_live)
         if programmed is None:
-            await self._force_off()
-            return EnableResult(
-                False,
+            return await self._failure(
                 frozenset({SafetyViolation.READBACK_MISMATCH}),
                 "programmed values could not be read back",
+                force_off=True,
             )
 
         second_preflight = self.supervisor.preflight(request, programmed)
         if not second_preflight.allowed:
-            await self._force_off()
-            return EnableResult(False, second_preflight.violations, second_preflight.detail)
+            return await self._failure(
+                second_preflight.violations,
+                second_preflight.detail,
+                force_off=True,
+            )
 
         verified = self.supervisor.verify_programmed(request, programmed)
         if not verified.allowed:
-            await self._force_off()
-            return EnableResult(False, verified.violations, verified.detail)
+            return await self._failure(
+                verified.violations,
+                verified.detail,
+                force_off=True,
+            )
 
         try:
             enabled = await self.adapter.turn_on()
         except Exception:
             enabled = False
         if not enabled:
-            await self._force_off()
-            return EnableResult(
-                False,
+            return await self._failure(
                 frozenset({SafetyViolation.OUTPUT_ENABLE_FAILED}),
                 "output enable command failed",
+                force_off=True,
             )
 
         if self.readback_delay_s:
             await asyncio.sleep(self.readback_delay_s)
         final_live = await self.adapter.get_all_live()
         final = snapshot_from_live(final_live)
-        if (
-            final is None
-            or not final.output_on
-            or final.ovp_triggered
-            or final.ocp_triggered
-            or final.temp_ext_c >= self.supervisor.policy.pause_temp_c
-        ):
-            await self._force_off()
-            return EnableResult(
-                False,
+        if final is None:
+            return await self._failure(
                 frozenset({SafetyViolation.POST_ENABLE_VERIFY_FAILED}),
-                "post-enable state is not safe/confirmed",
+                "post-enable required telemetry is missing/invalid",
+                force_off=True,
+            )
+
+        final_decision = self.supervisor.verify_live_output(request, final)
+        if not final_decision.allowed:
+            return await self._failure(
+                final_decision.violations | frozenset({SafetyViolation.POST_ENABLE_VERIFY_FAILED}),
+                final_decision.detail or "post-enable state is not safe/confirmed",
+                force_off=True,
             )
 
         return EnableResult(True)
