@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from aiogram import BaseMiddleware, F
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
+import v2_sg_ui
 from charge_logic import MAX_STAGE_CURRENT
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
@@ -217,6 +218,19 @@ def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
     )
 
 
+def _another_dialog_owns_text(app: Any, user_id: int) -> bool:
+    """Keep structured V2/legacy dialog input ahead of the global quick Manual parser."""
+    if user_id in getattr(app, "custom_mode_state", {}):
+        return True
+    if getattr(app, "awaiting_ah", {}).get(user_id):
+        return True
+    # SG input starts with six numeric values, so without explicit ownership the first
+    # two can look exactly like a quick ``V I`` Manual command.
+    if user_id in getattr(v2_sg_ui, "_pending_sg_battery", {}):
+        return True
+    return False
+
+
 class ManualTextMiddleware(BaseMiddleware):
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -235,12 +249,9 @@ class ManualTextMiddleware(BaseMiddleware):
         if text.startswith("/"):
             return await handler(event, data)
 
-        # Existing multi-step inputs keep ownership of their next message. The native
-        # Manual prompt uses the global quick-command parser and therefore needs no
-        # extra dialog FSM.
-        if user_id in getattr(self.app, "custom_mode_state", {}):
-            return await handler(event, data)
-        if getattr(self.app, "awaiting_ah", {}).get(user_id):
+        # Structured multi-step inputs own their next message before the global Manual
+        # quick-command parser. The native Manual prompt itself needs no dialog FSM.
+        if _another_dialog_owns_text(self.app, user_id):
             return await handler(event, data)
 
         try:
