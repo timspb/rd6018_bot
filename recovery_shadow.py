@@ -7,7 +7,7 @@ from typing import Any, Mapping, Optional
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision, RecoveryDecisionPolicy, RecoveryDecisionResult
 from recovery_session import RecoverySessionTracker, RecoveryTracePoint
-from signal_analyzer import SignalAnalysis
+from signal_analyzer import SignalAnalysis, SignalMetrics, SignalSample
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,45 @@ class ShadowRecoveryRuntime:
             return "v2_would_finish_stage"
         return None
 
+    @staticmethod
+    def _neutral_analysis(point: RecoveryTracePoint) -> SignalAnalysis:
+        """Represent an intentional output-OFF charge sample without mutating evidence.
+
+        During transactional startup the controller can already own Main/Mix while the
+        RD6018 output is still OFF.  Feeding that arming sample into SignalAnalyzer can
+        manufacture a 0 A Imin (or an irrelevant CC Vmax) whose age later influences
+        transition timing.  Keep the point auditable, but leave the charge trajectory
+        untouched until output is actually energized.
+        """
+        return SignalAnalysis(
+            sample=SignalSample(
+                timestamp_s=float(point.timestamp_s),
+                voltage_v=float(point.voltage_v),
+                current_a=float(point.current_a),
+                temp_c=float(point.temp_c),
+                is_cv=bool(point.is_cv),
+                is_cc=bool(point.is_cc),
+            ),
+            metrics=SignalMetrics(
+                d_voltage_v_per_min=None,
+                d_current_a_per_min=None,
+                d_temp_c_per_min=None,
+                current_min_a=None,
+                seconds_since_current_min=None,
+                delta_current_from_min_a=None,
+                reversal_threshold_a=None,
+                current_plateau_span_a=None,
+                current_plateau_center_a=None,
+                reversal_confirmations=0,
+                voltage_max_v=None,
+                seconds_since_voltage_max=None,
+                delta_voltage_from_max_v=None,
+                voltage_reversal_threshold_v=None,
+                voltage_reversal_confirmations=0,
+            ),
+            events=frozenset(),
+        )
+
     def observe(
         self,
         point: RecoveryTracePoint,
@@ -91,7 +130,14 @@ class ShadowRecoveryRuntime:
         legacy_actions: Optional[Mapping[str, Any]] = None,
         output_is_on: Optional[bool] = True,
     ) -> ShadowRecoveryRecord:
-        analysis = self.tracker.observe(point)
+        stage_kind = self.tracker._stage_kind(point.stage)
+        if output_is_on is False and stage_kind in {"main", "hv"}:
+            # Do not let OFF/arming/cooling samples seed Imin/Vmax or their clocks.
+            # Relaxation stages intentionally remain observable with output OFF.
+            analysis = self._neutral_analysis(point)
+        else:
+            analysis = self.tracker.observe(point)
+
         decision = self.policy.decide(
             analysis,
             stage=point.stage,
