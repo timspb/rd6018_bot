@@ -1,6 +1,6 @@
 # RD6018 Dynamic-Loop / Probe Characterization
 
-Status: **OFFLINE CHARACTERIZATION TOOLING IMPLEMENTED; PHYSICAL CALIBRATION REMAINS Q005/Q014**
+Status: **READ-ONLY BENCH CAPTURE + OFFLINE CHARACTERIZATION TOOLING IMPLEMENTED; PHYSICAL CALIBRATION REMAINS Q005/Q014**
 
 This workflow determines what the actual RD6018 + ESPHome + Home Assistant path can resolve before V2 chooses automatic controlled-probe parameters.
 
@@ -29,9 +29,56 @@ restored        # optional but strongly recommended
 
 The characterization experiment must obey the existing safety principle: current may only be reduced from the ordinary target. Do not raise current or voltage solely to improve the test signal.
 
+## Read-only bench capture
+
+`tools/capture_dynamic_loop.py` captures the actual HA-observed RD6018 path into JSONL. It is deliberately observational only: it calls `get_all_live()` and has no actuator path for voltage, current, OVP/OCP, or Output.
+
+The current reduction between `baseline` and `stepped` remains an explicit operator action. This is intentional: the capture tool must not become an uncalibrated automatic probe actuator before Q005 is closed.
+
+Use one stable `connection_id` while the physical leads/clips remain untouched. Re-seating or moving the connection requires a new ID.
+
+Example sequence:
+
+```bash
+python tools/capture_dynamic_loop.py probe.jsonl \
+  --phase baseline \
+  --connection-id clips-a \
+  --duration-s 120 \
+  --truncate
+
+# Operator manually reduces the ordinary current limit to the chosen safer
+# characterization value. Do not raise current or voltage for the test.
+
+python tools/capture_dynamic_loop.py probe.jsonl \
+  --phase stepped \
+  --connection-id clips-a \
+  --duration-s 180
+
+# Restore and verify the original configured current, then optionally capture:
+python tools/capture_dynamic_loop.py probe.jsonl \
+  --phase restored \
+  --connection-id clips-a \
+  --duration-s 120
+```
+
+The CLI polls HA frequently enough to notice source changes, but duplicate polls with unchanged Vbat/current HA `last_updated` values are discarded. Therefore the JSONL cadence comes from actual source observations, not from the CLI polling interval.
+
+A sample is rejected rather than timestamped with local wall clock when Vbat/current source timestamps are missing or invalid. `capture_fetched_at_s` is retained only as transport/debug context and is never substituted for the observation timestamp.
+
+Each captured row also records when available:
+
+- separate Vbat/current source timestamps and their skew;
+- `connection_id`;
+- configured current;
+- output voltage;
+- external battery temperature;
+- resolved CC/CV mode;
+- RD model, serial, firmware;
+- complete calibration fingerprint.
+
 ## JSONL sample schema
 
-Required fields:
+Required analyzer fields:
 
 ```json
 {
@@ -52,6 +99,8 @@ Recommended context when available:
   "regulation_mode": "cc"
 }
 ```
+
+Bench capture adds audit context such as `connection_id`, source timestamps/skew and hardware/calibration identity. The offline analyzer intentionally ignores unknown extra JSON fields, so captured JSONL remains directly compatible with `tools/characterize_dynamic_loop.py`.
 
 Use the timestamps of the observations themselves. Do not synthesize evenly spaced timestamps from an assumed ESPHome interval.
 
