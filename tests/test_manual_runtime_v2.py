@@ -25,6 +25,8 @@ class FakeHass:
         self.enable_requests = []
         self.off_calls = 0
         self.enable_raises = False
+        self.enable_result = True
+        self.enable_detail = ""
         self.off_result = True
         self.off_raises = False
 
@@ -32,6 +34,8 @@ class FakeHass:
         self.enable_requests.append(dict(kwargs))
         if self.enable_raises:
             raise RuntimeError("synthetic safe-enable exception")
+        if not self.enable_result:
+            return SimpleNamespace(enabled=False, detail=self.enable_detail)
         self.live["switch"] = "on"
         return SimpleNamespace(enabled=True, detail="")
 
@@ -95,6 +99,30 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(self.hass.enable_requests[-1]["voltage_v"], 16.5)
         self.assertAlmostEqual(self.hass.enable_requests[-1]["current_a"], 1.5)
 
+    async def test_denied_safe_enable_with_unconfirmed_off_stays_managed(self):
+        manager = self._manager()
+        self.hass.enable_result = False
+        self.hass.enable_detail = "programming failed; output OFF was not confirmed"
+        self.hass.live["switch"] = "on"
+
+        enabled = await manager.start(ManualChargeRequest(14.7, 2.0))
+
+        self.assertFalse(enabled)
+        self.assertEqual(manager.state, ManualSessionState.ARMING)
+        self.assertTrue(manager.is_active)
+        self.assertIn("output_off_unconfirmed", manager.stop_reason)
+
+    async def test_denied_safe_enable_after_confirmed_cleanup_becomes_failed(self):
+        manager = self._manager()
+        self.hass.enable_result = False
+        self.hass.enable_detail = "recipe preflight denied"
+
+        enabled = await manager.start(ManualChargeRequest(14.7, 2.0))
+
+        self.assertFalse(enabled)
+        self.assertEqual(manager.state, ManualSessionState.FAILED)
+        self.assertFalse(manager.is_active)
+
     async def test_safe_enable_exception_with_unconfirmed_off_stays_managed(self):
         manager = self._manager()
         self.hass.enable_raises = True
@@ -132,6 +160,38 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         confirmed = await manager.stop("operator_stop")
 
         self.assertFalse(confirmed)
+        self.assertEqual(manager.state, ManualSessionState.ARMING)
+        self.assertTrue(manager.is_active)
+        self.assertIn("output_off_unconfirmed", manager.stop_reason)
+
+    async def test_cooling_off_false_remains_managed_containment(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time()
+        self.hass.live["switch"] = "on"
+        self.hass.live["temp_ext"] = 40.0
+        self.hass.off_result = False
+
+        await manager.observe_once()
+
+        self.assertEqual(manager.state, ManualSessionState.ARMING)
+        self.assertTrue(manager.is_active)
+        self.assertEqual(manager.stop_reason, "cooling_output_off_unconfirmed")
+
+    async def test_cooling_resume_denied_with_unconfirmed_off_stays_managed(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.COOLING
+        manager.started_at = time.time() - 600
+        manager.cooling_started_at = time.time() - 300
+        self.hass.live["switch"] = "off"
+        self.hass.live["temp_ext"] = 35.0
+        self.hass.enable_result = False
+        self.hass.enable_detail = "post-enable failed; output OFF was not confirmed"
+
+        await manager.observe_once()
+
         self.assertEqual(manager.state, ManualSessionState.ARMING)
         self.assertTrue(manager.is_active)
         self.assertIn("output_off_unconfirmed", manager.stop_reason)

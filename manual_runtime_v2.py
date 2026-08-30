@@ -92,6 +92,30 @@ class ProductionManualSessionManager(ManualSessionManager):
             raise ValueError(f"{name} reach target is outside the manual safety envelope")
         return result
 
+    @staticmethod
+    def _off_unconfirmed_detail(value: Any) -> bool:
+        text = str(value or "").strip().lower().replace("_", " ")
+        return "output off was not confirmed" in text or "output off unconfirmed" in text
+
+    def _preserve_containment_after_denied_enable(self, context: str) -> None:
+        """Keep authority if a denied safe-enable could not prove physical OFF.
+
+        SafeOutputCoordinator normally returns a structured denied result rather than
+        raising. The base Manual manager maps all denied results to FAILED, which is
+        correct only when cleanup is known safe. If its detail says OFF was not
+        confirmed, FAILED would make the session inactive while the RD output may still
+        be energized. Reclassify that one case to ARMING containment.
+        """
+        if self.state is not ManualSessionState.FAILED:
+            return
+        if not self._off_unconfirmed_detail(self.stop_reason):
+            return
+        self.state = ManualSessionState.ARMING
+        if "output_off_unconfirmed" not in self.stop_reason:
+            self.stop_reason = f"{context}:{self.stop_reason}:output_off_unconfirmed"
+        self.cooling_started_at = None
+        self._persist()
+
     async def _contain_enable_exception(self, context: str, exc: Exception) -> bool:
         confirmed_off = False
         try:
@@ -135,9 +159,12 @@ class ProductionManualSessionManager(ManualSessionManager):
         self._previous_voltage_v = None
         self._previous_current_a = None
         try:
-            return await super().start(request)
+            enabled = await super().start(request)
         except Exception as exc:
             return await self._contain_enable_exception("manual_start_exception", exc)
+        if not enabled:
+            self._preserve_containment_after_denied_enable("manual_start_denied")
+        return enabled
 
     async def _retire_runner(self) -> None:
         task = self._task
@@ -195,12 +222,23 @@ class ProductionManualSessionManager(ManualSessionManager):
         self._previous_voltage_v = None
         self._previous_current_a = None
         await super()._enter_cooling()
+        # A normal denied OFF from a non-strict/fake adapter must not leave production
+        # Manual inactive either. Strict production adapters raise, but keep the state
+        # machine correct independently from adapter implementation details.
+        if (
+            self.state is ManualSessionState.FAILED
+            and self.stop_reason == "cooling_output_off_unconfirmed"
+        ):
+            self.state = ManualSessionState.ARMING
+            self._persist()
 
     async def _resume_after_cooling(self) -> None:
         try:
             await super()._resume_after_cooling()
         except Exception as exc:
             await self._contain_enable_exception("manual_cooling_resume_exception", exc)
+        else:
+            self._preserve_containment_after_denied_enable("manual_cooling_resume_denied")
         self._previous_voltage_v = None
         self._previous_current_a = None
 
