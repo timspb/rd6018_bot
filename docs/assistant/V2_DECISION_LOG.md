@@ -167,6 +167,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `44738236...`: production UI/tests aligned with the accepted AUTO semantics.
 - `97a16efd...`: first-class transactional Auto Mix direct-entry program and Telegram workflow.
 - `8a7bec13...`: AUTO Manual-OFF isolated from chemistry authority; terminal hard-stop side condition preserved.
+- `8786e97...` + `4ec8ac4...` + `d72528a...`: post-heavy-recovery rest resolved as diagnostic/recommendation window only; no elapsed-time interlock.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
