@@ -62,7 +62,7 @@ class RecipeOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.enabled)
         self.assertEqual(adapter.calls, [])
         self.assertIn("authorization denied", result.reason)
-        self.assertIn("voltage ceiling", result.reason)
+        self.assertIn("recipe ceiling", result.reason)
 
     async def test_hardware_safety_rejection_is_returned_to_caller(self):
         context = build_legacy_charge_context(profile="EFB", capacity_ah=70, battery_id="efb-1", intent=ChargeIntent.RECOVERY)
