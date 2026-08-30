@@ -362,13 +362,18 @@ class HassClient:
             result["_meta"] = meta
             return dict(canonicalize_live(result))
 
-        # Fallback preserves the same source heartbeat semantics as bulk /api/states.
+        # Fallback uses concurrent per-entity GETs so a bulk-endpoint failure cannot
+        # serialize dozens of 10s request timeouts and stall the runtime safety loop.
         now_iso = datetime.now(timezone.utc).isoformat()
-        for key in keys:
-            eid = ENTITY_MAP.get(key)
-            if not eid:
-                continue
-            state, attrs = await self.get_state(eid)
+        key_entities = [
+            (key, ENTITY_MAP.get(key))
+            for key in keys
+            if ENTITY_MAP.get(key)
+        ]
+        states = await self.get_states([eid for _, eid in key_entities if eid is not None])
+        for key, eid in key_entities:
+            assert eid is not None
+            state, attrs = states.get(eid, (None, {}))
             result[key] = state
             status = "ok" if state not in (None, "unknown", "unavailable", "") else "unknown"
             metadata = self._entity_metadata(
