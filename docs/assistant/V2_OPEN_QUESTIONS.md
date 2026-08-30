@@ -16,7 +16,7 @@ Still validate/calibrate against real traces and bench observations, especially:
 - controlled dynamic-loop trend under unchanged connection;
 - external conductance/load/CCA evidence when available.
 
-Calibration must keep distinguishing “equalization may help” from “additional HV may be unsafe”.
+Calibration must keep distinguishing “equalization may help” from “additional HV may be unsafe”. `battery_fault_calibration.py` / `tools/evaluate_battery_fault.py` now report unexpected and missed `BLOCK_AUTOMATIC_HV` independently so a single aggregate accuracy number cannot hide either failure class.
 
 ## Q005 — Controlled diagnostic-probe execution parameters
 Principle, fail-closed executor and restart journal exist. A probe may only reduce/equal energy, samples median U/I, restores exact prior current transactionally, and forces Output OFF if restoration cannot be proven. `ΔV/ΔI` remains a two-wire dynamic-loop response, not battery Ri. A crash never resumes a probe mid-step.
@@ -35,9 +35,20 @@ Still define before automatic triggering:
 17.5V is absolute controller/manual ceiling, not standard recipe. Before expert EFB HV becomes selectable define prerequisites/evidence, confirmation UX, current/time/thermal limits, exclusions, watchdog/readback requirements, audit label and authorization expiry. Per D051, any expert authorization must be revoked by process restart.
 
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
-Hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and conservative automatic-HV veto boundary. Scores/confidence still need validation against real stored traces rather than cosmetic tuning.
+Hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and conservative automatic-HV veto boundary.
 
-SG prompt eligibility is now deterministic (D053): only the exact physical battery with confirmed serviceable electrolyte access can be prompted, and only at diagnostic VERIFY+ for SG-relevant hypotheses or as a post-corrective retest of prior imbalance. Q013 still owns the calibration that decides when evidence reaches VERIFY/PROBABLE/HIGH.
+Deterministic calibration tooling is now implemented:
+- JSONL labeled case loader;
+- exact replay through current `assess_battery_fault()`;
+- authority match accounting;
+- separate `unexpected_hv_blocks` and `missed_hv_blocks` counters;
+- per-hypothesis expected/actual level mismatches;
+- machine-readable report CLI at `tools/evaluate_battery_fault.py`;
+- no automatic score/threshold tuning.
+
+What remains genuinely open is empirical calibration against real labeled cases. Do not change current 15/35/60/80 level boundaries or evidence weights merely to make synthetic examples look nicer. Required case classes and labeling rules are in `BANK_FAULT_CALIBRATION.md`.
+
+SG prompt eligibility is deterministic (D053): only the exact physical battery with confirmed serviceable electrolyte access can be prompted, and only at diagnostic VERIFY+ for SG-relevant hypotheses or as a post-corrective retest of prior imbalance. Q013 still owns the real-data calibration that decides when evidence reaches VERIFY/PROBABLE/HIGH.
 
 ## Q014 — RD6018 dynamic-loop/relay-path calibration
 Need on-device characterization of:
