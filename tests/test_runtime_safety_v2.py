@@ -138,7 +138,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         return guard
 
     async def test_low_vin_is_psu_health_evidence_not_charge_authority(self):
-        app = self._app(self._live())
+        app = self._app(self._with_freshness(self._live()))
         guard = self._guard(app)
         live = await guard.get_all_live()
         self.assertEqual(live["input_voltage"], 40.0)
@@ -147,6 +147,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_vin_is_not_critical_telemetry(self):
         live = self._live()
         live["input_voltage"] = None
+        live = self._with_freshness(live)
         app = self._app(live)
         guard = self._guard(app)
         observed = await guard.get_all_live()
@@ -197,6 +198,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._live()
         live["voltage"] = 16.7
         live["ovp"] = 17.0
+        live = self._with_freshness(live)
         app = self._app(live)
         guard = self._guard(app)
         with self.assertRaisesRegex(RuntimeSafetyError, "measured output voltage"):
@@ -208,6 +210,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["set_current"] = 12.0
         live["ocp"] = 12.2
         live["current"] = 12.10
+        live = self._with_freshness(live)
         app = self._app(live)
         guard = self._guard(app)
         with self.assertRaisesRegex(RuntimeSafetyError, "working-current"):
