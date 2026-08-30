@@ -2,7 +2,7 @@
 
 > Only unresolved strategy/product questions live here. Resolved behavior belongs in `V2_DECISION_LOG.md`.
 
-Q001, Q002, Q003, Q006, Q007, Q008, Q009, Q010 and Q012 are intentionally retired: initial PREP handling, Manual identity/re-authorization, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72h Main fallback, AGM recovery policy, diagnostic restart persistence and SG access/correction/prompt policy now have accepted/implemented contracts.
+Q001, Q002, Q003, Q006, Q007, Q008, Q009, Q010, Q011 and Q012 are intentionally retired: initial PREP handling, Manual identity/re-authorization, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72h Main fallback, AGM recovery policy, diagnostic restart persistence, generic expert-EFB HV policy and SG access/correction/prompt policy now have accepted/implemented contracts.
 
 ## Q004 — Cell-fault/HV-block calibration and false-positive strategy
 Architecture and a conservative deterministic rule exist: ordinary heuristic risk or first SG imbalance does not veto corrective HV; automatic HV is denied only for strong cell-fault evidence, including explicit external confirmation or high-confidence multi-signal evidence with independent confirmation classes. Diagnostic inference itself cannot create a hard safety stop.
@@ -30,9 +30,6 @@ Still define before automatic triggering:
 - abort conditions;
 - connection identity lifecycle;
 - meaningful repeated-probe change given RD6018 resolution/noise.
-
-## Q011 — Expert EFB 17.2–17.5 V workflow
-17.5V is absolute controller/manual ceiling, not standard recipe. Before expert EFB HV becomes selectable define prerequisites/evidence, confirmation UX, current/time/thermal limits, exclusions, watchdog/readback requirements, audit label and authorization expiry. Per D051, any expert authorization must be revoked by process restart.
 
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
 Hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and conservative automatic-HV veto boundary.
@@ -77,6 +74,7 @@ Before merging V2 to `main`, verify traceably:
 - link loss / edge lease / fast HV watchdog;
 - RD readback/protection decode;
 - Bank Fault/SG diagnostics including physical SG access gating and explicit correction metadata;
+- EFB chemistry envelopes never exceed generic 16.5V; >16.5V requires Manual or a future explicit model-specific manufacturer-backed recipe;
 - Telegram dashboard/operator messages;
 - exact ESPHome node compile/flash and physical RD6018 smoke/bench tests.
 
