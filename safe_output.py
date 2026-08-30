@@ -136,7 +136,19 @@ def _protection_freshness_keys(live: Dict[str, Any]) -> list[str]:
     return ["ovp_triggered", "ocp_triggered"]
 
 
-def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
+def snapshot_from_live(
+    live: Dict[str, Any],
+    *,
+    require_programming_freshness: bool = False,
+) -> Optional[TelemetrySnapshot]:
+    """Build a safety snapshot with context-appropriate freshness semantics.
+
+    Dynamic physical/status channels are always freshness-gated. Static V/I/OVP/OCP
+    readback values are freshness-gated only after a programming transaction, when the
+    caller is explicitly proving that the just-written configuration reached HA/RD.
+    This prevents hours-old unchanged setpoint timestamps from blocking a new preflight
+    while preserving fresh-readback proof before/after Output ON.
+    """
     battery_voltage = finite_float(live.get("battery_voltage"))
     output_voltage = finite_float(live.get("voltage"))
     current = finite_float(live.get("current"))
@@ -162,9 +174,10 @@ def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
     if output_voltage is not None:
         freshness_keys.append("voltage")
     freshness_keys.extend(_protection_freshness_keys(live))
-    for key in ("set_voltage", "set_current", "ovp", "ocp"):
-        if live.get(key) not in (None, "", "unknown", "unavailable"):
-            freshness_keys.append(key)
+    if require_programming_freshness:
+        for key in ("set_voltage", "set_current", "ovp", "ocp"):
+            if live.get(key) not in (None, "", "unknown", "unavailable"):
+                freshness_keys.append(key)
     freshness = telemetry_freshness(live, freshness_keys)
     if not freshness.valid:
         logger.warning("Rejecting stale/incoherent HA telemetry: %s", freshness.detail)
@@ -427,7 +440,10 @@ class SafeOutputCoordinator:
             programmed: Optional[TelemetrySnapshot] = None
             try:
                 programmed_live = await self.adapter.get_all_live()
-                programmed = snapshot_from_live(programmed_live)
+                programmed = snapshot_from_live(
+                    programmed_live,
+                    require_programming_freshness=True,
+                )
                 last_exception = None
             except Exception as exc:
                 last_exception = exc
@@ -466,7 +482,7 @@ class SafeOutputCoordinator:
                 frozenset({SafetyViolation.TELEMETRY_INVALID}),
                 f"pre-enable telemetry failed: {type(exc).__name__}: {exc}",
             )
-        before = snapshot_from_live(live)
+        before = snapshot_from_live(live, require_programming_freshness=False)
         if before is None:
             return EnableResult(
                 False,
@@ -534,7 +550,10 @@ class SafeOutputCoordinator:
                 f"post-enable telemetry failed: {type(exc).__name__}: {exc}",
                 force_off=True,
             )
-        final = snapshot_from_live(final_live)
+        final = snapshot_from_live(
+            final_live,
+            require_programming_freshness=True,
+        )
         if final is None:
             return await self._failure(
                 frozenset({SafetyViolation.POST_ENABLE_VERIFY_FAILED}),
