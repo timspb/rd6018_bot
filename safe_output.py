@@ -171,7 +171,10 @@ def snapshot_from_live(
         return None
 
     freshness_keys = ["battery_voltage", "current", "temp_ext", "temp_int", "switch"]
-    if output_voltage is not None:
+    # Measured V_OUT becomes part of the live hard envelope only when Output is ON.
+    # A long-idle 0V sensor must not block a new preflight merely because its value has
+    # not changed/reported recently; post-enable verification requires it explicitly.
+    if output_on is True and output_voltage is not None:
         freshness_keys.append("voltage")
     freshness_keys.extend(_protection_freshness_keys(live))
     if require_programming_freshness:
