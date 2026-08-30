@@ -44,7 +44,9 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | read-only dynamic-loop bench capture | source-time/dedup/no-actuation capture tests | SW-PASS |
 | raw dynamic-loop characterization math/reporting | characterization harness tests | SW-PASS |
 | managed runtime rejects stale/incoherent Vbat/I/T and energized V_OUT | runtime freshness + verified-OFF regressions | SW-PASS |
-| unchanged dynamic values use HA `last_reported`, not stale `last_updated` | telemetry heartbeat regressions | SW-PASS |
+| managed runtime rejects stale Output/protection authority | switch + raw/legacy protection freshness regressions | SW-PASS |
+| managed chemistry evidence rejects stale CV/CC source | raw/legacy regulation freshness regressions | SW-PASS |
+| unchanged dynamic/status values use HA `last_reported`, not stale `last_updated` | telemetry heartbeat regressions | SW-PASS |
 | static Vset/Iset/OVP/OCP timestamps are not liveness clocks | runtime no-false-positive regression | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
@@ -61,8 +63,9 @@ Use the exact production ESPHome node/config, not a synthetic register mock.
 8. Verify `BAT_MODE` is observational and does not create a software start gate.
 9. Verify Boot Power / Take Out safe configuration on the actual device.
 10. Measure the actual timestamps/cadence delivered by the installed ESPHome/Modbus/HA path; do not assume a global 5s poll interval from template sensor snippets.
-11. Hold a dynamic value physically/numerically flat long enough that HA `last_updated` would otherwise stay old; verify `last_reported` continues to advance at the real integration reporting cadence.
-12. Fault-inject one critical dynamic source (prefer external battery temperature on dummy/safe setup) so its source heartbeat exceeds the 20s software freshness window; verify a managed energized session forces verified OFF. Separately prove an hours-old unchanged Vset/Iset/OVP/OCP timestamp does **not** create a false freshness trip while values/readback remain valid.
+11. Hold dynamic/status values physically/numerically flat long enough that HA `last_updated` would otherwise stay old; verify `last_reported` continues to advance at the real integration reporting cadence for Vbat/current/temperature/V_OUT, Output, protection and CV/CC sources that are exposed by the exact node.
+12. Fault-inject one critical physical source (prefer external battery temperature on dummy/safe setup) so its source heartbeat exceeds the 20s software freshness window; verify a managed energized session forces verified OFF. Separately prove an hours-old unchanged Vset/Iset/OVP/OCP timestamp does **not** create a false freshness trip while values/readback remain valid.
+13. Fault-inject stale status/evidence independently: stop reporting Output state, protection source (`protection_code` or both legacy OVP/OCP sensors), and regulation source (`regulation_code` or both legacy CV/CC sensors). Verify each becomes fail-closed instead of allowing stale ON/OFF, stale normal-protection or stale CV/CC evidence to continue driving runtime/FSM decisions.
 
 Required state before merge: **BENCH-PASS**.
 
