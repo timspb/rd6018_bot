@@ -224,7 +224,10 @@ class HassClient:
             logger.error("HA turn_on blocked: no fresh complete OVP/OCP/V/I programming transaction")
             return False
 
-        before = snapshot_from_live(await self.get_all_live())
+        before = snapshot_from_live(
+            await self.get_all_live(),
+            require_programming_freshness=True,
+        )
         if before is None:
             logger.error("HA turn_on blocked: required live telemetry is invalid/stale")
             self._clear_programming_state()
@@ -249,7 +252,10 @@ class HassClient:
         for attempt in range(OUTPUT_VERIFY_RETRIES):
             if attempt:
                 await asyncio.sleep(OUTPUT_VERIFY_DELAY_SEC)
-            final = snapshot_from_live(await self.get_all_live())
+            final = snapshot_from_live(
+                await self.get_all_live(),
+                require_programming_freshness=True,
+            )
             if final is not None and final.output_on:
                 break
 
