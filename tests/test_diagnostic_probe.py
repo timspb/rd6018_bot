@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -129,6 +130,46 @@ class DiagnosticProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.output_forced_off)
         self.assertIn("output_off_unconfirmed", result.reason)
         self.assertTrue(hass.output_on)
+
+    async def test_cancellation_after_step_restores_original_before_escaping(self):
+        hass = FakeProbeHass()
+        runner = ControlledCurrentProbe(hass)
+        plan = ProbePlan(step_current_a=3.0, settle_s=0.0, sample_count=2, sample_interval_s=0.01)
+        runner._sample_medians = AsyncMock(
+            side_effect=[(14.10, 7.0), asyncio.CancelledError()]
+        )
+
+        with self.assertRaises(asyncio.CancelledError):
+            await runner.run(
+                battery_id="efb-1",
+                stage="Main Charge",
+                connection_id="session-A",
+                plan=plan,
+            )
+
+        self.assertAlmostEqual(hass.set_current_value, 7.0)
+        self.assertEqual(hass.off_calls, 0)
+        self.assertTrue(hass.output_on)
+
+    async def test_cancellation_restore_failure_forces_off_before_escaping(self):
+        hass = FakeProbeHass()
+        hass.restore_fails = True
+        runner = ControlledCurrentProbe(hass)
+        plan = ProbePlan(step_current_a=3.0, settle_s=0.0, sample_count=2, sample_interval_s=0.01)
+        runner._sample_medians = AsyncMock(
+            side_effect=[(14.10, 7.0), asyncio.CancelledError()]
+        )
+
+        with self.assertRaises(asyncio.CancelledError):
+            await runner.run(
+                battery_id="efb-1",
+                stage="Main Charge",
+                connection_id="session-A",
+                plan=plan,
+            )
+
+        self.assertEqual(hass.off_calls, 1)
+        self.assertFalse(hass.output_on)
 
     async def test_hot_battery_blocks_probe_before_any_setpoint_change(self):
         hass = FakeProbeHass()
