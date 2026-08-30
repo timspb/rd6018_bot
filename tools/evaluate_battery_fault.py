@@ -3,9 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from battery_fault_calibration import (
+# Allow running as `python tools/evaluate_battery_fault.py cases.jsonl` from repo root.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from battery_fault_calibration import (  # noqa: E402
     calibration_summary_to_mapping,
     evaluate_fault_cases,
     load_calibration_jsonl,
