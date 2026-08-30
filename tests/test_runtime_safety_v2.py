@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from runtime_safety import RuntimeSafetyError
@@ -10,6 +11,14 @@ class DummyHass:
         self.live = dict(live)
         self.base_url = ""
         self.turn_off_calls = 0
+
+    @staticmethod
+    def _entity_metadata(entity_id, data, status):
+        return {
+            "entity_id": entity_id,
+            "status": status,
+            "last_updated": data.get("last_updated"),
+        }
 
     async def get_all_live(self):
         return dict(self.live)
@@ -68,6 +77,31 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             "ovp": 14.9,
             "ocp": 5.1,
         }
+
+    @staticmethod
+    def _with_freshness(live, *, ages=None, old_static=False):
+        ages = dict(ages or {})
+        now = datetime.now(timezone.utc)
+        dynamic = ("battery_voltage", "current", "temp_ext", "temp_int", "voltage")
+        meta = {}
+        for key in dynamic:
+            age = float(ages.get(key, 0.0))
+            reported = (now - timedelta(seconds=age)).isoformat()
+            meta[key] = {
+                "status": "ok",
+                "last_reported": reported,
+                "last_updated": reported,
+            }
+        if old_static:
+            old = (now - timedelta(hours=6)).isoformat()
+            for key in ("switch", "ovp_triggered", "ocp_triggered", "set_voltage", "set_current", "ovp", "ocp", "input_voltage"):
+                meta[key] = {
+                    "status": "ok",
+                    "last_reported": old,
+                    "last_updated": old,
+                }
+        live["_meta"] = meta
+        return live
 
     @staticmethod
     def _app(live, *, controller=None, manager=None):
@@ -162,6 +196,53 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeSafetyError, "working-current"):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_stale_battery_temperature_fails_closed_while_output_is_on(self):
+        live = self._with_freshness(self._live(), ages={"temp_ext": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "temp_ext stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_stale_measured_output_voltage_fails_closed(self):
+        live = self._with_freshness(self._live(), ages={"voltage": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "voltage stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_static_readback_timestamps_are_not_used_as_runtime_heartbeat(self):
+        live = self._with_freshness(self._live(), old_static=True)
+        app = self._app(live)
+        guard = self._guard(app)
+        observed = await guard.get_all_live()
+        self.assertEqual(observed["switch"], "on")
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_freshness_metadata_missing_for_dynamic_channel_fails_closed(self):
+        live = self._with_freshness(self._live())
+        del live["_meta"]["temp_int"]
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "metadata missing for temp_int"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    def test_v2_metadata_bridge_preserves_home_assistant_last_reported(self):
+        app = self._app(self._live())
+        self._guard(app)
+        now = datetime.now(timezone.utc).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        metadata = app.hass._entity_metadata(
+            "sensor.example",
+            {"last_updated": old, "last_reported": now},
+            "ok",
+        )
+        self.assertEqual(metadata["last_updated"], old)
+        self.assertEqual(metadata["last_reported"], now)
 
 
 if __name__ == "__main__":
