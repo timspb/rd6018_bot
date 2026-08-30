@@ -18,7 +18,8 @@ The review followed the production path across:
 - hardware protection status including raw OPP/unknown codes;
 - verified OFF behavior;
 - edge safety lease / boot quarantine;
-- Cooling persistence/resume semantics.
+- Cooling persistence/resume semantics;
+- continuous runtime source freshness and HA timestamp semantics.
 
 ## Safety defects closed by the audit
 
@@ -93,6 +94,30 @@ generic HV authorization is capped at **0.03C** (and the global 12 A hardware wo
 limit). Manual/Custom remains a separate operator authority and is not narrowed by this
 chemistry envelope.
 
+### Runtime could continue on numerically valid but stale HA telemetry
+
+Safe-enable already rejected stale source data, but the continuously running V2 guard
+previously checked only value presence/ranges/envelopes. A managed session could
+therefore continue if HA kept returning an old-but-numeric battery temperature/current
+or measured output voltage.
+
+Production now applies source age/skew validation on every safety-relevant runtime poll
+for continuously sampled `battery_voltage`, `current`, `temp_ext`, `temp_int`, plus
+measured `voltage` whenever Output is ON. Stale/missing/incoherent source metadata is a
+fail-closed condition and forces verified OFF when energized.
+
+Home Assistant `last_reported` is the preferred heartbeat timestamp because it advances
+when the integration reports an entity even if its numeric value did not change.
+`last_updated` remains a compatibility fallback for older/degraded adapters. This avoids
+false shutdowns on a genuinely flat temperature/current value while still detecting a
+sensor/integration that stopped reporting.
+
+Static Vset/Iset/OVP/OCP timestamps are intentionally **not** treated as liveness clocks:
+a valid unchanged configuration may remain unchanged for hours. Their actual values and
+protection geometry are nevertheless re-read/revalidated by the runtime envelope. The
+edge safety lease remains a separate direct-Modbus/output-register proof and is not
+replaced by HA freshness.
+
 ## Residual physical failure domain
 
 Software/HA/edge controls cannot guarantee shutdown if the ESPHome-to-RD6018 Modbus
@@ -106,5 +131,6 @@ See `../RD6018_FAILSAFE.md`.
 
 Unit CI proves deterministic software contracts only. It does not replace the physical
 bench/on-battery gates in `V2_VALIDATION_PLAN.md`, especially measured V_OUT/OFF proof,
-edge lease fault injection, Cooling restart, interrupted Manual/probe recovery and real
+HA `last_reported` cadence for unchanged values, stale-sensor fault injection, edge
+lease fault injection, Cooling restart, interrupted Manual/probe recovery and real
 charge traces.
