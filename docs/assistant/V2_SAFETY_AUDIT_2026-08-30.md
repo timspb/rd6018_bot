@@ -17,10 +17,11 @@ The review followed the production path across:
 - Home Assistant bulk/fallback telemetry paths;
 - live V/I/OVP/OCP transition interlocks;
 - hardware protection status including raw OPP/unknown codes;
-- verified OFF behavior;
+- verified OFF behavior and post-failure containment;
 - edge safety lease / boot quarantine;
 - Cooling persistence/resume semantics;
-- continuous runtime source freshness and HA timestamp semantics.
+- continuous runtime source freshness and HA timestamp semantics;
+- auxiliary RecoveryOrchestrator lifecycle and cancellation/exception cleanup.
 
 ## Safety defects closed by the audit
 
@@ -63,6 +64,19 @@ runtime safety boundary continues to own the live output.
 Probe restoration/cleanup no longer suppresses shutdown exceptions or reports
 `output_forced_off=True` without a confirmed OFF result. Restart recovery uses the same
 truthful distinction.
+
+### Diagnostic task cancellation could strand the reduced-current probe setpoint
+
+`asyncio.CancelledError` is not a normal `Exception`. A live probe cancelled after the
+current-reduction step could previously bypass the ordinary exception cleanup and leave
+RD6018 at the diagnostic current until another watchdog/restart path intervened.
+
+The probe executor now catches the broader cancellation boundary only for cleanup. If a
+step has already occurred it shields the restore-or-OFF transaction, restores and
+read-backs the original current when possible, otherwise requests verified OFF, and
+then re-raises cancellation instead of converting cancellation into successful probe
+evidence. Normal exceptions still return a truthful `ProbeResult` with separate
+restore/OFF facts.
 
 ### SAFE_WAIT -> Cooling -> resume could emit Output ON
 
@@ -168,8 +182,39 @@ when the integration reports an entity even if its state value did not change.
 false shutdowns on genuinely flat temperature, current, switch or status values while
 still detecting a sensor/integration that stopped reporting.
 
+### Legacy exception cleanup could retire the FSM after an unconfirmed OFF
+
+The preserved `bot_legacy.py` data logger has a historical exception path that attempts
+`turn_off()`, suppresses shutdown exceptions, and then may call
+`charge_controller.stop(clear_session=False)`. Under a verified-OFF adapter that is safe
+when shutdown succeeds, but if physical OFF is not confirmed it can retire chemistry
+state before hardware state is known.
+
+Production V2 now treats runtime `_off_unconfirmed` as independent containment authority.
+It is checked before ordinary telemetry/orphan handling. Even if the chemistry controller
+has already become inactive, the guard does **not** enter the normal orphan grace path:
+it repeats the verified shutdown transaction until Output is positively observed OFF.
+Only after OFF proof is the containment flag cleared and the edge lease disarmed.
+This closes the legacy exception path without modifying the V1 reference runtime.
+
+### RecoveryOrchestrator could retire authority without verified OFF
+
+The auxiliary `RecoveryOrchestrator` already used the protected enable path but its
+runtime-start failure, `complete()`, and `abort()` lifecycle did not uniformly require
+positive OFF confirmation. A false/raised `turn_off()` could therefore leave a possibly
+energized output while runtime/authorization state was cleared, and `abort(turn_output_off=False)`
+was an explicit software-only retirement bypass.
+
+The orchestrator now retains the authorization as containment immediately after safe
+enable. Runtime-start failure clears it only after verified OFF. `complete()` requires
+verified OFF before completing/persisting and retiring the runtime. `abort()` likewise
+requires verified OFF and no longer accepts a software-only retirement bypass. If OFF
+is false or raises, runtime/authorization remain active and a new start is rejected.
+This class is not the current production bootstrap path, but it is now safe to keep as a
+future/auxiliary actuator surface rather than leaving a latent bypass.
+
 The edge safety lease remains a separate direct-Modbus/output-register proof and is not
-replaced by HA freshness.
+replaced by HA freshness or software containment.
 
 ## Residual physical failure domain
 
@@ -185,5 +230,6 @@ See `../RD6018_FAILSAFE.md`.
 Unit CI proves deterministic software contracts only. It does not replace the physical
 bench/on-battery gates in `V2_VALIDATION_PLAN.md`, especially measured V_OUT/OFF proof,
 HA `last_reported` cadence for unchanged values, bulk-to-fallback behavior, stale
-physical/status/regulation source fault injection, edge lease fault injection, Cooling
-restart, interrupted Manual/probe recovery and real charge traces.
+physical/status/regulation source fault injection, failed-OFF containment retry,
+edge-lease fault injection, Cooling restart, interrupted/cancelled Manual/probe recovery
+and real charge traces.
