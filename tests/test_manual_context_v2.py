@@ -8,8 +8,10 @@ from types import SimpleNamespace
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+from manual_context_v2 import BoundManualTextMiddleware
 from manual_mode import ManualSessionState
 from manual_runtime_v2 import ProductionManualSessionManager
+from manual_text_v2 import ManualTextMiddleware
 
 
 class ManualContextEntrypointTests(unittest.TestCase):
@@ -32,6 +34,23 @@ class ManualContextEntrypointTests(unittest.TestCase):
         self.assertIn("_manual_interrupted", names)
         self.assertIn("_manual_reauthorize", names)
         self.assertIn("_manual_discard", names)
+
+    def test_battery_bound_manual_middleware_precedes_generic_numeric_parser(self) -> None:
+        manager = bot.router.observers["message"].outer_middleware
+        middlewares = list(manager._middlewares)
+        bound_index = next(
+            index for index, middleware in enumerate(middlewares)
+            if isinstance(middleware, BoundManualTextMiddleware)
+        )
+        generic_index = next(
+            index for index, middleware in enumerate(middlewares)
+            if isinstance(middleware, ManualTextMiddleware)
+        )
+        self.assertLess(
+            bound_index,
+            generic_index,
+            "battery-bound Manual must own the numeric payload before generic V I parsing",
+        )
 
 
 class _FakeHass:
