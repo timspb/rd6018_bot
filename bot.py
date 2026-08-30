@@ -12,6 +12,10 @@ import sys
 
 import bot_legacy as _legacy
 from auto_manual_off_v2 import install_auto_manual_off_contract
+from diagnostic_persistence import (
+    install_diagnostic_persistence,
+    recover_diagnostic_persistence,
+)
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -29,6 +33,7 @@ def _env_enabled(name: str, default: bool = True) -> bool:
 _v2_ui_enabled = _env_enabled("V2_UI", True)
 install_v2(_legacy, install_ui=_v2_ui_enabled)
 install_auto_manual_off_contract(_legacy)
+install_diagnostic_persistence(_legacy)
 if _v2_ui_enabled:
     install_mix_only_mode(_legacy)
 
@@ -37,6 +42,7 @@ _legacy_main = _legacy.main
 
 async def main() -> None:
     await init_v2_storage()
+    await recover_diagnostic_persistence(_legacy)
     await _legacy_main()
 
 
