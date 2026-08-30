@@ -1,208 +1,118 @@
 # Pb Recovery Controller V2
 
-## Status
+This document describes the implementation architecture behind the accepted behavior in `V2_DECISION_LOG.md`. The Decision Log remains authoritative if wording here ever diverges.
 
-V2 is the active production-design path on branch `refactor/pb-recovery-controller-v2`; `main` remains the audited V1 baseline until an explicit merge/deployment decision.
+## Design boundary
 
-Use this source-of-truth order for strategy questions:
-
-1. `V2_DECISION_LOG.md`;
-2. `V2_OPEN_QUESTIONS.md`;
-3. `CHARGE_STRATEGY.md`;
-4. this architecture document;
-5. `V1_BEHAVIORAL_AUDIT.md`.
-
-## Design principle
-
-Chemistry, operator intent, physical battery condition, control stage and hardware safety are separate dimensions.
+V2 is not a single charging FSM. It is a composition of independent authority layers:
 
 ```text
-Physical battery + lifecycle
-          |
-Chemistry + Intent + Condition
-          |
-      Recipe envelope
-          |
-Telemetry -> SignalAnalyzer -> AUTO strategy -> diagnostic veto
-                                      |
-                                      v
-                              stage/target decision
-                                      |
-                                      v
-                             actuator safety
-                                      |
-                                      v
-                                   RD6018
+operator program / intent
+        ↓
+chemistry + evidence strategy
+        ↓
+diagnostic transition veto
+        ↓
+actuator transaction / readback
+        ↓
+RD6018 physical output
+        ↓
+watchdog / edge fail-close
 ```
 
-AI remains explanation-only and cannot own actuator decisions.
+Manual is a separate operator-program authority and does not execute Pb chemistry transitions.
 
-## Intent semantics
+## AUTO recovery model
 
-- **Normal** — V1-compatible full automatic charge. Standard intermediate recovery and final Mix are part of the ordinary chain when their evidence/budget rules say so.
-- **Recovery** — explicit restorative purpose/context inside the same safety/evidence boundaries.
-- **Conditioning** — service purpose inside its envelope. It does not bypass evidence or safety.
-- **Diagnostic** — explicit no-automatic-HV intent; it may observe/finish/stop-and-diagnose but cannot create Recovery/Mix.
+Main normal-tail evidence and stuck-plateau evidence are deliberately separate.
 
-Thus “Normal” is not a low-voltage-only mode. Expert EFB > standard 16.5 V remains separate from these ordinary intent semantics.
+Ca/EFB session recovery budget = 3. Progress after an attempt does not reset it. After all three attempts, the next confirmed plateau may enter final Mix.
 
-## Authority boundary
+AGM session recovery budget = 4. Budget exhaustion never forces Mix merely because another plateau exists; AGM waits for its normal low-current tail or conservative 72h decision.
 
-Production composition:
+Recovery stage remains a bounded 16.3V / ~0.02C / ~2h corrective attempt, followed by Output-OFF SAFE_WAIT before returning to Main.
 
-- `AutoStrategyProductionChargeControllerV2` owns authoritative AUTO Main strategy, including 72 h fallback and production Mix timing;
-- `DiagnosticProductionChargeControllerV2` adds hypothesis-specific veto of a planned new HV transition;
-- legacy `ChargeController` remains a migration/rollback scaffold for mature mechanics but cannot independently own conflicting production Main/Mix decisions;
-- `ProductionManualSessionManager` owns Manual independently from Pb chemistry;
-- `V2RuntimeSafetyGuard`, configured-value readback, verified OFF and edge lease remain non-bypassable safety.
+## Mix
 
-## AUTO startup
+Mix uses standard chemistry targets:
+- Ca/Ca 16.5V;
+- EFB 16.5V;
+- AGM 16.3V;
+- current ~0.03C, max 12A.
 
-Initial stage is selected before first Output ON:
+Evidence is regulation-mode aware:
+- CV -> current minimum then confirmed current rise;
+- CC -> voltage maximum then confirmed voltage fall.
+
+Three spaced confirmations after post-setpoint blanking establish the event. The following ~2h finishing hold is sticky unless hard safety stops the run. Fallback maxima are Ca20h/EFB24h/AGM10h.
+
+`Auto Mix` is a direct-entry program that creates the session already in Mix; it does not pass through PREP/Main/Recovery.
+
+## SAFE_WAIT and Storage
+
+SAFE_WAIT is Output OFF relaxation. Reaching the voltage threshold early continues immediately; otherwise the wait is capped at ~2h and then continues anyway. Timeout alone is not a fault.
+
+Normal completion returns to managed Storage/float around 13.8V / 1A with Output ON. Terminal operator stop and faults are separate OFF outcomes.
+
+## Cooling
+
+Cooling pauses active program time rather than starting a new chemistry process. It preserves stage identity, exact target, recovery budget, AGM step, extrema and already-confirmed sticky Mix event. It invalidates continuity-dependent unfinished plateau/delta confirmation and freezes active timers. Restore must preserve the pause accounting.
+
+## Manual authority
+
+Manual request owns working V/I and operator stop rules. OVP/OCP remain derived and non-overridable. Envelope is 17.5V / 12A maximum.
+
+An optional saved physical `battery_id` may be attached solely for longitudinal history/diagnostics. It does not import chemistry recipe, C-rate current or authorization into Manual.
+
+After process restart, prior active Manual becomes `INTERRUPTED`. Review shows the saved request. Re-authorization is explicit and creates a new actuator transaction and a new active-time clock; Output is never silently re-enabled from persistence.
+
+## Diagnostic evidence vs diagnostic action
+
+Durable evidence and transient action authority are different things.
+
+Durable evidence may include:
+- SG measurements;
+- completed dynamic-loop probes;
+- recovery-cycle measurements/history;
+- external test evidence when implemented.
+
+Derived authority such as `BLOCK_AUTOMATIC_HV` must be recomputed from available evidence. It is not a persisted permission token.
+
+Diagnostic action restart policy:
 
 ```text
-Vbat < 12.0 V  -> PREP at small ~0.01C current
-Vbat >= 12.0 V -> MAIN directly + PREP_SKIPPED audit
+probe in progress             -> ABORTED_RESTART + Output OFF defense-in-depth
+operator confirmation pending -> EXPIRED_RESTART
+fault verification pending    -> EXPIRED_RESTART
+expert-HV authorization       -> REVOKED_RESTART
+rest observation              -> may survive until expiry (no actuator authority)
 ```
 
-This removes the V1 one-tick logical/physical mismatch. Restore does not re-evaluate this startup shortcut; persisted stage/target owns restore.
+A crash never resumes a diagnostic current step or guesses a previous current setting.
 
-## Sensor and setpoint model
+## Fault hypotheses
 
-- battery voltage = chemistry/FSM evidence;
-- RD output voltage = physical source/output/watchdog evidence;
-- `temp_ext` = battery temperature;
-- `temp_int` = RD6018/controller/PSU temperature;
-- Vin = PSU-health telemetry only, not Pb FSM authority;
-- BAT_MODE = observation, not permission;
-- CV -> current response (`Imin -> ΔI`);
-- CC -> voltage response (`Vmax -> ΔV`).
+The old generic bank-fault score is only one evidence source. V2 reasons separately about:
+- cell fault;
+- self-discharge;
+- sulfation/poor acceptance;
+- stratification;
+- capacity loss;
+- thermal abnormality;
+- charger/path fault.
 
-V2 separates commanded, configured/readback and measured values. HTTP success is not proof that RD6018 accepted the desired state.
+A new automatic HV transition may be denied only by strong independent cell-fault evidence. Diagnostic inference never generates the hard-safety stop itself.
 
-## Output enable invariant
+## RD6018 measurement semantics
 
-Every managed enable obtains fresh telemetry, validates safety/envelope, programs derived OVP/OCP and V/I, verifies configured readback, arms edge safety, enables Output, and verifies the post-enable physical/configured state. Any unprovable step fails closed.
+`V_BAT` in the black+green two-wire charging setup is not Kelvin sense at the battery posts. Controlled `ΔV_BAT/ΔI` therefore represents the whole dynamic charging loop and must never be called battery internal resistance. Connection identity must remain unchanged for meaningful longitudinal comparison.
 
-Absolute V2 software working-voltage ceiling = **17.5 V**. Ordinary chemistry recipes are lower; expert extensions require explicit workflow.
+Commanded setpoints, configured/readback setpoints and measured physical values are separately tracked. Vin diagnoses upstream supply health, not battery chemistry.
 
-## Main evidence
+## Restart principle
 
-Main has two distinct evidence problems:
+The general restart rule is:
 
-- successful low-current tail;
-- stuck-current plateau/lack of progress.
+> Persist evidence and safe intent metadata; never persist enough actuator authority to silently recreate an energetic action.
 
-A slowly declining current is progress, not a plateau. A single C-rate number cannot prove a cell fault; the rejected `>~1%C => block HV` shortcut must not return.
-
-## Recovery budgets
-
-### Ca/Ca / EFB
-Three recovery attempts belong to the entire charging session. Progress does not reset count. After attempts #1–#3, the next confirmed stuck plateau leads to final Mix unless safety/diagnostics veto the HV transition.
-
-### AGM
-AGM is deliberately more conservative:
-
-- up to four intermediate recovery attempts per session;
-- progress does not reset count;
-- after attempt #4, another plateau does not force Mix;
-- remain Main and require the normal low-current tail or the conservative 72 h rule;
-- REHYDRATED state is diagnostic/lifecycle context, not an automatic transition modifier.
-
-## 72 h Main fallback
-
-This is production **strategy**, not generic hard safety:
-
-- Ca/Ca/EFB + Normal/Recovery/Conditioning -> final Mix at 72 h even if no fixed plateau formed;
-- AGM -> Mix at 72 h only when already CV with `I <= 0.20 A`; otherwise stop-and-diagnose;
-- Diagnostic -> stop-and-diagnose, never timeout-generated HV.
-
-The preserved legacy scaffold retains historical timeout code for rollback reproducibility. Production V2 masks that scaffold timeout during authoritative Main so the explicit V2 decision owns the result.
-
-## Mix evidence
-
-- CV: track `Imin`, confirm meaningful `ΔI` rise.
-- CC: track `Vmax`, confirm meaningful `ΔV` fall.
-- use multiple spaced confirmations.
-- confirmed delta starts sticky ~2 h finish hold; hard safety still overrides.
-
-Fallback maxima in production V2:
-- Ca/Ca 20 h;
-- EFB 24 h;
-- AGM 10 h.
-
-These are fallback observation maxima, not ETA.
-
-## Diagnostic actuator authority
-
-The strategy first chooses a concrete action. The diagnostic layer then inspects that action. `BLOCK_AUTOMATIC_HV` may convert a planned `ENTER_DESULFATION` or `ENTER_MIX` into stop-and-diagnose, including Normal and timeout-generated Mix. A normal AGM Main voltage-step is not an HV escalation and must not be vetoed as such.
-
-Diagnostic inference cannot itself create a hard emergency stop; immediate unsafe U/I/T/protection/readback/watchdog behavior remains hard-safety authority.
-
-## SAFE_WAIT / Cooling / Done
-
-SAFE_WAIT after HV is Output OFF relaxation:
-
-```text
-threshold reached early -> continue immediately
-otherwise -> max ~2 h -> continue anyway
-```
-
-Slow relaxation is diagnostic evidence, not a fault timeout.
-
-Cooling is a pause in active chemistry time: output OFF, exact stage/target retained, active clocks frozen, session budgets and established extrema retained, continuity-dependent incomplete evidence reset, durable restore required.
-
-Normal program completion preserves V1:
-
-```text
-Done/Storage = ~13.8 V / 1.0 A / Output ON
-```
-
-Safety stop OFF is not Done.
-
-## Manual
-
-Manual is a real supported authority mode, not legacy Custom chemistry or `Idle + Output ON`.
-
-- user owns V/I and normal stop conditions;
-- OVP/OCP are derived and non-overridable;
-- working envelope up to 17.5 V / 12 A;
-- automatic Pb transitions do not execute;
-- Cooling pauses/resumes exact Manual program;
-- active reconfiguration uses verified OFF -> fresh safe-enable;
-- restart restores active Manual as `INTERRUPTED`, never silently re-energizes;
-- historic `V I` and `V I third` are routed into managed Manual authority.
-
-## RD telemetry / diagnostics
-
-Corrected V2 telemetry includes explicit protection status (`Normal/OVP/OCP/OPP`), CV/CC, corrected Pout/temp decode, freshness, model/serial/firmware and read-only calibration/system context.
-
-Bank Fault is hypothesis-specific, not one generic score. Per-cell SG is first-class external evidence; a first spread >=0.030 is imbalance/stratification evidence, not short-cell proof. RD displayed `V/I` is not battery internal resistance. Controlled two-wire `ΔV/ΔI` is stored only as a dynamic-loop response and compared longitudinally only under known connection identity.
-
-Bounded diagnostic experiments may only move energy safer/equal; they must restore setpoints transactionally and must never raise HV merely to test a hypothesis.
-
-## Physical battery registry
-
-Longitudinal evidence is tied to a physical battery: chemistry/capacity, manufacturer/model, lifecycle condition, refill history, capacity/CCA/external Ri where available, recovery traces, SG and dynamic-loop observations. Prefer compare-with-self trends over universal one-number judgments.
-
-## Watchdogs and rollback
-
-Preserve:
-
-```text
-higher-energy state -> shorter permitted blind-operation interval
-```
-
-Readback, verified OFF and edge safety lease are safety infrastructure, not chemistry.
-
-Production entrypoint remains `python bot.py`. `V2_UI=0` and `V2_AUTHORITATIVE=0` preserve controlled rollback paths; rollback code is not the production strategy source of truth.
-
-## Testing / hardware validation
-
-CI compiles and runs deterministic tests on Python 3.10/3.11/3.12. Coverage includes AUTO authority, intent envelopes, startup boundary, 72 h fallback, AGM/Ca/EFB budgets, Mix evidence/timers, Manual, telemetry/readback, edge lease, diagnostics and UI.
-
-Hardware/on-device smoke is still mandatory before `main` merge: deterministic tests cannot prove the deployed ESPHome register mapping, relay path, connection-loss behavior or real battery response.
-
-## Maintenance rule
-
-If architecture changes, update this file **and** the numbered decision/open-question documents. Do not let implementation drift become the new strategy by accident.
+AUTO session restore, Cooling pause restore and Manual `INTERRUPTED` restore each follow their explicit contracts. Diagnostic work follows the action matrix above. Expert/high-energy operator permissions must always require fresh authority after restart.
