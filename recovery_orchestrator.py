@@ -26,9 +26,9 @@ class RecoveryOrchestrator:
     """Coordinate battery context, recipe authorization, safe output and V2 evidence.
 
     Once a protected enable succeeds, the orchestrator retains containment authority
-    until either the runtime is active or physical Output OFF has been positively
-    confirmed. A failed/raised OFF command may therefore never be converted into an
-    inactive software state that would permit another start on an uncertain live output.
+    until physical Output OFF has been positively confirmed. A failed/raised OFF command
+    may therefore never be converted into an inactive software state that would permit
+    another start on an uncertain live output.
     """
 
     def __init__(self, output_adapter, *, runtime: Optional[RecoveryRuntime] = None) -> None:
@@ -111,7 +111,7 @@ class RecoveryOrchestrator:
             )
 
         # Safe enable has succeeded: from this point forward software must retain an
-        # owner until either RecoveryRuntime starts or Output OFF is positively proved.
+        # owner until Output OFF is positively proved.
         self._authorization = authorization
         try:
             await self.runtime.start(
@@ -164,13 +164,16 @@ class RecoveryOrchestrator:
         )
 
     async def complete(self, **kwargs):
+        """Complete evidence only after Output OFF is positively confirmed."""
+        await self._confirm_output_off(context="recovery complete")
         evidence = await self.runtime.complete(**kwargs)
         self._authorization = None
         return evidence
 
     async def abort(self, *, turn_output_off: bool = True) -> None:
-        if turn_output_off:
-            # Do not retire runtime/authorization until physical OFF is confirmed.
-            await self._confirm_output_off(context="recovery abort")
+        if not turn_output_off:
+            raise ValueError("recovery abort cannot retire containment without verified Output OFF")
+        # Do not retire runtime/authorization until physical OFF is confirmed.
+        await self._confirm_output_off(context="recovery abort")
         self.runtime.abort()
         self._authorization = None
