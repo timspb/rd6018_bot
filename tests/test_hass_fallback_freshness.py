@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
+from config import ENTITY_MAP
 from hass_api import HassClient
 from rd6018_telemetry import telemetry_freshness
 
@@ -124,6 +125,31 @@ class HassFallbackFreshnessTests(unittest.IsolatedAsyncioTestCase):
             now_epoch_s=now,
         )
         self.assertTrue(freshness.valid, freshness.detail)
+
+    async def test_bulk_failure_uses_one_batched_get_states_call(self):
+        reported = "2026-08-30T14:33:05+00:00"
+        attrs = {
+            "_ha_last_reported": reported,
+            "_ha_last_updated": reported,
+            "_ha_last_changed": reported,
+        }
+        client = HassClient("http://127.0.0.1:8123", "token")
+        client._live_keys = lambda: ["battery_voltage", "current"]
+        client._fetch_all_states_bulk = AsyncMock(return_value=None)
+        client.get_states = AsyncMock(
+            return_value={
+                ENTITY_MAP["battery_voltage"]: (12.6, dict(attrs)),
+                ENTITY_MAP["current"]: (1.2, dict(attrs)),
+            }
+        )
+
+        live = await client.get_all_live()
+
+        client.get_states.assert_awaited_once_with(
+            [ENTITY_MAP["battery_voltage"], ENTITY_MAP["current"]]
+        )
+        self.assertEqual(live["battery_voltage"], 12.6)
+        self.assertEqual(live["current"], 1.2)
 
 
 if __name__ == "__main__":
