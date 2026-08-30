@@ -112,17 +112,27 @@ class DiagnosticActionJournalTests(unittest.TestCase):
 
 
 class _FakeHass:
-    def __init__(self) -> None:
+    def __init__(self, *, off_result=True, off_raises=False) -> None:
         self.turn_off_calls = 0
+        self.off_result = off_result
+        self.off_raises = off_raises
 
     async def turn_off(self) -> bool:
         self.turn_off_calls += 1
-        return True
+        if self.off_raises:
+            raise RuntimeError("synthetic OFF failure")
+        return self.off_result
 
 
 class _FakeApp:
-    def __init__(self, journal: DiagnosticActionJournal) -> None:
-        self.hass = _FakeHass()
+    def __init__(
+        self,
+        journal: DiagnosticActionJournal,
+        *,
+        off_result=True,
+        off_raises=False,
+    ) -> None:
+        self.hass = _FakeHass(off_result=off_result, off_raises=off_raises)
         self.diagnostic_action_journal = journal
         self.notifications = []
 
@@ -131,17 +141,21 @@ class _FakeApp:
 
 
 class DiagnosticRestartRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _journal_with_interrupted_probe(path):
+        journal = DiagnosticActionJournal(path)
+        journal.begin(
+            DiagnosticActionKind.PROBE,
+            battery_id="battery-a",
+            status=DiagnosticActionStatus.RUNNING,
+            now=100.0,
+        )
+        return DiagnosticActionJournal(path)
+
     async def test_interrupted_probe_forces_output_off_and_notifies(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             path = os.path.join(tempdir, "diagnostic_actions.json")
-            journal = DiagnosticActionJournal(path)
-            journal.begin(
-                DiagnosticActionKind.PROBE,
-                battery_id="battery-a",
-                status=DiagnosticActionStatus.RUNNING,
-                now=100.0,
-            )
-            app = _FakeApp(DiagnosticActionJournal(path))
+            app = _FakeApp(self._journal_with_interrupted_probe(path))
 
             changed = await recover_diagnostic_persistence(app)
 
@@ -154,6 +168,36 @@ class DiagnosticRestartRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.turn_off_calls, 1)
             self.assertEqual(len(app.notifications), 1)
             self.assertTrue(app.notifications[0][1])
+            self.assertIn("подтверждён OFF", app.notifications[0][0])
+
+    async def test_interrupted_probe_never_claims_off_when_shutdown_is_unconfirmed(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = os.path.join(tempdir, "diagnostic_actions.json")
+            app = _FakeApp(
+                self._journal_with_interrupted_probe(path),
+                off_result=False,
+            )
+
+            await recover_diagnostic_persistence(app)
+
+            self.assertEqual(app.hass.turn_off_calls, 1)
+            self.assertEqual(len(app.notifications), 1)
+            self.assertIn("НЕ ПОДТВЕРЖДЁН", app.notifications[0][0])
+            self.assertNotIn("подтверждён OFF", app.notifications[0][0])
+
+    async def test_interrupted_probe_off_exception_is_reported_as_unconfirmed(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = os.path.join(tempdir, "diagnostic_actions.json")
+            app = _FakeApp(
+                self._journal_with_interrupted_probe(path),
+                off_raises=True,
+            )
+
+            await recover_diagnostic_persistence(app)
+
+            self.assertEqual(app.hass.turn_off_calls, 1)
+            self.assertEqual(len(app.notifications), 1)
+            self.assertIn("НЕ ПОДТВЕРЖДЁН", app.notifications[0][0])
 
 
 if __name__ == "__main__":
