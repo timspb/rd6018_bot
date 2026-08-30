@@ -53,6 +53,9 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | idle stale Vset/Iset/OVP/OCP timestamps do not block preflight | context-sensitive freshness regression | SW-PASS |
 | freshly programmed Vset/Iset/OVP/OCP is required before/post ON | programmed-readback freshness regressions | SW-PASS |
 | idle stale `V_OUT=0` heartbeat does not block preflight; energized stale V_OUT fails closed | VOUT context regression | SW-PASS |
+| failed OFF remains containment authority even if legacy chemistry state is already retired | V2 runtime OFF-unconfirmed retry regressions | SW-PASS |
+| recovery start/complete/abort cannot retire authority before verified OFF | RecoveryOrchestrator containment regressions | SW-PASS |
+| diagnostic task cancellation after a current step restores the original current or forces OFF before cancellation escapes | probe cancellation cleanup regressions | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
 
@@ -92,7 +95,9 @@ Use a dummy load or otherwise non-battery hazardous setup first.
 ### C2 verified OFF
 - command OFF;
 - prove physical/output entity OFF confirmation path;
-- inject unavailable/stale confirmation and verify fail-closed reporting.
+- inject unavailable/stale confirmation and verify fail-closed reporting;
+- additionally emulate the legacy exception path that retires the chemistry controller after a failed OFF attempt: V2 runtime containment must **not** enter ordinary orphan grace, must retain `OFF unconfirmed`, and must retry verified shutdown until Output is physically confirmed OFF;
+- after delayed successful OFF confirmation, verify the containment flag clears and the edge lease is disarmed only after OFF proof.
 
 ### C3 communication loss
 Test at least:
@@ -106,15 +111,17 @@ Expected: higher-energy state gets the shortest blind-operation tolerance and ed
 
 Required state before merge: **BENCH-PASS**.
 
-## D. Diagnostic restart bench gate
+## D. Diagnostic restart / cancellation bench gate
 
 1. Start a controlled diagnostic current probe on dummy load/controlled setup.
 2. Kill the bot after current has been lowered but before normal restoration.
 3. Restart.
 4. Verify journal marks action `ABORTED_RESTART`.
-5. Verify no mid-probe setpoint restoration is attempted.
+5. Verify no mid-probe setpoint restoration is attempted after process restart.
 6. Verify Output is forced/remains OFF and operator is notified.
 7. Verify a completed probe remains durable evidence and is not rewritten as interrupted.
+8. Separately cancel the live diagnostic task (without killing the process) after the current step. Before `CancelledError` escapes, verify the original current is restored and read back; if restoration is unavailable/mismatched, Output must be positively confirmed OFF.
+9. Repeat cancellation with restore failure plus OFF failure and verify software does not report a successful cleanup/forced-OFF condition.
 
 Required state before automatic probe policy is enabled: **BENCH-PASS**.
 
