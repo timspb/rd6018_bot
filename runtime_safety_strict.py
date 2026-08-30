@@ -5,7 +5,7 @@ import os
 from typing import Any, Optional
 
 from config import TEMP_INT_PRECRITICAL
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseError
+from edge_safety_lease import EdgeSafetyLease
 from runtime_safety import (
     RuntimeSafetyError,
     RuntimeSafetyGuard,
@@ -128,7 +128,18 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         try:
             enabled = await super().turn_on(entity_id)
         except Exception:
-            if await self._output_state_raw() is False:
+            # super().turn_on() normally performs its own cleanup, but an exception in
+            # the *post-enable* telemetry read used to escape after the physical ON.
+            # Never assume an exception means the output stayed OFF: positively prove
+            # OFF here before returning control to the caller.
+            state = await self._output_state_raw()
+            if state is not False:
+                await self._ensure_output_off(
+                    "turn-on path raised before post-enable safety was confirmed",
+                    entity_id,
+                )
+                state = False
+            if state is False:
                 await self._disarm_edge_lease_best_effort()
             raise
         if not enabled and await self._output_state_raw() is False:
@@ -178,6 +189,20 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         except Exception:
             return None, None
         return _finite(target_v), _finite(target_i)
+
+    async def _require_managed_live_write(
+        self,
+        output_state: Optional[bool],
+        action: str,
+    ) -> None:
+        if output_state is not True or self.controller_active:
+            return
+        await self._ensure_output_off(
+            f"{action} requested while Output ON without a managed controller session"
+        )
+        raise RuntimeSafetyError(
+            f"{action} blocked: live setpoint/protection writes require a managed session"
+        )
 
     async def _precondition_current_before_voltage_raise(
         self,
@@ -259,14 +284,21 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     async def set_voltage(self, value: float) -> bool:
         requested = _finite(value)
         output_state = await self._output_state_raw()
+        await self._require_managed_live_write(output_state, "voltage write")
         if output_state is True and requested is not None:
             live = await self._raw_live()
             await self._precondition_current_before_voltage_raise(requested, live)
         return await super().set_voltage(value)
 
+    async def set_current(self, value: float) -> bool:
+        output_state = await self._output_state_raw()
+        await self._require_managed_live_write(output_state, "current write")
+        return await super().set_current(value)
+
     async def set_ovp(self, value: float) -> bool:
         requested = _finite(value)
         output_state = await self._output_state_raw()
+        await self._require_managed_live_write(output_state, "OVP write")
         if output_state is True and requested is not None:
             live = await self._raw_live()
             live = await self._precondition_voltage_before_ovp_tighten(requested, live)
@@ -303,6 +335,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     async def set_ocp(self, value: float) -> bool:
         requested = _finite(value)
         output_state = await self._output_state_raw()
+        await self._require_managed_live_write(output_state, "OCP write")
         if output_state is True and requested is not None:
             live = await self._raw_live()
             set_i = _finite(live.get("set_current"))
