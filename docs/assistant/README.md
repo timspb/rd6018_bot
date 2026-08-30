@@ -77,6 +77,12 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 
 The HMI redesign is deliberately staged after the controller/safety audit. `OPERATOR_HMI_SPEC.md` and `OPERATOR_HMI_WIREFRAMES.md` define the intended operator experience before renderer code is changed.
 
+Research basis recorded in the specification includes:
+- ISA high-performance HMI hierarchy/task-centered display guidance;
+- HSE command-feedback, alarm clarity and alarm-flood principles;
+- Telegram Bot API 10.3 Rich Messages and semantic button styles;
+- Telegram Mini App mobile/responsive constraints.
+
 Key design boundaries:
 - primary native Telegram remains the safety-capable operator station;
 - optional Mini App is secondary analytics/forms, never the only Start/Stop/status path;
@@ -84,6 +90,7 @@ Key design boundaries:
 - warning/alarm/event are different concepts;
 - command submission and physical result are distinct (`STARTING`, `STOPPING`, `OFF unconfirmed`);
 - Rich Messages may become the preferred renderer only after real client compatibility testing; classic HTML/InlineKeyboard remains fallback;
+- safety-critical Rich Message controls use simple tested button rows rather than experimental table-cell interaction;
 - renderers never own actuator sequencing or authority.
 
 The storyboard is a **review gate, not implementation**. Do not start the new renderer until the critical operator path has been reviewed explicitly:
