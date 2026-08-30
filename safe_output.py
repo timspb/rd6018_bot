@@ -35,6 +35,7 @@ class SafetyViolation(str, Enum):
     OUTPUT_ALREADY_ON = "output_already_on"
     REQUEST_OVER_RECIPE_CEILING = "request_over_recipe_ceiling"
     REQUEST_OVER_ABSOLUTE_CEILING = "request_over_absolute_ceiling"
+    MEASURED_OUTPUT_OVER_LIMIT = "measured_output_over_limit"
     CURRENT_OVER_ABSOLUTE_LIMIT = "current_over_absolute_limit"
     OVP_ENVELOPE_INVALID = "ovp_envelope_invalid"
     OCP_ENVELOPE_INVALID = "ocp_envelope_invalid"
@@ -91,6 +92,7 @@ class TelemetrySnapshot:
     ovp_triggered: bool
     ocp_triggered: bool
     input_voltage_v: Optional[float] = None
+    output_voltage_v: Optional[float] = None
     protection_status: ProtectionStatus = ProtectionStatus.NORMAL
     protection_unknown: bool = False
     regulation_mode: RegulationMode = RegulationMode.UNKNOWN
@@ -136,6 +138,7 @@ def _protection_freshness_keys(live: Dict[str, Any]) -> list[str]:
 
 def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
     battery_voltage = finite_float(live.get("battery_voltage"))
+    output_voltage = finite_float(live.get("voltage"))
     current = finite_float(live.get("current"))
     temp_ext = finite_float(live.get("temp_ext"))
     temp_int = finite_float(live.get("temp_int"))
@@ -156,6 +159,8 @@ def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
         return None
 
     freshness_keys = ["battery_voltage", "current", "temp_ext", "temp_int", "switch"]
+    if output_voltage is not None:
+        freshness_keys.append("voltage")
     freshness_keys.extend(_protection_freshness_keys(live))
     for key in ("set_voltage", "set_current", "ovp", "ocp"):
         if live.get(key) not in (None, "", "unknown", "unavailable"):
@@ -167,6 +172,7 @@ def snapshot_from_live(live: Dict[str, Any]) -> Optional[TelemetrySnapshot]:
 
     return TelemetrySnapshot(
         battery_voltage_v=float(battery_voltage),
+        output_voltage_v=output_voltage,
         current_a=float(current),
         temp_ext_c=float(temp_ext),
         temp_int_c=float(temp_int),
@@ -297,7 +303,7 @@ class SafetySupervisor:
         )
 
     def verify_live_output(self, request: OutputRequest, telemetry: TelemetrySnapshot) -> SafetyDecision:
-        """Verify the still-live safety envelope after Output ON."""
+        """Verify measured + configured hard safety after Output ON."""
         p = self.policy
         violations: set[SafetyViolation] = set()
         details: list[str] = []
@@ -311,8 +317,40 @@ class SafetySupervisor:
             violations.add(SafetyViolation.POWER_SUPPLY_TOO_HOT)
         violations.update(self._protection_violations(telemetry))
         violations.update(self._hardware_config_violations(telemetry))
-        if telemetry.current_a > p.absolute_ocp_ceiling_a + p.current_readback_tolerance_a:
+
+        if telemetry.output_voltage_v is None:
+            violations.add(SafetyViolation.TELEMETRY_INVALID)
+            details.append("measured output voltage is missing")
+        else:
+            measured_v_limit = min(
+                p.absolute_voltage_ceiling_v,
+                request.recipe_voltage_ceiling_v,
+            )
+            if telemetry.output_voltage_v > measured_v_limit + p.voltage_readback_tolerance_v:
+                violations.add(SafetyViolation.MEASURED_OUTPUT_OVER_LIMIT)
+                details.append(
+                    f"measured output voltage {telemetry.output_voltage_v:.3f} exceeds "
+                    f"working ceiling {measured_v_limit:.3f}"
+                )
+            if telemetry.output_voltage_v > request.ovp_v + p.protection_readback_tolerance:
+                violations.add(SafetyViolation.MEASURED_OUTPUT_OVER_LIMIT)
+                details.append(
+                    f"measured output voltage {telemetry.output_voltage_v:.3f} exceeds "
+                    f"configured OVP {request.ovp_v:.3f}"
+                )
+
+        if telemetry.current_a > p.absolute_current_ceiling_a + p.current_readback_tolerance_a:
             violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
+            details.append(
+                f"measured current {telemetry.current_a:.3f} exceeds working ceiling "
+                f"{p.absolute_current_ceiling_a:.3f}"
+            )
+        if telemetry.current_a > request.ocp_a + p.protection_readback_tolerance:
+            violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
+            details.append(
+                f"measured current {telemetry.current_a:.3f} exceeds configured OCP "
+                f"{request.ocp_a:.3f}"
+            )
 
         programmed = self.verify_programmed(request, telemetry)
         violations.update(programmed.violations)
@@ -420,7 +458,14 @@ class SafeOutputCoordinator:
             await asyncio.sleep(min(self.readback_poll_interval_s, max(0.0, deadline - now)))
 
     async def enable(self, request: OutputRequest) -> EnableResult:
-        live = await self.adapter.get_all_live()
+        try:
+            live = await self.adapter.get_all_live()
+        except Exception as exc:
+            return EnableResult(
+                False,
+                frozenset({SafetyViolation.TELEMETRY_INVALID}),
+                f"pre-enable telemetry failed: {type(exc).__name__}: {exc}",
+            )
         before = snapshot_from_live(live)
         if before is None:
             return EnableResult(
@@ -476,7 +521,19 @@ class SafeOutputCoordinator:
 
         if self.readback_delay_s:
             await asyncio.sleep(self.readback_delay_s)
-        final_live = await self.adapter.get_all_live()
+        try:
+            final_live = await self.adapter.get_all_live()
+        except Exception as exc:
+            return await self._failure(
+                frozenset(
+                    {
+                        SafetyViolation.TELEMETRY_INVALID,
+                        SafetyViolation.POST_ENABLE_VERIFY_FAILED,
+                    }
+                ),
+                f"post-enable telemetry failed: {type(exc).__name__}: {exc}",
+                force_off=True,
+            )
         final = snapshot_from_live(final_live)
         if final is None:
             return await self._failure(
