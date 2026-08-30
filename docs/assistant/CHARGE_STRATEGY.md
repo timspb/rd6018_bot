@@ -11,7 +11,7 @@
 ### Intent
 - **Normal** — штатный полный автоматический заряд, V1-compatible: bounded recovery и final Mix разрешены по детерминированным критериям.
 - **Recovery** — тот же безопасный контур с явной восстановительной целью/диагностическим контекстом; evidence/safety не обходятся.
-- **Conditioning** — сервисная цель внутри разрешённого envelope; expert EFB 17.2–17.5 V остаётся отдельным Q011.
+- **Conditioning** — сервисная цель внутри разрешённого chemistry envelope; generic EFB extension выше 16.5 V не существует.
 - **Diagnostic** — наблюдение/проверка без автоматического создания Recovery/Mix.
 
 `Auto Mix` — не intent, а direct-entry program mode.
@@ -47,7 +47,7 @@ fresh telemetry
 -> post-enable verify
 ```
 
-Непроверяемая ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; конкретный recipe может быть ниже.
+Непроверяемая ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; конкретный chemistry recipe может быть существенно ниже. Для EFB automatic/Recovery/Conditioning generic ceiling = **16.5 V**.
 
 ## AUTO start / PREP
 ```text
@@ -68,7 +68,7 @@ Vbat >= 12.0 V -> MAIN сразу + PREP_SKIPPED audit event
 - fallback Ca20/EFB24/AGM10;
 - SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
 - strong `BLOCK_AUTOMATIC_HV` проверяется до включения;
-- никаких implicit expert EFB 17.2–17.5 V.
+- EFB >16.5 V не разрешается никаким generic `expert` flag.
 
 ## AUTO targets
 Global stage-current ceiling: 12 A.
@@ -91,6 +91,11 @@ Global stage-current ceiling: 12 A.
 - EFB 16.5 V;
 - AGM 16.3 V;
 - ~0.03C, max 12 A.
+
+### EFB upper-envelope rule
+Generic EFB chemistry policy has no automatic/Conditioning extension above 16.5 V. Passing `expert_high_voltage=True` must not enlarge the EFB envelope or set `expert_authorized`.
+
+The global **17.5 V** ceiling remains available to first-class Manual/Custom operator authority under immutable safety. A future automatic EFB target >16.5 V would require a separate exact model-specific manufacturer-backed profile; chemistry label `EFB` alone can never grant it.
 
 ### Done / Storage
 ```text
@@ -274,6 +279,15 @@ Proactive SG prompt is deliberately sparse:
 
 Q013 still owns calibration of when the hypothesis engine reaches VERIFY/PROBABLE/HIGH; D053 owns SG eligibility once it does.
 
+### Bank-Fault calibration
+Current score weights and `15/35/60/80` level boundaries are not tuned from synthetic examples. Labeled real cases are replayed deterministically through `battery_fault_calibration.py` / `tools/evaluate_battery_fault.py`.
+
+The report keeps two safety-significant error classes separate:
+- unexpected `BLOCK_AUTOMATIC_HV`;
+- missed labeled `BLOCK_AUTOMATIC_HV`.
+
+Hypothesis-level mismatches are reported separately and never trigger automatic threshold tuning. Exact labeling workflow: `BANK_FAULT_CALIBRATION.md`.
+
 ### Dynamic loop
 RD displayed `V/I` is not battery Ri. Controlled current reduction may produce `dynamic_loop = ΔV_BAT/ΔI`, but two-wire black+green path includes battery+cables+contacts+internal path+polarization. Compare longitudinally only with explicit unchanged connection identity.
 
@@ -312,4 +326,5 @@ Preserve `higher-energy state -> shorter allowed blind-operation interval`. Read
 - Diagnostic action after restart never auto-resumes authority-bearing work.
 - SG access is physical-battery metadata; chemistry alone never grants electrolyte access.
 - Never double-correct `hydrometer=tc`; manufacturer correction is explicit, never inferred.
+- EFB automatic/Recovery/Conditioning generic ceiling is 16.5 V; global 17.5 V is Manual/Custom outer authority, not EFB chemistry permission.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
