@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
+from runtime_safety import RuntimeSafetyError
 from runtime_safety_v2 import V2RuntimeSafetyGuard
 
 
@@ -8,6 +9,7 @@ class DummyHass:
     def __init__(self, live):
         self.live = dict(live)
         self.base_url = ""
+        self.turn_off_calls = 0
 
     async def get_all_live(self):
         return dict(self.live)
@@ -17,6 +19,7 @@ class DummyHass:
         return True
 
     async def turn_off(self, entity_id=None):
+        self.turn_off_calls += 1
         self.live["switch"] = "off"
         return True
 
@@ -52,6 +55,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     def _live():
         return {
             "battery_voltage": 14.2,
+            "voltage": 14.2,
             "current": 2.0,
             "temp_ext": 25.0,
             "temp_int": 35.0,
@@ -65,15 +69,26 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             "ocp": 5.1,
         }
 
-    async def test_low_vin_is_psu_health_evidence_not_charge_authority(self):
-        app = SimpleNamespace(
-            hass=DummyHass(self._live()),
-            charge_controller=DummyController(),
-            manual_session_manager=None,
+    @staticmethod
+    def _app(live, *, controller=None, manager=None):
+        return SimpleNamespace(
+            hass=DummyHass(live),
+            charge_controller=controller or DummyController(),
+            manual_session_manager=manager,
             _charge_notify=lambda *args, **kwargs: None,
         )
+
+    @staticmethod
+    def _guard(app):
         guard = V2RuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
+        guard.VERIFY_ATTEMPTS = 1
+        guard.VERIFY_DELAY_S = 0.0
+        return guard
+
+    async def test_low_vin_is_psu_health_evidence_not_charge_authority(self):
+        app = self._app(self._live())
+        guard = self._guard(app)
         live = await guard.get_all_live()
         self.assertEqual(live["input_voltage"], 40.0)
         self.assertEqual(live["switch"], "on")
@@ -81,14 +96,8 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_vin_is_not_critical_telemetry(self):
         live = self._live()
         live["input_voltage"] = None
-        app = SimpleNamespace(
-            hass=DummyHass(live),
-            charge_controller=DummyController(),
-            manual_session_manager=None,
-            _charge_notify=lambda *args, **kwargs: None,
-        )
-        guard = V2RuntimeSafetyGuard(app)
-        guard.edge_lease_enforced = False
+        app = self._app(live)
+        guard = self._guard(app)
         observed = await guard.get_all_live()
         self.assertIsNone(observed["input_voltage"])
 
@@ -99,17 +108,60 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             is_active=True,
             request=SimpleNamespace(voltage_v=17.5, current_a=1.0),
         )
-        app = SimpleNamespace(
-            hass=DummyHass(self._live()),
-            charge_controller=controller,
-            manual_session_manager=manager,
-            _charge_notify=lambda *args, **kwargs: None,
-        )
-        guard = V2RuntimeSafetyGuard(app)
-        guard.edge_lease_enforced = False
+        app = self._app(self._live(), controller=controller, manager=manager)
+        guard = self._guard(app)
         self.assertTrue(guard.controller_active)
         self.assertAlmostEqual(guard._recipe_voltage_ceiling(), 17.5)
         self.assertEqual(guard._stage_target(self._live()), (17.5, 1.0))
+
+    async def test_raw_opp_trip_forces_verified_off(self):
+        live = self._live()
+        live["protection_code"] = 3
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "OPP"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_unknown_raw_protection_forces_verified_off(self):
+        live = self._live()
+        live["protection_code"] = 9
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "protection status is unknown"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_missing_measured_output_voltage_while_on_fails_closed(self):
+        live = self._live()
+        live["voltage"] = None
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "telemetry voltage"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_measured_output_voltage_over_recipe_ceiling_fails_closed(self):
+        live = self._live()
+        live["voltage"] = 16.7
+        live["ovp"] = 17.0
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "measured output voltage"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_measured_current_uses_working_12a_ceiling_not_ocp_ceiling(self):
+        live = self._live()
+        live["set_current"] = 12.0
+        live["ocp"] = 12.2
+        live["current"] = 12.10
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "working-current"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
 
 
 if __name__ == "__main__":
