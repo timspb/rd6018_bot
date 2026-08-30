@@ -9,7 +9,7 @@ Decision authority remains `V2_DECISION_LOG.md`. This file records how accepted 
 - `SW-PASS` — deterministic software/CI coverage exists and passes.
 - `BENCH-PASS` — verified on RD6018/dummy load or controlled lab setup.
 - `BAT-PASS` — verified on a real battery trace where battery chemistry is required.
-- `OPEN-CAL` — numeric calibration/policy intentionally unresolved.
+- `OPEN-CAL` — numeric calibration intentionally unresolved and remains fail-closed/disabled where required.
 
 PR must remain Draft while any required BENCH/BAT gate is missing.
 
@@ -38,6 +38,10 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | diagnostic action restart matrix | journal/restart tests | SW-PASS |
 | diagnostic inference cannot create HARD_STOP | fault-engine tests | SW-PASS |
 | SG first imbalance is not short-cell proof/HV veto | diagnostics tests | SW-PASS |
+| SG physical access + hydrometer/correction policy | SG policy/UI/store tests | SW-PASS |
+| generic EFB expert flag cannot exceed 16.5V | recipe envelope regression | SW-PASS |
+| labeled Bank-Fault calibration replay/reporting | calibration harness tests | SW-PASS |
+| raw dynamic-loop characterization math/reporting | characterization harness tests | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
 
@@ -52,6 +56,7 @@ Use the exact production ESPHome node/config, not a synthetic register mock.
 7. Verify configured readback for V/I/OVP/OCP after writes.
 8. Verify `BAT_MODE` is observational and does not create a software start gate.
 9. Verify Boot Power / Take Out safe configuration on the actual device.
+10. Measure the actual timestamps/cadence delivered by the installed ESPHome/Modbus/HA path; do not assume a global 5s poll interval from template sensor snippets.
 
 Required state before merge: **BENCH-PASS**.
 
@@ -116,10 +121,12 @@ Run with conservative known-good batteries first.
 Capture:
 - start decision PREP/Main;
 - Main tail/progress;
-- any plateau/recovery attempt;
+- any naturally occurring plateau/recovery attempt;
 - SAFE_WAIT round-trip;
 - final Mix evidence;
 - final SAFE_WAIT -> Storage.
+
+Do not deliberately create a harmful stuck condition merely to exercise Recovery/Mix.
 
 ### F2 AGM
 Capture staged 14.4 -> 14.6 -> 14.8 -> 15.0 Main behavior and verify conservative recovery/timeout policy. Do not deliberately create a harmful stuck condition merely to exercise a transition.
@@ -129,21 +136,51 @@ Use a battery already suitable for Mix entry and >=12V. Verify direct Mix sessio
 
 Required state before merge: **BAT-PASS** for representative standard AUTO and Auto Mix; AGM policy should have at least non-destructive trace confirmation.
 
-## G. Open calibration gates — do not guess
+## G. Calibration gates — do not guess
 
-### Q004/Q013 fault scoring
-Need real traces with known outcomes before tuning `cell_fault`/other hypothesis thresholds.
+### G1 Q004/Q013 fault scoring — `OPEN-CAL`
 
-### Q005/Q014 controlled probe / RD response
-Need actual ESPHome sample cadence, ADC resolution/repeatability, current-step response, cable/clip reconnection effect and relay-path signal characterization. Automatic probe trigger remains disabled until this is measured.
+Tooling exists:
 
-### Q011 expert EFB 17.2–17.5V
-No standard recipe permission exists. Requires explicit manufacturer/evidence policy, strict time/current/thermal limits and fresh per-run authorization.
+```bash
+python tools/evaluate_battery_fault.py labeled-cases.jsonl --output report.json
+```
 
-### Q012 SG policy
-Raw SG remains authoritative evidence storage. Manufacturer/hydrometer temperature correction and proactive prompt policy must be defined before corrected SG is used for decisions.
+Use `BANK_FAULT_CALIBRATION.md` for case schema/labeling. Before changing production weights/15-35-60-80 levels, collect real independently labeled healthy and fault cases.
 
-These stay `OPEN-CAL` and do not get closed by unit tests.
+Track separately:
+- unexpected `BLOCK_AUTOMATIC_HV`;
+- missed labeled `BLOCK_AUTOMATIC_HV`;
+- per-hypothesis level mismatch.
+
+Do not tune a single aggregate accuracy while hiding either safety-significant block error class.
+
+### G2 Q005/Q014 controlled probe / RD response — `OPEN-CAL`
+
+Tooling exists:
+
+```bash
+python tools/characterize_dynamic_loop.py probe.jsonl --output report.json
+```
+
+Use `DYNAMIC_LOOP_CALIBRATION.md`. Collect actual raw timestamped baseline/step/restore traces and characterize:
+- real cadence;
+- Vbat/current MAD/span and observed value steps;
+- actual measured `ΔI`/`ΔV`;
+- settling trajectory;
+- repeatability without reconnecting;
+- change after clip/lead reconnection;
+- descriptive Vout-Vbat behavior;
+- hardware/firmware/calibration identity.
+
+Only then choose production ProbePlan amplitude/timing/readback/noise thresholds. Automatic trigger policy remains disabled until calibrated.
+
+### G3 Resolved manufacturer/product boundaries — software contract, not OPEN-CAL
+
+- **EFB upper envelope (D054):** generic AUTO/Recovery/Conditioning <=16.5V. A global `expert` flag cannot enlarge it. 17.5V remains Manual/Custom outer authority. Future >16.5V automatic EFB requires an exact model-specific manufacturer-backed profile.
+- **SG policy (D053):** physical access is explicit; AGM never SG; EFB/Ca/Flooded require `SERVICEABLE`; raw is primary evidence; manufacturer correction is explicit; temperature-compensated hydrometer is never double-corrected.
+
+These are no longer open questions and must not be reintroduced as merge blockers unless new evidence requires a numbered Decision Log revision.
 
 ## H. Final merge review
 
@@ -153,7 +190,8 @@ Before marking PR ready:
 software CI exact head         PASS
 all required BENCH gates       PASS
 required real-battery traces   PASS
-open-cal features              disabled/fail-closed unless explicitly resolved
+Q004/Q013 calibration evidence reviewed
+Q005/Q014 characterization reviewed / auto trigger remains fail-closed if unresolved
 Decision Log / Open Questions  synchronized
 PR body                         synchronized
 main                            still untouched
