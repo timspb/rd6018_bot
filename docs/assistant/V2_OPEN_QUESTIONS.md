@@ -2,7 +2,7 @@
 
 > Only unresolved strategy/product questions live here. Resolved behavior belongs in `V2_DECISION_LOG.md`.
 
-Q001, Q003, Q007, Q008 and Q009 are intentionally retired: initial PREP handling, AUTO Manual-OFF semantics, intent semantics, 72 h Main fallback and AGM recovery policy are now accepted/implemented decisions.
+Q001, Q003, Q006, Q007, Q008 and Q009 are intentionally retired: initial PREP handling, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72 h Main fallback and AGM recovery policy are now accepted/implemented decisions.
 
 ## Q002 — Manual battery identity and interrupted-session re-authorization UX
 Core Manual authority and input migration are implemented:
@@ -48,15 +48,6 @@ Still define before automatic triggering:
 - connection identity lifecycle;
 - how much change across repeated probes is meaningful given RD6018 resolution/noise.
 
-## Q006 — 24–48 h rest after heavy recovery
-Decide whether this is:
-- recommendation only;
-- dashboard/diagnostic window;
-- scheduled longitudinal measurement window;
-- or hard lockout on another aggressive recovery.
-
-Do not add a mandatory lockout implicitly.
-
 ## Q010 — Persistence matrix for diagnostic sub-states
 Manual restart behavior is resolved: active Manual restores `INTERRUPTED`, never auto-ON. Exact-reach compatibility conditions are persisted with the Manual request.
 
@@ -65,7 +56,7 @@ Still define persistence/restore for:
 - pending operator confirmation;
 - HV block / fault-verification state;
 - expert-HV authorization;
-- optional heavy-charge rest state.
+- optional post-heavy-recovery observation-window metadata/checkpoints (D037 says this can never become a time-based charge lockout).
 
 For each: persist? expire? restore automatically? require fresh telemetry/operator confirmation?
 
@@ -110,6 +101,7 @@ Before merging V2 to `main`, verify traceably:
 - Manual native UI, direct-command migration and interrupted-session UX;
 - Manual stop conditions;
 - AUTO Manual-OFF as terminal asynchronous kill-condition only, without suppressing chemistry decisions;
+- post-heavy-recovery 24–48h rest as recommendation/diagnostic window only, never a time-based lockout;
 - Cooling;
 - restart/restore;
 - link loss / edge lease / fast HV watchdog;
