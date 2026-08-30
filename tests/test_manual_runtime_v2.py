@@ -24,14 +24,23 @@ class FakeHass:
         }
         self.enable_requests = []
         self.off_calls = 0
+        self.enable_raises = False
+        self.off_result = True
+        self.off_raises = False
 
     async def safe_enable_output(self, **kwargs):
         self.enable_requests.append(dict(kwargs))
+        if self.enable_raises:
+            raise RuntimeError("synthetic safe-enable exception")
         self.live["switch"] = "on"
         return SimpleNamespace(enabled=True, detail="")
 
     async def turn_off(self, entity_id=None):
         self.off_calls += 1
+        if self.off_raises:
+            raise RuntimeError("synthetic OFF exception")
+        if not self.off_result:
+            return False
         self.live["switch"] = "off"
         return True
 
@@ -85,6 +94,47 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.hass.enable_requests), 2)
         self.assertAlmostEqual(self.hass.enable_requests[-1]["voltage_v"], 16.5)
         self.assertAlmostEqual(self.hass.enable_requests[-1]["current_a"], 1.5)
+
+    async def test_safe_enable_exception_with_unconfirmed_off_stays_managed(self):
+        manager = self._manager()
+        self.hass.enable_raises = True
+        self.hass.off_result = False
+        self.hass.live["switch"] = "on"
+
+        enabled = await manager.start(ManualChargeRequest(14.7, 2.0))
+
+        self.assertFalse(enabled)
+        self.assertEqual(manager.state, ManualSessionState.ARMING)
+        self.assertTrue(manager.is_active)
+        self.assertIn("output_off_unconfirmed", manager.stop_reason)
+        self.assertGreaterEqual(self.hass.off_calls, 1)
+
+    async def test_safe_enable_exception_with_confirmed_off_becomes_failed(self):
+        manager = self._manager()
+        self.hass.enable_raises = True
+        self.hass.live["switch"] = "on"
+
+        enabled = await manager.start(ManualChargeRequest(14.7, 2.0))
+
+        self.assertFalse(enabled)
+        self.assertEqual(manager.state, ManualSessionState.FAILED)
+        self.assertFalse(manager.is_active)
+        self.assertEqual(self.hass.live["switch"], "off")
+
+    async def test_stop_with_unconfirmed_off_remains_active_containment(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time()
+        self.hass.live["switch"] = "on"
+        self.hass.off_result = False
+
+        confirmed = await manager.stop("operator_stop")
+
+        self.assertFalse(confirmed)
+        self.assertEqual(manager.state, ManualSessionState.ARMING)
+        self.assertTrue(manager.is_active)
+        self.assertIn("output_off_unconfirmed", manager.stop_reason)
 
     async def test_exact_voltage_reach_detects_crossing_between_samples(self):
         manager = self._manager()
