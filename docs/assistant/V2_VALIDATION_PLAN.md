@@ -46,8 +46,13 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | managed runtime rejects stale/incoherent Vbat/I/T and energized V_OUT | runtime freshness + verified-OFF regressions | SW-PASS |
 | managed runtime rejects stale Output/protection authority | switch + raw/legacy protection freshness regressions | SW-PASS |
 | managed chemistry evidence rejects stale CV/CC source | raw/legacy regulation freshness regressions | SW-PASS |
+| production managed runtime rejects missing `_meta` rather than degrading to value-only safety | runtime metadata-required regression | SW-PASS |
 | unchanged dynamic/status values use HA `last_reported`, not stale `last_updated` | telemetry heartbeat regressions | SW-PASS |
-| static Vset/Iset/OVP/OCP timestamps are not liveness clocks | runtime no-false-positive regression | SW-PASS |
+| HA bulk and per-entity fallback preserve equivalent `last_reported` heartbeat semantics | HassClient fallback regressions | SW-PASS |
+| bulk `/api/states` failure uses concurrent batched per-entity fallback | fallback batching regression | SW-PASS |
+| idle stale Vset/Iset/OVP/OCP timestamps do not block preflight | context-sensitive freshness regression | SW-PASS |
+| freshly programmed Vset/Iset/OVP/OCP is required before/post ON | programmed-readback freshness regressions | SW-PASS |
+| idle stale `V_OUT=0` heartbeat does not block preflight; energized stale V_OUT fails closed | VOUT context regression | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
 
@@ -64,8 +69,12 @@ Use the exact production ESPHome node/config, not a synthetic register mock.
 9. Verify Boot Power / Take Out safe configuration on the actual device.
 10. Measure the actual timestamps/cadence delivered by the installed ESPHome/Modbus/HA path; do not assume a global 5s poll interval from template sensor snippets.
 11. Hold dynamic/status values physically/numerically flat long enough that HA `last_updated` would otherwise stay old; verify `last_reported` continues to advance at the real integration reporting cadence for Vbat/current/temperature/V_OUT, Output, protection and CV/CC sources that are exposed by the exact node.
-12. Fault-inject one critical physical source (prefer external battery temperature on dummy/safe setup) so its source heartbeat exceeds the 20s software freshness window; verify a managed energized session forces verified OFF. Separately prove an hours-old unchanged Vset/Iset/OVP/OCP timestamp does **not** create a false freshness trip while values/readback remain valid.
+12. Fault-inject one critical physical source (prefer external battery temperature on dummy/safe setup) so its source heartbeat exceeds the 20s software freshness window; verify a managed energized session forces verified OFF. Separately prove an hours-old unchanged Vset/Iset/OVP/OCP timestamp does **not** create a false runtime freshness trip while values/readback remain valid.
 13. Fault-inject stale status/evidence independently: stop reporting Output state, protection source (`protection_code` or both legacy OVP/OCP sensors), and regulation source (`regulation_code` or both legacy CV/CC sensors). Verify each becomes fail-closed instead of allowing stale ON/OFF, stale normal-protection or stale CV/CC evidence to continue driving runtime/FSM decisions.
+14. Force/fake a bulk `/api/states` failure while individual `/api/states/<entity>` remains available. Verify fallback preserves `last_reported`, returns a coherent snapshot in one concurrent request batch, and does not create a false stale shutdown solely because the value has not changed.
+15. With Output OFF and measured V_OUT stable at 0V long enough to have an old value-change timestamp, verify a new safe preflight remains possible. Then energize a dummy-load session and stop V_OUT reporting; energized stale/missing V_OUT must force verified OFF.
+16. Verify a new start after hours of idle setpoints is permitted to enter the programming transaction, but suppress/hold back HA observation of one just-written V/I/OVP/OCP value and prove Output ON is denied until fresh programmed readback is observed.
+17. Remove/corrupt `_meta` at the V2 adapter boundary in a controlled test while a managed dummy-load output is ON; verify production runtime fails closed instead of continuing from numeric values alone.
 
 Required state before merge: **BENCH-PASS**.
 
