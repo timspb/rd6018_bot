@@ -138,7 +138,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED / IMPLEMENTED.** Diagnostic observes/concludes/stops without creating new Recovery/Mix.
 
 ## D045 — Recovery/Conditioning describe operator purpose, not bypass permission
-**ACCEPTED / IMPLEMENTED FOUNDATION.** They remain inside deterministic evidence, recipe and safety authority. Expert EFB 17.2–17.5 is separate Q011.
+**ACCEPTED / IMPLEMENTED FOUNDATION.** They remain inside deterministic evidence, recipe and safety authority. No generic chemistry expert extension is implied; EFB >16.5 V is specifically rejected by D054.
 
 ## D046 — AGM recovery budget is four/session and exhaustion does not force Mix
 **ACCEPTED / IMPLEMENTED.** Fifth confirmed plateau remains Main; normal tail or conservative 72h rule owns subsequent transition.
@@ -150,7 +150,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED / IMPLEMENTED.** UI/status uses Normal full-auto, Diagnostic no-auto-HV and Mix fallback 20/24/10; rollback constants must not leak into operator contract.
 
 ## D049 — Auto Mix is first-class direct-entry automatic program
-**ACCEPTED / IMPLEMENTED.** Session starts directly in `STAGE_MIX`; PREP/Main/intermediate recovery are never entered. `Vbat <12.0V` rejects start. Standard targets: Ca/EFB 16.5V, AGM 16.3V, ~0.03C; standard Delta/sticky2h/fallback/SAFE_WAIT/Storage and all safety/readback/diagnostic HV vetoes apply. Expert EFB HV is not implicitly authorized.
+**ACCEPTED / IMPLEMENTED.** Session starts directly in `STAGE_MIX`; PREP/Main/intermediate recovery are never entered. `Vbat <12.0V` rejects start. Standard targets: Ca/EFB 16.5V, AGM 16.3V, ~0.03C; standard Delta/sticky2h/fallback/SAFE_WAIT/Storage and all safety/readback/diagnostic HV vetoes apply. EFB has no implicit >16.5V expert extension.
 
 ## D050 — AUTO Manual-OFF is asynchronous terminal kill-condition only
 **ACCEPTED / IMPLEMENTED.** Merely arming persistent OFF does not suppress/alter PREP/Main/Recovery/Mix/72h/normal completion. If condition fires: terminal Output OFF + session stop + condition clear; do not enter Storage afterwards. Production AUTO strips legacy `manual_off_active=True` from chemistry tick while independent evaluator remains until legacy side-channel removal.
@@ -163,6 +163,9 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 
 ## D053 — SG access, hydrometer and temperature correction are explicit metadata
 **ACCEPTED / IMPLEMENTED.** Electrolyte access is stored per physical battery as `UNKNOWN/SERVICEABLE/INACCESSIBLE`; chemistry alone never grants access. AGM is never prompted for SG. EFB/Ca/Flooded require explicit `SERVICEABLE` before SG is accepted or proactively requested. Hydrometer mode and correction profile belong to each measurement. Raw SG remains primary durable evidence. A temperature-compensated hydrometer is never corrected twice. Named Trojan-80F or Rolls-25C software conventions require an explicitly declared raw hydrometer and electrolyte temperature and are never inferred from manufacturer/model text. Routine charges do not nag for SG; proactive prompts are limited to SG-relevant `VERIFY+` diagnostics or post-corrective retest of a prior imbalance. Missing/inaccessible SG never increases fault confidence. Detailed source/policy: `SG_POLICY_V2.md`.
+
+## D054 — generic EFB automatic/conditioning voltage ceiling is 16.5 V; 17.5 V is not an EFB entitlement
+**ACCEPTED / IMPLEMENTED.** Research found manufacturer/charger-backed EFB regeneration guidance at 16.5 V, but no generic EFB manufacturer-backed automatic/conditioning recipe at 17.2–17.5 V. Therefore EFB `normal/recovery/expert` chemistry envelope is capped at 16.5 V. Supplying `expert_high_voltage=True` does not enlarge the EFB envelope and does not set `expert_authorized`. The global 17.5 V outer limit remains available to first-class Manual/Custom operator authority under immutable safety. A future automatic EFB recipe above 16.5 V may exist only as an explicit model-specific manufacturer-backed profile with its own tested envelope; it must not be inferred from chemistry alone.
 
 ## Current implementation checkpoints
 
@@ -178,6 +181,8 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `dd7e3af...` + `c3a4957...` + `3ebf6a5...`: diagnostic action journal, startup recovery and tests.
 - `0bcec05...` + `6981f1b...` + `00d877e...`: Manual optional physical-battery identity and interrupted-request reauthorization UX/tests.
 - `a8d7261...` + `225531e...` + `15d0e4d...`: explicit SG access, measurement correction metadata, prompt policy and tests.
+- `d17af0f...` + `1a3bf7d...` + `8a0ac7b...`: bank-fault labeled-case calibration harness and CLI.
+- `74e5ed9...` + `2218a06...`: generic EFB expert envelope >16.5V removed and regression-tested.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
