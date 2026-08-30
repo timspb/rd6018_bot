@@ -51,12 +51,14 @@ Production V2 deliberately distinguishes:
 - generic EFB AUTO/Recovery/Conditioning chemistry ceiling is 16.5 V; 17.5 V is Manual/Custom outer authority, not an EFB entitlement;
 - generic Pb automatic HV current authorization is no broader than the implemented ~0.03C Mix maximum; Manual/Custom current authority is separate;
 - SAFE_WAIT is Output OFF even across Cooling; incomplete Cooling continuation metadata never defaults to Main;
-- Vin is PSU-health telemetry only, including production legacy-start/restore composition paths.
+- Vin is PSU-health telemetry only, including production legacy-start/restore composition paths;
+- managed runtime authority rejects stale/incoherent dynamic battery/output telemetry: HA `last_reported` is the preferred heartbeat, `last_updated` is compatibility fallback, while static Vset/Iset/OVP/OCP timestamps are never mistaken for liveness clocks.
 
 ## Current implementation landmarks
 
 For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D054 plus the implementation closures recorded by the 2026-08-30 safety audit. Recent implementation groups include:
 - corrected RD telemetry/readback and safety envelope;
+- continuous runtime freshness for Vbat/I/T and energized V_OUT, using HA `last_reported` where available;
 - measured V_OUT/current runtime limits and raw OPP/unknown protection fail-close;
 - Cooling/session-recovery/Mix timing normalization, including SAFE_WAIT OFF preservation and durable restore validation;
 - hypothesis/SG/dynamic-loop evidence;
@@ -73,7 +75,8 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 
 Unit CI proves software contracts only. Before merge, follow `V2_VALIDATION_PLAN.md` for:
 - exact ESPHome compile/flash;
-- RD telemetry/readback bench smoke;
+- RD telemetry/readback bench smoke, including HA source-heartbeat behavior for unchanged values;
+- runtime stale-telemetry fail-close and static-readback no-false-positive checks;
 - safe-enable/verified-OFF/edge-lease fault injection;
 - interrupted diagnostic-probe restart test;
 - interrupted Manual restart/reauthorization test;
