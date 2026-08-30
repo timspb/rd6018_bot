@@ -2,111 +2,83 @@
 
 > Only unresolved strategy/product questions live here. Resolved behavior belongs in `V2_DECISION_LOG.md`.
 
-Q001, Q003, Q006, Q007, Q008 and Q009 are intentionally retired: initial PREP handling, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72 h Main fallback and AGM recovery policy are now accepted/implemented decisions.
-
-## Q002 — Manual battery identity and interrupted-session re-authorization UX
-Core Manual authority and input migration are implemented:
-- operator V/I;
-- derived, non-overridable OVP/OCP;
-- absolute 17.5V / 12A envelope;
-- arbitrary combinations of timer/V>=/V<=/V=/I>=/I<=/I=/delta stop conditions;
-- no chemistry transitions;
-- Cooling pause/resume;
-- no silent Output re-enable after restart;
-- native V2 Manual entry/help;
-- old direct `V I` / `V I third-condition` commands are intercepted before the legacy handler and become managed Manual sessions;
-- active Manual reconfiguration uses verified OFF -> fresh safe-enable rather than live unverified setpoint writes.
-
-Still open:
-- bind an optional saved battery identity for longitudinal history without granting chemistry authority;
-- define the operator review/re-authorization UX for a persisted `INTERRUPTED` Manual request.
+Q001, Q002, Q003, Q006, Q007, Q008, Q009 and Q010 are intentionally retired: initial PREP handling, Manual identity/re-authorization, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72h Main fallback, AGM recovery policy and diagnostic restart persistence now have accepted/implemented contracts.
 
 ## Q004 — Cell-fault/HV-block calibration and false-positive strategy
-Architecture and an initial deterministic rule are implemented: ordinary heuristic risk or first SG imbalance does not veto corrective HV; automatic HV is denied only for strong cell-fault evidence, including explicit external confirmation or high-confidence multi-signal evidence with independent confirmation classes. Diagnostic inference itself cannot create a hard safety stop.
+Architecture and a conservative deterministic rule exist: ordinary heuristic risk or first SG imbalance does not veto corrective HV; automatic HV is denied only for strong cell-fault evidence, including explicit external confirmation or high-confidence multi-signal evidence with independent confirmation classes. Diagnostic inference itself cannot create a hard safety stop.
 
-Still validate/calibrate the thresholds against real stored traces and bench observations, especially combinations of:
-- post-charge/rest total OCV while the battery is known full and isolated;
+Still validate/calibrate against real traces and bench observations, especially:
+- post-charge/rest total OCV when battery is known full and isolated;
 - repeatable abnormal relaxation/self-discharge;
 - persistent cell-level SG imbalance after corrective equalization/retest;
 - abnormal thermal response;
 - repeated recovery non-response;
-- controlled dynamic-loop response trend under unchanged connection;
+- controlled dynamic-loop trend under unchanged connection;
 - external conductance/load/CCA evidence when available.
 
-The calibration must continue to distinguish “equalization may help” from “additional HV may be unsafe”.
+Calibration must keep distinguishing “equalization may help” from “additional HV may be unsafe”.
 
 ## Q005 — Controlled diagnostic-probe execution parameters
-Principle and fail-closed executor are implemented: a probe may only reduce/equal energy, samples median U/I, restores the exact prior current transactionally, and forces Output OFF if restoration cannot be proven. `ΔV/ΔI` remains a two-wire dynamic-loop response, not battery Ri.
+Principle, fail-closed executor and restart journal exist. A probe may only reduce/equal energy, samples median U/I, restores exact prior current transactionally, and forces Output OFF if restoration cannot be proven. `ΔV/ΔI` remains a two-wire dynamic-loop response, not battery Ri. A crash never resumes a probe mid-step.
 
 Still define before automatic triggering:
 - stages where automatic probe is allowed;
 - step amplitude relative to current/C-rate;
-- baseline and response windows;
+- baseline/response windows;
 - minimum telemetry freshness/sample cadence;
 - thermal/headroom conditions;
 - abort conditions;
 - connection identity lifecycle;
-- how much change across repeated probes is meaningful given RD6018 resolution/noise.
-
-## Q010 — Persistence matrix for diagnostic sub-states
-Manual restart behavior is resolved: active Manual restores `INTERRUPTED`, never auto-ON. Exact-reach compatibility conditions are persisted with the Manual request.
-
-Still define persistence/restore for:
-- diagnostic probe in progress (likely abort + mark invalid rather than resume mid-probe);
-- pending operator confirmation;
-- HV block / fault-verification state;
-- expert-HV authorization;
-- optional post-heavy-recovery observation-window metadata/checkpoints (D037 says this can never become a time-based charge lockout).
-
-For each: persist? expire? restore automatically? require fresh telemetry/operator confirmation?
+- meaningful repeated-probe change given RD6018 resolution/noise.
 
 ## Q011 — Expert EFB 17.2–17.5 V workflow
-17.5V exists as the absolute controller/manual ceiling, not a standard recipe. Before expert EFB HV becomes selectable define prerequisites/evidence, confirmation UX, current/time/thermal limits, exclusions, watchdog/readback requirements and audit label.
+17.5V is absolute controller/manual ceiling, not standard recipe. Before expert EFB HV becomes selectable define prerequisites/evidence, confirmation UX, current/time/thermal limits, exclusions, watchdog/readback requirements, audit label and authorization expiry. Per D051, any expert authorization must be revoked by process restart.
 
 ## Q012 — Specific-gravity correction/prompt policy
-Foundation and Telegram entry are implemented:
+Foundation and Telegram entry exist:
 - saved physical battery selection;
 - six positional cell slots;
-- missing cell explicitly `None`;
+- missing cell explicit `None`;
 - raw SG retained;
 - timestamp, measurement temperature, context/source/notes stored;
-- full spread >=0.030 means imbalance/stratification evidence, not confirmed failed cell and not an automatic equalization veto.
+- full spread >=0.030 means imbalance/stratification evidence, not confirmed failed cell and not automatic equalization veto.
 
 Still define:
 - manufacturer/hydrometer-specific temperature correction policy;
-- which charge/diagnostic points should proactively ask the operator for SG;
-- how applicability metadata should distinguish flooded batteries from EFB designs with inaccessible cells.
+- which charge/diagnostic points proactively request SG;
+- applicability metadata for flooded vs inaccessible-cell EFB designs.
 
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
-The hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and a conservative automatic-HV veto boundary. Thresholds/confidence still need validation against stored traces rather than cosmetic tuning.
+Hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and conservative automatic-HV veto boundary. Scores/confidence still need validation against real stored traces rather than cosmetic tuning.
 
 ## Q014 — RD6018 dynamic-loop/relay-path calibration
 Need on-device characterization of:
 - `V_OUT` vs `V_BAT` offset/resolution under battery-mode relay load;
 - repeatability of controlled `ΔI -> ΔV_BAT` response;
 - effect of cable/clip reconnection;
-- practical sample interval via current ESPHome/Modbus path;
-- whether relay-path trend has enough signal above ADC quantization to keep as a health metric.
+- practical sample interval through current ESPHome/Modbus path;
+- whether relay-path trend has enough signal above ADC quantization to retain as health metric.
 
 ## Q015 — Final main-merge compatibility plan
 Before merging V2 to `main`, verify traceably:
-- atomic auto start: `<12.0V -> PREP`, `>=12.0V -> MAIN`;
+- atomic AUTO start: `<12.0V -> PREP`, `>=12.0V -> MAIN`;
 - Normal full automatic recovery/Mix behavior;
 - Diagnostic no-automatic-HV behavior;
-- Ca/EFB three-attempt session recovery budget and 72h fallback;
-- AGM four-attempt session recovery budget, staged Main and conservative 72h behavior;
+- Auto Mix direct entry;
+- Ca/EFB three-attempt session recovery budget + 72h fallback;
+- AGM four-attempt budget, staged Main and conservative 72h behavior;
 - Mix 20/24/10 and sticky finish hold;
 - SAFE_WAIT;
 - Done/Storage Output ON;
-- Manual native UI, direct-command migration and interrupted-session UX;
+- Manual native UI, quick-command migration, optional battery identity and interrupted re-authorization;
 - Manual stop conditions;
-- AUTO Manual-OFF as terminal asynchronous kill-condition only, without suppressing chemistry decisions;
-- post-heavy-recovery 24–48h rest as recommendation/diagnostic window only, never a time-based lockout;
+- AUTO Manual-OFF as terminal asynchronous kill-condition only;
 - Cooling;
-- restart/restore;
+- restart/restore including diagnostic action journal;
 - link loss / edge lease / fast HV watchdog;
 - RD readback/protection decode;
 - Bank Fault/SG diagnostics;
-- Telegram dashboard/operator messages.
+- Telegram dashboard/operator messages;
+- exact ESPHome node compile/flash and physical RD6018 smoke/bench tests.
 
 Intentional incompatibilities must be recorded in `V2_DECISION_LOG.md`, not discovered after deployment.
