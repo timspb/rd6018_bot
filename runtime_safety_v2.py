@@ -23,17 +23,15 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     17.5 V envelope rather than the legacy 16.6 V profile ceiling.
     """
 
-    # These are continuously sampled physical channels. Their source timestamps are
-    # suitable for stale-data detection. Static configuration/readback entities such as
-    # OVP/OCP/Vset/Iset are still validated every poll, but their HA timestamps are not
-    # used as heartbeats because an unchanged setpoint may legitimately remain unchanged
-    # for hours. The local edge lease independently proves fresh RD6018 Modbus + Output
-    # register access in production.
+    # Continuously sampled physical channels. Static Vset/Iset/OVP/OCP values are still
+    # read and validated every poll but their timestamps are not liveness clocks because
+    # a correct setpoint can remain unchanged for hours.
     RUNTIME_FRESHNESS_KEYS = (
         "battery_voltage",
         "current",
         "temp_ext",
         "temp_int",
+        "switch",
     )
 
     def __init__(self, app: Any) -> None:
@@ -41,12 +39,13 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         self._install_last_reported_metadata_bridge()
 
     def _install_last_reported_metadata_bridge(self) -> None:
-        """Preserve HA's heartbeat timestamp without changing the legacy adapter.
+        """Preserve HA's heartbeat timestamp without changing V1 adapter semantics.
 
         Home Assistant exposes ``last_reported`` even when an entity's value did not
         change. Legacy HassClient predates that field and only copies ``last_updated``.
-        Patch its metadata formatter at the V2 boundary so flat battery temperature or
-        current does not look stale merely because the numeric value stayed identical.
+        Patch its metadata formatter at the V2 boundary so flat temperature/current,
+        switch and protection values do not look stale merely because their value stayed
+        identical.
         """
         if getattr(self.hass, "_v2_last_reported_metadata_bridge", False):
             return
@@ -147,6 +146,15 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         keys = list(self.RUNTIME_FRESHNESS_KEYS)
         if output_state is True:
             keys.append("voltage")
+
+        # Protection is dynamic safety state even when its normal value remains zero.
+        # Prefer raw register 16 when deployed; otherwise age-gate both legacy OVP/OCP
+        # views. `last_reported` prevents a stable NORMAL value from looking stale.
+        if live.get("protection_code") not in (None, "", "unknown", "unavailable"):
+            keys.append("protection_code")
+        else:
+            keys.extend(("ovp_triggered", "ocp_triggered"))
+
         freshness = telemetry_freshness(live, keys)
         if freshness.valid:
             return None
