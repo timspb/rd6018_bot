@@ -216,7 +216,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"set current {set_i:.3f}A exceeds runtime envelope"
         if actual_i > self.policy.absolute_current_ceiling_a + self.READBACK_TOLERANCE:
             return f"measured current {actual_i:.3f}A exceeds absolute working-current envelope"
-        if actual_i > ocp + self.policy.protection_readback_tolerance:
+        if actual_i > ocp + self.READBACK_TOLERANCE:
             return f"measured current {actual_i:.3f}A exceeds configured OCP {ocp:.3f}A"
         if ovp > self.policy.absolute_ovp_ceiling_v + self.READBACK_TOLERANCE:
             return f"OVP {ovp:.3f}V exceeds absolute protection ceiling"
