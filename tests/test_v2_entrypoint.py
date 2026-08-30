@@ -44,6 +44,12 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("charge_modes", dashboard_callbacks)
         self.assertNotIn("power_toggle", dashboard_callbacks)
 
+    def test_charge_mode_copy_matches_normal_full_auto_contract(self):
+        text = bot._charge_modes_text()
+        self.assertIn("Normal — полный штатный AUTO", text)
+        self.assertIn("Recovery/Mix", text)
+        self.assertNotIn("Normal — без автоматического HV/Mix", text)
+
     def test_active_dashboard_keeps_hard_stop_callback(self):
         dashboard = bot._build_dashboard_keyboard(True, 1)
         callbacks = {
