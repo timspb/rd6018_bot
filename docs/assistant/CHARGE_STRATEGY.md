@@ -239,7 +239,40 @@ Elapsed rest time сам по себе никогда не запрещает No
 V1 one-score `bank_fault` = evidence, not proof. V2 separates cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality and charger/path fault.
 
 ### SG
-Store six positional cells, raw SG, temperature, timestamp/context/source/notes. First complete spread >=0.030 = imbalance/stratification evidence, не short-cell proof и не automatic equalization veto.
+Raw per-cell SG is primary external evidence. Store six positional cells, raw SG, temperature, timestamp/context/source/notes. First complete spread >=0.030 = imbalance/stratification evidence, не short-cell proof и не automatic equalization veto.
+
+Physical access is explicit per battery:
+
+```text
+SGAccess.UNKNOWN       -> SG не принимаем/не просим автоматически
+SGAccess.SERVICEABLE   -> SG разрешён
+SGAccess.INACCESSIBLE  -> SG не просим; отсутствие SG не fault evidence
+```
+
+- AGM: SG никогда не запрашивается.
+- EFB/Ca/Flooded: chemistry сама по себе не означает доступ к электролиту; нужен explicit `SERVICEABLE` именно для этой физической АКБ.
+
+Hydrometer/correction metadata belongs to each measurement:
+
+```text
+hydrometer=unknown -> raw only
+hydrometer=raw     -> raw primary; optional explicit manufacturer profile
+hydrometer=tc      -> instrument already compensated; NEVER software-correct again
+```
+
+Named software profiles currently supported only by explicit operator selection:
+- `trojan80`: Trojan convention around 80 F, +/-0.004 per 10 F;
+- `rolls25`: Rolls flooded-manual convention around 25 C, +/-0.003 per 5 C.
+
+Manufacturer/model text never auto-selects a profile. Named profile requires `hydrometer=raw` + electrolyte `t=...`. Detailed source/policy: `SG_POLICY_V2.md`.
+
+Proactive SG prompt is deliberately sparse:
+- no routine prompt on every charge;
+- `DIAGNOSTIC_VERIFY` or stronger only for SG-relevant hypotheses (`cell_fault`, `stratification`, `sulfation`) and only with confirmed `SERVICEABLE` access;
+- `POST_CORRECTIVE_RETEST` when earlier SG actually showed imbalance and a manufacturer-appropriate corrective cycle was performed;
+- unsafe/inaccessible/unavailable measurement -> no prompt and no confidence penalty.
+
+Q013 still owns calibration of when the hypothesis engine reaches VERIFY/PROBABLE/HIGH; D053 owns SG eligibility once it does.
 
 ### Dynamic loop
 RD displayed `V/I` is not battery Ri. Controlled current reduction may produce `dynamic_loop = ΔV_BAT/ΔI`, but two-wire black+green path includes battery+cables+contacts+internal path+polarization. Compare longitudinally only with explicit unchanged connection identity.
@@ -277,4 +310,6 @@ Preserve `higher-energy state -> shorter allowed blind-operation interval`. Read
 - Post-heavy-recovery rest — recommendation/diagnostic window, не time-based lockout.
 - Manual battery identity — history metadata, не chemistry authority.
 - Diagnostic action after restart never auto-resumes authority-bearing work.
+- SG access is physical-battery metadata; chemistry alone never grants electrolyte access.
+- Never double-correct `hydrometer=tc`; manufacturer correction is explicit, never inferred.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
