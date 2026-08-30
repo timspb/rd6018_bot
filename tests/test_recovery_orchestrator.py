@@ -19,12 +19,14 @@ class FakeOutput:
 
 
 class FakeRuntime:
-    def __init__(self, start_error=None):
+    def __init__(self, start_error=None, complete_error=None):
         self.active = False
         self.started = []
         self.start_error = start_error
+        self.complete_error = complete_error
         self.observations = []
         self.aborted = False
+        self.completed = []
 
     async def start(self, **kwargs):
         if self.start_error:
@@ -37,6 +39,9 @@ class FakeRuntime:
         return kwargs
 
     async def complete(self, **kwargs):
+        if self.complete_error:
+            raise self.complete_error
+        self.completed.append(kwargs)
         self.active = False
         return kwargs
 
@@ -139,7 +144,6 @@ class RecoveryOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runtime.active)
         output.turn_off.assert_awaited_once()
 
-        # An uncertain previously enabled output may never be followed by another start.
         second = await self._start(orchestrator)
         self.assertFalse(second.started)
         self.assertIn("containment", second.reason)
@@ -156,6 +160,58 @@ class RecoveryOrchestratorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(orchestrator.containment_active)
         self.assertFalse(runtime.active)
+
+    async def test_complete_requires_confirmed_off_before_runtime_completion(self):
+        output, runtime = FakeOutput(), FakeRuntime()
+        orchestrator = RecoveryOrchestrator(output, runtime=runtime)
+        self.assertTrue((await self._start(orchestrator)).started)
+
+        evidence = await orchestrator.complete(completed_at=456, outcome="done")
+
+        output.turn_off.assert_awaited_once()
+        self.assertEqual(evidence["completed_at"], 456)
+        self.assertEqual(len(runtime.completed), 1)
+        self.assertFalse(runtime.active)
+        self.assertFalse(orchestrator.containment_active)
+
+    async def test_complete_unconfirmed_off_keeps_runtime_and_authorization_active(self):
+        output, runtime = FakeOutput(), FakeRuntime()
+        orchestrator = RecoveryOrchestrator(output, runtime=runtime)
+        self.assertTrue((await self._start(orchestrator)).started)
+        output.turn_off.return_value = False
+
+        with self.assertRaisesRegex(RecoveryOutputOffUnconfirmed, "OFF was not confirmed"):
+            await orchestrator.complete(completed_at=456, outcome="done")
+
+        self.assertEqual(runtime.completed, [])
+        self.assertTrue(runtime.active)
+        self.assertTrue(orchestrator.containment_active)
+
+    async def test_complete_off_exception_keeps_runtime_and_authorization_active(self):
+        output, runtime = FakeOutput(), FakeRuntime()
+        orchestrator = RecoveryOrchestrator(output, runtime=runtime)
+        self.assertTrue((await self._start(orchestrator)).started)
+        output.turn_off.side_effect = RuntimeError("link down")
+
+        with self.assertRaisesRegex(RecoveryOutputOffUnconfirmed, "link down"):
+            await orchestrator.complete(completed_at=456, outcome="done")
+
+        self.assertEqual(runtime.completed, [])
+        self.assertTrue(runtime.active)
+        self.assertTrue(orchestrator.containment_active)
+
+    async def test_complete_persistence_failure_keeps_containment_even_after_off(self):
+        output = FakeOutput()
+        runtime = FakeRuntime(complete_error=RuntimeError("persist failed"))
+        orchestrator = RecoveryOrchestrator(output, runtime=runtime)
+        self.assertTrue((await self._start(orchestrator)).started)
+
+        with self.assertRaisesRegex(RuntimeError, "persist failed"):
+            await orchestrator.complete(completed_at=456, outcome="done")
+
+        output.turn_off.assert_awaited_once()
+        self.assertTrue(runtime.active)
+        self.assertTrue(orchestrator.containment_active)
 
     async def test_abort_clears_software_authority_only_after_confirmed_off(self):
         output, runtime = FakeOutput(), FakeRuntime()
@@ -198,17 +254,18 @@ class RecoveryOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(runtime.active)
         self.assertTrue(orchestrator.containment_active)
 
-    async def test_abort_without_output_command_is_explicit_software_only_retire(self):
+    async def test_abort_cannot_bypass_physical_off_confirmation(self):
         output, runtime = FakeOutput(), FakeRuntime()
         orchestrator = RecoveryOrchestrator(output, runtime=runtime)
-        result = await self._start(orchestrator)
-        self.assertTrue(result.started)
+        self.assertTrue((await self._start(orchestrator)).started)
 
-        await orchestrator.abort(turn_output_off=False)
+        with self.assertRaisesRegex(ValueError, "verified Output OFF"):
+            await orchestrator.abort(turn_output_off=False)
 
         output.turn_off.assert_not_awaited()
-        self.assertTrue(runtime.aborted)
-        self.assertFalse(orchestrator.containment_active)
+        self.assertFalse(runtime.aborted)
+        self.assertTrue(runtime.active)
+        self.assertTrue(orchestrator.containment_active)
 
     async def test_hardware_rejection_prevents_runtime_start(self):
         output, runtime = FakeOutput(enabled=False), FakeRuntime()
