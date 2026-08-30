@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from runtime_safety import RuntimeSafetyError
+from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
 from runtime_safety_v2 import V2RuntimeSafetyGuard
 
 
@@ -11,6 +11,8 @@ class DummyHass:
         self.live = dict(live)
         self.base_url = ""
         self.turn_off_calls = 0
+        self.off_confirms = True
+        self.off_raises = False
 
     @staticmethod
     def _entity_metadata(entity_id, data, status):
@@ -29,6 +31,10 @@ class DummyHass:
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
+        if self.off_raises:
+            raise RuntimeError("synthetic OFF failure")
+        if not self.off_confirms:
+            return False
         self.live["switch"] = "off"
         return True
 
@@ -294,6 +300,46 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeSafetyError, "metadata missing for temp_int"):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_off_unconfirmed_retries_shutdown_even_after_controller_retired(self):
+        controller = DummyController()
+        controller.is_active = False
+        live = self._with_freshness(self._live())
+        app = self._app(live, controller=controller)
+        app.hass.off_confirms = False
+        guard = self._guard(app)
+        guard._off_unconfirmed = True
+
+        with self.assertRaisesRegex(OutputOffNotConfirmed, "OFF"):
+            await guard.get_all_live()
+
+        self.assertTrue(guard._off_unconfirmed)
+        self.assertEqual(app.hass.live["switch"], "on")
+        self.assertEqual(app.hass.turn_off_calls, 1)
+        self.assertIsNone(guard._orphan_output_seen_at)
+
+        app.hass.off_confirms = True
+        observed = await guard.get_all_live()
+        self.assertEqual(observed["switch"], "off")
+        self.assertFalse(guard._off_unconfirmed)
+        self.assertEqual(app.hass.turn_off_calls, 2)
+        self.assertIsNone(guard._orphan_output_seen_at)
+
+    async def test_off_unconfirmed_with_unknown_switch_still_attempts_shutdown(self):
+        controller = DummyController()
+        controller.is_active = False
+        live = self._with_freshness(self._live())
+        live["switch"] = "unknown"
+        app = self._app(live, controller=controller)
+        app.hass.off_confirms = False
+        guard = self._guard(app)
+        guard._off_unconfirmed = True
+
+        with self.assertRaises(OutputOffNotConfirmed):
+            await guard.get_all_live()
+
+        self.assertEqual(app.hass.turn_off_calls, 1)
+        self.assertTrue(guard._off_unconfirmed)
 
     def test_v2_metadata_bridge_preserves_home_assistant_last_reported(self):
         app = self._app(self._live())
