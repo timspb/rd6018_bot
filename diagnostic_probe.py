@@ -230,9 +230,26 @@ class ControlledCurrentProbe:
                 notes=notes,
             )
             return ProbeResult(True, probe=probe)
-        except Exception as exc:
+        except BaseException as exc:
+            # asyncio.CancelledError is a BaseException. Cancellation after the current
+            # step is still an actuator transition and must not strand RD6018 at the
+            # diagnostic setpoint. Perform the same restore-or-OFF cleanup before the
+            # cancellation escapes to the task owner.
+            restored = False
+            off_confirmed = False
             if stepped:
-                restored, off_confirmed = await self._restore_or_off(original_current, plan)
+                try:
+                    restored, off_confirmed = await asyncio.shield(
+                        self._restore_or_off(original_current, plan)
+                    )
+                except BaseException:
+                    restored = False
+                    off_confirmed = False
+
+            if not isinstance(exc, Exception):
+                raise
+
+            if stepped:
                 return ProbeResult(
                     False,
                     reason=(
