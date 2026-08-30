@@ -86,7 +86,29 @@ Key design boundaries:
 - Rich Messages may become the preferred renderer only after real client compatibility testing; classic HTML/InlineKeyboard remains fallback;
 - renderers never own actuator sequencing or authority.
 
-The storyboard must be reviewed before implementing the new presentation layer.
+The storyboard is a **review gate, not implementation**. Do not start the new renderer until the critical operator path has been reviewed explicitly:
+
+```text
+IDLE
+-> choose battery/program
+-> preview
+-> STARTING
+-> MAIN/MIX
+-> normal Stop
+-> STOPPING
+-> OFF confirmed / containment
+```
+
+Then review abnormal and service paths separately:
+
+```text
+Cooling / trip / stale telemetry / OFF-unconfirmed
+Manual / interrupted Manual
+Auto Mix
+Diagnostic / SG / battery registry
+```
+
+Current code may receive narrowly scoped wording corrections when it contradicts an already accepted V2 strategy contract; that does not mean the storyboard has been implemented.
 
 ## Validation boundary
 
