@@ -8,6 +8,7 @@ from safe_output import SafetyViolation
 def live_state(**overrides):
     base = {
         "battery_voltage": 12.4,
+        "voltage": 0.0,
         "current": 0.0,
         "temp_ext": 25.0,
         "temp_int": 32.0,
@@ -50,8 +51,13 @@ class FakeHassClient(HassClient):
         self.service_calls.append(service)
         if service == "turn_on":
             self.live["switch"] = "on"
+            # The RD output-voltage sensor follows the programmed setpoint in this
+            # synthetic happy path. Post-enable safety intentionally requires this
+            # measured channel instead of treating Vset as physical proof.
+            self.live["voltage"] = float(self.live["set_voltage"])
         elif service == "turn_off":
             self.live["switch"] = "off"
+            self.live["voltage"] = 0.0
         return True
 
 

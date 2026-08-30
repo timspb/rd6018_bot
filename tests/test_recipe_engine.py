@@ -58,15 +58,28 @@ class RecipeEngineTests(unittest.TestCase):
         self.assertIn("no generic expert extension", expert_flagged.rationale.lower())
         self.assertFalse(expert_flagged.allows_voltage(17.2))
 
+    def test_generic_pb_hv_current_envelope_matches_max_implemented_mix_rate(self):
+        for chemistry in (
+            BatteryChemistry.AGM,
+            BatteryChemistry.EFB,
+            BatteryChemistry.CA_CA,
+            BatteryChemistry.FLOODED,
+        ):
+            env = select_recipe_envelope(
+                context(chemistry, ChargeIntent.CONDITIONING, capacity=100),
+                expert_high_voltage=True,
+            )
+            self.assertAlmostEqual(env.hv_current_limit_a, 3.0)
+
     def test_current_limits_are_capacity_relative_and_hardware_capped(self):
         efb = select_recipe_envelope(
             context(BatteryChemistry.EFB, ChargeIntent.CONDITIONING, capacity=100),
             expert_high_voltage=True,
         )
         self.assertAlmostEqual(efb.main_current_limit_a, 10.0)
-        self.assertAlmostEqual(efb.hv_current_limit_a, 5.0)
+        self.assertAlmostEqual(efb.hv_current_limit_a, 3.0)
         huge = select_recipe_envelope(
-            context(BatteryChemistry.EFB, ChargeIntent.CONDITIONING, capacity=300),
+            context(BatteryChemistry.EFB, ChargeIntent.CONDITIONING, capacity=500),
             expert_high_voltage=True,
         )
         self.assertEqual(huge.main_current_limit_a, 12.0)

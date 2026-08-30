@@ -15,6 +15,7 @@ Do **not** reconstruct behavior from chat history when these documents answer th
 
 Supporting proof/calibration documents:
 - `V2_VALIDATION_PLAN.md` — Draft -> physically validated pre-merge gate plan;
+- `V2_SAFETY_AUDIT_2026-08-30.md` — second whole-runtime safety review and closed implementation defects;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
@@ -47,13 +48,17 @@ Production V2 deliberately distinguishes:
 - diagnostic in-flight actions never auto-resume after restart; derived authority is recomputed from evidence;
 - SG access is explicit per physical battery; AGM never SG; EFB/Ca/Flooded chemistry alone never grants access;
 - manufacturer SG correction is explicit and never inferred; a temperature-compensated hydrometer is never corrected twice;
-- generic EFB AUTO/Recovery/Conditioning chemistry ceiling is 16.5 V; 17.5 V is Manual/Custom outer authority, not an EFB entitlement.
+- generic EFB AUTO/Recovery/Conditioning chemistry ceiling is 16.5 V; 17.5 V is Manual/Custom outer authority, not an EFB entitlement;
+- generic Pb automatic HV current authorization is no broader than the implemented ~0.03C Mix maximum; Manual/Custom current authority is separate;
+- SAFE_WAIT is Output OFF even across Cooling; incomplete Cooling continuation metadata never defaults to Main;
+- Vin is PSU-health telemetry only, including production legacy-start/restore composition paths.
 
 ## Current implementation landmarks
 
-For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D054. Recent implementation groups include:
+For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D054 plus the implementation closures recorded by the 2026-08-30 safety audit. Recent implementation groups include:
 - corrected RD telemetry/readback and safety envelope;
-- Cooling/session-recovery/Mix timing normalization;
+- measured V_OUT/current runtime limits and raw OPP/unknown protection fail-close;
+- Cooling/session-recovery/Mix timing normalization, including SAFE_WAIT OFF preservation and durable restore validation;
 - hypothesis/SG/dynamic-loop evidence;
 - unified Manual authority and quick-command migration;
 - AUTO semantics + Auto Mix + AUTO Manual-OFF;
@@ -81,9 +86,10 @@ Q011 and Q012 are no longer open gates: their production contracts are D054 and 
 ## Maintenance
 
 Whenever behavior changes:
-1. add/update a numbered decision;
+1. add/update a numbered decision when strategy authority changes;
 2. remove resolved items from `V2_OPEN_QUESTIONS.md`;
 3. update `CHARGE_STRATEGY.md` when operator-visible strategy changes;
 4. add deterministic tests;
 5. keep `V2_VALIDATION_PLAN.md` aligned with new physical proof obligations;
-6. keep PR description aligned with actual production branch.
+6. record implementation-only safety closures in a dated audit note when they do not redefine strategy;
+7. keep PR description aligned with actual production branch.

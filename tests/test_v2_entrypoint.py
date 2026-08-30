@@ -13,6 +13,12 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertEqual(bot.__name__, "bot_legacy")
         self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
 
+    def test_production_guardrails_are_installed_after_controller_composition(self):
+        self.assertTrue(bot._v2_production_guardrails_installed)
+        self.assertTrue(bot._v2_vin_psu_health_only)
+        self.assertEqual(bot.MIN_INPUT_VOLTAGE, float("-inf"))
+        self.assertTrue(bot.charge_controller._v2_production_cooling_guard_installed)
+
     def test_v2_dashboard_and_mode_adapters_are_installed(self):
         keyboard = bot._build_charge_modes_keyboard()
         callbacks = {

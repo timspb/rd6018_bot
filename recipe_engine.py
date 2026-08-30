@@ -31,15 +31,19 @@ class RecipeEnvelope:
         return float(target_v) <= self.voltage_ceiling_v + 1e-9
 
 
+# Generic Pb HV stages implemented by this controller never request more than 0.03C:
+# intermediate Recovery/Desulfation is ~0.02C and final Mix is ~0.03C. The envelope is
+# an authorization maximum, not speculative headroom, so it must not silently permit
+# a future generic 0.05C HV target. Manual/Custom has separate explicit authority.
 POLICIES: Dict[BatteryChemistry, ChemistryPolicy] = {
     BatteryChemistry.AGM: ChemistryPolicy(15.0, 16.3, 16.3, 0.10, 0.03),
     # No generic manufacturer-backed EFB automatic/conditioning profile above 16.5 V
     # was found. 17.5 V remains the global Manual/custom outer ceiling, not an EFB
     # chemistry entitlement. A future >16.5 V EFB recipe must be model-specific and
     # backed by an explicit manufacturer document rather than this generic policy.
-    BatteryChemistry.EFB: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.05),
+    BatteryChemistry.EFB: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.03),
     BatteryChemistry.CA_CA: ChemistryPolicy(14.7, 16.5, 16.5, 0.10, 0.03),
-    BatteryChemistry.FLOODED: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.05),
+    BatteryChemistry.FLOODED: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.03),
     BatteryChemistry.CUSTOM: ChemistryPolicy(16.6, 16.6, 17.5, 0.20, 0.20),
 }
 

@@ -20,6 +20,7 @@ from manual_context_v2 import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
 )
+from production_guardrails_v2 import install_production_guardrails
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -41,6 +42,10 @@ install_manual_context_preprocessor(_legacy)
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
 _v2_ui_enabled = _env_enabled("V2_UI", True)
 install_v2(_legacy, install_ui=_v2_ui_enabled)
+# Composition guardrails close historical bot_legacy authority leaks without changing
+# the V1 reference file itself: Vin becomes PSU-health-only and Cooling resume requires
+# a complete durable V2 continuation token (SAFE_WAIT always remains Output OFF).
+install_production_guardrails(_legacy)
 install_auto_manual_off_contract(_legacy)
 install_diagnostic_persistence(_legacy)
 if _v2_ui_enabled:
