@@ -33,7 +33,11 @@ class RecipeEnvelope:
 
 POLICIES: Dict[BatteryChemistry, ChemistryPolicy] = {
     BatteryChemistry.AGM: ChemistryPolicy(15.0, 16.3, 16.3, 0.10, 0.03),
-    BatteryChemistry.EFB: ChemistryPolicy(14.8, 16.5, 17.5, 0.10, 0.05),
+    # No generic manufacturer-backed EFB automatic/conditioning profile above 16.5 V
+    # was found. 17.5 V remains the global Manual/custom outer ceiling, not an EFB
+    # chemistry entitlement. A future >16.5 V EFB recipe must be model-specific and
+    # backed by an explicit manufacturer document rather than this generic policy.
+    BatteryChemistry.EFB: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.05),
     BatteryChemistry.CA_CA: ChemistryPolicy(14.7, 16.5, 16.5, 0.10, 0.03),
     BatteryChemistry.FLOODED: ChemistryPolicy(14.8, 16.5, 16.5, 0.10, 0.05),
     BatteryChemistry.CUSTOM: ChemistryPolicy(16.6, 16.6, 17.5, 0.20, 0.20),
@@ -56,10 +60,18 @@ def select_recipe_envelope(
     NORMAL intentionally preserves the accepted V1 full automatic charge chain, which
     includes bounded recovery/final Mix. DIAGNOSTIC is the explicit no-automatic-HV
     intent and therefore keeps the normal/Main voltage ceiling.
+
+    `expert_high_voltage` may only enlarge a chemistry envelope when the corresponding
+    ChemistryPolicy actually defines a higher expert ceiling. Supplying the flag is not
+    itself permission to exceed a chemistry's documented recovery ceiling.
     """
     policy = POLICIES[context.identity.chemistry]
     chemistry = context.identity.chemistry
     intent = context.intent
+    expert_extension_available = (
+        policy.expert_voltage_ceiling_v > policy.recovery_voltage_ceiling_v + 1e-9
+    )
+    expert_extension_used = False
 
     if chemistry == BatteryChemistry.CUSTOM and custom_voltage_ceiling_v is not None:
         requested = float(custom_voltage_ceiling_v)
@@ -69,6 +81,10 @@ def select_recipe_envelope(
             else policy.normal_voltage_ceiling_v
         )
         ceiling = min(requested, hard)
+        expert_extension_used = bool(
+            expert_high_voltage
+            and ceiling > policy.normal_voltage_ceiling_v + 1e-9
+        )
         rationale = (
             f"Custom operator ceiling {requested:.2f}V, bounded by "
             f"{hard:.2f}V policy envelope."
@@ -83,9 +99,16 @@ def select_recipe_envelope(
         ceiling = policy.recovery_voltage_ceiling_v
         rationale = "Recovery envelope explicitly selected by operator/workflow."
     elif intent == ChargeIntent.CONDITIONING:
-        if expert_high_voltage:
+        if expert_high_voltage and expert_extension_available:
             ceiling = policy.expert_voltage_ceiling_v
+            expert_extension_used = True
             rationale = "Expert conditioning envelope explicitly authorized."
+        elif expert_high_voltage:
+            ceiling = policy.recovery_voltage_ceiling_v
+            rationale = (
+                "Expert flag supplied, but this chemistry has no generic expert extension; "
+                "standard recovery ceiling remains authoritative."
+            )
         else:
             ceiling = policy.recovery_voltage_ceiling_v
             rationale = "Conditioning within the standard recovery envelope."
@@ -114,6 +137,6 @@ def select_recipe_envelope(
             policy.hv_current_c_max,
             hardware_max_current_a,
         ),
-        expert_authorized=bool(expert_high_voltage),
+        expert_authorized=expert_extension_used,
         rationale=rationale,
     )
