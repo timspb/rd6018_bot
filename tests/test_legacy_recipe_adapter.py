@@ -50,7 +50,7 @@ class LegacyRecipeAdapterTests(unittest.TestCase):
         self.assertFalse(expert.allowed)
         self.assertEqual(expert.envelope.voltage_ceiling_v, 16.5)
         self.assertFalse(expert.envelope.expert_authorized)
-        self.assertIn("voltage ceiling", expert.reason)
+        self.assertIn("recipe ceiling", expert.reason)
 
     def test_current_ceiling_is_stage_sensitive(self):
         context = build_legacy_charge_context(profile="EFB", capacity_ah=70, battery_id="efb-1", intent=ChargeIntent.RECOVERY)
