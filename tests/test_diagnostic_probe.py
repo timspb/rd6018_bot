@@ -9,6 +9,8 @@ class FakeProbeHass:
         self.set_current_value = 7.0
         self.output_on = True
         self.restore_fails = False
+        self.off_fails = False
+        self.off_raises = False
         self.off_calls = 0
 
     async def get_all_live(self):
@@ -33,6 +35,10 @@ class FakeProbeHass:
 
     async def turn_off(self):
         self.off_calls += 1
+        if self.off_raises:
+            raise RuntimeError("synthetic OFF failure")
+        if self.off_fails:
+            return False
         self.output_on = False
         return True
 
@@ -85,6 +91,44 @@ class DiagnosticProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.output_forced_off)
         self.assertEqual(result.reason, "original_current_restore_unconfirmed")
         self.assertEqual(hass.off_calls, 1)
+        self.assertFalse(hass.output_on)
+
+    async def test_restore_and_off_failure_is_not_reported_as_forced_off(self):
+        hass = FakeProbeHass()
+        hass.restore_fails = True
+        hass.off_fails = True
+        runner = ControlledCurrentProbe(hass)
+        plan = ProbePlan(step_current_a=3.0, settle_s=0.0, sample_count=2, sample_interval_s=0.01)
+        with patch("diagnostic_probe.asyncio.sleep", new=AsyncMock()):
+            result = await runner.run(
+                battery_id="efb-1",
+                stage="Main Charge",
+                connection_id="session-A",
+                plan=plan,
+            )
+        self.assertFalse(result.ok)
+        self.assertFalse(result.output_forced_off)
+        self.assertIn("output_off_unconfirmed", result.reason)
+        self.assertEqual(hass.off_calls, 1)
+        self.assertTrue(hass.output_on)
+
+    async def test_restore_and_off_exception_is_not_suppressed_into_false_success(self):
+        hass = FakeProbeHass()
+        hass.restore_fails = True
+        hass.off_raises = True
+        runner = ControlledCurrentProbe(hass)
+        plan = ProbePlan(step_current_a=3.0, settle_s=0.0, sample_count=2, sample_interval_s=0.01)
+        with patch("diagnostic_probe.asyncio.sleep", new=AsyncMock()):
+            result = await runner.run(
+                battery_id="efb-1",
+                stage="Main Charge",
+                connection_id="session-A",
+                plan=plan,
+            )
+        self.assertFalse(result.ok)
+        self.assertFalse(result.output_forced_off)
+        self.assertIn("output_off_unconfirmed", result.reason)
+        self.assertTrue(hass.output_on)
 
     async def test_hot_battery_blocks_probe_before_any_setpoint_change(self):
         hass = FakeProbeHass()
