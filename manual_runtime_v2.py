@@ -98,14 +98,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         return "output off was not confirmed" in text or "output off unconfirmed" in text
 
     def _preserve_containment_after_denied_enable(self, context: str) -> None:
-        """Keep authority if a denied safe-enable could not prove physical OFF.
-
-        SafeOutputCoordinator normally returns a structured denied result rather than
-        raising. The base Manual manager maps all denied results to FAILED, which is
-        correct only when cleanup is known safe. If its detail says OFF was not
-        confirmed, FAILED would make the session inactive while the RD output may still
-        be energized. Reclassify that one case to ARMING containment.
-        """
+        """Keep authority if a denied safe-enable could not prove physical OFF."""
         if self.state is not ManualSessionState.FAILED:
             return
         if not self._off_unconfirmed_detail(self.stop_reason):
@@ -126,8 +119,6 @@ class ProductionManualSessionManager(ManualSessionManager):
         if confirmed_off:
             self.state = ManualSessionState.FAILED
         else:
-            # Do not become inactive while physical output state is unknown. The V2
-            # runtime guard treats ARMING as managed authority and keeps trying fail-close.
             self.state = ManualSessionState.ARMING
             self.stop_reason += ":output_off_unconfirmed"
         self.cooling_started_at = None
@@ -209,9 +200,6 @@ class ProductionManualSessionManager(ManualSessionManager):
             self._previous_voltage_v = None
             self._previous_current_a = None
         else:
-            # FAILED is intentionally inactive; using it here would tell the runtime
-            # guard that nobody owns a potentially still-energized output. Keep a
-            # managed containment state until OFF is positively confirmed.
             self.state = ManualSessionState.ARMING
             self.stop_reason = f"{reason}:output_off_unconfirmed"
         self.cooling_started_at = None
@@ -222,9 +210,6 @@ class ProductionManualSessionManager(ManualSessionManager):
         self._previous_voltage_v = None
         self._previous_current_a = None
         await super()._enter_cooling()
-        # A normal denied OFF from a non-strict/fake adapter must not leave production
-        # Manual inactive either. Strict production adapters raise, but keep the state
-        # machine correct independently from adapter implementation details.
         if (
             self.state is ManualSessionState.FAILED
             and self.stop_reason == "cooling_output_off_unconfirmed"
@@ -310,14 +295,20 @@ class ProductionManualSessionManager(ManualSessionManager):
         if voltage is not None and current is not None and self.state is not ManualSessionState.COOLING:
             now = time.time()
             reason = self._reach_reason(float(voltage), float(current))
+            legacy_manual_off_fired = False
             if reason is None:
                 reason = self._legacy_manual_off_reason(
                     voltage=float(voltage),
                     current=float(current),
                     now=now,
                 )
+                legacy_manual_off_fired = reason is not None
             if reason is not None:
-                await self.stop(reason)
+                confirmed_off = await self.stop(reason)
+                if legacy_manual_off_fired and confirmed_off:
+                    clear = getattr(self.app, "_clear_manual_off", None)
+                    if callable(clear):
+                        clear()
                 return
 
             output_on = as_bool(live.get("switch"))

@@ -61,6 +61,17 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.session_file = os.path.join(self.tempdir.name, "manual.json")
         self.hass = FakeHass()
+        self.manual_off_clear_calls = 0
+
+        def clear_manual_off():
+            self.manual_off_clear_calls += 1
+            self.app.manual_off_voltage = None
+            self.app.manual_off_voltage_le = None
+            self.app.manual_off_current = None
+            self.app.manual_off_current_ge = None
+            self.app.manual_off_time_sec = None
+            self.app.manual_off_start_time = 0.0
+
         self.app = SimpleNamespace(
             hass=self.hass,
             charge_controller=DummyController(),
@@ -70,6 +81,7 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
             manual_off_current_ge=None,
             manual_off_time_sec=None,
             manual_off_start_time=0.0,
+            _clear_manual_off=clear_manual_off,
         )
 
     async def asyncTearDown(self):
@@ -212,7 +224,7 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manager.stop_reason, "manual_voltage_reached")
         self.assertGreaterEqual(self.hass.off_calls, 1)
 
-    async def test_persistent_manual_off_exact_current_is_owned_by_manual_session(self):
+    async def test_persistent_manual_off_exact_current_is_owned_and_cleared_after_off(self):
         manager = self._manager()
         manager.request = ManualChargeRequest(14.7, 2.0)
         manager.state = ManualSessionState.ACTIVE
@@ -227,6 +239,28 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         await manager.observe_once()
         self.assertEqual(manager.state, ManualSessionState.STOPPED)
         self.assertEqual(manager.stop_reason, "manual_off_current_reached")
+        self.assertEqual(self.manual_off_clear_calls, 1)
+        self.assertIsNone(self.app.manual_off_current)
+        self.assertIsNone(self.app.manual_off_current_ge)
+
+    async def test_reached_manual_off_is_not_cleared_until_off_is_confirmed(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time()
+        manager._previous_current_a = 0.8
+        self.hass.live["switch"] = "on"
+        self.hass.live["current"] = 1.2
+        self.hass.off_result = False
+        self.app.manual_off_current = 1.0
+        self.app.manual_off_current_ge = 1.0
+
+        await manager.observe_once()
+
+        self.assertEqual(manager.state, ManualSessionState.ARMING)
+        self.assertEqual(self.manual_off_clear_calls, 0)
+        self.assertEqual(self.app.manual_off_current, 1.0)
+        self.assertEqual(self.app.manual_off_current_ge, 1.0)
 
     async def test_output_off_without_stop_reason_cannot_leave_manual_active(self):
         manager = self._manager()
