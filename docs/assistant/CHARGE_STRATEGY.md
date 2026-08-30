@@ -266,6 +266,31 @@ AUTO chemistry FSM ---------------------> PREP/Main/Recovery/Mix/SAFE_WAIT/Stora
 - после такого stop V2 не должен автоматически включать Storage 13.8 V;
 - production boundary не передаёт legacy `manual_off_active=True` внутрь AUTO FSM; legacy evaluator остаётся независимым side-channel до окончательного удаления старого механизма.
 
+## Post-heavy-recovery rest
+
+После тяжёлого recovery/агрессивного corrective cycle V2 может рекомендовать **24–48 часов отдыха/наблюдения**, но это **не lockout** и не часть safety authority.
+
+```text
+heavy recovery completed
+        -> REST_RECOMMENDED / observation window
+        -> optional checkpoints ~1h / 6h / 12h / 24h / 48h
+        -> diagnostic evidence only
+```
+
+Полезно сохранять/сопоставлять:
+- Vbat/OCV trend;
+- температуру;
+- SG по банкам, если доступна;
+- response на предыдущий recovery;
+- `battery_isolated=yes/no`, потому что без изоляции падение напряжения нельзя уверенно назвать self-discharge.
+
+Правила authority:
+- Normal можно запускать в любой момент;
+- Recovery/Conditioning/Auto Mix тоже не блокируются только из-за того, что 24–48h ещё не прошло;
+- UI может предупредить, что для диагностики полезнее дать АКБ отстояться;
+- запрет нового HV допустим только из-за реальной safety/diagnostic evidence (`BLOCK_AUTOMATIC_HV` и т.п.), а не из-за elapsed rest time;
+- persistence/notification/checkpoint UX этого окна — отдельная implementation detail, не основание для time-based interlock.
+
 ## Battery diagnostics / Bank Fault
 
 V1 one-score `bank_fault` = evidence, not proof. V2 separates cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality, charger/path fault.
@@ -292,4 +317,5 @@ Preserve `higher-energy state -> shorter allowed blind-operation interval`. Read
 - Не путай Done/Storage с Output OFF.
 - Не называй RD `V/I` или two-wire `ΔV/ΔI` внутренним сопротивлением АКБ.
 - Vin/temp_int не являются battery chemistry evidence.
+- Post-heavy-recovery rest — рекомендация/diagnostic window, не time-based lockout.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
