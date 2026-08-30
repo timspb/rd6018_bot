@@ -13,9 +13,11 @@ Do **not** reconstruct behavior from chat history when these documents answer th
 5. **`V1_BEHAVIORAL_AUDIT.md`** — factual V1 audit against `main@8d3e2af9...`.
 6. **`HISTORY.md`** — historical record/rationale, not a competing current source.
 
-Supporting proof/calibration documents:
+Supporting proof/calibration/design documents:
 - `V2_VALIDATION_PLAN.md` — Draft -> physically validated pre-merge gate plan;
 - `V2_SAFETY_AUDIT_2026-08-30.md` — second whole-runtime safety review and closed implementation defects;
+- `OPERATOR_HMI_SPEC.md` — normative Telegram operator-HMI information hierarchy, alarm/control feedback and renderer boundary;
+- `OPERATOR_HMI_WIREFRAMES.md` — concrete storyboard for idle/start/run/recovery/Mix/SAFE_WAIT/Cooling/Storage/Manual/diagnostic/containment screens;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
@@ -71,6 +73,21 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 - labeled Bank-Fault calibration harness for Q004/Q013;
 - raw probe characterization harness for Q005/Q014.
 
+## Operator HMI design boundary
+
+The HMI redesign is deliberately staged after the controller/safety audit. `OPERATOR_HMI_SPEC.md` and `OPERATOR_HMI_WIREFRAMES.md` define the intended operator experience before renderer code is changed.
+
+Key design boundaries:
+- primary native Telegram remains the safety-capable operator station;
+- optional Mini App is secondary analytics/forms, never the only Start/Stop/status path;
+- L2 main panel shows state/output/key telemetry/progress/attention, not raw FSM debug fields;
+- warning/alarm/event are different concepts;
+- command submission and physical result are distinct (`STARTING`, `STOPPING`, `OFF unconfirmed`);
+- Rich Messages may become the preferred renderer only after real client compatibility testing; classic HTML/InlineKeyboard remains fallback;
+- renderers never own actuator sequencing or authority.
+
+The storyboard must be reviewed before implementing the new presentation layer.
+
 ## Validation boundary
 
 Unit CI proves software contracts only. Before merge, follow `V2_VALIDATION_PLAN.md` for:
@@ -95,4 +112,5 @@ Whenever behavior changes:
 4. add deterministic tests;
 5. keep `V2_VALIDATION_PLAN.md` aligned with new physical proof obligations;
 6. record implementation-only safety closures in a dated audit note when they do not redefine strategy;
-7. keep PR description aligned with actual production branch.
+7. keep PR description aligned with actual production branch;
+8. when operator semantics change, keep `OPERATOR_HMI_SPEC.md` and storyboard synchronized before changing renderers.
