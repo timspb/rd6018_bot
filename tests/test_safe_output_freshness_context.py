@@ -19,7 +19,7 @@ def _meta(ts):
     return {"status": "ok", "last_reported": ts, "last_updated": ts}
 
 
-def _live(*, output_on=False, programmed_ts=STALE):
+def _live(*, output_on=False, programmed_ts=STALE, voltage_ts=FRESH):
     live = {
         "battery_voltage": 12.6,
         "voltage": 0.0 if not output_on else 14.4,
@@ -34,7 +34,7 @@ def _live(*, output_on=False, programmed_ts=STALE):
         "ocp": 2.1,
         "_meta": {
             "battery_voltage": _meta(FRESH),
-            "voltage": _meta(FRESH),
+            "voltage": _meta(voltage_ts),
             "current": _meta(FRESH),
             "temp_ext": _meta(FRESH),
             "temp_int": _meta(FRESH),
@@ -100,12 +100,29 @@ class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertIsNone(snapshot)
 
+    def test_stale_vout_is_ignored_while_off_but_rejected_when_on(self):
+        with self.subTest("output off"):
+            with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
+                snapshot = snapshot_from_live(
+                    _live(output_on=False, programmed_ts=FRESH, voltage_ts=STALE),
+                    require_programming_freshness=True,
+                )
+            self.assertIsNotNone(snapshot)
+
+        with self.subTest("output on"):
+            with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
+                snapshot = snapshot_from_live(
+                    _live(output_on=True, programmed_ts=FRESH, voltage_ts=STALE),
+                    require_programming_freshness=True,
+                )
+            self.assertIsNone(snapshot)
+
     async def test_coordinator_allows_stale_idle_setpoints_then_requires_fresh_readback(self):
         adapter = _Adapter(
             [
-                _live(output_on=False, programmed_ts=STALE),
-                _live(output_on=False, programmed_ts=FRESH),
-                _live(output_on=True, programmed_ts=FRESH),
+                _live(output_on=False, programmed_ts=STALE, voltage_ts=STALE),
+                _live(output_on=False, programmed_ts=FRESH, voltage_ts=STALE),
+                _live(output_on=True, programmed_ts=FRESH, voltage_ts=FRESH),
             ]
         )
         coordinator = SafeOutputCoordinator(adapter, SafetySupervisor(), readback_timeout_s=0.0)
