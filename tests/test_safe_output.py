@@ -14,6 +14,7 @@ from safe_output import (
 def live_state(**overrides):
     base = {
         "battery_voltage": 12.4,
+        "voltage": 0.0,
         "current": 0.0,
         "temp_ext": 25.0,
         "temp_int": 32.0,
@@ -73,6 +74,8 @@ class FakeAdapter:
         if self.fail_method == "turn_on":
             return False
         self.live["switch"] = "on"
+        self.live["voltage"] = self.live["set_voltage"]
+        self.live["current"] = self.live["set_current"]
         return True
 
     async def turn_off(self, entity_id=None):
@@ -80,6 +83,8 @@ class FakeAdapter:
         if self.fail_method == "turn_off":
             return False
         self.live["switch"] = "off"
+        self.live["voltage"] = 0.0
+        self.live["current"] = 0.0
         return True
 
 
@@ -180,7 +185,7 @@ class SafetySupervisorTests(unittest.TestCase):
         old = (datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat()
         live = live_state()
         keys = [
-            "battery_voltage", "current", "temp_ext", "temp_int", "switch",
+            "battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch",
             "ovp_triggered", "ocp_triggered", "set_voltage", "set_current", "ovp", "ocp",
         ]
         live["_meta"] = {key: {"status": "ok", "last_updated": old} for key in keys}
@@ -194,6 +199,16 @@ class SafetySupervisorTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertIn("set_voltage actual=14.000 expected=16.300", decision.detail)
         self.assertIn("ocp=missing expected=2.100", decision.detail)
+
+    def test_post_enable_requires_measured_output_voltage(self):
+        supervisor = SafetySupervisor()
+        telemetry = snapshot_from_live(live_state(switch="on", voltage=None, current=2.0))
+        assert telemetry is not None
+        decision = supervisor.verify_live_output(
+            OutputRequest(16.3, 2.0, 16.4, 2.1, 16.3), telemetry
+        )
+        self.assertFalse(decision.allowed)
+        self.assertIn(SafetyViolation.TELEMETRY_INVALID, decision.violations)
 
 
 class SafeOutputCoordinatorTests(unittest.TestCase):
@@ -291,6 +306,55 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
         self.assertFalse(result.enabled)
         self.assertIn(SafetyViolation.READBACK_MISMATCH, result.violations)
+        self.assertEqual(adapter.live["switch"], "off")
+
+    def test_post_enable_measured_voltage_over_recipe_forces_output_off(self):
+        adapter = FakeAdapter()
+        original_turn_on = adapter.turn_on
+
+        async def turn_on_then_overshoot(entity_id=None):
+            result = await original_turn_on(entity_id)
+            adapter.live["voltage"] = 16.7
+            return result
+
+        adapter.turn_on = turn_on_then_overshoot
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.MEASURED_OUTPUT_OVER_LIMIT, result.violations)
+        self.assertEqual(adapter.live["switch"], "off")
+
+    def test_post_enable_telemetry_exception_forces_output_off(self):
+        adapter = FakeAdapter()
+        original_get = adapter.get_all_live
+
+        async def get_then_fail_after_on():
+            if adapter.live["switch"] == "on":
+                adapter.calls.append("get_all_live")
+                raise RuntimeError("synthetic post-enable HA loss")
+            return await original_get()
+
+        adapter.get_all_live = get_then_fail_after_on
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.POST_ENABLE_VERIFY_FAILED, result.violations)
+        self.assertIn(SafetyViolation.TELEMETRY_INVALID, result.violations)
+        self.assertEqual(adapter.live["switch"], "off")
+        self.assertIn("turn_off", adapter.calls)
+
+    def test_measured_current_above_12a_working_ceiling_forces_output_off(self):
+        request = OutputRequest(17.0, 12.0, 17.1, 12.2, 17.5)
+        adapter = FakeAdapter()
+        original_turn_on = adapter.turn_on
+
+        async def turn_on_then_overcurrent(entity_id=None):
+            result = await original_turn_on(entity_id)
+            adapter.live["current"] = 12.10
+            return result
+
+        adapter.turn_on = turn_on_then_overcurrent
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(request))
+        self.assertFalse(result.enabled)
+        self.assertIn(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT, result.violations)
         self.assertEqual(adapter.live["switch"], "off")
 
     def test_failed_cleanup_reports_unconfirmed_off(self):
