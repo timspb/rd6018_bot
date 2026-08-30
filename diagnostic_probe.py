@@ -43,8 +43,8 @@ class ProbeResult:
 class ControlledCurrentProbe:
     """Measure a two-wire charge-response using only a safer current reduction.
 
-    This is NOT an internal-resistance tester.  It observes the whole two-wire dynamic
-    loop.  The executor never raises voltage/current or protection limits.  The original
+    This is NOT an internal-resistance tester. It observes the whole two-wire dynamic
+    loop. The executor never raises voltage/current or protection limits. The original
     current setting must be restored and read back; otherwise Output is forced OFF.
     """
 
@@ -124,19 +124,41 @@ class ControlledCurrentProbe:
             currents.append(current)
         return float(statistics.median(voltages)), float(statistics.median(currents))
 
-    async def _restore_or_off(self, original_current: float, plan: ProbePlan) -> bool:
-        restored = bool(await self.hass.set_current(original_current))
-        if restored:
-            restored = await self._wait_current_readback(
-                original_current,
-                tolerance=plan.readback_tolerance_a,
-            )
-        if restored:
-            return True
+    async def _restore_or_off(
+        self,
+        original_current: float,
+        plan: ProbePlan,
+    ) -> Tuple[bool, bool]:
+        """Return (original_current_restored, output_off_confirmed).
+
+        A failed restore is not equivalent to a successful OFF command. Keep those
+        facts separate so callers never report `output_forced_off=True` when the
+        shutdown itself failed or could not be confirmed.
+        """
         try:
-            await self.hass.turn_off()
-        finally:
-            return False
+            restored = bool(await self.hass.set_current(original_current))
+        except Exception:
+            restored = False
+        if restored:
+            try:
+                restored = await self._wait_current_readback(
+                    original_current,
+                    tolerance=plan.readback_tolerance_a,
+                )
+            except Exception:
+                restored = False
+        if restored:
+            return True, False
+
+        try:
+            off_confirmed = bool(await self.hass.turn_off())
+        except Exception:
+            off_confirmed = False
+        return False, off_confirmed
+
+    @staticmethod
+    def _restore_failure_reason(base: str, off_confirmed: bool) -> str:
+        return base if off_confirmed else f"{base}_output_off_unconfirmed"
 
     async def run(
         self,
@@ -168,22 +190,32 @@ class ControlledCurrentProbe:
                 plan.step_current_a,
                 tolerance=plan.readback_tolerance_a,
             ):
-                restored = await self._restore_or_off(original_current, plan)
+                restored, off_confirmed = await self._restore_or_off(original_current, plan)
                 return ProbeResult(
                     False,
-                    reason="step_readback_mismatch",
-                    output_forced_off=not restored,
+                    reason=(
+                        "step_readback_mismatch"
+                        if restored
+                        else self._restore_failure_reason(
+                            "step_readback_mismatch_restore_unconfirmed",
+                            off_confirmed,
+                        )
+                    ),
+                    output_forced_off=off_confirmed,
                 )
             if plan.settle_s:
                 await asyncio.sleep(plan.settle_s)
             stepped_v, stepped_i = await self._sample_medians(plan)
 
-            restored = await self._restore_or_off(original_current, plan)
+            restored, off_confirmed = await self._restore_or_off(original_current, plan)
             if not restored:
                 return ProbeResult(
                     False,
-                    reason="original_current_restore_unconfirmed",
-                    output_forced_off=True,
+                    reason=self._restore_failure_reason(
+                        "original_current_restore_unconfirmed",
+                        off_confirmed,
+                    ),
+                    output_forced_off=off_confirmed,
                 )
 
             probe = DynamicLoopProbe(
@@ -200,10 +232,17 @@ class ControlledCurrentProbe:
             return ProbeResult(True, probe=probe)
         except Exception as exc:
             if stepped:
-                restored = await self._restore_or_off(original_current, plan)
+                restored, off_confirmed = await self._restore_or_off(original_current, plan)
                 return ProbeResult(
                     False,
-                    reason=f"probe_failed:{type(exc).__name__}",
-                    output_forced_off=not restored,
+                    reason=(
+                        f"probe_failed:{type(exc).__name__}"
+                        if restored
+                        else self._restore_failure_reason(
+                            f"probe_failed:{type(exc).__name__}:restore_unconfirmed",
+                            off_confirmed,
+                        )
+                    ),
+                    output_forced_off=off_confirmed,
                 )
             return ProbeResult(False, reason=f"probe_failed:{type(exc).__name__}")
