@@ -21,10 +21,12 @@ Calibration must keep distinguishing “equalization may help” from “additio
 ## Q005 — Controlled diagnostic-probe execution parameters
 Principle, fail-closed executor and restart journal exist. A probe may only reduce/equal energy, samples median U/I, restores exact prior current transactionally, and forces Output OFF if restoration cannot be proven. `ΔV/ΔI` remains a two-wire dynamic-loop response, not battery Ri. A crash never resumes a probe mid-step.
 
-Still define before automatic triggering:
-- stages where automatic probe is allowed;
-- step amplitude relative to current/C-rate;
-- baseline/response windows;
+Offline characterization tooling is now implemented in `probe_characterization.py` / `tools/characterize_dynamic_loop.py`. It measures actual timestamps/cadence, signal MAD/span, observed value steps, actual `ΔI/ΔV`, tail-deviation settling traces and descriptive Vout-Vbat behavior without choosing production thresholds. Detailed bench schema is `DYNAMIC_LOOP_CALIBRATION.md`.
+
+Still define **from real characterization**, not from placeholder `ProbePlan` defaults:
+- stages/modes where automatic probe is allowed;
+- step amplitude relative to current/C-rate and measured noise;
+- baseline/response/settle windows;
 - minimum telemetry freshness/sample cadence;
 - thermal/headroom conditions;
 - abort conditions;
@@ -48,12 +50,15 @@ What remains genuinely open is empirical calibration against real labeled cases.
 SG prompt eligibility is deterministic (D053): only the exact physical battery with confirmed serviceable electrolyte access can be prompted, and only at diagnostic VERIFY+ for SG-relevant hypotheses or as a post-corrective retest of prior imbalance. Q013 still owns the real-data calibration that decides when evidence reaches VERIFY/PROBABLE/HIGH.
 
 ## Q014 — RD6018 dynamic-loop/relay-path calibration
-Need on-device characterization of:
-- `V_OUT` vs `V_BAT` offset/resolution under battery-mode relay load;
+The offline characterization/reporting path now exists; the remaining blocker is actual RD6018/ESPHome/HA data. Need on-device characterization of:
+- `V_OUT` vs `V_BAT` offset/noise/observed quantization under battery-mode relay load;
 - repeatability of controlled `ΔI -> ΔV_BAT` response;
+- settling trajectory after the current reduction;
 - effect of cable/clip reconnection;
-- practical sample interval through current ESPHome/Modbus path;
-- whether relay-path trend has enough signal above ADC quantization to retain as health metric.
+- actual sample cadence through the installed ESPHome/Modbus/HA path;
+- whether the dynamic-loop trend has enough signal above noise/quantization to retain as health evidence.
+
+`V_OUT - V_BAT` remains descriptive only. Q014 must not reinterpret it as cable/path resistance without independent RD6018 topology evidence.
 
 ## Q015 — Final main-merge compatibility plan
 Before merging V2 to `main`, verify traceably:
@@ -75,6 +80,7 @@ Before merging V2 to `main`, verify traceably:
 - RD readback/protection decode;
 - Bank Fault/SG diagnostics including physical SG access gating and explicit correction metadata;
 - EFB chemistry envelopes never exceed generic 16.5V; >16.5V requires Manual or a future explicit model-specific manufacturer-backed recipe;
+- controlled-probe characterization against actual cadence/noise/settling before any automatic trigger policy is enabled;
 - Telegram dashboard/operator messages;
 - exact ESPHome node compile/flash and physical RD6018 smoke/bench tests.
 
