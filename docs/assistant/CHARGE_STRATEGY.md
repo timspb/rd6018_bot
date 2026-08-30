@@ -9,24 +9,21 @@
 Для автоматических программ независимы chemistry, intent, condition, entry/program mode и stage. `MANUAL` — отдельный authority mode, а не разновидность chemistry FSM.
 
 ### Intent
-
-- **Normal** — штатный полный автоматический заряд, V1-compatible: промежуточный recovery и финальный Mix разрешены только по детерминированным критериям.
-- **Recovery** — тот же безопасный контур с явной восстановительной целью/диагностическим контекстом; evidence и safety не обходятся.
-- **Conditioning** — сервисная программа внутри разрешённого envelope; expert EFB 17.2–17.5 V остаётся отдельным неготовым workflow.
+- **Normal** — штатный полный автоматический заряд, V1-compatible: bounded recovery и final Mix разрешены по детерминированным критериям.
+- **Recovery** — тот же безопасный контур с явной восстановительной целью/диагностическим контекстом; evidence/safety не обходятся.
+- **Conditioning** — сервисная цель внутри разрешённого envelope; expert EFB 17.2–17.5 V остаётся отдельным Q011.
 - **Diagnostic** — наблюдение/проверка без автоматического создания Recovery/Mix.
 
-`Auto Mix` — не intent. Это отдельный direct-entry program mode: оператор явно просит начать сразу с Mix.
+`Auto Mix` — не intent, а direct-entry program mode.
 
 ## Production authority
-
-- `AutoStrategyProductionChargeControllerV2` владеет production AUTO Main/timeout/Mix strategy поверх зрелого legacy scaffold.
-- `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto перед применением выбранного HV transition.
-- `v2_mix_mode` создаёт direct-entry Mix session, но не обходит controller/runtime safety authority.
+- `AutoStrategyProductionChargeControllerV2` владеет AUTO Main/timeout/Mix strategy.
+- `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto.
 - `ProductionManualSessionManager` владеет Manual.
-- `V2RuntimeSafetyGuard`/readback/verified OFF/edge lease — отдельная неотключаемая аппаратная граница.
+- `V2RuntimeSafetyGuard` + configured-value readback + verified OFF + edge lease — отдельная неотключаемая аппаратная граница.
+- `DiagnosticActionJournal` хранит lifecycle диагностических действий, но не заменяет safety/chemistry authority.
 
 ## Сигналы
-
 - `battery_voltage` — chemistry/diagnostics;
 - RD output voltage — hardware/output monitoring;
 - `temp_ext` — температура АКБ;
@@ -37,10 +34,7 @@
 - `BAT_MODE` — observation, not software permission.
 
 ## Аппаратная граница
-
 Различать commanded setpoint, configured/readback setpoint и measured physical value.
-
-Managed Output enable:
 
 ```text
 fresh telemetry
@@ -56,169 +50,119 @@ fresh telemetry
 Непроверяемая ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; конкретный recipe может быть ниже.
 
 ## AUTO start / PREP
-
-Обычный полный AUTO выбирает старт **до первого Output ON**:
-
 ```text
 Vbat < 12.0 V  -> PREP, ~12 V + temp compensation, ~0.01C
 Vbat >= 12.0 V -> MAIN сразу + PREP_SKIPPED audit event
 ```
 
-Это устраняет V1-состояние “логически PREP, физически уже Main”. Restore не пересчитывает этот выбор: восстанавливается сохранённая stage/target semantics.
+Выбор делается до первого Output ON. Restore сохраняет persisted stage/target и не повторяет initial shortcut.
 
 ## AUTO Mix-only
-
-`Auto Mix` — отдельная операторски выбранная автоматическая программа:
-
-```text
-operator selects Auto Mix
-        -> validate Vbat/safety/diagnostics
-        -> create session directly in STAGE_MIX
-        -> protected/readback-verified Output enable
-        -> Mix evidence/fallback
-        -> SAFE_WAIT
-        -> Done/Storage
-```
-
-Контракт:
-
-- PREP не выполняется;
-- Main не выполняется;
-- intermediate Recovery/Desulfation не выполняется;
-- `Vbat < 12.0 V` -> **reject start**, а не скрытый fallback в PREP;
-- Ca/Ca/EFB -> стандартный Mix до 16.5 V;
-- AGM -> стандартный Mix до 16.3 V;
-- ток ~0.03C, max 12 A;
-- после старта работают те же ~120 s blanking, CV `Imin -> ΔI`, CC `Vmax -> ΔV`, 3 spaced confirmations и sticky 2 h hold;
-- fallback остаётся Ca20/EFB24/AGM10;
-- после Mix работает обычный SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
-- strong `BLOCK_AUTOMATIC_HV` veto применяется **до** включения;
-- readback, OVP/OCP, thermal safety, edge lease и watchdog не ослабляются;
-- Auto Mix использует только standard Mix recipe envelope и **не** даёт implicit access к expert EFB 17.2–17.5 V.
-
-То есть это «начать автоматическую программу с финального Mix», а не Manual и не новый `ChargeIntent`.
+`Auto Mix` стартует напрямую в `STAGE_MIX`:
+- PREP/Main/intermediate Recovery не выполняются даже транзитно;
+- `Vbat < 12.0 V` -> reject, не fallback в PREP;
+- Ca/Ca/EFB -> standard Mix 16.5 V;
+- AGM -> standard Mix 16.3 V;
+- ~0.03C, max 12 A;
+- normal ~120s blanking, CV `Imin -> ΔI`, CC `Vmax -> ΔV`, 3 spaced confirmations, sticky 2h hold;
+- fallback Ca20/EFB24/AGM10;
+- SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
+- strong `BLOCK_AUTOMATIC_HV` проверяется до включения;
+- никаких implicit expert EFB 17.2–17.5 V.
 
 ## AUTO targets
-
 Global stage-current ceiling: 12 A.
 
 ### Main
-- ~0.1 C, max 12 A;
+- ~0.1C, max 12 A;
 - Ca/Ca 14.7 V;
 - EFB 14.8 V;
 - AGM 14.4 -> 14.6 -> 14.8 -> 15.0 V;
-- temperature compensation применяется внутри разрешённого recipe envelope.
+- temperature compensation внутри recipe envelope.
 
 ### Intermediate recovery / Desulfation
 - 16.3 V base;
-- ~0.02 C;
-- 2 h;
-- это bounded intermediate attempt, не final Mix.
+- ~0.02C;
+- 2h;
+- bounded intermediate attempt, не final Mix.
 
 ### Mix
 - Ca/Ca 16.5 V;
 - EFB 16.5 V;
 - AGM 16.3 V;
-- ~0.03 C, max 12 A.
+- ~0.03C, max 12 A.
 
 ### Done / Storage
-Normal completion:
-
 ```text
 SAFE_WAIT -> Done/Storage -> ~13.8 V / 1.0 A -> Output ON
 ```
-
 Fault/hard-stop — отдельная OFF-семантика.
 
 ## Main evidence
-
 Normal tail и stuck plateau — разные механизмы.
 
-V1-compatible tail:
-- Ca/EFB: CV + I<~0.30A, 3 h continuous hold/no new minimum;
-- AGM: CV + I<~0.20A, 2 h, staged Main.
+Tail:
+- Ca/EFB: CV + I<~0.30A, 3h continuous hold/no new minimum;
+- AGM: CV + I<~0.20A, 2h, staged Main.
 
-Stuck plateau:
-- Ca/EFB ~40 min flat CV plateau;
-- AGM ~2 h;
+Plateau:
+- Ca/EFB ~40min flat CV plateau;
+- AGM ~2h;
 - плавное снижение тока = progress, не plateau.
 
-Universal `>~1%C => HV veto` отклонён. Current magnitude — лишь diagnostic evidence среди U/I/T/regulation/cell data.
+Universal `>~1%C => HV veto` отклонён.
 
 ## Recovery budget
-
 ### Ca/Ca / EFB
-
 ```text
 plateau -> recovery #1 -> Main
 later plateau -> recovery #2 -> Main
 later plateau -> recovery #3 -> Main
 next confirmed plateau -> final Mix
 ```
-
-Три попытки — budget всей charging session; progress count не обнуляет.
+Три попытки — budget всей session; progress count не обнуляет.
 
 ### AGM
-
 ```text
 plateau -> recovery #1 -> Main
 ...
 plateau -> recovery #4 -> Main
 next plateau -> remain Main, НЕ forced Mix
 ```
+После budget ждём normal low-current tail либо 72h conservative fallback.
 
-AGM budget = 4/session. После исчерпания ждём штатный low-current tail либо применяем 72 h conservative fallback. REHYDRATED не меняет transitions автоматически.
+## Main 72h fallback
+- Ca/Ca/EFB Normal/Recovery/Conditioning: `Main 72h -> Mix`;
+- AGM: `Main 72h -> Mix` только если CV и `I <= 0.20 A`, иначе `stop + diagnose`;
+- Diagnostic: `stop + diagnose`, без auto-HV.
 
-## Main 72 h fallback
-
-72 h — **strategy fallback**, а не универсальный hard-safety timeout.
-
-- Ca/Ca / EFB, intent Normal/Recovery/Conditioning: `Main 72h -> Mix` даже если не сформировалась фиксированная stuck plateau.
-- AGM: `Main 72h -> Mix` только если уже подтверждён CV и `I <= 0.20 A`; иначе `stop + diagnose`.
-- Diagnostic: `72h -> stop + diagnose`, без автоматического HV.
-
-Production V2 скрывает реальный Main elapsed clock от legacy scaffold timeout и затем применяет это решение сам. Rollback legacy behavior остаётся воспроизводимым отдельно.
+72h — strategy fallback, не generic hard-safety timeout.
 
 ## Mix
-
 После target change ~120s blanking.
+- CV: `Imin -> confirmed ΔI rise`, ориентир `max(0.03A, 30%*Imin)`;
+- CC: `Vmax -> confirmed ΔV fall`, ориентир ~0.03V;
+- 3 confirmations ~60s apart;
+- confirmed event starts sticky 2h finish hold.
 
-- CV: Imin -> confirmed ΔI rise, ориентир `max(0.03A, 30%*Imin)`.
-- CC: Vmax -> confirmed ΔV fall, ориентир ~0.03V.
-- Нужны 3 spaced confirmations (~60s).
-- После подтверждения запускается sticky 2 h finish hold; hard safety всегда выше.
-
-Fallback maxima:
-
+Fallback:
 | Chemistry | Max Mix fallback |
 |---|---:|
 | Ca/Ca | 20 h |
 | EFB | 24 h |
 | AGM | 10 h |
 
-Это не ETA. Активный valid 2h finish hold не стирается crossing fallback boundary.
-
 ## Diagnostic HV veto
-
-Сначала strategy выбирает действие. Затем hypothesis engine может veto только **новое** `ENTER_DESULFATION`/`ENTER_MIX` при `BLOCK_AUTOMATIC_HV`.
-
-Для direct-entry `Auto Mix` тот же veto проверяется как preflight до создания/включения HV-сессии.
-
-Обычный transition-veto применяется одинаково к Normal/Recovery/Conditioning и timeout-generated Mix. AGM voltage-step внутри Main не считается HV escalation. Один score/SG/U/I sample veto не создаёт.
+Сначала strategy выбирает действие. Затем hypothesis engine может veto **новое** `ENTER_DESULFATION`/`ENTER_MIX` только при `BLOCK_AUTOMATIC_HV`. Один score/SG/U/I sample этого не создаёт. AGM voltage-step внутри Main не считается HV escalation. Auto Mix использует тот же veto как preflight.
 
 ## SAFE_WAIT
-
-После HV Output OFF:
-
 ```text
 relax threshold reached early -> continue immediately
 otherwise -> wait max ~2h -> continue anyway
 ```
-
-2 h — anti-stall maximum, не fault timeout. Relaxation остаётся diagnostic evidence.
+2h — anti-stall maximum, не fault timeout. Relaxation остаётся diagnostic evidence.
 
 ## Cooling
-
 Cooling — pause active chemistry/program time.
 
 AUTO:
@@ -229,86 +173,99 @@ AUTO:
 - stuck plateau and incomplete delta confirmations invalidated;
 - durable restore required.
 
-Для Auto Mix source stage = Mix, поэтому Cooling возвращает ровно в Mix с теми же pause semantics.
-
-MANUAL: >=40°C -> OFF/Cooling, <=35°C -> safe re-enable exact same V/I, >=45°C -> terminal stop. Active timer freezes; unfinished reach/delta continuity starts fresh after resume.
+Manual: >=40C -> OFF/Cooling, <=35C -> safe re-enable same V/I, >=45C -> terminal stop. Active timer freezes; unfinished reach/delta continuity starts fresh.
 
 ## MANUAL
+Manual — полноценный режим, не debug escape hatch и не legacy `Idle + Output ON`.
 
-Manual — полноценный режим управления, не debug escape hatch и не legacy `Idle + Output ON`.
-
-Operator owns working V/I and optional timer/V/I/reach/delta stop conditions. OVP/OCP всегда derived и не могут быть ослаблены пользователем.
+Operator owns working V/I and optional timer/V/I/reach/delta stop conditions. OVP/OCP всегда derived и не могут быть ослаблены.
 
 Limits:
 - `0 < V <= 17.5 V`;
 - `0 < I <= 12 A`.
 
-Automatic Pb rules не выполняются. Every start/reconfiguration проходит через transactional safe-enable; active reconfiguration делает verified OFF -> fresh enable. Persisted active Manual restores `INTERRUPTED`, never auto-ON.
+Pb chemistry rules не выполняются. Every start/reconfiguration проходит через transactional safe-enable; active reconfiguration делает verified OFF -> fresh enable.
+
+### Optional physical-battery identity
+Manual можно привязать к сохранённому `battery_id`, но **только** для longitudinal history/diagnostics:
+
+```text
+saved battery identity
+        -> history label / diagnostic correlation
+        X  chemistry does not choose Manual V/I
+        X  Ah does not derive Manual current
+        X  identity does not grant HV permission
+```
+
+Если запись АКБ удалена, сохранённый bound request нельзя молча перепривязать к другой АКБ.
+
+### Restart / re-authorization
+Persisted active Manual всегда восстанавливается как `INTERRUPTED`, Output не включается автоматически. UI показывает сохранённые V/I/OVP/OCP/stop conditions/battery identity и требует явного `Авторизовать заново`.
+
+Fresh re-authorization:
+```text
+operator review
+-> fresh telemetry/safety
+-> fresh OVP/OCP + V/I programming
+-> configured readback
+-> Output enable/verification
+-> new active-time clock
+```
+
+Старый active-time timer после process restart не продолжается. Operator может вместо reauthorize отменить сохранённый request; OFF подтверждается отдельно.
 
 ## AUTO user OFF condition
-
-Persistent `Manual-OFF` при запущенном автоматическом профиле — только дополнительное асинхронное условие terminal OFF.
+Persistent `Manual-OFF` во время AUTO — только parallel terminal kill-condition.
 
 ```text
 AUTO chemistry FSM ---------------------> PREP/Main/Recovery/Mix/SAFE_WAIT/Storage
           |
-          +---- armed user OFF condition observed in parallel
+          +---- armed user OFF condition
                          |
-                         +---- condition not reached -> no influence on AUTO decisions
-                         +---- condition reached     -> Output OFF + session STOP
+                         +---- not reached -> no influence on AUTO decisions
+                         +---- reached     -> Output OFF + session STOP
 ```
 
-Правила:
-- сам факт вооружённого OFF не подавляет Recovery, Mix, 72h fallback или normal completion;
-- он не меняет chemistry evidence/timers/authority;
-- hard safety и diagnostic HV authority продолжают иметь обычный приоритет;
-- при срабатывании условие означает именно terminal user-requested OFF, а не переход к `Done/Storage`;
-- после такого stop V2 не должен автоматически включать Storage 13.8 V;
-- production boundary не передаёт legacy `manual_off_active=True` внутрь AUTO FSM; legacy evaluator остаётся независимым side-channel до окончательного удаления старого механизма.
+Armed state не подавляет Recovery/Mix/72h/normal completion. После user terminal OFF нельзя автоматически включать Storage.
 
 ## Post-heavy-recovery rest
+После тяжёлого recovery/corrective cycle V2 может рекомендовать **24–48h отдыха/наблюдения**, но это не lockout.
 
-После тяжёлого recovery/агрессивного corrective cycle V2 может рекомендовать **24–48 часов отдыха/наблюдения**, но это **не lockout** и не часть safety authority.
+Useful checkpoints: ~1h / 6h / 12h / 24h / 48h. Полезно сохранять Vbat/OCV trend, T, SG, recovery response и `battery_isolated=yes/no`.
 
-```text
-heavy recovery completed
-        -> REST_RECOMMENDED / observation window
-        -> optional checkpoints ~1h / 6h / 12h / 24h / 48h
-        -> diagnostic evidence only
-```
-
-Полезно сохранять/сопоставлять:
-- Vbat/OCV trend;
-- температуру;
-- SG по банкам, если доступна;
-- response на предыдущий recovery;
-- `battery_isolated=yes/no`, потому что без изоляции падение напряжения нельзя уверенно назвать self-discharge.
-
-Правила authority:
-- Normal можно запускать в любой момент;
-- Recovery/Conditioning/Auto Mix тоже не блокируются только из-за того, что 24–48h ещё не прошло;
-- UI может предупредить, что для диагностики полезнее дать АКБ отстояться;
-- запрет нового HV допустим только из-за реальной safety/diagnostic evidence (`BLOCK_AUTOMATIC_HV` и т.п.), а не из-за elapsed rest time;
-- persistence/notification/checkpoint UX этого окна — отдельная implementation detail, не основание для time-based interlock.
+Elapsed rest time сам по себе никогда не запрещает Normal/Recovery/Conditioning/Manual/Auto Mix. HV veto допустим только из реальной safety/diagnostic evidence.
 
 ## Battery diagnostics / Bank Fault
-
-V1 one-score `bank_fault` = evidence, not proof. V2 separates cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality, charger/path fault.
-
-Diagnostics may perform only safer/equal-energy bounded experiments and never raise HV merely to test a hypothesis.
+V1 one-score `bank_fault` = evidence, not proof. V2 separates cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality and charger/path fault.
 
 ### SG
-Store six positional cells, raw SG, measurement temperature, timestamp/context/source/notes. First complete spread >=0.030 = imbalance/stratification evidence, not “shorted cell” and not automatic equalization veto.
+Store six positional cells, raw SG, temperature, timestamp/context/source/notes. First complete spread >=0.030 = imbalance/stratification evidence, не short-cell proof и не automatic equalization veto.
 
-### RD resistance-related evidence
-Displayed `V/I` is not battery internal resistance. Controlled current reduction may produce `dynamic_loop = ΔV_BAT/ΔI`, but two-wire black+green path includes battery+cables+contacts+internal path+polarization. Compare longitudinally only under an explicit unchanged connection identity.
+### Dynamic loop
+RD displayed `V/I` is not battery Ri. Controlled current reduction may produce `dynamic_loop = ΔV_BAT/ΔI`, but two-wire black+green path includes battery+cables+contacts+internal path+polarization. Compare longitudinally only with explicit unchanged connection identity.
+
+### Diagnostic persistence / restart
+Durable **evidence** и diagnostic **action state** разделены.
+
+Evidence such as completed SG/probe/recovery history may survive restart. Derived diagnostic authority (`ALLOW/VERIFY/BLOCK_AUTOMATIC_HV`) is recomputed; it is not trusted merely because an old process once calculated it.
+
+Restart matrix:
+| State/action | Restart behavior |
+|---|---|
+| completed SG/dynamic-loop/recovery evidence | keep |
+| in-flight controlled probe | `ABORTED_RESTART`, never resume mid-step; Output OFF defense-in-depth |
+| pending operator confirmation | expire; ask again |
+| pending fault verification | expire; require fresh evidence/operator action |
+| expert-HV authorization | revoke; never survive restart |
+| rest-observation window | may survive until expiry because it has no actuator authority |
+| derived HV-block assessment | recompute from durable/fresh evidence |
+
+No crash recovery may guess and restore a mid-probe current setpoint.
 
 ## Watchdogs / AI
-
 Preserve `higher-energy state -> shorter allowed blind-operation interval`. Readback, verified OFF and edge lease are safety, not chemistry. AI explains evidence only; it cannot authorize HV, select setpoints or override safety.
 
 ## Operator/documentation rules
-
 - Не называй current `Imin`, пока analyzer реально не сформировал minimum evidence.
 - CV: `Imin -> ΔI`; CC: `Vmax -> ΔV`.
 - Не называй fallback-window ETA полного заряда.
@@ -317,5 +274,7 @@ Preserve `higher-energy state -> shorter allowed blind-operation interval`. Read
 - Не путай Done/Storage с Output OFF.
 - Не называй RD `V/I` или two-wire `ΔV/ΔI` внутренним сопротивлением АКБ.
 - Vin/temp_int не являются battery chemistry evidence.
-- Post-heavy-recovery rest — рекомендация/diagnostic window, не time-based lockout.
+- Post-heavy-recovery rest — recommendation/diagnostic window, не time-based lockout.
+- Manual battery identity — history metadata, не chemistry authority.
+- Diagnostic action after restart never auto-resumes authority-bearing work.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
