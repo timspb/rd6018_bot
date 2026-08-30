@@ -14,6 +14,7 @@ The review followed the production path across:
 - recipe authorization envelopes;
 - configured/readback/measured RD6018 telemetry;
 - Home Assistant safe-enable transaction;
+- Home Assistant bulk/fallback telemetry paths;
 - live V/I/OVP/OCP transition interlocks;
 - hardware protection status including raw OPP/unknown codes;
 - verified OFF behavior;
@@ -115,18 +116,57 @@ actuator/FSM decisions even when V/I/T are still fresh. Those status/evidence ch
 therefore cannot be treated as timeless configuration.
 
 Stale, missing or incoherent heartbeat metadata is fail-closed and forces verified OFF
-when energized. Static Vset/Iset/OVP/OCP are different: their timestamps are not used as
-heartbeats because a valid unchanged configuration may remain unchanged for hours.
-Their actual values and protection geometry are nevertheless re-read and revalidated by
-the runtime envelope.
+when energized. Production V2 additionally rejects a complete absence of `_meta` while
+a managed/energized safety context exists; generic compatibility behavior is not allowed
+to silently downgrade production to value-only safety.
+
+Static Vset/Iset/OVP/OCP are different: their timestamps are not runtime heartbeats
+because a valid unchanged configuration may remain unchanged for hours. Their actual
+values and protection geometry are nevertheless re-read and revalidated by the runtime
+envelope.
+
+### Preflight and programmed-readback freshness were conflated
+
+Before this audit `snapshot_from_live()` age-gated any exposed Vset/Iset/OVP/OCP value.
+That can reject a perfectly valid new charge after a long idle period, before those old
+setpoints have even been replaced. The same problem applied to a stable measured
+`V_OUT=0` entity while Output was OFF.
+
+The safety transaction now distinguishes the phases:
+
+- preflight requires fresh dynamic physical/status safety evidence but does not require
+  old static setpoint timestamps to be recent;
+- measured V_OUT is a freshness-critical hard-envelope input only when Output is ON;
+- after programming, Vset/Iset/OVP/OCP must be freshly observed before physical ON;
+- post-enable verification again requires fresh programmed readback plus energized
+  measured V_OUT.
+
+Thus stale idle configuration cannot create a false start lockout, while stale readback
+of a just-written configuration still prevents Output ON.
+
+### HA per-entity fallback lost heartbeat semantics
+
+The normal bulk `/api/states` path had access to HA `last_reported`, but the per-entity
+fallback only retained `last_updated`. When a sensor/state stayed numerically unchanged,
+a bulk endpoint failure could therefore turn a healthy source into a false stale trip.
+
+`HassClient` now treats `last_reported` as a native adapter field on both paths and uses
+it first when calculating source age. `last_updated` remains a compatibility fallback.
+The production V2 monkey-patch is therefore defense-in-depth/adapter compatibility, not
+the only place where heartbeat semantics exist.
+
+The fallback also no longer fetches all mapped HA entities serially. It uses the existing
+concurrent `get_states()` path, so one bulk-endpoint failure cannot multiply the 10 s
+per-request timeout across dozens of sequential entities and stall the safety loop for
+minutes. One slow/failing HA request group can still cost up to the client timeout and
+must be measured on the bench, but the failure is bounded to the concurrent batch rather
+than N serial timeouts.
 
 Home Assistant `last_reported` is the preferred heartbeat timestamp because it advances
 when the integration reports an entity even if its state value did not change.
-`last_updated` remains a compatibility fallback for older/degraded adapters. The V2
-composition preserves `last_reported` at the adapter boundary without changing the V1
-reference implementation. This avoids false shutdowns on genuinely flat temperature,
-current, switch or status values while still detecting a sensor/integration that stopped
-reporting.
+`last_updated` remains a compatibility fallback for older/degraded adapters. This avoids
+false shutdowns on genuinely flat temperature, current, switch or status values while
+still detecting a sensor/integration that stopped reporting.
 
 The edge safety lease remains a separate direct-Modbus/output-register proof and is not
 replaced by HA freshness.
@@ -144,6 +184,6 @@ See `../RD6018_FAILSAFE.md`.
 
 Unit CI proves deterministic software contracts only. It does not replace the physical
 bench/on-battery gates in `V2_VALIDATION_PLAN.md`, especially measured V_OUT/OFF proof,
-HA `last_reported` cadence for unchanged values, stale physical/status/regulation source
-fault injection, edge lease fault injection, Cooling restart, interrupted Manual/probe
-recovery and real charge traces.
+HA `last_reported` cadence for unchanged values, bulk-to-fallback behavior, stale
+physical/status/regulation source fault injection, edge lease fault injection, Cooling
+restart, interrupted Manual/probe recovery and real charge traces.
