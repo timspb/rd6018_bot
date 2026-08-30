@@ -39,8 +39,9 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | diagnostic inference cannot create HARD_STOP | fault-engine tests | SW-PASS |
 | SG first imbalance is not short-cell proof/HV veto | diagnostics tests | SW-PASS |
 | SG physical access + hydrometer/correction policy | SG policy/UI/store tests | SW-PASS |
-| generic EFB expert flag cannot exceed 16.5V | recipe envelope regression | SW-PASS |
+| generic EFB expert flag cannot exceed 16.5V | recipe envelope + hardware-isolation regressions | SW-PASS |
 | labeled Bank-Fault calibration replay/reporting | calibration harness tests | SW-PASS |
+| read-only dynamic-loop bench capture | source-time/dedup/no-actuation capture tests | SW-PASS |
 | raw dynamic-loop characterization math/reporting | characterization harness tests | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
@@ -157,23 +158,45 @@ Do not tune a single aggregate accuracy while hiding either safety-significant b
 
 ### G2 Q005/Q014 controlled probe / RD response — `OPEN-CAL`
 
-Tooling exists:
+Read-only capture and offline analysis tooling exist. A characterization sequence is:
 
 ```bash
+python tools/capture_dynamic_loop.py probe.jsonl \
+  --phase baseline \
+  --connection-id clips-a \
+  --duration-s 120 \
+  --truncate
+
+# Manually reduce current to the selected safer characterization value.
+# The capture tool itself MUST NOT actuate the RD6018.
+
+python tools/capture_dynamic_loop.py probe.jsonl \
+  --phase stepped \
+  --connection-id clips-a \
+  --duration-s 180
+
+# Restore and verify the original current; optional evidence capture:
+python tools/capture_dynamic_loop.py probe.jsonl \
+  --phase restored \
+  --connection-id clips-a \
+  --duration-s 120
+
 python tools/characterize_dynamic_loop.py probe.jsonl --output report.json
 ```
 
-Use `DYNAMIC_LOOP_CALIBRATION.md`. Collect actual raw timestamped baseline/step/restore traces and characterize:
-- real cadence;
+Use `DYNAMIC_LOOP_CALIBRATION.md`. The collector stores actual Vbat/current HA source timestamps and skew and discards duplicate source polls. It must reject missing source timestamps rather than turning the local polling cadence into fake measurement cadence.
+
+Collect multiple raw baseline/step/restore traces and characterize:
+- real cadence and source skew;
 - Vbat/current MAD/span and observed value steps;
 - actual measured `ΔI`/`ΔV`;
 - settling trajectory;
 - repeatability without reconnecting;
-- change after clip/lead reconnection;
+- change after clip/lead reconnection using a new `connection_id`;
 - descriptive Vout-Vbat behavior;
 - hardware/firmware/calibration identity.
 
-Only then choose production ProbePlan amplitude/timing/readback/noise thresholds. Automatic trigger policy remains disabled until calibrated.
+Only then choose production `ProbePlan` amplitude/timing/readback/noise thresholds. Automatic trigger policy remains disabled until calibrated. The existence of the collector/analyzer is **not** a BENCH-PASS by itself.
 
 ### G3 Resolved manufacturer/product boundaries — software contract, not OPEN-CAL
 
