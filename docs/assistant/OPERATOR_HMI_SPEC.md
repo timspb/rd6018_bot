@@ -1248,3 +1248,14 @@ Before writing the new renderer, review `OPERATOR_HMI_WIREFRAMES.md` screen by s
 - graph/detail/events.
 
 Implementation begins only after the storyboard is accepted.
+
+### 30.1 Review sequence
+
+Do not attempt to approve all wireframes as one visual package. Review in four operator-task passes:
+
+1. **Critical normal path** — IDLE -> battery/program -> preview -> STARTING -> MAIN/MIX -> Stop -> STOPPING -> OFF confirmed.
+2. **Abnormal path** — Cooling, hardware trip, stale telemetry, failed Start and OFF-unconfirmed containment.
+3. **Service path** — Manual, Manual-OFF, interrupted Manual, Auto Mix.
+4. **Diagnostic/maintenance path** — battery registry, SG, diagnostic evidence, graph, events and communication details.
+
+Any disagreement in pass 1 or 2 blocks renderer implementation. Passes 3/4 may be refined without weakening the primary safety HMI.
