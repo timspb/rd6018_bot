@@ -6,6 +6,26 @@ This file is the concrete screen-by-screen companion to `OPERATOR_HMI_SPEC.md`.
 
 The text below is intentionally close to what the operator would actually see. Internal identifiers and implementation details are omitted unless the screen is explicitly a technical-detail view.
 
+## Review order
+
+Do not review this document as fifty independent mockups. The design is meant to be challenged as four complete operator tasks:
+
+```text
+PASS A — normal critical path
+IDLE -> battery/program -> preview -> STARTING -> running -> Stop -> STOPPING -> OFF proof
+
+PASS B — abnormal/safety path
+Cooling -> trip -> stale telemetry -> failed Start -> OFF-unconfirmed containment
+
+PASS C — service path
+Manual -> Manual-OFF -> interrupted Manual -> Auto Mix
+
+PASS D — maintenance/diagnostics
+battery registry -> SG -> diagnostic evidence -> graph/events/comms
+```
+
+**Pass A and Pass B must be accepted before renderer implementation starts.** The rest may be refined later, but cannot weaken those two paths.
+
 Button style notation:
 
 ```text
