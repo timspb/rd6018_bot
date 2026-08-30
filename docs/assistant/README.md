@@ -13,7 +13,13 @@ Do **not** reconstruct behavior from chat history when these documents answer th
 5. **`V1_BEHAVIORAL_AUDIT.md`** — factual V1 audit against `main@8d3e2af9...`.
 6. **`HISTORY.md`** — historical record/rationale, not a competing current source.
 
-`V2_VALIDATION_PLAN.md` is the proof/gating checklist for turning PR #2 from Draft into a physically validated candidate. It does not override Decision Log strategy.
+Supporting proof/calibration documents:
+- `V2_VALIDATION_PLAN.md` — Draft -> physically validated pre-merge gate plan;
+- `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
+- `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
+- `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
+
+These supporting documents never override Decision Log strategy.
 
 ## Current branch boundary
 
@@ -23,7 +29,8 @@ Production V2 deliberately distinguishes:
 - chemistry / intent / program / stage;
 - Manual authority from Pb chemistry authority;
 - commanded / configured-readback / measured RD values;
-- durable diagnostic evidence from transient diagnostic action authority.
+- durable diagnostic evidence from transient diagnostic action authority;
+- raw external evidence from an explicitly selected corrected/derived view.
 
 ## Closed contracts that must not be rediscovered from chat
 
@@ -37,18 +44,25 @@ Production V2 deliberately distinguishes:
 - 24–48h heavy-recovery rest is diagnostic recommendation, never time lockout;
 - Manual may carry optional physical `battery_id` for history only;
 - persisted Manual restores `INTERRUPTED` and requires explicit fresh re-authorization;
-- diagnostic in-flight actions never auto-resume after restart; derived authority is recomputed from evidence.
+- diagnostic in-flight actions never auto-resume after restart; derived authority is recomputed from evidence;
+- SG access is explicit per physical battery; AGM never SG; EFB/Ca/Flooded chemistry alone never grants access;
+- manufacturer SG correction is explicit and never inferred; a temperature-compensated hydrometer is never corrected twice;
+- generic EFB AUTO/Recovery/Conditioning chemistry ceiling is 16.5 V; 17.5 V is Manual/Custom outer authority, not an EFB entitlement.
 
 ## Current implementation landmarks
 
-For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D052. Recent implementation groups include:
+For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D054. Recent implementation groups include:
 - corrected RD telemetry/readback and safety envelope;
 - Cooling/session-recovery/Mix timing normalization;
 - hypothesis/SG/dynamic-loop evidence;
 - unified Manual authority and quick-command migration;
 - AUTO semantics + Auto Mix + AUTO Manual-OFF;
 - diagnostic action journal/restart recovery (D051);
-- optional Manual battery identity + interrupted-request review/re-authorization (D052).
+- optional Manual battery identity + interrupted-request review/re-authorization (D052);
+- SG access/correction/prompt contract (D053);
+- generic EFB >16.5 V expert chemistry extension removed (D054);
+- labeled Bank-Fault calibration harness for Q004/Q013;
+- raw probe characterization harness for Q005/Q014.
 
 ## Validation boundary
 
@@ -59,7 +73,10 @@ Unit CI proves software contracts only. Before merge, follow `V2_VALIDATION_PLAN
 - interrupted diagnostic-probe restart test;
 - interrupted Manual restart/reauthorization test;
 - representative real-battery AUTO and Auto Mix traces;
-- calibration/open-policy gates Q004/Q005/Q011/Q012/Q013/Q014.
+- Q004/Q013 labeled Bank-Fault calibration;
+- Q005/Q014 actual RD/HA cadence, ADC/noise, current-step and reconnection characterization.
+
+Q011 and Q012 are no longer open gates: their production contracts are D054 and D053. Q004/Q005/Q013/Q014 remain empirically open; Q015 remains final physical compatibility/merge gate.
 
 ## Maintenance
 
