@@ -39,7 +39,7 @@ class LegacyRecipeAdapterTests(unittest.TestCase):
         self.assertTrue(auth.allowed)
         self.assertEqual(auth.stage_kind, "hv")
 
-    def test_efb_17_5_requires_conditioning_expert_authorization(self):
+    def test_efb_expert_flag_does_not_authorize_17_5v(self):
         context = build_legacy_charge_context(
             profile="EFB", capacity_ah=70, battery_id="efb-1",
             intent=ChargeIntent.CONDITIONING, condition=BatteryCondition.REHYDRATED,
@@ -47,8 +47,10 @@ class LegacyRecipeAdapterTests(unittest.TestCase):
         ordinary = authorize_legacy_target(context, stage="conditioning", target_voltage_v=17.5, target_current_a=3.0, expert_high_voltage=False)
         expert = authorize_legacy_target(context, stage="conditioning", target_voltage_v=17.5, target_current_a=3.0, expert_high_voltage=True)
         self.assertFalse(ordinary.allowed)
-        self.assertTrue(expert.allowed)
-        self.assertTrue(expert.envelope.expert_authorized)
+        self.assertFalse(expert.allowed)
+        self.assertEqual(expert.envelope.voltage_ceiling_v, 16.5)
+        self.assertFalse(expert.envelope.expert_authorized)
+        self.assertIn("voltage ceiling", expert.reason)
 
     def test_current_ceiling_is_stage_sensitive(self):
         context = build_legacy_charge_context(profile="EFB", capacity_ah=70, battery_id="efb-1", intent=ChargeIntent.RECOVERY)
