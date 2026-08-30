@@ -26,6 +26,18 @@ battery registry -> SG -> diagnostic evidence -> graph/events/comms
 
 **Pass A and Pass B must be accepted before renderer implementation starts.** The rest may be refined later, but cannot weaken those two paths.
 
+## Review decisions to make explicitly
+
+The following are intentionally **not** silently frozen by the wireframes and should be approved/rejected during review:
+
+1. Healthy operator Stop uses an explicit confirmation card before issuing OFF. Safety-triggered OFF never asks for confirmation.
+2. Battery-first is the primary New Program flow for registered batteries; ad-hoc chemistry/Ah is the fallback.
+3. `Обычный заряд` is the dominant program choice; Auto Mix remains first-level; Conditioning remains first-level during V2 validation and may later move under service actions.
+4. L2 keeps power initially, while PSU temperature is secondary-normal / promoted-when-abnormal.
+5. Storage completion produces one meaningful notification that explicitly says Output remains ON.
+6. Private-chat topics are not introduced in the first HMI migration.
+7. Mini App is not built first and never becomes the sole safety control path.
+
 Button style notation:
 
 ```text
