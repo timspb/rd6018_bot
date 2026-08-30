@@ -44,8 +44,8 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         Home Assistant exposes ``last_reported`` even when an entity's value did not
         change. Legacy HassClient predates that field and only copies ``last_updated``.
         Patch its metadata formatter at the V2 boundary so flat temperature/current,
-        switch and protection values do not look stale merely because their value stayed
-        identical.
+        switch, protection and regulation values do not look stale merely because their
+        value stayed identical.
         """
         if getattr(self.hass, "_v2_last_reported_metadata_bridge", False):
             return
@@ -137,6 +137,10 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
                     return f"live protection/readback {key} is missing/unavailable"
         return None
 
+    @staticmethod
+    def _available(value: Any) -> bool:
+        return value not in (None, "", "unknown", "unavailable")
+
     def _runtime_freshness_error(
         self,
         live: dict[str, Any],
@@ -150,10 +154,22 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         # Protection is dynamic safety state even when its normal value remains zero.
         # Prefer raw register 16 when deployed; otherwise age-gate both legacy OVP/OCP
         # views. `last_reported` prevents a stable NORMAL value from looking stale.
-        if live.get("protection_code") not in (None, "", "unknown", "unavailable"):
+        if self._available(live.get("protection_code")):
             keys.append("protection_code")
         else:
             keys.extend(("ovp_triggered", "ocp_triggered"))
+
+        # CV/CC is chemistry-transition evidence. An old CV=True sample is materially
+        # different from an unavailable mode: it can falsely satisfy Main/Mix evidence.
+        # Therefore age-gate the mode source whenever deployed, without making an absent
+        # migration-era mode sensor a new hard actuator prerequisite.
+        if output_state is True:
+            if self._available(live.get("regulation_code")):
+                keys.append("regulation_code")
+            else:
+                for key in ("is_cv", "is_cc"):
+                    if self._available(live.get(key)):
+                        keys.append(key)
 
         freshness = telemetry_freshness(live, keys)
         if freshness.valid:
@@ -200,7 +216,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"set current {set_i:.3f}A exceeds runtime envelope"
         if actual_i > self.policy.absolute_current_ceiling_a + self.READBACK_TOLERANCE:
             return f"measured current {actual_i:.3f}A exceeds absolute working-current envelope"
-        if actual_i > ocp + self.READBACK_TOLERANCE:
+        if actual_i > ocp + self.policy.protection_readback_tolerance:
             return f"measured current {actual_i:.3f}A exceeds configured OCP {ocp:.3f}A"
         if ovp > self.policy.absolute_ovp_ceiling_v + self.READBACK_TOLERANCE:
             return f"OVP {ovp:.3f}V exceeds absolute protection ceiling"
