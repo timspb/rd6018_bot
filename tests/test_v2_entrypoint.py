@@ -4,6 +4,7 @@ import unittest
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+from diagnostic_persistence import DiagnosticActionJournal
 from production_controller import ProductionChargeControllerV2
 
 
@@ -23,6 +24,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("v2_profile_agm", callbacks)
         self.assertIn("v2_batteries", callbacks)
         self.assertIn("v2_mix", callbacks)
+        self.assertIn("v2_manual_choose", callbacks)
 
         dashboard = bot._build_dashboard_keyboard(False, 1)
         dashboard_callbacks = {
@@ -56,6 +58,10 @@ class V2EntrypointTests(unittest.TestCase):
             callback_names.index("battery_select_handler"),
             "v2_battery_start must not be swallowed by the generic v2_battery_* selector",
         )
+
+    def test_diagnostic_action_journal_is_installed(self):
+        self.assertIsInstance(bot.diagnostic_action_journal, DiagnosticActionJournal)
+        self.assertTrue(hasattr(bot, "controlled_diagnostic_probe"))
 
 
 if __name__ == "__main__":
