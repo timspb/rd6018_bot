@@ -5,7 +5,7 @@ import time
 from typing import Any, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
-from rd6018_telemetry import ProtectionStatus, resolve_protection
+from rd6018_telemetry import ProtectionStatus, resolve_protection, telemetry_freshness
 from runtime_safety import RuntimeSafetyError, _binary, _finite
 from runtime_safety_strict import StrictRuntimeSafetyGuard
 
@@ -22,6 +22,19 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     a manual session is managed output, not an orphan output, and uses the absolute
     17.5 V envelope rather than the legacy 16.6 V profile ceiling.
     """
+
+    # These are continuously sampled physical channels. Their source timestamps are
+    # suitable for stale-data detection. Static configuration/readback entities such as
+    # OVP/OCP/Vset/Iset are still validated every poll, but their HA timestamps are not
+    # used as heartbeats because an unchanged setpoint may legitimately remain unchanged
+    # for hours. The local edge lease independently proves fresh RD6018 Modbus + Output
+    # register access in production.
+    RUNTIME_FRESHNESS_KEYS = (
+        "battery_voltage",
+        "current",
+        "temp_ext",
+        "temp_int",
+    )
 
     @property
     def manual_active(self) -> bool:
@@ -98,6 +111,20 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
                 if _finite(live.get(key)) is None:
                     return f"live protection/readback {key} is missing/unavailable"
         return None
+
+    def _runtime_freshness_error(
+        self,
+        live: dict[str, Any],
+        *,
+        output_state: Optional[bool],
+    ) -> Optional[str]:
+        keys = list(self.RUNTIME_FRESHNESS_KEYS)
+        if output_state is True:
+            keys.append("voltage")
+        freshness = telemetry_freshness(live, keys)
+        if freshness.valid:
+            return None
+        return f"critical runtime telemetry is stale/incoherent: {freshness.detail}"
 
     def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
         protection = resolve_protection(live)
@@ -176,6 +203,17 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
         if error is not None:
             await self._fail_closed("telemetry_invalid", error, output_state=output_state)
+
+        freshness_error = self._runtime_freshness_error(
+            live,
+            output_state=output_state,
+        )
+        if freshness_error is not None:
+            await self._fail_closed(
+                "telemetry_stale",
+                freshness_error,
+                output_state=output_state,
+            )
 
         if output_state is False:
             self._off_unconfirmed = False
