@@ -5,6 +5,7 @@ import time
 from typing import Any, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
+from rd6018_telemetry import ProtectionStatus, resolve_protection
 from runtime_safety import RuntimeSafetyError, _binary, _finite
 from runtime_safety_strict import StrictRuntimeSafetyGuard
 
@@ -42,15 +43,38 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         *,
         require_programming: bool,
     ) -> Optional[str]:
-        # Vin is intentionally absent.  Missing/low Vin may be surfaced by PSU-health
+        # Vin is intentionally absent. Missing/low Vin may be surfaced by PSU-health
         # diagnostics but may not masquerade as a battery safety event.
-        for key in ("battery_voltage", "current", "temp_ext", "temp_int"):
+        numeric_keys = ["battery_voltage", "current", "temp_ext", "temp_int"]
+        if require_programming:
+            # V_OUT is measured physical output, distinct from configured Vset. Once
+            # Output is ON it is part of the hard actuator envelope and may not vanish.
+            numeric_keys.append("voltage")
+        for key in numeric_keys:
             if _finite(live.get(key)) is None:
                 return f"required telemetry {key} is missing/unavailable"
 
-        for key in ("switch", "ovp_triggered", "ocp_triggered"):
-            if _binary(live.get(key)) is None:
-                return f"required telemetry {key} is missing/unavailable"
+        if _binary(live.get("switch")) is None:
+            return "required telemetry switch is missing/unavailable"
+
+        raw_protection_available = live.get("protection_code") not in (
+            None,
+            "",
+            "unknown",
+            "unavailable",
+        )
+        if not raw_protection_available:
+            for key in ("ovp_triggered", "ocp_triggered"):
+                if _binary(live.get(key)) is None:
+                    return f"required telemetry {key} is missing/unavailable"
+
+        protection = resolve_protection(live)
+        if protection.status is ProtectionStatus.UNKNOWN:
+            return "RD6018 protection status is unknown"
+        # Legacy runtime knows how to report OVP/OCP precisely. OPP has no legacy
+        # boolean trip path, so V2 must fail closed here instead of silently missing it.
+        if protection.status is ProtectionStatus.OPP:
+            return "RD6018 OPP protection is tripped"
 
         battery_v = _finite(live.get("battery_voltage"))
         assert battery_v is not None
@@ -76,22 +100,27 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         return None
 
     def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
-        # A real OVP/OCP trip is handled by the strict hardware-trip path below.
-        if _binary(live.get("ovp_triggered")) or _binary(live.get("ocp_triggered")):
+        protection = resolve_protection(live)
+        # A real OVP/OCP trip is handled by the strict hardware-trip path below so the
+        # existing operator event can still identify the exact trip. Unknown/OPP were
+        # already rejected by _critical_telemetry_error().
+        if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
             return None
 
         set_v = _finite(live.get("set_voltage"))
         set_i = _finite(live.get("set_current"))
         ovp = _finite(live.get("ovp"))
         ocp = _finite(live.get("ocp"))
+        actual_v = _finite(live.get("voltage"))
         actual_i = _finite(live.get("current"))
-        if None in (set_v, set_i, ovp, ocp, actual_i):
-            return "programming/readback became invalid while output was ON"
+        if None in (set_v, set_i, ovp, ocp, actual_v, actual_i):
+            return "programming/readback/measured output became invalid while output was ON"
         assert (
             set_v is not None
             and set_i is not None
             and ovp is not None
             and ocp is not None
+            and actual_v is not None
             and actual_i is not None
         )
 
@@ -100,10 +129,18 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"set voltage {set_v:.3f}V exceeds recipe ceiling {recipe_ceiling:.3f}V"
         if set_v > self.policy.absolute_voltage_ceiling_v + self.READBACK_TOLERANCE:
             return f"set voltage {set_v:.3f}V exceeds absolute ceiling"
+        if actual_v > recipe_ceiling + self.READBACK_TOLERANCE:
+            return f"measured output voltage {actual_v:.3f}V exceeds recipe ceiling {recipe_ceiling:.3f}V"
+        if actual_v > self.policy.absolute_voltage_ceiling_v + self.READBACK_TOLERANCE:
+            return f"measured output voltage {actual_v:.3f}V exceeds absolute ceiling"
+        if actual_v > ovp + self.READBACK_TOLERANCE:
+            return f"measured output voltage {actual_v:.3f}V exceeds configured OVP {ovp:.3f}V"
         if set_i <= 0 or set_i > float(MAX_STAGE_CURRENT) + self.READBACK_TOLERANCE:
             return f"set current {set_i:.3f}A exceeds runtime envelope"
-        if actual_i > self.policy.absolute_ocp_ceiling_a + self.READBACK_TOLERANCE:
-            return f"measured current {actual_i:.3f}A exceeds absolute runtime envelope"
+        if actual_i > self.policy.absolute_current_ceiling_a + self.READBACK_TOLERANCE:
+            return f"measured current {actual_i:.3f}A exceeds absolute working-current envelope"
+        if actual_i > ocp + self.READBACK_TOLERANCE:
+            return f"measured current {actual_i:.3f}A exceeds configured OCP {ocp:.3f}A"
         if ovp > self.policy.absolute_ovp_ceiling_v + self.READBACK_TOLERANCE:
             return f"OVP {ovp:.3f}V exceeds absolute protection ceiling"
         if ocp > self.policy.absolute_ocp_ceiling_a + self.READBACK_TOLERANCE:
@@ -167,11 +204,11 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
                     output_state=True,
                 )
 
-            if (
-                _binary(live.get("ovp_triggered")) is True
-                or _binary(live.get("ocp_triggered")) is True
-            ):
-                await self._ensure_output_off("hardware OVP/OCP protection trip")
+            protection = resolve_protection(live)
+            if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
+                await self._ensure_output_off(
+                    f"hardware {protection.status.value.upper()} protection trip"
+                )
                 return live
 
             temp_int = _finite(live.get("temp_int"))
