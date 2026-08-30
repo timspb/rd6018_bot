@@ -2,7 +2,7 @@
 
 > Only unresolved strategy/product questions live here. Resolved behavior belongs in `V2_DECISION_LOG.md`.
 
-Q001, Q002, Q003, Q006, Q007, Q008, Q009 and Q010 are intentionally retired: initial PREP handling, Manual identity/re-authorization, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72h Main fallback, AGM recovery policy and diagnostic restart persistence now have accepted/implemented contracts.
+Q001, Q002, Q003, Q006, Q007, Q008, Q009, Q010 and Q012 are intentionally retired: initial PREP handling, Manual identity/re-authorization, AUTO Manual-OFF semantics, post-heavy-recovery rest authority, intent semantics, 72h Main fallback, AGM recovery policy, diagnostic restart persistence and SG access/correction/prompt policy now have accepted/implemented contracts.
 
 ## Q004 — Cell-fault/HV-block calibration and false-positive strategy
 Architecture and a conservative deterministic rule exist: ordinary heuristic risk or first SG imbalance does not veto corrective HV; automatic HV is denied only for strong cell-fault evidence, including explicit external confirmation or high-confidence multi-signal evidence with independent confirmation classes. Diagnostic inference itself cannot create a hard safety stop.
@@ -34,22 +34,10 @@ Still define before automatic triggering:
 ## Q011 — Expert EFB 17.2–17.5 V workflow
 17.5V is absolute controller/manual ceiling, not standard recipe. Before expert EFB HV becomes selectable define prerequisites/evidence, confirmation UX, current/time/thermal limits, exclusions, watchdog/readback requirements, audit label and authorization expiry. Per D051, any expert authorization must be revoked by process restart.
 
-## Q012 — Specific-gravity correction/prompt policy
-Foundation and Telegram entry exist:
-- saved physical battery selection;
-- six positional cell slots;
-- missing cell explicit `None`;
-- raw SG retained;
-- timestamp, measurement temperature, context/source/notes stored;
-- full spread >=0.030 means imbalance/stratification evidence, not confirmed failed cell and not automatic equalization veto.
-
-Still define:
-- manufacturer/hydrometer-specific temperature correction policy;
-- which charge/diagnostic points proactively request SG;
-- applicability metadata for flooded vs inaccessible-cell EFB designs.
-
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
 Hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and conservative automatic-HV veto boundary. Scores/confidence still need validation against real stored traces rather than cosmetic tuning.
+
+SG prompt eligibility is now deterministic (D053): only the exact physical battery with confirmed serviceable electrolyte access can be prompted, and only at diagnostic VERIFY+ for SG-relevant hypotheses or as a post-corrective retest of prior imbalance. Q013 still owns the calibration that decides when evidence reaches VERIFY/PROBABLE/HIGH.
 
 ## Q014 — RD6018 dynamic-loop/relay-path calibration
 Need on-device characterization of:
@@ -77,7 +65,7 @@ Before merging V2 to `main`, verify traceably:
 - restart/restore including diagnostic action journal;
 - link loss / edge lease / fast HV watchdog;
 - RD readback/protection decode;
-- Bank Fault/SG diagnostics;
+- Bank Fault/SG diagnostics including physical SG access gating and explicit correction metadata;
 - Telegram dashboard/operator messages;
 - exact ESPHome node compile/flash and physical RD6018 smoke/bench tests.
 
