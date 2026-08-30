@@ -16,6 +16,10 @@ from diagnostic_persistence import (
     install_diagnostic_persistence,
     recover_diagnostic_persistence,
 )
+from manual_context_v2 import (
+    install_manual_context_preprocessor,
+    install_manual_context_ui,
+)
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -27,6 +31,11 @@ def _env_enabled(name: str, default: bool = True) -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
+# The battery-bound Manual preprocessor must be registered before the generic numeric
+# Manual middleware installed by install_v2(); this gives an explicitly selected
+# physical battery ownership of the next numeric message without changing Manual V/I.
+install_manual_context_preprocessor(_legacy)
+
 # Production controller + actuator safety are always installed. V2_UI controls only
 # presentation, exactly as documented; rolling the Telegram UI back must not remove
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
@@ -36,6 +45,7 @@ install_auto_manual_off_contract(_legacy)
 install_diagnostic_persistence(_legacy)
 if _v2_ui_enabled:
     install_mix_only_mode(_legacy)
+    install_manual_context_ui(_legacy)
 
 _legacy_main = _legacy.main
 
