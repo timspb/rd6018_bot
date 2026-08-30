@@ -65,6 +65,38 @@ class RD6018TelemetryTests(unittest.TestCase):
         stale = {"_meta": {"battery_voltage": {"status": "ok", "last_updated": old}}}
         self.assertFalse(telemetry_freshness(stale, ["battery_voltage"], max_age_s=20).valid)
 
+    def test_last_reported_wins_over_unchanged_last_updated(self):
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(hours=2)).isoformat()
+        live = {
+            "_meta": {
+                "temp_ext": {
+                    "status": "ok",
+                    "last_updated": old,
+                    "last_reported": now.isoformat(),
+                }
+            }
+        }
+        freshness = telemetry_freshness(live, ["temp_ext"], max_age_s=20)
+        self.assertTrue(freshness.valid)
+        self.assertLess(freshness.max_age_s or 0.0, 2.0)
+
+    def test_stale_last_reported_is_rejected_even_if_value_is_valid(self):
+        now = datetime.now(timezone.utc)
+        stale = (now - timedelta(seconds=30)).isoformat()
+        live = {
+            "_meta": {
+                "temp_ext": {
+                    "status": "ok",
+                    "last_updated": now.isoformat(),
+                    "last_reported": stale,
+                }
+            }
+        }
+        freshness = telemetry_freshness(live, ["temp_ext"], max_age_s=20)
+        self.assertFalse(freshness.valid)
+        self.assertIn("temp_ext stale", freshness.detail)
+
     def test_relay_path_drop_is_observational_only_under_loaded_battery_mode(self):
         live = {"switch": "on", "battery_mode": "on", "current": 10.0, "voltage": 14.82, "battery_voltage": 14.79}
         self.assertAlmostEqual(relay_path_drop_v(live), 0.03, places=6)
