@@ -69,17 +69,20 @@ class HassClient:
 
     @staticmethod
     def _entity_metadata(entity_id: str, data: Dict[str, Any], status: str) -> Dict[str, Any]:
+        last_reported = data.get("last_reported")
         last_updated = data.get("last_updated")
+        heartbeat = last_reported if isinstance(last_reported, str) else last_updated
         age_s = None
-        if isinstance(last_updated, str):
+        if isinstance(heartbeat, str):
             try:
-                text = last_updated[:-1] + "+00:00" if last_updated.endswith("Z") else last_updated
+                text = heartbeat[:-1] + "+00:00" if heartbeat.endswith("Z") else heartbeat
                 age_s = max(0.0, time.time() - datetime.fromisoformat(text).timestamp())
             except (TypeError, ValueError, OverflowError):
                 age_s = None
         return {
             "entity_id": entity_id,
             "status": status,
+            "last_reported": last_reported,
             "last_updated": last_updated,
             "last_changed": data.get("last_changed"),
             "age_s": age_s,
@@ -101,6 +104,7 @@ class HassClient:
                 data = await resp.json()
                 state = data.get("state")
                 attrs = dict(data.get("attributes", {}))
+                attrs["_ha_last_reported"] = data.get("last_reported")
                 attrs["_ha_last_updated"] = data.get("last_updated")
                 attrs["_ha_last_changed"] = data.get("last_changed")
 
@@ -337,7 +341,14 @@ class HassClient:
                 ent = bulk.get(eid)
                 if ent is None:
                     result[key] = None
-                    meta[key] = {"entity_id": eid, "status": "missing", "last_updated": None, "last_changed": None, "age_s": None}
+                    meta[key] = {
+                        "entity_id": eid,
+                        "status": "missing",
+                        "last_reported": None,
+                        "last_updated": None,
+                        "last_changed": None,
+                        "age_s": None,
+                    }
                     continue
                 state, status = self._parse_entity_state(ent)
                 result[key] = state
@@ -345,7 +356,7 @@ class HassClient:
             result["_meta"] = meta
             return dict(canonicalize_live(result))
 
-        # Fallback preserves timestamps copied into attrs by get_state().
+        # Fallback preserves the same source heartbeat semantics as bulk /api/states.
         now_iso = datetime.now(timezone.utc).isoformat()
         for key in keys:
             eid = ENTITY_MAP.get(key)
@@ -353,17 +364,18 @@ class HassClient:
                 continue
             state, attrs = await self.get_state(eid)
             result[key] = state
-            last_updated = attrs.get("_ha_last_updated")
             status = "ok" if state not in (None, "unknown", "unavailable", "") else "unknown"
-            meta[key] = {
-                "entity_id": eid,
-                "status": status,
-                "last_updated": last_updated,
-                "last_changed": attrs.get("_ha_last_changed"),
-                # Do not invent freshness if HA did not provide a source timestamp.
-                "age_s": None if last_updated is None else 0.0,
-                "fetched_at": now_iso,
-            }
+            metadata = self._entity_metadata(
+                eid,
+                {
+                    "last_reported": attrs.get("_ha_last_reported"),
+                    "last_updated": attrs.get("_ha_last_updated"),
+                    "last_changed": attrs.get("_ha_last_changed"),
+                },
+                status,
+            )
+            metadata["fetched_at"] = now_iso
+            meta[key] = metadata
         result["_meta"] = meta
         return dict(canonicalize_live(result))
 
