@@ -10,6 +10,10 @@ from recipe_output import RecipeEnableResult, enable_authorized_recipe_target
 from recovery_runtime import RecoveryRuntime
 
 
+class RecoveryOutputOffUnconfirmed(RuntimeError):
+    """Recovery software state may not retire while physical Output OFF is unproved."""
+
+
 @dataclass(frozen=True)
 class RecoveryStartResult:
     started: bool
@@ -19,12 +23,23 @@ class RecoveryStartResult:
 
 
 class RecoveryOrchestrator:
-    """Coordinate battery context, recipe authorization, safe output and V2 evidence."""
+    """Coordinate battery context, recipe authorization, safe output and V2 evidence.
+
+    Once a protected enable succeeds, the orchestrator retains containment authority
+    until either the runtime is active or physical Output OFF has been positively
+    confirmed. A failed/raised OFF command may therefore never be converted into an
+    inactive software state that would permit another start on an uncertain live output.
+    """
 
     def __init__(self, output_adapter, *, runtime: Optional[RecoveryRuntime] = None) -> None:
         self.output_adapter = output_adapter
         self.runtime = runtime or RecoveryRuntime()
         self._authorization: Optional[LegacyRecipeAuthorization] = None
+
+    @property
+    def containment_active(self) -> bool:
+        """True while this object still owns a possibly energized recovery output."""
+        return self._authorization is not None
 
     async def _load_context(self, battery_id: str, intent: ChargeIntent) -> tuple[BatteryRecord, ChargeContext]:
         record = await get_battery(battery_id)
@@ -36,6 +51,19 @@ class RecoveryOrchestrator:
             condition=record.lifecycle.condition,
         )
         return record, context
+
+    async def _confirm_output_off(self, *, context: str) -> None:
+        """Return only after the adapter positively confirms Output OFF."""
+        try:
+            confirmed = bool(await self.output_adapter.turn_off())
+        except Exception as exc:
+            raise RecoveryOutputOffUnconfirmed(
+                f"{context}: output OFF raised {type(exc).__name__}: {exc}"
+            ) from exc
+        if not confirmed:
+            raise RecoveryOutputOffUnconfirmed(
+                f"{context}: output OFF was not confirmed"
+            )
 
     async def start_target(
         self,
@@ -50,8 +78,8 @@ class RecoveryOrchestrator:
         custom_voltage_ceiling_v: Optional[float] = None,
         readback_delay_s: float = 0.0,
     ) -> RecoveryStartResult:
-        if self.runtime.active:
-            return RecoveryStartResult(False, "recovery session already active")
+        if self.runtime.active or self.containment_active:
+            return RecoveryStartResult(False, "recovery session/containment already active")
 
         try:
             record, context = await self._load_context(battery_id, intent)
@@ -82,6 +110,9 @@ class RecoveryOrchestrator:
                 enable_result=enable_result,
             )
 
+        # Safe enable has succeeded: from this point forward software must retain an
+        # owner until either RecoveryRuntime starts or Output OFF is positively proved.
+        self._authorization = authorization
         try:
             await self.runtime.start(
                 battery_id=battery_id,
@@ -89,11 +120,15 @@ class RecoveryOrchestrator:
                 intent=intent,
                 condition_before=record.lifecycle.condition,
             )
-        except Exception:
-            await self.output_adapter.turn_off()
+        except Exception as exc:
+            try:
+                await self._confirm_output_off(context="recovery runtime start failed")
+            except RecoveryOutputOffUnconfirmed as off_exc:
+                # Deliberately retain _authorization so a subsequent start is blocked.
+                raise off_exc from exc
+            self._authorization = None
             raise
 
-        self._authorization = authorization
         return RecoveryStartResult(
             True,
             f"started {authorization.envelope.recipe_id}",
@@ -135,6 +170,7 @@ class RecoveryOrchestrator:
 
     async def abort(self, *, turn_output_off: bool = True) -> None:
         if turn_output_off:
-            await self.output_adapter.turn_off()
+            # Do not retire runtime/authorization until physical OFF is confirmed.
+            await self._confirm_output_off(context="recovery abort")
         self.runtime.abort()
         self._authorization = None
