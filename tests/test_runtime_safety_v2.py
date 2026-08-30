@@ -82,7 +82,18 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     def _with_freshness(live, *, ages=None, old_static=False):
         ages = dict(ages or {})
         now = datetime.now(timezone.utc)
-        dynamic = ("battery_voltage", "current", "temp_ext", "temp_int", "voltage")
+        dynamic = (
+            "battery_voltage",
+            "current",
+            "temp_ext",
+            "temp_int",
+            "voltage",
+            "switch",
+            "ovp_triggered",
+            "ocp_triggered",
+        )
+        if live.get("protection_code") not in (None, "", "unknown", "unavailable"):
+            dynamic = dynamic + ("protection_code",)
         meta = {}
         for key in dynamic:
             age = float(ages.get(key, 0.0))
@@ -94,7 +105,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             }
         if old_static:
             old = (now - timedelta(hours=6)).isoformat()
-            for key in ("switch", "ovp_triggered", "ocp_triggered", "set_voltage", "set_current", "ovp", "ocp", "input_voltage"):
+            for key in ("set_voltage", "set_current", "ovp", "ocp", "input_voltage"):
                 meta[key] = {
                     "status": "ok",
                     "last_reported": old,
@@ -211,6 +222,32 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         app = self._app(live)
         guard = self._guard(app)
         with self.assertRaisesRegex(RuntimeSafetyError, "voltage stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_stale_output_switch_state_fails_closed(self):
+        live = self._with_freshness(self._live(), ages={"switch": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "switch stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_stale_legacy_protection_state_fails_closed(self):
+        live = self._with_freshness(self._live(), ages={"ovp_triggered": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "ovp_triggered stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_stale_raw_protection_code_fails_closed(self):
+        live = self._live()
+        live["protection_code"] = 0
+        live = self._with_freshness(live, ages={"protection_code": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "protection_code stale"):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
 
