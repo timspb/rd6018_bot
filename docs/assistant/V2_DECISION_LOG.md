@@ -161,6 +161,9 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D052 — Manual battery identity is optional metadata; interrupted Manual requires explicit fresh re-authorization
 **ACCEPTED / IMPLEMENTED.** Operator may bind Manual to a saved physical `battery_id` solely for longitudinal history/diagnostics. Saved chemistry/capacity never changes Manual V/I, OVP/OCP or permissions. After process restart, the preserved request is reviewable as `INTERRUPTED`; operator must explicitly re-authorize. Re-authorization runs a complete fresh telemetry/safety/readback/Output transaction and restarts active-time accounting. A missing/deleted saved battery binding prevents reusing that bound request until operator chooses an actual battery or an unbound new Manual request.
 
+## D053 — SG access, hydrometer and temperature correction are explicit metadata
+**ACCEPTED / IMPLEMENTED.** Electrolyte access is stored per physical battery as `UNKNOWN/SERVICEABLE/INACCESSIBLE`; chemistry alone never grants access. AGM is never prompted for SG. EFB/Ca/Flooded require explicit `SERVICEABLE` before SG is accepted or proactively requested. Hydrometer mode and correction profile belong to each measurement. Raw SG remains primary durable evidence. A temperature-compensated hydrometer is never corrected twice. Named Trojan-80F or Rolls-25C software conventions require an explicitly declared raw hydrometer and electrolyte temperature and are never inferred from manufacturer/model text. Routine charges do not nag for SG; proactive prompts are limited to SG-relevant `VERIFY+` diagnostics or post-corrective retest of a prior imbalance. Missing/inaccessible SG never increases fault confidence. Detailed source/policy: `SG_POLICY_V2.md`.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -174,6 +177,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `8a7bec13...`: AUTO Manual-OFF isolated from chemistry authority.
 - `dd7e3af...` + `c3a4957...` + `3ebf6a5...`: diagnostic action journal, startup recovery and tests.
 - `0bcec05...` + `6981f1b...` + `00d877e...`: Manual optional physical-battery identity and interrupted-request reauthorization UX/tests.
+- `a8d7261...` + `225531e...` + `15d0e4d...`: explicit SG access, measurement correction metadata, prompt policy and tests.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
