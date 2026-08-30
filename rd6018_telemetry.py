@@ -153,7 +153,13 @@ def telemetry_freshness(
     max_skew_s: float = DEFAULT_CRITICAL_MAX_SKEW_S,
     now_epoch_s: Optional[float] = None,
 ) -> TelemetryFreshness:
-    """Fail closed on stale HA values once source metadata is available."""
+    """Fail closed on stale HA values once source metadata is available.
+
+    Home Assistant's ``last_reported`` is the correct heartbeat timestamp because it
+    advances whenever an integration writes an entity even if the numerical value did
+    not change. ``last_updated`` is retained as a compatibility fallback for older HA
+    responses/adapters that do not expose ``last_reported``.
+    """
     meta = live.get("_meta")
     if not isinstance(meta, Mapping):
         return TelemetryFreshness(True)
@@ -168,7 +174,9 @@ def telemetry_freshness(
         status = str(entry.get("status") or "ok").lower()
         if status != "ok":
             return TelemetryFreshness(False, f"{key} status={status}")
-        ts = _parse_iso_timestamp(entry.get("last_updated"))
+        ts = _parse_iso_timestamp(entry.get("last_reported"))
+        if ts is None:
+            ts = _parse_iso_timestamp(entry.get("last_updated"))
         if ts is None:
             age_from_meta = finite_float(entry.get("age_s"))
             if age_from_meta is None:
