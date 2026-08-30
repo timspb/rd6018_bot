@@ -78,7 +78,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED SAFETY INVARIANT / IMPLEMENTED.** Persisted active/arming/cooling Manual state restores as `INTERRUPTED`; Output ON requires fresh operator re-authorization and normal safe-enable checks.
 
 ## D025 — Manual OFF / manual stop conditions are operator kill conditions
-**ACCEPTED / IMPLEMENTED FOR MANUAL.** V>=, V<=, V=/reach, I>=, I<=, I=/reach, timer and equivalent Manual stop conditions are not chemistry evidence. Persistent legacy Manual-OFF is observed by managed Manual so Output cannot be OFF while Manual remains logically ACTIVE. Automatic-profile interaction remains Q003.
+**ACCEPTED / IMPLEMENTED.** V>=, V<=, V=/reach, I>=, I<=, I=/reach, timer and equivalent Manual stop conditions are not chemistry evidence. Persistent legacy Manual-OFF is observed by managed Manual so Output cannot be OFF while Manual remains logically ACTIVE. For automatic profiles its semantics are defined separately by D050.
 
 ## D026 — bank/cell fault inference must be hypothesis-specific
 **ACCEPTED / FOUNDATION IMPLEMENTED.** Replace one generic “bad battery” score with hypotheses such as cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality and charger/path fault. V1 heuristic score remains evidence, never proof.
@@ -152,6 +152,9 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D049 — Auto Mix is a first-class direct-entry automatic program, not a new intent
 **ACCEPTED / IMPLEMENTED.** Operator may explicitly start an automatic Mix-only program for Ca/Ca, EFB or AGM. It creates the session directly in `STAGE_MIX`; PREP, Main and intermediate Recovery/Desulfation are not entered even transiently. This is an entry/program mode, while `ChargeIntent` keeps describing charging purpose. Auto Mix uses the chemistry's standard Mix target (Ca/EFB 16.5 V, AGM 16.3 V), ~0.03C current, normal 120 s evidence blanking, mode-specific Delta confirmation, sticky 2 h finish hold, Ca20/EFB24/AGM10 fallback, SAFE_WAIT and Storage. It uses the normal recipe envelope only; expert EFB 17.2–17.5 V is not implicitly authorized. `Vbat < 12.0 V` rejects Auto Mix rather than silently falling back to PREP. Strong `BLOCK_AUTOMATIC_HV` diagnostic evidence and all ordinary V2 safety/readback/watchdog gates apply before Output enable.
 
+## D050 — AUTO Manual-OFF is an asynchronous terminal kill-condition, not chemistry authority
+**ACCEPTED / IMPLEMENTED.** Arming a persistent user OFF condition during an automatic profile does **not** suppress, replace or modify PREP/Main/Recovery/Mix/72h/normal-completion decisions. Until the condition is reached, AUTO proceeds exactly as if no Manual-OFF were armed; hard safety and diagnostic authority retain their normal precedence. When the condition fires, it is an explicit user terminal OFF: `Output OFF`, controller/session stop, condition cleared. The run must not subsequently enter Done/Storage and re-energize. Production V2 therefore strips legacy `manual_off_active=True` before AUTO `tick()` while retaining the existing independent condition evaluator and `_hard_stop_charge()` path.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -163,6 +166,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `60d1bc96...`: V1-compatible AUTO intent/72h/AGM strategy plus atomic PREP skip.
 - `44738236...`: production UI/tests aligned with the accepted AUTO semantics.
 - `97a16efd...`: first-class transactional Auto Mix direct-entry program and Telegram workflow.
+- `8a7bec13...`: AUTO Manual-OFF isolated from chemistry authority; terminal hard-stop side condition preserved.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
