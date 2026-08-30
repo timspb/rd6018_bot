@@ -93,27 +93,7 @@ Key design boundaries:
 - safety-critical Rich Message controls use simple tested button rows rather than experimental table-cell interaction;
 - renderers never own actuator sequencing or authority.
 
-The storyboard is a **review gate, not implementation**. Do not start the new renderer until the critical operator path has been reviewed explicitly:
-
-```text
-IDLE
--> choose battery/program
--> preview
--> STARTING
--> MAIN/MIX
--> normal Stop
--> STOPPING
--> OFF confirmed / containment
-```
-
-Then review abnormal and service paths separately:
-
-```text
-Cooling / trip / stale telemetry / OFF-unconfirmed
-Manual / interrupted Manual
-Auto Mix
-Diagnostic / SG / battery registry
-```
+The storyboard is a **review gate, not implementation**. Review it as four operator paths in the order defined at the top of `OPERATOR_HMI_WIREFRAMES.md`. Pass A (normal critical path) and Pass B (abnormal/safety path) block renderer implementation until explicitly accepted.
 
 Current code may receive narrowly scoped wording corrections when it contradicts an already accepted V2 strategy contract; that does not mean the storyboard has been implemented.
 
