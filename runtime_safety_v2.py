@@ -147,6 +147,12 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         *,
         output_state: Optional[bool],
     ) -> Optional[str]:
+        # Production V2 is not allowed to silently fall back to value-only safety.
+        # HassClient always exposes `_meta`; its complete absence indicates an adapter
+        # regression/bypass where source age/skew can no longer be proved.
+        if not isinstance(live.get("_meta"), dict):
+            return "critical runtime telemetry freshness metadata is missing"
+
         keys = list(self.RUNTIME_FRESHNESS_KEYS)
         if output_state is True:
             keys.append("voltage")
