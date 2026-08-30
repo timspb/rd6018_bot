@@ -8,6 +8,7 @@ import time
 from typing import Any, Optional
 
 from manual_mode import (
+    MANUAL_POLL_SEC,
     ManualChargeRequest,
     ManualSessionManager,
     ManualSessionState,
@@ -38,14 +39,18 @@ class ProductionManualSessionManager(ManualSessionManager):
     """Production Manual authority with legacy-entry compatibility.
 
     The old quick ``V I third`` syntax described the third value as "reach this V/I",
-    not as a one-sided threshold.  Keeping that distinction avoids the unsafe shortcut
-    of encoding an equality as both >= and <=.  Exact-reach state is persisted next to
+    not as a one-sided threshold. Keeping that distinction avoids the unsafe shortcut
+    of encoding an equality as both >= and <=. Exact-reach state is persisted next to
     the normal Manual request and is reset across Cooling because an OFF interval breaks
     continuity between samples.
 
     The legacy persistent ``Manual OFF`` overlay remains an independent kill-condition
-    system.  When it fires during a managed Manual session, the manager owns the stop so
+    system. When it fires during a managed Manual session, the manager owns the stop so
     software state cannot remain ACTIVE after another runtime path has turned Output off.
+
+    A failed/unconfirmed OFF is special: the session deliberately remains in ARMING
+    containment instead of becoming an inactive FAILED session. That keeps the runtime
+    safety guard authoritative until physical OFF can actually be proved.
     """
 
     def __init__(self, app: Any, *, session_file: str = "manual_session_v2.json") -> None:
@@ -87,6 +92,24 @@ class ProductionManualSessionManager(ManualSessionManager):
             raise ValueError(f"{name} reach target is outside the manual safety envelope")
         return result
 
+    async def _contain_enable_exception(self, context: str, exc: Exception) -> bool:
+        confirmed_off = False
+        try:
+            confirmed_off = bool(await self.app.hass.turn_off())
+        except Exception:
+            confirmed_off = False
+        self.stop_reason = f"{context}:{type(exc).__name__}"
+        if confirmed_off:
+            self.state = ManualSessionState.FAILED
+        else:
+            # Do not become inactive while physical output state is unknown. The V2
+            # runtime guard treats ARMING as managed authority and keeps trying fail-close.
+            self.state = ManualSessionState.ARMING
+            self.stop_reason += ":output_off_unconfirmed"
+        self.cooling_started_at = None
+        self._persist()
+        return False
+
     async def start(
         self,
         request: ManualChargeRequest,
@@ -111,7 +134,10 @@ class ProductionManualSessionManager(ManualSessionManager):
         self.reach_current_a = reach_i
         self._previous_voltage_v = None
         self._previous_current_a = None
-        return await super().start(request)
+        try:
+            return await super().start(request)
+        except Exception as exc:
+            return await self._contain_enable_exception("manual_start_exception", exc)
 
     async def _retire_runner(self) -> None:
         task = self._task
@@ -145,10 +171,24 @@ class ProductionManualSessionManager(ManualSessionManager):
         )
 
     async def stop(self, reason: str = "operator_stop") -> bool:
-        confirmed = await super().stop(reason)
+        self.stop_reason = str(reason)
+        confirmed = False
+        try:
+            confirmed = bool(await self.app.hass.turn_off())
+        except Exception:
+            confirmed = False
         if confirmed:
+            self.state = ManualSessionState.STOPPED
             self._previous_voltage_v = None
             self._previous_current_a = None
+        else:
+            # FAILED is intentionally inactive; using it here would tell the runtime
+            # guard that nobody owns a potentially still-energized output. Keep a
+            # managed containment state until OFF is positively confirmed.
+            self.state = ManualSessionState.ARMING
+            self.stop_reason = f"{reason}:output_off_unconfirmed"
+        self.cooling_started_at = None
+        self._persist()
         return confirmed
 
     async def _enter_cooling(self) -> None:
@@ -157,7 +197,10 @@ class ProductionManualSessionManager(ManualSessionManager):
         await super()._enter_cooling()
 
     async def _resume_after_cooling(self) -> None:
-        await super()._resume_after_cooling()
+        try:
+            await super()._resume_after_cooling()
+        except Exception as exc:
+            await self._contain_enable_exception("manual_cooling_resume_exception", exc)
         self._previous_voltage_v = None
         self._previous_current_a = None
 
@@ -250,3 +293,27 @@ class ProductionManualSessionManager(ManualSessionManager):
             self._previous_current_a = float(current)
 
         await super().observe_once()
+
+    async def _run(self) -> None:
+        try:
+            while self.is_active:
+                await self.observe_once()
+                if not self.is_active:
+                    break
+                await asyncio.sleep(MANUAL_POLL_SEC)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.stop_reason = f"manual_runtime_error:{type(exc).__name__}"
+            confirmed_off = False
+            try:
+                confirmed_off = bool(await self.app.hass.turn_off())
+            except Exception:
+                confirmed_off = False
+            if confirmed_off:
+                self.state = ManualSessionState.FAILED
+            else:
+                self.state = ManualSessionState.ARMING
+                self.stop_reason += ":output_off_unconfirmed"
+            self.cooling_started_at = None
+            self._persist()
