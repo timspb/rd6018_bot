@@ -245,6 +245,27 @@ Limits:
 
 Automatic Pb rules не выполняются. Every start/reconfiguration проходит через transactional safe-enable; active reconfiguration делает verified OFF -> fresh enable. Persisted active Manual restores `INTERRUPTED`, never auto-ON.
 
+## AUTO user OFF condition
+
+Persistent `Manual-OFF` при запущенном автоматическом профиле — только дополнительное асинхронное условие terminal OFF.
+
+```text
+AUTO chemistry FSM ---------------------> PREP/Main/Recovery/Mix/SAFE_WAIT/Storage
+          |
+          +---- armed user OFF condition observed in parallel
+                         |
+                         +---- condition not reached -> no influence on AUTO decisions
+                         +---- condition reached     -> Output OFF + session STOP
+```
+
+Правила:
+- сам факт вооружённого OFF не подавляет Recovery, Mix, 72h fallback или normal completion;
+- он не меняет chemistry evidence/timers/authority;
+- hard safety и diagnostic HV authority продолжают иметь обычный приоритет;
+- при срабатывании условие означает именно terminal user-requested OFF, а не переход к `Done/Storage`;
+- после такого stop V2 не должен автоматически включать Storage 13.8 V;
+- production boundary не передаёт legacy `manual_off_active=True` внутрь AUTO FSM; legacy evaluator остаётся независимым side-channel до окончательного удаления старого механизма.
+
 ## Battery diagnostics / Bank Fault
 
 V1 one-score `bank_fault` = evidence, not proof. V2 separates cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality, charger/path fault.
