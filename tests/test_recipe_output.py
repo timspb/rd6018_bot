@@ -51,7 +51,7 @@ class RecipeOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(call["ovp_v"], 16.4)
         self.assertAlmostEqual(call["ocp_a"], 2.1)
 
-    async def test_efb_expert_17_5_flows_through_explicit_expert_ceiling(self):
+    async def test_efb_expert_17_5_is_rejected_before_hardware(self):
         context = build_legacy_charge_context(
             profile="EFB", capacity_ah=70, battery_id="efb-1",
             intent=ChargeIntent.CONDITIONING, condition=BatteryCondition.REHYDRATED,
@@ -59,9 +59,10 @@ class RecipeOutputTests(unittest.IsolatedAsyncioTestCase):
         auth = authorize_legacy_target(context, stage="conditioning", target_voltage_v=17.5, target_current_a=3.0, expert_high_voltage=True)
         adapter = FakeAdapter()
         result = await enable_authorized_recipe_target(adapter, auth)
-        self.assertTrue(result.enabled)
-        self.assertAlmostEqual(adapter.calls[0]["recipe_voltage_ceiling_v"], 17.5)
-        self.assertAlmostEqual(adapter.calls[0]["ovp_v"], 17.6)
+        self.assertFalse(result.enabled)
+        self.assertEqual(adapter.calls, [])
+        self.assertIn("authorization denied", result.reason)
+        self.assertIn("voltage ceiling", result.reason)
 
     async def test_hardware_safety_rejection_is_returned_to_caller(self):
         context = build_legacy_charge_context(profile="EFB", capacity_ah=70, battery_id="efb-1", intent=ChargeIntent.RECOVERY)
