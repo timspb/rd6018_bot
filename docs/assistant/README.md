@@ -13,6 +13,8 @@ Do **not** reconstruct behavior from chat history when these documents answer th
 5. **`V1_BEHAVIORAL_AUDIT.md`** — factual V1 audit against `main@8d3e2af9...`.
 6. **`HISTORY.md`** — historical record/rationale, not a competing current source.
 
+`V2_VALIDATION_PLAN.md` is the proof/gating checklist for turning PR #2 from Draft into a physically validated candidate. It does not override Decision Log strategy.
+
 ## Current branch boundary
 
 Work in `refactor/pb-recovery-controller-v2`; keep `main` unchanged until physical/on-device validation and explicit merge approval.
@@ -39,7 +41,7 @@ Production V2 deliberately distinguishes:
 
 ## Current implementation landmarks
 
-For exact current SHAs use branch history/PR; the durable behavioral meaning is in Decision Log entries D001–D052. Recent implementation groups include:
+For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D052. Recent implementation groups include:
 - corrected RD telemetry/readback and safety envelope;
 - Cooling/session-recovery/Mix timing normalization;
 - hypothesis/SG/dynamic-loop evidence;
@@ -48,6 +50,17 @@ For exact current SHAs use branch history/PR; the durable behavioral meaning is 
 - diagnostic action journal/restart recovery (D051);
 - optional Manual battery identity + interrupted-request review/re-authorization (D052).
 
+## Validation boundary
+
+Unit CI proves software contracts only. Before merge, follow `V2_VALIDATION_PLAN.md` for:
+- exact ESPHome compile/flash;
+- RD telemetry/readback bench smoke;
+- safe-enable/verified-OFF/edge-lease fault injection;
+- interrupted diagnostic-probe restart test;
+- interrupted Manual restart/reauthorization test;
+- representative real-battery AUTO and Auto Mix traces;
+- calibration/open-policy gates Q004/Q005/Q011/Q012/Q013/Q014.
+
 ## Maintenance
 
 Whenever behavior changes:
@@ -55,4 +68,5 @@ Whenever behavior changes:
 2. remove resolved items from `V2_OPEN_QUESTIONS.md`;
 3. update `CHARGE_STRATEGY.md` when operator-visible strategy changes;
 4. add deterministic tests;
-5. keep PR description aligned with actual production branch.
+5. keep `V2_VALIDATION_PLAN.md` aligned with new physical proof obligations;
+6. keep PR description aligned with actual production branch.
