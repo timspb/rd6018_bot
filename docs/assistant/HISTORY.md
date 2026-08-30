@@ -1,91 +1,55 @@
-# История Проекта Для Ассистента
+# Assistant History
 
-> Исторические заметки. Этот файл больше **не** является главным source of truth по стратегии.
->
-> Актуальная иерархия: `docs/assistant/README.md`.
+This file is historical context, not the current strategy authority. Current behavior lives in `V2_DECISION_LOG.md` and `CHARGE_STRATEGY.md`.
 
-## 2026-08-30 — полный аудит V1 перед продолжением V2
+## V1 -> V2 audit
 
-Перед дальнейшей переделкой Pb Recovery V2 был отдельно разобран production V1 на `main` commit:
+V2 work began by auditing the complete V1 behavioral system rather than only stage transitions. The audit captured Telegram/operator paths, Pb chemistry FSM, RD6018 actuator sequencing, Home Assistant readback, watchdogs, persistence/restore, Manual/unmanaged paths, logging and diagnostics. The factual V1 baseline is `V1_BEHAVIORAL_AUDIT.md` against `main@8d3e2af9c2f16721f3303579f12d4f39bcc98a13`.
 
-```text
-8d3e2af9c2f16721f3303579f12d4f39bcc98a13
-```
+## Major accepted migrations
 
-Зафиксированы отдельные документы:
+- Corrected RD6018 telemetry semantics and configured-value readback.
+- Vin reclassified as PSU-health telemetry rather than battery chemistry authority.
+- Absolute controller/manual working ceiling fixed at 17.5V; chemistry recipes remain lower where required.
+- AUTO start made atomic: below 12V PREP, at/above 12V MAIN before first Output ON.
+- Ca/EFB recovery count made session-wide; AGM given separate conservative four-attempt policy.
+- 72h Main restored as strategy fallback rather than generic emergency timeout.
+- Mix fallback normalized to Ca20/EFB24/AGM10 with mode-aware Delta and sticky 2h finish hold.
+- Cooling converted to a real pause with frozen clocks and explicit continuity invalidation.
+- Manual converted from unmanaged/Custom-adjacent behavior into a first-class managed authority.
+- Bank Fault split into hypothesis-specific diagnostics; SG and two-wire dynamic-loop evidence added.
+- Auto Mix added as direct-entry automatic Mix program.
+- AUTO Manual-OFF fixed as terminal asynchronous side-condition only.
+- 24–48h heavy-recovery rest fixed as recommendation/diagnostic window, not lockout.
 
-- `V1_BEHAVIORAL_AUDIT.md` — фактическая архитектура/логика V1;
-- `V2_DECISION_LOG.md` — принятые и отклонённые решения V2;
-- `V2_OPEN_QUESTIONS.md` — вопросы, которые ещё не решены;
-- `CHARGE_STRATEGY.md` — короткая текущая стратегия;
-- `PB_RECOVERY_V2.md` — архитектура V2.
+## 2026-08-30 — diagnostic restart matrix and Manual identity/reauthorization
 
-Главный вывод аудита: V1 — это не только `ChargeController`. Поведение складывается из FSM, Telegram/operator paths, actuator sequencing, HA/readback, persistence/restore, watchdogs, manual/unmanaged operation и diagnostics.
+Two remaining software-only design gaps were closed.
 
-### Ключевые решения после аудита
+### Diagnostic restart persistence
 
-- Vin — здоровье входного БП, а не Pb-FSM authority.
-- Абсолютный V2 software voltage ceiling — 17.5 V; recipe ceilings остаются ниже без explicit expert authorization.
-- `BAT_MODE` — наблюдение, не разрешение запуска.
-- Нужно различать commanded / configured-readback / measured values.
-- При `Vbat < ~12 V` ток должен оставаться маленьким (PREP-like ~0.01C).
-- Main normal-tail и stuck plateau — разные evidence-механизмы.
-- Ca/EFB recovery attempts — общий session-wide budget; progress не сбрасывает count.
-- После исчерпания Ca/EFB recovery budget следующий confirmed stuck plateau ведёт в final Mix.
-- AGM намеренно более консервативен и не копирует Ca/EFB recovery policy.
-- V1 Ca/EFB 72h Main->Mix признан отдельным intentional fallback, а не найденным багом.
-- SAFE_WAIT 2h — maximum wait, не fault timeout.
-- Mix completion: CV `Imin->ΔI`, CC `Vmax->ΔV`, 3 spaced confirmations, затем sticky 2h hold.
-- V2 Mix fallback maxima: Ca 20h / EFB 24h / AGM 10h.
-- Done = Storage/float ~13.8V/1A с Output ON.
-- Cooling = пауза chemistry clocks/evidence continuity с durable persistence, а не новая химическая evidence-stage.
-- Manual — реальный поддерживаемый режим; exact V2 schema ещё проектируется.
-- Bank/cell fault должен быть evidence-based; actuator authority для confirmed fault ещё не определён.
-- Временный heuristic `plateau >~1%C => automatic HV veto` отклонён как слишком грубый.
+V2 now separates durable evidence from transient action authority. `diagnostic_persistence.py` journals diagnostic actions and applies fail-closed restart semantics:
+- probe in progress -> `ABORTED_RESTART`; never resume mid-current-step; defensive Output OFF;
+- pending operator/fault verification -> expired on restart;
+- expert-HV authorization -> revoked on restart;
+- rest observation may survive until expiry because it has no actuator authority;
+- derived HV authority is recomputed from evidence rather than persisted as a permission token.
 
-### Реализация V2 после аудита
+This closes former Q010 and is recorded as D051.
 
-Commit `1bd67cb875afeed4ae722a4e5fd335d6eecdd8cd`:
+### Manual physical identity and interrupted request UX
 
-- corrected RD6018 telemetry foundation;
-- freshness/readback model;
-- OPP protection decode;
-- Vin removed from charge authority;
-- 17.5V absolute envelope;
-- fail-closed setpoint/readback/output transaction.
+Manual can now optionally bind to a saved physical battery for history/diagnostic correlation only. Saved chemistry/capacity never changes operator V/I or grants authority. The battery-bound input middleware is deliberately registered ahead of the generic numeric `V I` parser and has a regression test locking that precedence.
 
-Commit `abfcbda97b947a73a474a3c11cb9d198b4bbf1f1`:
+Persisted active Manual still restores `INTERRUPTED`. Operator can review the exact saved V/I, derived OVP/OCP, stop rules and battery identity, then explicitly re-authorize or discard. Re-authorization runs a fresh full safety/readback/Output transaction and starts a new active-time clock; it never silently resumes the old energized state.
 
-- Cooling pause/evidence semantics;
-- durable Cooling handling;
-- recovery-budget behavior aligned with session-wide contract;
-- Mix maxima 20/24/10h;
-- coarse >1%C auto-HV veto removed.
+This closes former Q002 and is recorded as D052.
 
-## Older historical baseline
+## Current remaining work class
 
-### 2026-05-02
-
-`CHARGE_STRATEGY.md` был введён как отдельный strategy reference, чтобы не восстанавливать FSM из памяти.
-
-На тот момент были отдельно зафиксированы:
-
-- stage chain;
-- Ca/Ca/EFB/AGM/Custom rules;
-- `temp_ext` vs `temp_int`;
-- Mix/Desulfation/SAFE_WAIT semantics;
-- hardware vs battery safety boundary.
-
-### Подтверждённые старые V1 contracts
-
-- global current ceiling: 12.0 A;
-- normal OVP/OCP convention: target +0.1;
-- temperature compensation only from `temp_ext`, voltage only, reference 25°C;
-- AGM plateau wait longer than Ca/EFB;
-- SAFE_WAIT post-charge relaxation evidence;
-- Ca/EFB Main hard-timeout may transition to Mix;
-- V1 bank-fault risk detector is heuristic/advisory;
-- dashboard intended to remain one working/updatable message;
-- `/help` must not be routed to LLM/DeepSeek.
-
-For exact V1 semantics use `V1_BEHAVIORAL_AUDIT.md`, not this historical summary.
+The remaining open questions are primarily physical/calibration/manufacturer-policy work rather than missing core software authority:
+- Q004/Q013 cell-fault scoring calibration against real traces;
+- Q005/Q014 controlled probe and RD6018 dynamic-loop/relay-path calibration on real hardware;
+- Q011 expert EFB high-voltage workflow;
+- Q012 SG correction/prompt policy;
+- Q015 final physical/main-merge validation matrix.
