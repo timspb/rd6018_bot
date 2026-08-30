@@ -98,24 +98,37 @@ chemistry envelope.
 
 Safe-enable already rejected stale source data, but the continuously running V2 guard
 previously checked only value presence/ranges/envelopes. A managed session could
-therefore continue if HA kept returning an old-but-numeric battery temperature/current
-or measured output voltage.
+therefore continue if HA kept returning old-but-numeric physical telemetry or old status
+values that still looked plausible.
 
-Production now applies source age/skew validation on every safety-relevant runtime poll
-for continuously sampled `battery_voltage`, `current`, `temp_ext`, `temp_int`, plus
-measured `voltage` whenever Output is ON. Stale/missing/incoherent source metadata is a
-fail-closed condition and forces verified OFF when energized.
+Production now applies source age/skew validation on every safety-relevant runtime poll.
+The heartbeat set contains continuously sampled physical channels
+`battery_voltage`, `current`, `temp_ext`, `temp_int`; measured `voltage` whenever Output
+is ON; Output switch state; hardware protection status; and the CV/CC regulation source
+used by chemistry evidence.
+
+For protection and regulation the guard follows the same authority preference as the
+telemetry decoder: raw `protection_code` / `regulation_code` when exposed, otherwise
+legacy `ovp_triggered` + `ocp_triggered` and `is_cv` + `is_cc`. This matters because a
+stale `CV=true`, stale normal-protection status, or stale Output=ON/OFF value can alter
+actuator/FSM decisions even when V/I/T are still fresh. Those status/evidence channels
+therefore cannot be treated as timeless configuration.
+
+Stale, missing or incoherent heartbeat metadata is fail-closed and forces verified OFF
+when energized. Static Vset/Iset/OVP/OCP are different: their timestamps are not used as
+heartbeats because a valid unchanged configuration may remain unchanged for hours.
+Their actual values and protection geometry are nevertheless re-read and revalidated by
+the runtime envelope.
 
 Home Assistant `last_reported` is the preferred heartbeat timestamp because it advances
-when the integration reports an entity even if its numeric value did not change.
-`last_updated` remains a compatibility fallback for older/degraded adapters. This avoids
-false shutdowns on a genuinely flat temperature/current value while still detecting a
-sensor/integration that stopped reporting.
+when the integration reports an entity even if its state value did not change.
+`last_updated` remains a compatibility fallback for older/degraded adapters. The V2
+composition preserves `last_reported` at the adapter boundary without changing the V1
+reference implementation. This avoids false shutdowns on genuinely flat temperature,
+current, switch or status values while still detecting a sensor/integration that stopped
+reporting.
 
-Static Vset/Iset/OVP/OCP timestamps are intentionally **not** treated as liveness clocks:
-a valid unchanged configuration may remain unchanged for hours. Their actual values and
-protection geometry are nevertheless re-read/revalidated by the runtime envelope. The
-edge safety lease remains a separate direct-Modbus/output-register proof and is not
+The edge safety lease remains a separate direct-Modbus/output-register proof and is not
 replaced by HA freshness.
 
 ## Residual physical failure domain
@@ -131,6 +144,6 @@ See `../RD6018_FAILSAFE.md`.
 
 Unit CI proves deterministic software contracts only. It does not replace the physical
 bench/on-battery gates in `V2_VALIDATION_PLAN.md`, especially measured V_OUT/OFF proof,
-HA `last_reported` cadence for unchanged values, stale-sensor fault injection, edge
-lease fault injection, Cooling restart, interrupted Manual/probe recovery and real
-charge traces.
+HA `last_reported` cadence for unchanged values, stale physical/status/regulation source
+fault injection, edge lease fault injection, Cooling restart, interrupted Manual/probe
+recovery and real charge traces.
