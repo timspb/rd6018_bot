@@ -248,7 +248,23 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         """Strict production checks without granting Vin actuator authority."""
         live = await self._raw_live()
         output_state = _binary(live.get("switch"))
-        safety_relevant = self.controller_active or output_state is True or self._off_unconfirmed
+
+        # `_off_unconfirmed` is itself containment authority. Legacy dispatch may have
+        # already retired the chemistry FSM after a failed shutdown attempt; that may
+        # never downgrade the still-uncertain physical output to the ordinary orphan
+        # grace path. Keep issuing verified OFF until the hardware state is proved OFF.
+        if self._off_unconfirmed:
+            if output_state is False:
+                self._off_unconfirmed = False
+                self._orphan_output_seen_at = None
+                await self._disarm_edge_lease_best_effort()
+                return live
+            await self._ensure_output_off("previous Output OFF remains unconfirmed")
+            await self._disarm_edge_lease_best_effort()
+            self._orphan_output_seen_at = None
+            return await self._raw_live()
+
+        safety_relevant = self.controller_active or output_state is True
         if not safety_relevant:
             self._orphan_output_seen_at = None
             return live
