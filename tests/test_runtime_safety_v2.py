@@ -70,6 +70,8 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             "temp_int": 35.0,
             "input_voltage": 40.0,
             "switch": "on",
+            "is_cv": "on",
+            "is_cc": "off",
             "ovp_triggered": "off",
             "ocp_triggered": "off",
             "set_voltage": 14.8,
@@ -89,11 +91,15 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             "temp_int",
             "voltage",
             "switch",
+            "is_cv",
+            "is_cc",
             "ovp_triggered",
             "ocp_triggered",
         )
         if live.get("protection_code") not in (None, "", "unknown", "unavailable"):
             dynamic = dynamic + ("protection_code",)
+        if live.get("regulation_code") not in (None, "", "unknown", "unavailable"):
+            dynamic = dynamic + ("regulation_code",)
         meta = {}
         for key in dynamic:
             age = float(ages.get(key, 0.0))
@@ -248,6 +254,24 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         app = self._app(live)
         guard = self._guard(app)
         with self.assertRaisesRegex(RuntimeSafetyError, "protection_code stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_stale_legacy_regulation_mode_fails_closed(self):
+        live = self._with_freshness(self._live(), ages={"is_cv": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "is_cv stale"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_stale_raw_regulation_code_fails_closed(self):
+        live = self._live()
+        live["regulation_code"] = 0
+        live = self._with_freshness(live, ages={"regulation_code": 30.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "regulation_code stale"):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
 
