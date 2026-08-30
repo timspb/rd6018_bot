@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from safe_output import (
     OutputRequest,
@@ -84,7 +85,7 @@ class _Adapter:
 class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
     def test_preflight_ignores_old_static_setpoint_heartbeat(self):
         with self.subTest("preflight"):
-            with unittest.mock.patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
+            with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
                 snapshot = snapshot_from_live(
                     _live(output_on=False, programmed_ts=STALE),
                     require_programming_freshness=False,
@@ -92,7 +93,7 @@ class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(snapshot)
 
         with self.subTest("programmed readback"):
-            with unittest.mock.patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
+            with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
                 snapshot = snapshot_from_live(
                     _live(output_on=False, programmed_ts=STALE),
                     require_programming_freshness=True,
@@ -110,7 +111,7 @@ class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
         coordinator = SafeOutputCoordinator(adapter, SafetySupervisor(), readback_timeout_s=0.0)
         request = OutputRequest(14.4, 2.0, 14.5, 2.1, 14.4)
 
-        with unittest.mock.patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
+        with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
             result = await coordinator.enable(request)
 
         self.assertTrue(result.enabled, result.detail)
@@ -127,7 +128,7 @@ class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
         coordinator = SafeOutputCoordinator(adapter, SafetySupervisor(), readback_timeout_s=0.0)
         request = OutputRequest(14.4, 2.0, 14.5, 2.1, 14.4)
 
-        with unittest.mock.patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
+        with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
             result = await coordinator.enable(request)
 
         self.assertFalse(result.enabled)
