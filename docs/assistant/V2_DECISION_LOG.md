@@ -113,8 +113,8 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D036 — universal `>~1%C plateau => HV veto` is rejected
 **REJECTED / REMOVED.** High current can contribute to diagnostics together with U/T trajectory, regulation and cell evidence, but is not a one-number universal veto.
 
-## D037 — 24–48 h post-heavy-charge rest is useful but not yet a lockout
-**OPEN IMPLEMENTATION.** Treat as diagnostic/operator recommendation until Q006 is explicitly resolved.
+## D037 — 24–48 h post-heavy-recovery rest is a diagnostic window, not a lockout
+**ACCEPTED.** After a heavy recovery/aggressive corrective cycle, V2 may recommend a 24–48 h rest/observation window and use available checkpoints (for example ~1 h / 6 h / 12 h / 24 h / 48 h) as longitudinal diagnostic evidence. Useful observations include Vbat/OCV trend, temperature, SG when applicable, prior recovery response, and whether the battery is known isolated from vehicle/parasitic loads. This rest recommendation by itself never blocks Normal, Recovery, Conditioning, Manual or Auto Mix. A later HV denial must come from actual safety or diagnostic evidence such as `BLOCK_AUTOMATIC_HV`, not from elapsed rest time. UI/persistence/notification details for the optional observation window may be implemented separately without changing this authority rule.
 
 ## D038 — every production Manual text entry converges on one managed authority
 **ACCEPTED / IMPLEMENTED.** Native V2 Manual and historic quick `V I` / `V I third-condition` text become `ManualSession` operations; raw unmanaged writes are not a production V2 authority path.
