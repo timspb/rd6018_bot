@@ -1,112 +1,48 @@
-# Инструкции для ассистента в этом репозитории
+# Assistant / maintainer instructions
 
-## С чего начинать
+For V2 charging/recovery work, do not reconstruct intended behavior from chat history or from legacy implementation details when the durable docs answer it.
 
-Перед любой работой прочитать в таком порядке:
+## Read order before changing strategy
 
-1. `AGENTS.md` — operational/safety rules для агентов;
-2. `README.md` — текущая production-архитектура;
-3. `docs/DEPLOYMENT.md` — если задача про узел, обновление, systemd или rollback;
-4. `docs/assistant/CHARGE_STRATEGY.md` — если задача касается стратегии заряда;
-5. `docs/assistant/PB_RECOVERY_V2.md` — если задача касается V2 architecture/invariants.
+1. `V2_DECISION_LOG.md` — accepted/rejected behavior.
+2. `V2_OPEN_QUESTIONS.md` — only genuinely unresolved strategy/calibration questions.
+3. `CHARGE_STRATEGY.md` — compact production reference.
+4. `PB_RECOVERY_V2.md` — architecture/authority boundaries.
+5. `V1_BEHAVIORAL_AUDIT.md` — factual V1 behavior when compatibility matters.
+6. `HISTORY.md` — rationale/history only.
 
-Не восстанавливать production semantics по старым коммитам или legacy-комментариям, если они расходятся с этими документами и текущими тестами.
+If code disagrees with an accepted Decision Log entry, treat it as an implementation defect unless a newer explicit decision supersedes the entry.
 
-## Репозиторий и ветки
+## Safety/authority rules
 
-Не предполагать, что работа всегда идёт напрямую в `main`.
+- Hard physical safety/readback/watchdog boundaries outrank operator program and chemistry strategy.
+- `battery_voltage` is the chemistry voltage source; RD output voltage is hardware/output monitoring.
+- Vin is PSU-health telemetry, not Pb chemistry authority.
+- BAT_MODE is observation, not software permission.
+- Manual V/I are operator-owned inside the 17.5V/12A outer envelope; OVP/OCP are derived and non-overridable.
+- Optional Manual `battery_id` is history/diagnostic identity only; never import AUTO chemistry/C-rate targets from it.
+- Persisted active Manual always restores `INTERRUPTED`; only explicit fresh operator re-authorization may energize again.
+- Durable diagnostic evidence may survive restart; in-flight diagnostic authority/actions do not. Never resume a current probe mid-step or preserve expert-HV authorization across process restart.
+- Derived `BLOCK_AUTOMATIC_HV` must be recomputed from evidence; do not persist it as a permission token.
+- AI remains advisory only.
 
-Перед изменениями:
+## Change discipline
 
-```bash
-git status --short --branch
-git rev-parse HEAD
-git branch --show-current
-```
+When changing behavior:
+- add/update a numbered Decision Log item;
+- remove resolved Open Questions;
+- update Charge Strategy when operator-visible behavior changes;
+- add deterministic regression tests;
+- keep `main` untouched while PR #2 is Draft;
+- do not mark PR ready or merge until physical/on-device validation is complete and explicitly approved.
 
-Если пользователь указал branch/SHA — работать строго там. Не мержить PR и не менять `main` без отдельного запроса.
+## Remaining non-software-only work
 
-## Production entrypoint
+Current open set is intentionally concentrated in calibration/manufacturer/physical validation:
+- Q004/Q013 fault scoring against real traces;
+- Q005/Q014 controlled probe + RD6018 measurement calibration;
+- Q011 expert EFB 17.2–17.5 workflow;
+- Q012 SG correction/applicability/prompt policy;
+- Q015 final physical/main-merge validation.
 
-Штатный V2 запуск:
-
-```bash
-python bot.py
-```
-
-- `bot.py` — маленький production entrypoint;
-- `bot_legacy.py` — сохранённый предыдущий runtime;
-- `ProductionChargeControllerV2` — штатный live controller.
-
-Rollback-флаги:
-
-```text
-V2_UI=0
-V2_AUTHORITATIVE=0
-```
-
-Не выставлять их при обычном V2 deployment без явного запроса.
-
-## Deployment
-
-Не предполагать путь `/root/rd6018_bot`, имя systemd unit или virtualenv. Сначала обнаружить фактическое состояние узла.
-
-При deployment-задаче не менять код, thresholds, recipes, UI или schema. Следовать `docs/DEPLOYMENT.md`.
-
-Никогда не перезаписывать без явного запроса:
-
-- `.env`;
-- Telegram/HA credentials;
-- service environment overrides;
-- SQLite/history;
-- session/runtime JSON;
-- локальные operator settings.
-
-## После изменений кода
-
-Минимальная обязательная проверка:
-
-```bash
-python -m compileall -q .
-python -m unittest discover -s tests -p 'test_*.py'
-```
-
-Не удалять и не ослаблять safety/control tests ради зелёного CI.
-
-Если изменение только документационное — явно отметить это, но проверить, что ссылки/названия entrypoint и rollback flags соответствуют текущему коду.
-
-## Правила по charge/control logic
-
-- Chemistry, intent и condition независимы.
-- `NORMAL`/`DIAGNOSTIC` не получают Recovery HV автоматически.
-- В CV независимый сигнал — ток: `Imin -> ΔI`.
-- В CC независимый сигнал — напряжение: `Vmax -> ΔV`.
-- Нельзя применять CV current criterion к CC.
-- Подтверждённая Mix delta запускает sticky 2h finish hold.
-- AGM/CaCa/EFB fallback Mix windows: 10h / 20h / 20h.
-- Temperature/telemetry/hardware safety всегда важнее finish logic.
-- Output ON должен идти через fail-closed transactional boundary.
-
-Перед спорным изменением стратегии открыть `CHARGE_STRATEGY.md` и сверить его с кодом/тестами.
-
-## Температуры
-
-- `temp_ext` = температура АКБ;
-- `temp_int` = температура БП/контроллера.
-
-Не использовать `temp_int` как evidence химического состояния батареи.
-
-## UI/UX
-
-- Не плодить новые dashboard messages без необходимости.
-- Учитывать мобильную ширину Telegram.
-- В CV карточке главным evidence остаются Imin/ΔI.
-- В CC карточке главным evidence остаются Vmax/ΔV.
-- Опасные/экспертные режимы не маскировать под обычную кнопку запуска.
-
-## AI
-
-- AI только объясняет/анализирует; он не является actuator authority.
-- Не придумывать отсутствующие telemetry/capacity/condition.
-- Не путать profile fallback deadline, finish hold и прогноз времени.
-- В пользовательском тексте не показывать внутренние поля без необходимости.
+Do not invent numeric thresholds for these merely to close the list.
