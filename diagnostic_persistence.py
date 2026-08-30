@@ -343,17 +343,28 @@ async def recover_diagnostic_persistence(app: Any) -> List[DiagnosticActionRecor
         # A crash may have happened after the safer current step but before restoration.
         # Never guess the old setpoint on restart: force Output OFF and require a fresh
         # managed start. The edge lease should already fail closed; this is defense in depth.
+        off_confirmed = False
         try:
-            await app.hass.turn_off()
+            off_confirmed = bool(await app.hass.turn_off())
         except Exception:
             logger = getattr(app, "logger", None)
             if logger is not None:
                 logger.exception("failed to force Output OFF after interrupted diagnostic probe")
+
         notify = getattr(app, "_charge_notify", None)
         if callable(notify):
-            notify(
-                "⚠️ Предыдущая диагностическая проба была прервана перезапуском. "
-                "Проба помечена недействительной; Output принудительно оставлен OFF.",
-                critical=True,
-            )
+            if off_confirmed:
+                notify(
+                    "⚠️ Предыдущая диагностическая проба была прервана перезапуском. "
+                    "Проба помечена недействительной; Output подтверждён OFF.",
+                    critical=True,
+                )
+            else:
+                notify(
+                    "🚨 Предыдущая диагностическая проба была прервана перезапуском. "
+                    "Проба помечена недействительной, но Output OFF НЕ ПОДТВЕРЖДЁН. "
+                    "Не возобновляйте заряд до проверки RD6018/HA; при необходимости "
+                    "отключите выход или питание вручную.",
+                    critical=True,
+                )
     return changed
