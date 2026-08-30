@@ -2,7 +2,7 @@
 
 > Only unresolved strategy/product questions live here. Resolved behavior belongs in `V2_DECISION_LOG.md`.
 
-Q001, Q007, Q008 and Q009 are intentionally retired: initial PREP handling, intent semantics, 72 h Main fallback and AGM recovery policy are now accepted/implemented decisions.
+Q001, Q003, Q007, Q008 and Q009 are intentionally retired: initial PREP handling, AUTO Manual-OFF semantics, intent semantics, 72 h Main fallback and AGM recovery policy are now accepted/implemented decisions.
 
 ## Q002 — Manual battery identity and interrupted-session re-authorization UX
 Core Manual authority and input migration are implemented:
@@ -20,11 +20,6 @@ Core Manual authority and input migration are implemented:
 Still open:
 - bind an optional saved battery identity for longitudinal history without granting chemistry authority;
 - define the operator review/re-authorization UX for a persisted `INTERRUPTED` Manual request.
-
-## Q003 — Legacy Manual-OFF interaction with automatic profiles
-For explicit Manual, resolved: user conditions own normal completion; hard safety wins; chemistry rules do not run. The persistent legacy Manual-OFF overlay is also observed by the managed Manual runtime so Output cannot be OFF while Manual remains logically ACTIVE.
-
-Remaining question applies only to automatic profiles that still use the legacy persistent `manual_off` engine: should arming a user stop condition suppress any automatic non-safety completion/escalation, or merely provide an additional earlier kill condition? Normalize this before removing the legacy side channel.
 
 ## Q004 — Cell-fault/HV-block calibration and false-positive strategy
 Architecture and an initial deterministic rule are implemented: ordinary heuristic risk or first SG imbalance does not veto corrective HV; automatic HV is denied only for strong cell-fault evidence, including explicit external confirmation or high-confidence multi-signal evidence with independent confirmation classes. Diagnostic inference itself cannot create a hard safety stop.
@@ -113,7 +108,8 @@ Before merging V2 to `main`, verify traceably:
 - SAFE_WAIT;
 - Done/Storage Output ON;
 - Manual native UI, direct-command migration and interrupted-session UX;
-- Manual stop conditions and persistent Manual-OFF interaction;
+- Manual stop conditions;
+- AUTO Manual-OFF as terminal asynchronous kill-condition only, without suppressing chemistry decisions;
 - Cooling;
 - restart/restore;
 - link loss / edge lease / fast HV watchdog;
