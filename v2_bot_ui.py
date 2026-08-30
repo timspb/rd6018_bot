@@ -244,8 +244,8 @@ def install_v2_ui(app: Any) -> None:
         return (
             "<b>🧭 V2 · программа заряда</b>\n\n"
             "Сначала выберите химию или сохранённую физическую батарею, затем <b>intent</b>.\n\n"
-            "⚡ Normal — без автоматического HV/Mix.\n"
-            "🛠 Recovery — разрешает HV только по V2 evidence.\n"
+            "⚡ Normal — полный штатный AUTO; Recovery/Mix включаются только по критериям V2.\n"
+            "🛠 Recovery — восстановительный intent с HV только в разрешённом recipe/diagnostic envelope.\n"
             "🔄 Conditioning — сервисный режим в recipe envelope.\n"
             "🔬 Diagnostic — без автоматической HV-эскалации.\n\n"
             "В CV финиш оценивается по <b>Imin→ΔI</b>, в CC — по <b>Vmax→ΔV</b>."
@@ -452,7 +452,7 @@ def install_v2_ui(app: Any) -> None:
         _pending_profile[user_id] = profile
         await _safe_answer(
             call,
-            f"<b>{html.escape(profile)}</b>\nВыберите intent. Высоковольтный этап доступен только Recovery/Conditioning.",
+            f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям V2.",
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
 
