@@ -36,6 +36,32 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         "temp_int",
     )
 
+    def __init__(self, app: Any) -> None:
+        super().__init__(app)
+        self._install_last_reported_metadata_bridge()
+
+    def _install_last_reported_metadata_bridge(self) -> None:
+        """Preserve HA's heartbeat timestamp without changing the legacy adapter.
+
+        Home Assistant exposes ``last_reported`` even when an entity's value did not
+        change. Legacy HassClient predates that field and only copies ``last_updated``.
+        Patch its metadata formatter at the V2 boundary so flat battery temperature or
+        current does not look stale merely because the numeric value stayed identical.
+        """
+        if getattr(self.hass, "_v2_last_reported_metadata_bridge", False):
+            return
+        formatter = getattr(self.hass, "_entity_metadata", None)
+        if not callable(formatter):
+            return
+
+        def _with_last_reported(entity_id: str, data: dict[str, Any], status: str) -> dict[str, Any]:
+            metadata = dict(formatter(entity_id, data, status))
+            metadata["last_reported"] = data.get("last_reported")
+            return metadata
+
+        self.hass._entity_metadata = _with_last_reported
+        self.hass._v2_last_reported_metadata_bridge = True
+
     @property
     def manual_active(self) -> bool:
         manager = getattr(self.app, "manual_session_manager", None)
