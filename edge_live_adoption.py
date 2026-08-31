@@ -9,24 +9,17 @@ from edge_safety_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseEr
 
 @dataclass(frozen=True)
 class EdgeLiveAdoptionConfig:
-    """Dedicated HANDS_OFF -> managed ownership-transfer command.
+    """Dedicated HANDS_OFF -> managed ownership-transfer command."""
 
-    This command is intentionally separate from ordinary ``arm()``. Normal arm keeps
-    its verified-Output-OFF invariant; live adoption is allowed only when the edge node
-    itself has a fresh direct register-18 readback proving Output is already ON.
-    """
-
-    entity: str = str(
-        os.getenv("RD6018_EDGE_LIVE_ADOPT_ENTITY")
-        or "button.rd6018_rd_6018_safety_lease_adopt_live_output"
-    ).strip()
+    entity: str = ""
 
 
 class EdgeLiveAdoption:
     """Positive-ACK live ownership acquisition for an already-ON RD6018.
 
-    The existing :class:`EdgeSafetyLease` remains the single source of lease state and
-    ACK geometry. This helper only adds the explicit ON-preserving acquisition command.
+    Normal ``EdgeSafetyLease.arm()`` keeps its verified-Output-OFF invariant. This
+    helper uses a distinct edge command whose ESPHome side requires fresh direct
+    register-18 Output-ON readback and otherwise preserves Output/V/I/OVP/OCP.
 
     A failed/ambiguous command deliberately leaves renewals suspended. Once a live-adopt
     command may have reached ESPHome, software must not blindly resume managed heartbeat
@@ -40,17 +33,25 @@ class EdgeLiveAdoption:
         config: Optional[EdgeLiveAdoptionConfig] = None,
     ) -> None:
         self.lease = lease
-        self.config = config or EdgeLiveAdoptionConfig()
-        if not self.config.entity:
-            raise ValueError("edge live-adoption entity must not be empty")
+        configured = config or EdgeLiveAdoptionConfig()
+        entity = str(configured.entity or os.getenv("RD6018_EDGE_LIVE_ADOPT_ENTITY") or "").strip()
+        if not entity:
+            renew = str(getattr(self.lease.config, "renew_entity", "") or "").strip()
+            suffix = "_safety_lease_renew"
+            if renew.endswith(suffix):
+                entity = renew[: -len(suffix)] + "_safety_lease_adopt_live_output"
+            else:
+                raise ValueError(
+                    "edge live-adoption entity is not configured and cannot be derived from renew entity"
+                )
+        self.config = EdgeLiveAdoptionConfig(entity=entity)
 
     async def _require_entity(self) -> None:
         state = await self.lease._state_value(self.config.entity)
-        if state is None or str(state).strip().lower() in {
-            "",
-            "unknown",
-            "unavailable",
-        }:
+        # Home Assistant button entities normally expose state ``unknown``; unlike a
+        # sensor, that is not evidence that the entity is missing. ``None`` means no
+        # entity was returned and ``unavailable`` means the node/entity cannot serve it.
+        if state is None or str(state).strip().lower() == "unavailable":
             raise EdgeSafetyLeaseError(
                 "edge live-adoption entity is missing/unavailable"
             )
@@ -89,6 +90,8 @@ class EdgeLiveAdoption:
         requires fresh register-18 Output-ON readback; Python never substitutes HA state
         for that edge-local check.
         """
+        import asyncio
+
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
@@ -108,8 +111,6 @@ class EdgeLiveAdoption:
             attempts = max(1, int(self.lease.config.ack_attempts))
             for attempt in range(attempts):
                 if attempt:
-                    import asyncio
-
                     await asyncio.sleep(max(0.0, self.lease.config.ack_delay_s))
                 latest = await self.lease.read_state()
                 if (

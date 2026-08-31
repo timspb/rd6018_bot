@@ -11,6 +11,7 @@ class FakeHass:
             entity="button.test_safety_lease_adopt_live_output"
         )
         self.states = {
+            # HA button entities commonly report unknown even when available.
             self.adopt_config.entity: "unknown",
             self.lease_config.armed_entity: "off",
             self.lease_config.tripped_entity: "off",
@@ -50,9 +51,29 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(lease.renewals_suspended)
         self.assertEqual(hass.pressed, [hass.adopt_config.entity])
 
+    async def test_unknown_button_state_is_available_not_missing(self):
+        hass = FakeHass()
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        prepared = await adoption.prepare()
+
+        self.assertEqual(prepared.generation, 21)
+        self.assertEqual(hass.pressed, [])
+
     async def test_missing_entity_fails_before_command(self):
         hass = FakeHass()
         hass.states.pop(hass.adopt_config.entity)
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "missing/unavailable"):
+            await adoption.prepare()
+        self.assertEqual(hass.pressed, [])
+
+    async def test_unavailable_entity_fails_before_command(self):
+        hass = FakeHass()
+        hass.states[hass.adopt_config.entity] = "unavailable"
         lease = EdgeSafetyLease(hass, hass.lease_config)
         adoption = EdgeLiveAdoption(lease, hass.adopt_config)
 
@@ -94,6 +115,19 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "generation changed"):
             await adoption.adopt(expected_generation=prepared.generation)
         self.assertEqual(hass.pressed, [])
+
+    def test_default_entity_is_derived_from_deployed_renew_entity(self):
+        hass = FakeHass()
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease)
+
+        self.assertEqual(
+            adoption.config.entity,
+            hass.lease_config.renew_entity.replace(
+                "_safety_lease_renew",
+                "_safety_lease_adopt_live_output",
+            ),
+        )
 
 
 if __name__ == "__main__":
