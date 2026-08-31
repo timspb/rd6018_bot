@@ -20,6 +20,7 @@ Supporting proof/calibration/design documents:
 - `OPERATOR_HMI_WIREFRAMES.md` — concrete storyboard for idle/start/run/recovery/Mix/SAFE_WAIT/Cooling/Storage/Manual/diagnostic/containment screens;
 - `MIX_ADAPTIVE_CURRENT_CONTAINMENT.md` — accepted, not-yet-implemented Mix safety design: confirmed-current-minimum hardware current ratchet for lost-control-path containment;
 - `MIX_TIMEOUT_POLICY.md` — accepted strategy refinement: Mix maximum is an automation-confidence boundary; Ca/Ca remains 20 h and timeout is not successful Mix completion;
+- `COMM_LOSS_WATCHDOG_15MIN.md` — accepted, not-yet-implemented tightening of the managed communication-loss watchdog to 15 min TTL / 5 min renewal, including non-stacking native-RD timer semantics;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
@@ -46,7 +47,7 @@ Production V2 deliberately distinguishes:
 - Mix fallback maxima remain Ca20/EFB24/AGM10; for Ca/Ca, 20 h is an automatic-authority boundary, not a target and not successful completion by itself; timeout means AUTO did not converge and further HV work requires Manual/operator judgement;
 - Auto Mix direct entry;
 - AUTO Manual-OFF is terminal side-condition only;
-- 24–48h heavy-recovery rest is diagnostic recommendation, never time lockout;
+- 24–48h post-heavy-recovery rest is diagnostic recommendation, never time lockout;
 - Manual may carry optional physical `battery_id` for history only;
 - persisted Manual restores `INTERRUPTED` and requires explicit fresh re-authorization;
 - diagnostic in-flight actions never auto-resume after restart; derived authority is recomputed from evidence;
@@ -55,6 +56,9 @@ Production V2 deliberately distinguishes:
 - generic EFB AUTO/Recovery/Conditioning chemistry ceiling is 16.5 V; 17.5 V is Manual/Custom outer authority, not an EFB entitlement;
 - generic Pb automatic HV current authorization is no broader than the implemented ~0.03C Mix maximum; Manual/Custom current authority is separate;
 - accepted future Mix containment may only tighten the current ceiling after a confirmed `Imin`; it is monotonic within the Mix session and can never exceed the current programmed setpoint or recipe authority;
+- accepted target communication-loss watchdog is 15 min TTL with 5 min renewals for every managed Output ON; current production is still 30/10 until code/config/bench migration;
+- a future native RD6018 Timer Off watchdog must be renewed from the same accepted controller heartbeat as the edge lease and must not self-refresh independently, so two 15-minute layers cannot stack into a ~30-minute blind-authority window;
+- watchdog refresh never resets or extends the separate Mix 20/24/10-hour chemistry authority clock;
 - SAFE_WAIT is Output OFF even across Cooling; incomplete Cooling continuation metadata never defaults to Main;
 - Vin is PSU-health telemetry only, including production legacy-start/restore composition paths;
 - managed runtime authority rejects stale/incoherent dynamic battery/output telemetry: HA `last_reported` is the preferred heartbeat, `last_updated` is compatibility fallback, while static Vset/Iset/OVP/OCP timestamps are never mistaken for liveness clocks.
@@ -76,7 +80,8 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 - labeled Bank-Fault calibration harness for Q004/Q013;
 - raw probe characterization harness for Q005/Q014;
 - adaptive Mix current containment recorded as an accepted design note; implementation/calibration remains gated on real `Imin/ΔI` and RD6018 measurement characterization;
-- Mix timeout semantic refinement recorded: automatic timeout is an abnormal/non-converged handoff boundary, not normal successful completion; code reconciliation is still pending.
+- Mix timeout semantic refinement recorded: automatic timeout is an abnormal/non-converged handoff boundary, not normal successful completion; code reconciliation is still pending;
+- communication-loss watchdog tightening recorded as accepted target 15/5; current ESPHome edge lease remains implemented at 30/10 until coordinated code/config/physical validation.
 
 ## Operator HMI design boundary
 
