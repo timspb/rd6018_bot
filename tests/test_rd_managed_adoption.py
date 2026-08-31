@@ -149,18 +149,25 @@ class FakeEdgeState:
 
 
 class FakeEdge:
-    def __init__(self, app, *, mutate_after_adopt=None):
+    def __init__(self, app, *, mutate_after_adopt=None, fail_before_command=None):
         self.app = app
         self.prepare_calls = 0
         self.adopt_calls = 0
         self.mutate_after_adopt = mutate_after_adopt
+        self.fail_before_command = fail_before_command
+        self.command_may_have_executed = False
 
     async def prepare(self):
         self.prepare_calls += 1
+        self.command_may_have_executed = False
         return FakeEdgeState()
 
     async def adopt(self, *, expected_generation=None):
         self.adopt_calls += 1
+        self.command_may_have_executed = False
+        if self.fail_before_command is not None:
+            raise RuntimeSafetyError(self.fail_before_command)
+        self.command_may_have_executed = True
         if self.mutate_after_adopt is not None:
             self.mutate_after_adopt(self.app)
         return types.SimpleNamespace(generation=41, armed=True)
@@ -183,13 +190,21 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         return app, manager, coordinator
 
     @staticmethod
-    def preview():
+    def preview(
+        *,
+        set_voltage=16.50,
+        set_current=1.00,
+        ovp=16.70,
+        ocp=1.20,
+    ):
         return ManagedAdoptionPreview(
             token="preview-token",
             battery_id="Baic72",
             chemistry=BatteryChemistry.CA_CA,
             capacity_ah=72.0,
-            fingerprint=ManagedAdoptionFingerprint(16.50, 1.00, 16.70, 1.20),
+            fingerprint=ManagedAdoptionFingerprint(
+                float(set_voltage), float(set_current), float(ovp), float(ocp)
+            ),
         )
 
     async def cleanup_task(self, coordinator):
@@ -232,6 +247,89 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertEqual(app.hass.writes, [])
 
+    async def test_low_temperature_fails_read_only_before_edge_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            app.hass.live["temp_ext"] = 9.0
+            with self.assertRaisesRegex(RuntimeSafetyError, "below managed start envelope"):
+                await coordinator.adopt(self.preview())
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(coordinator.edge.prepare_calls, 0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertEqual(app.hass.writes, [])
+
+    async def test_pause_temperature_fails_read_only_before_edge_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            app.hass.live["temp_ext"] = 40.0
+            with self.assertRaisesRegex(RuntimeSafetyError, "requires managed pause/OFF"):
+                await coordinator.adopt(self.preview())
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(coordinator.edge.prepare_calls, 0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertEqual(app.hass.writes, [])
+
+    async def test_auto_enable_hardware_config_fails_read_only_before_edge_command(self):
+        for key in ("boot_power", "take_out"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+                app.hass.live[key] = True
+                with self.assertRaisesRegex(RuntimeSafetyError, "auto-enable configuration"):
+                    await coordinator.adopt(self.preview())
+                self.assertTrue(manager.hands_off)
+                self.assertEqual(coordinator.edge.prepare_calls, 0)
+                self.assertEqual(app.hass.turn_off_calls, 0)
+                self.assertEqual(app.hass.writes, [])
+
+    async def test_measured_current_over_working_ceiling_fails_before_edge_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            app.hass.live.update(
+                set_current=12.0,
+                ocp=12.2,
+                current=12.10,
+            )
+            preview = self.preview(set_current=12.0, ocp=12.2)
+            with self.assertRaisesRegex(RuntimeSafetyError, "current exceeds managed absolute working"):
+                await coordinator.adopt(preview)
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(coordinator.edge.prepare_calls, 0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertEqual(app.hass.writes, [])
+
+    async def test_measured_voltage_over_working_ceiling_fails_before_edge_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            app.hass.live.update(
+                set_voltage=17.50,
+                ovp=17.60,
+                voltage=17.57,
+            )
+            preview = self.preview(set_voltage=17.50, ovp=17.60)
+            with self.assertRaisesRegex(RuntimeSafetyError, "voltage exceeds managed absolute working"):
+                await coordinator.adopt(preview)
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(coordinator.edge.prepare_calls, 0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertEqual(app.hass.writes, [])
+
+    async def test_edge_adopt_precommand_race_does_not_stop_external_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            coordinator.edge = FakeEdge(app, fail_before_command="synthetic pre-command race")
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "synthetic pre-command race"):
+                await coordinator.adopt(self.preview())
+
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(coordinator.edge.prepare_calls, 1)
+            self.assertEqual(coordinator.edge.adopt_calls, 1)
+            self.assertFalse(coordinator.edge.command_may_have_executed)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertEqual(app.hass.live["switch"], "on")
+            self.assertEqual(app.hass.writes, [])
+            self.assertEqual(coordinator.state, ManagedAdoptionState.FAILED)
+
     async def test_post_edge_toctou_change_forces_verified_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
@@ -244,6 +342,7 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeSafetyError):
                 await coordinator.adopt(self.preview())
             self.assertTrue(manager.hands_off)
+            self.assertTrue(coordinator.edge.command_may_have_executed)
             self.assertEqual(app.hass.turn_off_calls, 1)
             self.assertEqual(app.hass.live["switch"], "off")
             self.assertEqual(coordinator.state, ManagedAdoptionState.FAILED)
