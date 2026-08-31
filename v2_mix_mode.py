@@ -69,8 +69,9 @@ def build_mix_only_preview(pending: PendingMixStart) -> str:
         f"Mix: до <b>{target_v:.1f} V</b> · ток ~0.03C ({target_i:.2f} A, max 12 A).\n"
         "CV: Imin → подтверждённый ΔI. CC: Vmax → подтверждённый ΔV.\n"
         "Нужно 3 разнесённых подтверждения; затем sticky-выдержка 2 ч.\n"
-        f"Если Delta не сформировалась: fallback максимум <b>{limit_h:g} ч</b>.\n\n"
-        "Завершение: Mix → SAFE_WAIT (до 2 ч) → Storage ~13.8 V / 1 A, Output ON.\n"
+        f"Если Delta не сформировалась: максимум <b>{limit_h:g} ч активного Mix</b>, "
+        "затем MIX_TIMEOUT → Output OFF и ручная диагностика.\n\n"
+        "Нормальное завершение по Delta: Mix → SAFE_WAIT (до 2 ч) → Storage ~13.8 V / 1 A, Output ON.\n"
         "Перед включением действуют обычные V2 safety/readback/watchdog и diagnostic HV veto."
     )
 
