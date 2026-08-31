@@ -61,6 +61,8 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | recovery start/complete/abort cannot retire authority before verified OFF | RecoveryOrchestrator containment regressions | SW-PASS |
 | diagnostic task cancellation after a current step restores the original current or forces OFF before cancellation escapes | probe cancellation cleanup regressions | SW-PASS |
 | edge lease software geometry is 15 min / 5 min and requires positive ACK | Python + ESPHome contract tests | SW-PASS |
+| active HANDS_OFF release uses dedicated edge ownership transfer, session-bound confirmation and renewal serialization | D060 Python + exact ESPHome contract regressions | SW-PASS |
+| HANDS_OFF cannot revive stale AUTO authority and post-commit lost edge ACK never silently rolls back to PB | D060 ownership/restart containment regressions | SW-PASS |
 | external-temp Class-C detector has no uncalibrated production thresholds | integrity monitor/runtime tests | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
@@ -138,6 +140,24 @@ With a shortened test configuration and an external trace clock:
 - restart while durable state was active conservatively consumes outage time;
 - restart after durable inactive state does not consume outage time;
 - remove/corrupt/mismatch the durable authority file and verify Mix/Cooling-from-Mix restore is rejected rather than reconstructed from Ah.
+
+### C6 HANDS_OFF live ownership transfer
+Use the exact Python commit and exact flashed ESPHome package on a dummy/load-safe setup before relying on D060 in production.
+- establish a managed session with Output ON and record V/I/OVP/OCP, edge generation and lease state;
+- press the first HANDS_OFF action only and prove nothing actuates;
+- change/replace the managed session before Execute and prove the old confirmation is rejected;
+- repeat with the same session and Execute the release;
+- prove Output and V/I/OVP/OCP remain unchanged through the transfer;
+- prove the dedicated `Safety Lease Release To Hands Off` command, not normal `Safety Lease Disarm`, is used;
+- prove edge generation changes, managed lease becomes unarmed, trip/quarantine remain clear and managed remaining time becomes zero;
+- prove ordinary Disarm still refuses to clear a managed lease while Output is ON;
+- race a 5-minute renewal with the release and prove no renewal can re-arm the lease after successful transfer;
+- suppress/delay release ACK after the edge command and prove software stays durable HANDS_OFF rather than silently restoring PB authority; local watchdog behavior must be explicitly observed;
+- kill/restart the bot after durable HANDS_OFF and prove stale pre-release AUTO state does not regain software authority;
+- return Pb control only after raw Output OFF is confirmed and prove no old AUTO session resumes automatically;
+- verify explicit HANDS_OFF Output OFF still uses raw command + positive OFF readback and does not itself return PB authority.
+
+Required state for D060 physical deployment claim: **BENCH-PASS**. Until then D060 is software-implemented only.
 
 Required state before merge: **BENCH-PASS**.
 
@@ -282,6 +302,7 @@ software CI exact head         PASS
 all required BENCH gates       PASS
 required real-battery traces   PASS
 15/5 lease physical proof      PASS
+HANDS_OFF live-release proof   PASS
 Mix timeout/off-path proof     PASS
 Mix active-time restart proof  PASS
 Q004/Q013 calibration evidence reviewed

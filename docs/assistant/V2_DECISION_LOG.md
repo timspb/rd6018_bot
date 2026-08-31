@@ -182,6 +182,24 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D059 — adaptive Mix current containment is a monotonic calibration-gated ratchet
 **ACCEPTED / SOFTWARE MECHANISM IMPLEMENTED / ACTUATOR AUTHORITY CALIBRATION-GATED.** The durable per-session ratchet enforces `0 < I_adaptive <= I_programmed <= I_recipe` and `I_adaptive(t+1) <= I_adaptive(t)`. Its candidate form is `min(I_programmed, I_previous, Imin_confirmed + headroom)`. A later larger programmed value cannot reopen current authority; corrupt persistence that enlarges authority is rejected; current-ceiling reach is explicitly representable as censored evidence. No production headroom, measurement-floor or protected RD current/OCP write is enabled yet. Those require Q005/Q014 physical characterization and safe write/readback validation; the default policy therefore reports no actuator authority.
 
+## D060 — RD6018 HANDS_OFF is an explicit general-purpose PSU ownership transfer
+**ACCEPTED / IMPLEMENTED IN SOFTWARE / EXACT ESPHOME BENCH VALIDATION PENDING.** RD6018 may be deliberately released from Pb-managed authority into durable `HANDS_OFF`. In that state raw telemetry remains observable, but Pb envelopes/temperature/chemistry/orphan rules and normal bot Output/V/I/OVP/OCP writes do not own the external PSU state. Entry never invents a compensating OFF merely because the live state is non-Pb. `_off_unconfirmed` containment cannot be bypassed.
+
+For an active AUTO/Manual program, release is a destructive authority transfer and requires a two-step Telegram confirmation bound to the exact active session. A stale confirmation cannot release a replacement session, and historical dashboard callbacks are routed back through the confirmation path.
+
+Normal edge-lease `disarm()` remains a verified-Output-OFF operation. Releasing an already-running managed Output while preserving Output/V/I/OVP/OCP uses a **separate edge command**, accepted only from a healthy already-armed lease with fresh direct RD readback and clear trip/quarantine. Python suspends and serializes renewals before transfer; a positive release ACK requires edge generation change plus unarmed/healthy/fresh readback. The dedicated release never clears a safety trip/quarantine and never writes Output OFF.
+
+Before durable HANDS_OFF is committed, failure to prepare the edge transfer leaves `PB_MANAGED` and the managed session intact and re-enables renewal permission. After durable HANDS_OFF commit, an ambiguous/lost edge ACK must **not** silently roll software back to `PB_MANAGED`, because the edge command may already have executed. HANDS_OFF remains the conservative actuator boundary, software charge authority is retired, and the operator is warned that the local watchdog may still turn Output OFF if the edge transfer did not complete. Returning Pb control requires confirmed Output OFF and does not silently resume a pre-HANDS_OFF AUTO session. Detailed contract: `RD_HANDS_OFF_MODE.md`.
+
+## D061 — live Pb adoption is an explicit authority-transfer transaction
+**ACCEPTED / NOT IMPLEMENTED.** An already-energized operator-programmed RD6018 may become Pb-managed only through an explicit adoption transaction. Failed adoption preflight must leave the external Output and V/I/OVP/OCP untouched. `ADOPTION_PENDING` may hold safety/OFF authority only; it does not grant chemistry or setpoint authority.
+
+## D062 — adopted Mix is neither Manual nor full AUTO Mix
+**ACCEPTED / NOT IMPLEMENTED.** Adopted Mix is a separate managed authority. Chemistry/battery identity must be explicitly confirmed before autonomous chemistry authority. Delta evidence begins fresh at adoption and may use only post-adoption observations. Known/declared prior active Mix time contributes to the hard chemistry budget. Successful adopted-Mix Delta + sticky hold ends in verified Output OFF rather than silently entering AUTO SAFE_WAIT/Storage; hard budget expiry remains abnormal `MIX_TIMEOUT -> verified OFF + diagnose`.
+
+## D063 — unknown prior external Mix age cannot receive a fresh full autonomous budget
+**ACCEPTED / NOT IMPLEMENTED.** If an already-running external Mix was not reliably observed from its OFF->ON edge and the operator cannot declare its prior elapsed active time, the bot must not create a new full Ca20/EFB24/AGM10 autonomous authority window. The operator must instead provide elapsed time or choose a non-autonomous alternative such as Manual / bounded safety-only observation / OFF when those adoption paths are implemented.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -203,6 +221,8 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `48af647...`: Mix fallback expiry reconciled to `MIX_TIMEOUT -> STOP_AND_DIAGNOSE`.
 - `0ca40d6...` + `4d52fdc...` + `79cd89f...`: durable Mix active-time authority wired into production composition and status/timer semantics.
 - `47545f5...` + `6559462...`: calibration-gated durable adaptive-current ratchet and regressions; RD current/OCP actuation remains gated.
+- `a852627...` + `1e6af89...` + `65bbf35...`: D060 persistent HANDS_OFF ownership, active AUTO/Manual software release and two-step UI confirmation.
+- `5836873...`: D060 code-review hardening — dedicated live edge ownership release, renewal serialization, session-bound confirmation, stale-restore containment and cross-layer ESPHome regressions.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.

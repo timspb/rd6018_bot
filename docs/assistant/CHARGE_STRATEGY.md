@@ -6,7 +6,7 @@
 
 ## Главная модель
 
-Для автоматических программ независимы chemistry, intent, condition, entry/program mode и stage. `MANUAL` — отдельный authority mode, а не разновидность chemistry FSM.
+Для автоматических программ независимы chemistry, intent, condition, entry/program mode и stage. `MANUAL` — отдельный authority mode, а не разновидность chemistry FSM. Отдельно существует **ownership RD6018**: `PB_MANAGED` или `HANDS_OFF`.
 
 ### Intent
 - **Normal** — штатный полный автоматический заряд, V1-compatible: bounded recovery и final Mix разрешены по детерминированным критериям.
@@ -20,8 +20,24 @@
 - `AutoStrategyProductionChargeControllerV2` владеет AUTO Main/timeout/Mix strategy.
 - `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto и durable Mix active-time authority.
 - `ProductionManualSessionManager` владеет Manual.
-- `V2RuntimeSafetyGuard` + configured-value readback + verified OFF + edge lease — отдельная неотключаемая аппаратная граница.
+- Пока ownership = `PB_MANAGED`, `V2RuntimeSafetyGuard` + configured-value readback + verified OFF + edge lease образуют обязательную аппаратную границу managed Pb authority.
+- `RdControlModeManager` — внешний ownership boundary. Явный `HANDS_OFF` снимает Pb/bot actuator authority с RD6018; это не ослабление managed safety, а прекращение managed Pb ownership.
 - `DiagnosticActionJournal` хранит lifecycle диагностических действий, но не заменяет safety/chemistry authority.
+
+### HANDS_OFF ownership
+`HANDS_OFF` предназначен для осознанного использования RD6018 как обычного программируемого БП.
+
+В этом состоянии:
+- Output ON не является orphan Pb fault;
+- Pb envelope/temp_ext/Delta/timers не управляют внешним PSU state;
+- обычные bot writes Output/V/I/OVP/OCP заблокированы без compensating OFF;
+- raw telemetry остаётся доступной;
+- mode durable и переживает restart;
+- intrinsic RD protections не отключаются.
+
+Обычный edge `disarm()` остаётся только verified-Output-OFF операцией. Release уже работающего managed Output в HANDS_OFF — отдельный session-bound ownership transfer с отдельным edge command, suspend/serialization renewals и positive ACK. После durable HANDS_OFF lost/ambiguous edge ACK не позволяет молча вернуть `PB_MANAGED`; edge command мог уже выполниться. Возврат Pb control требует raw confirmed Output OFF и не восстанавливает старый AUTO session.
+
+Подробный контракт: `RD_HANDS_OFF_MODE.md`. Live Output-ON adoption обратно в Pb authority относится к D061-D063 и пока не реализован.
 
 ## Сигналы
 - `battery_voltage` — chemistry/diagnostics;
@@ -36,6 +52,8 @@
 ## Аппаратная граница
 Различать commanded setpoint, configured/readback setpoint и measured physical value.
 
+Для `PB_MANAGED`:
+
 ```text
 fresh telemetry
 -> envelope validation
@@ -47,7 +65,7 @@ fresh telemetry
 -> post-enable verify
 ```
 
-Непроверяемая ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; конкретный chemistry recipe может быть существенно ниже. Для EFB automatic/Recovery/Conditioning generic ceiling = **16.5 V**.
+Непроверяемая managed ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; конкретный chemistry recipe может быть существенно ниже. Для EFB automatic/Recovery/Conditioning generic ceiling = **16.5 V**.
 
 ## AUTO start / PREP
 ```text
@@ -96,7 +114,7 @@ Global stage-current ceiling: 12 A.
 ### EFB upper-envelope rule
 Generic EFB chemistry policy has no automatic/Conditioning extension above 16.5 V. Passing `expert_high_voltage=True` must not enlarge the EFB envelope or set `expert_authorized`.
 
-The global **17.5 V** ceiling remains available to first-class Manual/Custom operator authority under immutable safety. A future automatic EFB target >16.5 V would require a separate exact model-specific manufacturer-backed profile; chemistry label `EFB` alone can never grant it.
+The global **17.5 V** ceiling remains available to first-class Manual/Custom operator authority under immutable managed safety. A future automatic EFB target >16.5 V would require a separate exact model-specific manufacturer-backed profile; chemistry label `EFB` alone can never grant it.
 
 ### Done / Storage
 ```text
@@ -370,9 +388,11 @@ No crash recovery may guess and restore a mid-probe current setpoint.
 ## Watchdogs / AI
 Managed edge safety lease в V2 branch: **15 min TTL / 5 min positive-ACK renewal**. ACK требует свежего direct RD Modbus/readback, generation advance, clear trip/quarantine и почти полный 15-minute remaining budget. ESPHome trip продолжает локально повторять Output OFF каждые 5 s. Exact package ещё должен пройти compile/flash/loss fault-injection на реальном узле до merge.
 
+Active managed -> HANDS_OFF имеет отдельный edge release contract и не использует обычный verified-OFF `disarm()`. Этот live ownership transfer также требует exact-package compile/flash/bench proof до production reliance.
+
 Native RD6018 Timer Off пока не используется. Если его семантика будет физически доказана, он обязан обновляться тем же accepted controller heartbeat и не может образовывать второй последовательный 15-minute window.
 
-Readback, verified OFF and edge lease are safety, not chemistry. AI explains evidence only; it cannot authorize HV, select setpoints or override safety.
+Readback, verified OFF and edge lease are safety of managed Pb authority, not chemistry. AI explains evidence only; it cannot authorize HV, select setpoints or override safety/ownership.
 
 ## Operator/documentation rules
 - Не называй current `Imin`, пока analyzer реально не сформировал minimum evidence.
@@ -391,4 +411,7 @@ Readback, verified OFF and edge lease are safety, not chemistry. AI explains evi
 - Never double-correct `hydrometer=tc`; manufacturer correction is explicit, never inferred.
 - EFB automatic/Recovery/Conditioning generic ceiling is 16.5 V; global 17.5 V is Manual/Custom outer authority, not EFB chemistry permission.
 - Mix adaptive-current actuator coefficients не придумываются до physical calibration; software ratchet не означает, что RD current уже динамически перепрограммируется.
+- HANDS_OFF — explicit ownership transfer, не способ обойти `_off_unconfirmed` или safety trip/quarantine.
+- Обычный edge disarm нельзя использовать для сохранения Output ON; active HANDS_OFF использует только dedicated live-release contract.
+- После возврата из HANDS_OFF старый AUTO session не должен silently resume.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
