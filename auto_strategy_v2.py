@@ -250,12 +250,23 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
             return self._mix_limit_seconds() / 3600.0
         return super()._get_stage_max_hours()
 
+    def _mix_display_elapsed_s(self, now: float) -> float:
+        authority = getattr(self, "_mix_active_authority", None)
+        snapshot = getattr(authority, "snapshot", None)
+        if snapshot is not None:
+            try:
+                if str(snapshot.session_id) == str(self.recovery_trace_context["session_id"]):
+                    return max(0.0, float(snapshot.elapsed_s))
+            except Exception:
+                pass
+        return max(0.0, float(now) - float(self.stage_start_time))
+
     def get_timers(self) -> Dict[str, Any]:
         timers = super().get_timers()
         if self.current_stage == self.STAGE_MIX and self.finish_timer_start is None:
             now = time.time()
             limit_s = self._mix_limit_seconds()
-            elapsed = max(0.0, now - self.stage_start_time)
+            elapsed = self._mix_display_elapsed_s(now)
             remaining = max(0.0, limit_s - elapsed)
             timers["stage_limit_sec"] = limit_s
             timers["stage_elapsed_sec"] = elapsed
@@ -268,23 +279,30 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
 
     def _session_rules_summary(self) -> str:
         if self.battery_type == self.PROFILE_CA:
-            return "Main 14.7V; recovery budget 3/session; Mix 16.5V/20h; SafeWait 2h."
+            return "Main 14.7V; recovery budget 3/session; Mix max 20h active; normal finish -> SafeWait 2h."
         if self.battery_type == self.PROFILE_EFB:
-            return "Main 14.8V; recovery budget 3/session; Mix 16.5V/24h; SafeWait 2h."
+            return "Main 14.8V; recovery budget 3/session; Mix max 24h active; normal finish -> SafeWait 2h."
         if self.battery_type == self.PROFILE_AGM:
-            return "Main 14.4/14.6/14.8/15.0V; recovery budget 4/session; Mix 16.3V/10h; SafeWait 2h."
+            return "Main 14.4/14.6/14.8/15.0V; recovery budget 4/session; Mix max 10h active; normal finish -> SafeWait 2h."
         return super()._session_rules_summary()
 
     def get_ai_stage_snapshot(self, temp_c: Optional[float] = None) -> Dict[str, Any]:
         snapshot = super().get_ai_stage_snapshot(temp_c)
+        if self.current_stage == self.STAGE_MIX and self.finish_timer_start is None:
+            snapshot["mix_active_elapsed_s"] = self._mix_display_elapsed_s(time.time())
+            snapshot["mix_timeout_semantics"] = "MIX_TIMEOUT -> Output OFF -> manual diagnosis"
         if (
             self.current_stage == self.STAGE_MIX
             and self.finish_timer_start is None
             and self.battery_type == self.PROFILE_EFB
         ):
-            snapshot["summary"] = "Mix 16.5V / 0.03C: normal exit by ΔV/ΔI; 24h fallback."
-            snapshot["transition"] = "Normal exit by ΔV/ΔI; without delta, 24h fallback -> SAFE_WAIT."
+            snapshot["summary"] = "Mix 16.5V / 0.03C: normal exit by ΔV/ΔI; 24h active-time authority ceiling."
+            snapshot["transition"] = (
+                "Normal exit by ΔV/ΔI; without delta, 24h active-time ceiling -> "
+                "MIX_TIMEOUT, Output OFF, manual diagnosis."
+            )
             policy = snapshot.get("mix_exit_policy")
             if isinstance(policy, dict):
                 policy["fallback_limit_hours"] = 24.0
+                policy["fallback_outcome"] = "MIX_TIMEOUT"
         return snapshot
