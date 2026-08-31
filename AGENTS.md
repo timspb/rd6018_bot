@@ -34,9 +34,11 @@ Read these before changing control behavior:
 3. `docs/assistant/CHARGE_STRATEGY.md` — current production strategy.
 4. `docs/assistant/PB_RECOVERY_V2.md` — V2 architecture and invariants.
 5. `docs/assistant/RD_HANDS_OFF_MODE.md` — general-purpose RD ownership boundary.
-6. `README.md` — operator/repository overview.
-7. `docs/DEPLOYMENT.md` — deployment, validation and rollback runbook.
-8. `docs/RECOVERY_TRACE_REPLAY.md` — trace/replay tooling.
+6. `docs/assistant/D061_MANAGED_LIVE_ADOPTION.md` — already-ON managed ownership-transfer primitive and physical bench gate.
+7. `docs/assistant/D062_MANAGED_MIX_ADOPTION.md` — managed external-Mix takeover, prior-age and fresh-Delta authority.
+8. `README.md` — operator/repository overview.
+9. `docs/DEPLOYMENT.md` — deployment, validation and rollback runbook.
+10. `docs/RECOVERY_TRACE_REPLAY.md` — trace/replay tooling.
 
 If code and these current documents disagree, stop and resolve the inconsistency; do not guess from an old comment, legacy test or historical commit.
 
