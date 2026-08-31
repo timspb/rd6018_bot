@@ -8,19 +8,22 @@ from operator_dashboard import install_operator_graph_dashboard
 
 
 class FailingEditBot:
-    def __init__(self, *, fail_delete=False):
+    def __init__(self, *, fail_delete=False, fail_text_edit=True):
         self.deleted = []
         self.fail_delete = fail_delete
+        self.fail_text_edit = fail_text_edit
         self.media_edits = []
-        self.caption_edits = []
+        self.text_edits = []
 
     async def edit_message_media(self, **kwargs):
         self.media_edits.append(kwargs)
         raise RuntimeError("synthetic edit media failure")
 
-    async def edit_message_caption(self, **kwargs):
-        self.caption_edits.append(kwargs)
-        raise RuntimeError("synthetic edit caption failure")
+    async def edit_message_text(self, **kwargs):
+        self.text_edits.append(kwargs)
+        if self.fail_text_edit:
+            raise RuntimeError("synthetic edit text failure")
+        return True
 
     async def delete_message(self, chat_id, message_id):
         self.deleted.append((chat_id, message_id))
@@ -30,9 +33,10 @@ class FailingEditBot:
 
 
 class FakeMessage:
-    def __init__(self):
+    def __init__(self, *, photo=False):
         self.chat = types.SimpleNamespace(id=10)
         self.message_id = 77
+        self.photo = [object()] if photo else []
         self.photo_answers = []
         self.text_answers = []
 
@@ -50,8 +54,11 @@ class FakeApp:
     CHART_RANGE_2H = "2h"
     CHART_RANGE_SESSION = "session"
 
-    def __init__(self, *, graph=True, fail_delete=False):
-        self.bot = FailingEditBot(fail_delete=fail_delete)
+    def __init__(self, *, graph=True, fail_delete=False, fail_text_edit=True):
+        self.bot = FailingEditBot(
+            fail_delete=fail_delete,
+            fail_text_edit=fail_text_edit,
+        )
         self.asyncio = asyncio
         self.ParseMode = types.SimpleNamespace(HTML="HTML")
         self.BufferedInputFile = lambda payload, filename: (payload, filename)
@@ -88,8 +95,8 @@ class FakeApp:
 
 
 class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def _run(self, app):
-        call = types.SimpleNamespace(message=FakeMessage())
+    async def _run(self, app, *, source_photo=False):
+        call = types.SimpleNamespace(message=FakeMessage(photo=source_photo))
         old_builder = hmi.build_operator_hmi_state
         old_panel = hmi.render_operator_panel
         old_details = hmi.render_operator_details
@@ -106,23 +113,40 @@ class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_media_edit_retires_old_workspace_before_photo_replacement(self):
         app = FakeApp(graph=True)
-        call = await self._run(app)
+        call = await self._run(app, source_photo=True)
 
         self.assertEqual(app.bot.deleted, [(10, 77)])
         self.assertEqual(len(call.message.photo_answers), 1)
         self.assertEqual(call.message.text_answers, [])
 
-    async def test_failed_empty_graph_caption_edit_retires_old_workspace_before_text_replacement(self):
+    async def test_empty_range_replaces_photo_instead_of_leaving_stale_graph_visible(self):
         app = FakeApp(graph=False)
-        call = await self._run(app)
+        call = await self._run(app, source_photo=True)
 
+        self.assertEqual(app.bot.text_edits, [])
         self.assertEqual(app.bot.deleted, [(10, 77)])
         self.assertEqual(len(call.message.text_answers), 1)
         self.assertEqual(call.message.photo_answers, [])
 
+    async def test_empty_text_workspace_is_edited_in_place_when_possible(self):
+        app = FakeApp(graph=False, fail_text_edit=False)
+        call = await self._run(app, source_photo=False)
+
+        self.assertEqual(len(app.bot.text_edits), 1)
+        self.assertEqual(app.bot.deleted, [])
+        self.assertEqual(call.message.text_answers, [])
+
+    async def test_failed_empty_text_edit_retires_old_workspace_before_replacement(self):
+        app = FakeApp(graph=False, fail_text_edit=True)
+        call = await self._run(app, source_photo=False)
+
+        self.assertEqual(len(app.bot.text_edits), 1)
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(len(call.message.text_answers), 1)
+
     async def test_delete_failure_still_returns_reachable_replacement_workspace(self):
         app = FakeApp(graph=True, fail_delete=True)
-        call = await self._run(app)
+        call = await self._run(app, source_photo=True)
 
         self.assertEqual(app.bot.deleted, [(10, 77)])
         self.assertEqual(len(call.message.photo_answers), 1)

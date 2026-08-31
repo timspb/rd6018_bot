@@ -289,11 +289,22 @@ def install_operator_graph_dashboard(app: Any) -> None:
         markup = hmi._graph_keyboard(app_arg, user_id)
         if not buf:
             text = "<b>График RD6018</b>\n\nНедостаточно данных."
+            # A photo message cannot truthfully become an empty text workspace by
+            # editing only its caption: the old graph would remain visible. Replace
+            # the workspace instead of leaving stale plotted data on screen.
+            if bool(getattr(call.message, "photo", None)):
+                await retire_graph_workspace_message(app_arg, call)
+                await call.message.answer(
+                    text,
+                    parse_mode=app_arg.ParseMode.HTML,
+                    reply_markup=markup,
+                )
+                return
             try:
-                await app_arg.bot.edit_message_caption(
+                await app_arg.bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    caption=text,
+                    text=text,
                     parse_mode=app_arg.ParseMode.HTML,
                     reply_markup=markup,
                 )
