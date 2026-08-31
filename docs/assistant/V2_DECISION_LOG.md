@@ -54,7 +54,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED / IMPLEMENTED.** Later small threshold recrossing does not erase an already-established event. Hard safety still wins.
 
 ## D017 — Mix fallback maxima are Ca 20h / EFB 24h / AGM 10h
-**ACCEPTED / IMPLEMENTED.** These are fallback observation maxima, not target durations.
+**ACCEPTED / IMPLEMENTED.** These are maximum automatic **active-Mix authority** windows, not target durations and not proof of successful completion. If no accepted finish hold has started by expiry, D057 applies.
 
 ## D018 — Done means managed Storage/float remains ON
 **ACCEPTED.** Normal completion: `SAFE_WAIT -> Done/Storage -> ~13.8 V / 1 A -> Output ON`. Fault/hard-stop has separate OFF semantics.
@@ -147,10 +147,10 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 **ACCEPTED / IMPLEMENTED.** Strategy first decides action; then `BLOCK_AUTOMATIC_HV` may veto a planned `ENTER_DESULFATION`/`ENTER_MIX`, including Normal and timeout-generated Mix.
 
 ## D048 — production presentation must use production semantics
-**ACCEPTED / IMPLEMENTED.** UI/status uses Normal full-auto, Diagnostic no-auto-HV and Mix fallback 20/24/10; rollback constants must not leak into operator contract.
+**ACCEPTED / IMPLEMENTED.** UI/status uses Normal full-auto, Diagnostic no-auto-HV and Mix maxima 20/24/10; rollback constants must not leak into operator contract.
 
 ## D049 — Auto Mix is first-class direct-entry automatic program
-**ACCEPTED / IMPLEMENTED.** Session starts directly in `STAGE_MIX`; PREP/Main/intermediate recovery are never entered. `Vbat <12.0V` rejects start. Standard targets: Ca/EFB 16.5V, AGM 16.3V, ~0.03C; standard Delta/sticky2h/fallback/SAFE_WAIT/Storage and all safety/readback/diagnostic HV vetoes apply. EFB has no implicit >16.5V expert extension.
+**ACCEPTED / IMPLEMENTED.** Session starts directly in `STAGE_MIX`; PREP/Main/intermediate recovery are never entered. `Vbat <12.0V` rejects start. Standard targets: Ca/EFB 16.5V, AGM 16.3V, ~0.03C; standard Delta/sticky2h and all safety/readback/diagnostic HV vetoes apply. Normal Delta completion may proceed through SAFE_WAIT/Storage; exhausting the 20/24/10 active-Mix ceiling instead follows D057 `MIX_TIMEOUT` and is never presented as successful completion. EFB has no implicit >16.5V expert extension.
 
 ## D050 — AUTO Manual-OFF is asynchronous terminal kill-condition only
 **ACCEPTED / IMPLEMENTED.** Merely arming persistent OFF does not suppress/alter PREP/Main/Recovery/Mix/72h/normal completion. If condition fires: terminal Output OFF + session stop + condition clear; do not enter Storage afterwards. Production AUTO strips legacy `manual_off_active=True` from chemistry tick while independent evaluator remains until legacy side-channel removal.
@@ -170,6 +170,18 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D055 — external battery-temperature integrity is source-aware and latched
 **ACCEPTED / IMPLEMENTED MECHANISM / CALIBRATION-GATED AUTHORITY.** `temp_ext` missing, non-finite, unavailable, stale or metadata-incoherent remains immediate fail-close through the existing runtime freshness boundary; no N-sample grace applies. A fresh value at the existing critical thermal limit remains immediate safety authority. Fresh-but-suspicious finite values are handled by a distinct-source-report consecutive-anomaly detector: repeated bot polls of one HA report never increment N, a clean new report resets the sequence, and an HV profile may be equal or stricter but never looser than baseline. Reaching a configured calibrated threshold requires verified Output OFF and durably latches the integrity fault; software session authority is retired only after OFF proof, and failed OFF retains `_off_unconfirmed` containment. Automatic restore is forbidden while latched. A later explicit authorization requires ordinary fresh/critical checks plus a clean multi-report recovery baseline before the latch can clear. The mechanism ships with no production `N`, step, slope, plausible-range or RD disconnect-sentinel constants; those remain disabled until physical RD6018 register 34/35 and HA-source characterization justifies them. Detailed contract: `EXTERNAL_TEMP_SENSOR_INTEGRITY.md`.
 
+## D056 — managed communication-loss lease is 15 min with 5 min positive-ACK renewal
+**ACCEPTED / IMPLEMENTED IN V2 BRANCH / BENCH VALIDATION PENDING.** The Python edge lease defaults to 900 s TTL and 300 s renewal cadence, and the matching ESPHome package uses a 900000 ms local lease. Renewal still requires generation advance, fresh direct RD Modbus/readback, clear quarantine/trip and near-full remaining TTL. The local 5 s repeated-OFF trip loop is unchanged. This is branch configuration, not a claim that the occupied physical node has already been flashed or loss-tested. No native RD6018 Timer Off write is added; any future native timer must share the same accepted control heartbeat and must not stack a second independent authority window.
+
+## D057 — Mix timeout is abnormal termination, not successful completion
+**ACCEPTED / IMPLEMENTED.** Exhausting the chemistry-specific active-Mix ceiling without an already accepted finish hold returns `STOP_AND_DIAGNOSE` with reason `MIX_TIMEOUT`. It requests Output OFF and must pass through the existing verified-OFF runtime boundary; it never enters SAFE_WAIT/Storage as success. A valid Delta finish hold that began before the ceiling retains its accepted sticky completion semantics. Timeout alone diagnoses no specific battery defect; it means automatic HV authority did not converge inside its bound and further HV work requires explicit operator judgement.
+
+## D058 — Mix timeout authority uses durable active time, not Ah or raw wall-stage age
+**ACCEPTED / IMPLEMENTED IN PRODUCTION COMPOSITION / BENCH VALIDATION PENDING.** `DiagnosticProductionChargeControllerV2` is composed with a durable session-bound Mix active-time authority. Live increments use a monotonic clock while Mix cannot be proved Output OFF; Cooling/proven-OFF intervals freeze the budget. The accumulated budget is persisted independently from Ah. After restart, a durable `active=true` record conservatively charges uncertain downtime instead of granting free HV time; a proved-inactive record freezes downtime. Missing/corrupt/session-mismatched authority rejects Mix/Cooling-from-Mix restore instead of reconstructing the budget from Ah or legacy `stage_start_time`. Communication-watchdog renewal never resets this authority.
+
+## D059 — adaptive Mix current containment is a monotonic calibration-gated ratchet
+**ACCEPTED / SOFTWARE MECHANISM IMPLEMENTED / ACTUATOR AUTHORITY CALIBRATION-GATED.** The durable per-session ratchet enforces `0 < I_adaptive <= I_programmed <= I_recipe` and `I_adaptive(t+1) <= I_adaptive(t)`. Its candidate form is `min(I_programmed, I_previous, Imin_confirmed + headroom)`. A later larger programmed value cannot reopen current authority; corrupt persistence that enlarges authority is rejected; current-ceiling reach is explicitly representable as censored evidence. No production headroom, measurement-floor or protected RD current/OCP write is enabled yet. Those require Q005/Q014 physical characterization and safe write/readback validation; the default policy therefore reports no actuator authority.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -187,6 +199,10 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `d17af0f...` + `1a3bf7d...` + `8a0ac7b...`: bank-fault labeled-case calibration harness and CLI.
 - `74e5ed9...` + `2218a06...`: generic EFB expert envelope >16.5V removed and regression-tested.
 - `658dcc4...` + `fb024bf...`: source-aware external-temperature anomaly detector, durable latch/restart containment and regression coverage; production thresholds remain physical-calibration gated.
+- `043035d...` + `f2bec18...`: branch edge lease tightened to 15 min / 5 min; physical deployment validation pending.
+- `48af647...`: Mix fallback expiry reconciled to `MIX_TIMEOUT -> STOP_AND_DIAGNOSE`.
+- `0ca40d6...` + `4d52fdc...` + `79cd89f...`: durable Mix active-time authority wired into production composition and status/timer semantics.
+- `47545f5...` + `6559462...`: calibration-gated durable adaptive-current ratchet and regressions; RD current/OCP actuation remains gated.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
