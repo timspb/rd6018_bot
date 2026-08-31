@@ -1,7 +1,14 @@
+import asyncio
+import io
 import types
 import unittest
 
-from operator_dashboard import build_truthful_hmi_state, render_truthful_panel
+import operator_hmi as hmi
+from operator_dashboard import (
+    build_truthful_hmi_state,
+    install_operator_graph_dashboard,
+    render_truthful_panel,
+)
 from operator_hmi import HmiProcessState, build_operator_keyboard
 
 
@@ -91,6 +98,79 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "alarm")
         self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+
+
+class FakeGraphBot:
+    def __init__(self):
+        self.media_edits = []
+
+    async def edit_message_media(self, **kwargs):
+        self.media_edits.append(kwargs)
+        return True
+
+
+class FakeGraphMessage:
+    def __init__(self):
+        self.chat = types.SimpleNamespace(id=10)
+        self.message_id = 77
+        self.answers = []
+
+    async def answer_photo(self, *args, **kwargs):
+        self.answers.append((args, kwargs))
+        return types.SimpleNamespace(message_id=78)
+
+    async def answer(self, *args, **kwargs):
+        self.answers.append((args, kwargs))
+        return types.SimpleNamespace(message_id=78)
+
+
+class FakeGraphApp(FakeApp):
+    def __init__(self):
+        super().__init__()
+        self.bot = FakeGraphBot()
+        self.asyncio = asyncio
+        self.ParseMode = types.SimpleNamespace(HTML="HTML")
+        self.BufferedInputFile = lambda payload, filename: (payload, filename)
+        self.InputMediaPhoto = lambda **kwargs: kwargs
+        self.user_dashboard = {}
+        self.chat_dashboard = {}
+        self.user_chart_range = {1: self.CHART_RANGE_2H}
+        self._build_and_send_dashboard = None
+
+    def _chart_range_for_user(self, user_id):
+        return self.user_chart_range.get(user_id, self.CHART_RANGE_30M)
+
+    def _chart_query_params(self, user_id):
+        return self._chart_range_for_user(user_id), None, 120
+
+    async def get_graph_data_with_temp(self, *, limit, since_timestamp):
+        return [1, 2], [13.0, 13.1], [1.0, 0.9], [25.0, 25.1]
+
+    @staticmethod
+    def generate_chart(times, voltages, currents, temps):
+        return io.BytesIO(b"png")
+
+
+class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_range_change_edits_existing_graph_workspace(self):
+        app = FakeGraphApp()
+        call = types.SimpleNamespace(message=FakeGraphMessage())
+        old_builder = hmi.build_operator_hmi_state
+        old_panel = hmi.render_operator_panel
+        old_details = hmi.render_operator_details
+        old_graph = hmi._render_graph_workspace
+        try:
+            install_operator_graph_dashboard(app)
+            await hmi._render_graph_workspace(app, call, 1)
+        finally:
+            hmi.build_operator_hmi_state = old_builder
+            hmi.render_operator_panel = old_panel
+            hmi.render_operator_details = old_details
+            hmi._render_graph_workspace = old_graph
+
+        self.assertEqual(len(app.bot.media_edits), 1)
+        self.assertEqual(app.bot.media_edits[0]["message_id"], 77)
+        self.assertEqual(call.message.answers, [])
 
 
 if __name__ == "__main__":
