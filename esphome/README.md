@@ -7,7 +7,7 @@ It composes:
 - `rd6018_telemetry_v2.yaml` — corrected RD6018 telemetry including raw protection register 16 and raw regulation register 17;
 - `rd6018_live_adoption.yaml` — positively acknowledged managed->HANDS_OFF release and HANDS_OFF->managed live-adoption primitive.
 
-The repository CI compiles this target with **ESPHome 2026.8.2** and publishes the resulting OTA `firmware.bin` as a workflow artifact.
+The repository CI compiles this target with **Python 3.12 + ESPHome 2026.8.2** and publishes the resulting OTA `firmware.bin` as a workflow artifact. This firmware build environment is independent from the bot's production Python 3.11 virtualenv.
 
 ## Local configuration
 
@@ -19,13 +19,18 @@ cp esphome/secrets.example.yaml esphome/secrets.yaml
 
 Edit `esphome/secrets.yaml` locally and provide the real Wi-Fi, API, OTA and network values. The file is gitignored.
 
-Validate and compile using the same ESPHome version as CI:
+Validate and compile in an isolated Python 3.12 environment using the same ESPHome version as CI:
 
 ```sh
+python3.12 -m venv .venv-esphome
+. .venv-esphome/bin/activate
+python -m pip install --upgrade pip
 python -m pip install 'esphome==2026.8.2'
 esphome config esphome/rd6018_controller_v2.yaml
 esphome compile esphome/rd6018_controller_v2.yaml
 ```
+
+Do not replace or repair the bot's existing Python runtime for this purpose.
 
 ## Flash boundary
 
