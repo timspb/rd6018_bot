@@ -29,6 +29,7 @@ from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
+from rd_managed_mix_adoption import install_managed_mix_adoption
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -87,6 +88,18 @@ _rd_managed_live_adoption = install_managed_live_adoption(
     _rd_control_mode,
     install_ui=_v2_ui_enabled,
 )
+# D062/D063 builds a separate MIX_ADOPTED authority on the physically same D061 edge
+# primitive. It never masquerades as Manual/AUTO: prior active Mix time must be proven
+# by Recorder or explicitly declared, the remaining Ca/EFB/AGM hard budget is carried
+# into the managed session, Delta starts fresh after takeover, and normal completion is
+# verified OFF rather than SAFE_WAIT/Storage. Runtime-safety composition is installed
+# even with V2_UI disabled; the Telegram workflow itself follows V2_UI.
+_rd_managed_mix_adoption = install_managed_mix_adoption(
+    _legacy,
+    _rd_control_mode,
+    _rd_managed_live_adoption,
+    install_ui=_v2_ui_enabled,
+)
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
 # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
@@ -106,9 +119,11 @@ _legacy_main = _legacy.main
 
 async def main() -> None:
     await init_v2_storage()
-    # Managed live authority never resumes across process restart. If a previous
-    # adoption/pending handover existed, complete verified-OFF containment before the
-    # ordinary runtime starts or renews any managed lease.
+    # Neither managed live-adoption authority is resumable. D062 is recovered first
+    # because it owns a chemistry HV budget; if it was active/pending at crash, startup
+    # may only continue toward verified OFF before any generic managed heartbeat starts.
+    await _rd_managed_mix_adoption.recover_startup()
+    # D061 Adopted Manual follows the same restart containment rule.
     await _rd_managed_live_adoption.recover_startup()
     # A normal HANDS_OFF observer also never resumes. If it had already committed final
     # OFF_PENDING, only that OFF containment is allowed to continue.
