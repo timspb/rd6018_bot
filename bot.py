@@ -20,6 +20,7 @@ from manual_context_v2 import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
 )
+from operator_dashboard import install_operator_graph_dashboard
 from operator_hmi import install_operator_hmi
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
@@ -73,14 +74,11 @@ _rd_live_mix_observer = (
 )
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
-# semantics rather than leaking the underlying composition/debug UI.
+# semantics rather than leaking the underlying composition/debug UI. The graph-backed
+# transport is then composed underneath that semantic state/caption/keyboard layer.
 if _v2_ui_enabled:
-    # Preserve the proven legacy graph transport (photo + range/session rendering).
-    # operator_hmi replaces the caption and keyboard semantics, but the main L2 panel
-    # intentionally keeps its graph instead of becoming a text-only status card.
-    _graph_dashboard_builder = _legacy._build_and_send_dashboard
     install_operator_hmi(_legacy)
-    _legacy._build_and_send_dashboard = _graph_dashboard_builder
+    install_operator_graph_dashboard(_legacy)
 
 _legacy_main = _legacy.main
 
