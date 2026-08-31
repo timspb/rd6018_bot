@@ -22,6 +22,7 @@ from manual_context_v2 import (
 )
 from operator_dashboard import install_operator_graph_dashboard
 from operator_hmi import install_operator_hmi
+from operator_managed_stop import install_operator_managed_stop
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
@@ -74,10 +75,12 @@ _rd_live_mix_observer = (
 )
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
-# semantics rather than leaking the underlying composition/debug UI. The graph-backed
-# transport is then composed underneath that semantic state/caption/keyboard layer.
+# semantics rather than leaking the underlying composition/debug UI. Managed Stop is
+# then converted from the legacy ON/OFF toggle into a session-bound L4 stop-only action;
+# the graph-backed transport is composed underneath the final semantic state/controls.
 if _v2_ui_enabled:
     install_operator_hmi(_legacy)
+    install_operator_managed_stop(_legacy)
     install_operator_graph_dashboard(_legacy)
 
 _legacy_main = _legacy.main
