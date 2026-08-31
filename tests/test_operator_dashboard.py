@@ -99,6 +99,28 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.attention, "alarm")
         self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
 
+    def test_raw_opp_trip_is_visible_even_when_legacy_bits_are_off(self):
+        app = FakeApp()
+        state = build_truthful_hmi_state(
+            app,
+            _live(switch="on", protection_code=3),
+        )
+        text = render_truthful_panel(state)
+
+        self.assertEqual(state.attention, "alarm")
+        self.assertIn("Защита: OPP", text)
+        self.assertNotIn("Защита: норма", text)
+
+    def test_unknown_raw_protection_code_is_not_downgraded_by_legacy_bits(self):
+        app = FakeApp()
+        state = build_truthful_hmi_state(
+            app,
+            _live(switch="on", protection_code=99),
+        )
+
+        self.assertEqual(state.attention, "alarm")
+        self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+
 
 class FakeGraphBot:
     def __init__(self):
