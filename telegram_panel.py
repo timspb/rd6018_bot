@@ -30,6 +30,14 @@ _TERMINAL_CALLBACKS = {
     "rd_live_mix_stop_observer",
     "rd_hands_off_release_execute",
     "rd_hands_off_release_cancel",
+    # Normal V2 program workflows end here after an explicit start action. A failed
+    # start is terminal too: its handler already explains the result, then L2 returns.
+    "v2_quick_start",
+    "v2_battery_start",
+    "v2_mix_start",
+    # Interrupted Manual has an explicit terminal choice.
+    "v2_manual_reauthorize",
+    "v2_manual_discard",
 }
 
 # Navigation/detail/program callbacks are an operator workspace. Do NOT append a
@@ -207,7 +215,9 @@ class TerminalPanelManager:
 
             # Plain text is commonly an input step in a currently active workflow.
             # Never inject the panel under the handler response. Explicit callbacks
-            # close the workflow and restore L2.
+            # close the workflow and restore L2. Text-driven terminal workflows (for
+            # example Manual numeric input) keep their own semantic success response;
+            # the next explicit navigation action restores L2 without stealing focus.
             if not text.startswith("/"):
                 return
 
