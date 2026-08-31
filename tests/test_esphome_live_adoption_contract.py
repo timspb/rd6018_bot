@@ -7,6 +7,8 @@ class EspHomeLiveAdoptionContractTests(unittest.TestCase):
         text = pathlib.Path("esphome/rd6018_live_adoption.yaml").read_text(encoding="utf-8")
 
         self.assertIn('name: "Safety Lease Adopt Live Output"', text)
+        self.assertIn('name: "Safety Lease TTL"', text)
+        self.assertIn("return ${rd6018_safety_lease_ttl_ms}UL / 1000.0f;", text)
         self.assertIn("if (${rd6018_safety_lease_ttl_ms}UL != 900000UL) return;", text)
         self.assertIn("if (id(rd6018_safety_boot_quarantine)) return;", text)
         self.assertIn("if (id(rd6018_safety_lease_tripped)) return;", text)
