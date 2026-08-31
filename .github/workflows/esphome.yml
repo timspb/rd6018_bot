@@ -1,0 +1,35 @@
+name: ESPHome firmware
+
+on:
+  push:
+    branches:
+      - 'refactor/**'
+      - 'fix/**'
+    paths:
+      - 'esphome/**'
+      - '.github/workflows/esphome.yml'
+  pull_request:
+    paths:
+      - 'esphome/**'
+      - '.github/workflows/esphome.yml'
+
+jobs:
+  compile-rd6018-v2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install esphome
+          esphome version
+      - name: Prepare CI secrets
+        run: cp esphome/secrets.example.yaml esphome/secrets.yaml
+      - name: Validate configuration
+        run: esphome config esphome/rd6018_controller_v2.yaml
+      - name: Compile firmware
+        run: esphome compile esphome/rd6018_controller_v2.yaml
