@@ -21,7 +21,7 @@ Supporting proof/calibration/design documents:
 - `MIX_ADAPTIVE_CURRENT_CONTAINMENT.md` — accepted, not-yet-implemented Mix safety design: confirmed-current-minimum hardware current ratchet for lost-control-path containment;
 - `MIX_TIMEOUT_POLICY.md` — accepted strategy refinement: Mix maximum is an automation-confidence boundary; Ca/Ca remains 20 h and timeout is not successful Mix completion;
 - `COMM_LOSS_WATCHDOG_15MIN.md` — accepted, not-yet-implemented tightening of the managed communication-loss watchdog to 15 min TTL / 5 min renewal, including non-stacking native-RD timer semantics;
-- `EXTERNAL_TEMP_SENSOR_INTEGRITY.md` — accepted external battery-temperature integrity policy: stale/missing fail-close plus N-consecutive fresh-anomaly shutdown without weakening thermal limits;
+- `EXTERNAL_TEMP_SENSOR_INTEGRITY.md` — accepted and software-implemented external battery-temperature integrity mechanism: stale/missing fail-close plus calibration-gated N-consecutive fresh-anomaly shutdown without weakening thermal limits;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
@@ -62,14 +62,15 @@ Production V2 deliberately distinguishes:
 - watchdog refresh never resets or extends the separate Mix 20/24/10-hour chemistry authority clock;
 - external battery temperature is safety authority: missing/unavailable/stale `temp_ext` remains immediate fail-close once freshness is lost; fresh-but-suspicious values use an N-consecutive-new-source-sample detector, while hard thermal limits or physically proven disconnect/error sentinels remain immediate;
 - repeated HA polls of one cached temperature sample never count as N anomalies, and a flat but freshly reported valid temperature is not itself a fault;
-- a temperature-sensor integrity shutdown is latched for the active program and never auto-resumes merely because the next sample looks normal;
+- a temperature-sensor integrity shutdown is durably latched, forbids automatic restore, and never auto-resumes merely because the next sample looks normal;
+- production anomaly `N`/step/slope/range values and any raw RD disconnect sentinel remain deliberately unconfigured until physical calibration;
 - SAFE_WAIT is Output OFF even across Cooling; incomplete Cooling continuation metadata never defaults to Main;
 - Vin is PSU-health telemetry only, including production legacy-start/restore composition paths;
 - managed runtime authority rejects stale/incoherent dynamic battery/output telemetry: HA `last_reported` is the preferred heartbeat, `last_updated` is compatibility fallback, while static Vset/Iset/OVP/OCP timestamps are never mistaken for liveness clocks.
 
 ## Current implementation landmarks
 
-For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D054 plus the implementation closures recorded by the 2026-08-30 safety audit. Recent implementation groups include:
+For exact current SHAs use branch history/PR; durable behavioral meaning is in Decision Log D001–D055 plus the implementation closures recorded by the 2026-08-30 safety audit. Recent implementation groups include:
 - corrected RD telemetry/readback and safety envelope;
 - continuous runtime freshness for Vbat/I/T and energized V_OUT, using HA `last_reported` where available;
 - measured V_OUT/current runtime limits and raw OPP/unknown protection fail-close;
@@ -81,12 +82,12 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 - optional Manual battery identity + interrupted-request review/re-authorization (D052);
 - SG access/correction/prompt contract (D053);
 - generic EFB >16.5 V expert chemistry extension removed (D054);
+- external-temperature source-aware anomaly detector, verified-OFF containment, durable latch and restart/reauthorization gate (D055); production anomaly constants and raw disconnect-pattern classification remain physical-calibration gated;
 - labeled Bank-Fault calibration harness for Q004/Q013;
 - raw probe characterization harness for Q005/Q014;
 - adaptive Mix current containment recorded as an accepted design note; implementation/calibration remains gated on real `Imin/ΔI` and RD6018 measurement characterization;
 - Mix timeout semantic refinement recorded: automatic timeout is an abnormal/non-converged handoff boundary, not normal successful completion; code reconciliation is still pending;
-- communication-loss watchdog tightening recorded as accepted target 15/5; current ESPHome edge lease remains implemented at 30/10 until coordinated code/config/physical validation;
-- external-temperature stale/missing fail-close is already implemented; N-consecutive fresh-anomaly integrity detection and physical disconnect-pattern calibration remain pending.
+- communication-loss watchdog tightening recorded as accepted target 15/5; current ESPHome edge lease remains implemented at 30/10 until coordinated code/config/physical validation.
 
 ## Operator HMI design boundary
 
@@ -118,7 +119,7 @@ Unit CI proves software contracts only. Before merge, follow `V2_VALIDATION_PLAN
 - exact ESPHome compile/flash;
 - RD telemetry/readback bench smoke, including HA source-heartbeat behavior for unchanged values;
 - runtime stale-telemetry fail-close and static-readback no-false-positive checks;
-- external-temperature probe disconnect/reconnect and anomalous-source-sample characterization, including raw registers 34/35 and HA source timestamps;
+- external-temperature probe disconnect/reconnect and anomalous-source-sample characterization, including raw registers 34/35 and HA source timestamps; use those traces to activate calibrated Class-C `N`/range/step/slope policy and any proven raw disconnect sentinel;
 - safe-enable/verified-OFF/edge-lease fault injection;
 - interrupted diagnostic-probe restart test;
 - interrupted Manual restart/reauthorization test;
