@@ -41,6 +41,7 @@ class LiveMixObserverMode(str, Enum):
 class LiveMixObserverState(str, Enum):
     IDLE = "idle"
     ACTIVE = "active"
+    OFF_PENDING = "off_pending"
     INTERRUPTED = "interrupted"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
@@ -69,14 +70,16 @@ class HandsOffMixObserver:
     """Observe an already-running external Mix without taking setpoint authority.
 
     This is the D063 non-autonomous fallback for a live RD6018 that cannot safely be
-    converted to full managed authority in place.  It deliberately remains in
+    converted to full managed authority in place. It deliberately remains in
     HANDS_OFF: it never writes V/I/OVP/OCP, never turns Output ON, and never treats HA
-    history as finish evidence.  Optional DELTA_THEN_OFF grants exactly one bounded
+    history as finish evidence. Optional DELTA_THEN_OFF grants exactly one bounded
     actuator authority: after a *fresh post-activation* V2 Delta plus the normal 2 h
-    hold, issue the already-existing explicit verified HANDS_OFF Output OFF.
+    hold, issue the existing explicit verified HANDS_OFF Output OFF.
 
-    A process restart never resumes that future-OFF authority.  The operator must
-    explicitly arm it again.
+    A normal process restart never resumes Delta/future-OFF authority. The one
+    exception is a durable OFF_PENDING state: once final OFF has already become the
+    required safety action, restart may only continue trying to prove OFF, never resume
+    charging authority.
     """
 
     VERSION = 1
@@ -112,8 +115,14 @@ class HandsOffMixObserver:
         return self.state is LiveMixObserverState.ACTIVE
 
     @property
+    def off_pending(self) -> bool:
+        return self.state is LiveMixObserverState.OFF_PENDING
+
+    @property
     def actuator_authority(self) -> bool:
-        return self.active and self.mode is LiveMixObserverMode.DELTA_THEN_OFF
+        return (
+            self.active and self.mode is LiveMixObserverMode.DELTA_THEN_OFF
+        ) or self.off_pending
 
     def _document(self) -> dict[str, Any]:
         return {
@@ -157,6 +166,14 @@ class HandsOffMixObserver:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_path, path)
+            try:
+                dir_fd = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass
         finally:
             try:
                 if os.path.exists(tmp_path):
@@ -179,7 +196,14 @@ class HandsOffMixObserver:
             self.capacity_ah = float(raw.get("capacity_ah") or 0.0)
             mode_raw = raw.get("mode")
             self.mode = LiveMixObserverMode(str(mode_raw)) if mode_raw else None
-            if previous is LiveMixObserverState.ACTIVE:
+            if previous is LiveMixObserverState.OFF_PENDING:
+                # OFF containment is the only authority that survives restart.
+                self.state = LiveMixObserverState.OFF_PENDING
+                self.finish_hold_started_at_s = None
+                self.last_source_timestamp_s = None
+                self.last_status = "restart: verified Output OFF remains pending"
+                self._persist()
+            elif previous is LiveMixObserverState.ACTIVE:
                 self.state = LiveMixObserverState.INTERRUPTED
                 self.last_status = (
                     "process_restart: observer/future-OFF authority requires fresh operator authorization"
@@ -232,7 +256,15 @@ class HandsOffMixObserver:
         if not isinstance(meta, dict):
             return None
         candidates: list[float] = []
-        for key in ("current", "battery_voltage", "temp_ext_v2", "temp_ext", "regulation_code"):
+        for key in (
+            "current",
+            "battery_voltage",
+            "temp_ext_v2",
+            "temp_ext",
+            "regulation_code",
+            "is_cv",
+            "is_cc",
+        ):
             item = meta.get(key)
             if not isinstance(item, dict):
                 continue
@@ -246,9 +278,8 @@ class HandsOffMixObserver:
                 continue
             if math.isfinite(parsed) and parsed > 0:
                 candidates.append(parsed)
-        # Use the oldest source timestamp in the coherent sample.  That prevents a
-        # newly reported current value from lending freshness to an older temperature
-        # or regulation observation.
+        # Use the oldest timestamp in the coherent U/I/T/mode observation. A newly
+        # reported current must not lend freshness to an older temperature/mode value.
         return min(candidates) if candidates else None
 
     async def start(
@@ -257,8 +288,8 @@ class HandsOffMixObserver:
         *,
         mode: LiveMixObserverMode,
     ) -> None:
-        if self.active:
-            raise RuntimeError("live Mix observer is already active")
+        if self.active or self.off_pending:
+            raise RuntimeError("live Mix observer already owns pending state")
         if not bool(getattr(self.manager, "hands_off", False)):
             raise RuntimeError("live Mix observer requires HANDS_OFF")
 
@@ -278,14 +309,22 @@ class HandsOffMixObserver:
         self.fingerprint = fresh_fingerprint
         self.started_at_s = time.time()
         self.finish_hold_started_at_s = None
-        self.last_source_timestamp_s = None
-        self.last_status = "fresh post-activation Delta epoch started"
-        self.analyzer.reset_stage("Adopted Mix observer", target_voltage_v=fresh_fingerprint.set_voltage_v)
+        # This is the fresh-evidence barrier. Recorder/live samples whose source
+        # heartbeat predates operator confirmation can be displayed as history but can
+        # never become the first Imin/Vmax of the new authority epoch.
+        self.last_source_timestamp_s = self.started_at_s
+        self.last_status = "fresh post-activation Delta epoch started; waiting for a new HA source report"
+        self.analyzer.reset_stage(
+            "Adopted Mix observer",
+            target_voltage_v=fresh_fingerprint.set_voltage_v,
+        )
         self.state = LiveMixObserverState.ACTIVE
         self._persist()
         self._task = asyncio.create_task(self._run(), name="rd6018-hands-off-mix-observer")
 
     async def cancel(self) -> None:
+        if self.off_pending:
+            raise RuntimeError("verified Output OFF is already pending and cannot be cancelled")
         task = self._task
         self._task = None
         if task is not None and task is not asyncio.current_task() and not task.done():
@@ -312,8 +351,13 @@ class HandsOffMixObserver:
     def _reset_evidence_for_new_setpoints(self, fingerprint: LiveMixFingerprint) -> None:
         self.fingerprint = fingerprint
         self.finish_hold_started_at_s = None
-        self.last_source_timestamp_s = None
-        self.analyzer.reset_stage("Adopted Mix observer", target_voltage_v=fingerprint.set_voltage_v)
+        # Do not accept the same HA report that revealed the setpoint change as a fresh
+        # chemistry sample. Wait until all relevant sources report after this reset.
+        self.last_source_timestamp_s = time.time()
+        self.analyzer.reset_stage(
+            "Adopted Mix observer",
+            target_voltage_v=fingerprint.set_voltage_v,
+        )
         self.last_status = "external setpoints changed; fresh Delta epoch restarted"
         self._persist()
         self._notify(
@@ -321,7 +365,43 @@ class HandsOffMixObserver:
             "наблюдение продолжено с нового чистого epoch."
         )
 
+    async def _finish_verified_off(self) -> bool:
+        self.state = LiveMixObserverState.OFF_PENDING
+        self.finish_hold_started_at_s = None
+        self.last_status = "fresh Delta + 2h hold complete; verified Output OFF pending"
+        # Persist OFF containment before the first actuation attempt. A crash may only
+        # continue toward OFF, never reconstruct or resume the external Mix authority.
+        self._persist()
+        try:
+            await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
+        except Exception as exc:
+            self.last_status = f"verified Output OFF still pending: {type(exc).__name__}: {exc}"
+            self._persist()
+            return False
+
+        self.state = LiveMixObserverState.COMPLETED
+        self.last_status = "fresh Delta + 2h hold complete; Output verified OFF"
+        self._persist()
+        self._notify(
+            "⏹ <b>Внешний Mix завершён:</b> свежая Delta + 2ч выдержка. Output подтверждён OFF. "
+            "HANDS_OFF остаётся включён."
+        )
+        return True
+
+    async def recover_startup(self) -> bool:
+        """Resume only a previously committed OFF containment after process restart."""
+        if not self.off_pending:
+            return True
+        if not bool(getattr(self.manager, "hands_off", False)):
+            self.last_status = "OFF_PENDING recovery blocked: durable RD mode is not HANDS_OFF"
+            self._persist()
+            return False
+        return await self._finish_verified_off()
+
     async def observe_once(self) -> None:
+        if self.off_pending:
+            await self._finish_verified_off()
+            return
         if not self.active:
             return
         if not bool(getattr(self.manager, "hands_off", False)):
@@ -359,8 +439,13 @@ class HandsOffMixObserver:
         temp = finite_float(live.get("temp_ext_v2"))
         if temp is None:
             temp = finite_float(live.get("temp_ext"))
-        mode = resolve_regulation(live)
-        if voltage is None or current is None or temp is None or mode not in {RegulationMode.CV, RegulationMode.CC}:
+        regulation = resolve_regulation(live)
+        if (
+            voltage is None
+            or current is None
+            or temp is None
+            or regulation not in {RegulationMode.CV, RegulationMode.CC}
+        ):
             self.last_source_timestamp_s = source_timestamp
             self.last_status = "incomplete U/I/T/regulation sample; no Delta evidence accepted"
             self._persist()
@@ -373,13 +458,13 @@ class HandsOffMixObserver:
                 voltage_v=float(voltage),
                 current_a=float(current),
                 temp_c=float(temp),
-                is_cv=mode is RegulationMode.CV,
-                is_cc=mode is RegulationMode.CC,
+                is_cv=regulation is RegulationMode.CV,
+                is_cc=regulation is RegulationMode.CC,
             )
         )
         metrics = analysis.metrics
         self.last_status = (
-            f"{mode.value}: Imin={metrics.current_min_a!r} "
+            f"{regulation.value}: Imin={metrics.current_min_a!r} "
             f"dI={metrics.delta_current_from_min_a!r} Vmax={metrics.voltage_max_v!r} "
             f"dV={metrics.delta_voltage_from_max_v!r}"
         )
@@ -388,13 +473,14 @@ class HandsOffMixObserver:
             self.finish_hold_started_at_s = time.time()
             evidence = (
                 f"Imin={metrics.current_min_a:.3f}A ΔI={metrics.delta_current_from_min_a:.3f}A"
-                if mode is RegulationMode.CV
+                if regulation is RegulationMode.CV
                 and metrics.current_min_a is not None
                 and metrics.delta_current_from_min_a is not None
                 else (
                     f"Vmax={metrics.voltage_max_v:.3f}V ΔV={metrics.delta_voltage_from_max_v:.3f}V"
-                    if metrics.voltage_max_v is not None and metrics.delta_voltage_from_max_v is not None
-                    else mode.value
+                    if metrics.voltage_max_v is not None
+                    and metrics.delta_voltage_from_max_v is not None
+                    else regulation.value
                 )
             )
             self.last_status = f"fresh Delta accepted; 2h hold started ({evidence})"
@@ -407,21 +493,7 @@ class HandsOffMixObserver:
             held = max(0.0, time.time() - self.finish_hold_started_at_s)
             if held >= MIX_FINISH_HOLD_S:
                 if self.mode is LiveMixObserverMode.DELTA_THEN_OFF:
-                    try:
-                        await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
-                    except Exception as exc:
-                        self.state = LiveMixObserverState.FAILED
-                        self.last_status = f"Delta hold complete but verified OFF failed: {exc}"
-                        self._persist()
-                        raise
-                    self.state = LiveMixObserverState.COMPLETED
-                    self.last_status = "fresh Delta + 2h hold complete; Output verified OFF"
-                    self.finish_hold_started_at_s = None
-                    self._persist()
-                    self._notify(
-                        "⏹ <b>Внешний Mix завершён:</b> свежая Delta + 2ч выдержка. Output подтверждён OFF. "
-                        "HANDS_OFF остаётся включён."
-                    )
+                    await self._finish_verified_off()
                     return
                 self.last_status = "fresh Delta + 2h hold complete; observe-only mode did not actuate"
 
@@ -429,15 +501,19 @@ class HandsOffMixObserver:
 
     async def _run(self) -> None:
         try:
-            while self.active:
+            while self.active or self.off_pending:
                 await self.observe_once()
-                if not self.active:
+                if not (self.active or self.off_pending):
                     break
                 await asyncio.sleep(self.poll_s)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            if self.state is LiveMixObserverState.ACTIVE:
+            # OFF_PENDING is safety containment and must not be downgraded to FAILED.
+            if self.off_pending:
+                self.last_status = f"OFF_PENDING runtime error: {type(exc).__name__}: {exc}"
+                self._persist()
+            elif self.active:
                 self.state = LiveMixObserverState.FAILED
                 self.last_status = f"observer_runtime_error:{type(exc).__name__}:{exc}"
                 self._persist()
@@ -453,7 +529,7 @@ def _summary_line(label: str, summary: Any, suffix: str) -> Optional[str]:
     if summary is None or getattr(summary, "count", 0) <= 0:
         return None
     return (
-        f"{label}: {summary.minimum:.2f} → {summary.maximum:.2f}; "
+        f"{label}: min {summary.minimum:.2f}, max {summary.maximum:.2f}, "
         f"сейчас {summary.latest:.2f}{suffix}"
     )
 
@@ -469,9 +545,19 @@ def format_live_mix_preview(preview: LiveMixPreview) -> str:
             f"OVP {preview.fingerprint.ovp_v:.2f} / OCP {preview.fingerprint.ocp_a:.2f}"
         ),
     ]
+    hard_limit = MIX_HARD_LIMIT_HOURS.get(preview.chemistry)
     if history is not None:
         if history.output.reliable:
             lines.append(f"HA Recorder: непрерывный Output ON {_hours(history.output.elapsed_s)}")
+            if (
+                hard_limit is not None
+                and history.output.elapsed_s is not None
+                and history.output.elapsed_s >= hard_limit * 3600.0
+            ):
+                lines.append(
+                    f"⚠️ HA-age уже >= стандартного chemistry Mix max {hard_limit:g} ч. "
+                    "HANDS_OFF-наблюдение не продлевает и не выдаёт новый chemistry budget."
+                )
         else:
             lines.append(f"HA Recorder: возраст Mix не доказан ({history.output.reason})")
         for line in (
@@ -484,7 +570,6 @@ def format_live_mix_preview(preview: LiveMixPreview) -> str:
     elif preview.history_error:
         lines.append(f"HA Recorder недоступен: {preview.history_error}")
 
-    hard_limit = MIX_HARD_LIMIT_HOURS.get(preview.chemistry)
     if hard_limit is not None:
         lines.append(f"Стандартный chemistry Mix max: {hard_limit:g} ч активного Mix.")
     lines.extend(
@@ -528,10 +613,14 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
                     InlineKeyboardButton(
                         text=(
                             "🧲 Mix-наблюдение"
-                            if observer.active
+                            if observer.active or observer.off_pending
                             else "🧲 Подхватить текущий Mix"
                         ),
-                        callback_data=("rd_live_mix_status" if observer.active else "rd_live_mix"),
+                        callback_data=(
+                            "rd_live_mix_status"
+                            if observer.active or observer.off_pending
+                            else "rd_live_mix"
+                        ),
                     )
                 ],
             )
@@ -553,6 +642,9 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
             return
         if not manager.hands_off:
             await call.answer("Сначала включите Режим РД — не лезь", show_alert=True)
+            return
+        if observer.active or observer.off_pending:
+            await call.answer("Mix-наблюдение уже активно", show_alert=True)
             return
         live = await manager.guard._raw_live()
         if str(live.get("switch", "")).strip().lower() != "on":
@@ -579,12 +671,10 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
             return
         user_id = call.from_user.id if call.from_user else 0
         pending[user_id] = {
-            "live": dict(live),
             "fingerprint": fingerprint,
             "history": history,
             "history_error": history_error,
             "records": records,
-            "record": None,
         }
         rows = [
             [
@@ -599,7 +689,7 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
         await call.answer()
         await call.message.answer(
             "🧲 <b>Какую физическую АКБ сейчас держит RD6018?</b>\n"
-            "Сначала прочитана история Home Assistant; выбор АКБ не меняет RD.",
+            "История Home Assistant уже прочитана; выбор АКБ не меняет RD.",
             parse_mode=app.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
@@ -615,7 +705,6 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
         except (ValueError, IndexError):
             await call.answer("Выбор АКБ устарел", show_alert=True)
             return
-        item["record"] = record
         preview = LiveMixPreview(
             battery_id=record.identity.battery_id,
             chemistry=record.identity.chemistry,
@@ -649,6 +738,8 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
         )
 
     async def _start_from_pending(call: Any, mode: LiveMixObserverMode) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
         item = await _require_preview(call)
         if item is None:
             return
@@ -671,8 +762,8 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
         await call.message.answer(
             "🧲 <b>Текущий Mix подхвачен в HANDS_OFF.</b>\n"
             f"{action}.\n"
-            "История HA сохранена как контекст; Delta считается заново с этого момента. "
-            "V/I/OVP/OCP не изменялись.",
+            "История HA сохранена как контекст; Delta считается заново с первого нового "
+            "source-report после этого подтверждения. V/I/OVP/OCP не изменялись.",
             parse_mode=app.ParseMode.HTML,
         )
 
@@ -722,7 +813,11 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
     async def _stop_observer(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await observer.cancel()
+        try:
+            await observer.cancel()
+        except Exception as exc:
+            await call.answer(str(exc), show_alert=True)
+            return
         await call.answer("Наблюдение снято; RD не изменён")
 
     @app.router.callback_query(F.data == "rd_live_mix_cancel")
