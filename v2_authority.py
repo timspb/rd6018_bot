@@ -208,8 +208,11 @@ def decide_mix_transition(
             "mode_specific_end_of_charge_evidence_confirmed",
         )
     if float(mix_elapsed_s) >= float(mix_limit_s):
+        # A fallback maximum is the end of automatic HV authority, not evidence of
+        # successful Mix completion.  Keep successful Delta/hold completion on the
+        # SAFE_WAIT path, but time exhaustion must terminate and require diagnosis.
         return AuthorityDecision(
-            AuthorityAction.COMPLETE_TO_SAFE_WAIT,
-            "mix_profile_observation_window_exhausted",
+            AuthorityAction.STOP_AND_DIAGNOSE,
+            "MIX_TIMEOUT",
         )
     return AuthorityDecision(AuthorityAction.CONTINUE, "mix_observation_continues")
