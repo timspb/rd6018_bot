@@ -15,11 +15,13 @@ class FakeHass:
         self.adopt_config = EdgeLiveAdoptionConfig(
             entity="button.test_safety_lease_adopt_live_output",
             protection_entity="sensor.test_protection_status_code",
+            ttl_entity="sensor.test_safety_lease_ttl",
         )
         self.states = {
             # HA button entities commonly report unknown even when available.
             self.adopt_config.entity: "unknown",
             self.adopt_config.protection_entity: 0,
+            self.adopt_config.ttl_entity: self.lease_config.lease_ttl_s,
             self.lease_config.armed_entity: "off",
             self.lease_config.tripped_entity: "off",
             self.lease_config.boot_quarantine_entity: "off",
@@ -100,6 +102,29 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "missing/unavailable"):
             await adoption.prepare()
         self.assertEqual(hass.pressed, [])
+
+    async def test_missing_ttl_contract_blocks_before_edge_command(self):
+        hass = FakeHass()
+        hass.states.pop(hass.adopt_config.ttl_entity)
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "TTL contract entity"):
+            await adoption.prepare()
+
+        self.assertEqual(hass.pressed, [])
+
+    async def test_old_thirty_minute_edge_is_rejected_before_edge_command(self):
+        hass = FakeHass()
+        hass.states[hass.adopt_config.ttl_entity] = 1800.0
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "requires 900s lease TTL, got 1800s"):
+            await adoption.prepare()
+
+        self.assertEqual(hass.pressed, [])
+        self.assertTrue(lease.renewals_suspended)
 
     async def test_missing_raw_protection_code_blocks_before_edge_command(self):
         hass = FakeHass()
@@ -241,6 +266,10 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             adoption.config.protection_entity,
             f"sensor.{prefix}_protection_status_code",
+        )
+        self.assertEqual(
+            adoption.config.ttl_entity,
+            f"sensor.{prefix}_safety_lease_ttl",
         )
 
 
