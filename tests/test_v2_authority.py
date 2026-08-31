@@ -226,7 +226,7 @@ class V2MixAuthorityTests(unittest.TestCase):
         )
         self.assertEqual(result.action, AuthorityAction.COMPLETE_TO_SAFE_WAIT)
 
-    def test_profile_window_is_fallback_without_finish_hold(self):
+    def test_profile_window_is_fault_boundary_without_finish_hold(self):
         result = decide_mix_transition(
             policy_decision=RecoveryDecision.CONTINUE,
             mix_elapsed_s=20 * 3600,
@@ -235,7 +235,8 @@ class V2MixAuthorityTests(unittest.TestCase):
             now_s=1000,
             finish_hold_s=2 * 3600,
         )
-        self.assertEqual(result.action, AuthorityAction.COMPLETE_TO_SAFE_WAIT)
+        self.assertEqual(result.action, AuthorityAction.STOP_AND_DIAGNOSE)
+        self.assertEqual(result.reason, "MIX_TIMEOUT")
 
 
 if __name__ == "__main__":
