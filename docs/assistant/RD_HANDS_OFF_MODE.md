@@ -1,6 +1,6 @@
 # RD6018 HANDS_OFF control mode
 
-Status: **D060 implemented in software; D061 safety-only live-session pickup implemented; full managed D062 live Mix adoption remains pending. Exact ESPHome compile/flash/bench validation is still required for managed edge ownership transfer.**
+Status: **D060 implemented in software; HANDS_OFF safety-only external-Mix observer implemented; D061 managed Adopted Manual implemented in software and code-reviewed; D061 exact ESPHome compile/flash/bench validation remains pending; D062 managed adopted Mix is not implemented.**
 
 ## Why this mode exists
 
@@ -30,17 +30,17 @@ The separate Telegram action `⏹ Output OFF` is the only ordinary actuator expo
 
 `🔒 Вернуть контроль заряда` requires no stale managed AUTO/Manual authority and raw Output positively OFF. It does not energize the RD6018.
 
-## Active managed-session release
+## D060 active managed-session release
 
 An already-running AUTO/Manual session can be released to HANDS_OFF without changing Output/V/I/OVP/OCP, but only through a two-step exact-session confirmation.
 
-Ordinary edge `disarm()` remains OFF-only. Active Output-preserving release uses the dedicated edge command `Safety Lease Release To Hands Off`, which is accepted only from a healthy already-armed managed lease with fresh direct Modbus/Output readback and clear trip/quarantine state.
+Ordinary edge `disarm()` remains OFF-only. Active Output-preserving release uses the dedicated edge command `Safety Lease Release To Hands Off`, accepted only from a healthy already-armed managed lease with fresh direct Modbus/Output readback and clear trip/quarantine state.
 
 Python serializes lease renewal/release, requires positive generation/readback acknowledgement, and never silently rolls back to `PB_MANAGED` after durable HANDS_OFF if the edge ACK becomes ambiguous.
 
 ### Pre-commit safety OFF remains legal
 
-The transfer has a narrow `release_in_progress` barrier:
+The D060 transfer has a narrow `release_in_progress` barrier:
 
 ```text
 PB_MANAGED remains in memory
@@ -57,89 +57,163 @@ in-memory HANDS_OFF
 edge ownership release + software retirement
 ```
 
-This is deliberate. A previous implementation temporarily set in-memory HANDS_OFF before the durable ownership commit, which could also block a concurrent safety-driven `turn_off()`. The current implementation keeps the OFF direction available until the ownership boundary is actually committed.
+This preserves the OFF direction until the ownership boundary is actually committed. AUTO Mix durable authority is terminalized as `RELEASED_TO_RD_HANDS_OFF`; Manual runner/timers are retired software-only without calling the physical Manual stop path.
 
-AUTO Mix durable authority is terminalized as `RELEASED_TO_RD_HANDS_OFF`; Manual runner/timers are retired software-only without calling the physical Manual stop path.
+## Safety-only pickup of an external Mix while staying HANDS_OFF
 
-## D061 — live external-session pickup while HANDS_OFF
-
-The current branch now implements a **non-autonomous/safety-only** pickup for an RD6018 Mix that was already running before the bot took ownership.
-
-Operator flow:
+The branch retains a deliberately narrow observer for an RD6018 Mix that was already running before the bot took ownership:
 
 ```text
 external RD6018 Mix already ON
         ↓
-start bot in durable HANDS_OFF
+HANDS_OFF
         ↓
 🧲 Подхватить текущий Mix
         ↓
-read current raw V/I/OVP/OCP + HA Recorder history
+read raw V/I/OVP/OCP + HA Recorder history
         ↓
 select exact saved physical battery
         ↓
-fresh TOCTOU re-read of current setpoints
+fresh TOCTOU re-read
         ↓
 choose:
   👁 observe only
   🎯 fresh Delta + 2h -> verified OFF
 ```
 
-The observer **stays in HANDS_OFF**. It never writes V/I/OVP/OCP and never turns Output ON. Therefore it does not claim full Pb actuator ownership and does not require a live edge-lease adoption transaction for the already-running output.
+This observer **stays in HANDS_OFF**. It never writes V/I/OVP/OCP and never turns Output ON. `🎯 fresh Delta + 2h -> OFF` grants only bounded future verified-OFF authority. Successful completion remains HANDS_OFF; it does not enter SAFE_WAIT or Storage.
 
-`🎯 fresh Delta + 2h -> OFF` grants only one bounded future actuator authority: after a new post-confirmation V2 Delta and the normal 2-hour finish hold, issue verified Output OFF. Successful completion remains HANDS_OFF; it does not enter SAFE_WAIT or Storage.
+If final OFF cannot be confirmed, `OFF_PENDING` is durably persisted. Only that OFF containment may continue after restart; ordinary observer authority never resumes automatically.
 
-If final OFF cannot be confirmed, `OFF_PENDING` is durably persisted. That containment is the only observer authority allowed to survive process restart; startup retries toward verified OFF. A normal active observer never resumes after restart and requires fresh operator authorization.
+### HA Recorder is context, not Delta authority
 
-## Home Assistant Recorder import
-
-`ha_history.py` reads the documented Home Assistant `/api/history/period` endpoint. The live-session preview first retrieves Output history over the configured lookback and accepts prior session age only when Recorder contains an explicit uninterrupted:
+`ha_history.py` accepts prior session age only when Recorder contains an explicit uninterrupted:
 
 ```text
 OFF -> ON -> ... -> current live ON
 ```
 
-A query window that merely starts with `ON` is not enough to prove start time. A later `unknown`/`unavailable` also invalidates authoritative age.
+A window that merely begins ON is not authoritative age, and later `unknown`/`unavailable` invalidates it. Historical Imin/Vmax never seed V2 Delta/hold authority. Delta evidence begins only after explicit pickup and a new coherent source report; duplicate source reports do not accumulate confirmations. External V/I/OVP/OCP changes reset the observer Delta epoch.
 
-For the detected running interval the preview summarizes recorded current, output voltage, battery voltage, external temperature and configured V/I where available. This is intentionally useful for the present experiment: the operator can immediately see historical extrema such as an earlier current minimum/maximum without losing them when the new bot is installed.
+## D061 — managed live adoption as Adopted Manual
 
-### History is context, not Delta authority
+D061 is separate from the HANDS_OFF observer. It is the only software path allowed to acquire `PB_MANAGED` while RD Output is already ON.
 
-Recorder history does **not** seed V2 `Imin`, `Vmax`, Delta confirmations or the 2-hour hold. Those begin only after the operator confirms pickup and a new coherent HA source report arrives after that confirmation.
+The implemented authority is deliberately **Adopted Manual**, not adopted Mix and not AUTO chemistry:
 
-This prevents an old Recorder point, a duplicated poll or a partial historical record from becoming an actuator decision. Duplicate source reports do not accumulate confirmations. If the operator changes V/I/OVP/OCP externally, the observer keeps HANDS_OFF ownership but discards the old Delta epoch and waits for a new source report.
+```text
+HANDS_OFF + external Output ON
+        ↓
+read-only managed-envelope preflight
+        ↓
+select/confirm exact saved battery + chemistry + Adopted Manual
+        ↓
+durable ADOPTION_PENDING
+        ↓
+edge live-adoption read-only preflight
+        ↓
+fresh HA TOCTOU readback
+        ↓
+dedicated Safety Lease Adopt Live Output command
+        ↓
+positive edge ACK
+        ↓
+fresh HA TOCTOU readback
+        ↓
+PB_MANAGED + Adopted Manual
+```
 
-## D062 — full managed adopted Mix
+At the adoption point the bot does **not** write Output, voltage, current, OVP or OCP. The observed live V/I/OVP/OCP become component-wise maximum authority. Managed writes may only ratchet those values downward. Any out-of-band increase terminates the adoption toward verified OFF. If Output becomes OFF, Adopted Manual cannot re-energize it; a fresh managed program is required.
 
-Status: **accepted design / not yet implemented.**
+The preflight requires the ordinary managed safety envelope, including fresh coherent telemetry, normal protection state, legal positive V/I/OVP/OCP geometry, working-current/voltage ceilings, valid managed temperature-start range, and safe Boot Power/Take Out state when those registers are exposed.
 
-A future full managed live adoption is a separate authority from Manual and full AUTO. It must:
+### Exact edge contract required by D061
+
+D061 does not infer compatibility from an accepted HTTP button call. Before the ownership command Python requires all of the following:
+
+- dedicated `Safety Lease Adopt Live Output` entity;
+- published `Safety Lease TTL` equal to the accepted 900 s contract;
+- fresh authoritative raw register-16 `Protection Status Code == 0`;
+- unarmed healthy HANDS_OFF edge state with effectively-zero remaining lease;
+- fresh direct Modbus evidence.
+
+The ESPHome command independently requires:
+
+- exact `rd6018_safety_lease_ttl_ms == 900000`;
+- fresh direct telemetry, register-18 Output-ON readback and register-16 protection readback;
+- protection code exactly `0`;
+- no trip/quarantine;
+- no existing managed session.
+
+Positive ACK requires generation change, healthy armed state, fresh direct Modbus evidence and a replenished near-full 900 s lease. Raw register-16 NORMAL is checked again after ACK and then remains mandatory on every managed poll, not merely on a five-minute renewal event.
+
+### Pre-command vs post-command failure boundary
+
+A code-review defect was fixed here deliberately. A race can fail after `prepare()` but before the button is actually invoked—for example generation/protection/TTL changing during the last read-only edge checks.
+
+Those failures remain non-actuating:
+
+```text
+edge command not invoked
+        -> stay HANDS_OFF
+        -> external Output/settings untouched
+```
+
+Once command invocation begins, a transport/ACK error can no longer prove whether ESPHome changed ownership:
+
+```text
+edge command may have executed
+        -> ownership ambiguous
+        -> verified Output OFF containment
+```
+
+The edge helper exposes this uncertainty boundary explicitly; the coordinator no longer treats every exception from `adopt()` as evidence that the command was sent.
+
+### Restart contract
+
+Managed live authority never auto-resumes after process restart. Persisted `ADOPTION_PENDING`, `ACTIVE` or `OFF_PENDING` becomes startup OFF containment; verified Output OFF is required before fresh operator authorization.
+
+## Current installed ESPHome is intentionally incompatible with D061
+
+The currently deployed pre-D061 firmware is suitable for the present external HANDS_OFF observer but not for managed live adoption. The observed contract has the following blockers:
+
+```text
+local lease TTL              1800 s / 30 min
+Safety Lease Adopt Live Output   absent
+raw Protection Status Code       absent
+published Safety Lease TTL       absent
+current external OCP             0.0 A
+```
+
+`OCP=0` may be preserved as an explicit disabled-protection value while merely observing an external HANDS_OFF session, but it is not acceptable managed Pb protection authority. D061 never silently rewrites it during adoption.
+
+The target safety package enters boot quarantine after ESP reboot and repeatedly forces Output OFF until fresh direct OFF proof. Therefore flashing/rebooting the target package while an occupied external Mix must continue is **not** a transparent upgrade. Flashing is a deliberate session-interrupting boundary.
+
+## D062 — managed adopted Mix
+
+Status: **accepted design / not implemented.**
+
+D062 will be a separate `MIX_ADOPTED` authority, not Manual and not full AUTO. It must use the physically validated D061 edge ownership primitive and additionally:
 
 - explicitly confirm battery and chemistry;
-- preserve current external setpoints as maximum granted authority rather than silently increasing them to recipe defaults;
-- account reliable prior active Mix time against Ca20/EFB24/AGM10 chemistry authority;
-- start Delta evidence fresh at adoption;
-- end normal adopted-Mix completion in verified OFF, not SAFE_WAIT/Storage;
-- require a positive local edge ownership-adoption handshake before `PB_MANAGED` can own an already-ON output.
+- account reliable/declared prior active Mix time against Ca20/EFB24/AGM10 authority;
+- never invent a fresh chemistry budget when prior age is unknown;
+- begin Delta evidence fresh after adoption;
+- preserve current external settings as maximum authority rather than silently raising them to recipe defaults;
+- finish accepted Delta + sticky hold in verified OFF, not SAFE_WAIT/Storage;
+- end hard budget expiry as abnormal `MIX_TIMEOUT -> verified OFF + diagnose`.
 
-That edge adoption path is intentionally not faked in software while the current physical ESPHome package has not been bench-validated for it.
+No current code claims D062 managed Mix authority.
 
-## D063 — unknown prior age never becomes a new chemistry budget
+## D063 — unknown prior age
 
-The current implementation now has the first half of D063:
+The safety-only HANDS_OFF observer implements the non-autonomous part of D063: Recorder may prove an `OFF -> ON` elapsed interval; otherwise age remains unknown, and no autonomous chemistry budget is created.
 
-- Recorder can provide a reliable prior `OFF -> ON` elapsed time when the evidence exists;
-- otherwise age remains explicitly unknown;
-- the HANDS_OFF observer remains available regardless, because it does not grant autonomous HV continuation authority;
-- the UI displays the normal chemistry Mix maximum and warns when Recorder age is already at/above it.
-
-What is still **not** implemented is converting that age into a new full managed adopted-Mix budget. In particular, no code grants a fresh Ca20/EFB24/AGM10 window merely because the bot was just installed.
+Full managed D062/D063 age authority is still absent. An unknown prior Mix age must never become a new Ca20/EFB24/AGM10 window merely because the bot was installed.
 
 ## Deployment over an already-running external session
 
-Do not start a fresh branch build in default `PB_MANAGED` over an unknown already-ON RD6018 and hope it infers ownership. The production orphan guard is supposed to reject that.
-
-Use:
+For the current occupied session, use the HANDS_OFF observer path rather than D061 managed takeover:
 
 ```bash
 python tools/prepare_hands_off_live_session.py --dry-run
@@ -147,16 +221,10 @@ python tools/prepare_hands_off_live_session.py
 python bot.py
 ```
 
-with the old service stopped during the handover. The preflight tool:
-
-- reads current HA/RD state;
-- requires Output positively ON plus complete V/I/OVP/OCP readback;
-- reads Recorder history for context;
-- atomically prepares `rd_control_mode_v2.json` as HANDS_OFF;
-- never writes Output or any RD6018 setpoint.
-
-After startup the Telegram dashboard exposes `🧲 Подхватить текущий Mix` while Output is ON.
+with the old service stopped during handover. The preflight tool reads current state/history, requires Output ON plus complete V/I/OVP/OCP readback, atomically prepares HANDS_OFF state, and never writes RD6018 Output or setpoints.
 
 ## Validation boundary
 
-Python CI proves only software contracts. For the present externally-running battery, the HANDS_OFF observer path does not require changing/flashing ESPHome because it does not acquire managed lease authority or rewrite output state. The D060 managed-session release handshake and any future D062 full managed live adoption still require exact ESPHome compile/flash and controlled bench validation before physical reliance.
+Python CI proves software contracts only. Before relying on D061 managed ownership transfer physically, the exact combined ESPHome safety-lease + telemetry + live-adoption package must be compiled, flashed and exercised on a dummy/load-safe setup. Required bench work includes TTL/raw-protection entity verification, Output/setpoint preservation, generation/ACK proof, pre-command race, ambiguous ACK, raw-protection loss, restart containment and local watchdog timing.
+
+Because target firmware boot quarantine intentionally forces OFF after reboot, perform that bench/deployment only after the currently occupied external battery session can be interrupted.
