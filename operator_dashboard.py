@@ -262,8 +262,18 @@ def install_operator_graph_dashboard(app: Any) -> None:
             base_renderer=base_details_renderer,
         )
 
+    async def retire_graph_workspace_message(app_arg: Any, call: Any) -> None:
+        """Best-effort retire a workspace message before sending its replacement."""
+        try:
+            await app_arg.bot.delete_message(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+            )
+        except Exception:
+            pass
+
     async def render_graph_workspace(app_arg: Any, call: Any, user_id: int) -> None:
-        """Use one editable graph workspace instead of emitting a photo per range tap."""
+        """Keep graph range changes to one logical workspace message."""
         _chart_mode, graph_since, limit_pts = app_arg._chart_query_params(user_id)
         times, voltages, currents, temps = await app_arg.get_graph_data_with_temp(
             limit=limit_pts,
@@ -287,7 +297,10 @@ def install_operator_graph_dashboard(app: Any) -> None:
                     parse_mode=app_arg.ParseMode.HTML,
                     reply_markup=markup,
                 )
-            except Exception:
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    return
+                await retire_graph_workspace_message(app_arg, call)
                 await call.message.answer(
                     text,
                     parse_mode=app_arg.ParseMode.HTML,
@@ -311,6 +324,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         except Exception as exc:
             if "message is not modified" in str(exc).lower():
                 return
+            await retire_graph_workspace_message(app_arg, call)
             await call.message.answer_photo(
                 photo,
                 caption="<b>График RD6018</b>",
