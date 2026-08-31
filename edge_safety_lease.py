@@ -56,8 +56,9 @@ class EdgeSafetyLeaseConfig:
         f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_remaining",
     )
 
-    lease_ttl_s: float = 30.0 * 60.0
-    renew_interval_s: float = 10.0 * 60.0
+    # Accepted V2 control-loss budget: three renewal opportunities inside one lease.
+    lease_ttl_s: float = 15.0 * 60.0
+    renew_interval_s: float = 5.0 * 60.0
     max_modbus_age_s: float = 20.0
     ack_remaining_slack_s: float = 15.0
     ack_attempts: int = 12
