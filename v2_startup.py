@@ -66,6 +66,14 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     user = getattr(event, "from_user", None) or getattr(message, "from_user", None)
     user_id = user.id if user else 0
 
+    rd_mode = getattr(app, "rd_control_mode_manager", None)
+    if rd_mode is not None and bool(getattr(rd_mode, "hands_off", False)):
+        await message.answer(
+            "🔓 Режим РД — не лезь включён. Сначала верните контроль заряда; "
+            "текущий Output и уставки не изменены."
+        )
+        return False
+
     if app.charge_controller.is_active:
         await message.answer("⚠️ Сначала остановите текущую программу.")
         return False

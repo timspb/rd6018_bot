@@ -21,6 +21,7 @@ from manual_context_v2 import (
     install_manual_context_ui,
 )
 from production_guardrails_v2 import install_production_guardrails
+from rd_control_mode import install_rd_control_mode
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -51,6 +52,11 @@ install_diagnostic_persistence(_legacy)
 if _v2_ui_enabled:
     install_mix_only_mode(_legacy)
     install_manual_context_ui(_legacy)
+
+# RD6018 is a general-purpose PSU above the Pb controller. Install this ownership
+# boundary last so HANDS_OFF blocks every already-composed bot actuator path while
+# leaving raw telemetry available and preserving the explicit operator-only OFF action.
+install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
 
 _legacy_main = _legacy.main
 
