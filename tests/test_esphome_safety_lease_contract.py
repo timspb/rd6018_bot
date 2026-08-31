@@ -7,8 +7,9 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.text = Path("esphome/rd6018_safety_lease.yaml").read_text(encoding="utf-8")
 
-    def test_lease_is_thirty_minutes_and_retries_local_off(self):
-        self.assertIn('rd6018_safety_lease_ttl_ms: "1800000"', self.text)
+    def test_lease_is_fifteen_minutes_and_retries_local_off(self):
+        self.assertIn('rd6018_safety_lease_ttl_ms: "900000"', self.text)
+        self.assertIn("bot/HA -> renew every 5 min", self.text)
         self.assertIn("interval: 5s", self.text)
         self.assertIn("switch.turn_off: rd6018_safety_output", self.text)
 
