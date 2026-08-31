@@ -123,7 +123,7 @@ def derive_continuous_on_evidence(
     """Find an explicit Recorder OFF->ON edge followed by uninterrupted known ON.
 
     Recorder history is useful for prior Mix *age*, but it is not silently promoted to
-    chemistry evidence.  A first record that merely says ON at the beginning of the
+    chemistry evidence. A first record that merely says ON at the beginning of the
     query window is insufficient: we require an explicit OFF state followed by ON.
     Unknown/unavailable states after that edge make the age non-authoritative.
     """
@@ -206,11 +206,13 @@ class HomeAssistantHistoryReader:
         end_value = float(end_s if end_s is not None else time.time())
         end_dt = datetime.fromtimestamp(end_value, tz=timezone.utc).isoformat()
         url = f"{base_url}/api/history/period/{quote(start_dt, safe='')}"
+        # HA treats significant_changes_only as a presence flag.  Do not send it at
+        # all: the live-session reader needs complete Recorder state changes rather
+        # than a filtered significant-change stream.
         params = {
             "filter_entity_id": ",".join(ids),
             "end_time": end_dt,
             "no_attributes": "1",
-            "significant_changes_only": "0",
         }
 
         try:
@@ -289,7 +291,15 @@ class HomeAssistantHistoryReader:
             if output.started_at_s is not None
             else max(0.0, now - min(max(1.0, float(lookback_s)), 24 * 3600.0))
         )
-        keys = ("current", "voltage", "battery_voltage", "temp_ext_v2", "temp_ext", "set_voltage", "set_current")
+        keys = (
+            "current",
+            "voltage",
+            "battery_voltage",
+            "temp_ext_v2",
+            "temp_ext",
+            "set_voltage",
+            "set_current",
+        )
         entity_ids = [self.entity_map[key] for key in keys if self.entity_map.get(key)]
         telemetry = await self.fetch_points(entity_ids, start_s=telemetry_start, end_s=now)
 
