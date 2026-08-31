@@ -47,6 +47,7 @@ class EdgeLiveAdoption:
         config: Optional[EdgeLiveAdoptionConfig] = None,
     ) -> None:
         self.lease = lease
+        self._command_may_have_executed = False
         configured = config or EdgeLiveAdoptionConfig()
         entity = str(
             configured.entity
@@ -92,6 +93,11 @@ class EdgeLiveAdoption:
             protection_entity=protection_entity,
             ttl_entity=ttl_entity,
         )
+
+    @property
+    def command_may_have_executed(self) -> bool:
+        """Whether this transaction crossed the edge-command uncertainty boundary."""
+        return bool(self._command_may_have_executed)
 
     async def _require_entity(self) -> None:
         state = await self.lease._state_value(self.config.entity)
@@ -216,6 +222,7 @@ class EdgeLiveAdoption:
 
     async def prepare(self) -> EdgeLeaseState:
         """Read-only preflight. No edge state or RD6018 register is changed."""
+        self._command_may_have_executed = False
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
@@ -241,6 +248,7 @@ class EdgeLiveAdoption:
         """
         import asyncio
 
+        self._command_may_have_executed = False
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
@@ -255,6 +263,11 @@ class EdgeLiveAdoption:
                 raise EdgeSafetyLeaseError(
                     "edge lease generation changed after live-adoption preflight"
                 )
+
+            # From this point onward an exception/negative HTTP result cannot prove
+            # that the command did not reach ESPHome. Coordinator containment must
+            # therefore treat the edge ownership state as ambiguous and drive OFF.
+            self._command_may_have_executed = True
             if not await self.lease._press(self.config.entity):
                 raise EdgeSafetyLeaseError("edge live-adoption command was rejected")
 
