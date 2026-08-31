@@ -98,6 +98,9 @@ Before merging V2 to `main`, verify traceably:
 - Cooling;
 - restart/restore including diagnostic action journal;
 - 15min/5min link-loss edge lease on exact flashed ESPHome node;
+- D060 active HANDS_OFF release on the exact flashed ESPHome node, including positive ACK/lost-ACK behavior without silent PB rollback;
+- D061 managed live-adoption on the exact flashed ESPHome node: 900 s TTL proof, raw register-16 NORMAL, no-reprogram takeover, pre-command race, ambiguous ACK, restart and out-of-band containment;
+- D062/D063 `MIX_ADOPTED` physical takeover: no Output/V/I/OVP/OCP rewrite, conservative non-shrinking prior-age authority, fresh post-adoption Delta only, prior+post active-time budget, timeout/hold boundary behavior, verified-OFF terminal completion and no restart resume;
 - RD readback/protection decode;
 - external-temperature disconnect/reconnect/source-timestamp characterization before Class-C numeric thresholds or a raw sentinel gain authority;
 - Bank Fault/SG diagnostics including physical SG access gating and explicit correction metadata;
