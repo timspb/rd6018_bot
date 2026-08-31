@@ -121,11 +121,68 @@ def install_operator_graph_dashboard(app: Any) -> None:
             base_renderer=base_details_renderer,
         )
 
-    # operator_hmi handlers resolve these globals at call time, so details and the
-    # compact caption inherit the same truthful UNKNOWN semantics.
+    async def render_graph_workspace(app_arg: Any, call: Any, user_id: int) -> None:
+        """Use one editable graph workspace instead of emitting a photo per range tap."""
+        _chart_mode, graph_since, limit_pts = app_arg._chart_query_params(user_id)
+        times, voltages, currents, temps = await app_arg.get_graph_data_with_temp(
+            limit=limit_pts,
+            since_timestamp=graph_since,
+        )
+        buf = await app_arg.asyncio.to_thread(
+            app_arg.generate_chart,
+            times,
+            voltages,
+            currents,
+            temps,
+        )
+        markup = hmi._graph_keyboard(app_arg, user_id)
+        if not buf:
+            text = "<b>График RD6018</b>\n\nНедостаточно данных."
+            try:
+                await app_arg.bot.edit_message_caption(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    caption=text,
+                    parse_mode=app_arg.ParseMode.HTML,
+                    reply_markup=markup,
+                )
+            except Exception:
+                await call.message.answer(
+                    text,
+                    parse_mode=app_arg.ParseMode.HTML,
+                    reply_markup=markup,
+                )
+            return
+
+        photo = app_arg.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
+        media = app_arg.InputMediaPhoto(
+            media=photo,
+            caption="<b>График RD6018</b>",
+            parse_mode=app_arg.ParseMode.HTML,
+        )
+        try:
+            await app_arg.bot.edit_message_media(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                media=media,
+                reply_markup=markup,
+            )
+        except Exception as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            await call.message.answer_photo(
+                photo,
+                caption="<b>График RD6018</b>",
+                parse_mode=app_arg.ParseMode.HTML,
+                reply_markup=markup,
+            )
+
+    # operator_hmi handlers resolve these globals at call time, so details, graph
+    # workspace and compact caption inherit the final production presentation rules.
     hmi.build_operator_hmi_state = truthful_builder
     hmi.render_operator_panel = truthful_panel
     hmi.render_operator_details = truthful_details
+    hmi._render_graph_workspace = render_graph_workspace
 
     async def build_and_send_graph_dashboard(
         chat_id: int,
