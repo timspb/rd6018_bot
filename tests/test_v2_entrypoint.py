@@ -21,6 +21,7 @@ class V2EntrypointTests(unittest.TestCase):
 
     def test_final_semantic_operator_hmi_is_installed(self):
         self.assertTrue(bot._operator_hmi_installed)
+        self.assertTrue(bot._operator_graph_dashboard_installed)
         keyboard = bot._build_charge_modes_keyboard()
         callbacks = {
             button.callback_data
@@ -34,9 +35,11 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("v2_manual_choose", callbacks)
 
         # The semantic layer owns caption/button meaning, while production deliberately
-        # keeps the proven graph/photo dashboard transport rather than switching L2 to
-        # a text-only card.
-        self.assertEqual(bot._build_and_send_dashboard.__name__, "_build_and_send_dashboard")
+        # keeps the graph/photo transport rather than switching L2 to a text-only card.
+        self.assertEqual(
+            bot._build_and_send_dashboard.__name__,
+            "build_and_send_graph_dashboard",
+        )
         self.assertEqual(bot._compact_dashboard_caption.__name__, "compact_dashboard_caption")
 
         # Production import has no live hardware state. Its durable ownership state is
