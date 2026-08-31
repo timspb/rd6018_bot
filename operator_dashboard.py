@@ -54,6 +54,48 @@ def _regulation_fresh(live: Mapping[str, Any]) -> bool:
     return _fresh(live, "is_cv", "is_cc")
 
 
+def _ownership_conflict(app: Any) -> Optional[str]:
+    """Return a presentation-level ownership conflict without changing authority.
+
+    The operator panel must never silently choose one owner when runtime objects claim
+    incompatible control domains. A live observer is intentionally paired with
+    HANDS_OFF; that pair is valid. Managed AUTO/Manual ownership is not.
+    """
+    controller = getattr(app, "charge_controller", None)
+    auto_active = bool(controller is not None and getattr(controller, "is_active", False))
+
+    manual = getattr(app, "manual_session_manager", None)
+    manual_active = bool(manual is not None and getattr(manual, "is_active", False))
+
+    manager = getattr(app, "rd_control_mode_manager", None)
+    hands_off = bool(manager is not None and getattr(manager, "hands_off", False))
+
+    observer = getattr(app, "rd_live_mix_observer", None)
+    observer_state = ""
+    if observer is not None:
+        raw_state = getattr(observer, "state", None)
+        observer_state = str(getattr(raw_state, "value", raw_state) or "")
+    observer_visible = observer is not None and observer_state in {
+        "active",
+        "off_pending",
+        "interrupted",
+    }
+
+    conflicts: list[str] = []
+    if auto_active and manual_active:
+        conflicts.append("AUTO и MANUAL активны одновременно")
+    if observer_visible and (auto_active or manual_active):
+        managed = "AUTO" if auto_active and not manual_active else "MANUAL" if manual_active and not auto_active else "AUTO/MANUAL"
+        conflicts.append(f"{managed} конфликтует с подхваченным Mix")
+    if observer_visible and not hands_off:
+        conflicts.append("подхваченный Mix существует вне HANDS_OFF")
+    if hands_off and (auto_active or manual_active):
+        managed = "AUTO" if auto_active and not manual_active else "MANUAL" if manual_active and not auto_active else "AUTO/MANUAL"
+        conflicts.append(f"{managed} активен при HANDS_OFF")
+
+    return "; ".join(conflicts) if conflicts else None
+
+
 def _contain_idle_for_safety(
     state: hmi.OperatorHmiState,
     *,
@@ -86,8 +128,9 @@ def build_truthful_hmi_state(
 
     Runtime safety already fails closed on missing/stale/unknown critical telemetry.
     The HMI mirrors that truth: stale/unknown Output is not OFF, idle Start is not
-    offered without a usable protection state, and raw regulation/protection codes
-    take precedence over legacy compatibility sensors.
+    offered without a usable protection state, raw regulation/protection codes take
+    precedence over legacy compatibility sensors, and contradictory owner claims are
+    surfaced as containment instead of being resolved by display precedence.
     """
     builder = base_builder or _BASE_BUILD_OPERATOR_HMI_STATE
     state = builder(app, live)
@@ -124,6 +167,19 @@ def build_truthful_hmi_state(
         regulator = "—"
     if regulator != state.regulator:
         state = replace(state, regulator=regulator)
+
+    ownership_conflict = _ownership_conflict(app)
+    if ownership_conflict:
+        state = replace(
+            state,
+            process_state=hmi.HmiProcessState.CONTAINMENT,
+            authority=hmi.HmiAuthority.CONTAINMENT,
+            title="RD6018 · КОНФЛИКТ OWNERSHIP",
+            output_on=bool(output_state),
+            progress=f"Несогласованная модель управления: {ownership_conflict}",
+            safety="⚠️ Управляющие действия скрыты до восстановления единственного owner",
+            attention="alarm",
+        )
 
     protection = resolve_protection(live)
     if not _protection_fresh(live) or protection.status is ProtectionStatus.UNKNOWN:
