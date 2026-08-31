@@ -26,9 +26,10 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
 
     In addition to the normal live checks, production output is protected by a
     renewable lease implemented on the ESPHome node physically connected to RD6018.
-    The bot renews it every 10 minutes; the edge node has a 30 minute TTL. If the bot,
-    HA, Wi-Fi/API path, or Python process disappears, the edge node turns RD6018 OFF
-    locally instead of allowing a high-voltage stage to run indefinitely.
+    The bot renews it every 5 minutes; the accepted V2 edge contract has a 15 minute
+    TTL. If the bot, HA, Wi-Fi/API path, or Python process disappears, the edge node
+    turns RD6018 OFF locally instead of allowing a high-voltage stage to run
+    indefinitely.
     """
 
     TRANSITION_SETTLE_TIMEOUT_S = 6.5
