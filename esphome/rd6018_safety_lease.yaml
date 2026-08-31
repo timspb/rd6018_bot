@@ -5,8 +5,8 @@
 # matching the current rdtech ESPHome layout (whose controller poll interval is 5 s).
 #
 # Safety model:
-#   bot/HA -> renew every 10 min
-#   local lease TTL -> 30 min
+#   bot/HA -> renew every 5 min
+#   local lease TTL -> 15 min
 #   missed renewals -> local Modbus Output OFF, retried every 5 s
 #   stale direct RD6018 Modbus/control readback (>20 s) -> latch trip and retry OFF
 #   every ESPHome reboot -> boot quarantine: repeatedly force Output OFF before
@@ -18,7 +18,7 @@
 # and a recent direct read of register 18 confirms RD6018 Output OFF.
 
 substitutions:
-  rd6018_safety_lease_ttl_ms: "1800000"       # 30 minutes
+  rd6018_safety_lease_ttl_ms: "900000"        # 15 minutes
   rd6018_safety_modbus_stale_ms: "20000"      # 20 seconds
 
 esphome:
@@ -34,7 +34,7 @@ esphome:
             id(rd6018_safety_lease_tripped) = true;
           }
 
-# Only the managed-session bit is persistent. The 10-minute heartbeat itself is
+# Only the managed-session bit is persistent. The 5-minute heartbeat itself is
 # deliberately RAM-only to avoid flash writes on every renewal. Boot quarantine
 # makes safety independent from the small persistence-write timing window.
 globals:
