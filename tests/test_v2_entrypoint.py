@@ -67,7 +67,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("recovery/Mix выполняются только по критериям", text)
         self.assertNotIn("без автоматического HV/Mix", text)
 
-    def test_active_managed_dashboard_keeps_hard_stop_callback(self):
+    def test_active_managed_dashboard_uses_session_bound_stop_not_legacy_toggle(self):
         # Temporarily present a normal managed session to the final semantic keyboard.
         manager = bot.rd_control_mode_manager
         controller = bot.charge_controller
@@ -90,7 +90,8 @@ class V2EntrypointTests(unittest.TestCase):
                 for button in row
                 if button.callback_data
             }
-            self.assertIn("power_toggle", callbacks)
+            self.assertIn("operator_managed_stop", callbacks)
+            self.assertNotIn("power_toggle", callbacks)
             self.assertIn("operator_details", callbacks)
             self.assertIn("operator_graph", callbacks)
         finally:
