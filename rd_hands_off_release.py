@@ -48,8 +48,6 @@ def _active_session_token(app: Any) -> Optional[str]:
         started = getattr(controller, "total_start_time", None)
         if started:
             return f"auto-fallback:{float(started):.6f}"
-        # Test/dev controllers may not expose the production trace identity. Object
-        # identity is process-local and is still safer than an unbound confirmation.
         return f"auto-object:{id(controller)}"
     if active_manual:
         manual = app.manual_session_manager
@@ -75,9 +73,6 @@ def _mark_auto_mix_released(controller: Any) -> None:
     try:
         mark_terminal(session_id_fn(), "RELEASED_TO_RD_HANDS_OFF")
     except Exception as exc:
-        # Durable HANDS_OFF remains the outer actuator boundary. Preserve the error for
-        # operator/audit visibility, but never re-acquire RD control merely because a
-        # chemistry-accounting record could not be terminalized.
         logger.warning("Failed to terminalize Mix authority during RD release: %s", exc)
 
 
@@ -115,8 +110,7 @@ async def _retire_manual_without_output_change(app: Any) -> None:
         if task is not None and not task.done():
             task.cancel()
 
-    # This is deliberately not ManualSessionManager.stop(): stop() owns a physical
-    # Output OFF. Releasing RD ownership retires only software timers/evidence/tasks.
+    # Do not call ManualSessionManager.stop(): ordinary Manual stop owns physical OFF.
     manual.state = ManualSessionState.STOPPED
     manual.stop_reason = "released_to_rd_hands_off"
     manual.cooling_started_at = None
@@ -160,6 +154,29 @@ def _edge_release_api(manager: RdControlModeManager) -> Any:
     return lease
 
 
+def _install_release_read_barrier(app: Any, manager: RdControlModeManager) -> None:
+    """Keep background reads non-actuating while an ownership transfer is prepared.
+
+    The previous implementation achieved this by setting in-memory HANDS_OFF before
+    the durable commit. That accidentally blocked a concurrent safety-driven
+    ``turn_off``. The dedicated release_in_progress barrier is narrower: reads bypass
+    managed lease renewal and all ON/setpoint writes are already blocked by
+    rd_control_mode, while verified OFF remains available until ownership commits.
+    """
+    hass = getattr(app, "hass", None)
+    if hass is None or bool(getattr(hass, "_rd_hands_off_release_read_wrapped", False)):
+        return
+    previous_get_all_live = hass.get_all_live
+
+    async def release_aware_get_all_live() -> dict[str, Any]:
+        if manager.release_in_progress and not manager.hands_off:
+            return await manager.guard._raw_live()
+        return await previous_get_all_live()
+
+    hass.get_all_live = release_aware_get_all_live
+    hass._rd_hands_off_release_read_wrapped = True
+
+
 async def _release_active_transaction(
     app: Any,
     manager: RdControlModeManager,
@@ -188,12 +205,11 @@ async def _release_active_transaction(
         lease = _edge_release_api(manager)
         prepared = None
 
-        # Provisional in-memory HANDS_OFF is a transition barrier only. It blocks new
-        # starts/writes and prevents the normal managed get_all_live path from issuing
-        # another lease heartbeat while the edge release is prepared. Durability is
-        # committed only after the edge API itself is proved available and healthy.
+        # PB_MANAGED remains the in-memory mode until the durable ownership write.
+        # release_in_progress blocks Output ON/setpoint writes and the read barrier
+        # bypasses heartbeat renewal, but a safety-driven verified Output OFF remains
+        # legal throughout this pre-commit window.
         manager._release_in_progress = True
-        manager.mode = RdControlMode.HANDS_OFF
         manager.guard._orphan_output_seen_at = None
         if lease is not None:
             lease.suspend_renewals()
@@ -201,6 +217,7 @@ async def _release_active_transaction(
             if lease is not None:
                 prepared = await lease.prepare_hands_off_release()
             manager._write_mode(RdControlMode.HANDS_OFF)
+            manager.mode = RdControlMode.HANDS_OFF
         except Exception as exc:
             manager.mode = RdControlMode.PB_MANAGED
             manager._release_in_progress = False
@@ -212,10 +229,8 @@ async def _release_active_transaction(
                 f"RD HANDS_OFF blocked before ownership commit: {exc}"
             ) from exc
 
-        # From the durable commit onward the bot must never silently fall back to
-        # PB_MANAGED: the edge command may have reached ESPHome even if its ACK is
-        # subsequently lost. HANDS_OFF therefore remains the conservative authority
-        # on every post-commit error; the local lease may still turn Output OFF later.
+        # From the durable commit onward never silently fall back to PB_MANAGED: the
+        # edge command may have executed even if its ACK is subsequently lost.
         edge_error: Optional[Exception] = None
         cleanup_errors: list[str] = []
         if lease is not None:
@@ -341,8 +356,7 @@ def _install_release_confirmation_ui(
             ),
         )
 
-    # The base rd_hands_off_enable handler consults this dynamically. Therefore even
-    # an old Telegram message carrying the pre-confirmation callback cannot bypass the
+    # Even an old Telegram message carrying the historical callback cannot bypass the
     # two-step active-session release contract.
     manager._active_release_prompt = prompt_active_release
 
@@ -414,6 +428,7 @@ def install_rd_hands_off_release(
     rolls back to PB_MANAGED after the durable HANDS_OFF commit if edge ACK is lost.
     """
     if bool(getattr(manager, "_active_release_installed", False)):
+        _install_release_read_barrier(app, manager)
         _install_release_confirmation_ui(app, manager)
         return manager
 
@@ -431,8 +446,6 @@ def install_rd_hands_off_release(
             raise RuntimeSafetyError(
                 "RD HANDS_OFF blocked: active managed charge requires a fresh explicit confirmation"
             )
-        # Single-use authorization; the transaction revalidates the same token again
-        # after acquiring the ownership-transition lock.
         self._active_release_authorization_token = None
         return bool(
             await _release_active_transaction(
@@ -448,10 +461,10 @@ def install_rd_hands_off_release(
     )
     manager._active_release_authorization_token = None
     manager._active_release_installed = True
+    _install_release_read_barrier(app, manager)
 
-    # A process may have crashed after durable HANDS_OFF was written but before the
-    # old AUTO session file was retired. Never let that stale restore authority survive
-    # merely because the process restarted in HANDS_OFF.
+    # Crash after durable HANDS_OFF but before AUTO cleanup must not leave a stale
+    # restore file that can revive later.
     if manager.hands_off:
         try:
             manager._clear_stale_auto_restore_authority()
