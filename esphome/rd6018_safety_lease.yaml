@@ -11,11 +11,14 @@
 #   stale direct RD6018 Modbus/control readback (>20 s) -> latch trip and retry OFF
 #   every ESPHome reboot -> boot quarantine: repeatedly force Output OFF before
 #                           any new lease can be armed
-#   reboot during a persisted managed charge -> trip remains latched after OFF
+#   explicit HANDS_OFF transfer -> clear only the managed-session lease while ON;
+#                                  do not clear trip/quarantine or alter RD Output
 #
 # The trip is latched. A late bot cannot simply renew an expired lease and resume
-# an old high-voltage session. Disarm is accepted only when direct Modbus is fresh
-# and a recent direct read of register 18 confirms RD6018 Output OFF.
+# an old high-voltage session. Normal disarm is accepted only when direct Modbus is
+# fresh and a recent direct read of register 18 confirms RD6018 Output OFF. Releasing
+# an intentionally running RD6018 to operator HANDS_OFF uses a distinct command and
+# is accepted only from a healthy, already-armed managed state.
 
 substitutions:
   rd6018_safety_lease_ttl_ms: "900000"        # 15 minutes
@@ -254,6 +257,34 @@ button:
             id(rd6018_safety_lease_tripped) = false;
             id(rd6018_safety_boot_quarantine) = false;
             id(rd6018_safety_last_renew_ms) = 0;
+
+  - platform: template
+    id: rd6018_safety_lease_release_to_hands_off_button
+    name: "Safety Lease Release To Hands Off"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool control_fresh = telemetry_fresh && output_fresh;
+
+            // This command is an ownership transfer, not a generic disarm shortcut.
+            // It may preserve Output ON only from a healthy, already-managed lease.
+            // It never clears a trip/quarantine and never changes register 18.
+            if (id(rd6018_safety_boot_quarantine)) return;
+            if (id(rd6018_safety_lease_tripped)) return;
+            if (!control_fresh) return;
+            if (!id(rd6018_safety_managed_session)) return;
+
+            id(rd6018_safety_managed_session) = false;
+            id(rd6018_safety_last_renew_ms) = 0;
+            id(rd6018_safety_generation)++;
 
 interval:
   - interval: 5s

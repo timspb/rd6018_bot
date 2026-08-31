@@ -31,6 +31,10 @@ class EdgeSafetyLeaseConfig:
         "RD6018_EDGE_DISARM_ENTITY",
         f"button.{EDGE_ENTITY_PREFIX}_safety_lease_disarm",
     )
+    hands_off_release_entity: str = _env(
+        "RD6018_EDGE_HANDS_OFF_RELEASE_ENTITY",
+        f"button.{EDGE_ENTITY_PREFIX}_safety_lease_release_to_hands_off",
+    )
     armed_entity: str = _env(
         "RD6018_EDGE_ARMED_ENTITY",
         f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed",
@@ -113,6 +117,10 @@ class EdgeSafetyLease:
     only when the edge node publishes a different generation, says the lease is
     armed, reports a recent direct Modbus observation from RD6018, exposes a newly
     replenished near-full timeout, and is neither tripped nor in boot quarantine.
+
+    Lease operations are serialized. HANDS_OFF transfer can synchronously suspend
+    future renewals before waiting for an in-flight heartbeat to finish, preventing a
+    late renewal from re-arming the watchdog after ownership has been released.
     """
 
     def __init__(
@@ -126,6 +134,8 @@ class EdgeSafetyLease:
         self.config = config or EdgeSafetyLeaseConfig()
         self._monotonic = monotonic
         self._last_ack_monotonic: Optional[float] = None
+        self._operation_lock = asyncio.Lock()
+        self._renewals_suspended = False
 
         if self.config.lease_ttl_s <= 0:
             raise ValueError("edge lease TTL must be positive")
@@ -139,6 +149,18 @@ class EdgeSafetyLease:
         if self._last_ack_monotonic is None:
             return None
         return max(0.0, self._monotonic() - self._last_ack_monotonic)
+
+    @property
+    def renewals_suspended(self) -> bool:
+        return bool(self._renewals_suspended)
+
+    def suspend_renewals(self) -> None:
+        """Prevent new/pending heartbeat calls from renewing the edge lease."""
+        self._renewals_suspended = True
+
+    def resume_renewals(self) -> None:
+        """Undo a pre-command HANDS_OFF preparation that did not transfer ownership."""
+        self._renewals_suspended = False
 
     def renewal_due(self) -> bool:
         age = self.last_ack_age_s
@@ -257,7 +279,10 @@ class EdgeSafetyLease:
                 f"RD6018 Modbus is stale at edge ({state.modbus_age_s:.1f}s)"
             )
 
-    async def renew(self, *, force: bool = False) -> EdgeLeaseState:
+    async def _renew_locked(self, *, force: bool) -> EdgeLeaseState:
+        if self._renewals_suspended:
+            raise EdgeSafetyLeaseError("edge lease renewal is suspended for ownership transfer")
+
         if not force and not self.renewal_due():
             state = await self.read_state()
             if state.boot_quarantine:
@@ -298,24 +323,107 @@ class EdgeSafetyLease:
             "edge lease renewal was not positively acknowledged by generation/readback"
         )
 
+    async def renew(self, *, force: bool = False) -> EdgeLeaseState:
+        async with self._operation_lock:
+            return await self._renew_locked(force=force)
+
     async def arm(self) -> EdgeLeaseState:
-        return await self.renew(force=True)
+        async with self._operation_lock:
+            # A fresh managed enable explicitly re-opens renewal authority. The edge
+            # still enforces its own initial-arm Output-OFF requirement.
+            self._renewals_suspended = False
+            return await self._renew_locked(force=True)
 
     async def renew_if_due(self) -> EdgeLeaseState:
         return await self.renew(force=False)
 
     async def disarm(self) -> bool:
-        if not await self._press(self.config.disarm_entity):
+        # Normal disarm is still the verified-OFF path. Suspending before the lock also
+        # stops a heartbeat that was queued behind this operation from re-arming later.
+        self._renewals_suspended = True
+        async with self._operation_lock:
+            if not await self._press(self.config.disarm_entity):
+                return False
+            attempts = max(1, int(self.config.ack_attempts))
+            for attempt in range(attempts):
+                if attempt:
+                    await asyncio.sleep(max(0.0, self.config.ack_delay_s))
+                try:
+                    state = await self.read_state()
+                except EdgeSafetyLeaseError:
+                    continue
+                if not state.armed and not state.boot_quarantine:
+                    self._last_ack_monotonic = None
+                    return True
             return False
-        attempts = max(1, int(self.config.ack_attempts))
-        for attempt in range(attempts):
-            if attempt:
-                await asyncio.sleep(max(0.0, self.config.ack_delay_s))
-            try:
-                state = await self.read_state()
-            except EdgeSafetyLeaseError:
-                continue
-            if not state.armed and not state.boot_quarantine:
-                self._last_ack_monotonic = None
-                return True
-        return False
+
+    async def prepare_hands_off_release(self) -> EdgeLeaseState:
+        """Verify that a live managed lease can be explicitly released while ON.
+
+        Caller must first suspend renewals. No edge state is changed here.
+        """
+        async with self._operation_lock:
+            if not self._renewals_suspended:
+                raise EdgeSafetyLeaseError(
+                    "HANDS_OFF release preparation requires suspended renewals"
+                )
+            button_state = await self._state_value(self.config.hands_off_release_entity)
+            if button_state is None or str(button_state).strip().lower() == "unavailable":
+                raise EdgeSafetyLeaseError(
+                    "edge HANDS_OFF release entity is missing/unavailable"
+                )
+            state = await self.read_state()
+            self._assert_armable(state)
+            if not state.armed:
+                raise EdgeSafetyLeaseError(
+                    "managed edge lease is not armed before HANDS_OFF release"
+                )
+            return state
+
+    async def release_to_hands_off(
+        self,
+        *,
+        expected_generation: Optional[int] = None,
+    ) -> EdgeLeaseState:
+        """Release the local dead-man while keeping an already-ON RD output untouched.
+
+        This is deliberately distinct from ``disarm()``. ESPHome normal disarm keeps
+        its verified-Output-OFF invariant; only the explicit HANDS_OFF release command
+        may clear the managed-session bit while Output is ON.
+        """
+        self._renewals_suspended = True
+        async with self._operation_lock:
+            before = await self.read_state()
+            self._assert_armable(before)
+            if not before.armed:
+                raise EdgeSafetyLeaseError(
+                    "managed edge lease is not armed before HANDS_OFF release"
+                )
+            if expected_generation is not None and before.generation != int(expected_generation):
+                raise EdgeSafetyLeaseError(
+                    "edge lease generation changed after HANDS_OFF release preflight"
+                )
+            if not await self._press(self.config.hands_off_release_entity):
+                raise EdgeSafetyLeaseError("edge HANDS_OFF release command was rejected")
+
+            latest = before
+            attempts = max(1, int(self.config.ack_attempts))
+            for attempt in range(attempts):
+                if attempt:
+                    await asyncio.sleep(max(0.0, self.config.ack_delay_s))
+                latest = await self.read_state()
+                if (
+                    not latest.armed
+                    and not latest.tripped
+                    and not latest.boot_quarantine
+                    and latest.generation != before.generation
+                    and self._fresh_modbus(latest)
+                    and latest.remaining_s is not None
+                    and latest.remaining_s <= self.config.ack_remaining_slack_s
+                ):
+                    self._last_ack_monotonic = None
+                    return latest
+
+            raise EdgeSafetyLeaseError(
+                "edge HANDS_OFF release was not positively acknowledged by generation/readback"
+            )

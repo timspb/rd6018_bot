@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
@@ -43,6 +44,8 @@ class RdControlModeManager:
         )
         self.mode = RdControlMode.PB_MANAGED
         self.persistence_ok = True
+        self._transition_lock = asyncio.Lock()
+        self._release_in_progress = False
         self._load()
 
     @property
@@ -52,6 +55,10 @@ class RdControlModeManager:
     @property
     def pb_managed(self) -> bool:
         return self.mode is RdControlMode.PB_MANAGED
+
+    @property
+    def release_in_progress(self) -> bool:
+        return bool(self._release_in_progress)
 
     def _load(self) -> None:
         if not os.path.exists(self.state_file):
@@ -116,61 +123,83 @@ class RdControlModeManager:
             or (manual is not None and getattr(manual, "is_active", False))
         )
 
+    def _clear_stale_auto_restore_authority(self) -> None:
+        """HANDS_OFF is an ownership boundary; an old AUTO session may not revive later."""
+        controller = getattr(self.app, "charge_controller", None)
+        if controller is None or getattr(controller, "is_active", False):
+            return
+        clear = getattr(controller, "_clear_session_file", None)
+        if callable(clear):
+            clear()
+
     async def enter_hands_off(self) -> bool:
-        if self.hands_off:
-            return True
-        if bool(getattr(self.guard, "_off_unconfirmed", False)):
-            raise RuntimeSafetyError(
-                "RD HANDS_OFF blocked: previous managed Output OFF is still unconfirmed"
-            )
-        if self._managed_session_active():
-            raise RuntimeSafetyError(
-                "RD HANDS_OFF blocked: stop the active managed charge session first"
-            )
-
-        if bool(getattr(self.guard, "edge_lease_enforced", False)):
-            lease = getattr(self.guard, "edge_safety_lease", None)
-            if lease is None:
-                raise RuntimeSafetyError(
-                    "RD HANDS_OFF blocked: edge safety lease cannot be disarmed"
-                )
-            try:
-                disarmed = bool(await lease.disarm())
-            except Exception as exc:
-                raise RuntimeSafetyError(
-                    f"RD HANDS_OFF blocked: edge safety lease disarm failed: {exc}"
-                ) from exc
-            if not disarmed:
-                raise RuntimeSafetyError(
-                    "RD HANDS_OFF blocked: edge safety lease disarm was not confirmed"
-                )
-
-        # Commit durability before changing in-process authority.
-        self._write_mode(RdControlMode.HANDS_OFF)
-        self.mode = RdControlMode.HANDS_OFF
-        self.guard._orphan_output_seen_at = None
-        return True
-
-    async def return_pb_control(self) -> bool:
-        if self.pb_managed:
-            return True
-        live = await self.guard._raw_live()
-        output_state = _binary(live.get("switch"))
-        if output_state is not False:
+        async with self._transition_lock:
+            if self.hands_off:
+                return True
             if bool(getattr(self.guard, "_off_unconfirmed", False)):
                 raise RuntimeSafetyError(
-                    "PB control restore blocked: Output OFF remains unconfirmed"
+                    "RD HANDS_OFF blocked: previous managed Output OFF is still unconfirmed"
                 )
-            raise RuntimeSafetyError(
-                "PB control restore requires confirmed Output OFF; current RD state was not changed"
-            )
-        # A physical/manual OFF observed through the raw boundary also clears a prior
-        # failed explicit HANDS_OFF OFF attempt.
-        self.guard._off_unconfirmed = False
-        self._write_mode(RdControlMode.PB_MANAGED)
-        self.mode = RdControlMode.PB_MANAGED
-        self.guard._orphan_output_seen_at = None
-        return True
+            if self._managed_session_active():
+                raise RuntimeSafetyError(
+                    "RD HANDS_OFF blocked: active managed charge requires explicit release confirmation"
+                )
+
+            self._release_in_progress = True
+            try:
+                if bool(getattr(self.guard, "edge_lease_enforced", False)):
+                    lease = getattr(self.guard, "edge_safety_lease", None)
+                    if lease is None:
+                        raise RuntimeSafetyError(
+                            "RD HANDS_OFF blocked: edge safety lease cannot be disarmed"
+                        )
+                    try:
+                        disarmed = bool(await lease.disarm())
+                    except Exception as exc:
+                        raise RuntimeSafetyError(
+                            f"RD HANDS_OFF blocked: edge safety lease disarm failed: {exc}"
+                        ) from exc
+                    if not disarmed:
+                        raise RuntimeSafetyError(
+                            "RD HANDS_OFF blocked: edge safety lease disarm was not confirmed"
+                        )
+
+                # Commit durability before changing in-process authority.
+                self._write_mode(RdControlMode.HANDS_OFF)
+                self.mode = RdControlMode.HANDS_OFF
+                self.guard._orphan_output_seen_at = None
+                self._clear_stale_auto_restore_authority()
+                return True
+            finally:
+                self._release_in_progress = False
+
+    async def return_pb_control(self) -> bool:
+        async with self._transition_lock:
+            if self.pb_managed:
+                return True
+            if self._managed_session_active():
+                raise RuntimeSafetyError(
+                    "PB control restore blocked: stale managed software authority is still active"
+                )
+            live = await self.guard._raw_live()
+            output_state = _binary(live.get("switch"))
+            if output_state is not False:
+                if bool(getattr(self.guard, "_off_unconfirmed", False)):
+                    raise RuntimeSafetyError(
+                        "PB control restore blocked: Output OFF remains unconfirmed"
+                    )
+                raise RuntimeSafetyError(
+                    "PB control restore requires confirmed Output OFF; current RD state was not changed"
+                )
+            # A physical/manual OFF observed through the raw boundary also clears a prior
+            # failed explicit HANDS_OFF OFF attempt. Discard any pre-HANDS_OFF AUTO
+            # restore file so returning control always requires a fresh operator start.
+            self.guard._off_unconfirmed = False
+            self._clear_stale_auto_restore_authority()
+            self._write_mode(RdControlMode.PB_MANAGED)
+            self.mode = RdControlMode.PB_MANAGED
+            self.guard._orphan_output_seen_at = None
+            return True
 
     async def operator_output_off(self, entity_id: Optional[str] = None) -> bool:
         """Explicit HANDS_OFF OFF without re-enabling Pb authority."""
@@ -239,12 +268,13 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
             return await managed_get_all_live()
 
         def _blocked(action: str) -> RuntimeSafetyError:
+            state = "HANDS_OFF transfer" if manager.release_in_progress else "RD HANDS_OFF"
             return RuntimeSafetyError(
-                f"RD HANDS_OFF: bot {action} is disabled; use the physical RD6018 controls"
+                f"{state}: bot {action} is disabled; use the physical RD6018 controls"
             )
 
         async def turn_on(entity_id: Optional[str] = None) -> bool:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise _blocked("Output ON")
             return await managed_turn_on(entity_id)
 
@@ -254,22 +284,22 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
             return await managed_turn_off(entity_id)
 
         async def set_voltage(value: float) -> bool:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise _blocked("voltage write")
             return await managed_set_voltage(value)
 
         async def set_current(value: float) -> bool:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise _blocked("current write")
             return await managed_set_current(value)
 
         async def set_ovp(value: float) -> bool:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise _blocked("OVP write")
             return await managed_set_ovp(value)
 
         async def set_ocp(value: float) -> bool:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise _blocked("OCP write")
             return await managed_set_ocp(value)
 
@@ -289,7 +319,7 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         original_start = controller.start
 
         def guarded_controller_start(*args: Any, **kwargs: Any) -> Any:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise RuntimeSafetyError(
                     "RD HANDS_OFF: automatic charge start is disabled"
                 )
@@ -298,6 +328,19 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         controller.start = guarded_controller_start
         controller._rd_control_mode_start_wrapped = True
 
+    if controller is not None and callable(getattr(controller, "try_restore_session", None)) and not getattr(
+        controller, "_rd_control_mode_restore_wrapped", False
+    ):
+        original_restore = controller.try_restore_session
+
+        def guarded_restore(*args: Any, **kwargs: Any) -> Any:
+            if manager.hands_off or manager.release_in_progress:
+                return False, None
+            return original_restore(*args, **kwargs)
+
+        controller.try_restore_session = guarded_restore
+        controller._rd_control_mode_restore_wrapped = True
+
     manual = getattr(app, "manual_session_manager", None)
     if manual is not None and not getattr(
         manual, "_rd_control_mode_start_wrapped", False
@@ -305,7 +348,7 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         original_manual_start = manual.start
 
         async def guarded_manual_start(*args: Any, **kwargs: Any) -> bool:
-            if manager.hands_off:
+            if manager.hands_off or manager.release_in_progress:
                 raise RuntimeSafetyError(
                     "RD HANDS_OFF: Manual charge start is disabled"
                 )
@@ -326,7 +369,10 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
 
         async def guarded_mix_start(app_arg: Any, event: Any, pending: Any) -> bool:
             rd_mode = getattr(app_arg, "rd_control_mode_manager", None)
-            if rd_mode is not None and bool(getattr(rd_mode, "hands_off", False)):
+            if rd_mode is not None and bool(
+                getattr(rd_mode, "hands_off", False)
+                or getattr(rd_mode, "release_in_progress", False)
+            ):
                 message = (
                     event.message
                     if hasattr(event, "message") and event.message is not None
@@ -424,6 +470,12 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
     async def _enable_hands_off(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        # Old Telegram messages may still contain the pre-confirmation callback. Never
+        # let such a stale button bypass the active-session two-step release flow.
+        prompt = getattr(manager, "_active_release_prompt", None)
+        if manager._managed_session_active() and callable(prompt):
+            await prompt(call)
+            return
         await call.answer()
         try:
             await manager.enter_hands_off()
@@ -449,7 +501,8 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
             return
         await call.message.answer(
             "🔒 <b>Контроль заряда возвращён.</b>\n"
-            "Pb safety снова активна. Output остаётся подтверждённо OFF.",
+            "Pb safety снова активна. Output остаётся подтверждённо OFF; "
+            "старый AUTO-сеанс не восстанавливается автоматически.",
             parse_mode=app.ParseMode.HTML,
         )
 
