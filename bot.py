@@ -20,6 +20,7 @@ from manual_context_v2 import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
 )
+from operator_hmi import install_operator_hmi
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
@@ -70,6 +71,11 @@ _rd_live_mix_observer = (
     if _v2_ui_enabled
     else None
 )
+# The semantic L2/L3 operator station is the final presentation layer. It is installed
+# after ownership and live-session wrappers so the panel describes their effective
+# semantics rather than leaking the underlying composition/debug UI.
+if _v2_ui_enabled:
+    install_operator_hmi(_legacy)
 
 _legacy_main = _legacy.main
 
