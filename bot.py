@@ -63,16 +63,24 @@ _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
 # software session through the dedicated live edge ownership-release handshake.
 install_rd_hands_off_release(_legacy, _rd_control_mode)
 # While HANDS_OFF owns an externally-running RD program, the operator may attach the
-# read-only/safety-OFF Mix observer.  It imports HA Recorder history as context only;
+# read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
 # all Delta authority starts from fresh post-activation source reports.
-if _v2_ui_enabled:
+_rd_live_mix_observer = (
     install_rd_live_adoption(_legacy, _rd_control_mode)
+    if _v2_ui_enabled
+    else None
+)
 
 _legacy_main = _legacy.main
 
 
 async def main() -> None:
     await init_v2_storage()
+    # A normal observer never resumes after restart. If the previous process had
+    # already durably committed the final verified-OFF action, however, only that OFF
+    # containment is allowed to continue before ordinary runtime tasks start.
+    if _rd_live_mix_observer is not None:
+        await _rd_live_mix_observer.recover_startup()
     await recover_diagnostic_persistence(_legacy)
     await _legacy_main()
 
