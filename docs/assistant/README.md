@@ -18,6 +18,7 @@ Supporting proof/calibration/design documents:
 - `V2_SAFETY_AUDIT_2026-08-30.md` — second whole-runtime safety review and closed implementation defects;
 - `OPERATOR_HMI_SPEC.md` — normative Telegram operator-HMI information hierarchy, alarm/control feedback and renderer boundary;
 - `OPERATOR_HMI_WIREFRAMES.md` — concrete storyboard for idle/start/run/recovery/Mix/SAFE_WAIT/Cooling/Storage/Manual/diagnostic/containment screens;
+- `MIX_ADAPTIVE_CURRENT_CONTAINMENT.md` — accepted, not-yet-implemented Mix safety design: confirmed-current-minimum hardware current ratchet for lost-control-path containment;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
@@ -52,6 +53,7 @@ Production V2 deliberately distinguishes:
 - manufacturer SG correction is explicit and never inferred; a temperature-compensated hydrometer is never corrected twice;
 - generic EFB AUTO/Recovery/Conditioning chemistry ceiling is 16.5 V; 17.5 V is Manual/Custom outer authority, not an EFB entitlement;
 - generic Pb automatic HV current authorization is no broader than the implemented ~0.03C Mix maximum; Manual/Custom current authority is separate;
+- accepted future Mix containment may only tighten the current ceiling after a confirmed `Imin`; it is monotonic within the Mix session and can never exceed the current programmed setpoint or recipe authority;
 - SAFE_WAIT is Output OFF even across Cooling; incomplete Cooling continuation metadata never defaults to Main;
 - Vin is PSU-health telemetry only, including production legacy-start/restore composition paths;
 - managed runtime authority rejects stale/incoherent dynamic battery/output telemetry: HA `last_reported` is the preferred heartbeat, `last_updated` is compatibility fallback, while static Vset/Iset/OVP/OCP timestamps are never mistaken for liveness clocks.
@@ -71,7 +73,8 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 - SG access/correction/prompt contract (D053);
 - generic EFB >16.5 V expert chemistry extension removed (D054);
 - labeled Bank-Fault calibration harness for Q004/Q013;
-- raw probe characterization harness for Q005/Q014.
+- raw probe characterization harness for Q005/Q014;
+- adaptive Mix current containment recorded as an accepted design note; implementation/calibration remains gated on real `Imin/ΔI` and RD6018 measurement characterization.
 
 ## Operator HMI design boundary
 
