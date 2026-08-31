@@ -58,6 +58,12 @@ If code and these current documents disagree, stop and resolve the inconsistency
 - Normal edge-lease disarm is a verified-Output-OFF operation. Releasing an already-running managed Output to `HANDS_OFF` is a separate, explicit, session-bound ownership-transfer transaction with its own edge command and positive acknowledgement; never substitute ordinary disarm for it.
 - Once durable `HANDS_OFF` has been committed, loss of the edge release acknowledgement must not silently restore `PB_MANAGED`: the release command may already have reached the edge. Preserve conservative HANDS_OFF containment and surface the uncertainty.
 - Returning from `HANDS_OFF` to Pb control requires confirmed Output OFF and never silently resumes an old AUTO session.
+- D061 managed live adoption and D062 `MIX_ADOPTED` are distinct authorities. D061 Adopted Manual grants no chemistry transition authority; D062 may own only an already-running high-voltage Mix after explicit battery/chemistry and prior-age confirmation.
+- D062 takeover must not write Output/V/I/OVP/OCP. It reuses the D061 live-adoption edge primitive, starts Delta evidence from fresh post-adoption source reports only, and cannot re-energize Output after it becomes OFF.
+- D063 prior external Mix age is conservative authority: Recorder is authoritative only with a proven uninterrupted `OFF -> ON -> ... -> current ON` edge; otherwise an explicit operator declaration is required. An already-accepted preview age is a floor that ages forward and can never be reduced by a later Recorder snapshot or Recorder outage.
+- D062 chemistry budget is prior active age plus post-adoption active time. A Delta hold started before the Ca20/EFB24/AGM10 boundary may finish its sticky 2 h after the boundary; without a started hold, boundary expiry is `MIX_TIMEOUT -> verified OFF + diagnose`.
+- D062 edge-command uncertainty is local to the current transaction. Failures before a new edge command may have executed are read-only and must leave the external HANDS_OFF program untouched; only an actually ambiguous edge-command invocation may enter verified-OFF containment.
+- D062 software implementation is not physical validation. Do not rely on managed live takeover until the exact D061/D062 ESPHome live-adoption/900 s lease/raw-protection contract has been compiled, flashed and bench-validated on the target node.
 
 ## Deployment-only tasks
 
@@ -80,7 +86,7 @@ python -m unittest discover -s tests -p 'test_*.py'
 - If tests fail, do not start the new service; restore/retain the previous deployment.
 - After restart, verify service state and recent logs.
 - Do not start a real charge or turn RD6018 output ON as a deployment smoke test.
-- Do not deploy a new edge-lease/HANDS_OFF contract until the exact ESPHome node/package has been compiled, flashed and bench-validated together with the matching Python version.
+- Do not deploy a new edge-lease/HANDS_OFF/live-adoption contract until the exact ESPHome node/package has been compiled, flashed and bench-validated together with the matching Python version.
 
 ## Test expectations
 
