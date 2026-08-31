@@ -19,11 +19,12 @@ Supporting proof/calibration/design documents:
 - `OPERATOR_HMI_SPEC.md` — normative Telegram operator-HMI information hierarchy, alarm/control feedback and renderer boundary;
 - `OPERATOR_HMI_WIREFRAMES.md` — concrete storyboard for idle/start/run/recovery/Mix/SAFE_WAIT/Cooling/Storage/Manual/diagnostic/containment screens;
 - `MIX_ADAPTIVE_CURRENT_CONTAINMENT.md` — accepted, not-yet-implemented Mix safety design: confirmed-current-minimum hardware current ratchet for lost-control-path containment;
+- `MIX_TIMEOUT_POLICY.md` — accepted strategy refinement: Mix maximum is an automation-confidence boundary; Ca/Ca remains 20 h and timeout is not successful Mix completion;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
 
-These supporting documents never override Decision Log strategy.
+These supporting documents never override Decision Log strategy. Where a supporting note explicitly refines an older terse decision whose code has not yet been migrated, treat the note as accepted target behavior and the older implementation status as pending reconciliation.
 
 ## Current branch boundary
 
@@ -42,7 +43,7 @@ Production V2 deliberately distinguishes:
 - Normal full-auto vs Diagnostic no-auto-HV;
 - Ca/EFB and AGM session-wide recovery budgets;
 - 72h Main fallback semantics;
-- Mix 20/24/10 + sticky finish hold;
+- Mix fallback maxima remain Ca20/EFB24/AGM10; for Ca/Ca, 20 h is an automatic-authority boundary, not a target and not successful completion by itself; timeout means AUTO did not converge and further HV work requires Manual/operator judgement;
 - Auto Mix direct entry;
 - AUTO Manual-OFF is terminal side-condition only;
 - 24–48h heavy-recovery rest is diagnostic recommendation, never time lockout;
@@ -74,7 +75,8 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 - generic EFB >16.5 V expert chemistry extension removed (D054);
 - labeled Bank-Fault calibration harness for Q004/Q013;
 - raw probe characterization harness for Q005/Q014;
-- adaptive Mix current containment recorded as an accepted design note; implementation/calibration remains gated on real `Imin/ΔI` and RD6018 measurement characterization.
+- adaptive Mix current containment recorded as an accepted design note; implementation/calibration remains gated on real `Imin/ΔI` and RD6018 measurement characterization;
+- Mix timeout semantic refinement recorded: automatic timeout is an abnormal/non-converged handoff boundary, not normal successful completion; code reconciliation is still pending.
 
 ## Operator HMI design boundary
 
