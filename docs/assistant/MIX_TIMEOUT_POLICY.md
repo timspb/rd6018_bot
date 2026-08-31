@@ -1,80 +1,79 @@
 # Mix Timeout Policy
 
-Status: **ACCEPTED STRATEGY REFINEMENT / NOT YET IMPLEMENTED**
+Status: **ACCEPTED / IMPLEMENTED IN V2 AUTHORITY / PHYSICAL OFF-PATH VALIDATION PENDING**
 
-This note refines the semantics of the existing Mix fallback maxima. It does not increase any duration.
+This note defines the semantics of the existing Mix fallback maxima. It does not increase any duration.
 
 ## Core decision
 
-The Mix maximum is an **automation-confidence boundary**, not a target duration and not a reason to keep extending automatic high-voltage treatment for an unusual battery.
+The Mix maximum is an **automation-confidence boundary**, not a target duration and not evidence of successful completion.
 
-For Ca/Ca the existing **20 h** Mix maximum remains unchanged.
+Current automatic active-Mix ceilings remain:
 
-If a Ca/Ca battery reaches 20 h of active Mix time without the normal accepted completion evidence, V2 must interpret that as:
+| Chemistry | Automatic Mix maximum |
+|---|---:|
+| Ca/Ca | **20 h** |
+| EFB | **24 h** |
+| AGM | **10 h** |
+
+If the active-time ceiling is reached without an already accepted Delta finish-hold, V2 now emits:
 
 ```text
-normal automatic Mix did not converge
-        -> battery is an atypical / unresolved case
-        -> automatic HV authority ends
-        -> operator/manual investigation is required
+MIX_TIMEOUT
+-> STOP_AND_DIAGNOSE
+-> request Output OFF
+-> runtime verified-OFF boundary owns physical shutdown proof
+-> no SAFE_WAIT / Done / Storage success path
+-> operator/manual investigation required
 ```
 
-The controller must **not** increase the 20 h value merely because the battery still appears to be changing or may still be undergoing recovery/desulfation. Continuing such an experiment belongs to explicit Manual/operator authority, with the ordinary immutable safety envelope.
+`v2_authority.decide_mix_transition()` therefore no longer returns `COMPLETE_TO_SAFE_WAIT` for an exhausted Mix observation window. It returns `STOP_AND_DIAGNOSE` with reason `MIX_TIMEOUT`. `ChargeControllerV2` already maps that authority action to terminal `turn_off`; the production runtime safety layer remains responsible for proving physical OFF and retaining `_off_unconfirmed` containment if OFF cannot be proved.
 
 ## Timeout is not successful completion
 
-A Mix timeout must not be presented as normal successful completion.
-
-In particular, timeout must not silently reuse the ordinary successful path:
+The ordinary successful path remains separate:
 
 ```text
-Mix finish evidence
+accepted CV ΔI / CC ΔV evidence
 -> sticky finish hold
 -> SAFE_WAIT
 -> Done / Storage
 ```
 
-Instead it needs a distinct terminal/diagnostic outcome such as:
+An already-started valid finish hold keeps its accepted completion semantics even if the wall/profile deadline is crossed while that hold is running. The timeout applies when the active-Mix authority budget is exhausted **without** that accepted completion path.
 
-```text
-MIX_TIMEOUT
--> leave high-voltage Mix safely
--> verified Output OFF
--> retain/log the Mix evidence and reason
--> tell the operator that automatic Mix did not converge
--> recommend Manual/diagnostic handling if further work is desired
-```
+The timeout is not itself a diagnosis. It does not prove sulfation, capacity loss, cell fault, stratification, or another specific defect. It proves only that automatic high-voltage authority has reached its configured boundary without standard convergence.
 
-Exact operator wording/state naming may be refined with the HMI work, but the semantic distinction is mandatory: **time expiry is not proof that the battery completed Mix successfully.**
+## Durable active-time authority
 
-## Why the limit should not auto-expand
+Timeout evaluation in the production controller no longer needs to trust raw wall time since `stage_start_time`. The production diagnostic controller is composed with `MixActiveAuthorityMixin`, which supplies the persisted active-Mix elapsed budget to the existing V2 decision function.
 
-A battery that needs more than the normal automatic observation window is precisely the case where automation should become more conservative, not less.
+Rules:
 
-The timer therefore serves two purposes:
-
-1. bounds unattended high-voltage exposure;
-2. detects that the battery no longer fits the standard automatic recovery model.
-
-The timeout is not a diagnosis by itself. It does not prove sulfation, capacity loss, cell fault, stratification, or another specific defect. It is evidence that further high-voltage work requires explicit operator judgement rather than continued automatic authority.
+- Mix time advances only while Output cannot be proved OFF;
+- explicit Output OFF and Cooling freeze the active budget;
+- live-process increments use `time.monotonic()`;
+- accumulated elapsed time is persisted independently from Ah;
+- after process restart, an earlier durable `active=true` record conservatively charges the uncertain downtime instead of granting it as free HV authority;
+- a missing/corrupt/mismatched durable Mix authority record rejects restoration rather than reconstructing authority from Ah or an old stage timestamp.
 
 ## Relationship to adaptive current containment
 
 `MIX_ADAPTIVE_CURRENT_CONTAINMENT.md` and this timeout policy solve different failure modes:
 
-- adaptive current containment reduces available current/power during an ongoing Mix and protects against blind acceptance increase;
-- the Mix timeout bounds how long AUTO is allowed to remain in the high-voltage experiment at all.
+- adaptive current containment can only tighten available current/power during an ongoing Mix;
+- the Mix active-time ceiling bounds how long AUTO may remain in the high-voltage experiment at all.
 
 Neither mechanism replaces verified Output OFF, thermal protection, OVP/OCP, fresh telemetry, or the edge safety lease/watchdog.
 
-## Other chemistries
+## Remaining physical validation
 
-Existing fallback maxima remain unchanged unless separately reviewed:
+Software tests can prove state-machine semantics, persistence and monotonicity, but the occupied hardware is still required later to prove the complete actuator path:
 
-| Chemistry | Current automatic Mix maximum |
-|---|---:|
-| Ca/Ca | **20 h** |
-| EFB | 24 h |
-| AGM | 10 h |
+1. run a shortened bench-only timeout configuration on a safe load;
+2. prove `MIX_TIMEOUT` never enters SAFE_WAIT/Storage;
+3. prove Output OFF is physically confirmed;
+4. inject failed/delayed OFF and prove `_off_unconfirmed` containment continues;
+5. restart during active Mix and during Cooling/OFF and compare durable active time against the trace.
 
-This decision specifically confirms the Ca/Ca 20 h boundary and establishes the general semantic rule that a fallback maximum is an automation boundary, not automatic proof of successful Mix completion. Any chemistry-specific timeout behavior that intentionally differs must be an explicit later decision.
+Until those BENCH gates pass, the branch semantics are implemented but not claimed as physically validated.
