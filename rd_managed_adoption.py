@@ -275,12 +275,28 @@ class ManagedLiveAdoptionCoordinator:
                 f"live adoption requires normal RD protection state, got {protection.status.value}"
             )
 
+        policy = self.guard.policy
+        temp_ext = finite_float(live.get("temp_ext"))
+        if temp_ext is None:
+            raise RuntimeSafetyError("live adoption requires valid external battery temperature")
+        if float(temp_ext) < float(policy.min_start_temp_c):
+            raise RuntimeSafetyError(
+                f"live adoption battery temperature {float(temp_ext):.1f}C is below managed start envelope"
+            )
+        if float(temp_ext) >= float(policy.pause_temp_c):
+            raise RuntimeSafetyError(
+                f"live adoption battery temperature {float(temp_ext):.1f}C requires managed pause/OFF"
+            )
+        if _binary(live.get("boot_power")) is True or _binary(live.get("take_out")) is True:
+            raise RuntimeSafetyError(
+                "live adoption hardware auto-enable configuration is unsafe for managed ownership"
+            )
+
         fingerprint = self.fingerprint_from_live(live)
         if fingerprint is None:
             raise RuntimeSafetyError(
                 "live adoption requires positive V/I/OVP/OCP readback; disabled protections are not managed authority"
             )
-        policy = self.guard.policy
         if fingerprint.set_voltage_v > policy.absolute_voltage_ceiling_v + ADOPTION_SETPOINT_TOLERANCE:
             raise RuntimeSafetyError("live adoption voltage exceeds managed absolute envelope")
         if fingerprint.set_current_a > policy.absolute_current_ceiling_a + ADOPTION_SETPOINT_TOLERANCE:
@@ -298,6 +314,10 @@ class ManagedLiveAdoptionCoordinator:
         measured_i = finite_float(live.get("current"))
         if measured_v is None or measured_i is None:
             raise RuntimeSafetyError("live adoption requires measured output voltage/current")
+        if measured_v > policy.absolute_voltage_ceiling_v + ADOPTION_SETPOINT_TOLERANCE:
+            raise RuntimeSafetyError("live measured voltage exceeds managed absolute working envelope")
+        if measured_i > policy.absolute_current_ceiling_a + ADOPTION_SETPOINT_TOLERANCE:
+            raise RuntimeSafetyError("live measured current exceeds managed absolute working envelope")
         if measured_v > fingerprint.ovp_v + ADOPTION_SETPOINT_TOLERANCE:
             raise RuntimeSafetyError("live measured voltage exceeds configured OVP")
         if measured_i > fingerprint.ocp_a + ADOPTION_SETPOINT_TOLERANCE:
@@ -403,7 +423,6 @@ class ManagedLiveAdoptionCoordinator:
                 raise RuntimeSafetyError("managed live adoption requires the local edge lease")
 
             self.manager._release_in_progress = True
-            edge_command_started = False
             try:
                 first = await self.guard._raw_live()
                 self._preflight_live(first, expected=preview.fingerprint)
@@ -423,7 +442,6 @@ class ManagedLiveAdoptionCoordinator:
                 second = await self.guard._raw_live()
                 self._preflight_live(second, expected=preview.fingerprint)
 
-                edge_command_started = True
                 await self.edge.adopt(expected_generation=prepared.generation)
 
                 third = await self.guard._raw_live()
@@ -450,7 +468,14 @@ class ManagedLiveAdoptionCoordinator:
                 )
                 return True
             except Exception as exc:
-                if edge_command_started:
+                # A read-only race before the actual edge command must not destroy the
+                # operator's external HANDS_OFF session. Once the command invocation
+                # starts, however, ACK loss cannot prove whether edge ownership changed;
+                # only verified OFF is conservative containment.
+                command_uncertain = bool(
+                    getattr(self.edge, "command_may_have_executed", True)
+                )
+                if command_uncertain:
                     await self._verified_off(
                         f"live_adoption_incomplete_after_edge_command:{type(exc).__name__}:{exc}"
                     )
