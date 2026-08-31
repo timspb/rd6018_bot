@@ -75,7 +75,12 @@ _rd_live_mix_observer = (
 # after ownership and live-session wrappers so the panel describes their effective
 # semantics rather than leaking the underlying composition/debug UI.
 if _v2_ui_enabled:
+    # Preserve the proven legacy graph transport (photo + range/session rendering).
+    # operator_hmi replaces the caption and keyboard semantics, but the main L2 panel
+    # intentionally keeps its graph instead of becoming a text-only status card.
+    _graph_dashboard_builder = _legacy._build_and_send_dashboard
     install_operator_hmi(_legacy)
+    _legacy._build_and_send_dashboard = _graph_dashboard_builder
 
 _legacy_main = _legacy.main
 
