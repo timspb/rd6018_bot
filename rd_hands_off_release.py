@@ -4,6 +4,9 @@ import logging
 import types
 from typing import Any
 
+from aiogram import F
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode, RdControlModeManager
 from runtime_safety import RuntimeSafetyError
@@ -20,6 +23,10 @@ def _auto_active(app: Any) -> bool:
 def _manual_active(app: Any) -> bool:
     manual = getattr(app, "manual_session_manager", None)
     return bool(manual is not None and getattr(manual, "is_active", False))
+
+
+def _managed_active(app: Any) -> bool:
+    return _auto_active(app) or _manual_active(app)
 
 
 async def _disarm_edge_lease(manager: RdControlModeManager) -> None:
@@ -107,6 +114,103 @@ async def _retire_manual_without_output_change(app: Any) -> None:
         persist()
 
 
+def _install_release_confirmation_ui(
+    app: Any,
+    manager: RdControlModeManager,
+) -> None:
+    router = getattr(app, "router", None)
+    original_dashboard = getattr(app, "_build_dashboard_keyboard", None)
+    if router is None or not callable(original_dashboard):
+        return
+    if bool(getattr(manager, "_active_release_ui_installed", False)):
+        return
+
+    def build_dashboard_keyboard(
+        is_on: bool,
+        user_id: int,
+        *,
+        back_to_dashboard: bool = False,
+    ) -> InlineKeyboardMarkup:
+        markup = original_dashboard(
+            is_on,
+            user_id,
+            back_to_dashboard=back_to_dashboard,
+        )
+        if manager.hands_off or back_to_dashboard or not _managed_active(app):
+            return markup
+
+        rows: list[list[InlineKeyboardButton]] = []
+        for row in markup.inline_keyboard:
+            replaced: list[InlineKeyboardButton] = []
+            for button in row:
+                if str(getattr(button, "callback_data", "") or "") == "rd_hands_off_enable":
+                    replaced.append(
+                        InlineKeyboardButton(
+                            text=button.text,
+                            callback_data="rd_hands_off_release_confirm",
+                        )
+                    )
+                else:
+                    replaced.append(button)
+            rows.append(replaced)
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    app._build_dashboard_keyboard = build_dashboard_keyboard
+
+    @router.callback_query(F.data == "rd_hands_off_release_confirm")
+    async def _confirm_active_release(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        await call.answer()
+        await call.message.answer(
+            "⚠️ <b>Отпустить RD6018 из-под управления ботом?</b>\n\n"
+            "После подтверждения зарядная автоматика, Delta и таймеры будут сняты, "
+            "edge-lease будет отключён, а текущий Output и V/I/OVP/OCP останутся без изменений.\n\n"
+            "Pb-защита бота больше не будет вмешиваться, пока включён режим РД — не лезь.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🔓 ОТПУСТИТЬ РД",
+                            callback_data="rd_hands_off_release_execute",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Отмена",
+                            callback_data="rd_hands_off_release_cancel",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    @router.callback_query(F.data == "rd_hands_off_release_execute")
+    async def _execute_active_release(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            await manager.enter_hands_off()
+        except Exception as exc:
+            await call.answer(str(exc), show_alert=True)
+            return
+        await call.answer("Режим РД включён")
+        await call.message.answer(
+            "🔓 <b>Режим РД — не лезь включён.</b>\n"
+            "Зарядная автоматика отпущена. Текущий Output и уставки не изменялись.",
+            parse_mode=app.ParseMode.HTML,
+        )
+
+    @router.callback_query(F.data == "rd_hands_off_release_cancel")
+    async def _cancel_active_release(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        await call.answer("Отменено")
+
+    manager._active_release_ui_installed = True
+
+
 def install_rd_hands_off_release(
     app: Any,
     manager: RdControlModeManager,
@@ -120,6 +224,7 @@ def install_rd_hands_off_release(
     Manual runners are retired without issuing Output OFF or rewriting setpoints.
     """
     if bool(getattr(manager, "_active_release_installed", False)):
+        _install_release_confirmation_ui(app, manager)
         return manager
 
     original_enter = manager.enter_hands_off
@@ -185,4 +290,5 @@ def install_rd_hands_off_release(
         manager,
     )
     manager._active_release_installed = True
+    _install_release_confirmation_ui(app, manager)
     return manager

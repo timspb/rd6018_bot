@@ -52,6 +52,8 @@ may remain observable in `HANDS_OFF` without the Pb controller changing or shutt
 
 A previous unconfirmed managed `Output OFF` containment cannot be bypassed by this switch. If `_off_unconfirmed` is set, entry is rejected until physical OFF is proved.
 
+When AUTO or Manual is active, the dashboard button is deliberately **not** the destructive action itself. It opens a second confirmation step that states that charge automation, Delta/timers and the edge lease will be released while Output and V/I/OVP/OCP remain unchanged. Only the explicit `🔓 ОТПУСТИТЬ РД` confirmation executes the transfer; `Отмена` is non-actuating.
+
 For an active managed program the production transition is:
 
 1. durably record `HANDS_OFF`;
@@ -101,6 +103,6 @@ If an already-running external Mix was not observed from its OFF->ON edge and th
 
 ## Implementation boundary
 
-`rd_control_mode.py` is installed after V2 safety/guardrail/UI composition so its actuator block is the outer bot-ownership boundary. `rd_hands_off_release.py` adds the explicit software-only release transaction for an already-running managed session. Neither modifies `bot_legacy.py`, and neither weakens the safety contract while authority remains `PB_MANAGED`.
+`rd_control_mode.py` is installed after V2 safety/guardrail/UI composition so its actuator block is the outer bot-ownership boundary. `rd_hands_off_release.py` adds the explicit software-only release transaction for an already-running managed session and the two-step Telegram confirmation for that destructive authority transfer. Neither modifies `bot_legacy.py`, and neither weakens the safety contract while authority remains `PB_MANAGED`.
 
 No physical RD6018/ESPHome validation is claimed by this document. Hardware validation remains separate from software/CI validation.
