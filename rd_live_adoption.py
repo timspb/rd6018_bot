@@ -229,7 +229,11 @@ class HandsOffMixObserver:
         if any(value is None for value in values):
             return None
         set_v, set_i, ovp, ocp = (float(value) for value in values if value is not None)
-        if set_v <= 0 or set_i <= 0 or ovp <= 0 or ocp <= 0:
+        # HANDS_OFF pickup fingerprints the external RD configuration; it does not
+        # grant Pb protection authority. RD60xx exposes 0 as a legitimate disabled
+        # protection setting, so explicit OVP/OCP zero must be preserved and compared
+        # rather than mislabeled as missing readback. Negative values remain invalid.
+        if set_v <= 0 or set_i <= 0 or ovp < 0 or ocp < 0:
             return None
         return LiveMixFingerprint(set_v, set_i, ovp, ocp)
 
