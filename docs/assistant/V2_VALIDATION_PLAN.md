@@ -23,11 +23,15 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | AGM 4-attempt conservative budget | controller/strategy tests | SW-PASS |
 | 72h Main fallback | deterministic strategy tests | SW-PASS |
 | Mix CV/CC evidence + sticky 2h | Mix/evidence tests | SW-PASS |
-| Mix fallback Ca20/EFB24/AGM10 | production timing tests | SW-PASS |
+| Mix maxima Ca20/EFB24/AGM10 | production timing tests | SW-PASS |
+| Mix timeout is `MIX_TIMEOUT -> STOP_AND_DIAGNOSE`, never SAFE_WAIT success | authority + production-composition integration tests | SW-PASS |
+| Mix authority uses durable active time and freezes proven-OFF intervals | durable clock/restart tests | SW-PASS |
+| missing/corrupt/mismatched Mix authority cannot be reconstructed from Ah | durable authority fail-close tests | SW-PASS |
+| adaptive Mix current ratchet can only tighten and has no default actuator authority | containment persistence/monotonicity tests | SW-PASS |
 | SAFE_WAIT max 2h anti-stall | state-machine tests | SW-PASS |
 | Cooling freezes active clocks | cooling persistence/runtime tests | SW-PASS |
-| Done/Storage means Output ON | completion/controller tests | SW-PASS |
-| Auto Mix direct entry | mix-only tests | SW-PASS |
+| Done/Storage means Output ON only for normal completion | completion/controller tests | SW-PASS |
+| Auto Mix direct entry + timeout wording | mix-only tests | SW-PASS |
 | AUTO Manual-OFF is terminal side-condition only | isolation tests | SW-PASS |
 | Manual is sole managed manual authority | entrypoint/manual tests | SW-PASS |
 | Manual V/I <=17.5V/12A, derived OVP/OCP | manual/safety tests | SW-PASS |
@@ -56,6 +60,8 @@ PR must remain Draft while any required BENCH/BAT gate is missing.
 | failed OFF remains containment authority even if legacy chemistry state is already retired | V2 runtime OFF-unconfirmed retry regressions | SW-PASS |
 | recovery start/complete/abort cannot retire authority before verified OFF | RecoveryOrchestrator containment regressions | SW-PASS |
 | diagnostic task cancellation after a current step restores the original current or forces OFF before cancellation escapes | probe cancellation cleanup regressions | SW-PASS |
+| edge lease software geometry is 15 min / 5 min and requires positive ACK | Python + ESPHome contract tests | SW-PASS |
+| external-temp Class-C detector has no uncalibrated production thresholds | integrity monitor/runtime tests | SW-PASS |
 
 ## B. Exact ESPHome/RD telemetry bench gates
 
@@ -78,6 +84,7 @@ Use the exact production ESPHome node/config, not a synthetic register mock.
 15. With Output OFF and measured V_OUT stable at 0V long enough to have an old value-change timestamp, verify a new safe preflight remains possible. Then energize a dummy-load session and stop V_OUT reporting; energized stale/missing V_OUT must force verified OFF.
 16. Verify a new start after hours of idle setpoints is permitted to enter the programming transaction, but suppress/hold back HA observation of one just-written V/I/OVP/OCP value and prove Output ON is denied until fresh programmed readback is observed.
 17. Remove/corrupt `_meta` at the V2 adapter boundary in a controlled test while a managed dummy-load output is ON; verify production runtime fails closed instead of continuing from numeric values alone.
+18. Characterize external-temperature registers 34/35 and `temp_ext_v2` across stable probe, deliberate disconnect/reconnect, connector disturbance and real heating/cooling. Record source timestamps even when the value is flat; only these traces may activate Class-C N/range/step/slope or a hard disconnect sentinel.
 
 Required state before merge: **BENCH-PASS**.
 
@@ -99,15 +106,38 @@ Use a dummy load or otherwise non-battery hazardous setup first.
 - additionally emulate the legacy exception path that retires the chemistry controller after a failed OFF attempt: V2 runtime containment must **not** enter ordinary orphan grace, must retain `OFF unconfirmed`, and must retry verified shutdown until Output is physically confirmed OFF;
 - after delayed successful OFF confirmation, verify the containment flag clears and the edge lease is disarmed only after OFF proof.
 
-### C3 communication loss
-Test at least:
-- HA/API loss with low-energy output;
-- HA/API loss with >15V output;
+### C3 communication loss — 15/5 lease
+Test the exact branch package after the current occupied hardware experiment is finished:
+- compile/flash the 900000 ms ESPHome lease together with the bot 300 s renewal cadence;
+- one missed 5-minute renewal must not itself trip while adequate lease remains;
+- sustained bot/HA/network loss with low-energy output;
+- sustained loss with >15V output;
 - process kill while output active;
 - ESP/bridge restart;
-- RD power cycle.
+- RD power cycle;
+- prove local repeated OFF occurs no later than 15 minutes after the **last positively acknowledged** controller heartbeat;
+- prove late recovery remains trip/quarantine-safe and cannot silently resume the old charge.
 
-Expected: higher-energy state gets the shortest blind-operation tolerance and edge lease removes sustained uncontrolled output.
+No native RD6018 timer write is part of this gate. If one is added later, first prove its semantics separately and prove it cannot stack another 15-minute authority window after the edge deadline.
+
+### C4 Mix timeout actuator path
+Use a shortened **test-only** Mix limit on a dummy/safe load; do not change production chemistry constants merely to make the test short.
+- enter Mix through managed output;
+- do not generate finish evidence;
+- exhaust the test active-time ceiling;
+- require exact reason `MIX_TIMEOUT`;
+- verify no SAFE_WAIT/Storage success transition occurs;
+- verify Output OFF is physically confirmed;
+- inject delayed/failed OFF and prove `_off_unconfirmed` containment continues until OFF proof.
+
+### C5 Mix durable active-time clock
+With a shortened test configuration and an external trace clock:
+- active Mix ON consumes budget;
+- Cooling/proven Output OFF does not consume budget;
+- resume continues from the same remaining budget;
+- restart while durable state was active conservatively consumes outage time;
+- restart after durable inactive state does not consume outage time;
+- remove/corrupt/mismatch the durable authority file and verify Mix/Cooling-from-Mix restore is rejected rather than reconstructed from Ah.
 
 Required state before merge: **BENCH-PASS**.
 
@@ -157,7 +187,7 @@ Do not deliberately create a harmful stuck condition merely to exercise Recovery
 Capture staged 14.4 -> 14.6 -> 14.8 -> 15.0 Main behavior and verify conservative recovery/timeout policy. Do not deliberately create a harmful stuck condition merely to exercise a transition.
 
 ### F3 Auto Mix
-Use a battery already suitable for Mix entry and >=12V. Verify direct Mix session, evidence handling and final Storage. Verify <12V is rejected without PREP fallback using a safe simulated/bench input if possible rather than abusing a deeply discharged battery.
+Use a battery already suitable for Mix entry and >=12V. Verify direct Mix session, active-time accounting, evidence handling and normal final Storage. Verify <12V is rejected without PREP fallback using a safe simulated/bench input if possible rather than abusing a deeply discharged battery.
 
 Required state before merge: **BAT-PASS** for representative standard AUTO and Auto Mix; AGM policy should have at least non-destructive trace confirmation.
 
@@ -222,7 +252,21 @@ Collect multiple raw baseline/step/restore traces and characterize:
 
 Only then choose production `ProbePlan` amplitude/timing/readback/noise thresholds. Automatic trigger policy remains disabled until calibrated. The existence of the collector/analyzer is **not** a BENCH-PASS by itself.
 
-### G3 Resolved manufacturer/product boundaries — software contract, not OPEN-CAL
+### G3 Mix adaptive-current containment — `OPEN-CAL`
+
+The durable ratchet exists and is SW-PASS, but its production actuator authority remains intentionally disabled. Using real Q005/Q014 and Mix traces, establish:
+- what constitutes a confirmed `Imin` for containment authority;
+- required finish/reversal `ΔI` under actual measurement resolution;
+- capacity-scaled/relative term and absolute hardware floor;
+- containment headroom that remains safely above the finish signal;
+- exact condition for `CURRENT_CEILING_REACHED` / censored evidence;
+- safe current + OCP tightening order and fresh configured readback;
+- behavior across CV->CC when the tightened ceiling is reached;
+- restart/network-loss proof that a tighter local ceiling can never be silently enlarged.
+
+Only after these are characterized may the ratchet be connected to RD current/OCP writes. Until then `MixContainmentPolicy()` has no production headroom and reports `actuator_authority=False`.
+
+### G4 Resolved manufacturer/product boundaries — software contract, not OPEN-CAL
 
 - **EFB upper envelope (D054):** generic AUTO/Recovery/Conditioning <=16.5V. A global `expert` flag cannot enlarge it. 17.5V remains Manual/Custom outer authority. Future >16.5V automatic EFB requires an exact model-specific manufacturer-backed profile.
 - **SG policy (D053):** physical access is explicit; AGM never SG; EFB/Ca/Flooded require `SERVICEABLE`; raw is primary evidence; manufacturer correction is explicit; temperature-compensated hydrometer is never double-corrected.
@@ -237,8 +281,13 @@ Before marking PR ready:
 software CI exact head         PASS
 all required BENCH gates       PASS
 required real-battery traces   PASS
+15/5 lease physical proof      PASS
+Mix timeout/off-path proof     PASS
+Mix active-time restart proof  PASS
 Q004/Q013 calibration evidence reviewed
 Q005/Q014 characterization reviewed / auto trigger remains fail-closed if unresolved
+adaptive current actuation remains disabled unless G3 is calibrated and BENCH-PASS
+external-temp Class-C authority remains disabled unless its physical calibration is complete
 Decision Log / Open Questions  synchronized
 PR body                         synchronized
 main                            still untouched
