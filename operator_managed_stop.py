@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import html
-from typing import Any, Dict, Optional
+from typing import Any
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import operator_hmi as hmi
 import telegram_panel
+from operator_confirmation import ConfirmationStore
 from rd_hands_off_release import _active_session_token, _auto_active, _manual_active
 
 
@@ -104,7 +105,7 @@ def install_operator_managed_stop(app: Any) -> None:
     if bool(getattr(app, "_operator_managed_stop_installed", False)):
         return
 
-    confirmations: Dict[int, str] = {}
+    confirmations = ConfirmationStore()
     app._operator_managed_stop_confirmations = confirmations
 
     base_keyboard = hmi.build_operator_keyboard
@@ -125,7 +126,6 @@ def install_operator_managed_stop(app: Any) -> None:
     async def _managed_stop_confirm(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        user_id = call.from_user.id if call.from_user else 0
         token = _active_session_token(app)
         if token is None:
             await call.answer(
@@ -133,13 +133,19 @@ def install_operator_managed_stop(app: Any) -> None:
                 show_alert=True,
             )
             return
-        confirmations[user_id] = token
+        if not confirmations.issue_for_call(call, token):
+            await call.answer(
+                "Не удалось привязать подтверждение к текущему чату",
+                show_alert=True,
+            )
+            return
         await call.answer()
         label = _session_label(token)
         await call.message.answer(
             "<b>Остановить заряд?</b>\n\n"
             f"Будет остановлена только текущая сессия <b>{html.escape(label)}</b>. "
-            "Команда выполняет verified Output OFF и не может включить выход.",
+            "Команда выполняет verified Output OFF и не может включить выход. "
+            "Подтверждение действительно ограниченное время и только в этом чате.",
             parse_mode=app.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -163,19 +169,17 @@ def install_operator_managed_stop(app: Any) -> None:
     async def _managed_stop_cancel(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        user_id = call.from_user.id if call.from_user else 0
-        confirmations.pop(user_id, None)
+        confirmations.cancel_for_call(call)
         await call.answer("Заряд продолжается")
 
     @app.router.callback_query(F.data == STOP_EXECUTE_CALLBACK)
     async def _managed_stop_execute(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        user_id = call.from_user.id if call.from_user else 0
-        expected = confirmations.pop(user_id, None)
+        expected = confirmations.consume_for_call(call)
         if not expected:
             await call.answer(
-                "Подтверждение отсутствует или уже использовано",
+                "Подтверждение отсутствует, истекло или уже использовано",
                 show_alert=True,
             )
             return

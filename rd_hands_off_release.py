@@ -8,6 +8,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from manual_mode import ManualSessionState
+from operator_confirmation import ConfirmationStore
 from rd_control_mode import RdControlMode, RdControlModeManager
 from runtime_safety import RuntimeSafetyError
 
@@ -284,7 +285,8 @@ def _install_release_confirmation_ui(
     if bool(getattr(manager, "_active_release_ui_installed", False)):
         return
 
-    pending: dict[int, str] = {}
+    pending = ConfirmationStore()
+    manager._active_release_confirmations = pending
 
     def build_dashboard_keyboard(
         is_on: bool,
@@ -328,15 +330,19 @@ def _install_release_confirmation_ui(
                 show_alert=True,
             )
             return
-        user = getattr(call, "from_user", None)
-        user_id = int(getattr(user, "id", 0) or 0)
-        pending[user_id] = token
+        if not pending.issue_for_call(call, token):
+            await call.answer(
+                "Не удалось привязать подтверждение к текущему чату",
+                show_alert=True,
+            )
+            return
         await call.answer()
         await call.message.answer(
             "⚠️ <b>Отпустить RD6018 из-под управления ботом?</b>\n\n"
             "После подтверждения зарядная автоматика, Delta и таймеры будут сняты, "
             "edge-lease будет передан в HANDS_OFF, а текущий Output и V/I/OVP/OCP останутся без изменений.\n\n"
-            "Pb-защита бота больше не будет вмешиваться, пока включён режим РД — не лезь.",
+            "Pb-защита бота больше не будет вмешиваться, пока включён режим РД — не лезь. "
+            "Подтверждение действительно ограниченное время и только в этом чате.",
             parse_mode=app.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -368,13 +374,11 @@ def _install_release_confirmation_ui(
     async def _execute_active_release(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        user = getattr(call, "from_user", None)
-        user_id = int(getattr(user, "id", 0) or 0)
-        expected = pending.pop(user_id, None)
+        expected = pending.consume_for_call(call)
         current = _active_session_token(app)
         if expected is None or current is None or current != expected:
             await call.answer(
-                "Подтверждение устарело: активная сессия изменилась. Откройте действие заново.",
+                "Подтверждение отсутствует, истекло или сессия изменилась. Откройте действие заново.",
                 show_alert=True,
             )
             return
@@ -408,9 +412,7 @@ def _install_release_confirmation_ui(
     async def _cancel_active_release(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        user = getattr(call, "from_user", None)
-        user_id = int(getattr(user, "id", 0) or 0)
-        pending.pop(user_id, None)
+        pending.cancel_for_call(call)
         await call.answer("Отменено")
 
     manager._active_release_ui_installed = True
