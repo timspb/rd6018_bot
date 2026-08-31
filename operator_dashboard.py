@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
+from rd6018_telemetry import ProtectionStatus, resolve_protection
 
 
 _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
@@ -36,8 +37,8 @@ def build_truthful_hmi_state(
     """Fail truthful at the presentation boundary without inventing actuator state.
 
     Runtime safety already fails closed on missing/unknown critical telemetry. The HMI
-    must do the same semantically: an unknown Output is not OFF, and unavailable
-    protection status is not "normal".
+    must do the same semantically: an unknown Output is not OFF, and unavailable or
+    tripped raw protection state is never presented as "normal".
     """
     builder = base_builder or _BASE_BUILD_OPERATOR_HMI_STATE
     state = builder(app, live)
@@ -55,13 +56,23 @@ def build_truthful_hmi_state(
             attention="output_unknown",
         )
 
-    ovp_state = _binary(live.get("ovp_triggered"))
-    ocp_state = _binary(live.get("ocp_triggered"))
-    if ovp_state is None or ocp_state is None:
+    protection = resolve_protection(live)
+    if protection.status is ProtectionStatus.UNKNOWN:
         return replace(
             state,
             safety="⚠️ Статус защит RD6018 не подтверждён",
             attention="alarm" if output_state else "warning",
+        )
+    if protection.tripped:
+        label = {
+            ProtectionStatus.OVP: "OVP",
+            ProtectionStatus.OCP: "OCP",
+            ProtectionStatus.OPP: "OPP",
+        }.get(protection.status, protection.status.value.upper())
+        return replace(
+            state,
+            safety=f"⚠️ Защита: {label}",
+            attention="alarm",
         )
 
     return state
