@@ -21,6 +21,7 @@ Supporting proof/calibration/design documents:
 - `MIX_ADAPTIVE_CURRENT_CONTAINMENT.md` — accepted, not-yet-implemented Mix safety design: confirmed-current-minimum hardware current ratchet for lost-control-path containment;
 - `MIX_TIMEOUT_POLICY.md` — accepted strategy refinement: Mix maximum is an automation-confidence boundary; Ca/Ca remains 20 h and timeout is not successful Mix completion;
 - `COMM_LOSS_WATCHDOG_15MIN.md` — accepted, not-yet-implemented tightening of the managed communication-loss watchdog to 15 min TTL / 5 min renewal, including non-stacking native-RD timer semantics;
+- `EXTERNAL_TEMP_SENSOR_INTEGRITY.md` — accepted external battery-temperature integrity policy: stale/missing fail-close plus N-consecutive fresh-anomaly shutdown without weakening thermal limits;
 - `SG_POLICY_V2.md` — physical SG access, hydrometer/correction and prompt contract (D053);
 - `BANK_FAULT_CALIBRATION.md` — labeled-case workflow for Q004/Q013;
 - `DYNAMIC_LOOP_CALIBRATION.md` — actual-cadence/noise/settling characterization for Q005/Q014.
@@ -47,7 +48,7 @@ Production V2 deliberately distinguishes:
 - Mix fallback maxima remain Ca20/EFB24/AGM10; for Ca/Ca, 20 h is an automatic-authority boundary, not a target and not successful completion by itself; timeout means AUTO did not converge and further HV work requires Manual/operator judgement;
 - Auto Mix direct entry;
 - AUTO Manual-OFF is terminal side-condition only;
-- 24–48h post-heavy-recovery rest is diagnostic recommendation, never time lockout;
+- 24–48h heavy-recovery rest is diagnostic recommendation, never time lockout;
 - Manual may carry optional physical `battery_id` for history only;
 - persisted Manual restores `INTERRUPTED` and requires explicit fresh re-authorization;
 - diagnostic in-flight actions never auto-resume after restart; derived authority is recomputed from evidence;
@@ -59,6 +60,9 @@ Production V2 deliberately distinguishes:
 - accepted target communication-loss watchdog is 15 min TTL with 5 min renewals for every managed Output ON; current production is still 30/10 until code/config/bench migration;
 - a future native RD6018 Timer Off watchdog must be renewed from the same accepted controller heartbeat as the edge lease and must not self-refresh independently, so two 15-minute layers cannot stack into a ~30-minute blind-authority window;
 - watchdog refresh never resets or extends the separate Mix 20/24/10-hour chemistry authority clock;
+- external battery temperature is safety authority: missing/unavailable/stale `temp_ext` remains immediate fail-close once freshness is lost; fresh-but-suspicious values use an N-consecutive-new-source-sample detector, while hard thermal limits or physically proven disconnect/error sentinels remain immediate;
+- repeated HA polls of one cached temperature sample never count as N anomalies, and a flat but freshly reported valid temperature is not itself a fault;
+- a temperature-sensor integrity shutdown is latched for the active program and never auto-resumes merely because the next sample looks normal;
 - SAFE_WAIT is Output OFF even across Cooling; incomplete Cooling continuation metadata never defaults to Main;
 - Vin is PSU-health telemetry only, including production legacy-start/restore composition paths;
 - managed runtime authority rejects stale/incoherent dynamic battery/output telemetry: HA `last_reported` is the preferred heartbeat, `last_updated` is compatibility fallback, while static Vset/Iset/OVP/OCP timestamps are never mistaken for liveness clocks.
@@ -81,7 +85,8 @@ For exact current SHAs use branch history/PR; durable behavioral meaning is in D
 - raw probe characterization harness for Q005/Q014;
 - adaptive Mix current containment recorded as an accepted design note; implementation/calibration remains gated on real `Imin/ΔI` and RD6018 measurement characterization;
 - Mix timeout semantic refinement recorded: automatic timeout is an abnormal/non-converged handoff boundary, not normal successful completion; code reconciliation is still pending;
-- communication-loss watchdog tightening recorded as accepted target 15/5; current ESPHome edge lease remains implemented at 30/10 until coordinated code/config/physical validation.
+- communication-loss watchdog tightening recorded as accepted target 15/5; current ESPHome edge lease remains implemented at 30/10 until coordinated code/config/physical validation;
+- external-temperature stale/missing fail-close is already implemented; N-consecutive fresh-anomaly integrity detection and physical disconnect-pattern calibration remain pending.
 
 ## Operator HMI design boundary
 
@@ -113,6 +118,7 @@ Unit CI proves software contracts only. Before merge, follow `V2_VALIDATION_PLAN
 - exact ESPHome compile/flash;
 - RD telemetry/readback bench smoke, including HA source-heartbeat behavior for unchanged values;
 - runtime stale-telemetry fail-close and static-readback no-false-positive checks;
+- external-temperature probe disconnect/reconnect and anomalous-source-sample characterization, including raw registers 34/35 and HA source timestamps;
 - safe-enable/verified-OFF/edge-lease fault injection;
 - interrupted diagnostic-probe restart test;
 - interrupted Manual restart/reauthorization test;
