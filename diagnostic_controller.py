@@ -13,13 +13,17 @@ from battery_fault_engine import (
     assess_battery_fault,
 )
 from first_stage_evidence import FirstStageAssessment
+from mix_active_authority import MixActiveAuthorityMixin
 from v2_authority import AuthorityAction, AuthorityDecision
 
 
 _HV_ACTIONS = frozenset({AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX})
 
 
-class DiagnosticProductionChargeControllerV2(AutoStrategyProductionChargeControllerV2):
+class DiagnosticProductionChargeControllerV2(
+    MixActiveAuthorityMixin,
+    AutoStrategyProductionChargeControllerV2,
+):
     """Production AUTO controller with hypothesis-specific diagnostic evidence.
 
     Diagnostic inference never emits HARD_STOP. It can veto a *new* automatic HV
