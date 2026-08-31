@@ -18,7 +18,7 @@
 
 ## Production authority
 - `AutoStrategyProductionChargeControllerV2` владеет AUTO Main/timeout/Mix strategy.
-- `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto.
+- `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto и durable Mix active-time authority.
 - `ProductionManualSessionManager` владеет Manual.
 - `V2RuntimeSafetyGuard` + configured-value readback + verified OFF + edge lease — отдельная неотключаемая аппаратная граница.
 - `DiagnosticActionJournal` хранит lifecycle диагностических действий, но не заменяет safety/chemistry authority.
@@ -65,8 +65,9 @@ Vbat >= 12.0 V -> MAIN сразу + PREP_SKIPPED audit event
 - AGM -> standard Mix 16.3 V;
 - ~0.03C, max 12 A;
 - normal ~120s blanking, CV `Imin -> ΔI`, CC `Vmax -> ΔV`, 3 spaced confirmations, sticky 2h hold;
-- fallback Ca20/EFB24/AGM10;
-- SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
+- maximum automatic **active-Mix** authority: Ca20/EFB24/AGM10;
+- normal Delta completion -> SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
+- no accepted finish hold by active-time ceiling -> `MIX_TIMEOUT -> STOP_AND_DIAGNOSE -> Output OFF`, not Storage success;
 - strong `BLOCK_AUTOMATIC_HV` проверяется до включения;
 - EFB >16.5 V не разрешается никаким generic `expert` flag.
 
@@ -99,9 +100,12 @@ The global **17.5 V** ceiling remains available to first-class Manual/Custom ope
 
 ### Done / Storage
 ```text
+normal completion:
 SAFE_WAIT -> Done/Storage -> ~13.8 V / 1.0 A -> Output ON
+
+fault / MIX_TIMEOUT / hard stop:
+Output OFF
 ```
-Fault/hard-stop — отдельная OFF-семантика.
 
 ## Main evidence
 Normal tail и stuck plateau — разные механизмы.
@@ -150,12 +154,65 @@ next plateau -> remain Main, НЕ forced Mix
 - 3 confirmations ~60s apart;
 - confirmed event starts sticky 2h finish hold.
 
-Fallback:
-| Chemistry | Max Mix fallback |
+Maximum automatic active-Mix authority:
+| Chemistry | Max active Mix |
 |---|---:|
 | Ca/Ca | 20 h |
 | EFB | 24 h |
 | AGM | 10 h |
+
+Эти значения — границы automatic HV authority. Они не являются ETA, target duration или evidence успешного завершения.
+
+```text
+accepted Delta
+-> sticky 2h finish hold
+-> SAFE_WAIT
+-> Storage
+```
+
+Если accepted finish hold ещё не начался и active-Mix budget исчерпан:
+
+```text
+MIX_TIMEOUT
+-> STOP_AND_DIAGNOSE
+-> Output OFF
+-> verified-OFF runtime boundary
+-> manual/operator investigation
+```
+
+`MIX_TIMEOUT` сам по себе не доказывает sulfation/cell fault/capacity loss; он означает только, что стандартный автоматический HV-процесс не сошёлся внутри своего authority budget.
+
+### Durable Mix active-time authority
+Production Mix timeout не опирается на сырой wall `stage_start_time` и не восстанавливается из Ah.
+
+- живой active Mix считает время через monotonic clock;
+- proven Output OFF и Cooling freeze budget;
+- accumulated active seconds persist отдельно и привязаны к exact V2 session id;
+- restart после durable `active=true` консервативно засчитывает неопределённый outage interval как active, чтобы crash не подарил бесплатное HV-время;
+- restart после proved inactive не расходует budget;
+- missing/corrupt/session-mismatched authority -> Mix/Cooling-from-Mix restore rejected, без reconstruction из Ah.
+
+Communication watchdog и Mix active-time authority независимы: heartbeat refresh никогда не продлевает chemistry authority.
+
+### Adaptive Mix current containment
+Durable software ratchet реализован, но production current/OCP actuation остаётся calibration-gated.
+
+Invariant:
+```text
+0 < I_adaptive <= I_programmed <= I_recipe
+I_adaptive(t+1) <= I_adaptive(t)
+```
+
+Accepted candidate:
+```text
+I_adaptive_new = min(
+    I_programmed,
+    I_adaptive_previous,
+    Imin_confirmed + calibrated_headroom
+)
+```
+
+Default headroom отсутствует, поэтому без Q005/Q014 physical calibration механизм не имеет actuator authority и не пишет RD current/OCP. Поздний больший programmed current не может открыть ранее снятую authority. `CURRENT_CEILING_REACHED` хранится как censored evidence, а не как «ток перестал расти».
 
 ## Diagnostic HV veto
 Сначала strategy выбирает действие. Затем hypothesis engine может veto **новое** `ENTER_DESULFATION`/`ENTER_MIX` только при `BLOCK_AUTOMATIC_HV`. Один score/SG/U/I sample этого не создаёт. AGM voltage-step внутри Main не считается HV escalation. Auto Mix использует тот же veto как preflight.
@@ -165,7 +222,7 @@ Fallback:
 relax threshold reached early -> continue immediately
 otherwise -> wait max ~2h -> continue anyway
 ```
-2h — anti-stall maximum, не fault timeout. Relaxation остаётся diagnostic evidence.
+2h — anti-stall maximum, не fault timeout. Relaxation остаётся diagnostic evidence. `MIX_TIMEOUT` никогда не использует SAFE_WAIT как successful completion path.
 
 ## Cooling
 Cooling — pause active chemistry/program time.
@@ -174,6 +231,7 @@ AUTO:
 - Output OFF;
 - exact source stage/target preserved;
 - stage/tail/finish clocks frozen;
+- durable Mix active-time budget frozen after Output OFF proof;
 - recovery budget, AGM step, extrema, confirmed sticky delta preserved;
 - stuck plateau and incomplete delta confirmations invalidated;
 - durable restore required.
@@ -310,12 +368,17 @@ Restart matrix:
 No crash recovery may guess and restore a mid-probe current setpoint.
 
 ## Watchdogs / AI
-Preserve `higher-energy state -> shorter allowed blind-operation interval`. Readback, verified OFF and edge lease are safety, not chemistry. AI explains evidence only; it cannot authorize HV, select setpoints or override safety.
+Managed edge safety lease в V2 branch: **15 min TTL / 5 min positive-ACK renewal**. ACK требует свежего direct RD Modbus/readback, generation advance, clear trip/quarantine и почти полный 15-minute remaining budget. ESPHome trip продолжает локально повторять Output OFF каждые 5 s. Exact package ещё должен пройти compile/flash/loss fault-injection на реальном узле до merge.
+
+Native RD6018 Timer Off пока не используется. Если его семантика будет физически доказана, он обязан обновляться тем же accepted controller heartbeat и не может образовывать второй последовательный 15-minute window.
+
+Readback, verified OFF and edge lease are safety, not chemistry. AI explains evidence only; it cannot authorize HV, select setpoints or override safety.
 
 ## Operator/documentation rules
 - Не называй current `Imin`, пока analyzer реально не сформировал minimum evidence.
 - CV: `Imin -> ΔI`; CC: `Vmax -> ΔV`.
-- Не называй fallback-window ETA полного заряда.
+- Не называй active-Mix authority window ETA полного заряда.
+- Не представляй `MIX_TIMEOUT` как нормальное завершение/SAFE_WAIT/Storage.
 - Не считай SAFE_WAIT timeout fault сам по себе.
 - Не считай высокий ток или SG imbalance в одиночку доказательством shorted cell.
 - Не путай Done/Storage с Output OFF.
@@ -327,4 +390,5 @@ Preserve `higher-energy state -> shorter allowed blind-operation interval`. Read
 - SG access is physical-battery metadata; chemistry alone never grants electrolyte access.
 - Never double-correct `hydrometer=tc`; manufacturer correction is explicit, never inferred.
 - EFB automatic/Recovery/Conditioning generic ceiling is 16.5 V; global 17.5 V is Manual/Custom outer authority, not EFB chemistry permission.
+- Mix adaptive-current actuator coefficients не придумываются до physical calibration; software ratchet не означает, что RD current уже динамически перепрограммируется.
 - Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.
