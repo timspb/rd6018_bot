@@ -168,9 +168,12 @@ class V2MixOnlyTests(unittest.IsolatedAsyncioTestCase):
         text = build_mix_only_preview(PENDING)
         self.assertIn("Старт сразу с Mix", text)
         self.assertIn("PREP, Main", text)
-        self.assertIn("24 ч", text)
+        self.assertIn("24 ч активного Mix", text)
         self.assertIn("Imin →", text)
         self.assertIn("Vmax →", text)
+        self.assertIn("MIX_TIMEOUT", text)
+        self.assertIn("Output OFF", text)
+        self.assertIn("Нормальное завершение по Delta", text)
         self.assertIn("Storage", text)
 
     async def test_direct_mix_start_never_enters_full_auto_start(self):
