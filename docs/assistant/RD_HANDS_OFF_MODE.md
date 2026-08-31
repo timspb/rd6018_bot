@@ -48,15 +48,22 @@ may remain observable in `HANDS_OFF` without the Pb controller changing or shutt
 
 ### Entering HANDS_OFF
 
-The first implementation deliberately does not tear a live managed charge session away from its controller. Entry is allowed only when:
+`🔓 Режим РД — не лезь` is an explicit operator release of bot ownership. It may be used from idle or while a managed AUTO/Manual program is running.
 
-- AUTO is inactive;
-- managed Manual is inactive;
-- no previous managed `Output OFF` remains unconfirmed.
+A previous unconfirmed managed `Output OFF` containment cannot be bypassed by this switch. If `_off_unconfirmed` is set, entry is rejected until physical OFF is proved.
 
-If the production edge safety lease is enabled, its disarm must be positively confirmed before the durable mode changes. Failure to disarm leaves `PB_MANAGED` in force.
+For an active managed program the production transition is:
 
-Entering `HANDS_OFF` never changes current V/I/OVP/OCP/Output.
+1. durably record `HANDS_OFF`;
+2. positively disarm the edge safety lease while the managed software session is still intact;
+3. switch the in-process actuator boundary to `HANDS_OFF`, so every normal bot actuator write is blocked;
+4. retire the AUTO or Manual software session, timers and Delta/evidence runner **without calling a physical stop path**.
+
+If edge-lease disarm is not positively confirmed, the durable mode is rolled back to `PB_MANAGED` and the managed session remains active.
+
+For AUTO Mix, the durable automatic-Mix clock is terminalized with `RELEASED_TO_RD_HANDS_OFF` before the controller session is retired. This prevents an old automatic-HV authority record from being mistaken for continuing chemistry authority.
+
+Entering `HANDS_OFF` does not change current V/I/OVP/OCP/Output. It is an ownership transfer, not a shutdown command.
 
 ### Explicit Output OFF
 
@@ -94,6 +101,6 @@ If an already-running external Mix was not observed from its OFF->ON edge and th
 
 ## Implementation boundary
 
-`rd_control_mode.py` is installed after V2 safety/guardrail/UI composition so its actuator block is the outer bot-ownership boundary. It does not modify `bot_legacy.py` and does not weaken the safety contract of any `PB_MANAGED` session.
+`rd_control_mode.py` is installed after V2 safety/guardrail/UI composition so its actuator block is the outer bot-ownership boundary. `rd_hands_off_release.py` adds the explicit software-only release transaction for an already-running managed session. Neither modifies `bot_legacy.py`, and neither weakens the safety contract while authority remains `PB_MANAGED`.
 
 No physical RD6018/ESPHome validation is claimed by this document. Hardware validation remains separate from software/CI validation.

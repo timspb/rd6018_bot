@@ -22,6 +22,7 @@ from manual_context_v2 import (
 )
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
+from rd_hands_off_release import install_rd_hands_off_release
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -56,7 +57,11 @@ if _v2_ui_enabled:
 # RD6018 is a general-purpose PSU above the Pb controller. Install this ownership
 # boundary last so HANDS_OFF blocks every already-composed bot actuator path while
 # leaving raw telemetry available and preserving the explicit operator-only OFF action.
-install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
+_rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
+# A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
+# software session. That retirement is software-only: Output and V/I/OVP/OCP are left
+# exactly as they were while the edge lease is positively disarmed.
+install_rd_hands_off_release(_legacy, _rd_control_mode)
 
 _legacy_main = _legacy.main
 
