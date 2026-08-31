@@ -167,6 +167,9 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 ## D054 — generic EFB automatic/conditioning voltage ceiling is 16.5 V; 17.5 V is not an EFB entitlement
 **ACCEPTED / IMPLEMENTED.** Research found manufacturer/charger-backed EFB regeneration guidance at 16.5 V, but no generic EFB manufacturer-backed automatic/conditioning recipe at 17.2–17.5 V. Therefore EFB `normal/recovery/expert` chemistry envelope is capped at 16.5 V. Supplying `expert_high_voltage=True` does not enlarge the EFB envelope and does not set `expert_authorized`. The global 17.5 V outer limit remains available to first-class Manual/Custom operator authority under immutable safety. A future automatic EFB recipe above 16.5 V may exist only as an explicit model-specific manufacturer-backed profile with its own tested envelope; it must not be inferred from chemistry alone.
 
+## D055 — external battery-temperature integrity is source-aware and latched
+**ACCEPTED / IMPLEMENTED MECHANISM / CALIBRATION-GATED AUTHORITY.** `temp_ext` missing, non-finite, unavailable, stale or metadata-incoherent remains immediate fail-close through the existing runtime freshness boundary; no N-sample grace applies. A fresh value at the existing critical thermal limit remains immediate safety authority. Fresh-but-suspicious finite values are handled by a distinct-source-report consecutive-anomaly detector: repeated bot polls of one HA report never increment N, a clean new report resets the sequence, and an HV profile may be equal or stricter but never looser than baseline. Reaching a configured calibrated threshold requires verified Output OFF and durably latches the integrity fault; software session authority is retired only after OFF proof, and failed OFF retains `_off_unconfirmed` containment. Automatic restore is forbidden while latched. A later explicit authorization requires ordinary fresh/critical checks plus a clean multi-report recovery baseline before the latch can clear. The mechanism ships with no production `N`, step, slope, plausible-range or RD disconnect-sentinel constants; those remain disabled until physical RD6018 register 34/35 and HA-source characterization justifies them. Detailed contract: `EXTERNAL_TEMP_SENSOR_INTEGRITY.md`.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
@@ -183,6 +186,7 @@ Status: **ACCEPTED** = target behavior; **IMPLEMENTED** = present on this branch
 - `a8d7261...` + `225531e...` + `15d0e4d...`: explicit SG access, measurement correction metadata, prompt policy and tests.
 - `d17af0f...` + `1a3bf7d...` + `8a0ac7b...`: bank-fault labeled-case calibration harness and CLI.
 - `74e5ed9...` + `2218a06...`: generic EFB expert envelope >16.5V removed and regression-tested.
+- `658dcc4...` + `fb024bf...`: source-aware external-temperature anomaly detector, durable latch/restart containment and regression coverage; production thresholds remain physical-calibration gated.
 
 ## Maintenance rule
 Whenever behavior changes: update/add a numbered decision, update `CHARGE_STRATEGY.md` when production strategy changes, remove resolved items from `V2_OPEN_QUESTIONS.md`, add deterministic tests, and keep code/docs in the same change where practical.
