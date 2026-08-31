@@ -3,6 +3,7 @@ import json
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 
 from ha_history import ContinuousOnEvidence, MixHistoryEvidence
 from pb_domain import BatteryChemistry
@@ -28,9 +29,12 @@ class FakeManager:
         self.hands_off = True
         self.guard = FakeGuard(live)
         self.off_calls = 0
+        self.fail_off = False
 
     async def operator_output_off(self, entity_id=None):
         self.off_calls += 1
+        if self.fail_off:
+            raise RuntimeError("synthetic OFF confirmation failure")
         self.guard.live["switch"] = "off"
         return True
 
@@ -74,7 +78,12 @@ class AlwaysDeltaAnalyzer:
         )
 
 
-def live_state(*, source_ts="2026-08-31T05:00:00+00:00", set_i=1.0):
+def _iso(offset_s=0.0):
+    return datetime.fromtimestamp(time.time() + float(offset_s), tz=timezone.utc).isoformat()
+
+
+def live_state(*, source_ts=None, set_i=1.0):
+    timestamp = source_ts or _iso(-60.0)
     return {
         "switch": "on",
         "battery_voltage": 16.4,
@@ -87,11 +96,18 @@ def live_state(*, source_ts="2026-08-31T05:00:00+00:00", set_i=1.0):
         "ocp": 1.20,
         "regulation_code": 1,
         "_meta": {
-            "current": {"last_reported": source_ts},
-            "battery_voltage": {"last_reported": source_ts},
-            "temp_ext": {"last_reported": source_ts},
-            "regulation_code": {"last_reported": source_ts},
+            "current": {"last_reported": timestamp},
+            "battery_voltage": {"last_reported": timestamp},
+            "temp_ext": {"last_reported": timestamp},
+            "regulation_code": {"last_reported": timestamp},
         },
+    }
+
+
+def set_source_report(manager, timestamp):
+    manager.guard.live["_meta"] = {
+        key: {"last_reported": timestamp}
+        for key in ("current", "battery_voltage", "temp_ext", "regulation_code")
     }
 
 
@@ -152,7 +168,34 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(observer.active)
             self.assertEqual(manager.off_calls, 0)
 
-    async def test_history_is_context_only_and_fresh_delta_epoch_starts_empty(self):
+    async def test_history_and_pre_activation_live_report_cannot_seed_delta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = live_state(source_ts=_iso(-30.0))
+            manager = FakeManager(live)
+            app = FakeApp(manager)
+            observer = HandsOffMixObserver(
+                app,
+                manager,
+                state_file=f"{tmp}/observer.json",
+                poll_s=3600,
+            )
+            fake = AlwaysDeltaAnalyzer()
+            observer.analyzer = fake
+
+            await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
+            await observer.observe_once()
+
+            self.assertEqual(fake.reset_calls, [("Adopted Mix observer", 16.55)])
+            self.assertEqual(fake.observe_calls, [])
+            self.assertIsNone(observer.finish_hold_started_at_s)
+
+            set_source_report(manager, _iso(1.0))
+            await observer.observe_once()
+            self.assertEqual(len(fake.observe_calls), 1)
+            self.assertIsNotNone(observer.finish_hold_started_at_s)
+            await observer.cancel()
+
+    async def test_duplicate_ha_source_report_does_not_accumulate_delta(self):
         with tempfile.TemporaryDirectory() as tmp:
             live = live_state()
             manager = FakeManager(live)
@@ -165,27 +208,8 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             )
             fake = AlwaysDeltaAnalyzer()
             observer.analyzer = fake
-
             await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
-
-            self.assertEqual(fake.reset_calls, [("Adopted Mix observer", 16.55)])
-            self.assertIsNone(observer.finish_hold_started_at_s)
-            await observer.cancel()
-
-    async def test_duplicate_ha_source_report_does_not_accumulate_delta(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            live = live_state(source_ts="2026-08-31T05:00:00+00:00")
-            manager = FakeManager(live)
-            app = FakeApp(manager)
-            observer = HandsOffMixObserver(
-                app,
-                manager,
-                state_file=f"{tmp}/observer.json",
-                poll_s=3600,
-            )
-            fake = AlwaysDeltaAnalyzer()
-            observer.analyzer = fake
-            await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
+            set_source_report(manager, _iso(1.0))
 
             await observer.observe_once()
             await observer.observe_once()
@@ -193,9 +217,9 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(fake.observe_calls), 1)
             await observer.cancel()
 
-    async def test_external_setpoint_change_resets_delta_epoch_instead_of_accepting_old_evidence(self):
+    async def test_external_setpoint_change_requires_another_fresh_source_report(self):
         with tempfile.TemporaryDirectory() as tmp:
-            live = live_state(source_ts="2026-08-31T05:00:00+00:00")
+            live = live_state()
             manager = FakeManager(live)
             app = FakeApp(manager)
             observer = HandsOffMixObserver(
@@ -207,25 +231,28 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             fake = AlwaysDeltaAnalyzer()
             observer.analyzer = fake
             await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
+            set_source_report(manager, _iso(1.0))
             await observer.observe_once()
-            first_hold = observer.finish_hold_started_at_s
-            self.assertIsNotNone(first_hold)
+            self.assertIsNotNone(observer.finish_hold_started_at_s)
+            first_observations = len(fake.observe_calls)
 
             manager.guard.live["set_current"] = 0.8
-            manager.guard.live["_meta"] = {
-                key: {"last_reported": "2026-08-31T05:01:00+00:00"}
-                for key in ("current", "battery_voltage", "temp_ext", "regulation_code")
-            }
+            # This report already existed when the changed setpoint was detected, so
+            # it must only reset evidence, not seed the new epoch.
+            set_source_report(manager, _iso(0.0))
             await observer.observe_once()
+            self.assertIsNone(observer.finish_hold_started_at_s)
+            self.assertEqual(len(fake.observe_calls), first_observations)
 
-            self.assertGreaterEqual(len(fake.reset_calls), 2)
+            set_source_report(manager, _iso(2.0))
+            await observer.observe_once()
+            self.assertEqual(len(fake.observe_calls), first_observations + 1)
             self.assertIsNotNone(observer.finish_hold_started_at_s)
-            self.assertGreaterEqual(observer.finish_hold_started_at_s, first_hold)
             await observer.cancel()
 
     async def test_delta_then_off_has_only_verified_off_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
-            live = live_state(source_ts="2026-08-31T05:00:00+00:00")
+            live = live_state()
             manager = FakeManager(live)
             app = FakeApp(manager)
             observer = HandsOffMixObserver(
@@ -236,16 +263,14 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             )
             observer.analyzer = AlwaysDeltaAnalyzer()
             await observer.start(preview_from_live(live), mode=LiveMixObserverMode.DELTA_THEN_OFF)
+            set_source_report(manager, _iso(1.0))
 
             await observer.observe_once()
             self.assertIsNotNone(observer.finish_hold_started_at_s)
             self.assertEqual(manager.off_calls, 0)
 
             observer.finish_hold_started_at_s = time.time() - 2 * 3600.0 - 1.0
-            manager.guard.live["_meta"] = {
-                key: {"last_reported": "2026-08-31T05:01:00+00:00"}
-                for key in ("current", "battery_voltage", "temp_ext", "regulation_code")
-            }
+            set_source_report(manager, _iso(2.0))
             await observer.observe_once()
 
             self.assertEqual(manager.off_calls, 1)
@@ -253,6 +278,45 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(manager.guard.live["switch"], "off")
             self.assertEqual(manager.guard.live["set_voltage"], 16.55)
             self.assertEqual(manager.guard.live["set_current"], 1.0)
+
+    async def test_unconfirmed_final_off_persists_and_retries_after_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_file = f"{tmp}/observer.json"
+            live = live_state()
+            manager = FakeManager(live)
+            app = FakeApp(manager)
+            observer = HandsOffMixObserver(app, manager, state_file=state_file, poll_s=3600)
+            observer.analyzer = AlwaysDeltaAnalyzer()
+            await observer.start(preview_from_live(live), mode=LiveMixObserverMode.DELTA_THEN_OFF)
+            set_source_report(manager, _iso(1.0))
+            await observer.observe_once()
+            observer.finish_hold_started_at_s = time.time() - 2 * 3600.0 - 1.0
+            manager.fail_off = True
+            set_source_report(manager, _iso(2.0))
+
+            await observer.observe_once()
+
+            self.assertEqual(observer.state, LiveMixObserverState.OFF_PENDING)
+            self.assertEqual(manager.off_calls, 1)
+            with open(state_file, "r", encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["state"], "off_pending")
+
+            task = observer._task
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            restored = HandsOffMixObserver(app, manager, state_file=state_file, poll_s=3600)
+            self.assertTrue(restored.off_pending)
+            self.assertTrue(restored.actuator_authority)
+
+            manager.fail_off = False
+            self.assertTrue(await restored.recover_startup())
+            self.assertEqual(restored.state, LiveMixObserverState.COMPLETED)
+            self.assertEqual(manager.off_calls, 2)
+            self.assertEqual(manager.guard.live["switch"], "off")
 
     async def test_process_restart_never_resumes_future_off_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
