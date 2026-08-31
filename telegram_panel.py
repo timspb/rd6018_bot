@@ -24,10 +24,13 @@ _TERMINAL_CALLBACKS = {
     "custom_cancel",
     "operator_done",
     "operator_adopted_stop_execute",
+    "operator_managed_mix_stop_execute",
     "rd_live_mix_start_observe",
     "rd_live_mix_start_delta_off",
     "rd_live_mix_cancel",
     "rd_live_mix_stop_observer",
+    "rd_managed_mix_execute",
+    "rd_managed_mix_cancel",
     "rd_hands_off_release_execute",
     "rd_hands_off_release_cancel",
     # Normal V2 program workflows end here after an explicit start action. A failed
@@ -51,11 +54,14 @@ _WORKSPACE_CALLBACKS = {
     "menu_off",
     "rd_live_mix",
     "rd_live_mix_status",
+    "rd_managed_mix",
+    "rd_managed_mix_status",
     "rd_hands_off_release_confirm",
     "operator_details",
     "operator_graph",
     "operator_more",
     "operator_adopted_stop",
+    "operator_managed_mix_stop",
 }
 _WORKSPACE_CALLBACK_PREFIXES = (
     "v2_",
@@ -63,6 +69,7 @@ _WORKSPACE_CALLBACK_PREFIXES = (
     "profile_",
     "custom_",
     "rd_live_mix_",
+    "rd_managed_mix_",
     "rd_hands_off_release_",
     "operator_graph_",
 )
