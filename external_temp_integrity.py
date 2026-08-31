@@ -13,7 +13,7 @@ from typing import Any, Mapping, Optional
 class ExternalTempIntegrityPolicy:
     """Calibrated plausibility limits for fresh external-temperature reports.
 
-    There are deliberately no production numeric defaults.  The detector is enabled
+    There are deliberately no production numeric defaults. The detector is enabled
     only when an explicit consecutive-sample limit and at least one calibrated
     plausibility limit are supplied by the production composition/bench profile.
     """
@@ -28,14 +28,24 @@ class ExternalTempIntegrityPolicy:
     def __post_init__(self) -> None:
         normal = self.consecutive_samples
         hv = self.hv_consecutive_samples
-        if normal is not None and int(normal) < 2:
-            raise ValueError("external-temperature consecutive_samples must be >= 2")
-        if hv is not None and int(hv) < 2:
-            raise ValueError("external-temperature hv_consecutive_samples must be >= 2")
+        for name, value in (("consecutive_samples", normal), ("hv_consecutive_samples", hv)):
+            if value is None:
+                continue
+            if isinstance(value, bool) or int(value) != float(value) or int(value) < 2:
+                raise ValueError(f"external-temperature {name} must be an integer >= 2")
         if normal is None and hv is not None:
             raise ValueError("HV anomaly limit requires a baseline consecutive_samples limit")
         if normal is not None and hv is not None and int(hv) > int(normal):
             raise ValueError("HV external-temperature integrity policy may not be looser")
+
+        for name, value in (
+            ("min_plausible_c", self.min_plausible_c),
+            ("max_plausible_c", self.max_plausible_c),
+            ("max_step_c", self.max_step_c),
+            ("max_slope_c_per_min", self.max_slope_c_per_min),
+        ):
+            if value is not None and not math.isfinite(float(value)):
+                raise ValueError(f"{name} must be finite")
         if (
             self.min_plausible_c is not None
             and self.max_plausible_c is not None
@@ -46,8 +56,8 @@ class ExternalTempIntegrityPolicy:
             ("max_step_c", self.max_step_c),
             ("max_slope_c_per_min", self.max_slope_c_per_min),
         ):
-            if value is not None and (not math.isfinite(float(value)) or float(value) <= 0):
-                raise ValueError(f"{name} must be finite and > 0")
+            if value is not None and float(value) <= 0:
+                raise ValueError(f"{name} must be > 0")
 
     @property
     def enabled(self) -> bool:
@@ -111,7 +121,7 @@ class ExternalTempIntegrityMonitor:
     """Stateful N-consecutive detector keyed by HA source-report identity.
 
     Missing/stale/non-finite handling intentionally does not live here: the V2 runtime
-    freshness/critical-telemetry guard owns those immediate fail-close classes.  This
+    freshness/critical-telemetry guard owns those immediate fail-close classes. This
     monitor sees only already-valid fresh snapshots and handles the remaining class of
     fresh-but-suspicious values.
     """
@@ -130,7 +140,9 @@ class ExternalTempIntegrityMonitor:
         self._latched = False
         self._latch_reason = ""
         self._latch_source_token: Optional[str] = None
+        self._latch_persistence_ok = True
         self._rearm_baseline: Optional[ExternalTempSample] = None
+        self._rearm_ready = False
         self._load_latch()
 
     @property
@@ -146,8 +158,16 @@ class ExternalTempIntegrityMonitor:
         return self._latch_reason
 
     @property
+    def latch_persistence_ok(self) -> bool:
+        return self._latch_persistence_ok
+
+    @property
     def anomaly_count(self) -> int:
         return self._anomaly_count
+
+    @property
+    def rearm_ready(self) -> bool:
+        return self._latched and self._rearm_ready
 
     @staticmethod
     def _sample(live: Mapping[str, Any]) -> Optional[ExternalTempSample]:
@@ -156,12 +176,16 @@ class ExternalTempIntegrityMonitor:
         entry = meta.get("temp_ext") if isinstance(meta, Mapping) else None
         if value is None or not isinstance(entry, Mapping):
             return None
-        token = entry.get("last_reported")
-        if not isinstance(token, str) or not token:
-            token = entry.get("last_updated")
-        if not isinstance(token, str) or not token:
-            return None
-        return ExternalTempSample(value, token, _parse_epoch(token))
+
+        reported = entry.get("last_reported")
+        updated = entry.get("last_updated")
+        reported_epoch = _parse_epoch(reported)
+        updated_epoch = _parse_epoch(updated)
+        if reported_epoch is not None and isinstance(reported, str):
+            return ExternalTempSample(value, reported, reported_epoch)
+        if updated_epoch is not None and isinstance(updated, str):
+            return ExternalTempSample(value, updated, updated_epoch)
+        return None
 
     def _suspicious_detail(
         self,
@@ -176,19 +200,19 @@ class ExternalTempIntegrityMonitor:
             return f"temperature {value:.2f}C above calibrated plausible maximum"
         if previous is None:
             return ""
+
         delta = abs(value - previous.value_c)
         if p.max_step_c is not None and delta > float(p.max_step_c):
             return f"temperature step {delta:.2f}C exceeds calibrated limit"
-        if (
-            p.max_slope_c_per_min is not None
-            and previous.source_epoch_s is not None
-            and current.source_epoch_s is not None
-        ):
+        if p.max_slope_c_per_min is not None:
+            if previous.source_epoch_s is None or current.source_epoch_s is None:
+                return "temperature slope cannot be proved without valid source time"
             dt_s = current.source_epoch_s - previous.source_epoch_s
-            if dt_s > 0:
-                slope = delta * 60.0 / dt_s
-                if slope > float(p.max_slope_c_per_min):
-                    return f"temperature slope {slope:.2f}C/min exceeds calibrated limit"
+            if dt_s <= 0:
+                return "external-temperature source time did not advance monotonically"
+            slope = delta * 60.0 / dt_s
+            if slope > float(p.max_slope_c_per_min):
+                return f"temperature slope {slope:.2f}C/min exceeds calibrated limit"
         return ""
 
     def observe(self, live: Mapping[str, Any], *, hv: bool = False) -> ExternalTempIntegrityDecision:
@@ -226,6 +250,11 @@ class ExternalTempIntegrityMonitor:
         self._latch_reason = str(reason)
         self._latch_source_token = str(source_token)
         self._rearm_baseline = None
+        self._rearm_ready = False
+        self._latch_persistence_ok = True
+        if not self.fault_file:
+            return
+
         document = {
             "latched": True,
             "reason": self._latch_reason,
@@ -236,8 +265,11 @@ class ExternalTempIntegrityMonitor:
         try:
             with open(tmp, "w", encoding="utf-8") as handle:
                 json.dump(document, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(tmp, self.fault_file)
         except OSError:
+            self._latch_persistence_ok = False
             try:
                 if os.path.exists(tmp):
                     os.remove(tmp)
@@ -251,50 +283,85 @@ class ExternalTempIntegrityMonitor:
             with open(self.fault_file, "r", encoding="utf-8") as handle:
                 document = json.load(handle)
         except (OSError, json.JSONDecodeError, TypeError):
+            self._latched = True
+            self._latch_reason = "external temperature integrity latch storage is unreadable"
+            self._latch_persistence_ok = False
             return
-        if not bool(document.get("latched")):
+        if not isinstance(document, Mapping) or document.get("latched") is not True:
+            self._latched = True
+            self._latch_reason = "external temperature integrity latch storage is incoherent"
+            self._latch_persistence_ok = False
             return
         self._latched = True
         self._latch_reason = str(document.get("reason") or "external temperature integrity fault")
         token = document.get("source_token")
         self._latch_source_token = str(token) if token else None
 
-    def can_rearm(self, live: Mapping[str, Any], *, hv: bool = False) -> tuple[bool, str]:
+    def reset_recovery_evidence(self) -> None:
+        self._rearm_baseline = None
+        self._rearm_ready = False
+
+    def observe_recovery(self, live: Mapping[str, Any], *, hv: bool = False) -> tuple[bool, str]:
+        """Collect clean post-trip source reports without clearing actuator authority.
+
+        This may run while Output is already OFF. It only establishes evidence that an
+        explicit later authorization can use; it never clears the durable latch itself.
+        """
         if not self._latched:
             return True, ""
         if not self.enabled:
+            self.reset_recovery_evidence()
             return False, "calibrated external-temperature integrity policy is unavailable"
+        if self._rearm_ready:
+            return True, ""
+
         sample = self._sample(live)
         if sample is None:
+            self.reset_recovery_evidence()
             return False, "fresh external-temperature source identity is unavailable"
         if sample.source_token == self._latch_source_token:
             return False, "external-temperature source has not produced a new report since the trip"
+        if self._rearm_baseline is not None and sample.source_token == self._rearm_baseline.source_token:
+            return False, "waiting for another distinct external-temperature source report"
+
         if self._rearm_baseline is None:
             detail = self._suspicious_detail(None, sample)
-            self._rearm_baseline = sample
             if detail:
+                self.reset_recovery_evidence()
                 return False, detail
+            self._rearm_baseline = sample
             return False, "one clean report observed; another distinct clean report is required"
-        if sample.source_token == self._rearm_baseline.source_token:
-            return False, "waiting for another distinct external-temperature source report"
+
         detail = self._suspicious_detail(self._rearm_baseline, sample)
-        self._rearm_baseline = sample
         if detail:
+            self.reset_recovery_evidence()
             return False, detail
+        self._rearm_baseline = sample
+        self._rearm_ready = True
         return True, ""
 
-    def clear_latch(self) -> None:
+    def can_rearm(self, live: Mapping[str, Any], *, hv: bool = False) -> tuple[bool, str]:
+        if not self._latched:
+            return True, ""
+        if self._rearm_ready:
+            return True, ""
+        return self.observe_recovery(live, hv=hv)
+
+    def clear_latch(self) -> bool:
+        if self.fault_file and os.path.exists(self.fault_file):
+            try:
+                os.remove(self.fault_file)
+            except OSError:
+                return False
         self._latched = False
         self._latch_reason = ""
         self._latch_source_token = None
+        self._latch_persistence_ok = True
         self._anomaly_count = 0
         self._last_sample = self._rearm_baseline
         self._last_source_token = (
             self._rearm_baseline.source_token if self._rearm_baseline is not None else None
         )
         self._rearm_baseline = None
-        try:
-            if self.fault_file and os.path.exists(self.fault_file):
-                os.remove(self.fault_file)
-        except OSError:
-            pass
+        self._rearm_ready = False
+        return True
