@@ -7,6 +7,9 @@ import operator_hmi as hmi
 
 
 _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
+_BASE_BUILD_OPERATOR_HMI_STATE = hmi.build_operator_hmi_state
+_BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
+_BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
 
 
 def _binary(value: Any) -> Optional[bool]:
@@ -36,7 +39,7 @@ def build_truthful_hmi_state(
     must do the same semantically: an unknown Output is not OFF, and unavailable
     protection status is not "normal".
     """
-    builder = base_builder or hmi.build_operator_hmi_state
+    builder = base_builder or _BASE_BUILD_OPERATOR_HMI_STATE
     state = builder(app, live)
     output_state = _binary(live.get("switch"))
 
@@ -69,7 +72,7 @@ def render_truthful_panel(
     *,
     base_renderer=None,
 ) -> str:
-    renderer = base_renderer or hmi.render_operator_panel
+    renderer = base_renderer or _BASE_RENDER_OPERATOR_PANEL
     text = renderer(state)
     if state.attention == "output_unknown":
         text = text.replace("Output <b>OFF</b>", "Output <b>UNKNOWN</b>", 1)
@@ -83,7 +86,7 @@ def render_truthful_details(
     *,
     base_renderer=None,
 ) -> str:
-    renderer = base_renderer or hmi.render_operator_details
+    renderer = base_renderer or _BASE_RENDER_OPERATOR_DETAILS
     text = renderer(app, state, live)
     if state.attention == "output_unknown":
         text = text.replace("Output: OFF", "Output: UNKNOWN", 1)
