@@ -6,9 +6,9 @@
 # verified-OFF.
 #
 # IMPORTANT: D056 requires a 15-minute local lease. The operator-supplied deployed
-# full firmware still has a 30-minute substitution. This command deliberately refuses
-# to arm unless rd6018_safety_lease_ttl_ms is exactly 900000, so adding this package
-# alone cannot silently weaken the accepted control-loss budget.
+# full firmware still has a 30-minute substitution. This package publishes its actual
+# configured TTL and independently refuses live adoption unless that TTL is 900000 ms,
+# so Python can reject an incompatible edge before pressing the ownership button.
 
 globals:
   - id: rd6018_safety_last_protection_rx_ms
@@ -22,6 +22,19 @@ globals:
     initial_value: "65535"
 
 sensor:
+  # Explicitly publish the edge control-loss budget. A zero remaining lease while
+  # HANDS_OFF cannot distinguish the old 30-minute firmware from the accepted 15-minute
+  # contract, so D061 preflight must be able to prove this value before actuation.
+  - platform: template
+    id: rd6018_safety_lease_ttl_sensor
+    name: "Safety Lease TTL"
+    entity_category: diagnostic
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      return ${rd6018_safety_lease_ttl_ms}UL / 1000.0f;
+
   # D061 may acquire ownership while Output is already ON, so the edge command must
   # independently prove the full register-16 status code. Legacy OVP/OCP bit sensors
   # cannot distinguish every code safely (notably OPP=3).
