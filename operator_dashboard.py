@@ -4,7 +4,13 @@ from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
-from rd6018_telemetry import ProtectionStatus, resolve_protection
+from rd6018_telemetry import (
+    ProtectionStatus,
+    RegulationMode,
+    resolve_protection,
+    resolve_regulation,
+    telemetry_freshness,
+)
 
 
 _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
@@ -28,6 +34,48 @@ def _binary(value: Any) -> Optional[bool]:
     return None
 
 
+def _fresh(live: Mapping[str, Any], *keys: str) -> bool:
+    return bool(telemetry_freshness(live, keys).valid)
+
+
+def _raw_available(value: Any) -> bool:
+    return str(value if value is not None else "").strip().lower() not in _UNKNOWN
+
+
+def _protection_fresh(live: Mapping[str, Any]) -> bool:
+    if _raw_available(live.get("protection_code")):
+        return _fresh(live, "protection_code")
+    return _fresh(live, "ovp_triggered", "ocp_triggered")
+
+
+def _regulation_fresh(live: Mapping[str, Any]) -> bool:
+    if _raw_available(live.get("regulation_code")):
+        return _fresh(live, "regulation_code")
+    return _fresh(live, "is_cv", "is_cc")
+
+
+def _contain_idle_for_safety(
+    state: hmi.OperatorHmiState,
+    *,
+    title: str,
+    progress: str,
+    safety: str,
+    attention: str,
+) -> hmi.OperatorHmiState:
+    """Idle may expose Start only when safety state is positively usable."""
+    if state.process_state is not hmi.HmiProcessState.IDLE:
+        return replace(state, safety=safety, attention=attention)
+    return replace(
+        state,
+        process_state=hmi.HmiProcessState.CONTAINMENT,
+        authority=hmi.HmiAuthority.CONTAINMENT,
+        title=title,
+        progress=progress,
+        safety=safety,
+        attention=attention,
+    )
+
+
 def build_truthful_hmi_state(
     app: Any,
     live: Mapping[str, Any],
@@ -36,41 +84,67 @@ def build_truthful_hmi_state(
 ) -> hmi.OperatorHmiState:
     """Fail truthful at the presentation boundary without inventing actuator state.
 
-    Runtime safety already fails closed on missing/unknown critical telemetry. The HMI
-    must do the same semantically: an unknown Output is not OFF, and unavailable or
-    tripped raw protection state is never presented as "normal".
+    Runtime safety already fails closed on missing/stale/unknown critical telemetry.
+    The HMI mirrors that truth: stale/unknown Output is not OFF, idle Start is not
+    offered without a usable protection state, and raw regulation/protection codes
+    take precedence over legacy compatibility sensors.
     """
     builder = base_builder or _BASE_BUILD_OPERATOR_HMI_STATE
     state = builder(app, live)
-    output_state = _binary(live.get("switch"))
 
-    if output_state is None:
+    output_state = _binary(live.get("switch"))
+    output_fresh = _fresh(live, "switch")
+    if output_state is None or not output_fresh:
+        reason = (
+            "Физическое состояние Output неизвестно"
+            if output_state is None
+            else "Телеметрия Output устарела"
+        )
         return replace(
             state,
             process_state=hmi.HmiProcessState.CONTAINMENT,
             authority=hmi.HmiAuthority.CONTAINMENT,
             title="RD6018 · OUTPUT НЕ ПОДТВЕРЖДЁН",
             output_on=False,
-            progress="Физическое состояние Output неизвестно · новые команды запуска недоступны",
+            regulator="—",
+            progress=f"{reason} · новые команды запуска недоступны",
             safety="⚠️ Требуется восстановить достоверную телеметрию RD6018",
             attention="output_unknown",
         )
 
+    # Display the same canonical regulation decoder used by the safety layer. An
+    # unknown or stale mode is shown as unknown rather than trusting legacy flags.
+    regulation = resolve_regulation(live)
+    if _regulation_fresh(live):
+        regulator = {
+            RegulationMode.CV: "CV",
+            RegulationMode.CC: "CC",
+        }.get(regulation, "—")
+    else:
+        regulator = "—"
+    if regulator != state.regulator:
+        state = replace(state, regulator=regulator)
+
     protection = resolve_protection(live)
-    if protection.status is ProtectionStatus.UNKNOWN:
-        return replace(
+    if not _protection_fresh(live) or protection.status is ProtectionStatus.UNKNOWN:
+        return _contain_idle_for_safety(
             state,
+            title="RD6018 · ЗАЩИТА НЕ ПОДТВЕРЖДЕНА",
+            progress="Новая программа недоступна до достоверного статуса защит RD6018",
             safety="⚠️ Статус защит RD6018 не подтверждён",
             attention="alarm" if output_state else "warning",
         )
+
     if protection.tripped:
         label = {
             ProtectionStatus.OVP: "OVP",
             ProtectionStatus.OCP: "OCP",
             ProtectionStatus.OPP: "OPP",
         }.get(protection.status, protection.status.value.upper())
-        return replace(
+        return _contain_idle_for_safety(
             state,
+            title=f"RD6018 · СРАБОТАЛА ЗАЩИТА {label}",
+            progress="Новая программа недоступна до проверки и сброса защитного состояния",
             safety=f"⚠️ Защита: {label}",
             attention="alarm",
         )
