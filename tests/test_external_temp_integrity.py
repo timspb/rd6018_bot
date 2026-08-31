@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
-from runtime_safety import RuntimeSafetyError
+from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
 from runtime_safety_v2 import V2RuntimeSafetyGuard
 
 
@@ -85,6 +85,10 @@ class ExternalTempIntegrityMonitorTests(unittest.TestCase):
                 max_step_c=2.0,
             )
 
+    def test_fractional_consecutive_limit_is_rejected(self):
+        with self.assertRaises(ValueError):
+            ExternalTempIntegrityPolicy(consecutive_samples=2.5, max_step_c=2.0)
+
     def test_no_numeric_defaults_means_detector_is_calibration_gated(self):
         self.assertFalse(ExternalTempIntegrityPolicy().enabled)
         monitor = ExternalTempIntegrityMonitor(ExternalTempIntegrityPolicy(), fault_file="")
@@ -104,9 +108,34 @@ class ExternalTempIntegrityMonitorTests(unittest.TestCase):
             self.assertFalse(allowed)
             allowed, _ = monitor.can_rearm(_live(25.5, when=t0 + timedelta(seconds=20)))
             self.assertTrue(allowed)
-            monitor.clear_latch()
+            self.assertTrue(monitor.rearm_ready)
+            self.assertTrue(monitor.clear_latch())
             self.assertFalse(monitor.latched)
             self.assertFalse(os.path.exists(path))
+
+    def test_invalid_last_reported_uses_valid_last_updated_identity(self):
+        policy = ExternalTempIntegrityPolicy(consecutive_samples=2, max_step_c=2.0)
+        monitor = ExternalTempIntegrityMonitor(policy, fault_file="")
+        t0 = datetime.now(timezone.utc)
+        first = _live(25.0, when=t0)
+        first["_meta"]["temp_ext"]["last_reported"] = "broken"
+        monitor.observe(first)
+        second = _live(30.0, when=t0 + timedelta(seconds=5))
+        second["_meta"]["temp_ext"]["last_reported"] = "broken"
+        decision = monitor.observe(second)
+        self.assertTrue(decision.new_source_sample)
+        self.assertTrue(decision.suspicious)
+
+    def test_corrupt_persisted_latch_is_fail_closed(self):
+        policy = ExternalTempIntegrityPolicy(consecutive_samples=2, max_step_c=2.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "fault.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("{not-json")
+            monitor = ExternalTempIntegrityMonitor(policy, fault_file=path)
+            self.assertTrue(monitor.latched)
+            self.assertFalse(monitor.latch_persistence_ok)
+            self.assertIn("unreadable", monitor.latch_reason)
 
 
 class DummyHass:
@@ -114,6 +143,7 @@ class DummyHass:
         self.live = dict(live)
         self.base_url = ""
         self.turn_off_calls = 0
+        self.off_confirms = True
 
     @staticmethod
     def _entity_metadata(entity_id, data, status):
@@ -128,6 +158,8 @@ class DummyHass:
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
+        if not self.off_confirms:
+            return False
         self.live["switch"] = "off"
         return True
 
@@ -170,26 +202,32 @@ class DummyController:
 
 
 class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _guard(tmp, *, controller=None, policy=None, when=None):
+        controller = controller or DummyController()
+        when = when or datetime.now(timezone.utc)
+        hass = DummyHass(_live(25.0, when=when))
+        app = SimpleNamespace(
+            hass=hass,
+            charge_controller=controller,
+            manual_session_manager=None,
+            external_temp_integrity_policy=policy or ExternalTempIntegrityPolicy(
+                consecutive_samples=2,
+                max_step_c=5.0,
+            ),
+            external_temp_integrity_fault_file=os.path.join(tmp, "fault.json"),
+            _charge_notify=lambda *args, **kwargs: None,
+        )
+        guard = V2RuntimeSafetyGuard(app)
+        guard.edge_lease_enforced = False
+        guard.VERIFY_ATTEMPTS = 1
+        guard.VERIFY_DELAY_S = 0.0
+        return guard, controller, hass
+
     async def test_trip_forces_verified_off_and_retires_auto_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             t0 = datetime.now(timezone.utc)
-            controller = DummyController()
-            hass = DummyHass(_live(25.0, when=t0))
-            app = SimpleNamespace(
-                hass=hass,
-                charge_controller=controller,
-                manual_session_manager=None,
-                external_temp_integrity_policy=ExternalTempIntegrityPolicy(
-                    consecutive_samples=2,
-                    max_step_c=5.0,
-                ),
-                external_temp_integrity_fault_file=os.path.join(tmp, "fault.json"),
-                _charge_notify=lambda *args, **kwargs: None,
-            )
-            guard = V2RuntimeSafetyGuard(app)
-            guard.edge_lease_enforced = False
-            guard.VERIFY_ATTEMPTS = 1
-            guard.VERIFY_DELAY_S = 0.0
+            guard, controller, hass = self._guard(tmp, when=t0)
 
             await guard.get_all_live()
             hass.live = _live(31.0, when=t0 + timedelta(seconds=5))
@@ -202,6 +240,25 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(hass.turn_off_calls, 1)
             self.assertEqual(controller.stop_calls, [True])
             self.assertFalse(controller.is_active)
+            self.assertTrue(guard.external_temp_integrity.latched)
+
+    async def test_trip_with_unconfirmed_off_keeps_controller_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t0 = datetime.now(timezone.utc)
+            guard, controller, hass = self._guard(tmp, when=t0)
+            await guard.get_all_live()
+            hass.live = _live(31.0, when=t0 + timedelta(seconds=5))
+            await guard.get_all_live()
+            hass.live = _live(37.0, when=t0 + timedelta(seconds=10))
+            hass.off_confirms = False
+
+            with self.assertRaises(OutputOffNotConfirmed):
+                await guard.get_all_live()
+
+            self.assertTrue(controller.is_active)
+            self.assertEqual(controller.stop_calls, [])
+            self.assertTrue(guard._off_unconfirmed)
+            self.assertEqual(hass.live["switch"], "on")
             self.assertTrue(guard.external_temp_integrity.latched)
 
     async def test_persisted_latch_forbids_auto_restore(self):
@@ -231,6 +288,35 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 await guard.turn_on()
             self.assertEqual(controller.stop_calls, [True])
             self.assertFalse(controller.is_active)
+
+    async def test_clean_recovery_reports_accumulate_while_off_but_do_not_clear_latch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t0 = datetime.now(timezone.utc)
+            guard, controller, hass = self._guard(tmp, when=t0)
+            await guard.get_all_live()
+            hass.live = _live(31.0, when=t0 + timedelta(seconds=5))
+            await guard.get_all_live()
+            hass.live = _live(37.0, when=t0 + timedelta(seconds=10))
+            with self.assertRaises(RuntimeSafetyError):
+                await guard.get_all_live()
+
+            self.assertFalse(controller.is_active)
+            hass.live = _live(25.0, when=t0 + timedelta(seconds=15), switch="off")
+            await guard.get_all_live()
+            self.assertFalse(guard.external_temp_integrity.rearm_ready)
+            self.assertTrue(guard.external_temp_integrity.latched)
+
+            hass.live = _live(25.5, when=t0 + timedelta(seconds=20), switch="off")
+            await guard.get_all_live()
+            self.assertTrue(guard.external_temp_integrity.rearm_ready)
+            self.assertTrue(guard.external_temp_integrity.latched)
+
+            controller.is_active = True
+            controller._session_start_reason = "User Command"
+            enabled = await guard.turn_on()
+            self.assertTrue(enabled)
+            self.assertFalse(guard.external_temp_integrity.latched)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "fault.json")))
 
 
 if __name__ == "__main__":
