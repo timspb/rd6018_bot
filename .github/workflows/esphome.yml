@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: pip
       - name: Install ESPHome 2026.8.2
         run: |
@@ -33,10 +33,16 @@ jobs:
         run: esphome config esphome/rd6018_controller_v2.yaml
       - name: Compile firmware
         run: esphome compile esphome/rd6018_controller_v2.yaml
+      - name: Stage OTA firmware
+        run: |
+          firmware="$(find esphome/.esphome -type f -path '*/.pioenvs/rd6018-controller/firmware.bin' -print -quit)"
+          test -n "$firmware"
+          cp "$firmware" rd6018-controller-v2.bin
+          test -s rd6018-controller-v2.bin
       - name: Upload OTA firmware
         uses: actions/upload-artifact@v4
         with:
           name: rd6018-controller-v2-${{ github.sha }}
-          path: esphome/.esphome/build/rd6018-controller/.pioenvs/rd6018-controller/firmware.bin
+          path: rd6018-controller-v2.bin
           if-no-files-found: error
           retention-days: 14
