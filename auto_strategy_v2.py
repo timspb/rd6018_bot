@@ -63,10 +63,14 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         manual_off_active: bool,
         is_cc: Optional[bool],
     ) -> Dict[str, Any]:
-        if not (
-            self._is_authoritative_stage(stage_before)
-            and stage_before == self.STAGE_MAIN
-        ):
+        strategy_clock_owned = self._is_authoritative_stage(stage_before) and (
+            stage_before == self.STAGE_MAIN
+            or (
+                stage_before == self.STAGE_MIX
+                and self.finish_timer_start is None
+            )
+        )
+        if not strategy_clock_owned:
             return await super()._run_legacy_scaffold_tick(
                 stage_before=stage_before,
                 voltage=voltage,
@@ -79,9 +83,13 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
                 is_cc=is_cc,
             )
 
-        # Hide only Main elapsed time from the legacy scaffold. All actual safety
-        # checks still execute there. The real stage clock is restored before V2
-        # authority evaluates the explicit strategy fallback below.
+        # Main and pre-finish-hold Mix elapsed time are V2 strategy authority. Hide
+        # only that raw wall-stage age from the rollback scaffold so its historical
+        # 72 h / 20 h / 10 h fallbacks cannot transition before V2 evaluates the
+        # accepted strategy. All legacy telemetry/thermal/delta mechanics still run.
+        # Once a Mix finish hold exists, leave its timer visible: both layers accept
+        # that sticky 2 h completion path and the legacy profile timeout no longer
+        # participates in that branch.
         real_stage_start = self.stage_start_time
         self.stage_start_time = time.time()
         try:
