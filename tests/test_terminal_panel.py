@@ -106,7 +106,11 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "v2_batteries",
             "v2_profile_caca",
             "v2_bat_intent_recovery",
-            "v2_battery_start",
+            "v2_mix",
+            "v2_mix_bat_0",
+            "v2_manual_choose",
+            "v2_manual_interrupted",
+            "v2_sg_menu",
             "logs",
             "info_full",
             "entities_status",
@@ -131,12 +135,15 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "refresh",
             "dash_back",
             "operator_done",
+            "v2_battery_start",
+            "v2_quick_start",
+            "v2_mix_start",
             "rd_live_mix_start_delta_off",
         ):
             with self.subTest(callback=callback):
                 self.assertFalse(_is_workspace_callback(callback))
 
-    def test_live_mix_completion_and_cancel_are_terminal(self):
+    def test_workflow_completion_and_cancel_are_terminal(self):
         for callback in (
             "rd_live_mix_start_observe",
             "rd_live_mix_start_delta_off",
@@ -146,6 +153,11 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "operator_adopted_stop_execute",
             "rd_hands_off_release_execute",
             "rd_hands_off_release_cancel",
+            "v2_quick_start",
+            "v2_battery_start",
+            "v2_mix_start",
+            "v2_manual_reauthorize",
+            "v2_manual_discard",
         ):
             with self.subTest(callback=callback):
                 self.assertIn(callback, _TERMINAL_CALLBACKS)
