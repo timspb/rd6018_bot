@@ -120,12 +120,18 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "rd_live_mix",
             "rd_live_mix_bat_0",
             "rd_live_mix_status",
+            "rd_managed_mix",
+            "rd_managed_mix_bat_0",
+            "rd_managed_mix_age_1",
+            "rd_managed_mix_confirm",
+            "rd_managed_mix_status",
             "rd_hands_off_release_confirm",
             "operator_details",
             "operator_graph",
             "operator_graph_2h",
             "operator_more",
             "operator_adopted_stop",
+            "operator_managed_mix_stop",
         ):
             with self.subTest(callback=callback):
                 self.assertTrue(_is_workspace_callback(callback))
@@ -139,6 +145,9 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "v2_quick_start",
             "v2_mix_start",
             "rd_live_mix_start_delta_off",
+            "rd_managed_mix_execute",
+            "rd_managed_mix_cancel",
+            "operator_managed_mix_stop_execute",
         ):
             with self.subTest(callback=callback):
                 self.assertFalse(_is_workspace_callback(callback))
@@ -149,8 +158,11 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "rd_live_mix_start_delta_off",
             "rd_live_mix_cancel",
             "rd_live_mix_stop_observer",
+            "rd_managed_mix_execute",
+            "rd_managed_mix_cancel",
             "operator_done",
             "operator_adopted_stop_execute",
+            "operator_managed_mix_stop_execute",
             "rd_hands_off_release_execute",
             "rd_hands_off_release_cancel",
             "v2_quick_start",
