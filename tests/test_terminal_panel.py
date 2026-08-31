@@ -3,6 +3,7 @@ import unittest
 from telegram_panel import (
     PanelLastMiddleware,
     TerminalPanelManager,
+    _TERMINAL_CALLBACKS,
     _is_workspace_callback,
     install_panel_last,
 )
@@ -99,7 +100,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.bot.deleted, [])
         self.assertEqual(manager.panel_id(10), 101)
 
-    def test_program_and_nested_menu_callbacks_are_workspace(self):
+    def test_program_live_mix_and_operator_submenus_are_workspace(self):
         for callback in (
             "charge_modes",
             "v2_batteries",
@@ -112,13 +113,51 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "menu_off",
             "off_2h",
             "profile_custom",
+            "rd_live_mix",
+            "rd_live_mix_bat_0",
+            "rd_live_mix_status",
+            "rd_hands_off_release_confirm",
+            "operator_details",
+            "operator_graph",
+            "operator_graph_2h",
+            "operator_more",
+            "operator_adopted_stop",
         ):
             with self.subTest(callback=callback):
                 self.assertTrue(_is_workspace_callback(callback))
 
-        for callback in ("power_toggle", "refresh", "dash_back", "chart_30m"):
+        for callback in (
+            "power_toggle",
+            "refresh",
+            "dash_back",
+            "operator_done",
+            "rd_live_mix_start_delta_off",
+        ):
             with self.subTest(callback=callback):
                 self.assertFalse(_is_workspace_callback(callback))
+
+    def test_live_mix_completion_and_cancel_are_terminal(self):
+        for callback in (
+            "rd_live_mix_start_observe",
+            "rd_live_mix_start_delta_off",
+            "rd_live_mix_cancel",
+            "rd_live_mix_stop_observer",
+            "operator_done",
+            "operator_adopted_stop_execute",
+            "rd_hands_off_release_execute",
+            "rd_hands_off_release_cancel",
+        ):
+            with self.subTest(callback=callback):
+                self.assertIn(callback, _TERMINAL_CALLBACKS)
+
+    def test_workspace_state_is_explicit_per_chat(self):
+        manager = TerminalPanelManager(FakeApp())
+        self.assertFalse(manager.in_workspace(10))
+        manager.enter_workspace(10)
+        self.assertTrue(manager.in_workspace(10))
+        self.assertFalse(manager.in_workspace(11))
+        manager.leave_workspace(10)
+        self.assertFalse(manager.in_workspace(10))
 
     async def test_adopt_updates_both_dashboard_indexes(self):
         app = FakeApp()
@@ -146,6 +185,21 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.notifications, [("critical event", True)])
         self.assertEqual(app.render_calls, [(10, 20, None, None)])
         self.assertEqual(manager.panel_id(10), 101)
+
+    async def test_notification_does_not_push_panel_under_active_workspace(self):
+        app = FakeApp()
+        manager = install_panel_last(app)
+        manager.enter_workspace(10)
+
+        await app._send_notify_safe("background event", False)
+
+        self.assertEqual(app.notifications, [("background event", False)])
+        self.assertEqual(app.render_calls, [])
+        self.assertTrue(manager.in_workspace(10))
+
+        manager.leave_workspace(10)
+        await app._send_notify_safe("terminal event", False)
+        self.assertEqual(app.render_calls, [(10, 20, None, None)])
 
     async def test_install_is_idempotent(self):
         app = FakeApp()
