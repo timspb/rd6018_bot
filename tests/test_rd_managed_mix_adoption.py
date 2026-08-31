@@ -216,6 +216,7 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
             off_pending=False,
         )
         d061.fingerprint_from_live = ManagedLiveAdoptionCoordinator.fingerprint_from_live
+        d061.fingerprint_matches = ManagedLiveAdoptionCoordinator.fingerprint_matches
         d061._preflight_live = types.MethodType(
             ManagedLiveAdoptionCoordinator._preflight_live,
             d061,
