@@ -16,6 +16,7 @@ class EdgeLiveAdoptionConfig:
 
     entity: str = ""
     protection_entity: str = ""
+    ttl_entity: str = ""
 
 
 class EdgeLiveAdoption:
@@ -28,6 +29,11 @@ class EdgeLiveAdoption:
     D061 additionally requires the canonical raw register-16 protection-code entity.
     Legacy OVP/OCP bit sensors are intentionally insufficient: register value 3 is OPP
     and must never be flattened into a misleading "no OVP/no OCP" managed preflight.
+
+    Live adoption also proves the edge's configured watchdog TTL *before* pressing the
+    ownership command. The deployed pre-D061 firmware used a 30-minute lease while D056
+    accepts 15 minutes. A command-local TTL guard is still retained in ESPHome, but
+    Python does not use a rejected button press as its compatibility probe.
 
     A failed/ambiguous command deliberately leaves renewals suspended. Once a live-adopt
     command may have reached ESPHome, software must not blindly resume managed heartbeat
@@ -62,17 +68,29 @@ class EdgeLiveAdoption:
             or os.getenv("RD6018_EDGE_PROTECTION_CODE_ENTITY")
             or ""
         ).strip()
-        if not protection_entity:
-            if renew.startswith("button.") and renew.endswith(suffix):
-                base = renew[len("button.") : -len(suffix)]
+        ttl_entity = str(
+            configured.ttl_entity
+            or os.getenv("RD6018_EDGE_TTL_ENTITY")
+            or ""
+        ).strip()
+        if renew.startswith("button.") and renew.endswith(suffix):
+            base = renew[len("button.") : -len(suffix)]
+            if not protection_entity:
                 protection_entity = f"sensor.{base}_protection_status_code"
-            else:
-                raise ValueError(
-                    "raw protection-code entity is not configured and cannot be derived from renew entity"
-                )
+            if not ttl_entity:
+                ttl_entity = f"sensor.{base}_safety_lease_ttl"
+        if not protection_entity:
+            raise ValueError(
+                "raw protection-code entity is not configured and cannot be derived from renew entity"
+            )
+        if not ttl_entity:
+            raise ValueError(
+                "edge lease TTL entity is not configured and cannot be derived from renew entity"
+            )
         self.config = EdgeLiveAdoptionConfig(
             entity=entity,
             protection_entity=protection_entity,
+            ttl_entity=ttl_entity,
         )
 
     async def _require_entity(self) -> None:
@@ -83,6 +101,22 @@ class EdgeLiveAdoption:
         if state is None or str(state).strip().lower() == "unavailable":
             raise EdgeSafetyLeaseError(
                 "edge live-adoption entity is missing/unavailable"
+            )
+
+    async def _require_target_ttl(self) -> None:
+        state = await self.lease._state_value(self.config.ttl_entity)
+        try:
+            ttl_s = float(state)
+        except (TypeError, ValueError) as exc:
+            raise EdgeSafetyLeaseError(
+                "edge lease TTL contract entity is missing/unavailable"
+            ) from exc
+        if not math.isfinite(ttl_s):
+            raise EdgeSafetyLeaseError("edge lease TTL contract is invalid")
+        expected = float(self.lease.config.lease_ttl_s)
+        if abs(ttl_s - expected) > 1.0:
+            raise EdgeSafetyLeaseError(
+                f"edge live adoption requires {expected:.0f}s lease TTL, got {ttl_s:.0f}s"
             )
 
     @staticmethod
@@ -146,7 +180,6 @@ class EdgeLiveAdoption:
                 f"raw RD6018 protection status is stale ({age:.1f}s)"
             )
 
-
     def _install_renewal_protection_gate(self) -> None:
         """Keep authoritative raw protection evidence mandatory after D061 adoption.
 
@@ -186,6 +219,7 @@ class EdgeLiveAdoption:
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
+            await self._require_target_ttl()
             await self._require_raw_protection_normal()
             state = await self.lease.read_state()
             self._assert_adoptable(state)
@@ -210,6 +244,7 @@ class EdgeLiveAdoption:
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
+            await self._require_target_ttl()
             await self._require_raw_protection_normal()
             before = await self.lease.read_state()
             self._assert_adoptable(before)
@@ -239,6 +274,7 @@ class EdgeLiveAdoption:
                 ):
                     # Do not reopen heartbeat authority until raw protection telemetry
                     # has independently survived the ownership command/ACK boundary.
+                    await self._require_target_ttl()
                     await self._require_raw_protection_normal()
                     self._install_renewal_protection_gate()
                     self.lease._last_ack_monotonic = self.lease._monotonic()
