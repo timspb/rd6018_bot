@@ -1,19 +1,18 @@
+import asyncio
 import json
 import tempfile
 import time
-import types
 import unittest
 
 from ha_history import ContinuousOnEvidence, MixHistoryEvidence
 from pb_domain import BatteryChemistry
 from rd_live_adoption import (
     HandsOffMixObserver,
-    LiveMixFingerprint,
     LiveMixObserverMode,
     LiveMixObserverState,
     LiveMixPreview,
 )
-from signal_analyzer import SignalAnalysis, SignalEvent, SignalMetrics, SignalSample
+from signal_analyzer import SignalAnalysis, SignalEvent, SignalMetrics
 
 
 class FakeGuard:
@@ -164,20 +163,10 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
                 state_file=f"{tmp}/observer.json",
                 poll_s=3600,
             )
-            preview = preview_from_live(live)
-            # Deliberately dramatic historical extrema. They must never be copied into
-            # the fresh analyzer; start() only resets it to the live target voltage.
-            preview = LiveMixPreview(
-                battery_id=preview.battery_id,
-                chemistry=preview.chemistry,
-                capacity_ah=preview.capacity_ah,
-                fingerprint=preview.fingerprint,
-                history=preview.history,
-            )
             fake = AlwaysDeltaAnalyzer()
             observer.analyzer = fake
 
-            await observer.start(preview, mode=LiveMixObserverMode.OBSERVE_ONLY)
+            await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
 
             self.assertEqual(fake.reset_calls, [("Adopted Mix observer", 16.55)])
             self.assertIsNone(observer.finish_hold_started_at_s)
@@ -219,7 +208,8 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             observer.analyzer = fake
             await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
             await observer.observe_once()
-            self.assertIsNotNone(observer.finish_hold_started_at_s)
+            first_hold = observer.finish_hold_started_at_s
+            self.assertIsNotNone(first_hold)
 
             manager.guard.live["set_current"] = 0.8
             manager.guard.live["_meta"] = {
@@ -228,11 +218,9 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             }
             await observer.observe_once()
 
-            # reset_stage was called once at start and once after the external change.
             self.assertGreaterEqual(len(fake.reset_calls), 2)
-            # The same observation can begin a fresh hold only from post-change data;
-            # it never retains the prior hold timestamp.
             self.assertIsNotNone(observer.finish_hold_started_at_s)
+            self.assertGreaterEqual(observer.finish_hold_started_at_s, first_hold)
             await observer.cancel()
 
     async def test_delta_then_off_has_only_verified_off_authority(self):
@@ -279,7 +267,7 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
                 task.cancel()
                 try:
                     await task
-                except unittest.mock.AsyncMock if False else asyncio.CancelledError:
+                except asyncio.CancelledError:
                     pass
 
             restored = HandsOffMixObserver(app, manager, state_file=state_file, poll_s=3600)
