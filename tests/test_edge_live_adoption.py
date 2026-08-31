@@ -65,12 +65,14 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
 
         prepared = await adoption.prepare()
         self.assertTrue(lease.renewals_suspended)
+        self.assertFalse(adoption.command_may_have_executed)
         adopted = await adoption.adopt(expected_generation=prepared.generation)
 
         self.assertTrue(adopted.armed)
         self.assertEqual(adopted.generation, prepared.generation + 1)
         self.assertEqual(adopted.remaining_s, hass.lease_config.lease_ttl_s)
         self.assertFalse(lease.renewals_suspended)
+        self.assertTrue(adoption.command_may_have_executed)
         self.assertEqual(hass.pressed, [hass.adopt_config.entity])
 
     async def test_unknown_button_state_is_available_not_missing(self):
@@ -92,6 +94,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "missing/unavailable"):
             await adoption.prepare()
         self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_unavailable_entity_fails_before_command(self):
         hass = FakeHass()
@@ -113,6 +116,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await adoption.prepare()
 
         self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_old_thirty_minute_edge_is_rejected_before_edge_command(self):
         hass = FakeHass()
@@ -125,6 +129,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(hass.pressed, [])
         self.assertTrue(lease.renewals_suspended)
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_missing_raw_protection_code_blocks_before_edge_command(self):
         hass = FakeHass()
@@ -137,6 +142,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(hass.pressed, [])
         self.assertTrue(lease.renewals_suspended)
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_legacy_no_trip_cannot_replace_raw_protection_code(self):
         hass = FakeHass()
@@ -211,6 +217,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await adoption.adopt(expected_generation=prepared.generation)
 
         self.assertTrue(lease.renewals_suspended)
+        self.assertTrue(adoption.command_may_have_executed)
         self.assertEqual(hass.pressed, [hass.adopt_config.entity])
 
     async def test_already_armed_lease_is_not_live_adoptable(self):
@@ -223,6 +230,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "unarmed HANDS_OFF"):
             await adoption.prepare()
         self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_ambiguous_ack_keeps_renewals_suspended(self):
         hass = FakeHass()
@@ -235,6 +243,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await adoption.adopt(expected_generation=prepared.generation)
 
         self.assertTrue(lease.renewals_suspended)
+        self.assertTrue(adoption.command_may_have_executed)
         self.assertEqual(hass.pressed, [hass.adopt_config.entity])
 
     async def test_generation_change_after_preflight_is_rejected(self):
@@ -247,6 +256,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "generation changed"):
             await adoption.adopt(expected_generation=prepared.generation)
         self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
 
     def test_default_entities_are_derived_from_deployed_renew_entity(self):
         hass = FakeHass()
