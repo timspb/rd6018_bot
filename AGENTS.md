@@ -10,6 +10,7 @@ This repository controls a physical RD6018 power supply and lead-acid batteries.
 - Production controller: `DiagnosticProductionChargeControllerV2` from `diagnostic_controller.py`.
 - `ProductionManualSessionManager` is the managed Manual authority.
 - `RdControlModeManager` is the outer RD6018 ownership boundary (`PB_MANAGED` / `HANDS_OFF`).
+- V2 production/runtime support starts at Python **3.10**. CI covers Python 3.10 / 3.11 / 3.12; Python 3.9 is not a supported deployment interpreter.
 
 Do not replace the production entrypoint with `bot_legacy.py` during a normal deployment.
 
@@ -67,7 +68,8 @@ For a deployment request:
 - Preserve the existing service manager and service name discovered on the node.
 - Back up the currently deployed working tree before replacing it.
 - Check out the exact requested branch/SHA.
-- Install/update `requirements.txt` in the existing Python environment.
+- Use Python 3.10+ for V2. If the current system interpreter is older or its pip is broken, do **not** repair/replace `/usr/bin/python3` in place. Provision an isolated supported interpreter/venv, validate it completely before changing the service, and change only the service interpreter path during the final handover.
+- Install/update `requirements.txt` in the selected supported Python environment.
 - Run:
 
 ```bash
