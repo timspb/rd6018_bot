@@ -1,6 +1,6 @@
 # External Battery Temperature Sensor Integrity
 
-Status: **ACCEPTED SAFETY DESIGN / PARTLY IMPLEMENTED / CONSECUTIVE-ANOMALY DETECTOR NOT YET IMPLEMENTED**
+Status: **ACCEPTED / IMPLEMENTED MECHANISM / PRODUCTION ANOMALY THRESHOLDS CALIBRATION-GATED**
 
 This note defines the safety contract for the external battery-temperature channel (`temp_ext`) during any managed charge, with particular importance in Recovery/Mix high-voltage stages.
 
@@ -13,6 +13,22 @@ Production V2 already treats `temp_ext` as required runtime telemetry and as a f
 The corrected RD6018 telemetry package publishes the external-temperature view on a nominal 5 s interval. A flat but freshly reported temperature is valid; unchanged value alone is not a fault.
 
 This existing fail-close behavior must not be weakened by the consecutive-anomaly mechanism below.
+
+## Implemented software mechanism
+
+`external_temp_integrity.py` and `V2RuntimeSafetyGuard` now implement the Class-C state machine and containment semantics without inventing production calibration constants:
+
+- anomaly counting is keyed to distinct `temp_ext` source reports (`last_reported`, with the existing compatibility fallback), never bot polling iterations;
+- a fresh plausible report resets the consecutive anomaly count;
+- an explicitly configured baseline `N` may be paired with an equal-or-stricter HV `N`; HV policy is rejected if it is looser than baseline;
+- calibrated candidate predicates may use plausible absolute range, adjacent-report step, and source-time-normalized slope;
+- there are deliberately no production numeric defaults for `N`, step, slope, or plausible range, so Class-C trip authority remains disabled until a calibrated policy is supplied;
+- reaching the configured consecutive-anomaly threshold requests verified Output OFF and durably latches an external-temperature integrity fault;
+- software charge authority is retired only after OFF is physically confirmed; a failed/unconfirmed OFF therefore retains the existing `_off_unconfirmed` containment authority;
+- the latch survives process restart and blocks automatic session restore;
+- a later explicit Output-ON authorization may clear the latch only after normal critical/freshness checks and two distinct clean fresh source reports; one immediately good sample cannot silently re-energize the stopped program.
+
+The mechanism does **not** classify any raw RD6018 disconnect sentinel yet. Such a sentinel and any local ESPHome hard-fault rule remain physical-calibration work.
 
 ## Three failure classes
 
@@ -50,7 +66,7 @@ fresh + proven hard-invalid/hard-dangerous sample
 
 ### C. Fresh but suspicious / atypical samples
 
-This is the new accepted mechanism.
+This is the implemented, calibration-gated mechanism.
 
 A single fresh temperature sample may be corrupted or transiently abnormal without proving sensor failure. Fresh samples that violate a calibrated plausibility/continuity model are therefore tracked as a consecutive anomaly sequence.
 
@@ -114,7 +130,7 @@ The external-temperature integrity guard is independent from the 15-minute commu
 
 The architecture accepts `N` consecutive anomalous **fresh** source reports, but does not yet freeze a universal production value.
 
-The corrected external-temperature entity currently publishes nominally every 5 s, so a candidate such as `N=3` would represent roughly 10–15 s of persistent anomalous evidence depending on report timing. That is a calibration starting point, not an accepted constant.
+The corrected external-temperature entity currently publishes nominally every 5 s, so a candidate such as `N=3` would represent roughly 10–15 s of persistent anomalous evidence depending on report timing. That is a calibration starting point, not an accepted constant and is **not** enabled by the implementation.
 
 The final `N`, step/slope limits and any hard sentinel classification must be chosen from physical bench traces of:
 
@@ -137,22 +153,29 @@ Once the consecutive anomaly threshold or a hard integrity fault has caused shut
 4. do not automatically resume the previous energized stage merely because the next temperature sample looks normal;
 5. require fresh valid sensor evidence and the normal operator/session re-authorization/restart path before any new Output ON.
 
+The implemented Class-C latch is durable across process restart. Automatic restore is rejected while it is latched. Explicit reauthorization also does not clear it from one good sample: normal runtime freshness/critical checks must pass and two distinct clean source reports must establish a new trustworthy continuity baseline before a new enable transaction is allowed.
+
 This prevents a loose connector from alternating `bad -> OFF -> good -> automatic ON -> bad` indefinitely.
 
-## Required implementation tests
+## Software regression coverage
 
-Software regressions must prove at least:
+The implementation tests prove:
 
 - one suspicious fresh sample does not trip when `N > 1`;
 - `N` distinct anomalous source reports cause verified OFF;
 - one fresh valid report resets the consecutive anomaly counter;
 - repeated polls of one cached anomalous sample count once, not N times;
-- stable unchanged valid temperature with fresh `last_reported` remains valid;
-- stale/missing/unavailable `temp_ext` still fails closed without waiting for N;
-- critical real temperature remains immediate according to thermal policy;
-- OFF-unconfirmed containment remains active if the shutdown command cannot be physically proved;
-- restart does not silently re-energize a program stopped for sensor-integrity failure.
+- Class-C numeric authority is disabled when no calibrated production policy is supplied;
+- HV `N` cannot be looser than baseline `N`;
+- the latch persists across monitor/process reconstruction;
+- a Class-C trip forces verified OFF and retires the active AUTO session after OFF proof;
+- persisted latch forbids automatic restore;
+- explicit reauthorization requires more than one immediately good sample.
+
+Existing runtime regressions continue to prove that stale/missing/unavailable `temp_ext` fails closed without waiting for N, critical real temperature remains immediate according to thermal policy, and OFF-unconfirmed containment keeps authority when physical shutdown cannot be proved.
 
 ## Physical validation gate
 
-Before this detector becomes production authority, reproduce the installed RD6018 external-probe failure modes on the actual hardware and capture raw registers 34/35 plus the published V2 temperature/source timestamps. Use those traces to select the anomaly classes, `N`, step/slope thresholds and any confirmed disconnect sentinel.
+Before calibrated Class-C anomaly predicates become production authority, reproduce the installed RD6018 external-probe failure modes on the actual hardware and capture raw registers 34/35 plus the published V2 temperature/source timestamps. Use those traces to select the anomaly classes, `N`, step/slope thresholds and any confirmed disconnect sentinel.
+
+Until that physical calibration is complete, the Class-C detector mechanism is present and regression-tested but its production anomaly thresholds remain intentionally unconfigured. Existing Class-A freshness fail-close and Class-B thermal hard limits remain production-active.
