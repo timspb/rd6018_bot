@@ -28,6 +28,7 @@ from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
+from rd_managed_adoption import install_managed_live_adoption
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -64,7 +65,8 @@ if _v2_ui_enabled:
 # leaving raw telemetry available and preserving the explicit operator-only OFF action.
 _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
 # A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
-# software session through the dedicated live edge ownership-release handshake.
+# software session through the dedicated positively-ACKed live edge release. Ordinary
+# edge disarm remains verified-OFF only.
 install_rd_hands_off_release(_legacy, _rd_control_mode)
 # While HANDS_OFF owns an externally-running RD program, the operator may attach the
 # read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
@@ -73,6 +75,17 @@ _rd_live_mix_observer = (
     install_rd_live_adoption(_legacy, _rd_control_mode)
     if _v2_ui_enabled
     else None
+)
+# D061 managed live adoption is a different transaction: it can acquire the local
+# dead-man around an already-ON Output, re-read the exact live program, and only then
+# cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. No Output/setpoint write
+# occurs at the adoption point, and the captured V/I/OVP/OCP authority can only ratchet
+# downward. Install the safety wrappers even with V2_UI disabled so restart containment
+# of a previously adopted session cannot depend on presentation mode.
+_rd_managed_live_adoption = install_managed_live_adoption(
+    _legacy,
+    _rd_control_mode,
+    install_ui=_v2_ui_enabled,
 )
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
@@ -93,9 +106,12 @@ _legacy_main = _legacy.main
 
 async def main() -> None:
     await init_v2_storage()
-    # A normal observer never resumes after restart. If the previous process had
-    # already durably committed the final verified-OFF action, however, only that OFF
-    # containment is allowed to continue before ordinary runtime tasks start.
+    # Managed live authority never resumes across process restart. If a previous
+    # adoption/pending handover existed, complete verified-OFF containment before the
+    # ordinary runtime starts or renews any managed lease.
+    await _rd_managed_live_adoption.recover_startup()
+    # A normal HANDS_OFF observer also never resumes. If it had already committed final
+    # OFF_PENDING, only that OFF containment is allowed to continue.
     if _rd_live_mix_observer is not None:
         await _rd_live_mix_observer.recover_startup()
     await recover_diagnostic_persistence(_legacy)
