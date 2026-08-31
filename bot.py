@@ -21,6 +21,7 @@ from manual_context_v2 import (
     install_manual_context_ui,
 )
 from operator_dashboard import install_operator_graph_dashboard
+from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from operator_managed_stop import install_operator_managed_stop
 from production_guardrails_v2 import install_production_guardrails
@@ -80,6 +81,10 @@ _rd_live_mix_observer = (
 # the graph-backed transport is composed underneath the final semantic state/controls.
 if _v2_ui_enabled:
     install_operator_hmi(_legacy)
+    # A second-step adopted-Mix OFF button in an old Telegram message must not remain
+    # an indefinitely valid actuator capability. Bind it to the exact current observer
+    # epoch before composing the remaining operator actions.
+    install_operator_destructive_guard(_legacy)
     install_operator_managed_stop(_legacy)
     install_operator_graph_dashboard(_legacy)
 
