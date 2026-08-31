@@ -5,27 +5,15 @@ import time
 from typing import Any, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
+from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from rd6018_telemetry import ProtectionStatus, resolve_protection, telemetry_freshness
 from runtime_safety import RuntimeSafetyError, _binary, _finite
 from runtime_safety_strict import StrictRuntimeSafetyGuard
 
 
 class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
-    """Production guard aligned with the accepted V2 authority model.
+    """Production guard aligned with the accepted V2 authority model."""
 
-    Vin is PSU-health telemetry, not chemistry/FSM authority.  The legacy/base guard
-    keeps its historic fail-closed Vin rule for rollback compatibility; production V2
-    deliberately removes only that authority while retaining all hard battery,
-    protection, readback, watchdog and edge-lease checks.
-
-    The class also reserves a first-class authority hook for an explicit ManualSession:
-    a manual session is managed output, not an orphan output, and uses the absolute
-    17.5 V envelope rather than the legacy 16.6 V profile ceiling.
-    """
-
-    # Continuously sampled physical channels. Static Vset/Iset/OVP/OCP values are still
-    # read and validated every poll but their timestamps are not liveness clocks because
-    # a correct setpoint can remain unchanged for hours.
     RUNTIME_FRESHNESS_KEYS = (
         "battery_voltage",
         "current",
@@ -37,16 +25,24 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     def __init__(self, app: Any) -> None:
         super().__init__(app)
         self._install_last_reported_metadata_bridge()
+        configured_policy = getattr(app, "external_temp_integrity_policy", None)
+        policy = (
+            configured_policy
+            if isinstance(configured_policy, ExternalTempIntegrityPolicy)
+            else ExternalTempIntegrityPolicy()
+        )
+        self.external_temp_integrity = ExternalTempIntegrityMonitor(
+            policy,
+            fault_file=str(
+                getattr(
+                    app,
+                    "external_temp_integrity_fault_file",
+                    "external_temp_integrity_fault_v2.json",
+                )
+            ),
+        )
 
     def _install_last_reported_metadata_bridge(self) -> None:
-        """Preserve HA's heartbeat timestamp without changing V1 adapter semantics.
-
-        Home Assistant exposes ``last_reported`` even when an entity's value did not
-        change. Legacy HassClient predates that field and only copies ``last_updated``.
-        Patch its metadata formatter at the V2 boundary so flat temperature/current,
-        switch, protection and regulation values do not look stale merely because their
-        value stayed identical.
-        """
         if getattr(self.hass, "_v2_last_reported_metadata_bridge", False):
             return
         formatter = getattr(self.hass, "_entity_metadata", None)
@@ -75,18 +71,9 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return float(self.policy.absolute_voltage_ceiling_v)
         return super()._recipe_voltage_ceiling()
 
-    def _critical_telemetry_error(
-        self,
-        live: dict[str, Any],
-        *,
-        require_programming: bool,
-    ) -> Optional[str]:
-        # Vin is intentionally absent. Missing/low Vin may be surfaced by PSU-health
-        # diagnostics but may not masquerade as a battery safety event.
+    def _critical_telemetry_error(self, live: dict[str, Any], *, require_programming: bool) -> Optional[str]:
         numeric_keys = ["battery_voltage", "current", "temp_ext", "temp_int"]
         if require_programming:
-            # V_OUT is measured physical output, distinct from configured Vset. Once
-            # Output is ON it is part of the hard actuator envelope and may not vanish.
             numeric_keys.append("voltage")
         for key in numeric_keys:
             if _finite(live.get(key)) is None:
@@ -95,12 +82,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if _binary(live.get("switch")) is None:
             return "required telemetry switch is missing/unavailable"
 
-        raw_protection_available = live.get("protection_code") not in (
-            None,
-            "",
-            "unknown",
-            "unavailable",
-        )
+        raw_protection_available = live.get("protection_code") not in (None, "", "unknown", "unavailable")
         if not raw_protection_available:
             for key in ("ovp_triggered", "ocp_triggered"):
                 if _binary(live.get(key)) is None:
@@ -109,18 +91,12 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         protection = resolve_protection(live)
         if protection.status is ProtectionStatus.UNKNOWN:
             return "RD6018 protection status is unknown"
-        # Legacy runtime knows how to report OVP/OCP precisely. OPP has no legacy
-        # boolean trip path, so V2 must fail closed here instead of silently missing it.
         if protection.status is ProtectionStatus.OPP:
             return "RD6018 OPP protection is tripped"
 
         battery_v = _finite(live.get("battery_voltage"))
         assert battery_v is not None
-        if not (
-            self.policy.min_battery_voltage_v
-            <= battery_v
-            <= self.policy.max_battery_voltage_v
-        ):
+        if not (self.policy.min_battery_voltage_v <= battery_v <= self.policy.max_battery_voltage_v):
             return f"battery voltage is implausible: {battery_v:.3f}V"
 
         temp_ext = _finite(live.get("temp_ext"))
@@ -141,15 +117,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     def _available(value: Any) -> bool:
         return value not in (None, "", "unknown", "unavailable")
 
-    def _runtime_freshness_error(
-        self,
-        live: dict[str, Any],
-        *,
-        output_state: Optional[bool],
-    ) -> Optional[str]:
-        # Production V2 is not allowed to silently fall back to value-only safety.
-        # HassClient always exposes `_meta`; its complete absence indicates an adapter
-        # regression/bypass where source age/skew can no longer be proved.
+    def _runtime_freshness_error(self, live: dict[str, Any], *, output_state: Optional[bool]) -> Optional[str]:
         if not isinstance(live.get("_meta"), dict):
             return "critical runtime telemetry freshness metadata is missing"
 
@@ -157,18 +125,11 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if output_state is True:
             keys.append("voltage")
 
-        # Protection is dynamic safety state even when its normal value remains zero.
-        # Prefer raw register 16 when deployed; otherwise age-gate both legacy OVP/OCP
-        # views. `last_reported` prevents a stable NORMAL value from looking stale.
         if self._available(live.get("protection_code")):
             keys.append("protection_code")
         else:
             keys.extend(("ovp_triggered", "ocp_triggered"))
 
-        # CV/CC is chemistry-transition evidence. An old CV=True sample is materially
-        # different from an unavailable mode: it can falsely satisfy Main/Mix evidence.
-        # Therefore age-gate the mode source whenever deployed, without making an absent
-        # migration-era mode sensor a new hard actuator prerequisite.
         if output_state is True:
             if self._available(live.get("regulation_code")):
                 keys.append("regulation_code")
@@ -184,9 +145,6 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
 
     def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
         protection = resolve_protection(live)
-        # A real OVP/OCP trip is handled by the strict hardware-trip path below so the
-        # existing operator event can still identify the exact trip. Unknown/OPP were
-        # already rejected by _critical_telemetry_error().
         if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
             return None
 
@@ -198,14 +156,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         actual_i = _finite(live.get("current"))
         if None in (set_v, set_i, ovp, ocp, actual_v, actual_i):
             return "programming/readback/measured output became invalid while output was ON"
-        assert (
-            set_v is not None
-            and set_i is not None
-            and ovp is not None
-            and ocp is not None
-            and actual_v is not None
-            and actual_i is not None
-        )
+        assert set_v is not None and set_i is not None and ovp is not None and ocp is not None and actual_v is not None and actual_i is not None
 
         recipe_ceiling = self._recipe_voltage_ceiling()
         if set_v > recipe_ceiling + self.READBACK_TOLERANCE:
@@ -239,20 +190,88 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             manager = getattr(self.app, "manual_session_manager", None)
             request = getattr(manager, "request", None)
             if request is not None:
-                return _finite(getattr(request, "voltage_v", None)), _finite(
-                    getattr(request, "current_a", None)
-                )
+                return _finite(getattr(request, "voltage_v", None)), _finite(getattr(request, "current_a", None))
         return super()._stage_target(live)
 
+    def _temp_integrity_hv_active(self) -> bool:
+        if self.manual_active:
+            manager = getattr(self.app, "manual_session_manager", None)
+            request = getattr(manager, "request", None)
+            voltage = _finite(getattr(request, "voltage_v", None)) if request is not None else None
+            return bool(voltage is not None and voltage > 15.0)
+        controller = getattr(self.app, "charge_controller", None)
+        predicate = getattr(controller, "_current_stage_is_hv", None)
+        if callable(predicate):
+            try:
+                return bool(predicate())
+            except Exception:
+                return False
+        stage = getattr(controller, "current_stage", None)
+        return stage in {
+            getattr(controller, "STAGE_DESULFATION", object()),
+            getattr(controller, "STAGE_MIX", object()),
+        }
+
+    async def _retire_temp_integrity_session(self, reason: str) -> None:
+        manager = getattr(self.app, "manual_session_manager", None)
+        if manager is not None and getattr(manager, "is_active", False):
+            stop = getattr(manager, "stop", None)
+            if callable(stop):
+                await stop("external_temp_sensor_integrity")
+            return
+        controller = getattr(self.app, "charge_controller", None)
+        if controller is not None and bool(getattr(controller, "is_active", False)):
+            stop = getattr(controller, "stop", None)
+            if callable(stop):
+                stop(clear_session=True)
+
+    async def _trip_external_temp_integrity(self, reason: str, *, output_state: Optional[bool]) -> None:
+        self._notify(
+            "external_temp_integrity",
+            f"🛑 <b>Защита V2:</b> недостоверна внешняя температура АКБ: {reason}. "
+            "Output будет выключен; автоматическое возобновление этой сессии запрещено.",
+        )
+        if output_state is True or (output_state is None and self.controller_active):
+            await self._ensure_output_off(f"external temperature sensor integrity: {reason}")
+        await self._retire_temp_integrity_session(reason)
+        raise RuntimeSafetyError(f"external temperature sensor integrity: {reason}")
+
+    def _auto_restore_active(self) -> bool:
+        controller = getattr(self.app, "charge_controller", None)
+        return bool(
+            controller is not None
+            and getattr(controller, "is_active", False)
+            and str(getattr(controller, "_session_start_reason", "")) == "Auto-restore"
+        )
+
+    async def turn_on(self, entity_id: Optional[str] = None) -> bool:
+        monitor = self.external_temp_integrity
+        if monitor.latched:
+            if self._auto_restore_active():
+                controller = getattr(self.app, "charge_controller", None)
+                stop = getattr(controller, "stop", None)
+                if callable(stop):
+                    stop(clear_session=True)
+                raise RuntimeSafetyError(
+                    "external temperature sensor integrity fault is latched; auto-restore is forbidden"
+                )
+            live = await self._raw_live()
+            error = self._critical_telemetry_error(live, require_programming=False)
+            if error is not None:
+                raise RuntimeSafetyError(f"external temperature reauthorization blocked: {error}")
+            freshness_error = self._runtime_freshness_error(live, output_state=_binary(live.get("switch")))
+            if freshness_error is not None:
+                raise RuntimeSafetyError(f"external temperature reauthorization blocked: {freshness_error}")
+            allowed, detail = monitor.can_rearm(live, hv=self._temp_integrity_hv_active())
+            if not allowed:
+                raise RuntimeSafetyError(f"external temperature reauthorization blocked: {detail}")
+            monitor.clear_latch()
+        return await super().turn_on(entity_id)
+
     async def get_all_live(self) -> dict[str, Any]:
-        """Strict production checks without granting Vin actuator authority."""
         live = await self._raw_live()
         output_state = _binary(live.get("switch"))
 
-        # `_off_unconfirmed` is itself containment authority. Legacy dispatch may have
-        # already retired the chemistry FSM after a failed shutdown attempt; that may
-        # never downgrade the still-uncertain physical output to the ordinary orphan
-        # grace path. Keep issuing verified OFF until the hardware state is proved OFF.
         if self._off_unconfirmed:
             if output_state is False:
                 self._off_unconfirmed = False
@@ -269,23 +288,20 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             self._orphan_output_seen_at = None
             return live
 
-        error = self._critical_telemetry_error(
-            live,
-            require_programming=output_state is True,
-        )
+        error = self._critical_telemetry_error(live, require_programming=output_state is True)
         if error is not None:
             await self._fail_closed("telemetry_invalid", error, output_state=output_state)
 
-        freshness_error = self._runtime_freshness_error(
-            live,
-            output_state=output_state,
-        )
+        freshness_error = self._runtime_freshness_error(live, output_state=output_state)
         if freshness_error is not None:
-            await self._fail_closed(
-                "telemetry_stale",
-                freshness_error,
-                output_state=output_state,
-            )
+            await self._fail_closed("telemetry_stale", freshness_error, output_state=output_state)
+
+        decision = self.external_temp_integrity.observe(
+            live,
+            hv=self._temp_integrity_hv_active(),
+        )
+        if decision.trip:
+            await self._trip_external_temp_integrity(decision.detail, output_state=output_state)
 
         if output_state is False:
             self._off_unconfirmed = False
@@ -308,24 +324,15 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if output_state is True:
             envelope_error = self._runtime_envelope_error(live)
             if envelope_error is not None:
-                await self._fail_closed(
-                    "runtime_envelope",
-                    envelope_error,
-                    output_state=True,
-                )
+                await self._fail_closed("runtime_envelope", envelope_error, output_state=True)
 
             protection = resolve_protection(live)
             if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
-                await self._ensure_output_off(
-                    f"hardware {protection.status.value.upper()} protection trip"
-                )
+                await self._ensure_output_off(f"hardware {protection.status.value.upper()} protection trip")
                 return live
 
             temp_int = _finite(live.get("temp_int"))
-            if (
-                temp_int is not None
-                and temp_int >= float(self.policy.max_internal_temp_c)
-            ):
+            if temp_int is not None and temp_int >= float(self.policy.max_internal_temp_c):
                 await self._fail_closed(
                     "psu_temperature_high",
                     f"RD6018 temperature {temp_int:.1f}C >= {self.policy.max_internal_temp_c:.1f}C",
