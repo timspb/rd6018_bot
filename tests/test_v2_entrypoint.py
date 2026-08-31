@@ -33,9 +33,16 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("v2_mix", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
+        # The semantic layer owns caption/button meaning, while production deliberately
+        # keeps the proven graph/photo dashboard transport rather than switching L2 to
+        # a text-only card.
+        self.assertEqual(bot._build_and_send_dashboard.__name__, "_build_and_send_dashboard")
+        self.assertEqual(bot._compact_dashboard_caption.__name__, "compact_dashboard_caption")
+
         # Production import has no live hardware state. Its durable ownership state is
         # allowed to affect the exact main-panel branch, but the final renderer must no
-        # longer expose the old graph/developer button carpet.
+        # longer expose the old graph-range/developer button carpet. The graph itself
+        # remains in the dashboard media and ranges live in the graph workspace.
         dashboard = bot._build_dashboard_keyboard(False, 1)
         dashboard_callbacks = {
             button.callback_data
