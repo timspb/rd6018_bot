@@ -38,9 +38,11 @@ What remains open is now strictly **physical calibration from real captures**, n
 - thermal/headroom conditions;
 - abort conditions;
 - connection identity lifecycle;
-- meaningful repeated-probe change given RD6018 resolution/noise.
+- meaningful repeated-probe change given RD6018 resolution/noise;
+- Mix containment headroom above confirmed finish `ΔI` and the absolute measurement floor;
+- safe current/OCP tightening sequence and reliable `CURRENT_CEILING_REACHED` classification before the implemented adaptive ratchet gains actuator authority.
 
-Do not grant automatic diagnostic-probe authority merely because the software capture/analyzer pipeline exists.
+Do not grant automatic diagnostic-probe or adaptive-current actuator authority merely because the software capture/analyzer/ratchet infrastructure exists.
 
 ## Q013 — Active Bank-Fault hypothesis scoring/calibration
 Hypothesis engine separates `cell_fault`, `self_discharge`, `sulfation`, `stratification`, `capacity_loss`, `thermal_abnormality`, and `charger_path`, with contradictory evidence and conservative automatic-HV veto boundary.
@@ -70,11 +72,12 @@ Need on-device characterization of:
 - effect of cable/clip reconnection using distinct `connection_id` values;
 - actual sample cadence and source skew through the installed ESPHome/Modbus/HA path;
 - stability across RD firmware/calibration identity;
-- whether the dynamic-loop trend has enough signal above noise/quantization to retain as health evidence.
+- whether the dynamic-loop trend has enough signal above noise/quantization to retain as health evidence;
+- the current-resolution/noise floor needed by adaptive Mix containment and the protected current/OCP tightening path.
 
 `V_OUT - V_BAT` remains descriptive only. Q014 must not reinterpret it as cable/path resistance without independent RD6018 topology evidence.
 
-Q014 closes only after real captures establish that the signal is repeatable and diagnostically useful. If not, dynamic-loop evidence should be removed/disabled rather than rescued by arbitrary thresholds.
+Q014 closes only after real captures establish that the signal is repeatable and diagnostically useful. If not, dynamic-loop evidence and dependent automatic actuation should be removed/disabled rather than rescued by arbitrary thresholds.
 
 ## Q015 — Final main-merge compatibility plan
 Before merging V2 to `main`, verify traceably:
@@ -84,19 +87,23 @@ Before merging V2 to `main`, verify traceably:
 - Auto Mix direct entry;
 - Ca/EFB three-attempt session recovery budget + 72h fallback;
 - AGM four-attempt budget, staged Main and conservative 72h behavior;
-- Mix 20/24/10 and sticky finish hold;
+- Mix 20/24/10 active-time authority plus sticky finish hold;
+- `MIX_TIMEOUT` is terminal stop+diagnose with verified OFF, never SAFE_WAIT/Storage success;
+- durable Mix active-time restart/Cooling/OFF semantics and fail-closed missing/corrupt state;
 - SAFE_WAIT;
-- Done/Storage Output ON;
+- Done/Storage Output ON only for normal completion;
 - Manual native UI, quick-command migration, optional battery identity and interrupted re-authorization;
 - Manual stop conditions;
 - AUTO Manual-OFF as terminal asynchronous kill-condition only;
 - Cooling;
 - restart/restore including diagnostic action journal;
-- link loss / edge lease / fast HV watchdog;
+- 15min/5min link-loss edge lease on exact flashed ESPHome node;
 - RD readback/protection decode;
+- external-temperature disconnect/reconnect/source-timestamp characterization before Class-C numeric thresholds or a raw sentinel gain authority;
 - Bank Fault/SG diagnostics including physical SG access gating and explicit correction metadata;
 - EFB chemistry envelopes never exceed generic 16.5V; >16.5V requires Manual or a future explicit model-specific manufacturer-backed recipe;
 - controlled-probe characterization against actual cadence/noise/settling before any automatic trigger policy is enabled;
+- adaptive Mix current ratchet remains non-actuating until Q005/Q014 data establish headroom/floor/CV-CC/OCP sequencing, then receives a separate BENCH proof before enablement;
 - Telegram dashboard/operator messages;
 - exact ESPHome node compile/flash and physical RD6018 smoke/bench tests.
 
