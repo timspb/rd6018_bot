@@ -2,6 +2,7 @@ import asyncio
 import io
 import types
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import operator_hmi as hmi
 from operator_dashboard import (
@@ -47,17 +48,21 @@ def _live(**overrides):
     return data
 
 
+def _callbacks(app, state):
+    return {
+        button.callback_data
+        for row in build_operator_keyboard(app, state).inline_keyboard
+        for button in row
+        if button.callback_data
+    }
+
+
 class OperatorDashboardTruthTests(unittest.TestCase):
     def test_unknown_output_is_containment_not_idle_or_off(self):
         app = FakeApp()
         state = build_truthful_hmi_state(app, _live(switch="unavailable"))
         text = render_truthful_panel(state)
-        callbacks = {
-            button.callback_data
-            for row in build_operator_keyboard(app, state).inline_keyboard
-            for button in row
-            if button.callback_data
-        }
+        callbacks = _callbacks(app, state)
 
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "output_unknown")
@@ -67,17 +72,44 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertNotIn("charge_modes", callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
 
-    def test_missing_protection_status_is_not_reported_normal(self):
+    def test_stale_output_is_containment_even_when_last_value_says_on(self):
+        app = FakeApp()
+        old = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        state = build_truthful_hmi_state(
+            app,
+            _live(
+                switch="on",
+                _meta={
+                    "switch": {
+                        "status": "ok",
+                        "last_reported": old,
+                        "last_updated": old,
+                    }
+                },
+            ),
+        )
+        text = render_truthful_panel(state)
+
+        self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
+        self.assertEqual(state.attention, "output_unknown")
+        self.assertIn("Output <b>UNKNOWN</b>", text)
+        self.assertIn("устарела", state.progress)
+
+    def test_missing_protection_status_contains_idle_and_hides_start(self):
         app = FakeApp()
         live = _live()
         live.pop("ocp_triggered")
         state = build_truthful_hmi_state(app, live)
         text = render_truthful_panel(state)
+        callbacks = _callbacks(app, state)
 
-        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+        self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "warning")
+        self.assertIn("ЗАЩИТА НЕ ПОДТВЕРЖДЕНА", text)
         self.assertIn("Статус защит RD6018 не подтверждён", text)
         self.assertNotIn("Защита: норма", text)
+        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn("v2_manual_choose", callbacks)
 
     def test_confirmed_off_and_protections_remain_normal_idle(self):
         app = FakeApp()
@@ -87,6 +119,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
         self.assertIn("Output <b>OFF</b>", text)
         self.assertIn("Защита: норма", text)
+        self.assertIn("charge_modes", _callbacks(app, state))
 
     def test_unknown_protection_while_output_on_is_alarm(self):
         app = FakeApp()
@@ -99,7 +132,24 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.attention, "alarm")
         self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
 
-    def test_raw_opp_trip_is_visible_even_when_legacy_bits_are_off(self):
+    def test_raw_opp_trip_is_visible_and_idle_start_is_withheld(self):
+        app = FakeApp()
+        state = build_truthful_hmi_state(
+            app,
+            _live(protection_code=3),
+        )
+        text = render_truthful_panel(state)
+        callbacks = _callbacks(app, state)
+
+        self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
+        self.assertEqual(state.attention, "alarm")
+        self.assertIn("СРАБОТАЛА ЗАЩИТА OPP", text)
+        self.assertIn("Защита: OPP", text)
+        self.assertNotIn("Защита: норма", text)
+        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn("v2_manual_choose", callbacks)
+
+    def test_raw_opp_trip_is_visible_even_when_legacy_bits_are_off_while_on(self):
         app = FakeApp()
         state = build_truthful_hmi_state(
             app,
@@ -120,6 +170,32 @@ class OperatorDashboardTruthTests(unittest.TestCase):
 
         self.assertEqual(state.attention, "alarm")
         self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+
+    def test_stale_raw_protection_contains_idle_even_when_code_was_normal(self):
+        app = FakeApp()
+        old = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        live = _live(
+            protection_code=0,
+            _meta={
+                "switch": {"status": "ok", "last_reported": now, "last_updated": now},
+                "protection_code": {"status": "ok", "last_reported": old, "last_updated": old},
+            },
+        )
+        state = build_truthful_hmi_state(app, live)
+
+        self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
+        self.assertNotIn("charge_modes", _callbacks(app, state))
+        self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+
+    def test_raw_regulation_code_overrides_legacy_mode_flags(self):
+        app = FakeApp()
+        state = build_truthful_hmi_state(
+            app,
+            _live(switch="on", regulation_code=1, is_cv="on", is_cc="off"),
+        )
+
+        self.assertEqual(state.regulator, "CC")
 
 
 class FakeGraphBot:
