@@ -1,8 +1,10 @@
 # RD6018 PB Recovery V2 full controller target
 #
-# Production/bench candidate for the existing ESP8266 RD6018 bridge. It preserves
-# the Home Assistant entity IDs used by the bot while composing the accepted V2
-# edge contracts:
+# Canonical ESPHome Device Builder / CLI target for the existing ESP8266 RD6018
+# bridge. This file is intentionally named rd6018.yaml so the repository layout
+# can be copied directly into /config/esphome without creating fake package nodes.
+#
+# Edge contracts:
 #   - 15 minute local dead-man lease;
 #   - managed -> HANDS_OFF live release;
 #   - HANDS_OFF -> managed live adoption;
@@ -32,9 +34,9 @@ substitutions:
   RD6018_power_multiplier: "0.01"
 
 packages:
-  safety_lease: !include rd6018_safety_lease.yaml
-  telemetry_v2: !include rd6018_telemetry_v2.yaml
-  live_adoption: !include rd6018_live_adoption.yaml
+  safety_lease: !include packages/rd6018_safety_lease.yaml
+  telemetry_v2: !include packages/rd6018_telemetry_v2.yaml
+  live_adoption: !include packages/rd6018_live_adoption.yaml
 
 esphome:
   name: ${device_name}
@@ -59,22 +61,22 @@ status_led:
 
 api:
   encryption:
-    key: !secret api_encryption_key
+    key: !secret rd6018_api_encryption_key
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    password: !secret rd6018_ota_password
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  ssid: !secret rd6018_wifi_ssid
+  password: !secret rd6018_wifi_password
   manual_ip:
-    static_ip: !secret static_ip
-    gateway: !secret gateway
-    subnet: !secret subnet
+    static_ip: !secret rd6018_static_ip
+    gateway: !secret rd6018_gateway
+    subnet: !secret rd6018_subnet
   ap:
     ssid: "RD6018 Fallback Hotspot"
-    password: !secret fallback_ap_password
+    password: !secret rd6018_fallback_ap_password
 
 captive_portal:
 
@@ -106,7 +108,7 @@ time:
 
 sensor:
   # Stable legacy entity surface used by config.py. Corrected V2 entities are
-  # supplied by rd6018_telemetry_v2.yaml and are preferred by the bot.
+  # supplied by packages/rd6018_telemetry_v2.yaml and are preferred by the bot.
   - platform: modbus_controller
     id: rd6018_output_voltage_legacy
     name: "Output voltage"
@@ -381,7 +383,7 @@ number:
 
 switch:
   # Public operator/HA Output entity retained for compatibility. The separate
-  # internal safety output in rd6018_safety_lease.yaml is the watchdog actuator.
+  # internal safety output in packages/rd6018_safety_lease.yaml is the watchdog actuator.
   - platform: modbus_controller
     id: rd6018_output_public
     name: "Output"

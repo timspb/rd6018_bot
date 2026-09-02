@@ -5,9 +5,8 @@
 # plus an edge-local direct register-16 protection probe. Ordinary lease arm remains
 # verified-OFF.
 #
-# IMPORTANT: D056 requires a 15-minute local lease. The operator-supplied deployed
-# full firmware still has a 30-minute substitution. This package publishes its actual
-# configured TTL and independently refuses live adoption unless that TTL is 900000 ms,
+# D056 requires a 15-minute local lease. This package publishes the actual configured
+# TTL and independently refuses live adoption unless that TTL is exactly 900000 ms,
 # so Python can reject an incompatible edge before pressing the ownership button.
 
 globals:
@@ -23,8 +22,8 @@ globals:
 
 sensor:
   # Explicitly publish the edge control-loss budget. A zero remaining lease while
-  # HANDS_OFF cannot distinguish the old 30-minute firmware from the accepted 15-minute
-  # contract, so D061 preflight must be able to prove this value before actuation.
+  # HANDS_OFF cannot prove the configured TTL, so D061 preflight verifies this
+  # dedicated value before actuation.
   - platform: template
     id: rd6018_safety_lease_ttl_sensor
     name: "Safety Lease TTL"
@@ -73,9 +72,8 @@ button:
             const bool control_fresh =
               telemetry_fresh && output_fresh && protection_fresh;
 
-            // D056 compatibility gate. The currently deployed user firmware still
-            // carries 30 minutes; live managed adoption must not inherit that weaker
-            // watchdog silently. Update the base substitution to 900000 before use.
+            // D056 compatibility gate. Managed live adoption must never inherit a
+            // weaker watchdog silently.
             if (${rd6018_safety_lease_ttl_ms}UL != 900000UL) return;
 
             // This is not ordinary arm(). It is accepted only from an intentionally
