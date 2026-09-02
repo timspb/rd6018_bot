@@ -5,7 +5,9 @@ import unittest
 class ESPHomeTelemetryV2ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = pathlib.Path("esphome/rd6018_telemetry_v2.yaml").read_text(encoding="utf-8")
+        cls.text = pathlib.Path(
+            "esphome/packages/rd6018_telemetry_v2.yaml"
+        ).read_text(encoding="utf-8")
 
     def test_output_power_uses_register_13_not_12_u_dword(self):
         self.assertIn('name: "Output Power V2"', self.text)

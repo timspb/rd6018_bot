@@ -5,7 +5,9 @@ import unittest
 class EspHomeHandsOffReleaseContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = Path("esphome/rd6018_safety_lease.yaml").read_text(encoding="utf-8")
+        cls.text = Path("esphome/packages/rd6018_safety_lease.yaml").read_text(
+            encoding="utf-8"
+        )
 
     def _release_section(self):
         start = self.text.index("id: rd6018_safety_lease_release_to_hands_off_button")

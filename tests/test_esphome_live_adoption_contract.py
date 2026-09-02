@@ -4,7 +4,9 @@ import unittest
 
 class EspHomeLiveAdoptionContractTests(unittest.TestCase):
     def test_live_adoption_preserves_output_and_requires_exact_lease_contract(self):
-        text = pathlib.Path("esphome/rd6018_live_adoption.yaml").read_text(encoding="utf-8")
+        text = pathlib.Path("esphome/packages/rd6018_live_adoption.yaml").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn('name: "Safety Lease Adopt Live Output"', text)
         self.assertIn('name: "Safety Lease TTL"', text)
@@ -35,9 +37,9 @@ class EspHomeLiveAdoptionContractTests(unittest.TestCase):
         self.assertNotIn("create_write_single_command", text)
 
     def test_full_managed_adoption_depends_on_published_raw_v2_protection_code(self):
-        telemetry = pathlib.Path("esphome/rd6018_telemetry_v2.yaml").read_text(
-            encoding="utf-8"
-        )
+        telemetry = pathlib.Path(
+            "esphome/packages/rd6018_telemetry_v2.yaml"
+        ).read_text(encoding="utf-8")
         self.assertIn('name: "Protection Status Code"', telemetry)
         self.assertIn("id: rd6018_protection_status_code", telemetry)
         self.assertIn("address: 16", telemetry)

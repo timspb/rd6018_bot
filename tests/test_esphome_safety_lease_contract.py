@@ -5,7 +5,9 @@ import unittest
 class EspHomeSafetyLeaseContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = Path("esphome/rd6018_safety_lease.yaml").read_text(encoding="utf-8")
+        cls.text = Path("esphome/packages/rd6018_safety_lease.yaml").read_text(
+            encoding="utf-8"
+        )
 
     def test_lease_is_fifteen_minutes_and_retries_local_off(self):
         self.assertIn('rd6018_safety_lease_ttl_ms: "900000"', self.text)
