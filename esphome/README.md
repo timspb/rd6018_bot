@@ -316,36 +316,57 @@ With Output confirmed OFF and no battery/load requiring power:
 
 ## Full physical acceptance gate
 
-A successful compile and the smoke test above do not by themselves authorize
-D061/D062 managed live takeover. The remaining bench evidence includes:
+A successful compile and the smoke test above do not by themselves authorize the
+complete D061/D062 bot workflows. Current physical status is tracked explicitly:
 
-1. exact 15 minute watchdog expiry and repeated local OFF;
-2. managed -> HANDS_OFF release preserving Output/V/I/OVP/OCP with positive ACK;
-3. HANDS_OFF -> managed live adoption preserving Output/V/I/OVP/OCP with positive ACK;
-4. pre-command TOCTOU rejection remaining non-actuating;
-5. ambiguous command/ACK entering verified-OFF containment;
-6. raw-protection loss and out-of-band authority increase forcing verified OFF;
-7. restart containment with no HV resume;
-8. D063 prior-age accounting against a known external session start;
-9. physical D062 `MIX_TIMEOUT` and fresh Delta+2h terminal OFF paths.
+- [x] exact 15 minute edge watchdog expiry and autonomous local Output OFF;
+- [x] verified-OFF trip latch recovery through Disarm;
+- [x] managed -> HANDS_OFF release preserving Output/V/I/OVP/OCP;
+- [x] HANDS_OFF -> edge live adoption preserving the running program;
+- [x] adopted lease expiry -> autonomous local Output OFF;
+- [x] live-adopt command rejected while Output is already OFF;
+- [ ] bot-side pre-command TOCTOU rejection on real hardware;
+- [ ] ambiguous command/ACK containment on real hardware;
+- [ ] raw-protection loss/non-NORMAL injection;
+- [ ] out-of-band authority increase forcing verified OFF;
+- [ ] complete bot-runtime downward ratchet/Stop/restart containment;
+- [ ] D063 prior-age accounting against a known external session start;
+- [ ] full D062 `MIX_ADOPTED` takeover through the bot;
+- [ ] physical D062 `MIX_TIMEOUT` and fresh Delta+2h terminal OFF paths.
 
 Only recorded physical evidence may close those gates.
 
 ## Current physical status
 
-As of 2026-09-02 the canonical V2 firmware has been flashed to the target
-ESP8266/RD6018 and the following have been physically observed:
+As of 2026-09-02 the canonical V2 firmware is physically installed on the target
+ESP8266/RD6018 and the edge-level safety/ownership primitives have real bench
+evidence:
 
-- ESPHome 2026.8.2 node returned online after OTA;
+- ESPHome 2026.8.2 node returned online after production OTA;
 - `Safety Lease TTL = 900 s`;
 - raw protection/regulation V2 entities are present and readable;
-- boot quarantine cleared only after the idle Output OFF state was observed;
-- verified-OFF lease arm succeeded and incremented Generation;
-- verified-OFF Disarm returned the node to unarmed with Remaining=0;
-- Output remained OFF through those smoke operations.
+- boot quarantine cleared only after fresh direct Output OFF proof;
+- verified-OFF arm/disarm works;
+- a lease allowed to expire at 900 s latches trip;
+- with the RD6018 physically energized on a safe battery-disconnected bench, the
+  same expiry autonomously drove Output voltage/current to zero;
+- late recovery did not silently resume the old lease; verified-OFF Disarm cleared
+  the trip;
+- `Release To Hands Off` preserved an energized safe program and removed the lease
+  without changing Output/V/I/OVP/OCP;
+- `Adopt Live Output` successfully acquired an already-running safe program with
+  raw protection NORMAL, armed the 900 s lease and preserved Output/V/I/OVP/OCP;
+- expiry of that adopted lease autonomously drove Output OFF;
+- pressing `Adopt Live Output` while Output was OFF left Armed OFF, Remaining 0,
+  Generation unchanged and Output OFF.
 
-The full watchdog-expiry and D061/D062 live ownership-transfer bench gate remains
-open until separately observed and recorded.
+The detailed evidence record is:
+
+`docs/assistant/PHYSICAL_EDGE_VALIDATION_2026-09-02.md`
+
+This closes the basic **edge** implementation gate for D056, D060 release and the
+D061 ownership primitive. It does **not** close the complete D061/D062 bot-level
+failure-injection gate; the unchecked items above remain pending.
 
 ## Rollback
 
