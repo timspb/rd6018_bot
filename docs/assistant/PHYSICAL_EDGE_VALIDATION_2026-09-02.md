@@ -96,6 +96,8 @@ last accepted heartbeat
 
 This test proves the local edge does not require the bot or Home Assistant to execute the terminal OFF once the lease expires.
 
+The same wall-clock expiry was later repeated after D061 edge adoption and again drove the physical Output OFF. The 900 s watchdog timing therefore does not need to be repeatedly re-run during the remaining D061/D062 fault-injection work unless the edge lease implementation itself changes.
+
 ## D060 managed -> HANDS_OFF release
 
 A safe energized bench program was used with approximately:
@@ -184,6 +186,27 @@ Observed afterward:
 
 Result: **PHYSICAL PASS** for the basic negative gate: `Adopt Live Output` does not act as a generic arm command and does not energize an OFF RD6018.
 
+## ESP-only reboot containment boundary
+
+A stronger reboot test remains desirable:
+
+```text
+RD6018 stays powered + Output ON
+        -> reboot only ESP8266
+        -> boot quarantine
+        -> local Output OFF
+        -> fresh register-18 OFF proof
+```
+
+This test was **not** executed in the 2026-09-02 bench window because the current installation does not expose a clean independent ESP restart path while keeping the RD6018 continuously powered.
+
+Two invalid substitutes were explicitly rejected:
+
+- power-cycling the RD6018 also removes power from the ESP and independently collapses Output, so it cannot prove boot-quarantine actuation;
+- reflashing the same firmware over OTA is not a clean reboot injection on this deployed node: after OTA the node enters its captive/fallback Wi-Fi path and asks the operator to re-establish/confirm Wi-Fi connectivity, adding an unrelated network-state transition.
+
+Therefore **do not use OTA as a reboot-containment proof** on this node. Keep this gate pending until an independent ESP reset/restart mechanism is available. The already-observed post-flash quarantine smoke behavior remains valid, but it is not equivalent to the stronger Output-ON/ESP-only reboot fault injection.
+
 ## Physically validated vs still pending
 
 Validated on the real edge:
@@ -191,7 +214,7 @@ Validated on the real edge:
 - [x] ESPHome 2026.8.2 production flash and reconnect
 - [x] 900 s configured TTL publication
 - [x] raw protection/regulation telemetry presence
-- [x] boot quarantine -> fresh OFF proof -> clear
+- [x] boot quarantine -> fresh OFF proof -> clear on normal post-flash startup
 - [x] verified-OFF arm/disarm
 - [x] expiry latch
 - [x] autonomous physical Output OFF at 900 s
@@ -203,6 +226,7 @@ Validated on the real edge:
 
 Not yet physically validated and therefore still **PENDING**:
 
+- [ ] ESP-only reboot with RD continuously powered and Output initially ON
 - [ ] bot-side D061 read-only preflight and full durable ownership transaction
 - [ ] pre-command TOCTOU rejection on real hardware
 - [ ] generation race / ambiguous command-ACK containment
@@ -216,6 +240,22 @@ Not yet physically validated and therefore still **PENDING**:
 - [ ] physical D062 `MIX_TIMEOUT` terminal OFF
 - [ ] physical D062 fresh Delta + 2 h terminal OFF
 - [ ] external-temperature integrity calibration gates and other unrelated open bench/calibration work
+
+## Next validation order
+
+Do not spend another 900 s merely to re-prove the already-validated dead-man timer. Continue with short bot/runtime transactions first:
+
+1. full D061 takeover through the Telegram bot from HANDS_OFF;
+2. pre-command TOCTOU reject;
+3. ambiguous edge command/ACK -> verified-OFF containment;
+4. raw protection fault/loss -> verified OFF;
+5. authority decrease ratchet and out-of-band increase -> verified OFF;
+6. operator Stop;
+7. bot process kill/restart containment;
+8. D063 known-start prior-age proof;
+9. full D062 `MIX_ADOPTED` takeover and terminal paths.
+
+The ESP-only reboot gate can be revisited later when a clean independent ESP restart mechanism exists.
 
 ## Claim boundary
 
