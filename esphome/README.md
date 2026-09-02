@@ -275,6 +275,34 @@ ESP boot
 
 This is deliberate fail-closed behavior.
 
+## ESP-only reboot validation caveat
+
+Do not use a same-image OTA flash merely as a substitute for an independent ESP
+restart test on the currently deployed node.
+
+The stronger reboot-containment proof requires:
+
+```text
+RD6018 remains powered
+Output initially ON
+only ESP8266 restarts
+boot quarantine drives RD6018 Output OFF
+fresh register-18 OFF proof clears quarantine
+```
+
+Two common shortcuts are not valid evidence:
+
+- power-cycling RD6018 also removes the source of Output, so it cannot isolate the
+  ESP boot-quarantine action;
+- on the physically deployed node, the operator observed that after an OTA flash
+  the ESP enters its captive/fallback Wi-Fi path and asks for Wi-Fi connectivity to
+  be re-established/confirmed. That additional network-state transition means OTA
+  is not a clean ESP-only reboot injection for this bench claim.
+
+Keep the ESP-only reboot gate pending until a clean independent reset/restart path
+is available while RD6018 remains continuously powered. This does not invalidate
+the normal post-flash boot-quarantine smoke evidence already observed.
+
 ## Post-flash smoke gate
 
 Before connecting a battery or enabling a managed charge, verify in Home Assistant:
@@ -325,6 +353,7 @@ complete D061/D062 bot workflows. Current physical status is tracked explicitly:
 - [x] HANDS_OFF -> edge live adoption preserving the running program;
 - [x] adopted lease expiry -> autonomous local Output OFF;
 - [x] live-adopt command rejected while Output is already OFF;
+- [ ] ESP-only reboot with RD continuously powered and Output initially ON;
 - [ ] bot-side pre-command TOCTOU rejection on real hardware;
 - [ ] ambiguous command/ACK containment on real hardware;
 - [ ] raw-protection loss/non-NORMAL injection;
