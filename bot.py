@@ -16,6 +16,7 @@ from diagnostic_persistence import (
     install_diagnostic_persistence,
     recover_diagnostic_persistence,
 )
+from live_output_readback_v2 import install_output_state_readback
 from manual_context_v2 import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
@@ -24,6 +25,7 @@ from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from operator_managed_stop import install_operator_managed_stop
+from operator_mix_eligibility import install_mix_action_eligibility
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
@@ -51,6 +53,11 @@ install_manual_context_preprocessor(_legacy)
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
 _v2_ui_enabled = _env_enabled("V2_UI", True)
 install_v2(_legacy, install_ui=_v2_ui_enabled)
+# The public ESPHome Output switch remains the actuator endpoint, but an unchanged
+# switch state is not a source heartbeat. Prefer the V2 force-updated read-only
+# register-18 sensor for canonical Output value/freshness whenever the matching
+# firmware is present; absence remains fail-closed through the legacy path.
+install_output_state_readback(_legacy)
 # Composition guardrails close historical bot_legacy authority leaks without changing
 # the V1 reference file itself: Vin becomes PSU-health-only and Cooling resume requires
 # a complete durable V2 continuation token (SAFE_WAIT always remains Output OFF).
@@ -113,6 +120,10 @@ if _v2_ui_enabled:
     install_operator_destructive_guard(_legacy)
     install_operator_managed_stop(_legacy)
     install_operator_graph_dashboard(_legacy)
+    # Mix affordances are contextual, not generic HANDS_OFF+ON actions. Hide them for
+    # setpoints that cannot be high-voltage Mix under any supported chemistry and gate
+    # stale Telegram callback messages with the same live rule.
+    install_mix_action_eligibility(_legacy)
 
 _legacy_main = _legacy.main
 

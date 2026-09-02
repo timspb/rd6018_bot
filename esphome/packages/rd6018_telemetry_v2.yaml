@@ -63,6 +63,9 @@ sensor:
     unit_of_measurement: "°C"
     accuracy_decimals: 0
     update_interval: 5s
+    # HA last_reported is a safety heartbeat only when unchanged values are still
+    # published. D061/D062 freshness must not depend on temperature numerically moving.
+    force_update: true
     lambda: |-
       if (isnan(id(rd6018_temp_int_sign_raw).state) ||
           isnan(id(rd6018_temp_int_magnitude_raw).state)) return NAN;
@@ -94,6 +97,7 @@ sensor:
     register_type: holding
     value_type: U_WORD
     accuracy_decimals: 0
+    force_update: true
 
   # Register 17 is a status code: 0 CV / 1 CC.
   - platform: modbus_controller
@@ -105,6 +109,21 @@ sensor:
     register_type: holding
     value_type: U_WORD
     accuracy_decimals: 0
+    force_update: true
+
+  # Read-only Output truth for V2 freshness. The public switch in rd6018.yaml remains
+  # the actuator endpoint; this sensor exists so an unchanged register-18 value still
+  # produces a source heartbeat in Home Assistant.
+  - platform: modbus_controller
+    id: rd6018_output_state_code_v2
+    name: "Output State Code V2"
+    entity_category: diagnostic
+    modbus_controller_id: powersupply
+    address: 18
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    force_update: true
 
   - platform: modbus_controller
     id: rd6018_active_preset_v2
@@ -142,6 +161,7 @@ sensor:
     unit_of_measurement: "°C"
     accuracy_decimals: 0
     update_interval: 5s
+    force_update: true
     lambda: |-
       if (isnan(id(rd6018_temp_ext_sign_raw).state) ||
           isnan(id(rd6018_temp_ext_magnitude_raw).state)) return NAN;

@@ -86,6 +86,9 @@ ENTITY_MAP = {
     "is_cc": "binary_sensor.rd_6018_constant_current",
     "regulation_code": "sensor.rd_6018_regulation_mode_code",
     "protection_code": "sensor.rd_6018_protection_status_code",
+    # Force-updated read-only register-18 mirror. The public switch remains the
+    # actuator endpoint; this sensor owns canonical Output freshness in V2.
+    "output_state_code_v2": "sensor.rd_6018_output_state_code_v2",
     "battery_mode": "binary_sensor.rd_6018_battery_mode",
     "keypad_lock": "binary_sensor.rd_6018_keypad_lock",
     "ovp_triggered": "binary_sensor.rd_6018_over_voltage_protection",

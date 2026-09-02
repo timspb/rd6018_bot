@@ -120,6 +120,9 @@ sensor:
     register_type: holding
     value_type: U_WORD
     accuracy_decimals: 2
+    # V2 uses HA last_reported as source freshness. Publish unchanged direct Modbus
+    # values too; a stable voltage must not look like a dead telemetry source.
+    force_update: true
     filters:
       - multiply: 0.01
 
@@ -134,6 +137,7 @@ sensor:
     register_type: holding
     value_type: U_WORD
     accuracy_decimals: 2
+    force_update: true
     filters:
       - multiply: 0.01
 
@@ -176,6 +180,7 @@ sensor:
     register_type: holding
     value_type: U_WORD
     accuracy_decimals: 2
+    force_update: true
     filters:
       - multiply: 0.01
 
