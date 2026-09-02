@@ -55,6 +55,12 @@ The firmware composes three safety packages:
   - register 17 is exposed as the regulation mode code (`0=CV`, `1=CC`);
   - output power is read from register 13 as one `U_WORD`;
   - internal/external temperatures use the RD6018 sign+magnitude register pairs;
+  - critical stable telemetry/status sources used for V2 freshness publish unchanged
+    samples to Home Assistant (`force_update`), so a numerically stable value still
+    has a current source heartbeat;
+  - register 18 is additionally exposed as read-only `Output State Code V2` with
+    `force_update`; the public `Output` switch remains the actuator endpoint while
+    this read-only mirror supplies canonical Output value/freshness evidence to V2;
   - calibration registers are read-only diagnostics.
 
 - `rd6018_live_adoption.yaml`
@@ -66,6 +72,57 @@ The firmware composes three safety packages:
     Output, voltage, current, OVP or OCP.
 
 `rd6018.yaml` also preserves the Home Assistant entity names used by the bot.
+
+## 2026-09-03 source-heartbeat correction
+
+The first real bot-level D061 preflight exposed a distinction between **RD Modbus is
+fresh** and **each HA entity has a fresh source report**. During an external HANDS_OFF
+program the physical edge reported approximately:
+
+```text
+Safety Modbus Age ~0.9 s
+Protection Status Code = 0
+Regulation Mode Code = 1
+```
+
+but the bot correctly rejected acquisition because the unchanged battery-voltage HA
+entity had aged beyond the V2 safety limit:
+
+```text
+battery_voltage stale age=45.2s>20.0s
+```
+
+The 20 s fail-close is intentionally **not** widened. Instead, the canonical firmware
+now publishes unchanged critical observations as source reports:
+
+- `Output voltage` register 10: `force_update: true`;
+- `Output current` register 11: `force_update: true`;
+- `Battery voltage` register 33: `force_update: true`;
+- `Protection Status Code` register 16: `force_update: true`;
+- `Regulation Mode Code` register 17: `force_update: true`;
+- corrected internal/external V2 temperature templates: `force_update: true`;
+- new read-only `Output State Code V2`, register 18: `force_update: true`.
+
+The public Home Assistant Output switch is still the write/actuator entity. The bot
+uses `Output State Code V2` only as the canonical read-only Output value/freshness
+source when it exists. Missing, invalid or stale evidence remains fail-closed.
+
+This source-heartbeat change does **not** modify `rd6018_safety_lease.yaml`, the
+900 s TTL, the 300 s bot renewal interval, lease expiry logic or boot quarantine.
+Therefore the already-completed 900 s physical watchdog tests do not need to be
+repeated solely because of this telemetry publication correction.
+
+Code-bearing commit `28dd548bfddbb4a4913a1fd64be26c7bd3ededfa` passed exact-head:
+
+```text
+CI #1091                 SUCCESS
+ESPHome firmware #29     SUCCESS
+```
+
+Those results prove software/compile validity only. The corrected firmware must still
+be built with local production secrets, flashed at a safe interruption point and
+physically checked before the corrected D061 source-heartbeat path can be called a
+physical PASS.
 
 ## Supported build environment
 
@@ -315,6 +372,7 @@ Safety Lease Tripped         = OK/OFF
 Safety Boot Quarantine       = OK/OFF after fresh OFF proof
 Safety Modbus Age            fresh (well below 20 s)
 Protection Status Code       = 0 / NORMAL on an idle healthy RD
+Output State Code V2         = 0 while Output OFF
 Output                        = OFF
 ```
 
@@ -327,10 +385,18 @@ Safety Lease Release To Hands Off
 Safety Lease Adopt Live Output
 Protection Status Code
 Regulation Mode Code
+Output State Code V2
 Temperature Internal V2
 Temperature External V2
 Output Power V2
 ```
+
+For the 2026-09-03 source-heartbeat correction, keep the values stable for at least
+30-60 seconds and inspect HA source timestamps. `last_reported` for the critical
+V2 sources used by the bot should continue advancing at roughly the 5 s Modbus/update
+cadence rather than aging past 20 s merely because the numerical value did not move.
+At minimum verify this behavior for battery voltage, output voltage/current, raw
+protection/regulation, corrected temperatures and `Output State Code V2`.
 
 ### Verified-OFF arm/disarm smoke test
 
@@ -353,6 +419,9 @@ complete D061/D062 bot workflows. Current physical status is tracked explicitly:
 - [x] HANDS_OFF -> edge live adoption preserving the running program;
 - [x] adopted lease expiry -> autonomous local Output OFF;
 - [x] live-adopt command rejected while Output is already OFF;
+- [x] first real bot D061 preflight rejected stale HA battery-voltage source evidence read-only, before any edge command or actuator write;
+- [ ] corrected force-updated source heartbeat + `Output State Code V2` physically deployed/verified;
+- [ ] full bot D061 positive takeover after the corrected firmware/bot pairing;
 - [ ] ESP-only reboot with RD continuously powered and Output initially ON;
 - [ ] bot-side pre-command TOCTOU rejection on real hardware;
 - [ ] ambiguous command/ACK containment on real hardware;
@@ -367,9 +436,9 @@ Only recorded physical evidence may close those gates.
 
 ## Current physical status
 
-As of 2026-09-02 the canonical V2 firmware is physically installed on the target
-ESP8266/RD6018 and the edge-level safety/ownership primitives have real bench
-evidence:
+As of the original 2026-09-02 flash, the canonical V2 firmware is physically installed
+on the target ESP8266/RD6018 and the edge-level safety/ownership primitives have real
+bench evidence:
 
 - ESPHome 2026.8.2 node returned online after production OTA;
 - `Safety Lease TTL = 900 s`;
@@ -389,13 +458,19 @@ evidence:
 - pressing `Adopt Live Output` while Output was OFF left Armed OFF, Remaining 0,
   Generation unchanged and Output OFF.
 
+On 2026-09-03 the first real bot D061 preflight with a connected Varta AGM 80 Ah
+battery exposed the stale HA source-heartbeat defect described above. The transaction
+rejected before any edge command and did not alter the external HANDS_OFF program.
+The corrected firmware source compiles in CI but is **not yet physically installed**.
+
 The detailed evidence record is:
 
 `docs/assistant/PHYSICAL_EDGE_VALIDATION_2026-09-02.md`
 
 This closes the basic **edge** implementation gate for D056, D060 release and the
-D061 ownership primitive. It does **not** close the complete D061/D062 bot-level
-failure-injection gate; the unchecked items above remain pending.
+D061 ownership primitive. It also records a real read-only bot preflight failure. It
+does **not** close the complete D061/D062 bot-level failure-injection gate; the
+unchecked items above remain pending.
 
 ## Rollback
 

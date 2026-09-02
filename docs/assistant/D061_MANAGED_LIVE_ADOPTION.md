@@ -1,6 +1,6 @@
 # D061 — managed adoption of an already-ON RD6018
 
-Status: **software contract implemented; edge ownership primitive physically validated; full bot-level D061 failure-injection gate still pending.**
+Status: **software contract implemented; edge ownership primitive physically validated; first bot preflight physically exercised read-only but positive takeover remains pending after a source-heartbeat defect was found.**
 
 D061 is intentionally different from the existing HANDS_OFF observer. The observer can watch an already-running external program and, if explicitly authorized, perform a future verified OFF while low-level ownership remains HANDS_OFF. D061 actually transfers an already-ON output into `PB_MANAGED` ownership.
 
@@ -199,24 +199,79 @@ Detailed evidence record:
 
 `docs/assistant/PHYSICAL_EDGE_VALIDATION_2026-09-02.md`
 
+## 2026-09-03 bot-level physical preflight finding
+
+A real D061 Telegram preflight was exercised with a connected Varta AGM 80 Ah battery (`Mercedes A 001 982 81 08`, 800 A EN/SAE/GS, terminal mark `16/19`) and a safe HANDS_OFF low-current program:
+
+```text
+Output ON
+Vset 13.60 V
+Iset 0.20 A
+OVP  13.80 V
+OCP  0.40 A
+Vout ~12.90-13.02 V
+Iout ~0.19 A
+battery temp ~27 C
+Protection Status Code = 0
+Regulation Mode Code = 1 / CC
+Safety Modbus Age ~0.9 s
+lease unarmed, Generation 7
+```
+
+The first `🔒 Забрать под Pb-контроль` action failed in the read-only HA preflight with:
+
+```text
+critical runtime telemetry is stale/incoherent:
+battery_voltage stale age=45.2s>20.0s
+```
+
+This happened while the edge-local direct Modbus evidence was fresh. The transaction stopped before battery selection, durable `ADOPTION_PENDING`, edge `prepare()` or `Adopt Live Output`. No D061 Output/V/I/OVP/OCP write occurred and the external HANDS_OFF program remained unchanged.
+
+Therefore this is a **real bot-level physical/integration FAIL of the old source-heartbeat publication contract**, together with a PASS for the intended fail-closed/read-only pre-command boundary. It is not a watchdog failure and it is not a partial ownership transfer.
+
+The root contract issue is that V2 treated HA `last_reported` as a source heartbeat, but the ESPHome entities that represented stable direct Modbus values were not required to publish unchanged values. A numerically stable `battery_voltage` (and similarly the public Output switch) could therefore look stale even while RD6018 polling itself remained healthy.
+
+The correction is intentionally **not** to widen or remove the 20 s freshness gate. Code-bearing commit `28dd548bfddbb4a4913a1fd64be26c7bd3ededfa` instead changes the evidence source:
+
+- direct stable critical numeric/status entities publish unchanged reports with `force_update: true`;
+- a new read-only force-updated register-18 sensor `Output State Code V2` provides canonical Output value/freshness evidence;
+- the public Home Assistant Output switch remains the actuator endpoint and is not reused as a synthetic heartbeat;
+- Python promotes the read-only register-18 sensor to canonical `switch` value + freshness metadata when it is present;
+- missing/invalid new evidence still fails closed rather than manufacturing freshness.
+
+The same code commit also fixes the unrelated HMI defect exposed during this run: generic HANDS_OFF Mix actions are hidden for setpoints that cannot be high-voltage Mix for any supported chemistry, and stale Telegram Mix callbacks are rechecked against current live set voltage. At `13.60 V`, ordinary D061 Pb takeover remains available but Mix entry actions must not be presented.
+
+Exact-head validation of `28dd548bfddbb4a4913a1fd64be26c7bd3ededfa`:
+
+```text
+CI #1091                 SUCCESS (Python 3.10 / 3.11 / 3.12)
+ESPHome firmware #29     SUCCESS (canonical dummy-secrets compile)
+```
+
+This establishes **software implemented + CI PASS only** for the correction. The corrected firmware has not yet been flashed to the physical node, and the matching bot has not yet repeated the positive takeover. Do not claim D061 positive physical PASS until that short re-test succeeds.
+
+The change does not modify `rd6018_safety_lease.yaml`, the 900 s TTL or heartbeat timing. The already-completed 900 s physical endurance test therefore does not need to be repeated solely because of this telemetry publication correction.
+
 ## Remaining D061 bench gate
 
 The edge primitive is now physically proven, but the **complete bot-level D061 transaction is not yet fully hardware fault-injected**. The remaining items are:
 
-1. [x] Exact full node configuration compiles/runs.
+1. [x] Exact original full node configuration compiles/runs and the original V2 edge contract is physically deployed.
 2. [x] Boot/restart quarantine forces and proves Output OFF at the deployed edge smoke boundary.
 3. [x] Published `Safety Lease TTL` reports `900 s`.
-4. [ ] Inject/verify every raw register-16 NORMAL/OVP/OCP/OPP mapping on hardware; NORMAL has been observed, but OVP/OCP/OPP fault injection is still pending.
-5. [ ] Force stale/nonzero direct internal register-16 evidence and prove live-adopt rejection physically.
-6. [ ] Run the full bot D061 preflight and prove it is read-only on hardware.
-7. [x] Edge live-adopt preserves Output/V/I/OVP/OCP.
-8. [x] Edge adoption arms a healthy near-full 900 s lease with fresh Modbus and generation advancement.
-9. [ ] Inject generation race / ambiguous ACK through the bot and prove containment.
-10. [ ] Inject raw protection loss immediately after ACK.
-11. [ ] Inject raw protection loss/OPP during a full managed bot session and prove verified OFF.
-12. [ ] Inject out-of-band V/I/OVP/OCP increase; prove verified OFF and separately prove downward authority ratchet.
-13. [ ] Exercise Operator Stop through the D061 managed runtime.
-14. [ ] Kill/restart the bot process while adopted; prove no live-authority resume and verified-OFF containment.
-15. [ ] Only after the complete bot-level D061 gate passes may D062 `MIX_ADOPTED` be called fully physical-validated.
+4. [ ] Deploy and physically verify the corrected force-updated critical telemetry / `Output State Code V2` source-heartbeat contract.
+5. [ ] Inject/verify every raw register-16 NORMAL/OVP/OCP/OPP mapping on hardware; NORMAL has been observed, but OVP/OCP/OPP fault injection is still pending.
+6. [ ] Force stale/nonzero direct internal register-16 evidence and prove live-adopt rejection physically.
+7. [x] Run the bot D061 first preflight on real hardware and prove pre-command rejection is read-only; the 2026-09-03 run rejected stale `battery_voltage` before any edge command or actuator write.
+8. [ ] Repeat the short positive bot D061 takeover after corrected firmware + matching bot deployment.
+9. [x] Edge live-adopt preserves Output/V/I/OVP/OCP.
+10. [x] Edge adoption arms a healthy near-full 900 s lease with fresh Modbus and generation advancement.
+11. [ ] Inject generation race / ambiguous ACK through the bot and prove containment.
+12. [ ] Inject raw protection loss immediately after ACK.
+13. [ ] Inject raw protection loss/OPP during a full managed bot session and prove verified OFF.
+14. [ ] Inject out-of-band V/I/OVP/OCP increase; prove verified OFF and separately prove downward authority ratchet.
+15. [ ] Exercise Operator Stop through the D061 managed runtime.
+16. [ ] Kill/restart the bot process while adopted; prove no live-authority resume and verified-OFF containment.
+17. [ ] Only after the complete bot-level D061 gate passes may D062 `MIX_ADOPTED` be called fully physical-validated.
 
-CI success plus the edge bench results now mean **software PASS + edge primitive PHYSICAL PASS**, not yet complete D061 production validation.
+Current claim boundary: **software PASS + exact-head CI PASS + original edge primitive PHYSICAL PASS + first bot preflight physical FAIL/read-only containment evidence**. Positive complete D061 production validation remains pending.

@@ -1,6 +1,6 @@
 # D062 / D063 — managed adoption of an already-running external Mix
 
-Status: **software contract implemented; exact ESPHome D061 live-adoption compile/flash/bench validation pending. Do not claim physical managed-Mix takeover ready yet.**
+Status: **software contract implemented; original D061 edge primitive physically validated; refreshed source-heartbeat firmware/bot pairing and full D062 physical takeover remain pending. Do not claim physical managed-Mix takeover ready yet.**
 
 D062 is intentionally separate from both D061 Adopted Manual and the HANDS_OFF external-Mix observer:
 
@@ -164,29 +164,72 @@ A normal external Output OFF also retires `MIX_ADOPTED`; it is not re-energized.
 
 ## Telegram/HMI contract
 
-From HANDS_OFF + Output ON the operator may select **Забрать Mix под управление**. The workflow remains read-only through battery selection, prior-age resolution and preview. A separate final confirmation precedes edge execution.
+From HANDS_OFF + Output ON the operator may select **Забрать Mix под управление** only when the current set voltage can plausibly be a supported chemistry high-voltage Mix. The workflow remains read-only through battery selection, prior-age resolution and preview. A separate final confirmation precedes edge execution.
+
+The pre-selection HMI filter is deliberately only a coarse impossibility gate because chemistry is not yet known. Exact eligibility remains chemistry-specific after the physical battery is selected: set voltage must be above that chemistry's normal ceiling and at/below its recovery ceiling, with its HV current envelope and all D061 protection/freshness gates satisfied.
 
 While active, the main HMI must show `MIX_ADOPTED`, the selected battery, current authority, total used chemistry budget and either fresh Delta progress or sticky-hold progress. The primary destructive action is stop-only and performs verified Output OFF; legacy power toggle or PB restore must not be exposed as a substitute.
 
 D062 callbacks belong to the same L3/L4 terminal-panel workspace discipline as the existing HANDS_OFF observer and D061 workflows. Execute/cancel/stop-execute close the workspace and republish the authoritative L2 panel.
 
+## 2026-09-03 HMI eligibility finding
+
+During a real D061 preparation run, HANDS_OFF was active with Output ON at:
+
+```text
+Vset = 13.60 V
+Iset = 0.20 A
+OVP  = 13.80 V
+OCP  = 0.40 A
+```
+
+The old composed Telegram panel incorrectly exposed both:
+
+```text
+🧲 Подхватить текущий Mix
+🎯 Забрать Mix под управление
+```
+
+At `13.60 V`, the external program is not a high-voltage Mix for any currently supported D062 chemistry. The existing deeper D062 `_chemistry_preflight()` would eventually reject it after battery selection, so the actuator authority itself was not widened, but the top-level HMI was misleading and stale Telegram callback messages could still reopen the inapplicable flow.
+
+Code-bearing fix `28dd548bfddbb4a4913a1fd64be26c7bd3ededfa` adds a shared generic Mix-entry gate:
+
+- before chemistry selection, Mix actions are shown only when set voltage is above the lowest possible supported high-voltage boundary derived from the same D062 chemistry policies/tolerance;
+- if the current setpoint is definitely non-Mix, both HANDS_OFF Mix actions are removed while ordinary `🔒 Забрать под Pb-контроль` D061 and Output OFF remain available;
+- old Telegram `rd_live_mix` / `rd_managed_mix` callbacks are revalidated against the current live setpoint so an obsolete message cannot bypass the UI filter;
+- after battery selection, the existing chemistry-specific D062 envelope remains authoritative and may still reject a voltage/current that passed the coarse pre-selection filter.
+
+The same commit also corrects stable HA source-heartbeat publication needed by D061/D062 freshness; it does not relax the 20 s freshness requirement.
+
+Exact-head validation for this code-bearing fix:
+
+```text
+CI #1091                 SUCCESS
+ESPHome firmware #29     SUCCESS
+```
+
+No D062 takeover was performed during the 13.60 V run. The connected battery was used only for the D061 preflight, which failed read-only before any edge adoption command because the old `battery_voltage` HA heartbeat was stale. Therefore **D062/D063 physical status remains PENDING**.
+
 ## Required physical bench gate
 
-Software CI is not physical takeover validation. Before relying on D062 on a real battery, first pass the complete D061 edge bench gate in `D061_MANAGED_LIVE_ADOPTION.md`, then additionally prove D062 on an OFF/dummy-load-safe setup:
+Software CI is not physical takeover validation. Before relying on D062 on a real battery, first pass the complete D061 bot/runtime gate in `D061_MANAGED_LIVE_ADOPTION.md`, then additionally prove D062 on an appropriate safe setup:
 
-1. Exact combined ESPHome node package compiles and is flashed.
+1. Exact combined corrected ESPHome node package compiles and is physically flashed/verified.
 2. Published TTL is exactly 900 s and raw register-16 protection semantics are correct.
-3. Start an external high-voltage Mix with legal positive V/I/OVP/OCP and record all four settings plus Output.
-4. D062 preview is fully read-only.
-5. Successful takeover changes edge/software ownership only; Output/V/I/OVP/OCP remain unchanged through positive ACK and post-ACK TOCTOU.
-6. A pre-command race/reject leaves external Output/settings untouched.
-7. An actually ambiguous command/ACK enters verified-OFF containment.
-8. Out-of-band increases and loss of required managed evidence force verified OFF.
-9. Downward authority changes ratchet only downward and restart the fresh Delta epoch.
-10. Prior-age accounting is checked against a known external start time and cannot shrink across repeated Recorder reads.
-11. `MIX_TIMEOUT` physically drives and proves OFF at the chemistry active-time boundary when no hold was started.
-12. A finish hold started before the boundary may complete after it and ends in verified OFF.
-13. Process kill/restart while `MIX_ADOPTED` never resumes HV authority and completes verified-OFF containment.
-14. No successful or failure path silently enters SAFE_WAIT/Storage or turns Output ON.
+3. Critical HA source heartbeats remain fresh while stable, including the read-only register-18 Output state source.
+4. Start an external high-voltage Mix with legal positive V/I/OVP/OCP and record all four settings plus Output.
+5. D062 preview is fully read-only.
+6. Successful takeover changes edge/software ownership only; Output/V/I/OVP/OCP remain unchanged through positive ACK and post-ACK TOCTOU.
+7. A pre-command race/reject leaves external Output/settings untouched.
+8. An actually ambiguous command/ACK enters verified-OFF containment.
+9. Out-of-band increases and loss of required managed evidence force verified OFF.
+10. Downward authority changes ratchet only downward and restart the fresh Delta epoch.
+11. Prior-age accounting is checked against a known external start time and cannot shrink across repeated Recorder reads.
+12. `MIX_TIMEOUT` physically drives and proves OFF at the chemistry active-time boundary when no hold was started.
+13. A finish hold started before the boundary may complete after it and ends in verified OFF.
+14. Process kill/restart while `MIX_ADOPTED` never resumes HV authority and completes verified-OFF containment.
+15. No successful or failure path silently enters SAFE_WAIT/Storage or turns Output ON.
 
-Until those gates pass, D062/D063 status is **software-contract PASS only**.
+The 900 s watchdog itself has already been physically proven before and after edge D061 adoption. Because the 2026-09-03 correction does not alter `rd6018_safety_lease.yaml` or TTL timing, do not repeat a 900 s endurance wait solely for this source-heartbeat/HMI change.
+
+Until the remaining gates pass, D062/D063 status is **software-contract PASS only**; managed-Mix physical takeover is not yet validated.

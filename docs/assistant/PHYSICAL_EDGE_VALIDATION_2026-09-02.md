@@ -2,7 +2,7 @@
 
 Status: **PARTIAL PHYSICAL PASS**
 
-This record captures only behavior that was physically observed on the real ESP8266/RD6018 edge during the 2026-09-02 bench window. It does not promote untested bot-level D061/D062 failure paths to hardware-validated status.
+This record captures only behavior that was physically observed on the real ESP8266/RD6018 edge during the 2026-09-02 bench window and subsequent 2026-09-03 bot-level checks. It does not promote untested bot-level D061/D062 failure paths to hardware-validated status.
 
 ## Deployed target
 
@@ -186,6 +186,75 @@ Observed afterward:
 
 Result: **PHYSICAL PASS** for the basic negative gate: `Adopt Live Output` does not act as a generic arm command and does not energize an OFF RD6018.
 
+## 2026-09-03 D061 bot preflight — real AGM battery, read-only FAIL
+
+The first full Telegram D061 attempt used a truthful connected physical battery rather than the disconnected BAIC entry:
+
+```text
+Battery: Varta AGM / Mercedes OEM
+Capacity: 80 Ah
+Part: A 001 982 81 08
+CCA: 800 A EN/SAE/GS
+Terminal marking: 16/19
+```
+
+The external HANDS_OFF program was deliberately low-current and non-Mix:
+
+```text
+Output ON
+Vset = 13.60 V
+Iset = 0.20 A
+OVP  = 13.80 V
+OCP  = 0.40 A
+Vout ~12.90-13.02 V
+Iout ~0.19 A
+battery temperature ~27 C
+Protection Status Code = 0 / NORMAL
+Regulation Mode Code = 1 / CC
+Safety Modbus Age ~0.9 s
+Safety Lease Armed = OFF
+Safety Lease Remaining = 0 s
+Safety Lease Generation = 7
+```
+
+On `🔒 Забрать под Pb-контроль`, the D061 HA-side preflight rejected the transaction before battery selection / durable `ADOPTION_PENDING` / edge command execution:
+
+```text
+live adoption freshness rejected:
+critical runtime telemetry is stale/incoherent:
+battery_voltage stale age=45.2s>20.0s
+```
+
+The truthful HMI also degraded to `OUTPUT НЕ ПОДТВЕРЖДЁН / Output UNKNOWN` when the unchanged public Output entity itself became stale by the same HA source-timestamp rule.
+
+Observed transaction boundary:
+
+- the RD direct edge watchdog still reported fresh Modbus (`~0.9 s`);
+- the D061 edge `Adopt Live Output` command was **not** invoked;
+- no D061 write to Output, Vset, Iset, OVP or OCP occurred;
+- the external HANDS_OFF program remained physically running with the same settings;
+- no managed lease/authority was acquired.
+
+Result: **PHYSICAL/INTEGRATION FAIL at the read-only pre-command freshness gate**, with the fail-closed/no-actuation behavior itself working as intended. This is not a failure of the already-proven 900 s edge watchdog. The observed defect was the HA publication heartbeat for unchanged critical ESPHome entities: a stable value could remain numerically valid while its `last_reported` exceeded the 20 s safety limit.
+
+The same test exposed a separate HMI eligibility defect: at `Vset = 13.60 V`, the HANDS_OFF panel offered `Подхватить текущий Mix` and `Забрать Mix под управление` even though this setpoint is not a high-voltage Mix for any supported chemistry.
+
+Repository fix `28dd548bfddbb4a4913a1fd64be26c7bd3ededfa` addresses both findings without widening the 20 s fail-close:
+
+- stable critical direct Modbus/status channels are configured to publish unchanged samples to HA (`force_update`);
+- a force-updated read-only register-18 `Output State Code V2` is added as canonical Output value/freshness evidence while the public Output switch remains the actuator;
+- impossible low-voltage Mix entry actions are hidden and stale Telegram Mix callbacks are re-gated against current live set voltage;
+- chemistry-specific D062 eligibility remains authoritative after physical battery selection.
+
+Exact-head software validation for that code-bearing fix passed:
+
+```text
+CI #1091                 SUCCESS (Python 3.10 / 3.11 / 3.12)
+ESPHome firmware #29     SUCCESS (dummy-secrets compile artifact)
+```
+
+The corrected firmware/software has **not yet been physically deployed/retested** in this record. Therefore the complete bot-level D061 positive takeover remains **PENDING**. Because `rd6018_safety_lease.yaml`, TTL and lease timing were not changed, this correction does not justify another 900 s watchdog wait by itself.
+
 ## ESP-only reboot containment boundary
 
 A stronger reboot test remains desirable:
@@ -223,11 +292,13 @@ Validated on the real edge:
 - [x] D061 edge Adopt Live Output preserving the running program
 - [x] D061 adopted-session expiry -> autonomous Output OFF
 - [x] D061 edge adopt rejected while Output is OFF
+- [x] bot-side D061 first preflight physically exercised and rejected read-only on stale HA source freshness; no edge command or actuator write occurred
 
 Not yet physically validated and therefore still **PENDING**:
 
+- [ ] corrected source-heartbeat firmware + matching bot deployment and short D061 positive re-test
+- [ ] full durable bot-level D061 ownership transaction
 - [ ] ESP-only reboot with RD continuously powered and Output initially ON
-- [ ] bot-side D061 read-only preflight and full durable ownership transaction
 - [ ] pre-command TOCTOU rejection on real hardware
 - [ ] generation race / ambiguous command-ACK containment
 - [ ] direct raw-protection loss/non-NORMAL injection
@@ -245,7 +316,7 @@ Not yet physically validated and therefore still **PENDING**:
 
 Do not spend another 900 s merely to re-prove the already-validated dead-man timer. Continue with short bot/runtime transactions first:
 
-1. full D061 takeover through the Telegram bot from HANDS_OFF;
+1. deploy the corrected source-heartbeat firmware + matching bot only when a reboot/Output interruption is safe, then repeat the short D061 Telegram takeover;
 2. pre-command TOCTOU reject;
 3. ambiguous edge command/ACK -> verified-OFF containment;
 4. raw protection fault/loss -> verified OFF;
@@ -259,6 +330,6 @@ The ESP-only reboot gate can be revisited later when a clean independent ESP res
 
 ## Claim boundary
 
-The edge firmware is no longer merely compile-tested: the local dead-man, D060 release, and the basic D061 live-adoption primitive have real hardware evidence.
+The original deployed edge firmware is no longer merely compile-tested: the local dead-man, D060 release, and the basic D061 live-adoption primitive have real hardware evidence. The first bot-level D061 preflight also has real evidence: it failed closed, read-only, on a genuine HA source-heartbeat defect.
 
-This does **not** yet mean the complete D061 or D062 bot workflow is production-validated. Any remaining failure path above stays software-only until separately fault-injected and observed on hardware.
+The source-heartbeat/Mix-HMI correction is **software implemented + exact-head CI/firmware compile PASS**, but not yet physically deployed/retested. This does **not** yet mean the complete D061 or D062 bot workflow is production-validated. Any remaining failure path above stays software-only until separately fault-injected and observed on hardware.
