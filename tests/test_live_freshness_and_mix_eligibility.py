@@ -5,6 +5,7 @@ import unittest
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from config import ENTITY_MAP
 from live_output_readback_v2 import (
     install_output_state_readback,
     promote_output_state_readback,
@@ -17,6 +18,12 @@ from operator_mix_eligibility import (
 
 
 class LiveOutputReadbackV2Tests(unittest.TestCase):
+    def test_deployed_output_state_entity_id_is_exact(self):
+        self.assertEqual(
+            ENTITY_MAP["output_state_code_v2"],
+            "sensor.rd6018_rd_6018_output_state_code_v2",
+        )
+
     def test_read_only_output_code_owns_canonical_value_and_freshness(self):
         live = {
             "switch": "on",
