@@ -495,6 +495,10 @@ class PhysicalTestControlSourceFaults:
             ) from caught
         if result is None:
             raise PhysicalTestControlError("B16 safe-output path returned no result")
+        if counts["turn_on"] != 0:
+            raise PhysicalTestControlError(
+                "B16 failed: coordinator reached Output ON before fresh programmed readback"
+            )
         if not injected_readback:
             raise PhysicalTestControlError(
                 "B16 did not reach the post-programming readback boundary"
@@ -504,10 +508,6 @@ class PhysicalTestControlSourceFaults:
                 raise PhysicalTestControlError(
                     f"B16 expected exactly one same-value {key} write, observed {counts[key]}"
                 )
-        if counts["turn_on"] != 0:
-            raise PhysicalTestControlError(
-                "B16 failed: coordinator reached Output ON before fresh programmed readback"
-            )
         if counts["turn_off"] != 1:
             raise PhysicalTestControlError(
                 f"B16 expected one fail-safe Output OFF request, observed {counts['turn_off']}"
