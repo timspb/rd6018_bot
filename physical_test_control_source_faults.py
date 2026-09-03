@@ -1,9 +1,11 @@
 """Deterministic source-freshness faults for the local physical-test control plane.
 
-This extension reuses the existing opt-in root-only AF_UNIX server.  Every operation
-mutates exactly one in-memory production decision snapshot, never HA/RD state.  The
-normal production runtime must detect the bad evidence and perform verified Output
-OFF; all later OFF-confirmation reads use the restored real reader.
+This extension reuses the existing opt-in root-only AF_UNIX server.  Managed-source
+operations mutate exactly one in-memory production decision snapshot, never HA/RD
+state.  B16 performs one deliberately narrow same-value OVP/OCP/V/I programming
+transaction while Output is already OFF and withholds only the post-write Vset
+freshness observation from the production coordinator.  No operation accepts an
+entity ID, timestamp, setpoint, or other authority-widening parameter.
 """
 
 from __future__ import annotations
@@ -16,7 +18,16 @@ from physical_test_control import (
     PhysicalTestControlError,
     _json_value,
 )
-from rd6018_telemetry import RegulationMode, as_bool, resolve_regulation
+from rd6018_telemetry import (
+    ProtectionStatus,
+    RegulationMode,
+    as_bool,
+    finite_float,
+    resolve_protection,
+    resolve_regulation,
+    telemetry_freshness,
+)
+from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
 
 
 _SOURCE_FAULT_OPS = {
@@ -26,7 +37,12 @@ _SOURCE_FAULT_OPS = {
     "d061_fault_missing_runtime_meta",
     "d062_fault_stale_regulation_source",
 }
+_PROGRAMMED_READBACK_OPS = {
+    "b16_fault_hold_stale_set_voltage_readback",
+}
 _STALE_TIMESTAMP = "2000-01-01T00:00:00+00:00"
+_B16_REAL_READBACK_PROOF_TIMEOUT_S = 8.0
+_B16_REAL_READBACK_PROOF_POLL_S = 0.25
 
 
 def _enum_value(value: Any) -> Any:
@@ -230,6 +246,353 @@ class PhysicalTestControlSourceFaults:
             "hardware_writes_injected": 0,
         }
 
+    @staticmethod
+    def _inactive(obj: Any) -> bool:
+        return not bool(getattr(obj, "active", False)) and not bool(
+            getattr(obj, "is_active", False)
+        ) and not bool(getattr(obj, "off_pending", False))
+
+    @staticmethod
+    def _programmed_values(live: Dict[str, Any]) -> Dict[str, float]:
+        mapping = {
+            "set_voltage": "set_voltage",
+            "set_current": "set_current",
+            "ovp": "ovp",
+            "ocp": "ocp",
+        }
+        values: Dict[str, float] = {}
+        for name, key in mapping.items():
+            value = finite_float(live.get(key))
+            if value is None:
+                raise PhysicalTestControlError(
+                    f"B16 requires numeric programmed readback for {key}"
+                )
+            values[name] = float(value)
+        return values
+
+    @staticmethod
+    def _same_programmed_values(
+        before: Dict[str, float],
+        live: Dict[str, Any],
+        tolerance: float,
+    ) -> bool:
+        for key, expected in before.items():
+            observed = finite_float(live.get(key))
+            if observed is None or abs(float(observed) - expected) > tolerance:
+                return False
+        return True
+
+    async def b16_hold_stale_set_voltage_readback(self) -> Dict[str, Any]:
+        """Prove fresh programmed readback is required before any Output ON attempt.
+
+        Preconditions intentionally require a PB-managed but idle, positively-OFF
+        system and an already stale idle Vset heartbeat. The operation reprograms the
+        *same* OVP/OCP/V/I values and withholds only that old Vset metadata from the
+        coordinator after the Vset write. Any attempt to change a value or reach
+        Output ON is blocked by the harness before hardware actuation.
+        """
+
+        operation = "b16_fault_hold_stale_set_voltage_readback"
+        manager = getattr(self.app, "rd_control_mode_manager", None)
+        if manager is None or not bool(getattr(manager, "pb_managed", False)):
+            raise PhysicalTestControlError(
+                "B16 programmed-readback test requires PB_MANAGED"
+            )
+        if bool(getattr(manager, "release_in_progress", False)):
+            raise PhysicalTestControlError("B16 rejected during control-mode transfer")
+
+        for name in (
+            "charge_controller",
+            "manual_session_manager",
+            "rd_managed_live_adoption",
+            "rd_managed_mix_adoption",
+        ):
+            if not self._inactive(getattr(self.app, name, None)):
+                raise PhysicalTestControlError(
+                    f"B16 requires no active managed authority ({name})"
+                )
+
+        guard = getattr(self.app, "runtime_safety_guard", None)
+        original_raw = getattr(guard, "_raw_live", None)
+        if not callable(original_raw):
+            raise PhysicalTestControlError("B16 raw safety reader unavailable")
+        if bool(getattr(guard, "_off_unconfirmed", False)):
+            raise PhysicalTestControlError(
+                "B16 blocked while a previous Output OFF remains unconfirmed"
+            )
+
+        live_before = await original_raw()
+        if not self.control._is_off(live_before):
+            raise PhysicalTestControlError(
+                "B16 requires positively confirmed Output OFF before programming"
+            )
+        if resolve_protection(live_before).status is not ProtectionStatus.NORMAL:
+            raise PhysicalTestControlError("B16 requires normal hardware protection state")
+
+        lease_before = await self.control._lease_state()
+        if bool(lease_before.armed) or bool(lease_before.tripped) or bool(
+            lease_before.boot_quarantine
+        ):
+            raise PhysicalTestControlError(
+                "B16 requires an unarmed, untripped edge lease with quarantine clear"
+            )
+
+        programmed = self._programmed_values(live_before)
+        held_meta = live_before.get("_meta", {}).get("set_voltage")
+        if not isinstance(held_meta, dict) or str(held_meta.get("status") or "ok").lower() != "ok":
+            raise PhysicalTestControlError(
+                "B16 requires existing healthy metadata for the idle set_voltage source"
+            )
+        idle_freshness = telemetry_freshness(live_before, ["set_voltage"])
+        if idle_freshness.valid:
+            raise PhysicalTestControlError(
+                "B16 requires an already stale idle set_voltage heartbeat before the new write"
+            )
+        if "set_voltage stale" not in idle_freshness.detail:
+            raise PhysicalTestControlError(
+                f"B16 idle set_voltage evidence is invalid for the wrong reason: {idle_freshness.detail}"
+            )
+        held_meta = dict(held_meta)
+
+        snapshot = snapshot_from_live(
+            live_before,
+            require_programming_freshness=False,
+        )
+        if snapshot is None:
+            raise PhysicalTestControlError(
+                "B16 normal idle preflight rejected before programmed-readback gating"
+            )
+        request = OutputRequest(
+            voltage_v=programmed["set_voltage"],
+            current_a=programmed["set_current"],
+            ovp_v=programmed["ovp"],
+            ocp_a=programmed["ocp"],
+            recipe_voltage_ceiling_v=programmed["set_voltage"],
+        )
+        decision = SafetySupervisor().preflight(request, snapshot)
+        if not decision.allowed:
+            raise PhysicalTestControlError(
+                f"B16 same-value transaction is not safe: {decision.detail}"
+            )
+
+        adapter = self.app.hass
+        safe_enable = getattr(adapter, "safe_enable_output", None)
+        if not callable(safe_enable):
+            raise PhysicalTestControlError("B16 safe-output coordinator API unavailable")
+
+        original_get_all_live = getattr(adapter, "get_all_live", None)
+        original_set_ovp = getattr(adapter, "set_ovp", None)
+        original_set_ocp = getattr(adapter, "set_ocp", None)
+        original_set_voltage = getattr(adapter, "set_voltage", None)
+        original_set_current = getattr(adapter, "set_current", None)
+        original_turn_on = getattr(adapter, "turn_on", None)
+        original_turn_off = getattr(adapter, "turn_off", None)
+        if not all(
+            callable(item)
+            for item in (
+                original_get_all_live,
+                original_set_ovp,
+                original_set_ocp,
+                original_set_voltage,
+                original_set_current,
+                original_turn_on,
+                original_turn_off,
+            )
+        ):
+            raise PhysicalTestControlError("B16 production actuator boundary is incomplete")
+
+        injection_task = asyncio.current_task()
+        counts = {
+            "ovp": 0,
+            "ocp": 0,
+            "set_voltage": 0,
+            "set_current": 0,
+            "turn_on": 0,
+            "turn_off": 0,
+        }
+        injected_readback = False
+
+        async def injected_get_all_live() -> Dict[str, Any]:
+            nonlocal injected_readback
+            live = await original_get_all_live()
+            if (
+                asyncio.current_task() is not injection_task
+                or counts["set_voltage"] < 1
+            ):
+                return live
+            mutated, meta = self._copy_live_with_meta(live)
+            meta["set_voltage"] = dict(held_meta)
+            injected_readback = True
+            return mutated
+
+        def same_value_wrapper(
+            key: str,
+            expected: float,
+            original: Callable[[float], Any],
+        ) -> Callable[[float], Any]:
+            async def wrapped(value: float) -> bool:
+                if asyncio.current_task() is injection_task:
+                    parsed = finite_float(value)
+                    if parsed is None or abs(float(parsed) - expected) > 1e-9:
+                        raise PhysicalTestControlError(
+                            f"B16 blocked unexpected {key} write {value!r}; expected same value {expected}"
+                        )
+                    counts[key] += 1
+                return bool(await original(value))
+
+            return wrapped
+
+        async def blocked_turn_on(entity_id: Optional[str] = None) -> bool:
+            if asyncio.current_task() is injection_task:
+                counts["turn_on"] += 1
+                raise PhysicalTestControlError(
+                    "B16 coordinator attempted Output ON before fresh programmed readback"
+                )
+            return bool(await original_turn_on(entity_id))
+
+        async def counted_turn_off(entity_id: Optional[str] = None) -> bool:
+            if asyncio.current_task() is injection_task:
+                counts["turn_off"] += 1
+            return bool(await original_turn_off(entity_id))
+
+        adapter.get_all_live = injected_get_all_live
+        adapter.set_ovp = same_value_wrapper("ovp", programmed["ovp"], original_set_ovp)
+        adapter.set_ocp = same_value_wrapper("ocp", programmed["ocp"], original_set_ocp)
+        adapter.set_voltage = same_value_wrapper(
+            "set_voltage", programmed["set_voltage"], original_set_voltage
+        )
+        adapter.set_current = same_value_wrapper(
+            "set_current", programmed["set_current"], original_set_current
+        )
+        adapter.turn_on = blocked_turn_on
+        adapter.turn_off = counted_turn_off
+
+        result = None
+        caught: Optional[Exception] = None
+        try:
+            try:
+                result = await safe_enable(
+                    voltage_v=programmed["set_voltage"],
+                    current_a=programmed["set_current"],
+                    ovp_v=programmed["ovp"],
+                    ocp_a=programmed["ocp"],
+                    recipe_voltage_ceiling_v=programmed["set_voltage"],
+                )
+            except Exception as exc:
+                caught = exc
+        finally:
+            adapter.get_all_live = original_get_all_live
+            adapter.set_ovp = original_set_ovp
+            adapter.set_ocp = original_set_ocp
+            adapter.set_voltage = original_set_voltage
+            adapter.set_current = original_set_current
+            adapter.turn_on = original_turn_on
+            adapter.turn_off = original_turn_off
+
+        if caught is not None:
+            raise PhysicalTestControlError(
+                f"B16 safe-output path raised unexpectedly: {type(caught).__name__}: {caught}"
+            ) from caught
+        if result is None:
+            raise PhysicalTestControlError("B16 safe-output path returned no result")
+        if not injected_readback:
+            raise PhysicalTestControlError(
+                "B16 did not reach the post-programming readback boundary"
+            )
+        for key in ("ovp", "ocp", "set_voltage", "set_current"):
+            if counts[key] != 1:
+                raise PhysicalTestControlError(
+                    f"B16 expected exactly one same-value {key} write, observed {counts[key]}"
+                )
+        if counts["turn_on"] != 0:
+            raise PhysicalTestControlError(
+                "B16 failed: coordinator reached Output ON before fresh programmed readback"
+            )
+        if counts["turn_off"] != 1:
+            raise PhysicalTestControlError(
+                f"B16 expected one fail-safe Output OFF request, observed {counts['turn_off']}"
+            )
+        if bool(getattr(result, "enabled", False)):
+            raise PhysicalTestControlError(
+                "B16 failed: stale programmed readback was accepted as an enabled output"
+            )
+        violation_values = {
+            str(getattr(value, "value", value))
+            for value in getattr(result, "violations", frozenset())
+        }
+        detail = str(getattr(result, "detail", "") or "")
+        if "telemetry_invalid" not in violation_values or (
+            "programmed readback telemetry missing/invalid" not in detail
+        ):
+            raise PhysicalTestControlError(
+                f"B16 failed at an unexpected boundary: violations={sorted(violation_values)} detail={detail}"
+            )
+        if "output_off_unconfirmed" in violation_values:
+            raise PhysicalTestControlError(
+                "B16 Output OFF confirmation failed; stop physical testing and investigate"
+            )
+
+        # The public reader and every actuator method are restored before this proof.
+        # A real fresh Vset heartbeat must now be visible, showing that the failed
+        # coordinator read was caused by the one-shot holdback rather than HA failing
+        # to observe the write at all.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _B16_REAL_READBACK_PROOF_TIMEOUT_S
+        real_after: Optional[Dict[str, Any]] = None
+        real_freshness = None
+        while True:
+            real_after = await original_get_all_live()
+            real_freshness = telemetry_freshness(real_after, ["set_voltage"])
+            if real_freshness.valid:
+                break
+            remaining = deadline - loop.time()
+            if remaining <= 0.0:
+                raise PhysicalTestControlError(
+                    "B16 real set_voltage heartbeat did not become fresh after the write; injection is unproven"
+                )
+            await asyncio.sleep(min(_B16_REAL_READBACK_PROOF_POLL_S, remaining))
+
+        live_after = await original_raw()
+        lease_after = await self.control._lease_state()
+        if not self.control._is_off(live_after):
+            raise PhysicalTestControlError("B16 did not finish with canonical Output OFF")
+        if bool(lease_after.armed):
+            raise PhysicalTestControlError("B16 armed the edge lease despite no Output ON attempt")
+        tolerance = float(getattr(guard, "READBACK_TOLERANCE", 0.08))
+        if not self._same_programmed_values(programmed, live_after, tolerance):
+            raise PhysicalTestControlError(
+                "B16 same-value programming transaction changed the programmed envelope"
+            )
+
+        real_meta = real_after.get("_meta", {}).get("set_voltage", {}) if real_after else {}
+        return {
+            "fault": operation,
+            "blocked_before_output_on": True,
+            "detail": detail,
+            "violations": sorted(violation_values),
+            "programmed_values": dict(programmed),
+            "programming_writes": {
+                "ovp": counts["ovp"],
+                "ocp": counts["ocp"],
+                "set_voltage": counts["set_voltage"],
+                "set_current": counts["set_current"],
+            },
+            "output_on_attempts": counts["turn_on"],
+            "output_off_attempts": counts["turn_off"],
+            "output": live_after.get("switch"),
+            "output_state_code_v2": live_after.get("output_state_code_v2"),
+            "lease_armed": lease_after.armed,
+            "remaining_s": lease_after.remaining_s,
+            "generation_before": lease_before.generation,
+            "generation_after": lease_after.generation,
+            "held_set_voltage_last_reported": held_meta.get("last_reported"),
+            "real_set_voltage_last_reported_after": (
+                real_meta.get("last_reported") if isinstance(real_meta, dict) else None
+            ),
+            "real_set_voltage_fresh_after": bool(real_freshness and real_freshness.valid),
+            "hardware_value_changes_expected": 0,
+        }
+
     async def d061_stale_temp(self) -> Dict[str, Any]:
         return await self._run_fault(
             operation="d061_fault_stale_temp_source",
@@ -283,7 +646,7 @@ class PhysicalTestControlSourceFaults:
         if not isinstance(request, dict):
             return await self._original_dispatch(request)
         operation = request.get("op")
-        if operation not in _SOURCE_FAULT_OPS:
+        if operation not in (_SOURCE_FAULT_OPS | _PROGRAMMED_READBACK_OPS):
             return await self._original_dispatch(request)
 
         try:
@@ -297,8 +660,10 @@ class PhysicalTestControlSourceFaults:
                     result = await self.d061_stale_vout()
                 elif operation == "d061_fault_missing_runtime_meta":
                     result = await self.d061_missing_meta()
-                else:
+                elif operation == "d062_fault_stale_regulation_source":
                     result = await self.d062_stale_regulation()
+                else:
+                    result = await self.b16_hold_stale_set_voltage_readback()
             return {"ok": True, "operation": operation, "result": _json_value(result)}
         except (PhysicalTestControlError, ValueError, TypeError) as exc:
             return self.control._error(str(exc))
