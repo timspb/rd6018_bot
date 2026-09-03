@@ -498,10 +498,17 @@ class PhysicalTestControl:
         if edge is None or not callable(gate):
             raise PhysicalTestControlError("D061 raw-protection gate unavailable")
 
+        injection_task = asyncio.current_task()
+
         async def unavailable() -> None:
-            raise EdgeSafetyLeaseError(
-                "physical-test injected raw RD6018 protection-code unavailable"
-            )
+            # The hook is deterministic for this control request only. Background
+            # observer/renewal tasks keep using the real register-16 gate and cannot
+            # accidentally consume the one-shot injected failure first.
+            if asyncio.current_task() is injection_task:
+                raise EdgeSafetyLeaseError(
+                    "physical-test injected raw RD6018 protection-code unavailable"
+                )
+            await gate()
 
         edge._require_raw_protection_normal = unavailable
         caught: Optional[Exception] = None

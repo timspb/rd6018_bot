@@ -1,3 +1,4 @@
+import asyncio
 import types
 import unittest
 from enum import Enum
@@ -163,8 +164,20 @@ class FakeCoordinator:
 
 
 class RawProtectionGuard(FakeGuard):
+    def __init__(self, live):
+        super().__init__(live)
+        self.background_gate_completed = False
+
     async def get_all_live(self):
         try:
+            # A production observer/renewal task may enter the shared edge gate while
+            # the control request is waiting on I/O. It must continue through the real
+            # gate rather than consuming the one-shot injected failure.
+            background = asyncio.create_task(
+                self.coordinator.edge._require_raw_protection_normal()
+            )
+            await background
+            self.background_gate_completed = True
             await self.coordinator.edge._require_raw_protection_normal()
         except Exception:
             # This is the strict fail-closed effect being exercised by the hook.
@@ -282,6 +295,7 @@ class PhysicalTestFaultInjectionTests(unittest.IsolatedAsyncioTestCase):
         result = response["result"]
         self.assertTrue(result["contained"])
         self.assertIn("physical-test injected raw RD6018 protection-code unavailable", result["reason"])
+        self.assertTrue(app.runtime_safety_guard.background_gate_completed)
         self.assertEqual(result["output"], "off")
         self.assertFalse(result["lease_armed"])
         self.assertEqual(result["remaining_s"], 0.0)
