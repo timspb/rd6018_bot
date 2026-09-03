@@ -26,6 +26,7 @@ from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
+from physical_test_control import install_physical_test_control
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
@@ -113,6 +114,7 @@ _rd_managed_mix_adoption = install_managed_mix_adoption(
     _rd_managed_live_adoption,
     install_ui=_v2_ui_enabled,
 )
+_physical_test_control = install_physical_test_control(_legacy)
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
 # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
@@ -147,7 +149,11 @@ async def main() -> None:
     if _rd_live_mix_observer is not None:
         await _rd_live_mix_observer.recover_startup()
     await recover_diagnostic_persistence(_legacy)
-    await _legacy_main()
+    await _physical_test_control.start()
+    try:
+        await _legacy_main()
+    finally:
+        await _physical_test_control.stop()
 
 
 # Keep one runtime module object. Existing tests and operational helpers import many

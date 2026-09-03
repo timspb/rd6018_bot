@@ -627,6 +627,15 @@ class ManagedLiveAdoptionCoordinator:
             self._persist()
         return ok
 
+    async def verified_stop(self) -> bool:
+        """Stop only an active adopted Manual session through verified-OFF containment."""
+
+        if not self.active:
+            raise RuntimeSafetyError(
+                "verified adopted-live stop requires active adopted Manual authority"
+            )
+        return await self._verified_off("physical_test_control_verified_stop")
+
 
 def _preview_text(preview: ManagedAdoptionPreview) -> str:
     fp = preview.fingerprint
