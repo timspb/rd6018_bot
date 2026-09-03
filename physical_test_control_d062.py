@@ -5,9 +5,14 @@ small, conservative test surface through the existing root-only AF_UNIX control
 socket so physical validation does not require Telegram callback synthesis.
 
 No operation can turn Output ON or program V/I/OVP/OCP. The only D062 adoption
-operation accepts a *remaining* chemistry budget constrained to 30..300 seconds;
-it therefore creates an operator-declared prior-age floor near exhaustion and can
+operations accept a *remaining* chemistry budget constrained to 30..300 seconds;
+they therefore create an operator-declared prior-age floor near exhaustion and can
 only reduce, never enlarge, the normal chemistry Mix budget.
+
+The D062 fault operations are deterministic one-shot validation hooks. TOCTOU
+mutates only an in-memory second readback before the edge command. Ambiguous-ACK
+sends the real edge adoption command and hides only its positive-ACK readback
+window so the existing coordinator must drive verified-OFF containment.
 """
 
 from __future__ import annotations
@@ -26,8 +31,6 @@ from physical_test_control import (
 from rd_live_adoption import MIX_HARD_LIMIT_HOURS
 from rd_managed_mix import (
     ManagedMixPreview,
-    PriorMixAge,
-    PriorMixAgeSource,
     resolve_prior_mix_age,
 )
 
@@ -36,6 +39,13 @@ _D062_OPS = {
     "d063_prior_age",
     "d062_adopt_test_budget",
     "d062_verified_stop",
+    "d062_fault_toctou_precommand",
+    "d062_fault_ambiguous_edge_ack",
+}
+_D062_ADOPTION_OPS = {
+    "d062_adopt_test_budget",
+    "d062_fault_toctou_precommand",
+    "d062_fault_ambiguous_edge_ack",
 }
 _MIN_REMAINING_BUDGET_S = 30.0
 _MAX_REMAINING_BUDGET_S = 300.0
@@ -165,11 +175,11 @@ class PhysicalTestControlD062:
             result["source"] = None
         return result
 
-    async def adopt_test_budget(
+    async def _build_test_preview(
         self,
         battery_id_raw: Any,
         remaining_budget_raw: Any,
-    ) -> Dict[str, Any]:
+    ) -> tuple[Any, Any, ManagedMixPreview, Optional[Any], str, float, float]:
         battery_id = self._battery_id(battery_id_raw)
         remaining_budget_s = self._remaining_budget(remaining_budget_raw)
 
@@ -215,9 +225,6 @@ class PhysicalTestControlD062:
             declared_at_s=now,
             now_s=now,
         )
-        # The local test operation is intentionally conservative. A Recorder age larger
-        # than the near-exhausted declaration may reduce the remaining budget further,
-        # but it must never create a new/fresher window.
         preview = ManagedMixPreview(
             token="physical-test:d062-near-budget",
             battery_id=record.identity.battery_id,
@@ -227,11 +234,36 @@ class PhysicalTestControlD062:
             prior_age=prior,
             history=history,
         )
+        return (
+            record,
+            coordinator,
+            preview,
+            history,
+            history_error,
+            declared_elapsed_s,
+            remaining_budget_s,
+        )
+
+    async def adopt_test_budget(
+        self,
+        battery_id_raw: Any,
+        remaining_budget_raw: Any,
+    ) -> Dict[str, Any]:
+        (
+            record,
+            coordinator,
+            preview,
+            history,
+            history_error,
+            declared_elapsed_s,
+            remaining_budget_s,
+        ) = await self._build_test_preview(battery_id_raw, remaining_budget_raw)
+
         adopted = bool(await coordinator.adopt(preview))
         return {
             "adopted": adopted,
             "battery_id": record.identity.battery_id,
-            "chemistry": chemistry.value,
+            "chemistry": record.identity.chemistry.value,
             "declared_elapsed_s": declared_elapsed_s,
             "requested_remaining_budget_s": remaining_budget_s,
             "accepted_prior_elapsed_s": coordinator.prior_elapsed_s,
@@ -242,6 +274,170 @@ class PhysicalTestControlD062:
                 getattr(coordinator, "current_authority", None)
             ),
         }
+
+    async def fault_toctou_precommand(
+        self,
+        battery_id_raw: Any,
+        remaining_budget_raw: Any,
+    ) -> Dict[str, Any]:
+        """Inject a synthetic second-read D062 fingerprint change before edge command."""
+
+        (
+            _record,
+            coordinator,
+            preview,
+            _history,
+            _history_error,
+            _declared_elapsed_s,
+            _remaining_budget_s,
+        ) = await self._build_test_preview(battery_id_raw, remaining_budget_raw)
+
+        edge = getattr(coordinator, "edge", None)
+        lease = getattr(edge, "lease", None)
+        guard = getattr(coordinator, "guard", None)
+        original_raw = getattr(guard, "_raw_live", None)
+        if edge is None or lease is None or not callable(original_raw):
+            raise PhysicalTestControlError("D062 edge/readback boundary unavailable")
+
+        before = await lease.read_state()
+        read_count = 0
+
+        async def injected_raw_live() -> Dict[str, Any]:
+            nonlocal read_count
+            live = await original_raw()
+            read_count += 1
+            if read_count == 2:
+                mutated = dict(live)
+                try:
+                    mutated["set_voltage"] = max(
+                        0.1, float(live["set_voltage"]) - 0.20
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise PhysicalTestControlError(
+                        "cannot inject deterministic D062 TOCTOU fingerprint"
+                    ) from exc
+                return mutated
+            return live
+
+        guard._raw_live = injected_raw_live
+        try:
+            try:
+                await coordinator.adopt(preview)
+            except Exception as exc:
+                if bool(getattr(edge, "command_may_have_executed", False)):
+                    raise PhysicalTestControlError(
+                        "D062 TOCTOU injection crossed the edge-command boundary"
+                    ) from exc
+                after = await lease.read_state()
+                live_after = await original_raw()
+                if int(after.generation) != int(before.generation):
+                    raise PhysicalTestControlError(
+                        "D062 TOCTOU injection changed edge generation before command"
+                    ) from exc
+                if not self.control._is_on(live_after):
+                    raise PhysicalTestControlError(
+                        "D062 TOCTOU rejection did not preserve external Output ON"
+                    ) from exc
+                return {
+                    "rejected": True,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                    "command_may_have_executed": False,
+                    "generation_before": before.generation,
+                    "generation_after": after.generation,
+                    "output": live_after.get("switch"),
+                    "hardware_writes_injected": 0,
+                }
+            raise PhysicalTestControlError(
+                "D062 TOCTOU injection unexpectedly completed adoption"
+            )
+        finally:
+            guard._raw_live = original_raw
+
+    async def fault_ambiguous_edge_ack(
+        self,
+        battery_id_raw: Any,
+        remaining_budget_raw: Any,
+    ) -> Dict[str, Any]:
+        """Send real D062 edge adopt, then hide only its positive-ACK readback window."""
+
+        (
+            _record,
+            coordinator,
+            preview,
+            _history,
+            _history_error,
+            _declared_elapsed_s,
+            _remaining_budget_s,
+        ) = await self._build_test_preview(battery_id_raw, remaining_budget_raw)
+
+        edge = getattr(coordinator, "edge", None)
+        lease = getattr(edge, "lease", None)
+        if edge is None or lease is None:
+            raise PhysicalTestControlError("D062 edge adoption boundary unavailable")
+
+        before = await lease.read_state()
+        original_press = lease._press
+        original_read_state = lease.read_state
+        command_sent = False
+        hidden_reads = 0
+
+        async def injected_press(entity_id: str) -> bool:
+            nonlocal command_sent, hidden_reads
+            accepted = bool(await original_press(entity_id))
+            if entity_id == edge.config.entity and accepted:
+                command_sent = True
+                hidden_reads = max(1, int(lease.config.ack_attempts))
+            return accepted
+
+        async def injected_read_state() -> Any:
+            nonlocal hidden_reads
+            if command_sent and hidden_reads > 0:
+                hidden_reads -= 1
+                return before
+            return await original_read_state()
+
+        lease._press = injected_press
+        lease.read_state = injected_read_state
+        try:
+            try:
+                await coordinator.adopt(preview)
+            except Exception as exc:
+                if not command_sent or not bool(
+                    getattr(edge, "command_may_have_executed", False)
+                ):
+                    raise PhysicalTestControlError(
+                        "D062 ambiguous-ACK injection did not cross edge-command boundary"
+                    ) from exc
+                live_after = await self.control._raw_live()
+                lease_after = await original_read_state()
+                if not self.control._is_off(live_after):
+                    raise PhysicalTestControlError(
+                        "D062 ambiguous edge ACK did not complete verified-OFF containment"
+                    ) from exc
+                if bool(lease_after.armed):
+                    raise PhysicalTestControlError(
+                        "D062 ambiguous edge ACK left edge lease armed"
+                    ) from exc
+                return {
+                    "contained": True,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                    "command_may_have_executed": True,
+                    "generation_before": before.generation,
+                    "generation_after": lease_after.generation,
+                    "lease_armed": lease_after.armed,
+                    "remaining_s": lease_after.remaining_s,
+                    "output": live_after.get("switch"),
+                    "state": _enum_value(getattr(coordinator, "state", None)),
+                    "terminal_reason": str(
+                        getattr(coordinator, "terminal_reason", "") or ""
+                    ),
+                }
+            raise PhysicalTestControlError(
+                "D062 ambiguous-ACK injection unexpectedly completed adoption"
+            )
+        finally:
+            lease._press = original_press
+            lease.read_state = original_read_state
 
     async def verified_stop(self) -> Dict[str, Any]:
         coordinator = getattr(self.app, "rd_managed_mix_adoption", None)
@@ -273,14 +469,25 @@ class PhysicalTestControlD062:
                 if operation == "d063_prior_age":
                     self.control._require_fields(request, {"op"})
                     result = await self.prior_age()
-                elif operation == "d062_adopt_test_budget":
+                elif operation in _D062_ADOPTION_OPS:
                     self.control._require_fields(
                         request, {"op", "battery_id", "remaining_budget_s"}
                     )
-                    result = await self.adopt_test_budget(
-                        request["battery_id"],
-                        request["remaining_budget_s"],
-                    )
+                    if operation == "d062_adopt_test_budget":
+                        result = await self.adopt_test_budget(
+                            request["battery_id"],
+                            request["remaining_budget_s"],
+                        )
+                    elif operation == "d062_fault_toctou_precommand":
+                        result = await self.fault_toctou_precommand(
+                            request["battery_id"],
+                            request["remaining_budget_s"],
+                        )
+                    else:
+                        result = await self.fault_ambiguous_edge_ack(
+                            request["battery_id"],
+                            request["remaining_budget_s"],
+                        )
                 else:
                     self.control._require_fields(request, {"op"})
                     result = await self.verified_stop()

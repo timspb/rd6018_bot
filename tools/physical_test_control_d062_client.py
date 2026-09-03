@@ -13,6 +13,13 @@ OPERATIONS = {
     "d063_prior_age",
     "d062_adopt_test_budget",
     "d062_verified_stop",
+    "d062_fault_toctou_precommand",
+    "d062_fault_ambiguous_edge_ack",
+}
+ADOPTION_OPERATIONS = {
+    "d062_adopt_test_budget",
+    "d062_fault_toctou_precommand",
+    "d062_fault_ambiguous_edge_ack",
 }
 
 
@@ -44,16 +51,16 @@ def main() -> None:
     args = parser.parse_args()
 
     payload: dict[str, Any] = {"op": args.operation}
-    if args.operation == "d062_adopt_test_budget":
+    if args.operation in ADOPTION_OPERATIONS:
         if not args.battery_id:
-            parser.error("--battery-id is required for d062_adopt_test_budget")
+            parser.error(f"--battery-id is required for {args.operation}")
         if args.remaining_budget_s is None:
-            parser.error("--remaining-budget-s is required for d062_adopt_test_budget")
+            parser.error(f"--remaining-budget-s is required for {args.operation}")
         payload["battery_id"] = args.battery_id
         payload["remaining_budget_s"] = args.remaining_budget_s
     elif args.battery_id is not None or args.remaining_budget_s is not None:
         parser.error(
-            "--battery-id/--remaining-budget-s are only valid for d062_adopt_test_budget"
+            "--battery-id/--remaining-budget-s are only valid for D062 adoption/fault operations"
         )
 
     print(json.dumps(request(args.socket, payload), ensure_ascii=True, sort_keys=True))

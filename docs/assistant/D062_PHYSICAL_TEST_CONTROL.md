@@ -47,6 +47,39 @@ Available only while `MIX_ADOPTED` owns active/off-pending authority. Delegates 
 production `stop_by_operator()` verified-OFF path and then requires canonical
 Output/V2 OFF readback.
 
+### `d062_fault_toctou_precommand`
+
+Arguments:
+
+- `battery_id`
+- `remaining_budget_s` in the same conservative **30..300 second** range.
+
+Uses the same real D062 preview/adoption path, but changes only the second **in-memory**
+setpoint readback before the edge command. No HA/RD value is written.
+
+The expected result is a read-only production TOCTOU rejection with:
+
+- `command_may_have_executed=false`;
+- unchanged edge generation;
+- external Output still ON;
+- no edge Adopt command;
+- `hardware_writes_injected=0`.
+
+### `d062_fault_ambiguous_edge_ack`
+
+Arguments:
+
+- `battery_id`
+- `remaining_budget_s` in the same conservative **30..300 second** range.
+
+Uses the real D062 coordinator and sends the real edge live-adoption command. After the
+command is accepted, only the bounded positive-ACK readback window is hidden. The
+wrapper is exhausted before verified-OFF/lease-disarm readback.
+
+The production coordinator must therefore classify the command as uncertain and drive
+its existing `MIX_ADOPTED_INCOMPLETE_AFTER_EDGE` verified-OFF containment. The test
+surface never synthesizes OFF success and never writes V/I/OVP/OCP.
+
 ## Status
 
 The existing `status` operation is extended with `managed_mix`:
@@ -69,6 +102,10 @@ The base physical-test server remains:
 - mode `0600`;
 - no TCP listener;
 - no eval or arbitrary entity/setpoint write interface.
+
+The D062 fault operations accept only saved `battery_id` plus a bounded conservative
+remaining-budget argument. They do not accept entity IDs, Output commands, setpoints or
+protection values.
 
 After each physical validation batch, disable `RD6018_PHYSICAL_TEST_CONTROL` and
 restart the bot only after Output is positively confirmed OFF.
