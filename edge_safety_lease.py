@@ -67,6 +67,13 @@ class EdgeSafetyLeaseConfig:
     ack_remaining_slack_s: float = 15.0
     ack_attempts: int = 12
     ack_delay_s: float = 0.25
+    # Normal renew/adopt ACKs are generation-based and usually arrive quickly. A
+    # verified-OFF disarm is different: production HA may publish the edge binary
+    # state a few seconds after register-18 has already confirmed physical OFF. Give
+    # only that readback a bounded 10 s convergence window; the 900 s edge TTL and
+    # renewal cadence are unchanged.
+    disarm_ack_attempts: int = 41
+    disarm_ack_delay_s: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -143,6 +150,10 @@ class EdgeSafetyLease:
             raise ValueError("edge lease renewal interval must be between zero and TTL")
         if not (0 <= self.config.ack_remaining_slack_s < self.config.lease_ttl_s):
             raise ValueError("edge lease acknowledgement slack is invalid")
+        if int(self.config.ack_attempts) < 1 or int(self.config.disarm_ack_attempts) < 1:
+            raise ValueError("edge lease acknowledgement attempts must be positive")
+        if self.config.ack_delay_s < 0 or self.config.disarm_ack_delay_s < 0:
+            raise ValueError("edge lease acknowledgement delay cannot be negative")
 
     @property
     def last_ack_age_s(self) -> Optional[float]:
@@ -344,15 +355,20 @@ class EdgeSafetyLease:
         async with self._operation_lock:
             if not await self._press(self.config.disarm_entity):
                 return False
-            attempts = max(1, int(self.config.ack_attempts))
+            attempts = max(1, int(self.config.disarm_ack_attempts))
             for attempt in range(attempts):
                 if attempt:
-                    await asyncio.sleep(max(0.0, self.config.ack_delay_s))
+                    await asyncio.sleep(max(0.0, self.config.disarm_ack_delay_s))
                 try:
                     state = await self.read_state()
                 except EdgeSafetyLeaseError:
                     continue
-                if not state.armed and not state.boot_quarantine:
+                if (
+                    not state.armed
+                    and not state.boot_quarantine
+                    and state.remaining_s is not None
+                    and state.remaining_s <= self.config.ack_remaining_slack_s
+                ):
                     self._last_ack_monotonic = None
                     return True
             return False
