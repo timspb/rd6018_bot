@@ -88,7 +88,9 @@ ENTITY_MAP = {
     "protection_code": "sensor.rd_6018_protection_status_code",
     # Force-updated read-only register-18 mirror. The public switch remains the
     # actuator endpoint; this sensor owns canonical Output freshness in V2.
-    "output_state_code_v2": "sensor.rd_6018_output_state_code_v2",
+    # This exact entity_id is the one created by the deployed ESPHome device in HA;
+    # do not infer/rename it at runtime because Output truth is safety-critical.
+    "output_state_code_v2": "sensor.rd6018_rd_6018_output_state_code_v2",
     "battery_mode": "binary_sensor.rd_6018_battery_mode",
     "keypad_lock": "binary_sensor.rd_6018_keypad_lock",
     "ovp_triggered": "binary_sensor.rd_6018_over_voltage_protection",
