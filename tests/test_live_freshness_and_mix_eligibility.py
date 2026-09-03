@@ -1,10 +1,14 @@
+import asyncio
 import pathlib
 import types
 import unittest
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from live_output_readback_v2 import promote_output_state_readback
+from live_output_readback_v2 import (
+    install_output_state_readback,
+    promote_output_state_readback,
+)
 from operator_mix_eligibility import (
     POTENTIAL_MIX_MIN_SETPOINT_V,
     filter_non_mix_actions,
@@ -40,6 +44,50 @@ class LiveOutputReadbackV2Tests(unittest.TestCase):
         live = {"switch": "on", "output_state_code_v2": 2, "_meta": {}}
         promoted = promote_output_state_readback(live)
         self.assertEqual(promoted["switch"], "on")
+
+    def test_existing_runtime_guard_raw_reader_is_promoted_for_hands_off(self):
+        class FakeHass:
+            async def get_all_live(self):
+                return {
+                    "switch": "off",
+                    "output_state_code_v2": 1,
+                    "_meta": {
+                        "switch": {
+                            "status": "ok",
+                            "last_reported": "stale-public-switch",
+                        },
+                        "output_state_code_v2": {
+                            "status": "ok",
+                            "last_reported": "fresh-register-18",
+                            "last_updated": "fresh-register-18",
+                        },
+                    },
+                }
+
+        hass = FakeHass()
+
+        class FakeGuard:
+            def __init__(self):
+                # RuntimeSafetyGuard captures the HA reader before the later
+                # HANDS_OFF ownership wrapper starts using _raw_live().
+                self._raw_get_all_live = hass.get_all_live
+
+            async def _raw_live(self):
+                return await self._raw_get_all_live()
+
+        guard = FakeGuard()
+        app = types.SimpleNamespace(hass=hass, runtime_safety_guard=guard)
+
+        install_output_state_readback(app)
+        raw = asyncio.run(guard._raw_live())
+
+        self.assertEqual(raw["switch"], "on")
+        self.assertEqual(raw["_meta"]["switch"]["last_reported"], "fresh-register-18")
+        self.assertEqual(
+            raw["_meta"]["switch"]["source_key"],
+            "output_state_code_v2",
+        )
+        self.assertTrue(getattr(guard, "_v2_output_state_readback_raw_installed", False))
 
 
 class MixActionEligibilityTests(unittest.TestCase):

@@ -34,14 +34,38 @@ def promote_output_state_readback(live: MutableMapping[str, Any]) -> MutableMapp
 
 
 def install_output_state_readback(app: Any) -> None:
+    """Install Output V2 promotion on both managed and raw safety read paths.
+
+    V2 runtime safety captures the underlying HA reader before later composition
+    layers are installed. HANDS_OFF intentionally reads that raw boundary directly.
+    Therefore wrapping only ``hass.get_all_live`` after the safety guard exists would
+    leave HANDS_OFF/D061 on the stale public-switch timestamp. Patch the guard's
+    captured raw reader too when it is already installed; if this installer runs
+    earlier, the guard will naturally capture the promoted HA reader instead.
+    """
+
     hass = getattr(app, "hass", None)
     if hass is None or bool(getattr(hass, "_v2_output_state_readback_installed", False)):
         return
+
+    guard = getattr(app, "runtime_safety_guard", None)
+    raw_reader = getattr(guard, "_raw_get_all_live", None) if guard is not None else None
+    if callable(raw_reader):
+        async def raw_get_all_live() -> dict[str, Any]:
+            live = await raw_reader()
+            if not isinstance(live, dict):
+                return {}
+            return dict(promote_output_state_readback(live))
+
+        guard._raw_get_all_live = raw_get_all_live
+        guard._v2_output_state_readback_raw_installed = True
 
     original = hass.get_all_live
 
     async def get_all_live() -> dict[str, Any]:
         live = await original()
+        if not isinstance(live, dict):
+            return {}
         return dict(promote_output_state_readback(live))
 
     hass.get_all_live = get_all_live
