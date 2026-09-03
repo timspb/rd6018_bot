@@ -80,8 +80,11 @@ ENTITY_MAP = {
     "wh": "sensor.rd_6018_battery_energy",
     "temp_int": "sensor.rd_6018_temperature",
     "temp_ext": "sensor.rd_6018_temperature_external",
-    "temp_int_v2": "sensor.rd_6018_temperature_internal_v2",
-    "temp_ext_v2": "sensor.rd_6018_temperature_external_v2",
+    # Exact production entity IDs created by the deployed ESPHome device. These
+    # force-updated V2 sensors own canonical temperature freshness; do not infer
+    # safety-critical entity IDs by fuzzy suffix matching at runtime.
+    "temp_int_v2": "sensor.rd6018_rd_6018_temperature_internal_v2",
+    "temp_ext_v2": "sensor.rd6018_rd_6018_temperature_external_v2",
     "is_cv": "binary_sensor.rd_6018_constant_voltage",
     "is_cc": "binary_sensor.rd_6018_constant_current",
     "regulation_code": "sensor.rd_6018_regulation_mode_code",
