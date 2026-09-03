@@ -29,6 +29,7 @@ from operator_mix_eligibility import install_mix_action_eligibility
 from physical_test_control import install_physical_test_control
 from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
+from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
@@ -128,6 +129,11 @@ install_physical_test_control_d062(_legacy, _physical_test_control)
 # disarm path. This is not a wall-clock endurance claim and exposes no generic
 # clock/setpoint mutation endpoint.
 install_physical_test_control_d062_delta(_legacy, _physical_test_control)
+# Remaining source-freshness bench gates use the same opt-in local socket. Each hook
+# corrupts exactly one in-memory decision snapshot and restores the real reader before
+# production verified-OFF confirmation; no arbitrary HA/entity/timestamp write surface
+# is exposed.
+install_physical_test_control_source_faults(_legacy, _physical_test_control)
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
 # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
