@@ -101,8 +101,8 @@ class FakeApp:
 class LiveTransitionInterlockTests(unittest.IsolatedAsyncioTestCase):
     def _guard(self, app):
         guard = StrictRuntimeSafetyGuard(app)
-        guard.VERIFY_ATTEMPTS = 2
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
         guard.TRANSITION_SETTLE_POLL_S = 0.0
         return guard
 

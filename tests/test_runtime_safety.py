@@ -89,8 +89,8 @@ class FakeApp:
 class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     def _install(self, app):
         guard = install_strict_runtime_safety(app)
-        guard.VERIFY_ATTEMPTS = 2
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
         return guard
 
     async def test_valid_active_snapshot_passes_unchanged(self):

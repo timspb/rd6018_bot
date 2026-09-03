@@ -36,6 +36,11 @@ class DummyHass:
         if not self.off_confirms:
             return False
         self.live["switch"] = "off"
+        metadata = self.live.get("_meta", {}).get("switch")
+        if isinstance(metadata, dict):
+            reported = datetime.now(timezone.utc).isoformat()
+            metadata["last_reported"] = reported
+            metadata["last_updated"] = reported
         return True
 
     async def set_voltage(self, value):
@@ -139,8 +144,8 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
     def _guard(app):
         guard = V2RuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
-        guard.VERIFY_ATTEMPTS = 1
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
         return guard
 
     async def test_low_vin_is_psu_health_evidence_not_charge_authority(self):

@@ -161,6 +161,11 @@ class DummyHass:
         if not self.off_confirms:
             return False
         self.live["switch"] = "off"
+        metadata = self.live.get("_meta", {}).get("switch")
+        if isinstance(metadata, dict):
+            reported = datetime.now(timezone.utc).isoformat()
+            metadata["last_reported"] = reported
+            metadata["last_updated"] = reported
         return True
 
     async def set_voltage(self, value):
@@ -220,8 +225,8 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         guard = V2RuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
-        guard.VERIFY_ATTEMPTS = 1
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
         return guard, controller, hass
 
     async def test_trip_forces_verified_off_and_retires_auto_session(self):
@@ -230,9 +235,9 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             guard, controller, hass = self._guard(tmp, when=t0)
 
             await guard.get_all_live()
-            hass.live = _live(31.0, when=t0 + timedelta(seconds=5))
+            hass.live = _live(31.0, when=datetime.now(timezone.utc))
             await guard.get_all_live()
-            hass.live = _live(37.0, when=t0 + timedelta(seconds=10))
+            hass.live = _live(37.0, when=datetime.now(timezone.utc))
             with self.assertRaisesRegex(RuntimeSafetyError, "external temperature sensor integrity"):
                 await guard.get_all_live()
 
@@ -247,9 +252,9 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             t0 = datetime.now(timezone.utc)
             guard, controller, hass = self._guard(tmp, when=t0)
             await guard.get_all_live()
-            hass.live = _live(31.0, when=t0 + timedelta(seconds=5))
+            hass.live = _live(31.0, when=datetime.now(timezone.utc))
             await guard.get_all_live()
-            hass.live = _live(37.0, when=t0 + timedelta(seconds=10))
+            hass.live = _live(37.0, when=datetime.now(timezone.utc))
             hass.off_confirms = False
 
             with self.assertRaises(OutputOffNotConfirmed):
@@ -294,19 +299,19 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             t0 = datetime.now(timezone.utc)
             guard, controller, hass = self._guard(tmp, when=t0)
             await guard.get_all_live()
-            hass.live = _live(31.0, when=t0 + timedelta(seconds=5))
+            hass.live = _live(31.0, when=datetime.now(timezone.utc))
             await guard.get_all_live()
-            hass.live = _live(37.0, when=t0 + timedelta(seconds=10))
+            hass.live = _live(37.0, when=datetime.now(timezone.utc))
             with self.assertRaises(RuntimeSafetyError):
                 await guard.get_all_live()
 
             self.assertFalse(controller.is_active)
-            hass.live = _live(25.0, when=t0 + timedelta(seconds=15), switch="off")
+            hass.live = _live(25.0, when=datetime.now(timezone.utc), switch="off")
             await guard.get_all_live()
             self.assertFalse(guard.external_temp_integrity.rearm_ready)
             self.assertTrue(guard.external_temp_integrity.latched)
 
-            hass.live = _live(25.5, when=t0 + timedelta(seconds=20), switch="off")
+            hass.live = _live(25.5, when=datetime.now(timezone.utc), switch="off")
             await guard.get_all_live()
             self.assertTrue(guard.external_temp_integrity.rearm_ready)
             self.assertTrue(guard.external_temp_integrity.latched)

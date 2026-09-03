@@ -127,8 +127,8 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
         )
         guard = V2RuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
-        guard.VERIFY_ATTEMPTS = 1
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
         guard.install()
         app.runtime_safety_guard = guard
 

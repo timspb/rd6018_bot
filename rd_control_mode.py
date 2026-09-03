@@ -11,7 +11,7 @@ from typing import Any, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError, _binary
+from runtime_safety import RuntimeSafetyError, _binary
 from runtime_safety_v2 import V2RuntimeSafetyGuard
 
 
@@ -208,22 +208,7 @@ class RdControlModeManager:
                 "explicit RD-mode Output OFF is available only in HANDS_OFF"
             )
 
-        command_ok = False
-        try:
-            command_ok = bool(await self.guard._raw_turn_off(entity_id))
-        except Exception:
-            command_ok = False
-        if await self.guard._verify_switch_off():
-            self.guard._off_unconfirmed = False
-            return True
-
-        self.guard._off_unconfirmed = True
-        detail = (
-            "OFF command accepted but switch state was not confirmed"
-            if command_ok
-            else "OFF command failed and switch state was not confirmed"
-        )
-        raise OutputOffNotConfirmed(f"explicit HANDS_OFF Output OFF: {detail}")
+        return await self.guard._ensure_output_off("explicit HANDS_OFF Output OFF", entity_id)
 
 
 def _strip_callbacks(

@@ -108,8 +108,8 @@ class FakeApp:
 class RuntimeEdgeLeaseTests(unittest.IsolatedAsyncioTestCase):
     def _guard(self, app):
         guard = install_strict_runtime_safety(app)
-        guard.VERIFY_ATTEMPTS = 2
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
         return guard
 
     async def test_output_enable_arms_edge_lease_before_physical_on(self):

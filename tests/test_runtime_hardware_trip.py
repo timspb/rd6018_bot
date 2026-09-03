@@ -67,8 +67,8 @@ class RuntimeHardwareTripTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_ovp_trip_forces_verified_off_before_legacy_dispatch(self):
         app = FakeApp()
         guard = install_strict_runtime_safety(app)
-        guard.VERIFY_ATTEMPTS = 2
-        guard.VERIFY_DELAY_S = 0.0
+        guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        guard.OFF_CONFIRMATION_POLL_S = 0.0
 
         trip_snapshot = await app.hass.get_all_live()
 
