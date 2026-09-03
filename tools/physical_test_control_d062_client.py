@@ -15,6 +15,7 @@ OPERATIONS = {
     "d062_verified_stop",
     "d062_fault_toctou_precommand",
     "d062_fault_ambiguous_edge_ack",
+    "d062_test_delta_hold_complete",
 }
 ADOPTION_OPERATIONS = {
     "d062_adopt_test_budget",
@@ -25,7 +26,10 @@ ADOPTION_OPERATIONS = {
 
 def request(socket_path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
-        channel.settimeout(45.0)
+        # Delta/hold validation may wait for two real HA source heartbeats plus the
+        # normal verified-OFF/disarm propagation window. Keep the client transport
+        # timeout above that bounded operation without changing production timing.
+        channel.settimeout(120.0)
         channel.connect(socket_path)
         channel.sendall((json.dumps(payload, ensure_ascii=True) + "\n").encode("utf-8"))
         response = b""
