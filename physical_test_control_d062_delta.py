@@ -3,13 +3,14 @@
 This module extends the existing opt-in root-only AF_UNIX physical-test control
 plane with one parameterless operation. It never turns Output ON and never writes
 V/I/OVP/OCP/protection. The operation requires an already ACTIVE MIX_ADOPTED
-session, injects only in-memory post-adoption Delta evidence, then advances only
-the coordinator's in-process monotonic test clock by the production 2h hold.
+session, injects only in-memory post-adoption Delta evidence, then rewinds only
+the in-memory sticky-finish-hold anchor by the production 2h hold duration.
 
 The production observe/terminal path remains authoritative: the first observe must
 start the normal sticky finish hold, and the second observe must reach
-DELTA_HOLD_COMPLETE and the normal verified-OFF/lease-disarm boundary. This is a
-deterministic transition proof, not a two-hour wall-clock endurance claim.
+DELTA_HOLD_COMPLETE and the normal verified-OFF/lease-disarm boundary. The
+chemistry active-time clock is deliberately not accelerated. This is a deterministic
+transition proof, not a two-hour wall-clock endurance claim.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ _OPERATION = "d062_test_delta_hold_complete"
 _SOURCE_WAIT_S = 30.0
 _SOURCE_POLL_S = 0.5
 _HOLD_ADVANCE_MARGIN_S = 1.0
+_MAX_REAL_ACTIVE_ADVANCE_S = 60.0
 
 
 def _enum_value(value: Any) -> Any:
@@ -203,8 +205,8 @@ class PhysicalTestControlD062Delta:
             raise PhysicalTestControlError("D062 Delta test requires an armed managed edge lease")
 
         original_observe = coordinator.analyzer.observe
-        original_monotonic = coordinator._monotonic
         observer_cancelled = False
+        original_hold_anchor: float | None = None
         try:
             await self._cancel_background_observer(coordinator)
             observer_cancelled = True
@@ -245,11 +247,31 @@ class PhysicalTestControlD062Delta:
             second_source = await self._wait_for_new_source(coordinator, second_floor)
 
             hold_advance_s = float(MIX_FINISH_HOLD_S) + _HOLD_ADVANCE_MARGIN_S
-            coordinator._monotonic = lambda: float(original_monotonic()) + hold_advance_s
+            original_hold_anchor = float(hold_anchor)
+            adopted_active_before_s = float(
+                getattr(coordinator, "adopted_active_elapsed_s", 0.0) or 0.0
+            )
+            # Advance only the sticky hold. Never offset coordinator._monotonic: that
+            # same clock also owns chemistry active-time accounting and would falsely
+            # spend two hours of the persisted Mix budget.
+            coordinator._finish_hold_anchor_mono = original_hold_anchor - hold_advance_s
             try:
                 await coordinator.observe_once()
             finally:
-                coordinator._monotonic = original_monotonic
+                coordinator._finish_hold_anchor_mono = original_hold_anchor
+
+            adopted_active_after_s = float(
+                getattr(coordinator, "adopted_active_elapsed_s", 0.0) or 0.0
+            )
+            real_active_advance_s = adopted_active_after_s - adopted_active_before_s
+            if (
+                not math.isfinite(real_active_advance_s)
+                or real_active_advance_s < 0
+                or real_active_advance_s > _MAX_REAL_ACTIVE_ADVANCE_S
+            ):
+                raise PhysicalTestControlError(
+                    "D062 hold acceleration contaminated chemistry active-time accounting"
+                )
 
             if getattr(coordinator, "state", None) is not ManagedMixState.COMPLETED:
                 raise PhysicalTestControlError(
@@ -280,6 +302,8 @@ class PhysicalTestControlD062Delta:
                 "second_fresh_source_s": second_source,
                 "finish_hold_started_at_s": hold_started_at_s,
                 "accelerated_hold_s": hold_advance_s,
+                "chemistry_active_clock_accelerated": False,
+                "real_active_advance_s": real_active_advance_s,
                 "wall_clock_endurance_claim": False,
                 "generation_before": getattr(lease_before, "generation", None),
                 "generation_after": getattr(lease_after, "generation", None),
@@ -291,7 +315,8 @@ class PhysicalTestControlD062Delta:
             }
         except Exception as exc:
             coordinator.analyzer.observe = original_observe
-            coordinator._monotonic = original_monotonic
+            if original_hold_anchor is not None:
+                coordinator._finish_hold_anchor_mono = original_hold_anchor
             if observer_cancelled and bool(
                 getattr(coordinator, "active", False) or getattr(coordinator, "off_pending", False)
             ):
@@ -309,7 +334,8 @@ class PhysicalTestControlD062Delta:
             ) from exc
         finally:
             coordinator.analyzer.observe = original_observe
-            coordinator._monotonic = original_monotonic
+            if original_hold_anchor is not None:
+                coordinator._finish_hold_anchor_mono = original_hold_anchor
 
     async def dispatch(self, request: Any) -> Dict[str, Any]:
         if not isinstance(request, dict) or request.get("op") != _OPERATION:

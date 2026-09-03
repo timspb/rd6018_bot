@@ -122,10 +122,11 @@ _physical_test_control = install_physical_test_control(_legacy)
 # it never creates another listener and remains disabled with the base control plane.
 install_physical_test_control_d062(_legacy, _physical_test_control)
 # The final D062 normal-terminal gate also stays on the same disabled-by-default local
-# socket. It injects only in-memory fresh Delta evidence and a test-only monotonic 2h
-# advance; the production coordinator must still perform DELTA_HOLD_COMPLETE and its
-# normal verified-OFF/lease-disarm path. It is not a wall-clock endurance shortcut in
-# production semantics and exposes no generic clock/setpoint mutation endpoint.
+# socket. It injects only in-memory fresh Delta evidence and rewinds only the sticky
+# finish-hold anchor by 2h; the chemistry active-time clock remains real. The production
+# coordinator must still perform DELTA_HOLD_COMPLETE and its normal verified-OFF/lease-
+# disarm path. This is not a wall-clock endurance claim and exposes no generic
+# clock/setpoint mutation endpoint.
 install_physical_test_control_d062_delta(_legacy, _physical_test_control)
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
