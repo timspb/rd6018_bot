@@ -32,6 +32,7 @@ from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
+from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 
@@ -53,6 +54,11 @@ install_manual_context_preprocessor(_legacy)
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
 _v2_ui_enabled = _env_enabled("V2_UI", True)
 install_v2(_legacy, install_ui=_v2_ui_enabled)
+# Telegram transport is not part of RD/edge safety authority, but a single transient
+# DNS EAI_NODATA during aiogram bootstrap must not kill the production runtime before
+# its local monitor/watchdog tasks come up. Restrict retry semantics to read-only getMe
+# and idempotent setMyCommands; never replay arbitrary Telegram API writes.
+install_telegram_startup_resilience(_legacy)
 # The public ESPHome Output switch remains the actuator endpoint, but an unchanged
 # switch state is not a source heartbeat. Prefer the V2 force-updated read-only
 # register-18 sensor for canonical Output value/freshness whenever the matching
