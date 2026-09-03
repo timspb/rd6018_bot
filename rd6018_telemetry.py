@@ -234,6 +234,16 @@ def canonicalize_live(live: MutableMapping[str, Any]) -> MutableMapping[str, Any
     if live.get("regulation_code") not in (None, "", "unknown", "unavailable"):
         live["is_cv"] = regulation is RegulationMode.CV
         live["is_cc"] = regulation is RegulationMode.CC
+        # ``is_cv``/``is_cc`` are compatibility views derived from raw register 17.
+        # Their values must therefore carry the same source heartbeat as
+        # ``regulation_code``. Leaving stale legacy binary-sensor metadata attached to
+        # the newly derived values can pin a coherent-source epoch forever even while
+        # the authoritative raw regulation report advances normally.
+        if meta is not None and "regulation_code" in meta:
+            for derived in ("is_cv", "is_cc"):
+                copied = dict(meta["regulation_code"])
+                copied["source_key"] = "regulation_code"
+                meta[derived] = copied
 
     if "bridge_uptime" not in live and "uptime" in live:
         live["bridge_uptime"] = live.get("uptime")
