@@ -230,6 +230,16 @@ class RuntimeSafetyGuard:
             evidence = self._output_evidence(live)
             post_command = self._is_post_command(evidence, before, command_start_epoch)
             if evidence.state is False and post_command:
+                heartbeat = (
+                    "none"
+                    if evidence.heartbeat_epoch is None
+                    else f"{evidence.heartbeat_epoch:.3f}"
+                )
+                logger.info(
+                    "Output OFF confirmed: source=%s heartbeat_epoch=%s post_command=true",
+                    evidence.source_key,
+                    heartbeat,
+                )
                 return True
 
             if (
@@ -269,6 +279,11 @@ class RuntimeSafetyGuard:
                 command_ok = bool(await self._raw_turn_off(entity_id))
             except Exception:
                 command_ok = False
+            logger.info(
+                "Output OFF command issued: reason=%s accepted=%s",
+                reason,
+                command_ok,
+            )
 
             if await self._verify_switch_off(
                 before=before,
@@ -277,6 +292,7 @@ class RuntimeSafetyGuard:
                 entity_id=entity_id,
             ):
                 self._off_unconfirmed = False
+                logger.info("Output OFF verification complete: reason=%s", reason)
                 return True
 
             self._off_unconfirmed = True
