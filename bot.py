@@ -27,6 +27,7 @@ from operator_hmi import install_operator_hmi
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
 from physical_test_control import install_physical_test_control
+from physical_test_control_d062 import install_physical_test_control_d062
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
@@ -115,6 +116,10 @@ _rd_managed_mix_adoption = install_managed_mix_adoption(
     install_ui=_v2_ui_enabled,
 )
 _physical_test_control = install_physical_test_control(_legacy)
+# D062/D063 physical validation reuses the same root-only AF_UNIX server. The extension
+# adds only conservative prior-age / near-budget adoption / verified-stop operations;
+# it never creates another listener and remains disabled with the base control plane.
+install_physical_test_control_d062(_legacy, _physical_test_control)
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
 # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
