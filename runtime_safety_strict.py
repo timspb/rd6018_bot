@@ -11,6 +11,7 @@ from runtime_safety import (
     RuntimeSafetyGuard,
     _binary,
     _finite,
+    logger,
 )
 
 
@@ -87,12 +88,14 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             ok = bool(await self.edge_safety_lease.disarm())
         except Exception:
             ok = False
-        if not ok:
-            self._notify(
-                "edge_lease_disarm_failed",
-                "⚠️ RD6018 уже подтверждён OFF, но локальный safety lease не удалось "
-                "снять. Он останется fail-safe armed и продолжит требовать OFF.",
-            )
+        if ok:
+            logger.info("Edge safety lease disarm confirmed")
+            return
+        self._notify(
+            "edge_lease_disarm_failed",
+            "⚠️ RD6018 уже подтверждён OFF, но локальный safety lease не удалось "
+            "снять. Он останется fail-safe armed и продолжит требовать OFF.",
+        )
 
     async def get_all_live(self) -> dict[str, Any]:
         live = await super().get_all_live()
@@ -150,6 +153,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
         confirmed = await super().turn_off(entity_id)
         if confirmed:
+            logger.info("Output OFF verified; edge lease disarm may proceed")
             await self._disarm_edge_lease_best_effort()
         return confirmed
 
