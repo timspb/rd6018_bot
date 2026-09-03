@@ -16,14 +16,20 @@ from ha_history import HomeAssistantHistoryError, HomeAssistantHistoryReader, Mi
 from pb_domain import BatteryChemistry
 from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
 from rd_live_adoption import MIX_FINISH_HOLD_S, MIX_HARD_LIMIT_HOURS
-from rd_managed_adoption import ManagedAdoptionFingerprint, ManagedLiveAdoptionCoordinator
+from rd_managed_adoption import (
+    ADOPTION_SETPOINT_TOLERANCE,
+    ManagedAdoptionFingerprint,
+    ManagedLiveAdoptionCoordinator,
+)
 from recipe_engine import POLICIES
 from runtime_safety import RuntimeSafetyError, _binary
 from signal_analyzer import SignalAnalyzer, SignalEvent, SignalSample
 
 
 ADOPTED_MIX_POLL_S = 5.0
-ADOPTED_MIX_SETPOINT_TOLERANCE = 0.08
+# Keep the D062 public name while sharing the canonical D061 authority/readback
+# tolerance. This prevents the two adopted-live paths from drifting semantically.
+ADOPTED_MIX_SETPOINT_TOLERANCE = ADOPTION_SETPOINT_TOLERANCE
 
 
 class ManagedMixState(str, Enum):

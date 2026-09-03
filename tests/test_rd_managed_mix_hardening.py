@@ -326,6 +326,57 @@ class ManagedMixHardeningTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(coordinator.state, ManagedMixState.FAILED)
             self.assertIn("INCOMPLETE_AFTER_EDGE", coordinator.terminal_reason)
 
+    async def test_physical_ratchet_then_tolerance_boundary_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clock, app, _manager, _edge, coordinator, _reader = self.make_system(
+                f"{tmp}/mix.json", recorder_age_s=3 * 3600
+            )
+            app.hass.live.update(
+                set_voltage=15.10,
+                set_current=0.18,
+                ovp=15.30,
+                ocp=0.40,
+                voltage=15.00,
+                current=0.17,
+                battery_voltage=15.00,
+            )
+            app.hass.refresh_meta()
+            app.hass.writes = []
+            preview = ManagedMixPreview(
+                token="physical-d062-c1-c2",
+                battery_id="varta_agm80_a0019828108",
+                chemistry=BatteryChemistry.AGM,
+                capacity_ah=80.0,
+                fingerprint=ManagedAdoptionFingerprint(15.10, 0.18, 15.30, 0.40),
+                prior_age=PriorMixAge(3 * 3600, PriorMixAgeSource.RECORDER, clock.wall),
+            )
+
+            await coordinator.adopt(preview)
+            self.assertTrue(coordinator.active)
+            self.assertEqual(app.hass.live["switch"], "on")
+
+            app.hass.live["set_current"] = 0.10
+            clock.advance(5)
+            app.hass.refresh_meta()
+            await coordinator.observe_once()
+
+            self.assertTrue(coordinator.active)
+            self.assertAlmostEqual(coordinator.current_authority.set_current_a, 0.10)
+            self.assertAlmostEqual(coordinator.max_authority.set_current_a, 0.18)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+
+            app.hass.live["set_current"] = 0.18
+            clock.advance(5)
+            app.hass.refresh_meta()
+            await coordinator.observe_once()
+
+            self.assertEqual(coordinator.state, ManagedMixState.FAILED)
+            self.assertIn("MIX_ADOPTED_OUT_OF_BAND_INCREASE", coordinator.terminal_reason)
+            self.assertIn("set_current_a:0.180>0.100", coordinator.terminal_reason)
+            self.assertEqual(app.hass.live["switch"], "off")
+            self.assertEqual(app.hass.turn_off_calls, 1)
+            self.assertEqual(app.hass.writes, [])
+
 
 if __name__ == "__main__":
     unittest.main()
