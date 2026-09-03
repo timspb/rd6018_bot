@@ -11,7 +11,7 @@ from typing import Any, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from runtime_safety import RuntimeSafetyError, _binary
+from runtime_safety import RuntimeSafetyError, _binary, logger
 from runtime_safety_v2 import V2RuntimeSafetyGuard
 
 
@@ -208,7 +208,17 @@ class RdControlModeManager:
                 "explicit RD-mode Output OFF is available only in HANDS_OFF"
             )
 
-        return await self.guard._ensure_output_off("explicit HANDS_OFF Output OFF", entity_id)
+        confirmed = bool(
+            await self.guard._ensure_output_off("explicit HANDS_OFF Output OFF", entity_id)
+        )
+        if confirmed:
+            # HANDS_OFF normally has no edge lease. However, a live-adoption command can
+            # have executed while its ACK was lost before software crossed to PB_MANAGED.
+            # Once physical OFF is positively confirmed, clear that possible residual
+            # lease through the same strict disarm path used by managed Output OFF.
+            logger.info("Output OFF verified; edge lease disarm may proceed")
+            await self.guard._disarm_edge_lease_best_effort()
+        return confirmed
 
 
 def _strip_callbacks(
