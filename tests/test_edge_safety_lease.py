@@ -51,11 +51,43 @@ class FakeHass:
         return False
 
 
+class DelayedDisarmHass(FakeHass):
+    """Model an accepted edge button whose HA readback converges a few polls later."""
+
+    def __init__(self, *, armed_reads_before_ack: int):
+        super().__init__()
+        self.disarm_ack = False
+        self.armed_reads_before_ack = int(armed_reads_before_ack)
+        self._disarm_pending = False
+        self._armed_reads_after_press = 0
+
+    async def press_button(self, entity_id):
+        if entity_id.endswith("safety_lease_disarm"):
+            self.presses.append(entity_id)
+            self._disarm_pending = True
+            return True
+        return await super().press_button(entity_id)
+
+    async def get_state(self, entity_id):
+        armed_entity = f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"
+        if self._disarm_pending and entity_id == armed_entity:
+            self._armed_reads_after_press += 1
+            if self._armed_reads_after_press > self.armed_reads_before_ack:
+                self.states[armed_entity] = "off"
+                self.states[f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_remaining"] = 0.0
+        return await super().get_state(entity_id)
+
+
 class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
     def _lease(self, hass=None, clock=None):
         hass = hass or FakeHass()
         clock = clock or Clock()
-        config = EdgeSafetyLeaseConfig(ack_attempts=1, ack_delay_s=0.0)
+        config = EdgeSafetyLeaseConfig(
+            ack_attempts=1,
+            ack_delay_s=0.0,
+            disarm_ack_attempts=1,
+            disarm_ack_delay_s=0.0,
+        )
         return hass, clock, EdgeSafetyLease(hass, config, monotonic=clock)
 
     def test_default_entity_ids_match_deployed_rd6018_node(self):
@@ -63,6 +95,8 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(EDGE_ENTITY_PREFIX, "rd6018_rd_6018")
         self.assertEqual(config.lease_ttl_s, 15 * 60)
         self.assertEqual(config.renew_interval_s, 5 * 60)
+        self.assertEqual(config.disarm_ack_attempts, 41)
+        self.assertEqual(config.disarm_ack_delay_s, 0.25)
         self.assertEqual(
             config.armed_entity,
             "binary_sensor.rd6018_rd_6018_safety_lease_armed",
@@ -193,12 +227,49 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         hass.disarm_ack = False
         self.assertFalse(await lease.disarm())
 
+    async def test_disarm_has_separate_bounded_window_for_delayed_ha_readback(self):
+        hass = DelayedDisarmHass(armed_reads_before_ack=3)
+        clock = Clock()
+        config = EdgeSafetyLeaseConfig(
+            ack_attempts=1,
+            ack_delay_s=0.0,
+            disarm_ack_attempts=4,
+            disarm_ack_delay_s=0.0,
+        )
+        lease = EdgeSafetyLease(hass, config, monotonic=clock)
+        await lease.arm()
+
+        self.assertTrue(await lease.disarm())
+        self.assertEqual(
+            hass.states[f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"],
+            "off",
+        )
+        self.assertEqual(
+            hass.states[f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_remaining"],
+            0.0,
+        )
+
+    async def test_disarm_ack_requires_remaining_time_to_converge_to_zero(self):
+        hass, _clock, lease = self._lease()
+        await lease.arm()
+        hass.disarm_ack = False
+        hass.states[f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"] = "off"
+        hass.states[f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_remaining"] = 900.0
+
+        self.assertFalse(await lease.disarm())
+
     def test_invalid_renewal_geometry_is_rejected(self):
         with self.assertRaises(ValueError):
             EdgeSafetyLease(
                 FakeHass(),
                 EdgeSafetyLeaseConfig(lease_ttl_s=600.0, renew_interval_s=600.0),
             )
+
+    def test_invalid_ack_geometry_is_rejected(self):
+        with self.assertRaises(ValueError):
+            EdgeSafetyLease(FakeHass(), EdgeSafetyLeaseConfig(disarm_ack_attempts=0))
+        with self.assertRaises(ValueError):
+            EdgeSafetyLease(FakeHass(), EdgeSafetyLeaseConfig(disarm_ack_delay_s=-0.1))
 
 
 if __name__ == "__main__":
