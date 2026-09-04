@@ -29,6 +29,7 @@ from operator_mix_eligibility import install_mix_action_eligibility
 from physical_test_control import install_physical_test_control
 from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
+from physical_test_control_diagnostic import install_physical_test_control_diagnostic
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
@@ -134,6 +135,11 @@ install_physical_test_control_d062_delta(_legacy, _physical_test_control)
 # production verified-OFF confirmation; no arbitrary HA/entity/timestamp write surface
 # is exposed.
 install_physical_test_control_source_faults(_legacy, _physical_test_control)
+# Diagnostic cancellation/restart physical gates also reuse the same local socket.
+# They can start only one hard-coded low-energy Manual program and a safer current
+# reduction; the restart gate is bounded by an automatic 20 s cleanup if SIGKILL does
+# not arrive. No arbitrary actuator parameters are accepted from the client.
+install_physical_test_control_diagnostic(_legacy, _physical_test_control)
 # The semantic L2/L3 operator station is the final presentation layer. It is installed
 # after ownership and live-session wrappers so the panel describes their effective
 # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
