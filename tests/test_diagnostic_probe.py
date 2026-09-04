@@ -25,7 +25,9 @@ class FakeProbeHass:
             "battery_voltage": voltage,
             "current": measured_current,
             "set_current": current,
+            "set_current_readback_v2": current,
             "ocp": 7.1,
+            "_meta": {"set_current_readback_v2": {"status": "ok", "age_s": 0.0}},
         }
 
     async def set_current(self, value):
@@ -45,6 +47,39 @@ class FakeProbeHass:
 
 
 class DiagnosticProbeTests(unittest.IsolatedAsyncioTestCase):
+    def test_current_evidence_accepts_fresh_v2_when_writable_number_is_stale(self):
+        hass = FakeProbeHass()
+        live = asyncio.run(hass.get_all_live())
+        live["set_current"] = 0.01
+        live["set_current_readback_v2"] = 7.0
+        allowed, reason, configured = ControlledCurrentProbe(hass)._preflight(
+            live, ProbePlan(step_current_a=3.0)
+        )
+        self.assertTrue(allowed, reason)
+        self.assertAlmostEqual(configured or 0.0, 7.0)
+
+    def test_current_evidence_rejects_stale_v2_even_when_writable_number_changed(self):
+        hass = FakeProbeHass()
+        live = asyncio.run(hass.get_all_live())
+        live["set_current"] = 3.0
+        live["set_current_readback_v2"] = 7.0
+        live["_meta"]["set_current_readback_v2"]["age_s"] = 30.0
+        allowed, reason, configured = ControlledCurrentProbe(hass)._preflight(
+            live, ProbePlan(step_current_a=6.0)
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "configured_current_unavailable")
+        self.assertIsNone(configured)
+
+    def test_current_evidence_accepts_rd6018_rounding(self):
+        hass = FakeProbeHass()
+        live = asyncio.run(hass.get_all_live())
+        live["set_current_readback_v2"] = 0.199999988
+        actual = ControlledCurrentProbe(hass)._preflight(
+            live, ProbePlan(step_current_a=0.10)
+        )[2]
+        self.assertAlmostEqual(actual or 0.0, 0.20, places=5)
+
     async def test_probe_only_reduces_current_and_restores_original(self):
         hass = FakeProbeHass()
         runner = ControlledCurrentProbe(hass)

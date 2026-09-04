@@ -12,7 +12,7 @@ from diagnostic_persistence import (
     DiagnosticActionStatus,
     PersistentControlledCurrentProbe,
 )
-from diagnostic_probe import ProbePlan
+from diagnostic_probe import ProbePlan, current_readback_evidence
 from manual_mode import ManualChargeRequest
 from pb_domain import BatteryChemistry
 from physical_test_control import PhysicalTestControl, PhysicalTestControlError, _json_value
@@ -133,7 +133,7 @@ class PhysicalTestControlDiagnostic:
             live = await self.control._raw_live()
             lease = await self.control._lease_state()
             set_v = finite_float(live.get("set_voltage"))
-            set_i = finite_float(live.get("set_current"))
+            set_i = current_readback_evidence(live)
             ovp = finite_float(live.get("ovp"))
             ocp = finite_float(live.get("ocp"))
             if not self.control._is_on(live) or not bool(lease.armed):
@@ -231,7 +231,7 @@ class PhysicalTestControlDiagnostic:
                 pass
         live = await self.control._raw_live()
         lease = await self.control._lease_state()
-        set_i = finite_float(live.get("set_current"))
+        set_i = current_readback_evidence(live)
         if (
             not self.control._is_on(live)
             or set_i is None
@@ -268,7 +268,7 @@ class PhysicalTestControlDiagnostic:
             except asyncio.CancelledError:
                 pass
             live = await self.control._raw_live()
-            set_i = finite_float(live.get("set_current"))
+            set_i = current_readback_evidence(live)
             restored_before_off = bool(
                 self.control._is_on(live)
                 and set_i is not None

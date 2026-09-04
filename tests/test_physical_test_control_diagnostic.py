@@ -43,8 +43,10 @@ class FakeHass:
             "current": min(self.set_current_value, 0.17) if self.output_on else 0.0,
             "set_voltage": self.set_voltage_value,
             "set_current": self.set_current_value,
+            "set_current_readback_v2": self.set_current_value,
             "ovp": self.ovp_value,
             "ocp": self.ocp_value,
+            "_meta": {"set_current_readback_v2": {"status": "ok", "age_s": 0.0}},
         }
 
     async def set_current(self, value):

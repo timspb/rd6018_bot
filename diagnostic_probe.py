@@ -7,7 +7,22 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 from battery_diagnostics import DynamicLoopProbe
-from rd6018_telemetry import finite_float
+from rd6018_telemetry import finite_float, telemetry_freshness
+
+
+def current_readback_evidence(live: dict[str, Any]) -> Optional[float]:
+    """Return the authoritative register-9 programmed-current readback.
+
+    Writable HA number entities are command endpoints and may retain stale
+    ``last_reported`` metadata after a write.  D064 must validate the
+    force-updated V2 register mirror instead.
+    """
+    if not isinstance(live.get("_meta"), dict):
+        return None
+    freshness = telemetry_freshness(live, ["set_current_readback_v2"])
+    if not freshness.valid:
+        return None
+    return finite_float(live.get("set_current_readback_v2"))
 
 
 @dataclass(frozen=True)
@@ -77,7 +92,7 @@ class ControlledCurrentProbe:
         temp = finite_float(live.get("temp_ext"))
         if temp is None or temp >= plan.max_battery_temp_c:
             return False, "battery_temperature_not_suitable", None
-        configured_current = finite_float(live.get("set_current"))
+        configured_current = current_readback_evidence(live)
         if configured_current is None or configured_current <= 0:
             return False, "configured_current_unavailable", None
         if plan.step_current_a >= configured_current - plan.readback_tolerance_a:
@@ -99,7 +114,7 @@ class ControlledCurrentProbe:
             if attempt:
                 await asyncio.sleep(delay_s)
             live = await self.hass.get_all_live()
-            actual = finite_float(live.get("set_current"))
+            actual = current_readback_evidence(live)
             if actual is not None and abs(actual - expected) <= tolerance:
                 return True
         return False
