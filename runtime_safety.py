@@ -475,19 +475,11 @@ class RuntimeSafetyGuard:
             return None
 
     async def _verify_numeric(self, key: str, expected: float) -> bool:
-        # Register-9 V2 is the authoritative programmed-current evidence.  The
-        # writable number remains the command endpoint; it is not a heartbeat.
-        evidence_key = (
-            "set_current_readback_v2"
-            if key == "set_current"
-            else key
-        )
         for attempt in range(self.READBACK_VERIFY_ATTEMPTS):
             if attempt:
                 await asyncio.sleep(self.READBACK_VERIFY_DELAY_S)
             try:
-                live = await self._raw_live()
-                observed = _finite(live.get(evidence_key))
+                observed = _finite((await self._raw_live()).get(key))
             except Exception:
                 observed = None
             if observed is not None and abs(observed - expected) <= self.READBACK_TOLERANCE:
