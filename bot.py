@@ -30,6 +30,7 @@ from physical_test_control import install_physical_test_control
 from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
 from physical_test_control_diagnostic import install_physical_test_control_diagnostic
+from physical_test_control_pb_mode import install_physical_test_control_pb_mode
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
@@ -119,6 +120,11 @@ _rd_managed_mix_adoption = install_managed_mix_adoption(
     install_ui=_v2_ui_enabled,
 )
 _physical_test_control = install_physical_test_control(_legacy)
+# Physical validation also needs one safe inverse ownership transition for OFF-only
+# bench setup. This typed hook delegates to the existing RdControlModeManager and is
+# narrower than the Telegram operator action: no parameters, no actuator writes, clean
+# lease/Protection/Modbus state, and canonical register-18 Output OFF are mandatory.
+install_physical_test_control_pb_mode(_legacy, _physical_test_control)
 # D062/D063 physical validation reuses the same root-only AF_UNIX server. The extension
 # adds only conservative prior-age / near-budget adoption / verified-stop operations;
 # it never creates another listener and remains disabled with the base control plane.
