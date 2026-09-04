@@ -95,10 +95,16 @@ ENTITY_MAP = {
     "ovp_triggered": "binary_sensor.rd_6018_over_voltage_protection",
     "ocp_triggered": "binary_sensor.rd_6018_over_current_protection",
     "switch": "switch.rd_6018_output",
+    # Writable number entities remain the actuator endpoints. Safety readback is
+    # intentionally separate: a same-value number write may not advance HA metadata.
     "set_voltage": "number.rd_6018_output_voltage",
     "set_current": "number.rd_6018_output_current",
     "ovp": "number.rd_6018_over_voltage_protection",
     "ocp": "number.rd_6018_over_current_protection",
+    "set_voltage_readback_v2": "sensor.rd6018_rd_6018_set_voltage_readback_v2",
+    "set_current_readback_v2": "sensor.rd6018_rd_6018_set_current_readback_v2",
+    "ovp_readback_v2": "sensor.rd6018_rd_6018_ovp_readback_v2",
+    "ocp_readback_v2": "sensor.rd6018_rd_6018_ocp_readback_v2",
     "backlight": "number.rd_6018_backlight",
     "input_voltage": "sensor.rd_6018_input_voltage",
     # This is ESPHome bridge uptime, not RD6018 controller uptime.

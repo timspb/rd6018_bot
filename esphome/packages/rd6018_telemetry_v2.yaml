@@ -35,6 +35,69 @@ sensor:
     filters:
       - multiply: 0.01
 
+  # Authoritative programmed-register mirrors. The legacy number entities remain
+  # write endpoints; these sensors are read-only and force-update so unchanged RD
+  # values still advance Home Assistant last_reported for safety readback.
+  - platform: modbus_controller
+    id: rd6018_set_voltage_readback_v2
+    name: "Set Voltage Readback V2"
+    device_class: voltage
+    entity_category: diagnostic
+    unit_of_measurement: "V"
+    modbus_controller_id: powersupply
+    address: 8
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 2
+    force_update: true
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    id: rd6018_set_current_readback_v2
+    name: "Set Current Readback V2"
+    device_class: current
+    entity_category: diagnostic
+    unit_of_measurement: "A"
+    modbus_controller_id: powersupply
+    address: 9
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 2
+    force_update: true
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    id: rd6018_ovp_readback_v2
+    name: "OVP Readback V2"
+    device_class: voltage
+    entity_category: diagnostic
+    unit_of_measurement: "V"
+    modbus_controller_id: powersupply
+    address: 82
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 2
+    force_update: true
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    id: rd6018_ocp_readback_v2
+    name: "OCP Readback V2"
+    device_class: current
+    entity_category: diagnostic
+    unit_of_measurement: "A"
+    modbus_controller_id: powersupply
+    address: 83
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 2
+    force_update: true
+    filters:
+      - multiply: 0.01
+
   # RD stores temperature sign and magnitude in separate 16-bit registers.
   - platform: modbus_controller
     id: rd6018_temp_int_sign_raw

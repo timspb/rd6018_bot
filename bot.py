@@ -31,6 +31,9 @@ from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
 from physical_test_control_diagnostic import install_physical_test_control_diagnostic
 from physical_test_control_pb_mode import install_physical_test_control_pb_mode
+from physical_test_control_programmed_readback_v2 import (
+    install_physical_test_control_programmed_readback_v2,
+)
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
@@ -141,6 +144,11 @@ install_physical_test_control_d062_delta(_legacy, _physical_test_control)
 # production verified-OFF confirmation; no arbitrary HA/entity/timestamp write surface
 # is exposed.
 install_physical_test_control_source_faults(_legacy, _physical_test_control)
+# B16 originally proved that writable number metadata does not provide an authoritative
+# same-value heartbeat in production. Shadow only that operation with the V2 gate backed
+# by force-updated read-only Modbus register mirrors; the number entities remain command
+# endpoints and all other source-fault operations keep their existing implementation.
+install_physical_test_control_programmed_readback_v2(_legacy, _physical_test_control)
 # Diagnostic cancellation/restart physical gates also reuse the same local socket.
 # They can start only one hard-coded low-energy Manual program and a safer current
 # reduction; the restart gate is bounded by an automatic 20 s cleanup if SIGKILL does

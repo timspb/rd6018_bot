@@ -205,6 +205,13 @@ V2_CANONICAL_OVERRIDES: Dict[str, str] = {
     "power": "power_v2",
     "temp_int": "temp_int_v2",
     "temp_ext": "temp_ext_v2",
+    # Writable ESPHome number entities remain command endpoints. These independent
+    # force-updated register mirrors own safety readback value/freshness so a
+    # same-value command cannot leave canonical programmed evidence stale forever.
+    "set_voltage": "set_voltage_readback_v2",
+    "set_current": "set_current_readback_v2",
+    "ovp": "ovp_readback_v2",
+    "ocp": "ocp_readback_v2",
 }
 
 
