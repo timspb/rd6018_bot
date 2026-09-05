@@ -112,6 +112,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         if live.get("regulation_code") not in (None, "", "unknown", "unavailable"):
             dynamic = dynamic + ("regulation_code",)
         meta = {}
+        live.setdefault("set_current_readback_v2", live.get("set_current"))
         for key in dynamic:
             age = float(ages.get(key, 0.0))
             reported = (now - timedelta(seconds=age)).isoformat()
@@ -120,6 +121,13 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
                 "last_reported": reported,
                 "last_updated": reported,
             }
+        age = float(ages.get("set_current_readback_v2", 0.0))
+        reported = (now - timedelta(seconds=age)).isoformat()
+        meta["set_current_readback_v2"] = {
+            "status": "ok",
+            "last_reported": reported,
+            "last_updated": reported,
+        }
         if old_static:
             old = (now - timedelta(hours=6)).isoformat()
             for key in ("set_voltage", "set_current", "ovp", "ocp", "input_voltage"):
@@ -296,6 +304,41 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         observed = await guard.get_all_live()
         self.assertEqual(observed["switch"], "on")
         self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_current_safety_uses_fresh_v2_readback_not_writable_projection(self):
+        live = self._with_freshness(self._live())
+        live["set_current"] = 99.0
+        live["set_current_readback_v2"] = 5.0
+        app = self._app(live)
+        guard = self._guard(app)
+        observed = await guard.get_all_live()
+        self.assertEqual(observed["set_current"], 99.0)
+        self.assertEqual(guard._current_evidence(observed), 5.0)
+
+    async def test_stale_v2_current_heartbeat_fails_closed(self):
+        live = self._with_freshness(self._live(), ages={"set_current_readback_v2": 21.0})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative current readback V2"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_missing_v2_current_readback_fails_closed(self):
+        live = self._with_freshness(self._live())
+        live.pop("set_current_readback_v2")
+        live["_meta"].pop("set_current_readback_v2")
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative current readback V2"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_rd6018_current_rounding_is_within_existing_tolerance(self):
+        live = self._with_freshness(self._live())
+        live["set_current_readback_v2"] = 0.199999988
+        app = self._app(live)
+        guard = self._guard(app)
+        self.assertTrue(await guard._verify_numeric("set_current", 0.2))
 
     async def test_freshness_metadata_missing_for_dynamic_channel_fails_closed(self):
         live = self._with_freshness(self._live())
