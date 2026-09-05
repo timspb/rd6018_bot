@@ -12,6 +12,10 @@ logger = logging.getLogger("rd6018")
 DB_PATH = "rd6018.db"
 
 _db: Optional[aiosqlite.Connection] = None
+# ChargeControllerV2 uses this as a production/runtime gate for diagnostic trace
+# persistence. Unit tests that instantiate a controller without init_db() remain
+# side-effect free.
+TRACE_CAPTURE_READY = False
 
 
 def _safe_float(value: Optional[float]) -> float:
@@ -33,18 +37,19 @@ async def get_db() -> aiosqlite.Connection:
 
 async def close_db() -> None:
     """Закрыть persistent соединение при shutdown бота."""
-    global _db
+    global _db, TRACE_CAPTURE_READY
     if _db is not None:
         try:
             await _db.close()
         except Exception:
             pass
         _db = None
-
+    TRACE_CAPTURE_READY = False
 
 
 async def init_db() -> None:
     """Создание таблиц при старте."""
+    global TRACE_CAPTURE_READY
     db = await get_db()
     await db.execute("""
         CREATE TABLE IF NOT EXISTS sensor_history (
@@ -74,6 +79,7 @@ async def init_db() -> None:
         )
     """)
     await db.commit()
+    TRACE_CAPTURE_READY = True
     logger.info("Database initialized: %s", DB_PATH)
 
 

@@ -1,0 +1,93 @@
+# RD6018 live ownership acquisition extension
+#
+# Include this package alongside the canonical rd6018_safety_lease.yaml AND the V2
+# telemetry package. It adds the dedicated HANDS_OFF -> managed acquisition command
+# plus an edge-local direct register-16 protection probe. Ordinary lease arm remains
+# verified-OFF.
+#
+# D056 requires a 15-minute local lease. This package publishes the actual configured
+# TTL and independently refuses live adoption unless that TTL is exactly 900000 ms,
+# so Python can reject an incompatible edge before pressing the ownership button.
+
+globals:
+  - id: rd6018_safety_last_protection_rx_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: rd6018_safety_protection_code
+    type: uint16_t
+    restore_value: no
+    initial_value: "65535"
+
+sensor:
+  # Explicitly publish the edge control-loss budget. A zero remaining lease while
+  # HANDS_OFF cannot prove the configured TTL, so D061 preflight verifies this
+  # dedicated value before actuation.
+  - platform: template
+    id: rd6018_safety_lease_ttl_sensor
+    name: "Safety Lease TTL"
+    entity_category: diagnostic
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      return ${rd6018_safety_lease_ttl_ms}UL / 1000.0f;
+
+  # D061 may acquire ownership while Output is already ON, so the edge command must
+  # independently prove the full register-16 status code. Legacy OVP/OCP bit sensors
+  # cannot distinguish every code safely (notably OPP=3).
+  - platform: modbus_controller
+    id: rd6018_safety_protection_probe
+    modbus_controller_id: powersupply
+    address: 16
+    register_type: holding
+    value_type: U_WORD
+    internal: true
+    accuracy_decimals: 0
+    on_value:
+      then:
+        - lambda: |-
+            id(rd6018_safety_last_protection_rx_ms) = millis();
+            id(rd6018_safety_protection_code) = (uint16_t) x;
+
+button:
+  - platform: template
+    id: rd6018_safety_lease_adopt_live_output_button
+    name: "Safety Lease Adopt Live Output"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const uint32_t protection_rx = id(rd6018_safety_last_protection_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool protection_fresh = protection_rx != 0 &&
+              ((uint32_t) (now - protection_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool control_fresh =
+              telemetry_fresh && output_fresh && protection_fresh;
+
+            // D056 compatibility gate. Managed live adoption must never inherit a
+            // weaker watchdog silently.
+            if (${rd6018_safety_lease_ttl_ms}UL != 900000UL) return;
+
+            // This is not ordinary arm(). It is accepted only from an intentionally
+            // external/unmanaged, healthy state whose direct register-18 readback is ON
+            // and whose direct register-16 status is exactly NORMAL (0).
+            if (id(rd6018_safety_boot_quarantine)) return;
+            if (id(rd6018_safety_lease_tripped)) return;
+            if (!control_fresh) return;
+            if (id(rd6018_safety_managed_session)) return;
+            if (!id(rd6018_safety_output_on_readback)) return;
+            if (id(rd6018_safety_protection_code) != 0U) return;
+
+            // Preserve Output and every RD setpoint/protection register exactly as-is.
+            // Only ownership/dead-man state changes.
+            id(rd6018_safety_managed_session) = true;
+            id(rd6018_safety_last_renew_ms) = now;
+            id(rd6018_safety_generation)++;

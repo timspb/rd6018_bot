@@ -1,0 +1,38 @@
+name: ESPHome firmware
+
+on:
+  push:
+    branches:
+      - 'refactor/**'
+      - 'fix/**'
+    paths:
+      - 'esphome/**'
+      - '.github/workflows/esphome.yml'
+  pull_request:
+    paths:
+      - 'esphome/**'
+      - '.github/workflows/esphome.yml'
+
+jobs:
+  compile-rd6018-v2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Build canonical RD6018 firmware
+        env:
+          ESPHOME_SECRETS_MODE: example
+        run: ./esphome/build_firmware.sh
+
+      - name: Upload dummy-secrets CI firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: rd6018-controller-v2-ci-${{ github.sha }}
+          path: esphome/dist/rd6018-controller-v2.bin
+          if-no-files-found: error
+          retention-days: 14

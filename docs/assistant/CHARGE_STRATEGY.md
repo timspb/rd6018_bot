@@ -1,106 +1,417 @@
 # Charge Strategy Reference
 
-Этот документ нужен как короткий source of truth по стратегии заряда.
-Если есть сомнение в логике этапов, сначала смотри сюда, а потом уже в код.
+Этот документ — короткий source of truth по текущей production-стратегии V2.
+
+Порядок проверки: `V2_DECISION_LOG.md` -> `V2_OPEN_QUESTIONS.md` -> этот документ -> `PB_RECOVERY_V2.md` -> `V1_BEHAVIORAL_AUDIT.md`.
+
+## Главная модель
+
+Для автоматических программ независимы chemistry, intent, condition, entry/program mode и stage. `MANUAL` — отдельный authority mode, а не разновидность chemistry FSM. Отдельно существует **ownership RD6018**: `PB_MANAGED` или `HANDS_OFF`.
+
+### Intent
+- **Normal** — штатный полный автоматический заряд, V1-compatible: bounded recovery и final Mix разрешены по детерминированным критериям.
+- **Recovery** — тот же безопасный контур с явной восстановительной целью/диагностическим контекстом; evidence/safety не обходятся.
+- **Conditioning** — сервисная цель внутри разрешённого chemistry envelope; generic EFB extension выше 16.5 V не существует.
+- **Diagnostic** — наблюдение/проверка без автоматического создания Recovery/Mix.
+
+`Auto Mix` — не intent, а direct-entry program mode.
+
+## Production authority
+- `AutoStrategyProductionChargeControllerV2` владеет AUTO Main/timeout/Mix strategy.
+- `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto и durable Mix active-time authority.
+- `ProductionManualSessionManager` владеет Manual.
+- Пока ownership = `PB_MANAGED`, `V2RuntimeSafetyGuard` + configured-value readback + verified OFF + edge lease образуют обязательную аппаратную границу managed Pb authority.
+- `RdControlModeManager` — внешний ownership boundary. Явный `HANDS_OFF` снимает Pb/bot actuator authority с RD6018; это не ослабление managed safety, а прекращение managed Pb ownership.
+- `DiagnosticActionJournal` хранит lifecycle диагностических действий, но не заменяет safety/chemistry authority.
+
+### HANDS_OFF ownership
+`HANDS_OFF` предназначен для осознанного использования RD6018 как обычного программируемого БП.
+
+В этом состоянии:
+- Output ON не является orphan Pb fault;
+- Pb envelope/temp_ext/Delta/timers не управляют внешним PSU state;
+- обычные bot writes Output/V/I/OVP/OCP заблокированы без compensating OFF;
+- raw telemetry остаётся доступной;
+- mode durable и переживает restart;
+- intrinsic RD protections не отключаются.
+
+Обычный edge `disarm()` остаётся только verified-Output-OFF операцией. Release уже работающего managed Output в HANDS_OFF — отдельный session-bound ownership transfer с отдельным edge command, suspend/serialization renewals и positive ACK. После durable HANDS_OFF lost/ambiguous edge ACK не позволяет молча вернуть `PB_MANAGED`; edge command мог уже выполниться. Возврат Pb control требует raw confirmed Output OFF и не восстанавливает старый AUTO session.
+
+Подробный контракт: `RD_HANDS_OFF_MODE.md`. Live Output-ON adoption обратно в Pb authority относится к D061-D063 и пока не реализован.
 
 ## Сигналы
+- `battery_voltage` — chemistry/diagnostics;
+- RD output voltage — hardware/output monitoring;
+- `temp_ext` — температура АКБ;
+- `temp_int` — температура RD6018/БП;
+- Vin — PSU-health telemetry, не Pb-FSM authority;
+- CV -> current response (`Imin -> ΔI`);
+- CC -> voltage response (`Vmax -> ΔV`);
+- `BAT_MODE` — observation, not software permission.
 
-- `temp_ext` - внешний датчик АКБ, используется как основная температура батареи.
-- `temp_int` - температура блока/БП, используется только для защиты железа; 35-49°C для AI считаются просто тёплым режимом, а не риском АКБ.
-- `is_cv` - режим регулирования, но не самостоятельный признак завершения этапа.
-- `is_cc` - режим токовой фазы.
+## Аппаратная граница
+Различать commanded setpoint, configured/readback setpoint и measured physical value.
 
-## Авто-цепочка
+Для `PB_MANAGED`:
 
-- `Prep -> Main -> (Desulfation) -> Mix -> SAFE_WAIT -> Done/Storage`
-- `Prep` uses `12.0V` and `0.01C` of the configured capacity for every battery profile.
-- `Cooling` включается только по температуре АКБ и является паузой защиты.
+```text
+fresh telemetry
+-> envelope validation
+-> OVP/OCP
+-> V/I
+-> readback verify
+-> edge lease
+-> Output ON
+-> post-enable verify
+```
 
-## Термокомпенсация
+Непроверяемая managed ошибка -> fail closed. Absolute working-voltage ceiling V2 = **17.5 V**; конкретный chemistry recipe может быть существенно ниже. Для EFB automatic/Recovery/Conditioning generic ceiling = **16.5 V**.
 
-- Поправка применяется только к напряжению уставки и только по `temp_ext`.
-- Опорная температура: `25°C`.
-- Формула: `V_final = V_base + k * (25 - temp_ext)`.
-- Коэффициенты: `Ca/Ca` и `EFB` - `0.018V/°C`, `AGM` - `0.016V/°C`, `Custom` - `0.018V/°C`.
-- Предел поправки: не более `±0.60V`.
-- Компенсация используется в рабочих этапах `Prep`, `Main`, `Desulfation`, `Mix`.
-- Расчёт выполняется при старте этапа и при восстановлении сессии, а затем может мягко пересчитываться по мере изменения `temp_ext` с гистерезисом и ограничением частоты обновления.
-- На `SAFE_WAIT`, `Cooling`, `Done` и `Idle` компенсация не применяется.
-- Токовые лимиты, delta-правила и safety-пороги компенсация не меняет.
-- В AI и логе показывается базовая уставка, поправка и финальное напряжение, чтобы не путать стратегию с измерениями.
+## AUTO start / PREP
+```text
+Vbat < 12.0 V  -> PREP, ~12 V + temp compensation, ~0.01C
+Vbat >= 12.0 V -> MAIN сразу + PREP_SKIPPED audit event
+```
 
-## Профили
+Выбор делается до первого Output ON. Restore сохраняет persisted stage/target и не повторяет initial shortcut.
 
-### Ca/Ca
+## AUTO Mix-only
+`Auto Mix` стартует напрямую в `STAGE_MIX`:
+- PREP/Main/intermediate Recovery не выполняются даже транзитно;
+- `Vbat < 12.0 V` -> reject, не fallback в PREP;
+- Ca/Ca/EFB -> standard Mix 16.5 V;
+- AGM -> standard Mix 16.3 V;
+- ~0.03C, max 12 A;
+- normal ~120s blanking, CV `Imin -> ΔI`, CC `Vmax -> ΔV`, 3 spaced confirmations, sticky 2h hold;
+- maximum automatic **active-Mix** authority: Ca20/EFB24/AGM10;
+- normal Delta completion -> SAFE_WAIT -> Storage 13.8 V/1 A Output ON;
+- no accepted finish hold by active-time ceiling -> `MIX_TIMEOUT -> STOP_AND_DIAGNOSE -> Output OFF`, not Storage success;
+- strong `BLOCK_AUTOMATIC_HV` проверяется до включения;
+- EFB >16.5 V не разрешается никаким generic `expert` flag.
 
-- Main: `14.7V`
-- Переход `Main -> Mix`: `CV + I < 0.3A` в течение `3h` без нового минимума
-- Mix: `16.5V`, лимит `8h`
+## AUTO targets
+Global stage-current ceiling: 12 A.
 
-### EFB
+### Main
+- ~0.1C, max 12 A;
+- Ca/Ca 14.7 V;
+- EFB 14.8 V;
+- AGM 14.4 -> 14.6 -> 14.8 -> 15.0 V;
+- temperature compensation внутри recipe envelope.
 
-- Main: `14.8V`
-- Переход `Main -> Mix`: `CV + I < 0.3A` в течение `3h` без нового минимума
-- Mix: `16.5V`, лимит `10h`
+### Intermediate recovery / Desulfation
+- 16.3 V base;
+- ~0.02C;
+- 2h;
+- bounded intermediate attempt, не final Mix.
+
+### Mix
+- Ca/Ca 16.5 V;
+- EFB 16.5 V;
+- AGM 16.3 V;
+- ~0.03C, max 12 A.
+
+### EFB upper-envelope rule
+Generic EFB chemistry policy has no automatic/Conditioning extension above 16.5 V. Passing `expert_high_voltage=True` must not enlarge the EFB envelope or set `expert_authorized`.
+
+The global **17.5 V** ceiling remains available to first-class Manual/Custom operator authority under immutable managed safety. A future automatic EFB target >16.5 V would require a separate exact model-specific manufacturer-backed profile; chemistry label `EFB` alone can never grant it.
+
+### Done / Storage
+```text
+normal completion:
+SAFE_WAIT -> Done/Storage -> ~13.8 V / 1.0 A -> Output ON
+
+fault / MIX_TIMEOUT / hard stop:
+Output OFF
+```
+
+## Main evidence
+Normal tail и stuck plateau — разные механизмы.
+
+Tail:
+- Ca/EFB: CV + I<~0.30A, 3h continuous hold/no new minimum;
+- AGM: CV + I<~0.20A, 2h, staged Main.
+
+Plateau:
+- Ca/EFB ~40min flat CV plateau;
+- AGM ~2h;
+- плавное снижение тока = progress, не plateau.
+
+Universal `>~1%C => HV veto` отклонён.
+
+## Recovery budget
+### Ca/Ca / EFB
+```text
+plateau -> recovery #1 -> Main
+later plateau -> recovery #2 -> Main
+later plateau -> recovery #3 -> Main
+next confirmed plateau -> final Mix
+```
+Три попытки — budget всей session; progress count не обнуляет.
 
 ### AGM
+```text
+plateau -> recovery #1 -> Main
+...
+plateau -> recovery #4 -> Main
+next plateau -> remain Main, НЕ forced Mix
+```
+После budget ждём normal low-current tail либо 72h conservative fallback.
 
-- Main: ступени `14.4 -> 14.6 -> 14.8 -> 15.0V`
-- Переход на следующую ступень и в Mix: `CV + I < 0.2A` в течение `2h` без нового минимума
-- Mix: `16.3V`, лимит `5h`
+## Main 72h fallback
+- Ca/Ca/EFB Normal/Recovery/Conditioning: `Main 72h -> Mix`;
+- AGM: `Main 72h -> Mix` только если CV и `I <= 0.20 A`, иначе `stop + diagnose`;
+- Diagnostic: `stop + diagnose`, без auto-HV.
 
-### Custom
-
-- Используются только пользовательские уставки
-- Завершение Main определяется только delta-правилом и лимитом времени
+72h — strategy fallback, не generic hard-safety timeout.
 
 ## Mix
+После target change ~120s blanking.
+- CV: `Imin -> confirmed ΔI rise`, ориентир `max(0.03A, 30%*Imin)`;
+- CC: `Vmax -> confirmed ΔV fall`, ориентир ~0.03V;
+- 3 confirmations ~60s apart;
+- confirmed event starts sticky 2h finish hold.
 
-- Нормальный выход из Mix идет по подтвержденному `ΔV` или `ΔI`.
-- Таймер после delta это fallback-лимит, а не главный триггер.
-- Для `ΔI` используется 30% от текущей токовой полки, но не ниже `0.03A`.
-- После Mix всегда идет `SAFE_WAIT`.
+Maximum automatic active-Mix authority:
+| Chemistry | Max active Mix |
+|---|---:|
+| Ca/Ca | 20 h |
+| EFB | 24 h |
+| AGM | 10 h |
 
-## Desulfation
+Эти значения — границы automatic HV authority. Они не являются ETA, target duration или evidence успешного завершения.
 
-- Это сервисный этап, а не финиш заряда.
-- Включается, когда ток в CV "застрял" выше порога достаточно долго.
-- Порог: `0.3A` для Ca/Ca и EFB, `0.2A` для AGM.
-- Минимальное время застревания: `40m` для Ca/Ca и EFB, `2h` для AGM.
+```text
+accepted Delta
+-> sticky 2h finish hold
+-> SAFE_WAIT
+-> Storage
+```
+
+Если accepted finish hold ещё не начался и active-Mix budget исчерпан:
+
+```text
+MIX_TIMEOUT
+-> STOP_AND_DIAGNOSE
+-> Output OFF
+-> verified-OFF runtime boundary
+-> manual/operator investigation
+```
+
+`MIX_TIMEOUT` сам по себе не доказывает sulfation/cell fault/capacity loss; он означает только, что стандартный автоматический HV-процесс не сошёлся внутри своего authority budget.
+
+### Durable Mix active-time authority
+Production Mix timeout не опирается на сырой wall `stage_start_time` и не восстанавливается из Ah.
+
+- живой active Mix считает время через monotonic clock;
+- proven Output OFF и Cooling freeze budget;
+- accumulated active seconds persist отдельно и привязаны к exact V2 session id;
+- restart после durable `active=true` консервативно засчитывает неопределённый outage interval как active, чтобы crash не подарил бесплатное HV-время;
+- restart после proved inactive не расходует budget;
+- missing/corrupt/session-mismatched authority -> Mix/Cooling-from-Mix restore rejected, без reconstruction из Ah.
+
+Communication watchdog и Mix active-time authority независимы: heartbeat refresh никогда не продлевает chemistry authority.
+
+### Adaptive Mix current containment
+Durable software ratchet реализован, но production current/OCP actuation остаётся calibration-gated.
+
+Invariant:
+```text
+0 < I_adaptive <= I_programmed <= I_recipe
+I_adaptive(t+1) <= I_adaptive(t)
+```
+
+Accepted candidate:
+```text
+I_adaptive_new = min(
+    I_programmed,
+    I_adaptive_previous,
+    Imin_confirmed + calibrated_headroom
+)
+```
+
+Default headroom отсутствует, поэтому без Q005/Q014 physical calibration механизм не имеет actuator authority и не пишет RD current/OCP. Поздний больший programmed current не может открыть ранее снятую authority. `CURRENT_CEILING_REACHED` хранится как censored evidence, а не как «ток перестал расти».
+
+## Diagnostic HV veto
+Сначала strategy выбирает действие. Затем hypothesis engine может veto **новое** `ENTER_DESULFATION`/`ENTER_MIX` только при `BLOCK_AUTOMATIC_HV`. Один score/SG/U/I sample этого не создаёт. AGM voltage-step внутри Main не считается HV escalation. Auto Mix использует тот же veto как preflight.
 
 ## SAFE_WAIT
+```text
+relax threshold reached early -> continue immediately
+otherwise -> wait max ~2h -> continue anyway
+```
+2h — anti-stall maximum, не fault timeout. Relaxation остаётся diagnostic evidence. `MIX_TIMEOUT` никогда не использует SAFE_WAIT как successful completion path.
 
-- Это штатное ожидание падения напряжения после высоковольтного этапа.
-- Косвенная диагностика по падению напряжения и температуре допустима, но это не доказательство стратификации.
-- Внутри SAFE_WAIT бот оценивает три коротких окна релаксации: `5m`, `10m`, `15m`.
-- Для каждого окна смотрятся `ΔV`, `dV/dt`, температура и стабильность тока, а в AI/UI показывается короткая сводка, а не длинная простыня чисел.
-- Если напряжение не падает до порога, срабатывает таймаут.
+## Cooling
+Cooling — pause active chemistry/program time.
 
-## Bank Fault Risk
+AUTO:
+- Output OFF;
+- exact source stage/target preserved;
+- stage/tail/finish clocks frozen;
+- durable Mix active-time budget frozen after Output OFF proof;
+- recovery budget, AGM step, extrema, confirmed sticky delta preserved;
+- stuck plateau and incomplete delta confirmations invalidated;
+- durable restore required.
 
-- Это не доказательство КЗ банки, а событийный риск-детектор.
-- Статус события: `Вероятен КЗ банки`.
-- Источники сигнала:
-  - низкое стартовое напряжение в `Prep` (`<= 10.8V`);
-  - очень медленный выход `Prep` к `12V`;
-  - длительность `Main` заметно выше расчётной с поправкой на стартовое `V` и `temp_ext`;
-  - медленный рост напряжения и слабая приёмка Ah;
-  - быстрый спад напряжения в `SAFE_WAIT`;
-  - рост `temp_ext` при слабом приросте `V`;
-  - повторяемость косвенных признаков в истории сессии.
-- Вес риска собирается в `bank_fault_risk`, событие показывается только один раз за сессию.
-- В обычной карточке это не висит постоянно, только одноразовое уведомление и запись в лог при срабатывании.
+Manual: >=40C -> OFF/Cooling, <=35C -> safe re-enable same V/I, >=45C -> terminal stop. Active timer freezes; unfinished reach/delta continuity starts fresh.
 
-## Безопасность
+## MANUAL
+Manual — полноценный режим, не debug escape hatch и не legacy `Idle + Output ON`.
 
-- Глобальный лимит тока на этапе: `12A`.
-- OVP/OCP ставятся от уставки с небольшим запасом.
-- Температурная защита АКБ: предупреждение, пауза, аварийный стоп.
-- Температурная защита `temp_int` относится к БП/контроллеру, а не к АКБ; для AI раньше 50°C это не повод паниковать.
+Operator owns working V/I and optional timer/V/I/reach/delta stop conditions. OVP/OCP всегда derived и не могут быть ослаблены.
 
-## Для ассистента
+Limits:
+- `0 < V <= 17.5 V`;
+- `0 < I <= 12 A`.
 
-- Не называй ток "минимальным", если нет активного hold-правила или подтвержденного plateau.
-- Не путай остаток до лимита этапа с прогнозом завершения заряда.
-- Не выдумывай Bulk/Absorption/Float, если они не заданы в текущем этапе.
-- Для любых ответов по стратегии сначала опирайся на этот документ и `charge_logic.py`.
+Pb chemistry rules не выполняются. Every start/reconfiguration проходит через transactional safe-enable; active reconfiguration делает verified OFF -> fresh enable.
+
+### Optional physical-battery identity
+Manual можно привязать к сохранённому `battery_id`, но **только** для longitudinal history/diagnostics:
+
+```text
+saved battery identity
+        -> history label / diagnostic correlation
+        X  chemistry does not choose Manual V/I
+        X  Ah does not derive Manual current
+        X  identity does not grant HV permission
+```
+
+Если запись АКБ удалена, сохранённый bound request нельзя молча перепривязать к другой АКБ.
+
+### Restart / re-authorization
+Persisted active Manual всегда восстанавливается как `INTERRUPTED`, Output не включается автоматически. UI показывает сохранённые V/I/OVP/OCP/stop conditions/battery identity и требует явного `Авторизовать заново`.
+
+Fresh re-authorization:
+```text
+operator review
+-> fresh telemetry/safety
+-> fresh OVP/OCP + V/I programming
+-> configured readback
+-> Output enable/verification
+-> new active-time clock
+```
+
+Старый active-time timer после process restart не продолжается. Operator может вместо reauthorize отменить сохранённый request; OFF подтверждается отдельно.
+
+## AUTO user OFF condition
+Persistent `Manual-OFF` во время AUTO — только parallel terminal kill-condition.
+
+```text
+AUTO chemistry FSM ---------------------> PREP/Main/Recovery/Mix/SAFE_WAIT/Storage
+          |
+          +---- armed user OFF condition
+                         |
+                         +---- not reached -> no influence on AUTO decisions
+                         +---- reached     -> Output OFF + session STOP
+```
+
+Armed state не подавляет Recovery/Mix/72h/normal completion. После user terminal OFF нельзя автоматически включать Storage.
+
+## Post-heavy-recovery rest
+После тяжёлого recovery/corrective cycle V2 может рекомендовать **24–48h отдыха/наблюдения**, но это не lockout.
+
+Useful checkpoints: ~1h / 6h / 12h / 24h / 48h. Полезно сохранять Vbat/OCV trend, T, SG, recovery response и `battery_isolated=yes/no`.
+
+Elapsed rest time сам по себе никогда не запрещает Normal/Recovery/Conditioning/Manual/Auto Mix. HV veto допустим только из реальной safety/diagnostic evidence.
+
+## Battery diagnostics / Bank Fault
+V1 one-score `bank_fault` = evidence, not proof. V2 separates cell fault, self-discharge, sulfation, stratification, capacity loss, thermal abnormality and charger/path fault.
+
+### SG
+Raw per-cell SG is primary external evidence. Store six positional cells, raw SG, temperature, timestamp/context/source/notes. First complete spread >=0.030 = imbalance/stratification evidence, не short-cell proof и не automatic equalization veto.
+
+Physical access is explicit per battery:
+
+```text
+SGAccess.UNKNOWN       -> SG не принимаем/не просим автоматически
+SGAccess.SERVICEABLE   -> SG разрешён
+SGAccess.INACCESSIBLE  -> SG не просим; отсутствие SG не fault evidence
+```
+
+- AGM: SG никогда не запрашивается.
+- EFB/Ca/Flooded: chemistry сама по себе не означает доступ к электролиту; нужен explicit `SERVICEABLE` именно для этой физической АКБ.
+
+Hydrometer/correction metadata belongs to each measurement:
+
+```text
+hydrometer=unknown -> raw only
+hydrometer=raw     -> raw primary; optional explicit manufacturer profile
+hydrometer=tc      -> instrument already compensated; NEVER software-correct again
+```
+
+Named software profiles currently supported only by explicit operator selection:
+- `trojan80`: Trojan convention around 80 F, +/-0.004 per 10 F;
+- `rolls25`: Rolls flooded-manual convention around 25 C, +/-0.003 per 5 C.
+
+Manufacturer/model text never auto-selects a profile. Named profile requires `hydrometer=raw` + electrolyte `t=...`. Detailed source/policy: `SG_POLICY_V2.md`.
+
+Proactive SG prompt is deliberately sparse:
+- no routine prompt on every charge;
+- `DIAGNOSTIC_VERIFY` or stronger only for SG-relevant hypotheses (`cell_fault`, `stratification`, `sulfation`) and only with confirmed `SERVICEABLE` access;
+- `POST_CORRECTIVE_RETEST` when earlier SG actually showed imbalance and a manufacturer-appropriate corrective cycle was performed;
+- unsafe/inaccessible/unavailable measurement -> no prompt and no confidence penalty.
+
+Q013 still owns calibration of when the hypothesis engine reaches VERIFY/PROBABLE/HIGH; D053 owns SG eligibility once it does.
+
+### Bank-Fault calibration
+Current score weights and `15/35/60/80` level boundaries are not tuned from synthetic examples. Labeled real cases are replayed deterministically through `battery_fault_calibration.py` / `tools/evaluate_battery_fault.py`.
+
+The report keeps two safety-significant error classes separate:
+- unexpected `BLOCK_AUTOMATIC_HV`;
+- missed labeled `BLOCK_AUTOMATIC_HV`.
+
+Hypothesis-level mismatches are reported separately and never trigger automatic threshold tuning. Exact labeling workflow: `BANK_FAULT_CALIBRATION.md`.
+
+### Dynamic loop
+RD displayed `V/I` is not battery Ri. Controlled current reduction may produce `dynamic_loop = ΔV_BAT/ΔI`, but two-wire black+green path includes battery+cables+contacts+internal path+polarization. Compare longitudinally only with explicit unchanged connection identity.
+
+### Diagnostic persistence / restart
+Durable **evidence** и diagnostic **action state** разделены.
+
+Evidence such as completed SG/probe/recovery history may survive restart. Derived diagnostic authority (`ALLOW/VERIFY/BLOCK_AUTOMATIC_HV`) is recomputed; it is not trusted merely because an old process once calculated it.
+
+Restart matrix:
+| State/action | Restart behavior |
+|---|---|
+| completed SG/dynamic-loop/recovery evidence | keep |
+| in-flight controlled probe | `ABORTED_RESTART`, never resume mid-step; Output OFF defense-in-depth |
+| pending operator confirmation | expire; ask again |
+| pending fault verification | expire; require fresh evidence/operator action |
+| expert-HV authorization | revoke; never survive restart |
+| rest-observation window | may survive until expiry because it has no actuator authority |
+| derived HV-block assessment | recompute from durable/fresh evidence |
+
+No crash recovery may guess and restore a mid-probe current setpoint.
+
+## Watchdogs / AI
+Managed edge safety lease в V2 branch: **15 min TTL / 5 min positive-ACK renewal**. ACK требует свежего direct RD Modbus/readback, generation advance, clear trip/quarantine и почти полный 15-minute remaining budget. ESPHome trip продолжает локально повторять Output OFF каждые 5 s. Exact package ещё должен пройти compile/flash/loss fault-injection на реальном узле до merge.
+
+Active managed -> HANDS_OFF имеет отдельный edge release contract и не использует обычный verified-OFF `disarm()`. Этот live ownership transfer также требует exact-package compile/flash/bench proof до production reliance.
+
+Native RD6018 Timer Off пока не используется. Если его семантика будет физически доказана, он обязан обновляться тем же accepted controller heartbeat и не может образовывать второй последовательный 15-minute window.
+
+Readback, verified OFF and edge lease are safety of managed Pb authority, not chemistry. AI explains evidence only; it cannot authorize HV, select setpoints or override safety/ownership.
+
+## Operator/documentation rules
+- Не называй current `Imin`, пока analyzer реально не сформировал minimum evidence.
+- CV: `Imin -> ΔI`; CC: `Vmax -> ΔV`.
+- Не называй active-Mix authority window ETA полного заряда.
+- Не представляй `MIX_TIMEOUT` как нормальное завершение/SAFE_WAIT/Storage.
+- Не считай SAFE_WAIT timeout fault сам по себе.
+- Не считай высокий ток или SG imbalance в одиночку доказательством shorted cell.
+- Не путай Done/Storage с Output OFF.
+- Не называй RD `V/I` или two-wire `ΔV/ΔI` внутренним сопротивлением АКБ.
+- Vin/temp_int не являются battery chemistry evidence.
+- Post-heavy-recovery rest — recommendation/diagnostic window, не time-based lockout.
+- Manual battery identity — history metadata, не chemistry authority.
+- Diagnostic action after restart never auto-resumes authority-bearing work.
+- SG access is physical-battery metadata; chemistry alone never grants electrolyte access.
+- Never double-correct `hydrometer=tc`; manufacturer correction is explicit, never inferred.
+- EFB automatic/Recovery/Conditioning generic ceiling is 16.5 V; global 17.5 V is Manual/Custom outer authority, not EFB chemistry permission.
+- Mix adaptive-current actuator coefficients не придумываются до physical calibration; software ratchet не означает, что RD current уже динамически перепрограммируется.
+- HANDS_OFF — explicit ownership transfer, не способ обойти `_off_unconfirmed` или safety trip/quarantine.
+- Обычный edge disarm нельзя использовать для сохранения Output ON; active HANDS_OFF использует только dedicated live-release contract.
+- После возврата из HANDS_OFF старый AUTO session не должен silently resume.
+- Если вопрос находится в `V2_OPEN_QUESTIONS.md`, не додумывай решение по памяти.

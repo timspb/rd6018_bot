@@ -1,205 +1,379 @@
-# RD6018 Telegram Bot
+# RD6018 Telegram Bot — Pb Recovery Controller V2
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![Aiogram](https://img.shields.io/badge/Aiogram-3.x-green.svg)](https://aiogram.dev)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Telegram controller for an RD6018 power supply through Home Assistant, with evidence-driven lead-acid charging/recovery logic and an explicit general-purpose PSU ownership mode.
 
-Бот для управления RD6018 через Home Assistant из Telegram:
-- авто-режимы заряда Ca/Ca, EFB, AGM;
-- ручной режим (Custom);
-- график и компактный дашборд в одном сообщении;
-- логирование этапов, триггеров, защит и восстановлений;
-- AI-анализ (опционально, через DeepSeek), который опирается на реальную стратегию, а не на догадки.
+This branch is the production V2 cutover. It is safety-critical code: the bot can command real voltage/current to a physical battery.
 
-## Что важно знать
+## Production entrypoint
 
-- Этапы в авто: `Подготовка -> Main -> (Desulfation) -> Mix -> SAFE_WAIT -> Done/Storage`.
-- Подготовка использует `12.0V` и ток `0.01C` от заданной ёмкости для любого профиля.
-- Жесткий лимит тока на всех этапах: **12.0A** (`MAX_STAGE_CURRENT`).
-- Защитные лимиты RD6018 при смене этапа: `OVP = U_target + 0.1V`, `OCP = I_target + 0.1A`.
-- Main ограничен `72ч`; для **Ca/Ca** и **EFB** при тайм-ауте допускается принудительный переход в Mix.
-- `Mix` завершается по подтвержденной дельте: `ΔV = 0.03V` от пика, `ΔI = 30%` от текущей токовой полки, но не ниже `0.03A`; таймер после дельты является fallback-лимитом.
-- После `Mix` всегда идет `SAFE_WAIT`.
-- `SAFE_WAIT` ведет короткую постзарядную релаксацию по окнам `5m`, `10m`, `15m` и показывает компактную сводку по падению напряжения.
-- Температурная защита по внешнему датчику АКБ: `35C` предупреждение, `40C` пауза, `45C` аварийный стоп.
-- Термокомпенсация уставок по `temp_ext`: опорные `25C`, коррекция только напряжения, `Ca/Ca` и `EFB` - `0.018V/°C`, `AGM` - `0.016V/°C`, `Custom` - `0.018V/°C`.
-- Компенсация пересчитывается на входе в этап, при восстановлении сессии и может плавно подстраивать напряжение в процессе заряда с гистерезисом и ограничением частоты обновления.
-- `temp_ext` — это температура АКБ, `temp_int` — температура блока/БП; для стратегии и AI ориентируйтесь на [docs/assistant/CHARGE_STRATEGY.md](docs/assistant/CHARGE_STRATEGY.md). Для AI `temp_int` до ~50°C считается рабочим мониторингом, а не риском батареи.
-- При подозрении на коротнувшую/сильно деградировавшую банку бот может выдать одноразовое событие `Вероятен КЗ банки` по совокупности косвенных признаков: Prep, Main, SAFE_WAIT, температура и приёмка заряда.
+```bash
+python bot.py
+```
 
-## Роль AI
+`bot.py` is intentionally a small V2 entrypoint. The previous large Telegram/HA runtime is preserved as `bot_legacy.py` and is wrapped by the V2 bootstrap.
 
-- Кнопка `AI-анализ` дает компактный технический отчет по текущему этапу, текущим уставкам, удержанию, безопасным лимитам и последним событиям.
-- Диалоговый `/ai` отвечает более развернуто, но все равно опирается на текущую FSM, а не на “общие рассуждения”.
-- AI видит:
-  - текущий этап и следующий переход;
-  - `hold`-логику, `Mix`-дельту и таймеры;
-  - `SAFE_WAIT`-релаксацию;
-  - `temp_ext` и `temp_int` как разные сигналы;
-  - последние события и шумовые повторы, уже сжатые в краткий вид.
+Production authority is layered:
 
-## Профили заряда
+```text
+DiagnosticProductionChargeControllerV2
+  -> V2 AUTO strategy + diagnostic HV veto + durable Mix time
+  -> legacy safety/mechanics scaffold
 
-### Ca/Ca
-- Main: `14.7V`, ток `0.1C` (но не выше 12A)
-- Переход Main -> Mix: `CV и I < 0.3A` в течение `3ч` без нового минимума
-- Mix: `16.5V`, ток `0.03C` (не выше 12A), лимит `8ч`
+ProductionManualSessionManager
+  -> separate managed Manual authority
 
-### EFB
-- Main: `14.8V`, ток `0.1C` (но не выше 12A)
-- Переход Main -> Mix: `CV и I < 0.3A` в течение `3ч` без нового минимума
-- Mix: `16.5V`, ток `0.03C` (не выше 12A), лимит `10ч`
+both
+  -> V2RuntimeSafetyGuard
+  -> SafeOutputCoordinator / HassClient
+  -> edge safety lease
+  -> Home Assistant / ESPHome
+  -> RD6018
 
-### AGM
-- Main по ступеням: `14.4 -> 14.6 -> 14.8 -> 15.0V`
-- Переход между ступенями и в Mix: `CV и I < 0.2A` в течение `2ч` без нового минимума
-- Mix: `16.3V`, ток `0.03C` (не выше 12A), лимит `5ч`
+outer ownership boundary:
+  RdControlModeManager -> PB_MANAGED / HANDS_OFF
+```
 
-## Desulfation (авто)
-- Триггер: ток «застрял» в CV не менее `40` минут для Ca/Ca и EFB, и `2` часов для AGM
-- Порог застревания: `>=0.3A` (Ca/Ca, EFB), `>=0.2A` (AGM)
-- Уставки: `16.3V` и `2% от Ah` (не выше 12A)
-- Лимит: `2ч` на цикл
-- Макс циклов: `3` для Ca/Ca/EFB, `4` для AGM
+For deployment and rollback use [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Agents should read [`AGENTS.md`](AGENTS.md) and the decision/strategy documents before changing control behavior.
 
-## Custom режим
+## Core V2 model
 
-Пользователь задаёт:
-- Main напряжение
-- Main ток
-- Delta-порог
-- Лимит времени Main
-- Емкость АКБ (Ah)
+Charging is not described by a battery profile alone. These concepts are separate:
 
-Особенности:
-- Main стартует сразу, без этапа Подготовка.
-- Завершение по delta (dV/dI) или по лимиту времени.
-- Для delta используется подтверждение: `3` срабатывания подряд с интервалом `1 мин`.
-- Мониторинг delta включается через `120 сек` после смены уставок.
+- **chemistry**: AGM / EFB / Ca/Ca / Flooded / Custom;
+- **intent**: Normal / Recovery / Conditioning / Diagnostic;
+- **condition**: Unknown / Healthy / Sulfated suspected / Dry suspected / Rehydrated / Overwet suspected / Stratified suspected / Degraded;
+- **program mode**: full AUTO / Auto Mix / Manual;
+- **stage**: Prep / Main / Desulfation / Mix / SAFE_WAIT / Cooling / Done;
+- **RD ownership**: PB_MANAGED / HANDS_OFF.
 
-## Команды Telegram
+The durable behavior source of truth is [`docs/assistant/V2_DECISION_LOG.md`](docs/assistant/V2_DECISION_LOG.md). Current production strategy is summarized in [`docs/assistant/CHARGE_STRATEGY.md`](docs/assistant/CHARGE_STRATEGY.md).
 
-- `/start` — открыть/обновить дашборд
-- `/modes` — выбор профиля заряда
-- `/off` — меню «Off по условию»
-- `/logs` — логи текущей сессии
-- `/ai` — AI-анализ телеметрии
-- `/stats` — подсказка где смотреть расширенную инфу
-- `/entities` — статус HA-сущностей
-- `/help` — краткая справка по режимам
+## Production AUTO authority
 
-## Off по условию
+For non-Custom profiles, V2 owns Main/Mix strategy decisions while the legacy controller remains a safety/mechanics scaffold.
 
-Можно задать выключение по любому из условий:
-- напряжение (`V>=`, `V<=`)
-- ток (`I>=`, `I<=`)
-- таймер (`H:MM`)
+- **Normal** is the full V1-compatible automatic chain. It may use bounded intermediate recovery and final Mix when deterministic evidence/strategy permits it.
+- **Recovery** uses the same safety/evidence authority with an explicit recovery purpose/context.
+- **Conditioning** is a service purpose inside the chemistry envelope; it does not bypass evidence or safety.
+- **Diagnostic** is the explicit no-new-automatic-HV intent.
+- ordinary legacy `Main -> HV` and `Mix -> finish` triggers are masked while V2 is authoritative;
+- Custom remains legacy-authoritative because it is an explicit operator-defined contract.
 
-Примеры:
-- `off I<=1.20`
-- `off V>=16.4`
-- `off 2:00`
-- `off I>=2 V<=13.5 2:00`
-- `off` — сброс условия
+Emergency strategy rollback:
 
-Состояние сохраняется в `manual_off_state.json` и восстанавливается после перезапуска.
+```bash
+V2_AUTHORITATIVE=0 python bot.py
+```
 
-## Дашборд
+## CV and CC are different physical observations
 
-- Бот поддерживает **одно рабочее сообщение дашборда** на чат/пользователя: обновление идёт через edit/delete, без бесконечного наращивания сообщений.
-- Кнопки диапазона графика: `Норма`, `30м`, `2ч`, `Сессия`.
-- В «Полная инфо» показываются текущий этап, уставки, лимиты и состояние сессии.
-- В «Логи» выводятся события текущей сессии с фильтрацией служебного шума.
-- В компактной карточке видно условие перехода, факт его достижения и оставшееся время после достижения.
-- Для постзарядной релаксации в «Полная инфо» показывается короткая сводка по окнам `5m/10m/15m`.
+V2 does not interpret every finish through current.
 
-## Установка
+### CV — voltage controlled
 
-### Требования
-- Python 3.10+
-- Home Assistant с интеграцией RD6018
-- Telegram bot token
-- DeepSeek API key (опционально)
+The independent battery response is current:
 
-### Быстрый старт
+```text
+I falls -> Imin -> confirmed current rise (delta-I)
+```
+
+The current Mix reversal evidence uses a relative term plus an instrument floor. A current rise by itself is not thermal-runaway evidence; voltage and temperature context still matter.
+
+### CC — current controlled
+
+The independent battery response is voltage:
+
+```text
+U rises -> Vmax -> confirmed voltage fall (delta-V)
+```
+
+In CC, regulated current is not used as the independent chemical finish signal.
+
+## Mix timing and completion
+
+Standard automatic Mix targets:
+
+| Chemistry | Mix target | Maximum automatic active-Mix authority |
+|---|---:|---:|
+| AGM | 16.3 V | 10 h |
+| EFB | 16.5 V | 24 h |
+| Ca/Ca | 16.5 V | 20 h |
+
+These times are **authority ceilings**, not target durations and not successful-completion evidence.
+
+After valid mode-specific Delta evidence is confirmed, V2 starts a sticky two-hour finish hold. An accepted hold that began before the authority ceiling keeps its completion semantics unless independent safety wins.
+
+Without an accepted finish hold at the chemistry ceiling:
+
+```text
+MIX_TIMEOUT
+-> STOP_AND_DIAGNOSE
+-> verified Output OFF
+```
+
+`MIX_TIMEOUT` never means successful SAFE_WAIT/Storage completion.
+
+Production Mix time is durable active time, not reconstructed from Ah or raw wall-stage age. Proven Output OFF/Cooling freezes the budget; uncertain downtime after restart from a durable active state is conservatively charged.
+
+## Initial AUTO start
+
+The initial battery-voltage decision is made before first Output ON:
+
+```text
+Vbat < 12.0 V  -> PREP at ~0.01C
+Vbat >= 12.0 V -> MAIN directly + PREP_SKIPPED audit
+```
+
+Auto Mix is a separate direct-entry program. It starts in Mix, never transiently enters PREP/Main/recovery, and rejects `Vbat < 12.0 V`.
+
+## Recipe envelopes
+
+Every automatic target is bounded after temperature compensation by chemistry, intent and stage.
+
+Key production limits:
+
+- Ca/Ca Main ~14.7 V; standard Mix 16.5 V.
+- EFB Main ~14.8 V; generic AUTO/Recovery/Conditioning ceiling **16.5 V**.
+- AGM Main 14.4 -> 14.6 -> 14.8 -> 15.0 V; standard Mix 16.3 V.
+- global working-current ceiling: 12 A.
+- global Manual/Custom outer working-voltage ceiling: 17.5 V.
+
+The 17.5 V outer limit is **not** an EFB chemistry entitlement. There is no generic EFB expert flag that expands automatic/conditioning authority above 16.5 V. A future automatic EFB profile above 16.5 V would require an explicit model-specific, manufacturer-backed recipe and separate validation.
+
+## Temperature compensation and safety
+
+Base legacy compensation remains:
+
+```text
+V_compensated = V_base + k * (25 - temp_ext)
+```
+
+The chemistry recipe envelope is applied afterwards, so compensation cannot enlarge automatic authority beyond the accepted ceiling.
+
+`temp_ext` is battery temperature. `temp_int` is RD6018/power-supply temperature and is not battery chemistry evidence. Vin is PSU-health telemetry, not Pb-FSM authority. `BAT_MODE` is observational, not software permission.
+
+## Fail-closed managed Output enable
+
+New V2 starts use `HassClient.safe_enable_output()` / `SafeOutputCoordinator` under the V2 runtime guard.
+
+The managed sequence is:
+
+```text
+fresh telemetry
+-> recipe/manual envelope validation
+-> OVP
+-> OCP
+-> voltage
+-> current
+-> configured-value readback
+-> second preflight
+-> edge lease
+-> Output ON
+-> post-enable verification
+```
+
+Any unprovable managed enable fails closed. Commanded values, configured/readback values and measured physical values remain separate concepts.
+
+There is intentionally no PB-managed idle action that simply turns RD6018 ON with arbitrary old setpoints.
+
+## RD6018 general-purpose PSU mode — HANDS_OFF
+
+RD6018 may also be used as a general-purpose PSU. The persistent operator mode:
+
+```text
+🔓 Режим РД — не лезь
+```
+
+transfers actuator ownership away from Pb automation.
+
+In `HANDS_OFF`:
+
+- an externally programmed Output ON is not an orphan Pb fault;
+- Pb voltage/current envelopes, battery-temperature freshness and Pb protection geometry do not control the external PSU state;
+- normal bot Output/V/I/OVP/OCP writes are blocked without issuing a compensating OFF;
+- raw telemetry remains observable;
+- the mode survives restart;
+- intrinsic RD6018 protections are not disabled by the bot.
+
+Releasing an **active managed** AUTO/Manual session is a destructive authority transfer and therefore uses a two-step, session-bound Telegram confirmation. It does not rewrite Output/V/I/OVP/OCP.
+
+The edge contract deliberately distinguishes two operations:
+
+```text
+normal lease disarm
+  -> requires direct confirmed Output OFF
+
+live managed -> HANDS_OFF ownership release
+  -> dedicated edge command
+  -> requires healthy already-armed lease + fresh direct RD readback
+  -> clears managed lease ownership without changing Output
+  -> positive acknowledgement requires generation change + unarmed state
+```
+
+Renewals are suspended/serialized during the transfer so an in-flight heartbeat cannot re-arm the edge watchdog after release. If the live release command may have reached the edge but its acknowledgement is lost **after durable HANDS_OFF commit**, software does not silently roll back to PB control; HANDS_OFF remains the conservative authority and the operator is warned that the local watchdog may still turn Output OFF.
+
+Returning to Pb control currently requires confirmed raw Output OFF and never silently revives an old AUTO session. Live Output-ON Pb adoption is separate D061-D063 work and is not yet implemented.
+
+Detailed contract: [`docs/assistant/RD_HANDS_OFF_MODE.md`](docs/assistant/RD_HANDS_OFF_MODE.md).
+
+## Communication-loss watchdog
+
+Managed Pb operation uses an ESPHome-local dead-man lease:
+
+- TTL 15 minutes;
+- renewal cadence 5 minutes;
+- positive ACK requires generation advance, fresh direct Modbus/readback and healthy trip/quarantine state;
+- expiry/loss causes local repeated Output OFF attempts;
+- late recovery cannot silently resume an expired managed charge.
+
+The exact ESPHome package is part of the safety contract. Python unit tests do not substitute for compiling/flashing and bench-validating that exact package/node.
+
+## Manual
+
+Manual is first-class managed operator authority, not `Idle + Output ON`.
+
+- operator chooses working V/I inside `0 < V <= 17.5 V`, `0 < I <= 12 A`;
+- OVP/OCP are derived and cannot be weakened;
+- Pb chemistry transitions do not run;
+- timer/V/I/reach/delta rules are operator stop conditions, not chemistry evidence;
+- active reconfiguration is verified OFF -> fresh safe-enable;
+- persisted active Manual restores `INTERRUPTED`, never silently re-energizes, and requires explicit fresh reauthorization;
+- optional saved battery identity is longitudinal metadata only and does not change Manual V/I.
+
+## Diagnostics and calibration boundaries
+
+Diagnostic inference is hypothesis-specific. A single score, one SG sample or one U/I sample cannot create a hard safety stop. Strong independent evidence is required to veto new automatic HV.
+
+Specific gravity, dynamic-loop response, bank-fault calibration, external-temperature anomaly thresholds and adaptive Mix current actuation all retain explicit calibration/validation boundaries. In particular, the adaptive-current ratchet exists in software but has no production RD current/OCP actuator authority until Q005/Q014 physical characterization closes that gate.
+
+## Telegram V2 workflow
+
+Normal program flow:
+
+```text
+saved physical battery or chemistry
+-> intent
+-> capacity (for ad-hoc profile)
+-> program preview
+-> explicit Start
+```
+
+The operator UI distinguishes Normal full-auto, Diagnostic no-new-auto-HV, Manual, Auto Mix, explicit terminal OFF conditions and RD `HANDS_OFF` ownership.
+
+UI rollback only:
+
+```bash
+V2_UI=0 python bot.py
+```
+
+## Battery history, traces and replay
+
+V2 persists longitudinal battery/recovery evidence including physical battery identity, condition, refill history, Main/HV evidence, temperature behavior, relaxation windows and raw mode-specific traces. Replay/calibration tooling is documented in [`docs/RECOVERY_TRACE_REPLAY.md`](docs/RECOVERY_TRACE_REPLAY.md).
+
+## Installation
+
+Requirements:
+
+- Python 3.10+;
+- Home Assistant with RD6018 entities configured in `config.py`;
+- Telegram bot token;
+- external battery-temperature telemetry for managed Pb charging;
+- matching ESPHome edge-lease package for enforced managed operation;
+- DeepSeek API key only if optional AI analysis is used.
+
+Basic development launch:
 
 ```bash
 git clone https://github.com/timspb/rd6018_bot.git
 cd rd6018_bot
+git checkout refactor/pb-recovery-controller-v2
 python -m venv .venv
-# Linux/macOS:
 source .venv/bin/activate
-# Windows PowerShell:
-# .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m compileall -q .
+python -m unittest discover -s tests -p 'test_*.py'
 python bot.py
 ```
 
-Перед запуском создайте `.env` в корне проекта.
+Do not treat this example as the deployment procedure for an existing node. Existing-node deployment is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-Пример `.env`:
+## Configuration
+
+Runtime configuration is environment-based (`.env` / service environment). Important values include:
 
 ```env
 TG_TOKEN=...
-HA_URL=https://192.168.1.102:8123
+HA_URL=...
 HA_TOKEN=...
 HA_PREFER_LOCAL=1
 HA_INSECURE_LOCAL=1
+ALLOWED_CHAT_IDS=...
 
-# Опционально
+# Optional edge entity overrides
+RD6018_EDGE_ENTITY_PREFIX=rd6018_rd_6018
+RD6018_EDGE_HANDS_OFF_RELEASE_ENTITY=button.rd6018_rd_6018_safety_lease_release_to_hands_off
+
+# Optional AI
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-USER_TIMEZONE=Asia/Vladivostok
-ALLOWED_CHAT_IDS=
 ```
 
-## Home Assistant сущности
+Never commit real tokens. Do not replace an existing node's `.env` during deployment.
 
-Имена задаются в `ENTITY_MAP` файла `config.py`.
+## Validation
 
-Ключевые группы:
-- телеметрия: напряжение/ток/мощность/Ah/температуры;
-- состояние: `switch`, `is_cv`, `is_cc`, `uptime`;
-- управление: `set_voltage`, `set_current`, `ovp`, `ocp`.
-
-## Запуск как сервис (systemd)
-
-Пример команд на хосте:
+Software preflight:
 
 ```bash
-cd /root/rd6018_bot
-git pull
-systemctl restart rd6018-bot
-systemctl status rd6018-bot --no-pager
-journalctl -u rd6018-bot -n 100 --no-pager
+python -m compileall -q .
+python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-## Файлы проекта
+CI runs the suite on Python 3.10, 3.11 and 3.12.
 
-- `bot.py` — Telegram-бот, интерфейс, команды, дашборд
-- `charge_logic.py` — FSM заряда, этапы, триггеры, защиты
-- `ai_engine.py` / `ai_system_prompt.py` — AI-аналитика и системный промпт
-- `docs/assistant/CHARGE_STRATEGY.md` — краткая опора по этапам, триггерам и температурным сигналам
-- `config.py` — env и карта HA-сущностей
-- `charging_log.py` — лог событий
-- `database.py` — SQLite и данные для графиков
-- `graphing.py` — генерация графиков
-- `docs/assistant/CHARGE_STRATEGY.md` — источник истины по стратегиям, переходам, температурам и безопасным границам
+Passing CI proves only covered software contracts. It does **not** prove physical RD6018/Home Assistant/ESPHome/battery behavior. PR #2 remains Draft until the required BENCH/BAT gates in [`docs/assistant/V2_VALIDATION_PLAN.md`](docs/assistant/V2_VALIDATION_PLAN.md) are satisfied.
 
-## Безопасность
+## Rollback
 
-- Не запускайте заряд без контроля на длительное время.
-- Перед высоковольтными режимами (до 16.5V) отключайте АКБ от бортовой сети авто.
-- Используйте внешний датчик температуры АКБ.
+```bash
+# Old Telegram UI only
+V2_UI=0 python bot.py
 
-## Лицензия
+# Legacy Main/Mix strategy authority
+V2_AUTHORITATIVE=0 python bot.py
 
-MIT. Использование на ваш риск.
+# Full rollback through production entrypoint
+V2_UI=0 V2_AUTHORITATIVE=0 python bot.py
 
-## Assistant Memory
+# Preserved old runtime directly
+V2_AUTHORITATIVE=0 python bot_legacy.py
+```
 
-For repeatable work across sessions, these files were added:
-- docs/assistant/HISTORY.md - short project history and accepted decisions.
-- docs/assistant/INSTRUCTIONS.md - working rules and sync flow.
-- docs/assistant/PROMPTS.md - reusable prompt templates.
-- docs/assistant/USER_PROMPT_MEMORY.md - ready-to-use prompt to load memory in a new chat.
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before changing a live node.
+
+## Repository map
+
+- `bot.py` — small production V2 entrypoint;
+- `bot_legacy.py` — preserved previous Telegram/HA runtime;
+- `v2_bootstrap.py` / V2 UI modules — composition and operator presentation;
+- `diagnostic_controller.py` / `production_controller.py` — production AUTO composition;
+- `charge_controller_v2.py` / `v2_authority.py` — V2 Main/Mix authority;
+- `manual_mode.py` / `manual_runtime_v2.py` — Manual authority;
+- `runtime_safety_v2.py` / `safe_output.py` / `hass_api.py` — managed actuator safety;
+- `edge_safety_lease.py` / `esphome/rd6018_safety_lease.yaml` — local communication-loss lease contract;
+- `rd_control_mode.py` / `rd_hands_off_release.py` — PB_MANAGED/HANDS_OFF ownership transfer;
+- `battery_registry.py` / diagnostics and trace modules — longitudinal evidence;
+- `docs/assistant/V2_DECISION_LOG.md` — durable behavior decisions;
+- `docs/assistant/CHARGE_STRATEGY.md` — current strategy source of truth;
+- `docs/assistant/RD_HANDS_OFF_MODE.md` — general-purpose PSU ownership contract;
+- `docs/assistant/V2_VALIDATION_PLAN.md` — pre-merge software/bench/battery gates;
+- `docs/DEPLOYMENT.md` — operational runbook;
+- `AGENTS.md` — instructions for automation/coding agents.
+
+## Safety notice
+
+This software controls a real programmable power supply. High-voltage recovery modes can damage a battery, vehicle electronics or surrounding equipment if used incorrectly. Use an external battery temperature sensor for managed Pb charging, isolate batteries from vehicle electronics before recovery/HV work, and never treat green CI as physical validation.
+
+## License
+
+MIT. Use at your own risk.
