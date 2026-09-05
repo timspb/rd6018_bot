@@ -30,6 +30,7 @@ def _live(*, output_on=False, programmed_ts=STALE, voltage_ts=FRESH):
         "protection_code": 0,
         "set_voltage": 14.4,
         "set_current": 2.0,
+        "set_current_readback_v2": 2.0,
         "ovp": 14.5,
         "ocp": 2.1,
         "_meta": {
