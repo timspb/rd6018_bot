@@ -122,9 +122,11 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"power-supply temperature {temp_int:.1f}C is critical"
 
         if require_programming:
-            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+            for key in ("set_voltage", "ovp", "ocp"):
                 if _finite(live.get(key)) is None:
                     return f"live protection/readback {key} is missing/unavailable"
+            if self._current_evidence(live) is None:
+                return "authoritative current readback V2 is missing/stale"
         return None
 
     @staticmethod
@@ -168,7 +170,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return None
 
         set_v = _finite(live.get("set_voltage"))
-        set_i = _finite(live.get("set_current"))
+        set_i = self._current_evidence(live)
         ovp = _finite(live.get("ovp"))
         ocp = _finite(live.get("ocp"))
         actual_v = _finite(live.get("voltage"))

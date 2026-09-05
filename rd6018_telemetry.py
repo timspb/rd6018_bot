@@ -208,6 +208,23 @@ V2_CANONICAL_OVERRIDES: Dict[str, str] = {
 }
 
 
+def canonical_programmed_readback(live: Mapping[str, Any], key: str) -> Optional[float]:
+    """Return only fresh authoritative V2 programmed-register evidence.
+
+    Writable HA number entities are command projections.  A missing or stale V2
+    heartbeat is therefore a hard failure; the command endpoint is never a fallback.
+    """
+    source_key = {"set_current": "set_current_readback_v2"}.get(key)
+    if source_key is None:
+        return None
+    meta = live.get("_meta")
+    if not isinstance(meta, Mapping) or not isinstance(meta.get(source_key), Mapping):
+        return None
+    if not telemetry_freshness(live, [source_key]).valid:
+        return None
+    return finite_float(live.get(source_key))
+
+
 def canonicalize_live(live: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     """Promote corrected V2 sensors while preserving migration-compatible keys."""
     meta = live.get("_meta") if isinstance(live.get("_meta"), dict) else None
