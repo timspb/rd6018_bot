@@ -20,6 +20,8 @@ from rd6018_telemetry import (
 
 logger = logging.getLogger("rd6018")
 
+PROGRAMMED_READBACK_TIMEOUT_S = 10.0
+
 
 class SafetyViolation(str, Enum):
     TELEMETRY_INVALID = "telemetry_invalid"
@@ -396,7 +398,7 @@ class SafeOutputCoordinator:
         supervisor: Optional[SafetySupervisor] = None,
         *,
         readback_delay_s: float = 0.0,
-        readback_timeout_s: float = 6.0,
+        readback_timeout_s: float = PROGRAMMED_READBACK_TIMEOUT_S,
         readback_poll_interval_s: float = 0.25,
     ) -> None:
         self.adapter = adapter

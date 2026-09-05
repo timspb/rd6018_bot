@@ -215,6 +215,9 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
     def setUp(self):
         self.request = OutputRequest(16.3, 2.0, 16.4, 2.1, 16.3)
 
+    def test_default_programmed_readback_window_is_ten_seconds(self):
+        self.assertEqual(SafeOutputCoordinator(FakeAdapter()).readback_timeout_s, 10.0)
+
     def test_happy_path_programs_protections_before_output(self):
         adapter = FakeAdapter()
         result = asyncio.run(SafeOutputCoordinator(adapter).enable(self.request))
@@ -253,6 +256,43 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         )
         self.assertTrue(result.enabled)
         self.assertGreaterEqual(adapter.calls.count("get_all_live"), 4)
+
+    def test_delayed_canonical_readback_is_allowed_inside_extended_window(self):
+        class DelayedReadbackAdapter(FakeAdapter):
+            async def get_all_live(self):
+                if self.calls.count("get_all_live") == 1:
+                    await asyncio.sleep(7.5)
+                return await super().get_all_live()
+
+        adapter = DelayedReadbackAdapter()
+        stamp = datetime.now(timezone.utc).isoformat()
+        adapter.live.update({
+            "set_current_readback_v2": 0.2,
+            "protection_code": 0,
+            "_meta": {
+                key: {"status": "ok", "last_reported": stamp, "last_updated": stamp}
+                for key in (
+                    "battery_voltage", "voltage", "current", "temp_ext", "temp_int",
+                    "switch", "protection_code", "set_voltage", "set_current", "ovp", "ocp",
+                    "set_current_readback_v2",
+                )
+            },
+        })
+        fresh_readback = {
+            "set_voltage": 16.3,
+            "set_current": 2.0,
+            "set_current_readback_v2": 2.0,
+            "ovp": 16.4,
+            "ocp": 2.1,
+        }
+        adapter.readback_sequence = [{}, fresh_readback, fresh_readback]
+        result = asyncio.run(
+            SafeOutputCoordinator(
+                adapter, readback_timeout_s=10.0, readback_poll_interval_s=0.01
+            ).enable(self.request)
+        )
+        self.assertTrue(result.enabled, result.detail)
+        self.assertEqual(adapter.calls.count("turn_on"), 1)
 
     def test_missing_programmed_telemetry_is_not_reported_as_mismatch(self):
         adapter = FakeAdapter()
