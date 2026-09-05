@@ -6,7 +6,12 @@ from typing import Any, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
 from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
-from rd6018_telemetry import ProtectionStatus, resolve_protection, telemetry_freshness
+from rd6018_telemetry import (
+    ProtectionStatus,
+    canonical_programmed_readback,
+    resolve_protection,
+    telemetry_freshness,
+)
 from runtime_safety import RuntimeSafetyError, _binary, _finite
 from runtime_safety_strict import StrictRuntimeSafetyGuard
 
@@ -21,6 +26,10 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         "temp_int",
         "switch",
     )
+
+    @staticmethod
+    def _current_evidence(live: dict[str, Any]) -> Optional[float]:
+        return canonical_programmed_readback(live, "set_current")
 
     def __init__(self, app: Any) -> None:
         super().__init__(app)
@@ -122,9 +131,11 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"power-supply temperature {temp_int:.1f}C is critical"
 
         if require_programming:
-            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+            for key in ("set_voltage", "ovp", "ocp"):
                 if _finite(live.get(key)) is None:
                     return f"live protection/readback {key} is missing/unavailable"
+            if isinstance(live.get("_meta"), dict) and self._current_evidence(live) is None:
+                return "authoritative current readback V2 is missing/stale"
         return None
 
     @staticmethod
@@ -168,7 +179,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return None
 
         set_v = _finite(live.get("set_voltage"))
-        set_i = _finite(live.get("set_current"))
+        set_i = self._current_evidence(live)
         ovp = _finite(live.get("ovp"))
         ocp = _finite(live.get("ocp"))
         actual_v = _finite(live.get("voltage"))

@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, Dict, FrozenSet, Optional, Protocol
 
 from rd6018_telemetry import (
+    canonical_programmed_readback,
     ProtectionStatus,
     RegulationMode,
     as_bool,
@@ -186,6 +187,11 @@ def snapshot_from_live(
         logger.warning("Rejecting stale/incoherent HA telemetry: %s", freshness.detail)
         return None
 
+    current_readback = (
+        canonical_programmed_readback(live, "set_current")
+        if isinstance(live.get("_meta"), dict)
+        else finite_float(live.get("set_current"))
+    )
     return TelemetrySnapshot(
         battery_voltage_v=float(battery_voltage),
         output_voltage_v=output_voltage,
@@ -204,7 +210,7 @@ def snapshot_from_live(
         take_out=take_out,
         take_ok=take_ok,
         set_voltage_v=finite_float(live.get("set_voltage")),
-        set_current_a=finite_float(live.get("set_current")),
+        set_current_a=current_readback,
         ovp_v=finite_float(live.get("ovp")),
         ocp_a=finite_float(live.get("ocp")),
     )

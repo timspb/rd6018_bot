@@ -25,6 +25,7 @@ def _live(temp=25.0, *, when=None, switch="on"):
         "ocp_triggered": "off",
         "set_voltage": 14.8,
         "set_current": 5.0,
+        "set_current_readback_v2": 5.0,
         "ovp": 14.9,
         "ocp": 5.1,
     }
@@ -35,6 +36,9 @@ def _live(temp=25.0, *, when=None, switch="on"):
     live["_meta"] = {
         key: {"status": "ok", "last_reported": stamp, "last_updated": stamp}
         for key in keys
+    }
+    live["_meta"]["set_current_readback_v2"] = {
+        "status": "ok", "last_reported": stamp, "last_updated": stamp
     }
     return live
 

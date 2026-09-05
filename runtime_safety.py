@@ -370,6 +370,10 @@ class RuntimeSafetyGuard:
             return f"OCP {ocp:.3f}A does not protect set current {set_i:.3f}A"
         return None
 
+    @staticmethod
+    def _current_evidence(live: Dict[str, Any]) -> Optional[float]:
+        return _finite(live.get("set_current"))
+
     async def _fail_closed(self, key: str, reason: str, *, output_state: Optional[bool]) -> None:
         self._notify(
             key,
@@ -479,7 +483,12 @@ class RuntimeSafetyGuard:
             if attempt:
                 await asyncio.sleep(self.READBACK_VERIFY_DELAY_S)
             try:
-                observed = _finite((await self._raw_live()).get(key))
+                live = await self._raw_live()
+                observed = (
+                    self._current_evidence(live)
+                    if key == "set_current"
+                    else _finite(live.get(key))
+                )
             except Exception:
                 observed = None
             if observed is not None and abs(observed - expected) <= self.READBACK_TOLERANCE:
