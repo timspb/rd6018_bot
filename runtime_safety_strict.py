@@ -215,7 +215,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         live: dict[str, Any],
     ) -> None:
         live_set_v = _finite(live.get("set_voltage"))
-        live_set_i = _finite(live.get("set_current"))
+        live_set_i = self._current_evidence(live)
         if live_set_v is None or live_set_i is None:
             await self._ensure_output_off(
                 "voltage transition attempted without live setpoint readback"
@@ -343,7 +343,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         await self._require_managed_live_write(output_state, "OCP write")
         if output_state is True and requested is not None:
             live = await self._raw_live()
-            set_i = _finite(live.get("set_current"))
+            set_i = self._current_evidence(live)
             if set_i is None:
                 await self._ensure_output_off("OCP change attempted without live current readback")
                 raise RuntimeSafetyError("OCP change blocked: live current setpoint unavailable")
