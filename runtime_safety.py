@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
 from config import MAX_VOLTAGE, MIN_INPUT_VOLTAGE, TEMP_INT_PRECRITICAL
-from rd6018_telemetry import _parse_iso_timestamp
+from rd6018_telemetry import _parse_iso_timestamp, canonical_programmed_readback
 from safe_output import SafetyPolicy
 
 
@@ -327,9 +327,11 @@ class RuntimeSafetyGuard:
             return f"battery voltage is implausible: {battery_v:.3f}V"
 
         if require_programming:
-            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+            for key in ("set_voltage", "ovp", "ocp"):
                 if _finite(live.get(key)) is None:
                     return f"live protection/readback {key} is missing/unavailable"
+            if self._current_evidence(live) is None:
+                return "authoritative current readback V2 is missing/stale"
         return None
 
     def _runtime_envelope_error(self, live: Dict[str, Any]) -> Optional[str]:
@@ -343,7 +345,7 @@ class RuntimeSafetyGuard:
             return f"input voltage {input_v!r}V is below {MIN_INPUT_VOLTAGE:.1f}V"
 
         set_v = _finite(live.get("set_voltage"))
-        set_i = _finite(live.get("set_current"))
+        set_i = self._current_evidence(live)
         ovp = _finite(live.get("ovp"))
         ocp = _finite(live.get("ocp"))
         actual_i = _finite(live.get("current"))
@@ -372,7 +374,7 @@ class RuntimeSafetyGuard:
 
     @staticmethod
     def _current_evidence(live: Dict[str, Any]) -> Optional[float]:
-        return _finite(live.get("set_current"))
+        return canonical_programmed_readback(live, "set_current")
 
     async def _fail_closed(self, key: str, reason: str, *, output_state: Optional[bool]) -> None:
         self._notify(
