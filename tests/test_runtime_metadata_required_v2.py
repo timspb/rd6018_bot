@@ -78,7 +78,7 @@ class RuntimeMetadataRequiredTests(unittest.IsolatedAsyncioTestCase):
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0
 
-        with self.assertRaisesRegex(RuntimeSafetyError, "freshness metadata is missing"):
+        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage readback V2 is missing/stale"):
             await guard.get_all_live()
 
         self.assertEqual(hass.off_calls, 1)

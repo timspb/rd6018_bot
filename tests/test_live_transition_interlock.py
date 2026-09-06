@@ -19,13 +19,27 @@ def live_state(**overrides):
         "set_voltage": 14.72,
         "set_current": 7.20,
         "set_current_readback_v2": 7.20,
+        "set_voltage_readback_v2": 14.72,
         "ovp": 14.82,
         "ocp": 7.30,
+        "ovp_readback_v2": 14.82,
+        "ocp_readback_v2": 7.30,
         "_meta": {
+            "set_voltage_readback_v2": {"status": "ok", "age_s": 0.0},
             "set_current_readback_v2": {"status": "ok", "age_s": 0.0},
+            "ovp_readback_v2": {"status": "ok", "age_s": 0.0},
+            "ocp_readback_v2": {"status": "ok", "age_s": 0.0},
         },
     }
     base.update(overrides)
+    for source, key in (
+        ("set_voltage_readback_v2", "set_voltage"),
+        ("set_current_readback_v2", "set_current"),
+        ("ovp_readback_v2", "ovp"),
+        ("ocp_readback_v2", "ocp"),
+    ):
+        if key in overrides:
+            base[source] = float(base[key])
     if "set_current" in overrides and "set_current_readback_v2" not in overrides:
         base["set_current_readback_v2"] = float(base["set_current"])
     return base
@@ -66,9 +80,15 @@ class FakeHass:
     async def _set(self, name, key, value):
         self.setter_calls.append((name, float(value)))
         self.live[key] = float(value)
-        if key == "set_current":
-            self.live["set_current_readback_v2"] = float(value)
-            self.live.setdefault("_meta", {})["set_current_readback_v2"] = {
+        readback_key = {
+            "set_voltage": "set_voltage_readback_v2",
+            "set_current": "set_current_readback_v2",
+            "ovp": "ovp_readback_v2",
+            "ocp": "ocp_readback_v2",
+        }.get(key)
+        if readback_key:
+            self.live[readback_key] = float(value)
+            self.live.setdefault("_meta", {})[readback_key] = {
                 "status": "ok",
                 "age_s": 0.0,
             }

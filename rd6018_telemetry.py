@@ -222,7 +222,12 @@ PROGRAMMED_CURRENT_READBACK_TIMEOUT_S = 10.0
 
 def canonical_programmed_readback(live: Mapping[str, Any], key: str) -> Optional[float]:
     """Return fresh authoritative V2 programmed-register evidence only."""
-    source_key = {"set_current": "set_current_readback_v2"}.get(key)
+    source_key = {
+        "set_voltage": "set_voltage_readback_v2",
+        "set_current": "set_current_readback_v2",
+        "ovp": "ovp_readback_v2",
+        "ocp": "ocp_readback_v2",
+    }.get(key)
     if source_key is None:
         return None
     meta = live.get("_meta")

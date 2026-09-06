@@ -9,6 +9,7 @@ from typing import Any, Dict, FrozenSet, Optional, Protocol
 
 from rd6018_telemetry import (
     canonical_programmed_readback,
+    V2_CANONICAL_OVERRIDES,
     ProtectionStatus,
     RegulationMode,
     as_bool,
@@ -180,20 +181,29 @@ def snapshot_from_live(
     if output_on is True and output_voltage is not None:
         freshness_keys.append("voltage")
     freshness_keys.extend(_protection_freshness_keys(live))
-    if require_programming_freshness:
-        for key in ("set_voltage", "set_current", "ovp", "ocp"):
-            if live.get(key) not in (None, "", "unknown", "unavailable"):
-                freshness_keys.append(key)
     freshness = telemetry_freshness(live, freshness_keys)
     if not freshness.valid:
         logger.warning("Rejecting stale/incoherent HA telemetry: %s", freshness.detail)
         return None
 
-    current_readback = (
-        canonical_programmed_readback(live, "set_current")
-        if isinstance(live.get("_meta"), dict)
-        else finite_float(live.get("set_current"))
-    )
+    def programmed_value(key: str) -> Optional[float]:
+        if require_programming_freshness:
+            return canonical_programmed_readback(live, key)
+        return finite_float(live.get(key))
+
+    current_readback = programmed_value("set_current")
+    set_voltage_readback = programmed_value("set_voltage")
+    ovp_readback = programmed_value("ovp")
+    ocp_readback = programmed_value("ocp")
+    if require_programming_freshness:
+        sources = [V2_CANONICAL_OVERRIDES[key] for key in ("set_voltage", "set_current", "ovp", "ocp")]
+        if any(canonical_programmed_readback(live, key) is None for key in ("set_voltage", "set_current", "ovp", "ocp")):
+            logger.warning("Rejecting missing/stale canonical programmed readback: %s", ", ".join(sources))
+            return None
+        freshness = telemetry_freshness(live, freshness_keys + sources)
+        if not freshness.valid:
+            logger.warning("Rejecting stale/incoherent programmed readback: %s", freshness.detail)
+            return None
     return TelemetrySnapshot(
         battery_voltage_v=float(battery_voltage),
         output_voltage_v=output_voltage,
@@ -211,10 +221,10 @@ def snapshot_from_live(
         boot_power=boot_power,
         take_out=take_out,
         take_ok=take_ok,
-        set_voltage_v=finite_float(live.get("set_voltage")),
+        set_voltage_v=set_voltage_readback,
         set_current_a=current_readback,
-        ovp_v=finite_float(live.get("ovp")),
-        ocp_a=finite_float(live.get("ocp")),
+        ovp_v=ovp_readback,
+        ocp_a=ocp_readback,
     )
 
 

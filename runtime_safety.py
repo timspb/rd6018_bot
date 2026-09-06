@@ -332,11 +332,11 @@ class RuntimeSafetyGuard:
             return f"battery voltage is implausible: {battery_v:.3f}V"
 
         if require_programming:
-            for key in ("set_voltage", "ovp", "ocp"):
-                if _finite(live.get(key)) is None:
-                    return f"live protection/readback {key} is missing/unavailable"
-            if self._current_evidence(live) is None:
-                return "authoritative current readback V2 is missing/stale"
+            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+                if self._programmed_evidence(live, key) is None:
+                    if key == "set_current":
+                        return "authoritative current readback V2 is missing/stale"
+                    return f"authoritative {key} readback V2 is missing/stale"
         return None
 
     def _runtime_envelope_error(self, live: Dict[str, Any]) -> Optional[str]:
@@ -349,10 +349,10 @@ class RuntimeSafetyGuard:
         if input_v is None or input_v < float(MIN_INPUT_VOLTAGE):
             return f"input voltage {input_v!r}V is below {MIN_INPUT_VOLTAGE:.1f}V"
 
-        set_v = _finite(live.get("set_voltage"))
-        set_i = self._current_evidence(live)
-        ovp = _finite(live.get("ovp"))
-        ocp = _finite(live.get("ocp"))
+        set_v = self._programmed_evidence(live, "set_voltage")
+        set_i = self._programmed_evidence(live, "set_current")
+        ovp = self._programmed_evidence(live, "ovp")
+        ocp = self._programmed_evidence(live, "ocp")
         actual_i = _finite(live.get("current"))
         if None in (set_v, set_i, ovp, ocp, actual_i):
             return "programming/readback became invalid while output was ON"
@@ -380,6 +380,10 @@ class RuntimeSafetyGuard:
     @staticmethod
     def _current_evidence(live: Dict[str, Any]) -> Optional[float]:
         return canonical_programmed_readback(live, "set_current")
+
+    @staticmethod
+    def _programmed_evidence(live: Dict[str, Any], key: str) -> Optional[float]:
+        return canonical_programmed_readback(live, key)
 
     async def _fail_closed(self, key: str, reason: str, *, output_state: Optional[bool]) -> None:
         self._notify(
@@ -498,11 +502,7 @@ class RuntimeSafetyGuard:
                     await asyncio.sleep(self.READBACK_VERIFY_DELAY_S)
                 try:
                     live = await self._raw_live()
-                    observed = (
-                        self._current_evidence(live)
-                        if key == "set_current"
-                        else _finite(live.get(key))
-                    )
+                    observed = self._programmed_evidence(live, key)
                 except Exception:
                     observed = None
                 if observed is not None and abs(observed - expected) <= self.READBACK_TOLERANCE:
@@ -514,11 +514,7 @@ class RuntimeSafetyGuard:
         while True:
             try:
                 live = await self._raw_live()
-                observed = (
-                    self._current_evidence(live)
-                    if key == "set_current"
-                    else _finite(live.get(key))
-                )
+                observed = self._programmed_evidence(live, key)
             except Exception:
                 observed = None
             if observed is not None and abs(observed - expected) <= self.READBACK_TOLERANCE:
@@ -568,7 +564,7 @@ class RuntimeSafetyGuard:
 
         if output_state is True:
             live = await self._raw_live()
-            ovp = _finite(live.get("ovp"))
+            ovp = self._programmed_evidence(live, "ovp")
             if ovp is None or ovp + self.READBACK_TOLERANCE < requested + self.PROTECTION_MARGIN:
                 await self._ensure_output_off("voltage raise attempted without confirmed OVP margin")
                 raise RuntimeSafetyError("voltage setpoint blocked: OVP margin is not confirmed")
@@ -588,7 +584,7 @@ class RuntimeSafetyGuard:
 
         if output_state is True:
             live = await self._raw_live()
-            ocp = _finite(live.get("ocp"))
+            ocp = self._programmed_evidence(live, "ocp")
             if ocp is None or ocp + self.READBACK_TOLERANCE < requested + self.PROTECTION_MARGIN:
                 await self._ensure_output_off("current raise attempted without confirmed OCP margin")
                 raise RuntimeSafetyError("current setpoint blocked: OCP margin is not confirmed")

@@ -112,7 +112,13 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         if live.get("regulation_code") not in (None, "", "unknown", "unavailable"):
             dynamic = dynamic + ("regulation_code",)
         meta = {}
-        live.setdefault("set_current_readback_v2", live.get("set_current"))
+        for key, source in (
+            ("set_voltage", "set_voltage_readback_v2"),
+            ("set_current", "set_current_readback_v2"),
+            ("ovp", "ovp_readback_v2"),
+            ("ocp", "ocp_readback_v2"),
+        ):
+            live.setdefault(source, live.get(key))
         for key in dynamic:
             age = float(ages.get(key, 0.0))
             reported = (now - timedelta(seconds=age)).isoformat()
@@ -128,9 +134,17 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             "last_reported": reported,
             "last_updated": reported,
         }
+        for key in ("set_voltage_readback_v2", "ovp_readback_v2", "ocp_readback_v2"):
+            age = float(ages.get(key, 0.0))
+            reported = (now - timedelta(seconds=age)).isoformat()
+            meta[key] = {"status": "ok", "last_reported": reported, "last_updated": reported}
         if old_static:
             old = (now - timedelta(hours=6)).isoformat()
-            for key in ("set_voltage", "set_current", "ovp", "ocp", "input_voltage"):
+            for key in (
+                "set_voltage", "set_current", "ovp", "ocp",
+                "set_voltage_readback_v2", "set_current_readback_v2",
+                "ovp_readback_v2", "ocp_readback_v2", "input_voltage",
+            ):
                 meta[key] = {
                     "status": "ok",
                     "last_reported": old,
@@ -297,13 +311,13 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
 
-    async def test_static_readback_timestamps_are_not_used_as_runtime_heartbeat(self):
+    async def test_stale_canonical_programmed_readback_fails_closed_while_output_is_on(self):
         live = self._with_freshness(self._live(), old_static=True)
         app = self._app(live)
         guard = self._guard(app)
-        observed = await guard.get_all_live()
-        self.assertEqual(observed["switch"], "on")
-        self.assertEqual(app.hass.turn_off_calls, 0)
+        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage readback V2"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
 
     async def test_current_safety_uses_fresh_v2_readback_not_writable_projection(self):
         live = self._with_freshness(self._live())

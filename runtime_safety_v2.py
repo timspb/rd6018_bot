@@ -31,6 +31,10 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:
         return canonical_programmed_readback(live, "set_current")
 
+    @staticmethod
+    def _programmed_evidence(live: dict[str, Any], key: str) -> Optional[float]:
+        return canonical_programmed_readback(live, key)
+
     def __init__(self, app: Any) -> None:
         super().__init__(app)
         self._install_last_reported_metadata_bridge()
@@ -131,11 +135,11 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"power-supply temperature {temp_int:.1f}C is critical"
 
         if require_programming:
-            for key in ("set_voltage", "ovp", "ocp"):
-                if _finite(live.get(key)) is None:
-                    return f"live protection/readback {key} is missing/unavailable"
-            if isinstance(live.get("_meta"), dict) and self._current_evidence(live) is None:
-                return "authoritative current readback V2 is missing/stale"
+            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+                if self._programmed_evidence(live, key) is None:
+                    if key == "set_current":
+                        return "authoritative current readback V2 is missing/stale"
+                    return f"authoritative {key} readback V2 is missing/stale"
         return None
 
     @staticmethod
@@ -178,10 +182,10 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
             return None
 
-        set_v = _finite(live.get("set_voltage"))
-        set_i = self._current_evidence(live)
-        ovp = _finite(live.get("ovp"))
-        ocp = _finite(live.get("ocp"))
+        set_v = self._programmed_evidence(live, "set_voltage")
+        set_i = self._programmed_evidence(live, "set_current")
+        ovp = self._programmed_evidence(live, "ovp")
+        ocp = self._programmed_evidence(live, "ocp")
         actual_v = _finite(live.get("voltage"))
         actual_i = _finite(live.get("current"))
         if None in (set_v, set_i, ovp, ocp, actual_v, actual_i):

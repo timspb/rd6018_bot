@@ -26,6 +26,19 @@ def live_state(**overrides):
         "set_current": 2.0,
         "ovp": 16.4,
         "ocp": 2.1,
+        "set_voltage_readback_v2": 16.3,
+        "set_current_readback_v2": 2.0,
+        "ovp_readback_v2": 16.4,
+        "ocp_readback_v2": 2.1,
+    }
+    stamp = datetime.now(timezone.utc).isoformat()
+    base["_meta"] = {
+        key: {"status": "ok", "last_reported": stamp, "last_updated": stamp}
+        for key in (
+            "battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch",
+            "ovp_triggered", "ocp_triggered", "protection_code", "set_voltage_readback_v2",
+            "set_current_readback_v2", "ovp_readback_v2", "ocp_readback_v2",
+        )
     }
     base.update(overrides)
     return base
@@ -53,6 +66,17 @@ class FakeAdapter:
         if self.fail_method == name:
             return False
         self.live[key] = value
+        readback_key = {
+            "set_voltage": "set_voltage_readback_v2",
+            "set_current": "set_current_readback_v2",
+            "ovp": "ovp_readback_v2",
+            "ocp": "ocp_readback_v2",
+        }[key]
+        self.live[readback_key] = value
+        stamp = datetime.now(timezone.utc).isoformat()
+        self.live["_meta"][readback_key] = {
+            "status": "ok", "last_reported": stamp, "last_updated": stamp
+        }
         return True
 
     async def set_ovp(self, value):
@@ -238,7 +262,7 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
 
     def test_readback_mismatch_forces_output_off_with_detail(self):
         adapter = FakeAdapter()
-        adapter.readback_override = {"set_voltage": 14.0}
+        adapter.readback_override = {"set_voltage_readback_v2": 14.0}
         result = asyncio.run(SafeOutputCoordinator(adapter, readback_timeout_s=0.0).enable(self.request))
         self.assertFalse(result.enabled)
         self.assertIn(SafetyViolation.READBACK_MISMATCH, result.violations)
@@ -248,8 +272,8 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         adapter = FakeAdapter()
         adapter.readback_sequence = [
             {},
-            {"set_voltage": 14.0, "set_current": 1.0, "ovp": 14.1, "ocp": 1.1},
-            {"set_voltage": 14.0, "set_current": 1.0, "ovp": 14.1, "ocp": 1.1},
+            {"set_voltage_readback_v2": 14.0, "set_current_readback_v2": 1.0, "ovp_readback_v2": 14.1, "ocp_readback_v2": 1.1},
+            {"set_voltage_readback_v2": 14.0, "set_current_readback_v2": 1.0, "ovp_readback_v2": 14.1, "ocp_readback_v2": 1.1},
         ]
         result = asyncio.run(
             SafeOutputCoordinator(adapter, readback_timeout_s=0.2, readback_poll_interval_s=0.01).enable(self.request)
@@ -268,6 +292,9 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         stamp = datetime.now(timezone.utc).isoformat()
         adapter.live.update({
             "set_current_readback_v2": 0.2,
+            "set_voltage_readback_v2": 16.3,
+            "ovp_readback_v2": 16.4,
+            "ocp_readback_v2": 2.1,
             "protection_code": 0,
             "_meta": {
                 key: {"status": "ok", "last_reported": stamp, "last_updated": stamp}
@@ -275,6 +302,7 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
                     "battery_voltage", "voltage", "current", "temp_ext", "temp_int",
                     "switch", "protection_code", "set_voltage", "set_current", "ovp", "ocp",
                     "set_current_readback_v2",
+                    "set_voltage_readback_v2", "ovp_readback_v2", "ocp_readback_v2",
                 )
             },
         })
@@ -282,6 +310,9 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
             "set_voltage": 16.3,
             "set_current": 2.0,
             "set_current_readback_v2": 2.0,
+            "set_voltage_readback_v2": 16.3,
+            "ovp_readback_v2": 16.4,
+            "ocp_readback_v2": 2.1,
             "ovp": 16.4,
             "ocp": 2.1,
         }
@@ -340,6 +371,7 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
         async def turn_on_then_drift(entity_id=None):
             result = await original_turn_on(entity_id)
             adapter.live["set_voltage"] = 15.0
+            adapter.live["set_voltage_readback_v2"] = 15.0
             return result
 
         adapter.turn_on = turn_on_then_drift

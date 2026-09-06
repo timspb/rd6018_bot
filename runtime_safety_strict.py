@@ -214,8 +214,8 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         requested_voltage: float,
         live: dict[str, Any],
     ) -> None:
-        live_set_v = _finite(live.get("set_voltage"))
-        live_set_i = self._current_evidence(live)
+        live_set_v = self._programmed_evidence(live, "set_voltage")
+        live_set_i = self._programmed_evidence(live, "set_current")
         if live_set_v is None or live_set_i is None:
             await self._ensure_output_off(
                 "voltage transition attempted without live setpoint readback"
@@ -254,8 +254,8 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         live: dict[str, Any],
     ) -> dict[str, Any]:
         """Lower Vset first when a paired live OVP decrease needs real margin."""
-        current_ovp = _finite(live.get("ovp"))
-        live_set_v = _finite(live.get("set_voltage"))
+        current_ovp = self._programmed_evidence(live, "ovp")
+        live_set_v = self._programmed_evidence(live, "set_voltage")
         if current_ovp is None or live_set_v is None:
             return live
         if requested_ovp + self.READBACK_TOLERANCE >= current_ovp:

@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 
 from config import ENTITY_MAP
 from hass_api import HassClient
@@ -20,6 +21,20 @@ def live_state(**overrides):
         "set_current": 2.0,
         "ovp": 16.4,
         "ocp": 2.1,
+        "set_voltage_readback_v2": 16.3,
+        "set_current_readback_v2": 2.0,
+        "ovp_readback_v2": 16.4,
+        "ocp_readback_v2": 2.1,
+    }
+    stamp = datetime.now(timezone.utc).isoformat()
+    base["_meta"] = {
+        key: {"status": "ok", "last_reported": stamp, "last_updated": stamp}
+        for key in (
+            "battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch",
+            "ovp_triggered", "ocp_triggered",
+            "set_voltage_readback_v2", "set_current_readback_v2",
+            "ovp_readback_v2", "ocp_readback_v2",
+        )
     }
     base.update(overrides)
     return base
@@ -42,6 +57,17 @@ class FakeHassClient(HassClient):
         if key is None:
             return False
         self.live[key] = float(value)
+        readback_key = {
+            "set_voltage": "set_voltage_readback_v2",
+            "set_current": "set_current_readback_v2",
+            "ovp": "ovp_readback_v2",
+            "ocp": "ocp_readback_v2",
+        }[key]
+        self.live[readback_key] = float(value)
+        stamp = datetime.now(timezone.utc).isoformat()
+        self.live["_meta"][readback_key] = {
+            "status": "ok", "last_reported": stamp, "last_updated": stamp
+        }
         return True
 
     async def get_all_live(self):

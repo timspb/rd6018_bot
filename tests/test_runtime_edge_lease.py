@@ -18,10 +18,16 @@ def live_state(**overrides):
         "set_voltage": 14.8,
         "set_current": 2.0,
         "set_current_readback_v2": 2.0,
+        "set_voltage_readback_v2": 14.8,
+        "ovp_readback_v2": 14.9,
+        "ocp_readback_v2": 2.1,
         "ovp": 14.9,
         "ocp": 2.1,
         "_meta": {
             "set_current_readback_v2": {"status": "ok", "age_s": 0.0},
+            "set_voltage_readback_v2": {"status": "ok", "age_s": 0.0},
+            "ovp_readback_v2": {"status": "ok", "age_s": 0.0},
+            "ocp_readback_v2": {"status": "ok", "age_s": 0.0},
         },
     }
     state.update(overrides)

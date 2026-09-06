@@ -21,8 +21,13 @@ def live_state(*, v2_age_s=0.0, include_v2=True, legacy_current=2.0, v2_current=
         "set_current": legacy_current,
         "ovp": 14.9,
         "ocp": 2.1,
+        "set_voltage_readback_v2": 14.8,
+        "ovp_readback_v2": 14.9,
+        "ocp_readback_v2": 2.1,
         "_meta": {},
     }
+    for key in ("set_voltage_readback_v2", "ovp_readback_v2", "ocp_readback_v2"):
+        live["_meta"][key] = {"status": "ok", "age_s": 0.0}
     if include_v2:
         live["set_current_readback_v2"] = v2_current
         live["_meta"]["set_current_readback_v2"] = {
