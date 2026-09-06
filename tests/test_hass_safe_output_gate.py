@@ -61,6 +61,30 @@ class FakeHassClient(HassClient):
         return True
 
 
+class DelayedOutputV2HassClient(FakeHassClient):
+    """Model the promoted Output V2 value arriving after several polls."""
+
+    def __init__(self, confirmation_reads=29):
+        super().__init__()
+        self.confirmation_reads = confirmation_reads
+        self.post_enable_reads = 0
+
+    async def get_all_live(self):
+        if "turn_on" in self.service_calls:
+            self.post_enable_reads += 1
+            if self.post_enable_reads >= self.confirmation_reads:
+                self.live["switch"] = "on"
+                self.live["voltage"] = float(self.live["set_voltage"])
+        return dict(self.live)
+
+    async def _switch_service(self, service, entity_id=None):
+        self.service_calls.append(service)
+        if service == "turn_off":
+            self.live["switch"] = "off"
+            self.live["voltage"] = 0.0
+        return True
+
+
 class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
     async def _program(self, client):
         self.assertTrue(await client.set_ovp(16.4))
@@ -79,6 +103,14 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(await client.turn_on())
         self.assertEqual(client.service_calls, ["turn_on"])
+
+    async def test_post_enable_accepts_output_v2_after_one_poll_interval(self):
+        client = DelayedOutputV2HassClient()
+        await self._program(client)
+
+        self.assertTrue(await client.turn_on())
+        self.assertEqual(client.service_calls, ["turn_on"])
+        self.assertGreaterEqual(client.post_enable_reads, 29)
 
     async def test_missing_battery_temperature_blocks_enable(self):
         client = FakeHassClient()

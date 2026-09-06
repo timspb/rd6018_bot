@@ -24,7 +24,10 @@ from safe_output import (
 logger = logging.getLogger("rd6018")
 
 PROGRAMMING_TRANSACTION_TTL_SEC = 30.0
-OUTPUT_VERIFY_RETRIES = 5
+# Output State Code V2 is published by the 5 s ESPHome/Modbus polling loop.
+# Allow one full polling interval plus the normal bounded request spacing for
+# positive post-enable confirmation; this remains a finite fail-closed window.
+OUTPUT_VERIFY_RETRIES = 31
 OUTPUT_VERIFY_DELAY_SEC = 0.20
 
 
