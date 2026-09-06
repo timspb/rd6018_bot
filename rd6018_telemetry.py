@@ -214,6 +214,11 @@ V2_CANONICAL_OVERRIDES: Dict[str, str] = {
     "ocp": "ocp_readback_v2",
 }
 
+# The programmed current mirror is published on the device's Modbus heartbeat
+# cadence.  Consumers may wait within this finite window, but must still require
+# fresh canonical V2 evidence and fail closed on timeout.
+PROGRAMMED_CURRENT_READBACK_TIMEOUT_S = 10.0
+
 
 def canonical_programmed_readback(live: Mapping[str, Any], key: str) -> Optional[float]:
     """Return fresh authoritative V2 programmed-register evidence only."""

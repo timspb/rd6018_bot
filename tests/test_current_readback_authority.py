@@ -82,6 +82,32 @@ class FakeHass:
         return True
 
 
+class DelayedCurrentMirrorHass(FakeHass):
+    def __init__(self, live, *, visible_after=3):
+        super().__init__(live)
+        self.visible_after = visible_after
+        self.reads = 0
+        self.target_current = None
+
+    async def get_all_live(self):
+        live = await super().get_all_live()
+        self.reads += 1
+        if self.target_current is not None and self.reads >= self.visible_after:
+            live["set_current_readback_v2"] = self.target_current
+        return live
+
+    async def set_current(self, value):
+        self.set_current_calls += 1
+        self.live["set_current"] = float(value)
+        self.target_current = float(value)
+        return True
+
+    async def turn_off(self, entity_id=None):
+        self.turn_off_calls += 1
+        self.live["switch"] = "off"
+        return True
+
+
 class FakeApp:
     def __init__(self, live, *, mirror_v2=False):
         self.hass = FakeHass(live, mirror_v2=mirror_v2)
@@ -100,6 +126,7 @@ class CurrentReadbackAuthorityTests(unittest.IsolatedAsyncioTestCase):
         guard.OFF_CONFIRMATION_POLL_S = 0.0
         guard.READBACK_VERIFY_ATTEMPTS = 1
         guard.READBACK_VERIFY_DELAY_S = 0.0
+        guard.CURRENT_READBACK_VERIFY_TIMEOUT_S = 0.0
         guard.install()
         return guard
 
@@ -152,6 +179,18 @@ class CurrentReadbackAuthorityTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await app.hass.set_current(1.5))
 
         self.assertEqual(app.hass.live["set_current_readback_v2"], 1.5)
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_current_write_accepts_delayed_canonical_v2_readback(self):
+        live = live_state(legacy_current=2.0, v2_current=2.0)
+        app = FakeApp(live)
+        app.hass = DelayedCurrentMirrorHass(live, visible_after=4)
+        guard = self._guard(app)
+        guard.READBACK_VERIFY_DELAY_S = 0.01
+        guard.CURRENT_READBACK_VERIFY_TIMEOUT_S = 0.2
+
+        self.assertTrue(await app.hass.set_current(1.5))
+        self.assertGreaterEqual(app.hass.reads, 4)
         self.assertEqual(app.hass.turn_off_calls, 0)
 
     def test_d064_compatibility_facade_delegates_to_canonical_accessor(self):

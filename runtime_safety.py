@@ -9,7 +9,11 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
 from config import MAX_VOLTAGE, MIN_INPUT_VOLTAGE, TEMP_INT_PRECRITICAL
-from rd6018_telemetry import _parse_iso_timestamp, canonical_programmed_readback
+from rd6018_telemetry import (
+    PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
+    _parse_iso_timestamp,
+    canonical_programmed_readback,
+)
 from safe_output import SafetyPolicy
 
 
@@ -85,6 +89,7 @@ class RuntimeSafetyGuard:
     OFF_CONFIRMATION_CLOCK_SKEW_S = 1.0
     READBACK_VERIFY_ATTEMPTS = 8
     READBACK_VERIFY_DELAY_S = 0.20
+    CURRENT_READBACK_VERIFY_TIMEOUT_S = PROGRAMMED_CURRENT_READBACK_TIMEOUT_S
     READBACK_TOLERANCE = 0.08
     PROTECTION_MARGIN = 0.05
     ORPHAN_OUTPUT_GRACE_S = 45.0
@@ -480,10 +485,33 @@ class RuntimeSafetyGuard:
         except Exception:
             return None
 
-    async def _verify_numeric(self, key: str, expected: float) -> bool:
-        for attempt in range(self.READBACK_VERIFY_ATTEMPTS):
-            if attempt:
-                await asyncio.sleep(self.READBACK_VERIFY_DELAY_S)
+    async def _verify_numeric(
+        self,
+        key: str,
+        expected: float,
+        *,
+        timeout_s: Optional[float] = None,
+    ) -> bool:
+        if timeout_s is None:
+            for attempt in range(self.READBACK_VERIFY_ATTEMPTS):
+                if attempt:
+                    await asyncio.sleep(self.READBACK_VERIFY_DELAY_S)
+                try:
+                    live = await self._raw_live()
+                    observed = (
+                        self._current_evidence(live)
+                        if key == "set_current"
+                        else _finite(live.get(key))
+                    )
+                except Exception:
+                    observed = None
+                if observed is not None and abs(observed - expected) <= self.READBACK_TOLERANCE:
+                    return True
+            return False
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout_s)
+        while True:
             try:
                 live = await self._raw_live()
                 observed = (
@@ -495,7 +523,10 @@ class RuntimeSafetyGuard:
                 observed = None
             if observed is not None and abs(observed - expected) <= self.READBACK_TOLERANCE:
                 return True
-        return False
+            now = loop.time()
+            if now >= deadline:
+                return False
+            await asyncio.sleep(min(self.READBACK_VERIFY_DELAY_S, max(0.0, deadline - now)))
 
     async def _setter_failed(self, name: str, value: float, output_state: Optional[bool]) -> bool:
         reason = f"{name}({value:.3f}) could not be programmed/read back"
@@ -565,7 +596,9 @@ class RuntimeSafetyGuard:
         ok = bool(await self._raw_set_current(requested))
         if not ok:
             return await self._setter_failed("current", requested, output_state)
-        if output_state is True and not await self._verify_numeric("set_current", requested):
+        if output_state is True and not await self._verify_numeric(
+            "set_current", requested, timeout_s=self.CURRENT_READBACK_VERIFY_TIMEOUT_S
+        ):
             return await self._setter_failed("current readback", requested, output_state)
         return True
 

@@ -7,13 +7,11 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 from battery_diagnostics import DynamicLoopProbe
-from rd6018_telemetry import canonical_programmed_readback, finite_float
-
-
-# ESPHome publishes the programmed-register mirrors on the normal Modbus polling
-# cadence.  Keep this finite and explicit: stale/missing V2 evidence still fails
-# closed, but a single poll interval must not be mistaken for a write failure.
-PROGRAMMED_CURRENT_READBACK_TIMEOUT_S = 10.0
+from rd6018_telemetry import (
+    PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
+    canonical_programmed_readback,
+    finite_float,
+)
 
 
 def current_readback_evidence(live: dict[str, Any]) -> Optional[float]:
