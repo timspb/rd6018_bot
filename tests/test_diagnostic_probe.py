@@ -2,7 +2,11 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from diagnostic_probe import ControlledCurrentProbe, ProbePlan
+from diagnostic_probe import (
+    PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
+    ControlledCurrentProbe,
+    ProbePlan,
+)
 
 
 class FakeProbeHass:
@@ -46,6 +50,20 @@ class FakeProbeHass:
         return True
 
 
+class DelayedCurrentReadbackHass(FakeProbeHass):
+    def __init__(self, delayed_reads=0):
+        super().__init__()
+        self.delayed_reads = delayed_reads
+        self.reads = 0
+
+    async def get_all_live(self):
+        live = await super().get_all_live()
+        self.reads += 1
+        if self.reads <= self.delayed_reads:
+            live["set_current_readback_v2"] = 7.0
+        return live
+
+
 class DiagnosticProbeTests(unittest.IsolatedAsyncioTestCase):
     def test_current_evidence_accepts_fresh_v2_when_writable_number_is_stale(self):
         hass = FakeProbeHass()
@@ -79,6 +97,57 @@ class DiagnosticProbeTests(unittest.IsolatedAsyncioTestCase):
             live, ProbePlan(step_current_a=0.10)
         )[2]
         self.assertAlmostEqual(actual or 0.0, 0.20, places=5)
+
+    async def test_current_readback_immediate_value_passes_within_explicit_window(self):
+        hass = FakeProbeHass()
+        result = await ControlledCurrentProbe(hass)._wait_current_readback(
+            7.0, tolerance=0.06, timeout_s=0.1, delay_s=0.01
+        )
+        self.assertTrue(result)
+
+    async def test_current_readback_delayed_v2_value_passes_within_window(self):
+        hass = DelayedCurrentReadbackHass(delayed_reads=3)
+        hass.set_current_value = 3.0
+        result = await ControlledCurrentProbe(hass)._wait_current_readback(
+            3.0, tolerance=0.06, timeout_s=0.2, delay_s=0.01
+        )
+        self.assertTrue(result)
+        self.assertGreaterEqual(hass.reads, 4)
+
+    async def test_current_readback_timeout_fails_closed_for_stale_v2(self):
+        hass = FakeProbeHass()
+        original = hass.get_all_live
+
+        async def stale_live():
+            live = await original()
+            live["set_current_readback_v2"] = 3.0
+            live["_meta"]["set_current_readback_v2"]["age_s"] = 30.0
+            return live
+
+        hass.get_all_live = stale_live
+        result = await ControlledCurrentProbe(hass)._wait_current_readback(
+            3.0, tolerance=0.06, timeout_s=0.03, delay_s=0.01
+        )
+        self.assertFalse(result)
+
+    async def test_current_readback_timeout_fails_closed_when_v2_missing(self):
+        hass = FakeProbeHass()
+        original = hass.get_all_live
+
+        async def missing_live():
+            live = await original()
+            live.pop("set_current_readback_v2")
+            live["_meta"].pop("set_current_readback_v2")
+            return live
+
+        hass.get_all_live = missing_live
+        result = await ControlledCurrentProbe(hass)._wait_current_readback(
+            3.0, tolerance=0.06, timeout_s=0.03, delay_s=0.01
+        )
+        self.assertFalse(result)
+
+    def test_current_readback_window_covers_measured_publication_latency(self):
+        self.assertGreaterEqual(PROGRAMMED_CURRENT_READBACK_TIMEOUT_S, 5.9)
 
     async def test_probe_only_reduces_current_and_restores_original(self):
         hass = FakeProbeHass()

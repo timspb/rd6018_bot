@@ -10,6 +10,12 @@ from battery_diagnostics import DynamicLoopProbe
 from rd6018_telemetry import canonical_programmed_readback, finite_float
 
 
+# ESPHome publishes the programmed-register mirrors on the normal Modbus polling
+# cadence.  Keep this finite and explicit: stale/missing V2 evidence still fails
+# closed, but a single poll interval must not be mistaken for a write failure.
+PROGRAMMED_CURRENT_READBACK_TIMEOUT_S = 10.0
+
+
 def current_readback_evidence(live: dict[str, Any]) -> Optional[float]:
     """Compatibility facade for the single canonical programmed-current accessor."""
     return canonical_programmed_readback(live, "set_current")
@@ -97,17 +103,20 @@ class ControlledCurrentProbe:
         expected: float,
         *,
         tolerance: float,
-        retries: int = 8,
+        timeout_s: float = PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
         delay_s: float = 0.25,
     ) -> bool:
-        for attempt in range(max(1, retries)):
-            if attempt:
-                await asyncio.sleep(delay_s)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout_s)
+        while True:
             live = await self.hass.get_all_live()
             actual = current_readback_evidence(live)
             if actual is not None and abs(actual - expected) <= tolerance:
                 return True
-        return False
+            now = loop.time()
+            if now >= deadline:
+                return False
+            await asyncio.sleep(min(delay_s, max(0.0, deadline - now)))
 
     async def _sample_medians(self, plan: ProbePlan) -> Tuple[float, float]:
         voltages: List[float] = []
