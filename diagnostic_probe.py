@@ -7,22 +7,12 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
 from battery_diagnostics import DynamicLoopProbe
-from rd6018_telemetry import finite_float, telemetry_freshness
+from rd6018_telemetry import canonical_programmed_readback, finite_float
 
 
 def current_readback_evidence(live: dict[str, Any]) -> Optional[float]:
-    """Return the authoritative register-9 programmed-current readback.
-
-    Writable HA number entities are command endpoints and may retain stale
-    ``last_reported`` metadata after a write.  D064 must validate the
-    force-updated V2 register mirror instead.
-    """
-    if not isinstance(live.get("_meta"), dict):
-        return None
-    freshness = telemetry_freshness(live, ["set_current_readback_v2"])
-    if not freshness.valid:
-        return None
-    return finite_float(live.get("set_current_readback_v2"))
+    """Compatibility facade for the single canonical programmed-current accessor."""
+    return canonical_programmed_readback(live, "set_current")
 
 
 @dataclass(frozen=True)
