@@ -17,8 +17,12 @@ class FakeHass:
             "ocp_triggered": "off",
             "set_voltage": 14.8,
             "set_current": 2.0,
+            "set_current_readback_v2": 2.0,
             "ovp": 14.9,
             "ocp": 2.1,
+            "_meta": {
+                "set_current_readback_v2": {"status": "ok", "age_s": 0.0},
+            },
         }
         self.turn_off_calls = 0
 
@@ -40,6 +44,11 @@ class FakeHass:
 
     async def set_current(self, value):
         self.live["set_current"] = value
+        self.live["set_current_readback_v2"] = value
+        self.live.setdefault("_meta", {})["set_current_readback_v2"] = {
+            "status": "ok",
+            "age_s": 0.0,
+        }
         return True
 
     async def set_ovp(self, value):
