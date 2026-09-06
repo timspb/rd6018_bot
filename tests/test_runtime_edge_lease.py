@@ -17,10 +17,16 @@ def live_state(**overrides):
         "ocp_triggered": "off",
         "set_voltage": 14.8,
         "set_current": 2.0,
+        "set_current_readback_v2": 2.0,
         "ovp": 14.9,
         "ocp": 2.1,
+        "_meta": {
+            "set_current_readback_v2": {"status": "ok", "age_s": 0.0},
+        },
     }
     state.update(overrides)
+    if "set_current" in overrides and "set_current_readback_v2" not in overrides:
+        state["set_current_readback_v2"] = float(state["set_current"])
     return state
 
 
@@ -57,6 +63,11 @@ class FakeHass:
 
     async def set_current(self, value):
         self.live["set_current"] = float(value)
+        self.live["set_current_readback_v2"] = float(value)
+        self.live.setdefault("_meta", {})["set_current_readback_v2"] = {
+            "status": "ok",
+            "age_s": 0.0,
+        }
         return True
 
     async def set_ovp(self, value):
