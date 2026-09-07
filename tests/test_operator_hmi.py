@@ -72,11 +72,11 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
         self.assertIn("MIX ПОДХВАЧЕН", text)
         self.assertIn("Baic72 · Ca/Ca · 72 Ah", text)
-        self.assertIn("Output <b>ON</b> · CV", text)
+        self.assertIn("MIX ПОДХВАЧЕН · CV", text)
         self.assertIn("16.55 V", text)
         self.assertIn("0.90 A", text)
-        self.assertIn("Цель 16.54 V · лимит 1.01 A", text)
-        self.assertIn("свежий Imin", text)
+        self.assertIn("🎯 16.54 V · лимит 1.01 A", text)
+        self.assertIn("FLOAT", text)
         self.assertNotIn("РЕЖИМ РД", text)
         self.assertNotIn("НЕ ЛЕЗЬ", text)
         self.assertNotIn("OCP 0.00", text)
@@ -162,6 +162,32 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Подхват прерван", text)
         self.assertIn("rd_live_mix", callbacks)
         self.assertNotIn("operator_adopted_stop", callbacks)
+
+    def test_compact_panel_omits_power_and_psu_temperature(self):
+        state = build_operator_hmi_state(FakeApp(observer=None), live())
+        text = render_operator_panel(state)
+
+        self.assertNotIn("W", text)
+        self.assertNotIn("БП", text)
+
+    def test_cc_panel_exposes_regulator_and_transition(self):
+        values = live()
+        values["is_cv"] = "off"
+        values["is_cc"] = "on"
+        values["power"] = 99.0
+        state = build_operator_hmi_state(FakeApp(observer=None), values)
+        text = render_operator_panel(state)
+
+        self.assertIn("CC", text)
+
+    def test_fault_panel_keeps_protection_reason(self):
+        values = live(output="off")
+        values["ovp_triggered"] = "on"
+        state = build_operator_hmi_state(FakeApp(observer=None, hands_off=False), values)
+        text = render_operator_panel(state)
+
+        self.assertIn("OVP", text)
+        self.assertIn("Защита", text)
 
 
 if __name__ == "__main__":

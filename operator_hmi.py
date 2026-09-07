@@ -84,6 +84,34 @@ def _value(value: Optional[float], digits: int, suffix: str) -> str:
     return "—" if value is None else f"{value:.{digits}f} {suffix}"
 
 
+def _main_mode(state: OperatorHmiState) -> str:
+    """Return the operator-facing mode label for the compact panel."""
+
+    if state.process_state is HmiProcessState.STORAGE:
+        return "FLOAT"
+    if state.regulator in {"CC", "CV"}:
+        return state.regulator
+    return ""
+
+
+def _compact_transition(state: OperatorHmiState) -> str:
+    """Keep the next transition useful without leaking the legacy status dump."""
+
+    if state.process_state is HmiProcessState.STORAGE:
+        return "➡️ Поддержание"
+    progress = " ".join(str(state.progress or "").split())
+    if not progress:
+        return ""
+    if "Imin" in progress or "I<" in progress:
+        return "➡️ FLOAT · Причина: I<0.50A"
+    if "Vmax" in progress or "V_max" in progress:
+        return "➡️ CV · Причина: Vmax"
+    if progress.startswith("Подхват прерван"):
+        return "➡️ Подхват прерван · требуется подтверждение"
+    # Keep an unexpected application-provided transition bounded on the main panel.
+    return f"➡️ {progress[:90]}"
+
+
 def _observer_runtime(app: Any) -> tuple[Any, str]:
     observer = getattr(app, "rd_live_mix_observer", None)
     if observer is None:
@@ -312,28 +340,25 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
 
 
 def render_operator_panel(state: OperatorHmiState) -> str:
-    lines = [f"<b>{html.escape(state.title)}</b>", ""]
+    mode = _main_mode(state)
+    title = state.title
+    if mode and mode not in title:
+        title = f"{title} · {mode}"
+    lines = [f"<b>{html.escape(title)}</b>"]
     if state.battery_label:
         lines.append(f"🔋 {html.escape(state.battery_label)}")
-    output = "ON" if state.output_on else "OFF"
-    regulator = f" · {state.regulator}" if state.regulator != "—" else ""
-    lines.append(f"Output <b>{output}</b>{regulator}")
-    lines.append("")
-    electrical = [
-        f"<b>{_value(state.battery_voltage_v, 2, 'V')}</b>",
-        f"<b>{_value(state.current_a, 2, 'A')}</b>",
-    ]
-    if state.power_w is not None:
-        electrical.append(_value(state.power_w, 1, "W"))
-    lines.append("   ".join(electrical))
-    lines.append(f"АКБ {_temperature(state.battery_temp_c)} · БП {_temperature(state.psu_temp_c)}")
+    lines.append(
+        f"⚡ {_value(state.battery_voltage_v, 2, 'V')} · "
+        f"{_value(state.current_a, 2, 'A')} · 🌡 АКБ {_temperature(state.battery_temp_c)}"
+    )
     if state.target_voltage_v is not None or state.current_limit_a is not None:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
-        lines.append(f"Цель {target} · лимит {limit}")
-    if state.progress:
-        lines.extend(["", html.escape(state.progress)])
-    lines.extend(["", html.escape(state.safety)])
+        lines.append(f"🎯 {target} · лимит {limit}")
+    lines.append(f"🛡 {html.escape(state.safety.removeprefix('🛡 ').strip())}")
+    transition = _compact_transition(state)
+    if transition:
+        lines.append(html.escape(transition))
     return "\n".join(lines)
 
 

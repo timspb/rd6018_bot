@@ -67,7 +67,6 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "output_unknown")
         self.assertIn("OUTPUT НЕ ПОДТВЕРЖДЁН", text)
-        self.assertIn("Output <b>UNKNOWN</b>", text)
         self.assertNotIn("Output <b>OFF</b>", text)
         self.assertNotIn("charge_modes", callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
@@ -92,7 +91,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
 
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "output_unknown")
-        self.assertIn("Output <b>UNKNOWN</b>", text)
+        self.assertIn("OUTPUT НЕ ПОДТВЕРЖДЁН", text)
         self.assertIn("устарела", state.progress)
 
     def test_missing_protection_status_contains_idle_and_hides_start(self):
@@ -117,7 +116,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         text = render_truthful_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
-        self.assertIn("Output <b>OFF</b>", text)
+        self.assertNotIn("Output <b>", text)
         self.assertIn("Защита: норма", text)
         self.assertIn("charge_modes", _callbacks(app, state))
 
