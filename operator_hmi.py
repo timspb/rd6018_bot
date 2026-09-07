@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import math
+import re
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -107,11 +108,17 @@ def _compact_transition(state: OperatorHmiState) -> str:
     progress = " ".join(str(state.progress or "").split())
     if not progress:
         return ""
+    # Progress may come from the legacy/V2 formatter and already contain
+    # Telegram markup.  Normalize it before classifying the transition so the
+    # final renderer never escapes trusted tags into visible text.
+    plain_progress = html.unescape(re.sub(r"<[^>]*>", "", progress))
     # This is an internal evidence state, not operator-facing copy.  In
     # particular, do not let it leak through the compact panel while CV/CC is
     # still being established.
-    if progress == "Режим регулятора определяется":
+    if plain_progress == "Режим регулятора определяется":
         return ""
+    if plain_progress.startswith("Восстановление"):
+        return "➡️ <b>Восстановление</b>"
     if "Imin" in progress or "I<" in progress:
         return "➡️ FLOAT · Причина: I<0.50A"
     if "Vmax" in progress or "V_max" in progress:
@@ -369,7 +376,12 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     lines.append(f"🛡 {html.escape(state.safety.removeprefix('🛡 ').strip())}")
     transition = _compact_transition(state)
     if transition:
-        lines.append(html.escape(transition))
+        # _compact_transition emits markup only for the fixed, escaped-safe
+        # operator status above; all other transition text is escaped here.
+        if transition == "➡️ <b>Восстановление</b>":
+            lines.append(transition)
+        else:
+            lines.append(html.escape(transition))
     return "\n".join(lines)
 
 
