@@ -90,7 +90,7 @@ class FakeHassClient(HassClient):
 class DelayedOutputV2HassClient(FakeHassClient):
     """Model the promoted Output V2 value arriving after several polls."""
 
-    def __init__(self, confirmation_reads=29):
+    def __init__(self, confirmation_reads=49):
         super().__init__()
         self.confirmation_reads = confirmation_reads
         self.post_enable_reads = 0
@@ -136,7 +136,7 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(await client.turn_on())
         self.assertEqual(client.service_calls, ["turn_on"])
-        self.assertGreaterEqual(client.post_enable_reads, 29)
+        self.assertGreaterEqual(client.post_enable_reads, 49)
 
     async def test_missing_battery_temperature_blocks_enable(self):
         client = FakeHassClient()

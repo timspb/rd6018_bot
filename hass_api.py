@@ -24,11 +24,13 @@ from safe_output import (
 logger = logging.getLogger("rd6018")
 
 PROGRAMMING_TRANSACTION_TTL_SEC = 30.0
-# Output State Code V2 is published by the 5 s ESPHome/Modbus polling loop.
-# Allow one full polling interval plus the normal bounded request spacing for
-# positive post-enable confirmation; this remains a finite fail-closed window.
-OUTPUT_VERIFY_RETRIES = 31
+# Output State Code V2 is published by the ESPHome/Modbus polling loop.  The
+# physical node has demonstrated a 6.22 s worst-case publication latency after
+# the HA switch command, so keep a bounded margin without changing the
+# canonical-source or fail-closed requirements.
+OUTPUT_VERIFY_TIMEOUT_SEC = 10.0
 OUTPUT_VERIFY_DELAY_SEC = 0.20
+OUTPUT_VERIFY_RETRIES = int(OUTPUT_VERIFY_TIMEOUT_SEC / OUTPUT_VERIFY_DELAY_SEC) + 1
 
 
 class HassClient:
