@@ -117,8 +117,13 @@ def _compact_transition(state: OperatorHmiState) -> str:
     # still being established.
     if plain_progress == "Режим регулятора определяется":
         return ""
-    if plain_progress.startswith("Восстановление"):
-        return "➡️ <b>Восстановление</b>"
+    # Legacy/V2 progress may contain a formatted intent followed by an
+    # internal detail (for example ``<b>Обычный заряд</b> Температура: ...``).
+    # Keep only the operator-facing intent and build the markup here; passing
+    # the original markup through would make the outer renderer escape it.
+    for intent in ("Восстановление", "Обычный заряд", "Кондиционирование", "Диагностика"):
+        if plain_progress.startswith(intent):
+            return f"➡️ <b>{html.escape(intent)}</b>"
     if "Imin" in progress or "I<" in progress:
         return "➡️ FLOAT · Причина: I<0.50A"
     if "Vmax" in progress or "V_max" in progress:
@@ -378,7 +383,7 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if transition:
         # _compact_transition emits markup only for the fixed, escaped-safe
         # operator status above; all other transition text is escaped here.
-        if transition == "➡️ <b>Восстановление</b>":
+        if transition.startswith("➡️ <b>") and transition.endswith("</b>"):
             lines.append(transition)
         else:
             lines.append(html.escape(transition))

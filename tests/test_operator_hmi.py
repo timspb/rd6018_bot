@@ -122,6 +122,27 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("➡️ <b>Восстановление</b>", text)
         self.assertNotIn("&lt;b&gt;Восстановление", text)
 
+    def test_preformatted_ordinary_transition_is_not_double_escaped(self):
+        state = types.SimpleNamespace(
+            title="Обычный заряд",
+            process_state=HmiProcessState.RUNNING,
+            authority=types.SimpleNamespace(value="auto"),
+            output_on=True,
+            regulator="CV",
+            battery_label="",
+            battery_voltage_v=14.14,
+            current_a=0.0,
+            battery_temp_c=24.0,
+            target_voltage_v=16.50,
+            current_limit_a=2.16,
+            progress="<b>Обычный заряд</b> Температура: стабильно",
+            safety="Защита: норма",
+            attention="normal",
+        )
+        text = render_operator_panel(state)
+        self.assertIn("➡️ <b>Обычный заряд</b>", text)
+        self.assertNotIn("&lt;b&gt;Обычный заряд", text)
+
     def test_active_external_mix_is_presented_as_adopted_not_hands_off(self):
         app = FakeApp(observer=FakeObserver())
         state = build_operator_hmi_state(app, live())
