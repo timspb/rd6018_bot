@@ -33,6 +33,14 @@ class V2UiPolishTests(unittest.TestCase):
         self.assertNotIn("decision", text)
         self.assertNotIn("Факт:", text)
 
+    def test_unconfirmed_regulator_does_not_leak_internal_state(self):
+        text = format_active_evidence_pretty(
+            {"authoritative": True, "intent": "recovery", "is_cv": False, "is_cc": False}
+        )
+        self.assertIn("<b>Восстановление</b>", text)
+        self.assertNotIn("Режим регулятора определяется", text)
+        self.assertNotIn("&lt;b&gt;", text)
+
     def test_cv_card_is_compact_and_current_specific(self):
         text = format_active_evidence_pretty(
             {

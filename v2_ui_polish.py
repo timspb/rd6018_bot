@@ -130,8 +130,8 @@ def format_active_evidence_pretty(
             if delta is not None and threshold is not None:
                 age_text = f" · {age}" if age else ""
                 lines.append(f"ΔV {delta:+.3f} / {threshold:.3f} V{age_text}")
-    else:
-        lines.append("Режим регулятора определяется")
+    # Regulator discovery is an internal intermediate state.  It must not be
+    # rendered as operator copy; the panel already shows the available facts.
 
     temp_line = _temperature_line(metrics)
     if temp_line:

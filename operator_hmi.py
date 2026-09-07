@@ -84,6 +84,11 @@ def _value(value: Optional[float], digits: int, suffix: str) -> str:
     return "—" if value is None else f"{value:.{digits}f} {suffix}"
 
 
+def _bold_value(value: Optional[float], digits: int, suffix: str) -> str:
+    rendered = _value(value, digits, suffix)
+    return rendered if rendered == "—" else f"<b>{rendered}</b>"
+
+
 def _main_mode(state: OperatorHmiState) -> str:
     """Return the operator-facing mode label for the compact panel."""
 
@@ -101,6 +106,11 @@ def _compact_transition(state: OperatorHmiState) -> str:
         return "➡️ Поддержание"
     progress = " ".join(str(state.progress or "").split())
     if not progress:
+        return ""
+    # This is an internal evidence state, not operator-facing copy.  In
+    # particular, do not let it leak through the compact panel while CV/CC is
+    # still being established.
+    if progress == "Режим регулятора определяется":
         return ""
     if "Imin" in progress or "I<" in progress:
         return "➡️ FLOAT · Причина: I<0.50A"
@@ -348,8 +358,9 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if state.battery_label:
         lines.append(f"🔋 {html.escape(state.battery_label)}")
     lines.append(
-        f"⚡ {_value(state.battery_voltage_v, 2, 'V')} · "
-        f"{_value(state.current_a, 2, 'A')} · 🌡 АКБ {_temperature(state.battery_temp_c)}"
+        f"⚡ {_bold_value(state.battery_voltage_v, 2, 'V')} · "
+        f"{_bold_value(state.current_a, 2, 'A')} · 🌡 АКБ "
+        f"{_bold_value(state.battery_temp_c, 1, '°C')}"
     )
     if state.target_voltage_v is not None or state.current_limit_a is not None:
         target = _value(state.target_voltage_v, 2, "V")

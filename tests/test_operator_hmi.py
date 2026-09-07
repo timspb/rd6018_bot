@@ -1,5 +1,6 @@
 import types
 import unittest
+from html.parser import HTMLParser
 
 from operator_hmi import (
     HmiProcessState,
@@ -64,6 +65,42 @@ def live(*, output="on"):
 
 
 class OperatorHmiTests(unittest.TestCase):
+    def test_panel_uses_single_telegram_html_layer_for_charge_status(self):
+        state = types.SimpleNamespace(
+            title="Восстановление",
+            process_state=HmiProcessState.RUNNING,
+            authority=types.SimpleNamespace(value="auto"),
+            output_on=True,
+            regulator="CV",
+            battery_label="Ca/Ca · 72 Ah",
+            battery_voltage_v=13.86,
+            current_a=0.0,
+            battery_temp_c=24.0,
+            target_voltage_v=14.72,
+            current_limit_a=7.20,
+            progress="Режим регулятора определяется",
+            safety="Защита: норма",
+            attention="normal",
+        )
+        text = render_operator_panel(state)
+
+        self.assertIn("<b>Восстановление · CV</b>", text)
+        self.assertIn("<b>13.86 V</b>", text)
+        self.assertIn("<b>0.00 A</b>", text)
+        self.assertIn("<b>24.0 °C</b>", text)
+        self.assertIn("🎯 14.72 V · лимит 7.20 A", text)
+        self.assertNotIn("<b>14.72 V</b>", text)
+        self.assertNotIn("<b>7.20 A</b>", text)
+        self.assertNotIn("Режим регулятора определяется", text)
+        self.assertNotIn("&lt;b&gt;", text)
+
+        class _Tags(HTMLParser):
+            pass
+
+        parser = _Tags()
+        parser.feed(text)
+        parser.close()
+
     def test_active_external_mix_is_presented_as_adopted_not_hands_off(self):
         app = FakeApp(observer=FakeObserver())
         state = build_operator_hmi_state(app, live())
