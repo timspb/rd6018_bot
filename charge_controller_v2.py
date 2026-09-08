@@ -803,6 +803,8 @@ class ChargeControllerV2(ChargeController):
         self._v2_main_plateau_since = None
         self.finish_timer_start = None
         self._delta_reported = False
+        if hasattr(self, "_finish_evidence"):
+            self._finish_evidence = None
         mxv, mxi = self._mix_target(temp)
         actions["set_voltage"] = mxv
         actions["set_current"] = mxi
@@ -925,6 +927,18 @@ class ChargeControllerV2(ChargeController):
             self.finish_timer_start = timestamp_s
             self._delta_reported = True
             self._delta_trigger_mode = "CC" if is_cc else ("CV" if is_cv else None)
+            if hasattr(self, "_finish_evidence") and self._delta_trigger_mode in {"CV", "CC"}:
+                reference = metrics.voltage_max_v if is_cc else metrics.current_min_a
+                accepted_delta = metrics.delta_voltage_from_max_v if is_cc else metrics.delta_current_from_min_a
+                if reference is not None and accepted_delta is not None:
+                    self._finish_evidence = {
+                        "version": 1,
+                        "mode": self._delta_trigger_mode,
+                        "reference_value": float(reference),
+                        "accepted_delta": float(accepted_delta),
+                        "accepted_at": float(timestamp_s),
+                        "session_id": self._v2_trace_session_id,
+                    }
             if is_cc:
                 evidence = (
                     f"Vmax={metrics.voltage_max_v:.3f}В, "

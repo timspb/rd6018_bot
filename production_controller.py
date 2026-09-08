@@ -67,6 +67,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         self._v2_continuous_tail_since: Optional[float] = None
         self._v2_continuous_tail_stage_start: Optional[float] = None
         self._v2_cooling_pause: Optional[Dict[str, Any]] = None
+        self._finish_evidence: Optional[Dict[str, Any]] = None
 
     def _new_runtime(self, *, started_at: float) -> CoolingAwareShadowRecoveryRuntime:
         battery_id = self._v2_battery_id or (
@@ -273,6 +274,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             "continuous_tail_since": source_tail_since,
             "delta_reported": bool(self._delta_reported),
             "delta_trigger_mode": self._delta_trigger_mode,
+            "finish_evidence": dict(self._finish_evidence) if self._finish_evidence else None,
             "runtime_signal": source_runtime_signal,
         }
         # Always return to the exact target that was active before Cooling. This also
@@ -312,6 +314,8 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         self._last_delta_confirm_time = 0.0
         self._delta_reported = bool(pause.get("delta_reported", False))
         self._delta_trigger_mode = pause.get("delta_trigger_mode")
+        evidence = pause.get("finish_evidence")
+        self._finish_evidence = dict(evidence) if isinstance(evidence, dict) else None
 
         runtime = self._v2_runtime
         if isinstance(runtime, CoolingAwareShadowRecoveryRuntime):
@@ -368,11 +372,17 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             document["delta_session_id"] = self._v2_trace_session_id
             document["delta_reported"] = True
             document["delta_trigger_mode"] = self._delta_trigger_mode
+            evidence = self._finish_evidence
+            if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode):
+                document["finish_evidence"] = dict(evidence)
+            else:
+                document.pop("finish_evidence", None)
         else:
             document.pop("delta_state_version", None)
             document.pop("delta_session_id", None)
             document.pop("delta_reported", None)
             document.pop("delta_trigger_mode", None)
+            document.pop("finish_evidence", None)
         tmp_path = f"{SESSION_FILE}.finish-state.tmp"
         try:
             with open(tmp_path, "w", encoding="utf-8") as handle:
@@ -389,6 +399,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
     def _restore_finish_state(self, document: Dict[str, Any]) -> None:
         self._delta_reported = False
         self._delta_trigger_mode = None
+        self._finish_evidence = None
         if self.current_stage != self.STAGE_MIX:
             return
         marker_present = any(
@@ -424,12 +435,36 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         self.finish_timer_start = finish_timer
         self._delta_reported = True
         self._delta_trigger_mode = str(document["delta_trigger_mode"])
+        evidence = document.get("finish_evidence")
+        if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode):
+            self._finish_evidence = dict(evidence)
+            logger.info(
+                "SESSION_RESTORE_FINISH_EVIDENCE mode=%s reference=%s delta=%s accepted_at=%.3f",
+                evidence["mode"], evidence["reference_value"], evidence["accepted_delta"], evidence["accepted_at"],
+            )
+        elif evidence is not None:
+            logger.info("SESSION_RESTORE_FINISH_EVIDENCE_UNAVAILABLE reason=missing_or_incompatible_summary")
         logger.info(
             "SESSION_RESTORE_FINISH_STATE mode=%s started_at=%.3f session=%s",
             self._delta_trigger_mode,
             finish_timer,
             self._v2_trace_session_id or "-",
         )
+
+    def _valid_finish_evidence(self, evidence: Any, *, mode: str) -> bool:
+        if not isinstance(evidence, dict) or mode not in {"CV", "CC"}:
+            return False
+        if evidence.get("version") != 1 or evidence.get("mode") != mode:
+            return False
+        if evidence.get("session_id") != self._v2_trace_session_id:
+            return False
+        try:
+            reference = float(evidence["reference_value"])
+            accepted_delta = float(evidence["accepted_delta"])
+            accepted_at = float(evidence["accepted_at"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return False
+        return all(math.isfinite(value) for value in (reference, accepted_delta, accepted_at))
 
     def _write_runtime_signal_to_session_file(self) -> None:
         document = self._read_legacy_session_document()
@@ -720,6 +755,12 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self.finish_timer_start = pause.get("finish_timer_start")
             self._delta_reported = bool(pause.get("delta_reported", False))
             self._delta_trigger_mode = pause.get("delta_trigger_mode")
+            evidence = pause.get("finish_evidence")
+            self._finish_evidence = (
+                dict(evidence)
+                if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode)
+                else None
+            )
             self._restore_runtime_signal_snapshot(dict(pause.get("runtime_signal") or {}))
             self._v2_target_voltage_v = self._cooling_target_v or self._v2_target_voltage_v
 

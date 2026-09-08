@@ -222,6 +222,14 @@ class ProductionControllerTests(unittest.TestCase):
         controller.finish_timer_start = 900.0
         controller._delta_reported = True
         controller._delta_trigger_mode = mode
+        controller._finish_evidence = {
+            "version": 1,
+            "mode": mode,
+            "reference_value": 0.66 if mode == "CV" else 16.47,
+            "accepted_delta": 0.24 if mode == "CV" else 0.05,
+            "accepted_at": 900.0,
+            "session_id": controller._v2_trace_session_id,
+        }
         with patch("charge_logic.SESSION_FILE", session_file), patch(
             "charge_controller_v2.SESSION_FILE", session_file
         ), patch("production_controller.SESSION_FILE", session_file), patch(
@@ -338,6 +346,9 @@ class ProductionControllerTests(unittest.TestCase):
                 saved = json.load(handle)
             self.assertTrue(saved["delta_reported"])
             self.assertEqual(saved["delta_trigger_mode"], "CV")
+            self.assertEqual(saved["finish_evidence"]["mode"], "CV")
+            self.assertAlmostEqual(saved["finish_evidence"]["reference_value"], 0.66)
+            self.assertAlmostEqual(saved["finish_evidence"]["accepted_delta"], 0.24)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
                 "charge_controller_v2.SESSION_FILE", session_file
@@ -353,6 +364,8 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertTrue(restored._delta_reported)
             self.assertEqual(restored._delta_trigger_mode, "CV")
             self.assertAlmostEqual(restored.finish_timer_start, 900.0)
+            self.assertAlmostEqual(restored._finish_evidence["reference_value"], 0.66)
+            self.assertAlmostEqual(restored._finish_evidence["accepted_delta"], 0.24)
 
     def test_cc_delta_marker_survives_session_restore(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -362,6 +375,9 @@ class ProductionControllerTests(unittest.TestCase):
                 saved = json.load(handle)
             self.assertTrue(saved["delta_reported"])
             self.assertEqual(saved["delta_trigger_mode"], "CC")
+            self.assertEqual(saved["finish_evidence"]["mode"], "CC")
+            self.assertAlmostEqual(saved["finish_evidence"]["reference_value"], 16.47)
+            self.assertAlmostEqual(saved["finish_evidence"]["accepted_delta"], 0.05)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
                 "charge_controller_v2.SESSION_FILE", session_file
@@ -377,6 +393,43 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertTrue(restored._delta_reported)
             self.assertEqual(restored._delta_trigger_mode, "CC")
             self.assertAlmostEqual(restored.finish_timer_start, 900.0)
+            self.assertAlmostEqual(restored._finish_evidence["reference_value"], 16.47)
+            self.assertAlmostEqual(restored._finish_evidence["accepted_delta"], 0.05)
+
+    def test_missing_finish_evidence_keeps_hold_but_marks_provenance_unavailable(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            self._persist_finish_state(session_file, mode="CV")
+            with open(session_file, "r+", encoding="utf-8") as handle:
+                saved = json.load(handle)
+                saved.pop("finish_evidence", None)
+                handle.seek(0)
+                json.dump(saved, handle)
+                handle.truncate()
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch("charge_controller_v2.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_logic.time.time", return_value=1010.0), patch("charge_controller_v2.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
+                ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
+            self.assertTrue(ok)
+            self.assertTrue(restored._delta_reported)
+            self.assertAlmostEqual(restored.finish_timer_start, 900.0)
+            self.assertIsNone(restored._finish_evidence)
+
+    def test_finish_evidence_mode_mismatch_is_discarded(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            self._persist_finish_state(session_file, mode="CV")
+            with open(session_file, "r+", encoding="utf-8") as handle:
+                saved = json.load(handle)
+                saved["finish_evidence"]["mode"] = "CC"
+                handle.seek(0)
+                json.dump(saved, handle)
+                handle.truncate()
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch("charge_controller_v2.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_logic.time.time", return_value=1010.0), patch("charge_controller_v2.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
+                ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
+            self.assertTrue(ok)
+            self.assertTrue(restored._delta_reported)
+            self.assertIsNone(restored._finish_evidence)
 
     def test_safe_wait_state_survives_session_restore(self):
         with tempfile.TemporaryDirectory() as tempdir:
