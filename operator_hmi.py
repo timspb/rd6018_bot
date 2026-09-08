@@ -11,6 +11,7 @@ from typing import Any, Mapping, Optional
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from rd6018_telemetry import telemetry_freshness
 
 
 class HmiProcessState(str, Enum):
@@ -229,9 +230,19 @@ def _normal_safety(live: Mapping[str, Any]) -> tuple[str, str]:
     return "Защита: норма", "normal"
 
 
+def _operator_telemetry_fresh(live: Mapping[str, Any]) -> bool:
+    """Use the bounded freshness contract for truthful presentation."""
+
+    return telemetry_freshness(
+        live,
+        ("switch", "battery_voltage", "current", "protection_code", "regulation_code"),
+    ).valid
+
+
 def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiState:
     output_on = _on(live.get("switch"))
-    regulator = _regulator(live)
+    telemetry_stale = not _operator_telemetry_fresh(live)
+    regulator = "" if telemetry_stale else _regulator(live)
     battery_v = _finite(live.get("battery_voltage"))
     current = _finite(live.get("current"))
     power = _finite(live.get("power"))
@@ -296,7 +307,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
         stage_status = ""
         snapshot: Mapping[str, Any] = {}
         progress_fn = getattr(app, "_format_stage_progress_line", None)
-        if callable(progress_fn):
+        if callable(progress_fn) and not telemetry_stale:
             try:
                 progress = str(progress_fn(dict(live)) or "")
             except Exception:
@@ -332,6 +343,9 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                     stage_status = f"✅ Vmax {maximum:.2f} V · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
         except Exception:
             stage_status = ""
+        if telemetry_stale:
+            stage_status = "⚠️ Телеметрия устарела · состояние не подтверждено"
+            attention = "warning"
         lowered = stage.lower()
         process = HmiProcessState.RUNNING
         if "safe" in lowered or "cool" in lowered or "ожид" in lowered or "осты" in lowered:
@@ -529,6 +543,11 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
                 InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
             ]
         )
+        rows.append(more_row)
+        return with_refresh(rows)
+
+    if state.process_state is HmiProcessState.STORAGE:
+        rows.append(info_row)
         rows.append(more_row)
         return with_refresh(rows)
 

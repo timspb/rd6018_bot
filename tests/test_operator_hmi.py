@@ -214,7 +214,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(texts[0], "⚡ Режимы заряда")
         self.assertIn("charge_modes", callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
-        self.assertIn("logs", callbacks)
+        self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
@@ -271,7 +271,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Этап: 04:43", text)
         self.assertIn("Набрано: 7.26 Ah", text)
         self.assertIn("Уставки: 16.54 V · лимит 1.01 A", text)
-        self.assertIn("Коды:", text)
+        self.assertIn("Защита:", text)
 
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))
@@ -421,6 +421,51 @@ class OperatorHmiTests(unittest.TestCase):
 
         self.assertIn("OVP", text)
         self.assertIn("Защита", text)
+
+    def test_storage_is_terminal_and_has_no_pause_or_stop(self):
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller.current_stage = "Storage"
+        state = build_operator_hmi_state(app, live(output="off"))
+        self.assertEqual(state.process_state, HmiProcessState.STORAGE)
+        self.assertIn("FLOAT", render_operator_panel(state))
+        callbacks = [button.callback_data for row in build_operator_keyboard(app, state).inline_keyboard for button in row]
+        self.assertNotIn("operator_pause_toggle", callbacks)
+        self.assertNotIn("power_toggle", callbacks)
+        self.assertNotIn("operator_managed_stop", callbacks)
+        self.assertIn("operator_refresh", callbacks)
+
+    def test_stale_telemetry_does_not_render_normal_stage_evidence(self):
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        values = live()
+        values["_meta"] = {
+            key: {"status": "ok", "age_s": 99.0}
+            for key in ("switch", "battery_voltage", "current", "protection_code", "regulation_code")
+        }
+        state = build_operator_hmi_state(app, values)
+        text = render_operator_panel(state)
+        self.assertIn("Телеметрия устарела", text)
+        self.assertNotIn("· CV", text)
+        self.assertNotIn("· CC", text)
+        self.assertNotIn("Imin не достигнут", text)
+        self.assertNotIn("Vmax не достигнут", text)
+
+    def test_fresh_telemetry_restores_normal_operator_analytics(self):
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller.v2_ui_snapshot = lambda: {
+            "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 120},
+            "finish_hold_started_at": None,
+            "runtime_analysis_available": True,
+        }
+        values = live()
+        values["_meta"] = {
+            key: {"status": "ok", "age_s": 0.0}
+            for key in ("switch", "battery_voltage", "current", "protection_code", "regulation_code")
+        }
+        state = build_operator_hmi_state(app, values)
+        text = render_operator_panel(state)
+        self.assertIn("CV", text)
+        self.assertIn("Imin 0.22 A", text)
+        self.assertNotIn("Телеметрия устарела", text)
 
 
 if __name__ == "__main__":
