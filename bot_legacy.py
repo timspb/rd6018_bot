@@ -1393,6 +1393,7 @@ async def _operator_pause_toggle(call: Any) -> str:
             _safe_float(live.get("battery_voltage")),
             _safe_float(live.get("current")),
             _safe_float(live.get("ah")),
+            output_is_on=output_on,
         )
         if not ok:
             return "Продолжение заблокировано: сессия не восстановлена"
@@ -2231,7 +2232,9 @@ async def data_logger() -> None:
             # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В (battery_mode не требуем — после потери связи мы сами выключили выход)
             if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
                 if charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
-                    ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+                    ok, msg = charge_controller.try_restore_session(
+                        battery_v, i, ah, output_is_on=output_on
+                    )
                     if ok and msg:
                         _apply_restore_time_corrections(charge_controller, live)
                         last_checkpoint_time = time.time()
@@ -2293,7 +2296,9 @@ async def data_logger() -> None:
                 and output_on
                 and i > 0.05
             ):
-                ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+                ok, msg = charge_controller.try_restore_session(
+                    battery_v, i, ah, output_is_on=output_on
+                )
                 if ok and msg:
                     _apply_restore_time_corrections(charge_controller, live)
                     allow = (
@@ -3827,7 +3832,9 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
-        ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+        ok, msg = charge_controller.try_restore_session(
+            battery_v, i, ah, output_is_on=is_on
+        )
         if not ok and _operator_pause_active():
             logger.warning("Clearing operator pause: no charge session to restore")
             _clear_operator_pause()
@@ -4074,7 +4081,9 @@ async def main() -> None:
         ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
-        ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+        ok, msg = charge_controller.try_restore_session(
+            battery_v, i, ah, output_is_on=(str(live.get("switch", "")).lower() == "on")
+        )
         if ok and msg:
             _apply_restore_time_corrections(charge_controller, live)
             last_checkpoint_time = time.time()

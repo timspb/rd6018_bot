@@ -8,6 +8,7 @@ from unittest.mock import patch
 from first_stage_evidence import FirstStageState
 from pb_domain import BatteryCondition, ChargeIntent
 from production_controller import ProductionChargeControllerV2
+from recovery_session import RecoveryTracePoint
 
 
 class DummyHass:
@@ -169,6 +170,102 @@ class ProductionControllerTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(context["intent"], ChargeIntent.RECOVERY)
         self.assertAlmostEqual(target[0], 16.5)
+
+    def _runtime_signal_document(self, *, output_on=True, observed_at=1000.0):
+        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+        controller.current_stage = controller.STAGE_MIX
+        controller.stage_start_time = 900.0
+        controller._v2_target_voltage_v = 16.46
+        controller._device_set_voltage = 16.46
+        controller._device_set_current = 2.16
+        controller._v2_session_signal_context = {
+            "stage": controller.STAGE_MIX,
+            "session_id": controller._v2_trace_session_id,
+            "session_generation": controller._v2_trace_started_at,
+            "output_on": output_on,
+            "cv_state": True,
+            "cc_state": False,
+            "telemetry_valid": True,
+            "telemetry_observed_at": observed_at,
+            "telemetry_age_s": 0.0,
+            "target_voltage_v": 16.46,
+            "current_min_a": 0.66,
+            "current_min_time_s": 0.0,
+            "delta_reference_a": 0.66,
+            "reversal_threshold_a": 0.198,
+            "reversal_confirmations": 0,
+            "last_reversal_confirmation_s": None,
+            "reversal_emitted": False,
+        }
+        return controller
+
+    def _persist_runtime_signal(self, controller, session_file):
+        with patch("charge_logic.SESSION_FILE", session_file), patch(
+            "charge_controller_v2.SESSION_FILE", session_file
+        ), patch("production_controller.SESSION_FILE", session_file), patch(
+            "charge_logic.time.time", return_value=1000.0
+        ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+            "production_controller.time.time", return_value=1000.0
+        ):
+            controller._save_session(16.47, 0.66, 1.0)
+
+    def test_mix_runtime_signal_survives_restore_and_delta_continues(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            original = self._runtime_signal_document()
+            self._persist_runtime_signal(original, session_file)
+            with open(session_file, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertAlmostEqual(saved["runtime_signal"]["current_min_a"], 0.66)
+
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1010.0
+            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+                "production_controller.time.time", return_value=1010.0
+            ):
+                ok, _ = restored.try_restore_session(16.47, 0.66, 1.0, output_is_on=True)
+
+            self.assertTrue(ok)
+            analyzer = restored._v2_runtime.tracker._analyzer
+            self.assertAlmostEqual(analyzer._current_min_a, 0.66)
+            analysis = restored._v2_runtime.tracker.observe(
+                RecoveryTracePoint(
+                    timestamp_s=1200.0,
+                    stage=restored.STAGE_MIX,
+                    voltage_v=16.47,
+                    current_a=0.90,
+                    temp_c=27.0,
+                    is_cv=True,
+                    is_cc=False,
+                    target_voltage_v=16.46,
+                    ah=2.0,
+                )
+            )
+            self.assertAlmostEqual(analysis.metrics.current_min_a, 0.66)
+            self.assertAlmostEqual(analysis.metrics.delta_current_from_min_a, 0.24)
+
+    def test_stale_or_off_runtime_signal_is_not_restored(self):
+        for output_on, observed_at, now in ((False, 1000.0, 1010.0), (True, 1000.0, 1300.0)):
+            with self.subTest(output_on=output_on, now=now), tempfile.TemporaryDirectory() as tempdir:
+                session_file = os.path.join(tempdir, "charge_session.json")
+                original = self._runtime_signal_document(
+                    output_on=output_on, observed_at=observed_at
+                )
+                self._persist_runtime_signal(original, session_file)
+                restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+                with patch("charge_logic.SESSION_FILE", session_file), patch(
+                    "charge_controller_v2.SESSION_FILE", session_file
+                ), patch("production_controller.SESSION_FILE", session_file), patch(
+                    "charge_logic.time.time", return_value=now
+                ), patch("charge_controller_v2.time.time", return_value=now), patch(
+                    "production_controller.time.time", return_value=now
+                ):
+                    ok, _ = restored.try_restore_session(16.47, 0.66, 1.0, output_is_on=output_on)
+                self.assertTrue(ok)
+                self.assertIsNone(restored._v2_runtime.tracker._analyzer._current_min_a)
 
 
 if __name__ == "__main__":

@@ -90,6 +90,8 @@ class ChargeControllerV2(ChargeController):
         self._v2_trace_session_id: Optional[str] = None
         self._v2_trace_started_at: float = 0.0
         self._v2_main_plateau_since: Optional[float] = None
+        # Captured by the V2 tick and serialized by the production controller.
+        self._v2_session_signal_context: Optional[Dict[str, Any]] = None
         self._v2_authoritative = (
             _env_bool("V2_AUTHORITATIVE", True)
             if authoritative is None
@@ -140,6 +142,7 @@ class ChargeControllerV2(ChargeController):
         self._v2_trace_started_at = float(self.total_start_time or time.time())
 
     def _initialize_shadow_session(self, *, started_at: Optional[float] = None) -> None:
+        self._v2_session_signal_context = None
         runtime_started_at = float(
             started_at
             if started_at is not None and float(started_at) > 0
@@ -1025,6 +1028,41 @@ class ChargeControllerV2(ChargeController):
                 output_is_on=self._normalize_output_on(output_is_on),
             )
 
+            metrics = record.analysis.metrics
+            if SignalEvent.CURRENT_MINIMUM_UPDATED in record.analysis.events:
+                logger.info(
+                    "CURRENT_MINIMUM_UPDATED Imin=%.3fA stage=%s session=%s",
+                    metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
+                    stage_before,
+                    self._v2_trace_session_id or "-",
+                )
+            analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
+            self._v2_session_signal_context = {
+                "stage": str(stage_before),
+                "session_id": self._v2_trace_session_id,
+                "session_generation": float(self._v2_trace_started_at or 0.0),
+                "output_on": self._normalize_output_on(output_is_on),
+                "cv_state": bool(is_cv),
+                "cc_state": bool(resolved_is_cc),
+                "telemetry_valid": not record.analysis.has(SignalEvent.TELEMETRY_INVALID),
+                "telemetry_observed_at": float(timestamp_s),
+                "telemetry_age_s": max(0.0, time.time() - float(timestamp_s)),
+                "target_voltage_v": target_before,
+                "current_min_a": metrics.current_min_a,
+                "current_min_time_s": (
+                    float(timestamp_s) - float(analyzer._current_min_time_s)
+                    if analyzer is not None and analyzer._current_min_time_s is not None
+                    else None
+                ),
+                "delta_reference_a": metrics.current_min_a,
+                "reversal_threshold_a": metrics.reversal_threshold_a,
+                "reversal_confirmations": metrics.reversal_confirmations,
+                "last_reversal_confirmation_s": (
+                    analyzer._last_reversal_confirmation_s if analyzer is not None else None
+                ),
+                "reversal_emitted": bool(analyzer._reversal_emitted) if analyzer is not None else False,
+            }
+
             plateau_since = self._update_main_plateau_clock(
                 stage_before=stage_before,
                 target_before=target_before,
@@ -1098,6 +1136,7 @@ class ChargeControllerV2(ChargeController):
             # mode a failed evidence path must fail closed instead of silently handing
             # transition control back to legacy and possibly escalating voltage.
             logger.exception("RECOVERY_V2 observation/authority failed")
+            self._v2_session_signal_context = None
             trace_point = self._trace_point_metadata(
                 timestamp_s=timestamp_s,
                 stage_before=stage_before,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import os
 import time
 from dataclasses import replace
@@ -15,11 +17,16 @@ from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIn
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
 
 
+logger = logging.getLogger("rd6018.production_controller")
+
+
 V2_MIX_MAX_HOURS = {
     "Ca/Ca": 20.0,
     "EFB": 24.0,
     "AGM": 10.0,
 }
+
+RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
 
 
 class ProductionChargeControllerV2(ChargeControllerV2):
@@ -201,7 +208,11 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             "current_min_time_s": analyzer._current_min_time_s,
             "voltage_max_v": analyzer._voltage_max_v,
             "voltage_max_time_s": analyzer._voltage_max_time_s,
+            "reversal_confirmations": analyzer._reversal_confirmations,
+            "last_reversal_confirmation_s": analyzer._last_reversal_confirmation_s,
             "reversal_emitted": analyzer._reversal_emitted,
+            "voltage_reversal_confirmations": analyzer._voltage_reversal_confirmations,
+            "last_voltage_reversal_confirmation_s": analyzer._last_voltage_reversal_confirmation_s,
             "voltage_reversal_emitted": analyzer._voltage_reversal_emitted,
         }
 
@@ -224,6 +235,14 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         analyzer._voltage_max_time_s = state.get("voltage_max_time_s")
         analyzer._reversal_emitted = bool(state.get("reversal_emitted", False))
         analyzer._voltage_reversal_emitted = bool(state.get("voltage_reversal_emitted", False))
+        analyzer._reversal_confirmations = int(state.get("reversal_confirmations", 0) or 0)
+        analyzer._last_reversal_confirmation_s = state.get("last_reversal_confirmation_s")
+        analyzer._voltage_reversal_confirmations = int(
+            state.get("voltage_reversal_confirmations", 0) or 0
+        )
+        analyzer._last_voltage_reversal_confirmation_s = state.get(
+            "last_voltage_reversal_confirmation_s"
+        )
 
     def _capture_cooling_pause(
         self,
@@ -325,6 +344,120 @@ class ProductionChargeControllerV2(ChargeControllerV2):
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
         super()._save_session(voltage, current, ah)
         self._write_cooling_pause_to_session_file()
+        self._write_runtime_signal_to_session_file()
+
+    def _write_runtime_signal_to_session_file(self) -> None:
+        document = self._read_legacy_session_document()
+        if not document:
+            return
+        context = self._v2_session_signal_context
+        valid = (
+            self.current_stage == self.STAGE_MIX
+            and isinstance(context, dict)
+            and context.get("stage") == self.STAGE_MIX
+            and context.get("session_id") == self._v2_trace_session_id
+            and context.get("output_on") is True
+            and context.get("cv_state") is True
+            and context.get("telemetry_valid") is True
+            and context.get("current_min_a") is not None
+        )
+        if valid:
+            document["runtime_signal"] = {"version": 1, **context}
+        else:
+            document.pop("runtime_signal", None)
+        tmp_path = f"{SESSION_FILE}.runtime-signal.tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(document, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, SESSION_FILE)
+        except OSError as exc:
+            logger.warning("Could not persist runtime signal: %s", exc)
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def _restore_runtime_signal_state(
+        self,
+        document: Dict[str, Any],
+        *,
+        output_is_on: Optional[Any],
+    ) -> None:
+        runtime_signal = document.get("runtime_signal") if isinstance(document, dict) else None
+
+        def reset(reason: str) -> None:
+            logger.warning("SESSION_RESTORE_SIGNAL_RESET reason=%s", reason)
+
+        if not isinstance(runtime_signal, dict):
+            reset("missing_runtime_signal")
+            return
+        if int(runtime_signal.get("version", 0) or 0) != 1:
+            reset("unsupported_runtime_signal_version")
+            return
+        if runtime_signal.get("session_id") != self._v2_trace_session_id:
+            reset("session_identity_mismatch")
+            return
+        try:
+            generation = float(runtime_signal.get("session_generation"))
+            observed_at = float(runtime_signal.get("telemetry_observed_at"))
+            stored_age = float(runtime_signal.get("telemetry_age_s"))
+            current_min = float(runtime_signal.get("current_min_a"))
+            min_age = float(runtime_signal.get("current_min_time_s"))
+            delta_reference = float(runtime_signal.get("delta_reference_a"))
+            reversal_confirmations = int(runtime_signal.get("reversal_confirmations", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            reset("invalid_runtime_signal_numbers")
+            return
+        if not all(
+            math.isfinite(value)
+            for value in (generation, observed_at, stored_age, current_min, min_age, delta_reference)
+        ) or reversal_confirmations < 0:
+            reset("invalid_runtime_signal_numbers")
+            return
+        if abs(generation - float(self._v2_trace_started_at)) > 1e-6:
+            reset("session_generation_mismatch")
+            return
+        age = max(0.0, time.time() - observed_at)
+        if runtime_signal.get("output_on") is not True or output_is_on is not True:
+            reset("output_not_confirmed_on")
+            return
+        if runtime_signal.get("cv_state") is not True or runtime_signal.get("telemetry_valid") is not True:
+            reset("saved_evidence_not_cv_valid")
+            return
+        if age > RUNTIME_SIGNAL_RESTORE_MAX_AGE_S or stored_age > RUNTIME_SIGNAL_RESTORE_MAX_AGE_S:
+            reset("telemetry_stale")
+            return
+        if current_min < 0.0 or min_age < 0.0 or abs(delta_reference - current_min) > 1e-6:
+            reset("invalid_delta_reference")
+            return
+        if self._v2_runtime is None or not hasattr(self._v2_runtime, "tracker"):
+            reset("runtime_unavailable")
+            return
+        if runtime_signal.get("stage") != self.STAGE_MIX:
+            reset("stage_mismatch")
+            return
+
+        state = {
+            "tracker_stage_key": self.STAGE_MIX.lower(),
+            "tracker_stage_started_at": self._v2_runtime.tracker._stage_started_at,
+            "tracker_stage_start_ah": self._v2_runtime.tracker._stage_start_ah,
+            "analyzer_stage_name": self.STAGE_MIX.lower(),
+            "analyzer_target_voltage_v": runtime_signal.get("target_voltage_v"),
+            "current_min_a": current_min,
+            "current_min_time_s": observed_at - min_age,
+            "reversal_confirmations": reversal_confirmations,
+            "last_reversal_confirmation_s": runtime_signal.get("last_reversal_confirmation_s"),
+            "reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)),
+        }
+        self._restore_runtime_signal_snapshot(state)
+        logger.info(
+            "SESSION_RESTORE_SIGNAL_STATE Imin=%.3fA age=%.1fs confirmations=%s session=%s",
+            current_min,
+            age,
+            state["reversal_confirmations"],
+            self._v2_trace_session_id or "-",
+        )
 
     @classmethod
     def _operatorize_notification(cls, text: str) -> str:
@@ -399,6 +532,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         voltage: float,
         current: float,
         ah: float,
+        output_is_on: Optional[Any] = None,
     ) -> Tuple[bool, Optional[str]]:
         """Restore V2 sessions without granting recovery authority to legacy files."""
         document = self._read_legacy_session_document()
@@ -413,6 +547,9 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self._v2_condition_before = BatteryCondition.UNKNOWN
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
             self._write_trace_identity_to_session_file()
+
+        if self.current_stage == self.STAGE_MIX:
+            self._restore_runtime_signal_state(document, output_is_on=output_is_on)
 
         if self._restored_target_v > 0 and self._restored_target_i > 0:
             bounded_v, bounded_i = self._bound_target(
