@@ -351,18 +351,22 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         if not document:
             return
         context = self._v2_session_signal_context
+        mode = context.get("mode") if isinstance(context, dict) else None
         valid = (
             self.current_stage == self.STAGE_MIX
             and isinstance(context, dict)
+            and mode in {"CV", "CC"}
             and context.get("stage") == self.STAGE_MIX
             and context.get("session_id") == self._v2_trace_session_id
             and context.get("output_on") is True
-            and context.get("cv_state") is True
             and context.get("telemetry_valid") is True
-            and context.get("current_min_a") is not None
+            and (
+                (mode == "CV" and context.get("cv_state") is True and context.get("current_min_a") is not None)
+                or (mode == "CC" and context.get("cc_state") is True and context.get("voltage_max_v") is not None)
+            )
         )
         if valid:
-            document["runtime_signal"] = {"version": 1, **context}
+            document["runtime_signal"] = {"version": 2, **context}
         else:
             document.pop("runtime_signal", None)
         tmp_path = f"{SESSION_FILE}.runtime-signal.tmp"
@@ -383,6 +387,8 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         document: Dict[str, Any],
         *,
         output_is_on: Optional[Any],
+        is_cv: Optional[bool],
+        is_cc: Optional[bool],
     ) -> None:
         runtime_signal = document.get("runtime_signal") if isinstance(document, dict) else None
 
@@ -392,26 +398,45 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         if not isinstance(runtime_signal, dict):
             reset("missing_runtime_signal")
             return
-        if int(runtime_signal.get("version", 0) or 0) != 1:
+        if int(runtime_signal.get("version", 0) or 0) != 2:
             reset("unsupported_runtime_signal_version")
             return
         if runtime_signal.get("session_id") != self._v2_trace_session_id:
             reset("session_identity_mismatch")
             return
+        mode = str(runtime_signal.get("mode") or "").upper()
+        if mode not in {"CV", "CC"}:
+            reset("unsupported_signal_mode")
+            return
         try:
             generation = float(runtime_signal.get("session_generation"))
             observed_at = float(runtime_signal.get("telemetry_observed_at"))
             stored_age = float(runtime_signal.get("telemetry_age_s"))
-            current_min = float(runtime_signal.get("current_min_a"))
-            min_age = float(runtime_signal.get("current_min_time_s"))
-            delta_reference = float(runtime_signal.get("delta_reference_a"))
+            current_min_raw = runtime_signal.get("current_min_a")
+            min_age_raw = runtime_signal.get("current_min_time_s")
+            delta_reference_raw = runtime_signal.get("delta_reference_a")
+            current_min = float(current_min_raw) if current_min_raw is not None else None
+            min_age = float(min_age_raw) if min_age_raw is not None else None
+            delta_reference = float(delta_reference_raw) if delta_reference_raw is not None else None
+            voltage_max_raw = runtime_signal.get("voltage_max_v")
+            voltage_max_age_raw = runtime_signal.get("voltage_max_time_s")
+            delta_reference_v_raw = runtime_signal.get("delta_reference_v")
+            voltage_max = float(voltage_max_raw) if voltage_max_raw is not None else None
+            voltage_max_age = float(voltage_max_age_raw) if voltage_max_age_raw is not None else None
+            delta_reference_v = (
+                float(delta_reference_v_raw) if delta_reference_v_raw is not None else None
+            )
             reversal_confirmations = int(runtime_signal.get("reversal_confirmations", 0) or 0)
         except (TypeError, ValueError, OverflowError):
             reset("invalid_runtime_signal_numbers")
             return
         if not all(
             math.isfinite(value)
-            for value in (generation, observed_at, stored_age, current_min, min_age, delta_reference)
+            for value in (
+                generation, observed_at, stored_age,
+                *(value for value in (voltage_max, voltage_max_age, delta_reference_v) if value is not None),
+                *(value for value in (current_min, min_age, delta_reference) if value is not None),
+            )
         ) or reversal_confirmations < 0:
             reset("invalid_runtime_signal_numbers")
             return
@@ -422,13 +447,36 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         if runtime_signal.get("output_on") is not True or output_is_on is not True:
             reset("output_not_confirmed_on")
             return
-        if runtime_signal.get("cv_state") is not True or runtime_signal.get("telemetry_valid") is not True:
-            reset("saved_evidence_not_cv_valid")
+        if runtime_signal.get("telemetry_valid") is not True:
+            reset("saved_evidence_not_valid")
+            return
+        observed_mode = "CV" if is_cv is True else ("CC" if is_cc is True else None)
+        if observed_mode != mode:
+            reset("mode_mismatch")
             return
         if age > RUNTIME_SIGNAL_RESTORE_MAX_AGE_S or stored_age > RUNTIME_SIGNAL_RESTORE_MAX_AGE_S:
             reset("telemetry_stale")
             return
-        if current_min < 0.0 or min_age < 0.0 or abs(delta_reference - current_min) > 1e-6:
+        if mode == "CV" and (
+            runtime_signal.get("cv_state") is not True
+            or current_min is None
+            or min_age is None
+            or delta_reference is None
+            or current_min < 0.0
+            or min_age < 0.0
+            or abs(delta_reference - current_min) > 1e-6
+        ):
+            reset("invalid_delta_reference")
+            return
+        if mode == "CC" and (
+            runtime_signal.get("cc_state") is not True
+            or voltage_max is None
+            or voltage_max_age is None
+            or delta_reference_v is None
+            or voltage_max <= 0.0
+            or voltage_max_age < 0.0
+            or abs(delta_reference_v - voltage_max) > 1e-6
+        ):
             reset("invalid_delta_reference")
             return
         if self._v2_runtime is None or not hasattr(self._v2_runtime, "tracker"):
@@ -444,16 +492,26 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             "tracker_stage_start_ah": self._v2_runtime.tracker._stage_start_ah,
             "analyzer_stage_name": self.STAGE_MIX.lower(),
             "analyzer_target_voltage_v": runtime_signal.get("target_voltage_v"),
-            "current_min_a": current_min,
-            "current_min_time_s": observed_at - min_age,
-            "reversal_confirmations": reversal_confirmations,
-            "last_reversal_confirmation_s": runtime_signal.get("last_reversal_confirmation_s"),
-            "reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)),
+            "current_min_a": current_min if mode == "CV" else None,
+            "current_min_time_s": observed_at - min_age if mode == "CV" else None,
+            "reversal_confirmations": reversal_confirmations if mode == "CV" else 0,
+            "last_reversal_confirmation_s": (
+                runtime_signal.get("last_reversal_confirmation_s") if mode == "CV" else None
+            ),
+            "reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)) if mode == "CV" else False,
+            "voltage_max_v": voltage_max if mode == "CC" else None,
+            "voltage_max_time_s": observed_at - voltage_max_age if mode == "CC" else None,
+            "voltage_reversal_confirmations": reversal_confirmations if mode == "CC" else 0,
+            "last_voltage_reversal_confirmation_s": (
+                runtime_signal.get("last_reversal_confirmation_s") if mode == "CC" else None
+            ),
+            "voltage_reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)) if mode == "CC" else False,
         }
         self._restore_runtime_signal_snapshot(state)
         logger.info(
-            "SESSION_RESTORE_SIGNAL_STATE Imin=%.3fA age=%.1fs confirmations=%s session=%s",
-            current_min,
+            "SESSION_RESTORE_SIGNAL_STATE mode=%s reference=%s age=%.1fs confirmations=%s session=%s",
+            mode,
+            f"{current_min:.3f}A" if mode == "CV" else f"{voltage_max:.3f}V",
             age,
             state["reversal_confirmations"],
             self._v2_trace_session_id or "-",
@@ -533,6 +591,8 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         current: float,
         ah: float,
         output_is_on: Optional[Any] = None,
+        is_cv: Optional[bool] = None,
+        is_cc: Optional[bool] = None,
     ) -> Tuple[bool, Optional[str]]:
         """Restore V2 sessions without granting recovery authority to legacy files."""
         document = self._read_legacy_session_document()
@@ -549,7 +609,12 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self._write_trace_identity_to_session_file()
 
         if self.current_stage == self.STAGE_MIX:
-            self._restore_runtime_signal_state(document, output_is_on=output_is_on)
+            self._restore_runtime_signal_state(
+                document,
+                output_is_on=output_is_on,
+                is_cv=is_cv,
+                is_cc=is_cc,
+            )
 
         if self._restored_target_v > 0 and self._restored_target_i > 0:
             bounded_v, bounded_i = self._bound_target(

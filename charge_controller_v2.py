@@ -1037,8 +1037,10 @@ class ChargeControllerV2(ChargeController):
                     self._v2_trace_session_id or "-",
                 )
             analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
+            mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)
             self._v2_session_signal_context = {
                 "stage": str(stage_before),
+                "mode": mode,
                 "session_id": self._v2_trace_session_id,
                 "session_generation": float(self._v2_trace_started_at or 0.0),
                 "output_on": self._normalize_output_on(output_is_on),
@@ -1055,6 +1057,13 @@ class ChargeControllerV2(ChargeController):
                     else None
                 ),
                 "delta_reference_a": metrics.current_min_a,
+                "voltage_max_v": metrics.voltage_max_v,
+                "voltage_max_time_s": (
+                    float(timestamp_s) - float(analyzer._voltage_max_time_s)
+                    if analyzer is not None and analyzer._voltage_max_time_s is not None
+                    else None
+                ),
+                "delta_reference_v": metrics.voltage_max_v,
                 "reversal_threshold_a": metrics.reversal_threshold_a,
                 "reversal_confirmations": metrics.reversal_confirmations,
                 "last_reversal_confirmation_s": (

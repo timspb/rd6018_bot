@@ -1394,6 +1394,8 @@ async def _operator_pause_toggle(call: Any) -> str:
             _safe_float(live.get("current")),
             _safe_float(live.get("ah")),
             output_is_on=output_on,
+            is_cv=str(live.get("is_cv", "")).lower() == "on",
+            is_cc=str(live.get("is_cc", "")).lower() == "on",
         )
         if not ok:
             return "Продолжение заблокировано: сессия не восстановлена"
@@ -2233,7 +2235,8 @@ async def data_logger() -> None:
             if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
                 if charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
                     ok, msg = charge_controller.try_restore_session(
-                        battery_v, i, ah, output_is_on=output_on
+                        battery_v, i, ah, output_is_on=output_on,
+                        is_cv=is_cv, is_cc=is_cc,
                     )
                     if ok and msg:
                         _apply_restore_time_corrections(charge_controller, live)
@@ -2297,7 +2300,8 @@ async def data_logger() -> None:
                 and i > 0.05
             ):
                 ok, msg = charge_controller.try_restore_session(
-                    battery_v, i, ah, output_is_on=output_on
+                    battery_v, i, ah, output_is_on=output_on,
+                    is_cv=is_cv, is_cc=is_cc,
                 )
                 if ok and msg:
                     _apply_restore_time_corrections(charge_controller, live)
@@ -3833,7 +3837,9 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
         ok, msg = charge_controller.try_restore_session(
-            battery_v, i, ah, output_is_on=is_on
+            battery_v, i, ah, output_is_on=is_on,
+            is_cv=str(live.get("is_cv", "")).lower() == "on",
+            is_cc=str(live.get("is_cc", "")).lower() == "on",
         )
         if not ok and _operator_pause_active():
             logger.warning("Clearing operator pause: no charge session to restore")
@@ -4082,7 +4088,10 @@ async def main() -> None:
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
         ok, msg = charge_controller.try_restore_session(
-            battery_v, i, ah, output_is_on=(str(live.get("switch", "")).lower() == "on")
+            battery_v, i, ah,
+            output_is_on=(str(live.get("switch", "")).lower() == "on"),
+            is_cv=str(live.get("is_cv", "")).lower() == "on",
+            is_cc=str(live.get("is_cc", "")).lower() == "on",
         )
         if ok and msg:
             _apply_restore_time_corrections(charge_controller, live)
