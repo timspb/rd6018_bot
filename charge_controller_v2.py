@@ -1084,6 +1084,19 @@ class ChargeControllerV2(ChargeController):
                     analyzer._last_reversal_confirmation_s if analyzer is not None else None
                 ),
                 "reversal_emitted": bool(analyzer._reversal_emitted) if analyzer is not None else False,
+                "voltage_reversal_confirmations": (
+                    metrics.voltage_reversal_confirmations
+                ),
+                "voltage_last_reversal_confirmation_s": (
+                    analyzer._last_voltage_reversal_confirmation_s
+                    if analyzer is not None
+                    else None
+                ),
+                "voltage_reversal_emitted": (
+                    bool(analyzer._voltage_reversal_emitted)
+                    if analyzer is not None
+                    else False
+                ),
             }
 
             plateau_since = self._update_main_plateau_clock(

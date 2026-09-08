@@ -547,6 +547,15 @@ class ProductionChargeControllerV2(ChargeControllerV2):
                 float(delta_reference_v_raw) if delta_reference_v_raw is not None else None
             )
             reversal_confirmations = int(runtime_signal.get("reversal_confirmations", 0) or 0)
+            voltage_reversal_confirmations = int(
+                runtime_signal.get("voltage_reversal_confirmations", 0) or 0
+            )
+            voltage_last_reversal_confirmation_s = runtime_signal.get(
+                "voltage_last_reversal_confirmation_s"
+            )
+            voltage_reversal_emitted = bool(
+                runtime_signal.get("voltage_reversal_emitted", False)
+            )
         except (TypeError, ValueError, OverflowError):
             reset("invalid_runtime_signal_numbers")
             return
@@ -557,7 +566,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
                 *(value for value in (voltage_max, voltage_max_age, delta_reference_v) if value is not None),
                 *(value for value in (current_min, min_age, delta_reference) if value is not None),
             )
-        ) or reversal_confirmations < 0:
+        ) or reversal_confirmations < 0 or voltage_reversal_confirmations < 0:
             reset("invalid_runtime_signal_numbers")
             return
         if abs(generation - float(self._v2_trace_started_at)) > 1e-6:
@@ -621,11 +630,15 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             "reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)) if mode == "CV" else False,
             "voltage_max_v": voltage_max if mode == "CC" else None,
             "voltage_max_time_s": observed_at - voltage_max_age if mode == "CC" else None,
-            "voltage_reversal_confirmations": reversal_confirmations if mode == "CC" else 0,
-            "last_voltage_reversal_confirmation_s": (
-                runtime_signal.get("last_reversal_confirmation_s") if mode == "CC" else None
+            "voltage_reversal_confirmations": (
+                voltage_reversal_confirmations if mode == "CC" else 0
             ),
-            "voltage_reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)) if mode == "CC" else False,
+            "last_voltage_reversal_confirmation_s": (
+                voltage_last_reversal_confirmation_s if mode == "CC" else None
+            ),
+            "voltage_reversal_emitted": (
+                voltage_reversal_emitted if mode == "CC" else False
+            ),
         }
         self._restore_runtime_signal_snapshot(state)
         logger.info(

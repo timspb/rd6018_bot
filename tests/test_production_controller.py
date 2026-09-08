@@ -1,6 +1,8 @@
+import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -202,6 +204,11 @@ class ProductionControllerTests(unittest.TestCase):
             "reversal_confirmations": confirmations,
             "last_reversal_confirmation_s": observed_at - 50.0 if confirmations else None,
             "reversal_emitted": False,
+            "voltage_reversal_confirmations": confirmations if mode == "CC" else 0,
+            "voltage_last_reversal_confirmation_s": (
+                observed_at - 50.0 if mode == "CC" and confirmations else None
+            ),
+            "voltage_reversal_emitted": False,
         }
         return controller
 
@@ -315,6 +322,78 @@ class ProductionControllerTests(unittest.TestCase):
             )
             self.assertAlmostEqual(analysis.metrics.voltage_max_v, 16.47)
             self.assertAlmostEqual(analysis.metrics.delta_voltage_from_max_v, 0.07)
+
+    def test_cc_runtime_signal_uses_real_voltage_reversal_state_for_restore(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+            controller.current_stage = controller.STAGE_MIX
+            controller.stage_start_time = time.time() - 240.0
+            controller._v2_target_voltage_v = 16.46
+
+            async def no_legacy_scaffold(*args, **kwargs):
+                return {}
+
+            now = time.time()
+            samples = (
+                (now - 180.0, 16.30),
+                (now - 120.0, 16.30),
+                (now - 60.0, 16.26),
+                (now, 16.25),
+            )
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch.object(
+                controller, "_run_legacy_scaffold_tick", new=no_legacy_scaffold
+            ):
+                for timestamp_s, voltage_v in samples:
+                    controller.last_update_time = timestamp_s
+                    asyncio.run(
+                        controller.tick(
+                            voltage_v,
+                            1.5,
+                            27.0,
+                            is_cv=False,
+                            ah=1.0,
+                            output_is_on=True,
+                            is_cc=True,
+                        )
+                    )
+
+                analyzer = controller._v2_runtime.tracker._analyzer
+                self.assertAlmostEqual(analyzer._voltage_max_v, 16.30)
+                self.assertEqual(analyzer._voltage_reversal_confirmations, 2)
+                self.assertAlmostEqual(analyzer._last_voltage_reversal_confirmation_s, now)
+                self.assertFalse(analyzer._voltage_reversal_emitted)
+
+                with open(session_file, "r", encoding="utf-8") as handle:
+                    saved = json.load(handle)
+                signal = saved["runtime_signal"]
+                self.assertEqual(signal["voltage_reversal_confirmations"], 2)
+                self.assertAlmostEqual(
+                    signal["voltage_last_reversal_confirmation_s"], now, delta=0.01
+                )
+                self.assertFalse(signal["voltage_reversal_emitted"])
+
+                restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+                ok, _ = restored.try_restore_session(
+                    16.25,
+                    1.5,
+                    1.0,
+                    output_is_on=True,
+                    is_cv=False,
+                    is_cc=True,
+                )
+
+            self.assertTrue(ok)
+            restored_analyzer = restored._v2_runtime.tracker._analyzer
+            self.assertAlmostEqual(restored_analyzer._voltage_max_v, 16.30)
+            self.assertAlmostEqual(restored_analyzer._voltage_max_time_s, now - 180.0, delta=0.01)
+            self.assertEqual(restored_analyzer._voltage_reversal_confirmations, 2)
+            self.assertAlmostEqual(
+                restored_analyzer._last_voltage_reversal_confirmation_s, now, delta=0.01
+            )
+            self.assertFalse(restored_analyzer._voltage_reversal_emitted)
 
     def test_stale_or_off_runtime_signal_is_not_restored(self):
         for output_on, observed_at, now in ((False, 1000.0, 1010.0), (True, 1000.0, 1300.0)):
