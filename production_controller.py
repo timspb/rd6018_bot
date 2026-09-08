@@ -345,6 +345,91 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         super()._save_session(voltage, current, ah)
         self._write_cooling_pause_to_session_file()
         self._write_runtime_signal_to_session_file()
+        self._write_finish_state_to_session_file()
+
+    def _write_finish_state_to_session_file(self) -> None:
+        document = self._read_legacy_session_document()
+        if not document:
+            return
+        valid_timer = False
+        try:
+            valid_timer = math.isfinite(float(self.finish_timer_start)) and float(self.finish_timer_start) > 0.0
+        except (TypeError, ValueError, OverflowError):
+            pass
+        valid = (
+            self.current_stage == self.STAGE_MIX
+            and valid_timer
+            and self._delta_reported is True
+            and self._delta_trigger_mode in {"CV", "CC"}
+            and self._v2_trace_session_id
+        )
+        if valid:
+            document["delta_state_version"] = 1
+            document["delta_session_id"] = self._v2_trace_session_id
+            document["delta_reported"] = True
+            document["delta_trigger_mode"] = self._delta_trigger_mode
+        else:
+            document.pop("delta_state_version", None)
+            document.pop("delta_session_id", None)
+            document.pop("delta_reported", None)
+            document.pop("delta_trigger_mode", None)
+        tmp_path = f"{SESSION_FILE}.finish-state.tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(document, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, SESSION_FILE)
+        except OSError as exc:
+            logger.warning("Could not persist finish state: %s", exc)
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def _restore_finish_state(self, document: Dict[str, Any]) -> None:
+        self._delta_reported = False
+        self._delta_trigger_mode = None
+        if self.current_stage != self.STAGE_MIX:
+            return
+        marker_present = any(
+            key in document
+            for key in ("delta_state_version", "delta_session_id", "delta_reported", "delta_trigger_mode")
+        )
+        if self.finish_timer_start is None:
+            if marker_present:
+                logger.info("SESSION_RESTORE_FINISH_STATE_RESET reason=missing_finish_timer")
+            return
+        try:
+            finish_timer = float(self.finish_timer_start)
+        except (TypeError, ValueError, OverflowError):
+            self.finish_timer_start = None
+            logger.warning("SESSION_RESTORE_FINISH_STATE_RESET reason=invalid_finish_timer")
+            return
+        if not math.isfinite(finish_timer) or finish_timer <= 0.0:
+            self.finish_timer_start = None
+            logger.warning("SESSION_RESTORE_FINISH_STATE_RESET reason=invalid_finish_timer")
+            return
+        try:
+            marker_version = int(document.get("delta_state_version", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            marker_version = 0
+        if (
+            marker_version != 1
+            or document.get("delta_session_id") != self._v2_trace_session_id
+            or document.get("delta_reported") is not True
+            or document.get("delta_trigger_mode") not in {"CV", "CC"}
+        ):
+            logger.info("SESSION_RESTORE_FINISH_STATE_RESET reason=missing_or_incompatible_marker")
+            return
+        self.finish_timer_start = finish_timer
+        self._delta_reported = True
+        self._delta_trigger_mode = str(document["delta_trigger_mode"])
+        logger.info(
+            "SESSION_RESTORE_FINISH_STATE mode=%s started_at=%.3f session=%s",
+            self._delta_trigger_mode,
+            finish_timer,
+            self._v2_trace_session_id or "-",
+        )
 
     def _write_runtime_signal_to_session_file(self) -> None:
         document = self._read_legacy_session_document()
@@ -609,6 +694,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             self._write_trace_identity_to_session_file()
 
         if self.current_stage == self.STAGE_MIX:
+            self._restore_finish_state(document)
             self._restore_runtime_signal_state(
                 document,
                 output_is_on=output_is_on,

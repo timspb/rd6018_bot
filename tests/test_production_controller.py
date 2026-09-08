@@ -215,6 +215,22 @@ class ProductionControllerTests(unittest.TestCase):
         ):
             controller._save_session(16.47, 0.66, 1.0)
 
+    def _persist_finish_state(self, session_file, mode="CV"):
+        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+        controller.current_stage = controller.STAGE_MIX
+        controller.stage_start_time = 800.0
+        controller.finish_timer_start = 900.0
+        controller._delta_reported = True
+        controller._delta_trigger_mode = mode
+        with patch("charge_logic.SESSION_FILE", session_file), patch(
+            "charge_controller_v2.SESSION_FILE", session_file
+        ), patch("production_controller.SESSION_FILE", session_file), patch(
+            "charge_logic.time.time", return_value=1000.0
+        ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+            "production_controller.time.time", return_value=1000.0
+        ):
+            controller._save_session(16.47, 0.66, 1.0)
+
     def test_mix_runtime_signal_survives_restore_and_delta_continues(self):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
@@ -313,6 +329,109 @@ class ProductionControllerTests(unittest.TestCase):
                     )
                 self.assertTrue(ok)
                 self.assertIsNone(restored._v2_runtime.tracker._analyzer._current_min_a)
+
+    def test_cv_delta_marker_survives_session_restore(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            self._persist_finish_state(session_file, mode="CV")
+            with open(session_file, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertTrue(saved["delta_reported"])
+            self.assertEqual(saved["delta_trigger_mode"], "CV")
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1010.0
+            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+                "production_controller.time.time", return_value=1010.0
+            ):
+                ok, _ = restored.try_restore_session(
+                    16.47, 0.66, 1.0, output_is_on=False, is_cv=True, is_cc=False
+                )
+            self.assertTrue(ok)
+            self.assertTrue(restored._delta_reported)
+            self.assertEqual(restored._delta_trigger_mode, "CV")
+            self.assertAlmostEqual(restored.finish_timer_start, 900.0)
+
+    def test_cc_delta_marker_survives_session_restore(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            self._persist_finish_state(session_file, mode="CC")
+            with open(session_file, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertTrue(saved["delta_reported"])
+            self.assertEqual(saved["delta_trigger_mode"], "CC")
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1010.0
+            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+                "production_controller.time.time", return_value=1010.0
+            ):
+                ok, _ = restored.try_restore_session(
+                    16.47, 0.66, 1.0, output_is_on=False, is_cv=False, is_cc=True
+                )
+            self.assertTrue(ok)
+            self.assertTrue(restored._delta_reported)
+            self.assertEqual(restored._delta_trigger_mode, "CC")
+            self.assertAlmostEqual(restored.finish_timer_start, 900.0)
+
+    def test_safe_wait_state_survives_session_restore(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+            controller.current_stage = controller.STAGE_SAFE_WAIT
+            controller.stage_start_time = 900.0
+            controller._safe_wait_start = 900.0
+            controller._safe_wait_next_stage = controller.STAGE_DONE
+            controller._safe_wait_target_v = 13.8
+            controller._safe_wait_target_i = 1.0
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1000.0
+            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+                "production_controller.time.time", return_value=1000.0
+            ):
+                controller._save_session(13.8, 0.0, 1.0)
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1010.0
+            ), patch("charge_controller_v2.time.time", return_value=1010.0):
+                ok, _ = restored.try_restore_session(13.8, 0.0, 1.0, output_is_on=False)
+            self.assertTrue(ok)
+            self.assertEqual(restored.current_stage, restored.STAGE_SAFE_WAIT)
+            self.assertEqual(restored._safe_wait_next_stage, restored.STAGE_DONE)
+            self.assertAlmostEqual(restored._safe_wait_target_v, 13.8)
+            self.assertAlmostEqual(restored._safe_wait_start, 900.0)
+
+    def test_delta_marker_without_finish_timer_is_discarded(self):
+        document = self._legacy_session(intent=ChargeIntent.RECOVERY)
+        document.update({
+            "delta_state_version": 1,
+            "delta_session_id": "abc123",
+            "delta_reported": True,
+            "delta_trigger_mode": "CV",
+        })
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            with open(session_file, "w", encoding="utf-8") as handle:
+                json.dump(document, handle)
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1010.0
+            ), patch("charge_controller_v2.time.time", return_value=1010.0):
+                ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
+            self.assertTrue(ok)
+            self.assertFalse(restored._delta_reported)
+            self.assertIsNone(restored._delta_trigger_mode)
+            self.assertIsNone(restored.finish_timer_start)
 
     def test_mode_mismatch_discards_incompatible_extrema(self):
         for saved_mode, observed_mode in (("CV", "CC"), ("CC", "CV")):
