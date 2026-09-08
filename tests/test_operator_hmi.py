@@ -459,10 +459,6 @@ class OperatorHmiTests(unittest.TestCase):
             "runtime_analysis_available": True,
         }
         values = live()
-        values["_meta"] = {
-            key: {"status": "ok", "age_s": 0.0}
-            for key in ("switch", "battery_voltage", "current", "protection_code", "regulation_code")
-        }
         state = build_operator_hmi_state(app, values)
         text = render_operator_panel(state)
         self.assertIn("CV", text)
