@@ -448,13 +448,14 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     rows: list[list[InlineKeyboardButton]] = []
+    info_row = [
+        InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
+        InlineKeyboardButton(text="📋 События", callback_data="logs"),
+        InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
+    ]
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
-        rows.append(
-            [
-                InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-            ]
-        )
+        rows.append(info_row)
         rows.append(
             [
                 InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
@@ -465,11 +466,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
 
     if state.process_state is HmiProcessState.INTERRUPTED:
         rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
-        rows.append(
-            [
-                InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-            ]
-        )
+        rows.append(info_row)
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
         return with_refresh(rows)
 
@@ -477,11 +474,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         if state.output_on:
             rows.append([InlineKeyboardButton(text="🧲 Подхватить текущий Mix", callback_data="rd_live_mix")])
             rows.append([InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off")])
-        rows.append(
-            [
-                InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-            ]
-        )
+        rows.append(info_row)
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
         return with_refresh(rows)
 
@@ -490,31 +483,25 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append(
             [
                 InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose"),
+                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
+                InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
             ]
         )
         rows.append(
             [
-                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
+                InlineKeyboardButton(text="📋 События", callback_data="logs"),
+                InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
             ]
         )
         return with_refresh(rows)
 
     if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
         rows.append([InlineKeyboardButton(text="🛑 Остановить заряд", callback_data="power_toggle")])
-        rows.append(
-            [
-                InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-            ]
-        )
+        rows.append(info_row)
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
         return with_refresh(rows)
 
-    rows.append(
-        [
-            InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-        ]
-    )
+    rows.append(info_row)
     rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
     return with_refresh(rows)
 
@@ -646,12 +633,7 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
 def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton(text="📋 События", callback_data="logs"),
-            InlineKeyboardButton(text="🎛 Контроллер", callback_data="v2_status"),
-        ],
-        [
-            InlineKeyboardButton(text="🩺 Диагностика", callback_data="entities_status"),
-            InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
+            InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
         ],
     ]
     if state.process_state is HmiProcessState.ADOPTED_MIX:

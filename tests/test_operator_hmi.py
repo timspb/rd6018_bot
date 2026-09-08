@@ -175,6 +175,8 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(texts[0], "⏹ Остановить Mix")
         self.assertIn("operator_adopted_stop", callbacks)
         self.assertIn("operator_details", callbacks)
+        self.assertIn("logs", callbacks)
+        self.assertIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
@@ -211,6 +213,8 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(texts[0], "▶ Новая программа")
         self.assertIn("charge_modes", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
+        self.assertIn("logs", callbacks)
+        self.assertIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
@@ -336,6 +340,17 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
         self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
         self.assertLess(text.index("Imin"), text.index("Защита"))
+
+    def test_main_actions_are_grouped_and_service_menu_hides_diagnostics(self):
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        state = build_operator_hmi_state(app, live())
+        keyboard = build_operator_keyboard(app, state)
+        rows = keyboard.inline_keyboard
+        self.assertEqual(len(rows[0]), 1)  # stop
+        self.assertEqual(len(rows[1]), 3)  # details, events, AI
+        self.assertIn("logs", {button.callback_data for button in rows[1]})
+        self.assertIn("ai_analysis", {button.callback_data for button in rows[1]})
+        self.assertEqual(len(rows[-1]), 1)  # refresh
 
     def test_fault_panel_keeps_protection_reason(self):
         values = live(output="off")
