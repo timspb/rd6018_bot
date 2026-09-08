@@ -461,7 +461,7 @@ def _stage_label(raw_stage: str, short: bool = True) -> str:
     stage = (raw_stage or "").strip()
     mapping_short = {
         "Main Charge": "Основной",
-        "Mix Mode": "Микс",
+        "Mix Mode": "MIX",
         "Десульфатация": "Десульф",
         "Безопасное ожидание": "Ожидание",
         "Остывание": "Остывание",
