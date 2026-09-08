@@ -179,8 +179,8 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
-        self.assertIn("v2_batteries", callbacks)
-        self.assertIn("operator_more", callbacks)
+        self.assertNotIn("v2_batteries", callbacks)
+        self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("rd_hands_off_disable", callbacks)
         self.assertNotIn("chart_30m", callbacks)
         self.assertNotIn("chart_2h", callbacks)
@@ -210,7 +210,7 @@ class OperatorHmiTests(unittest.TestCase):
         texts = [button.text for row in keyboard.inline_keyboard for button in row]
 
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
-        self.assertEqual(texts[0], "▶ Новая программа")
+        self.assertEqual(texts[0], "⚡ Режимы заряда")
         self.assertIn("charge_modes", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
         self.assertIn("logs", callbacks)
@@ -218,7 +218,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
-        self.assertIn("operator_more", callbacks)
+        self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("v2_status", callbacks)
         self.assertNotIn("entities_status", callbacks)
         self.assertNotIn("chart_30m", callbacks)

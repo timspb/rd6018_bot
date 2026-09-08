@@ -456,18 +456,11 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
         rows.append(info_row)
-        rows.append(
-            [
-                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
-            ]
-        )
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.INTERRUPTED:
         rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
         rows.append(info_row)
-        rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.HANDS_OFF:
@@ -475,16 +468,16 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             rows.append([InlineKeyboardButton(text="🧲 Подхватить текущий Mix", callback_data="rd_live_mix")])
             rows.append([InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off")])
         rows.append(info_row)
-        rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
+        if not state.output_on:
+            rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.IDLE:
-        rows.append([InlineKeyboardButton(text="▶ Новая программа", callback_data="charge_modes")])
+        rows.append([InlineKeyboardButton(text="⚡ Режимы заряда", callback_data="charge_modes")])
         rows.append(
             [
                 InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose"),
                 InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
             ]
         )
         rows.append(
@@ -498,11 +491,10 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
     if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
         rows.append([InlineKeyboardButton(text="🛑 Остановить заряд", callback_data="power_toggle")])
         rows.append(info_row)
-        rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
         return with_refresh(rows)
 
     rows.append(info_row)
-    rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
+    rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
     return with_refresh(rows)
 
 
