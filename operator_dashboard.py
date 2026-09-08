@@ -350,6 +350,43 @@ def install_operator_graph_dashboard(app: Any) -> None:
     hmi.render_operator_details = truthful_details
     hmi._render_graph_workspace = render_graph_workspace
 
+    async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> None:
+        """Refresh only the live panel; do not rebuild the chart on button press."""
+        try:
+            live = await app.hass.get_all_live()
+        except Exception as exc:
+            app.logger.error("Failed to refresh HA data for operator panel: %s", exc)
+            return
+
+        state = truthful_builder(app, live)
+        caption = truthful_panel(state)
+        markup = hmi.build_operator_keyboard(app, state)
+        try:
+            await app.bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=message_id,
+                caption=caption,
+                reply_markup=markup,
+                parse_mode=app.ParseMode.HTML,
+            )
+        except Exception as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            # A text dashboard can still exist from an older runtime; update it
+            # without falling back to the expensive chart-producing path.
+            try:
+                await app.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=caption,
+                    reply_markup=markup,
+                    parse_mode=app.ParseMode.HTML,
+                )
+            except Exception as text_exc:
+                app.logger.warning("operator panel refresh failed: %s", text_exc)
+
+    app._refresh_operator_panel = refresh_operator_panel
+
     async def build_and_send_graph_dashboard(
         chat_id: int,
         user_id: int,

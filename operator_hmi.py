@@ -391,6 +391,10 @@ def render_operator_panel(state: OperatorHmiState) -> str:
 
 
 def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboardMarkup:
+    def with_refresh(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+        rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
     rows: list[list[InlineKeyboardButton]] = []
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
@@ -406,7 +410,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
                 InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
             ]
         )
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+        return with_refresh(rows)
 
     if state.process_state is HmiProcessState.INTERRUPTED:
         rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
@@ -417,7 +421,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             ]
         )
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+        return with_refresh(rows)
 
     if state.process_state is HmiProcessState.HANDS_OFF:
         if state.output_on:
@@ -430,7 +434,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             ]
         )
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+        return with_refresh(rows)
 
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="▶ Новая программа", callback_data="charge_modes")])
@@ -446,7 +450,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
                 InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
             ]
         )
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+        return with_refresh(rows)
 
     if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
         rows.append([InlineKeyboardButton(text="🛑 Остановить заряд", callback_data="power_toggle")])
@@ -457,7 +461,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             ]
         )
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+        return with_refresh(rows)
 
     rows.append(
         [
@@ -466,7 +470,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         ]
     )
     rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return with_refresh(rows)
 
 
 def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
@@ -696,6 +700,22 @@ def install_operator_hmi(app: Any) -> None:
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
         await _render_graph_workspace(app, call, user_id)
+
+    @app.router.callback_query(F.data == "operator_refresh")
+    async def _operator_refresh(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        await call.answer("Обновляю")
+        user_id = call.from_user.id if call.from_user else 0
+        refresh = getattr(app, "_refresh_operator_panel", None)
+        if refresh is not None:
+            await refresh(call.message.chat.id, user_id, call.message.message_id)
+        else:
+            await app._build_and_send_dashboard(
+                call.message.chat.id,
+                user_id,
+                old_msg_id=call.message.message_id,
+            )
 
     @app.router.callback_query(F.data.startswith("operator_graph_"))
     async def _operator_graph_range(call: Any) -> None:
