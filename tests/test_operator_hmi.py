@@ -231,6 +231,29 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("не имеет валидированного live-adopt handshake", text)
         self.assertNotIn("PB_MANAGED владеет", text)
 
+    def test_details_contains_old_bot_stage_statistics_for_active_charge(self):
+        controller = types.SimpleNamespace(
+            is_active=True,
+            current_stage="Mix Mode",
+            battery_type="Ca/Ca",
+            ah_capacity=72,
+            get_timers=lambda: {
+                "stage_time": "04:43",
+                "total_time": "10:29",
+                "remaining_time": "196 мин",
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        state = build_operator_hmi_state(app, live())
+        text = render_operator_details(app, state, {**live(), "ah": 7.26, "uptime": "10:29"})
+        self.assertIn("Статистика по этапу", text)
+        self.assertIn("Этап: <b>Mix Mode</b>", text)
+        self.assertIn("Этап: 04:43", text)
+        self.assertIn("Набрано: 7.26 Ah", text)
+        self.assertIn("Уставки: 16.54 V · лимит 1.01 A", text)
+        self.assertIn("Коды:", text)
+
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))
         state = build_operator_hmi_state(app, live())
@@ -294,6 +317,25 @@ class OperatorHmiTests(unittest.TestCase):
             safety="Защита: норма", attention="normal",
         )
         self.assertIn("⏳ Imin не достигнут", render_operator_panel(state))
+
+    def test_active_controller_snapshot_drives_stage_status(self):
+        controller = types.SimpleNamespace(
+            is_active=True,
+            current_stage="Mix Mode",
+            battery_type="Ca/Ca",
+            ah_capacity=72,
+            v2_ui_snapshot=lambda: {
+                "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 7320},
+                "finish_hold_started_at": None,
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        app._format_stage_progress_line = lambda live: "<b>Обычный заряд</b>"
+        state = build_operator_hmi_state(app, live())
+        text = render_operator_panel(state)
+        self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
+        self.assertLess(text.index("Imin"), text.index("Защита"))
 
     def test_fault_panel_keeps_protection_reason(self):
         values = live(output="off")

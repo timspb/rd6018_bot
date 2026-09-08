@@ -51,6 +51,7 @@ class OperatorHmiState:
     progress: str
     safety: str
     attention: str = "normal"
+    stage_status: str = ""
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -136,6 +137,8 @@ def _compact_transition(state: OperatorHmiState) -> str:
 
 def _compact_stage_status(state: OperatorHmiState) -> str:
     """Render finish evidence as one compact operator-facing line."""
+    if getattr(state, "stage_status", ""):
+        return str(state.stage_status)
     progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress or "").split())))
     if state.regulator == "CV":
         match = re.search(r"Imin\s+([0-9]+(?:\.[0-9]+)?)\s*A.*?после Imin\s+([0-9чм ]+)", progress)
@@ -263,12 +266,39 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
         if capacity is not None and capacity > 0:
             battery_label = f"{battery_label} · {capacity:g} Ah" if battery_label else f"{capacity:g} Ah"
         progress = ""
+        stage_status = ""
         progress_fn = getattr(app, "_format_stage_progress_line", None)
         if callable(progress_fn):
             try:
                 progress = str(progress_fn(dict(live)) or "")
             except Exception:
                 progress = ""
+        try:
+            snapshot = controller.v2_ui_snapshot()
+            metrics = dict(snapshot.get("metrics") or {})
+            hold_started = snapshot.get("finish_hold_started_at")
+            if regulator == "CV":
+                minimum = _finite(metrics.get("current_min_a"))
+                if minimum is None or minimum <= 0:
+                    stage_status = "⏳ Imin не достигнут"
+                else:
+                    age = metrics.get("seconds_since_current_min")
+                    elapsed = max(0, int(float(age or 0)))
+                    if hold_started is not None:
+                        elapsed = max(0, int(time.time() - float(hold_started)))
+                    stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
+            elif regulator == "CC":
+                maximum = _finite(metrics.get("voltage_max_v"))
+                if maximum is None or maximum <= 0:
+                    stage_status = "⏳ Vmax не достигнут"
+                else:
+                    age = metrics.get("seconds_since_voltage_max")
+                    elapsed = max(0, int(float(age or 0)))
+                    if hold_started is not None:
+                        elapsed = max(0, int(time.time() - float(hold_started)))
+                    stage_status = f"✅ Vmax {maximum:.2f} V · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
+        except Exception:
+            stage_status = ""
         lowered = stage.lower()
         process = HmiProcessState.RUNNING
         if "safe" in lowered or "cool" in lowered or "ожид" in lowered or "осты" in lowered:
@@ -292,6 +322,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             progress=progress,
             safety=safety,
             attention=attention,
+            stage_status=stage_status,
         )
 
     manual = getattr(app, "manual_session_manager", None)
@@ -489,7 +520,10 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
 
 
 def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
-    lines = ["<b>Подробности RD6018</b>", ""]
+    lines = ["<b>📋 Полная информация по заряду</b>", ""]
+    ah = _finite(live.get("ah"))
+    uptime = str(live.get("uptime") or "—")
+    input_voltage = _finite(live.get("input_voltage"))
     if state.process_state in {HmiProcessState.ADOPTED_MIX, HmiProcessState.INTERRUPTED}:
         observer, observer_state = _observer_runtime(app)
         lines.extend(
@@ -515,18 +549,48 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
     else:
         lines.extend(
             [
-                f"Состояние: <b>{html.escape(state.process_state.value)}</b>",
+                f"Состояние: <b>{html.escape(state.process_state.value)}</b> · "
                 f"Authority: <code>{html.escape(state.authority.value)}</code>",
-                f"Output: {'ON' if state.output_on else 'OFF'} · {html.escape(state.regulator)}",
-                f"Vbat: {_value(state.battery_voltage_v, 3, 'V')}",
-                f"Iout: {_value(state.current_a, 3, 'A')}",
-                f"T АКБ: {_temperature(state.battery_temp_c)}",
-                f"T БП: {_temperature(state.psu_temp_c)}",
+                f"Output: <b>{'ON' if state.output_on else 'OFF'}</b> · режим {html.escape(state.regulator)}",
+                f"⚡ {_value(state.battery_voltage_v, 3, 'V')} · {_value(state.current_a, 3, 'A')}",
+                f"🌡 АКБ: {_temperature(state.battery_temp_c)} · БП: {_temperature(state.psu_temp_c)}",
+            ]
+        )
+        controller = getattr(app, "charge_controller", None)
+        if controller is not None and bool(getattr(controller, "is_active", False)):
+            try:
+                timers = controller.get_timers()
+            except Exception:
+                timers = {}
+            stage = str(getattr(controller, "current_stage", "") or "—")
+            battery_type = str(getattr(controller, "battery_type", "") or "—")
+            capacity = _finite(getattr(controller, "ah_capacity", None))
+            lines.extend(
+                [
+                    "",
+                    "🧠 <b>Статистика по этапу</b>",
+                    f"📍 Этап: <b>{html.escape(stage)}</b>",
+                    f"🔋 АКБ: {html.escape(battery_type)} · {capacity:g} Ah" if capacity else f"🔋 АКБ: {html.escape(battery_type)}",
+                    f"⏱ Этап: {html.escape(str(timers.get('stage_time', '—')))} · всего {html.escape(str(timers.get('total_time', '—')))}",
+                    f"⌛ Лимит: {html.escape(str(timers.get('remaining_time', '—')))}",
+                    f"📦 Набрано: {_value(ah, 2, 'Ah')}",
+                ]
+            )
+            if state.progress:
+                progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress).split())))
+                lines.append(f"🎯 Финиш: {html.escape(progress)}")
+        lines.extend(
+            [
+                f"🎯 Уставки: {_value(state.target_voltage_v, 2, 'V')} · лимит {_value(state.current_limit_a, 2, 'A')}",
+                f"🔌 Вход: {_value(input_voltage, 1, 'V')} · ⏱ Работа: {html.escape(uptime)}",
             ]
         )
     ovp = _finite(live.get("ovp"))
     ocp = _finite(live.get("ocp"))
-    lines.append(f"\nЗащиты RD: OVP {_value(ovp, 2, 'V')} · OCP {_value(ocp, 2, 'A')}")
+    protection = html.escape(str(live.get("protection_code") or "—"))
+    regulation = html.escape(str(live.get("regulation_code") or "—"))
+    lines.append(f"\n🛡 Защиты RD: OVP {_value(ovp, 2, 'V')} · OCP {_value(ocp, 2, 'A')}")
+    lines.append(f"Коды: protection <code>{protection}</code> · regulation <code>{regulation}</code>")
     return "\n".join(lines)
 
 
