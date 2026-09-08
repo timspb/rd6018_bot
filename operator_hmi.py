@@ -52,6 +52,7 @@ class OperatorHmiState:
     safety: str
     attention: str = "normal"
     stage_status: str = ""
+    finish_evidence: Optional[Mapping[str, Any]] = None
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -158,6 +159,25 @@ def _compact_stage_status(state: OperatorHmiState) -> str:
         if "Vmax: ищем" in progress or "свежий Vmax" in progress:
             return "⏳ Vmax не достигнут"
     return ""
+
+
+def _durable_finish_status(snapshot: Mapping[str, Any]) -> Optional[str]:
+    hold_active = snapshot.get("finish_hold_started_at") is not None or snapshot.get("delta_reported") is True
+    if not hold_active:
+        return None
+    if "finish_evidence" not in snapshot and "delta_reported" not in snapshot:
+        return None
+    evidence = snapshot.get("finish_evidence")
+    if isinstance(evidence, Mapping) and evidence.get("available") is True:
+        mode = str(evidence.get("mode") or "")
+        expected_mode = "CV" if snapshot.get("is_cv") else ("CC" if snapshot.get("is_cc") else "")
+        reference = _finite(evidence.get("reference_value"))
+        delta = _finite(evidence.get("accepted_delta"))
+        if mode == expected_mode == "CV" and reference is not None and delta is not None:
+            return f"✅ Delta подтверждена · Imin {reference:.2f} A · ΔI {delta:+.2f} A"
+        if mode == expected_mode == "CC" and reference is not None and delta is not None:
+            return f"✅ Delta подтверждена · Vmax {reference:.2f} V · ΔV {delta:+.2f} V"
+    return "✅ Delta подтверждена ранее · Evidence unavailable после восстановления"
 
 
 def _observer_runtime(app: Any) -> tuple[Any, str]:
@@ -272,6 +292,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             battery_label = f"{battery_label} · {capacity:g} Ah" if battery_label else f"{capacity:g} Ah"
         progress = ""
         stage_status = ""
+        snapshot: Mapping[str, Any] = {}
         progress_fn = getattr(app, "_format_stage_progress_line", None)
         if callable(progress_fn):
             try:
@@ -282,7 +303,10 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             snapshot = controller.v2_ui_snapshot()
             metrics = dict(snapshot.get("metrics") or {})
             hold_started = snapshot.get("finish_hold_started_at")
-            if regulator == "CV":
+            durable_status = _durable_finish_status(snapshot)
+            if durable_status is not None:
+                stage_status = durable_status
+            elif regulator == "CV":
                 minimum = _finite(metrics.get("current_min_a"))
                 if minimum is None or minimum <= 0:
                     stage_status = "⏳ Imin не достигнут"
@@ -335,6 +359,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             safety=safety,
             attention=attention,
             stage_status=stage_status,
+            finish_evidence=(snapshot.get("finish_evidence") if isinstance(snapshot, Mapping) else None),
         )
 
     manual = getattr(app, "manual_session_manager", None)

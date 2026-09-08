@@ -63,6 +63,53 @@ class V2UiTests(unittest.TestCase):
         self.assertNotIn("Imin", text)
         self.assertIn("финальная выдержка 2 ч", text)
 
+    def test_restored_cv_finish_uses_durable_evidence_when_runtime_is_empty(self):
+        text = format_active_evidence({
+            "authoritative": True, "intent": "recovery", "is_cv": True, "is_cc": False,
+            "delta_reported": True, "finish_hold_started_at": 100.0,
+            "finish_evidence": {
+                "available": True, "mode": "CV", "reference_value": 0.66,
+                "accepted_delta": 0.21, "accepted_at": 100.0,
+            }, "metrics": {},
+        })
+        self.assertIn("Imin 0.66 A", text)
+        self.assertIn("ΔI +0.21 A", text)
+        self.assertNotIn("не достигнут", text)
+
+    def test_restored_cc_finish_uses_durable_evidence_when_runtime_is_empty(self):
+        text = format_active_evidence({
+            "authoritative": True, "intent": "recovery", "is_cv": False, "is_cc": True,
+            "delta_reported": True, "finish_hold_started_at": 100.0,
+            "finish_evidence": {
+                "available": True, "mode": "CC", "reference_value": 16.47,
+                "accepted_delta": 0.05, "accepted_at": 100.0,
+            }, "metrics": {},
+        })
+        self.assertIn("Vmax 16.47 V", text)
+        self.assertIn("ΔV +0.05 V", text)
+        self.assertNotIn("не достигнут", text)
+
+    def test_restored_finish_without_evidence_is_explicitly_unavailable(self):
+        text = format_active_evidence({
+            "authoritative": True, "intent": "recovery", "is_cv": True, "is_cc": False,
+            "delta_reported": True, "finish_hold_started_at": 100.0,
+            "finish_evidence": None, "metrics": {},
+        })
+        self.assertIn("Evidence unavailable", text)
+        self.assertNotIn("Imin не достигнут", text)
+
+    def test_restored_finish_mode_mismatch_does_not_show_old_extremum(self):
+        text = format_active_evidence({
+            "authoritative": True, "intent": "recovery", "is_cv": False, "is_cc": True,
+            "delta_reported": True, "finish_hold_started_at": 100.0,
+            "finish_evidence": {
+                "available": True, "mode": "CV", "reference_value": 0.66,
+                "accepted_delta": 0.21, "accepted_at": 100.0,
+            }, "metrics": {},
+        })
+        self.assertIn("Evidence unavailable", text)
+        self.assertNotIn("Imin", text)
+
     def test_battery_card_surfaces_longitudinal_state_without_dev_labels(self):
         lifecycle = BatteryLifecycle(
             condition=BatteryCondition.REHYDRATED, water_added_total_ml=240,

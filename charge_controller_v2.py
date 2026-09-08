@@ -1228,6 +1228,16 @@ class ChargeControllerV2(ChargeController):
         decision = None
         reason = None
         events = []
+        raw_finish_evidence = getattr(self, "_finish_evidence", None)
+        finish_evidence = None
+        if isinstance(raw_finish_evidence, dict):
+            finish_evidence = {
+                "mode": raw_finish_evidence.get("mode"),
+                "reference_value": raw_finish_evidence.get("reference_value"),
+                "accepted_delta": raw_finish_evidence.get("accepted_delta"),
+                "accepted_at": raw_finish_evidence.get("accepted_at"),
+                "available": True,
+            }
         if self._v2_runtime is not None and self._v2_runtime.records:
             last = self._v2_runtime.records[-1]
             m = last.analysis.metrics
@@ -1256,6 +1266,8 @@ class ChargeControllerV2(ChargeController):
             "is_cv": bool(self.is_cv),
             "is_cc": bool(self.is_cc),
             "finish_hold_started_at": self.finish_timer_start,
+            "delta_reported": bool(getattr(self, "_delta_reported", False)),
+            "finish_evidence": finish_evidence,
             "decision": decision,
             "reason": reason,
             "events": events,

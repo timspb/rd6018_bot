@@ -33,6 +33,26 @@ class V2UiPolishTests(unittest.TestCase):
         self.assertNotIn("decision", text)
         self.assertNotIn("Факт:", text)
 
+    def test_restored_cv_finish_prefers_durable_evidence(self):
+        text = format_active_evidence_pretty({
+            "authoritative": True, "intent": "recovery", "is_cv": True, "is_cc": False,
+            "delta_reported": True, "finish_hold_started_at": 100.0,
+            "finish_evidence": {"available": True, "mode": "CV", "reference_value": 0.66, "accepted_delta": 0.21, "accepted_at": 100.0},
+            "metrics": {},
+        })
+        self.assertIn("Imin 0.66 A", text)
+        self.assertIn("ΔI +0.21 A", text)
+        self.assertNotIn("Imin: ищем", text)
+
+    def test_restored_finish_without_evidence_is_unavailable(self):
+        text = format_active_evidence_pretty({
+            "authoritative": True, "intent": "recovery", "is_cv": True, "is_cc": False,
+            "delta_reported": True, "finish_hold_started_at": 100.0,
+            "finish_evidence": None, "metrics": {},
+        })
+        self.assertIn("Evidence unavailable", text)
+        self.assertNotIn("Imin: ищем", text)
+
     def test_unconfirmed_regulator_does_not_leak_internal_state(self):
         text = format_active_evidence_pretty(
             {"authoritative": True, "intent": "recovery", "is_cv": False, "is_cc": False}

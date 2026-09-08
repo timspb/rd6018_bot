@@ -246,6 +246,8 @@ def format_active_evidence(
     is_cv = bool(snapshot.get("is_cv"))
     is_cc = bool(snapshot.get("is_cc"))
     lines = []
+    hold_active = snapshot.get("finish_hold_started_at") is not None or snapshot.get("delta_reported") is True
+    finish_evidence = snapshot.get("finish_evidence")
 
     authority = "V2" if snapshot.get("authoritative") else "резервная legacy-логика"
     intent_raw = str(snapshot.get("intent") or ChargeIntent.RECOVERY.value)
@@ -256,7 +258,25 @@ def format_active_evidence(
         intent_text = intent_raw
     lines.append(f"Контур: <b>{html.escape(authority)}</b> · {html.escape(intent_text)}")
 
-    if is_cv:
+    expected_mode = "CV" if is_cv else ("CC" if is_cc else "")
+    evidence_mode = str(finish_evidence.get("mode") or "") if isinstance(finish_evidence, Mapping) else ""
+    evidence_available = (
+        hold_active
+        and "finish_evidence" in snapshot
+        and isinstance(finish_evidence, Mapping)
+        and finish_evidence.get("available") is True
+        and evidence_mode == expected_mode
+    )
+    if evidence_available:
+        mode = evidence_mode
+        reference = _fmt(finish_evidence.get("reference_value"), 2, " A" if mode == "CV" else " V")
+        delta_value = finish_evidence.get("accepted_delta")
+        delta = "—" if delta_value is None else f"{float(delta_value):+.2f}{' A' if mode == 'CV' else ' V'}"
+        lines.append(f"<b>Delta подтверждена · {mode}</b>")
+        lines.append(f"{'Imin' if mode == 'CV' else 'Vmax'} {reference} · {'ΔI' if mode == 'CV' else 'ΔV'} {delta}")
+    elif hold_active and "finish_evidence" in snapshot:
+        lines.append(f"<b>Delta подтверждена ранее · {expected_mode or evidence_mode}</b> · Evidence unavailable после восстановления")
+    elif is_cv:
         imin = metrics.get("current_min_a")
         delta = metrics.get("delta_current_from_min_a")
         threshold = metrics.get("reversal_threshold_a")
@@ -282,7 +302,7 @@ def format_active_evidence(
     lines.append(
         f"Температурный тренд {_fmt(trend, 3, ' °C/мин')} · решение <code>{html.escape(decision)}</code>"
     )
-    if snapshot.get("finish_hold_started_at") is not None:
+    if hold_active:
         lines.append("Δ подтверждена · <b>финальная выдержка 2 ч</b>")
     if voltage_v is not None or current_a is not None or temp_c is not None:
         lines.append(

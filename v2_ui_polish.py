@@ -101,8 +101,31 @@ def format_active_evidence_pretty(
 
     is_cv = bool(snapshot.get("is_cv"))
     is_cc = bool(snapshot.get("is_cc"))
+    hold_active = snapshot.get("finish_hold_started_at") is not None or snapshot.get("delta_reported") is True
+    finish_evidence = snapshot.get("finish_evidence")
 
-    if is_cv:
+    expected_mode = "CV" if is_cv else ("CC" if is_cc else "")
+    evidence_mode = str(finish_evidence.get("mode") or "") if isinstance(finish_evidence, Mapping) else ""
+    evidence_available = (
+        hold_active
+        and "finish_evidence" in snapshot
+        and isinstance(finish_evidence, Mapping)
+        and finish_evidence.get("available") is True
+        and evidence_mode == expected_mode
+    )
+    if evidence_available:
+        mode = evidence_mode
+        reference = _finite(finish_evidence.get("reference_value"))
+        delta = _finite(finish_evidence.get("accepted_delta"))
+        if mode == "CV" and reference is not None and delta is not None:
+            lines.append(f"<b>Delta подтверждена</b> · Imin {reference:.2f} A · ΔI {delta:+.2f} A")
+        elif mode == "CC" and reference is not None and delta is not None:
+            lines.append(f"<b>Delta подтверждена</b> · Vmax {reference:.2f} V · ΔV {delta:+.2f} V")
+        else:
+            lines.append("<b>Delta подтверждена ранее</b> · Evidence unavailable после восстановления")
+    elif hold_active and "finish_evidence" in snapshot:
+        lines.append(f"<b>Delta подтверждена ранее · {expected_mode or evidence_mode}</b> · Evidence unavailable после восстановления")
+    elif is_cv:
         imin = _finite(metrics.get("current_min_a"))
         age = _duration(metrics.get("seconds_since_current_min"))
         delta = _finite(metrics.get("delta_current_from_min_a"))
@@ -137,7 +160,7 @@ def format_active_evidence_pretty(
     if temp_line:
         lines.append(temp_line)
 
-    if snapshot.get("finish_hold_started_at") is not None:
+    if hold_active:
         lines.append("Δ подтверждена · <b>финальная выдержка 2 ч</b>")
     else:
         decision = str(snapshot.get("decision") or "continue")
