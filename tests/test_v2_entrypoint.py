@@ -59,7 +59,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertNotIn("v2_status", dashboard_callbacks)
         self.assertNotIn("entities_status", dashboard_callbacks)
         self.assertNotIn("operator_graph", dashboard_callbacks)
-        self.assertNotIn("operator_more", dashboard_callbacks)
+        self.assertIn("operator_more", dashboard_callbacks)
 
     def test_charge_mode_copy_matches_normal_full_auto_contract(self):
         text = bot._charge_modes_text()
