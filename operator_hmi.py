@@ -137,6 +137,30 @@ def _compact_transition(state: OperatorHmiState) -> str:
     return f"➡️ {progress[:90]}"
 
 
+def _compact_stage_label(state: OperatorHmiState) -> str:
+    """Build the single operator-facing stage label for line one."""
+
+    if state.process_state is HmiProcessState.STORAGE:
+        return "FLOAT"
+    title = html.unescape(re.sub(r"<[^>]*>", "", str(state.title or ""))).upper()
+    if "MIX" in title:
+        return "MIX"
+    if "ВОССТАНОВЛЕНИ" in title:
+        return "ВОССТАНОВЛЕНИЕ"
+    if "КОНДИЦИ" in title:
+        return "КОНДИЦИОНИРОВАНИЕ"
+    if "ДИАГНОСТ" in title:
+        return "ДИАГНОСТИКА"
+    if state.process_state is HmiProcessState.PAUSED:
+        return "ПАУЗА"
+    return "ЗАРЯД"
+
+
+def _compact_battery_label(label: str) -> str:
+    compact = re.sub(r"\s*·\s*", " ", str(label or "").strip())
+    return re.sub(r"(\d+(?:\.\d+)?)\s+AH\b", r"\1Ah", compact, flags=re.IGNORECASE)
+
+
 def _compact_stage_status(state: OperatorHmiState) -> str:
     """Render finish evidence as one compact operator-facing line."""
     if getattr(state, "stage_status", ""):
@@ -467,12 +491,24 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
 
 def render_operator_panel(state: OperatorHmiState) -> str:
     mode = _main_mode(state)
-    title = state.title
-    if mode and mode not in title:
-        title = f"{title} · {mode}"
-    lines = [f"<b>{html.escape(title)}</b>"]
-    if state.battery_label:
-        lines.append(f"🔋 {html.escape(state.battery_label)}")
+    authority_value = getattr(state.authority, "value", state.authority)
+    active_panel = authority_value in {
+        HmiAuthority.AUTO.value,
+        HmiAuthority.MANUAL.value,
+        HmiAuthority.ADOPTED_MIX.value,
+        HmiAuthority.AUTO,
+        HmiAuthority.MANUAL,
+        HmiAuthority.ADOPTED_MIX,
+    }
+    if active_panel:
+        stage = _compact_stage_label(state)
+        battery = _compact_battery_label(state.battery_label)
+        first_line = f"🔋 {battery} · {stage}" if battery else f"RD6018 · {stage}"
+        if mode:
+            first_line += f" · {mode}"
+    else:
+        first_line = str(state.title or "RD6018")
+    lines = [f"<b>{html.escape(first_line)}</b>"]
     lines.append(
         f"⚡ {_bold_value(state.battery_voltage_v, 2, 'V')} · "
         f"{_bold_value(state.current_a, 2, 'A')} · 🌡 АКБ "
@@ -481,19 +517,25 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if state.target_voltage_v is not None or state.current_limit_a is not None:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
-        lines.append(f"🎯 {target} · лимит {limit}")
+        lines.append(f"🎯 {target} · {limit} 🌡 БП {_temperature(getattr(state, 'psu_temp_c', None))}")
     stage_status = _compact_stage_status(state)
-    if stage_status:
-        lines.append(stage_status)
-    lines.append(f"🛡 {html.escape(state.safety.removeprefix('🛡 ').strip())}")
     transition = _compact_transition(state)
-    if transition:
-        # _compact_transition emits markup only for the fixed, escaped-safe
-        # operator status above; all other transition text is escaped here.
-        if transition.startswith("➡️ <b>") and transition.endswith("</b>"):
-            lines.append(transition)
-        else:
-            lines.append(html.escape(transition))
+    stage_status_warning = str(getattr(state, "stage_status", ""))
+    if stage_status_warning.startswith("⚠️ Телеметрия устарела"):
+        lines.append(stage_status_warning)
+    else:
+        next_line = transition or stage_status
+        if transition and stage_status:
+            next_line = f"{transition} · {stage_status.removeprefix('➡️ ')}"
+        if active_panel and not next_line:
+            next_line = "➡️ Ожидание условия перехода"
+        if next_line:
+            if next_line.startswith("➡️ <b>"):
+                lines.append(next_line)
+            else:
+                lines.append(html.escape(next_line))
+    if not active_panel:
+        lines.append(f"🛡 {html.escape(state.safety.removeprefix('🛡 ').strip())}")
     return "\n".join(lines)
 
 
@@ -510,20 +552,17 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
     rows: list[list[InlineKeyboardButton]] = []
     info_row = [
         InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-        InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
         InlineKeyboardButton(text="📋 События", callback_data="logs"),
     ]
     more_row = [InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")]
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
         rows.append(info_row)
-        rows.append(more_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.INTERRUPTED:
         rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
         rows.append(info_row)
-        rows.append(more_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.HANDS_OFF:
@@ -548,7 +587,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
 
     if state.process_state is HmiProcessState.STORAGE:
         rows.append(info_row)
-        rows.append(more_row)
         return with_refresh(rows)
 
     if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
@@ -563,7 +601,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             ]
         )
         rows.append(info_row)
-        rows.append(more_row)
         return with_refresh(rows)
 
     rows.append(info_row)

@@ -85,15 +85,16 @@ class OperatorHmiTests(unittest.TestCase):
         )
         text = render_operator_panel(state)
 
-        self.assertIn("<b>Восстановление · CV</b>", text)
+        self.assertIn("<b>🔋 Ca/Ca 72Ah · ВОССТАНОВЛЕНИЕ · CV</b>", text)
         self.assertIn("<b>13.86 V</b>", text)
         self.assertIn("<b>0.00 A</b>", text)
         self.assertIn("<b>24.0 °C</b>", text)
-        self.assertIn("🎯 14.72 V · лимит 7.20 A", text)
+        self.assertIn("🎯 14.72 V · 7.20 A 🌡 БП —", text)
         self.assertNotIn("<b>14.72 V</b>", text)
         self.assertNotIn("<b>7.20 A</b>", text)
         self.assertNotIn("Режим регулятора определяется", text)
         self.assertNotIn("&lt;b&gt;", text)
+        self.assertEqual(len(text.splitlines()), 4)
 
         class _Tags(HTMLParser):
             pass
@@ -150,12 +151,12 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
-        self.assertIn("MIX ПОДХВАЧЕН", text)
-        self.assertIn("Baic72 · Ca/Ca · 72 Ah", text)
-        self.assertIn("MIX ПОДХВАЧЕН · CV", text)
+        self.assertIn("Ca/Ca 72Ah · MIX · CV", text)
+        self.assertIn("Baic72 Ca/Ca 72Ah · MIX · CV", text)
+        self.assertIn("MIX · CV", text)
         self.assertIn("16.55 V", text)
         self.assertIn("0.90 A", text)
-        self.assertIn("🎯 16.54 V · лимит 1.01 A", text)
+        self.assertIn("🎯 16.54 V · 1.01 A 🌡 БП 40.0°C", text)
         self.assertIn("FLOAT", text)
         self.assertNotIn("РЕЖИМ РД", text)
         self.assertNotIn("НЕ ЛЕЗЬ", text)
@@ -178,10 +179,10 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("operator_details", callbacks)
         self.assertIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
-        self.assertIn("operator_graph", callbacks)
+        self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
-        self.assertIn("operator_more", callbacks)
+        self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("rd_hands_off_disable", callbacks)
         self.assertNotIn("chart_30m", callbacks)
         self.assertNotIn("chart_2h", callbacks)
@@ -281,7 +282,7 @@ class OperatorHmiTests(unittest.TestCase):
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
         self.assertEqual(state.process_state, HmiProcessState.INTERRUPTED)
-        self.assertIn("ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ", text)
+        self.assertIn("MIX · CV", text)
         self.assertIn("Подхват прерван", text)
         self.assertIn("rd_live_mix", callbacks)
         self.assertNotIn("operator_adopted_stop", callbacks)
@@ -291,14 +292,14 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertNotIn("W", text)
-        self.assertNotIn("БП", text)
+        self.assertIn("БП", text)
 
     def test_cc_panel_exposes_regulator_and_transition(self):
         values = live()
         values["is_cv"] = "off"
         values["is_cc"] = "on"
         values["power"] = 99.0
-        state = build_operator_hmi_state(FakeApp(observer=None), values)
+        state = build_operator_hmi_state(FakeApp(observer=None, hands_off=False, controller_active=True), values)
         text = render_operator_panel(state)
 
         self.assertIn("CC", text)
@@ -324,7 +325,7 @@ class OperatorHmiTests(unittest.TestCase):
         )
         text = render_operator_panel(state)
         self.assertIn("✅ Imin 0.220 A · ⏱ 2ч 02м", text)
-        self.assertLess(text.index("Imin"), text.index("Защита"))
+        self.assertIn("🎯 16.46 V · 2.16 A", text)
 
     def test_cv_panel_shows_unreached_minimum_compactly(self):
         state = types.SimpleNamespace(
@@ -368,7 +369,7 @@ class OperatorHmiTests(unittest.TestCase):
         state = build_operator_hmi_state(app, live())
         text = render_operator_panel(state)
         self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
-        self.assertLess(text.index("Imin"), text.index("Защита"))
+        self.assertIn("🎯 16.54 V · 1.01 A", text)
 
     def test_empty_runtime_after_restore_does_not_claim_imin_missing(self):
         controller = types.SimpleNamespace(
@@ -395,10 +396,10 @@ class OperatorHmiTests(unittest.TestCase):
         keyboard = build_operator_keyboard(app, state)
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
-        self.assertEqual(len(rows[1]), 3)  # details, graph, events
+        self.assertEqual(len(rows[1]), 2)  # details, events
         self.assertIn("logs", {button.callback_data for button in rows[1]})
-        self.assertIn("operator_graph", {button.callback_data for button in rows[1]})
-        self.assertIn("operator_more", {button.callback_data for row in rows for button in row})
+        self.assertNotIn("operator_graph", {button.callback_data for row in rows for button in row})
+        self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})
         self.assertEqual(len(rows[-1]), 1)  # refresh
 
@@ -419,8 +420,9 @@ class OperatorHmiTests(unittest.TestCase):
         state = build_operator_hmi_state(FakeApp(observer=None, hands_off=False), values)
         text = render_operator_panel(state)
 
-        self.assertIn("OVP", text)
-        self.assertIn("Защита", text)
+        details = render_operator_details(FakeApp(observer=None, hands_off=False), state, values)
+        self.assertIn("OVP", details)
+        self.assertIn("Защита", details)
 
     def test_storage_is_terminal_and_has_no_pause_or_stop(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)
