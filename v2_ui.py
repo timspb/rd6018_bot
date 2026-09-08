@@ -233,18 +233,47 @@ def _duration(seconds: Any) -> str:
     return f"{hours}ч {minutes:02d}м" if hours else f"{minutes}м"
 
 
+def _display_mode(snapshot: Mapping[str, Any], live_mode: Optional[str] = None) -> str:
+    """Resolve display mode only; never use this value for control."""
+    if live_mode in {"CV", "CC"}:
+        return live_mode
+    if bool(snapshot.get("is_cv")) and not bool(snapshot.get("is_cc")):
+        return "CV"
+    if bool(snapshot.get("is_cc")) and not bool(snapshot.get("is_cv")):
+        return "CC"
+    evidence = snapshot.get("finish_evidence")
+    if isinstance(evidence, Mapping) and evidence.get("mode") in {"CV", "CC"}:
+        return str(evidence["mode"])
+    return ""
+
+
+def _runtime_analysis_available(snapshot: Mapping[str, Any]) -> bool:
+    if "runtime_analysis_available" in snapshot:
+        return snapshot.get("runtime_analysis_available") is True
+    metrics = snapshot.get("metrics")
+    return bool(
+        snapshot.get("decision") is not None
+        or snapshot.get("reason") is not None
+        or snapshot.get("events")
+        or any(value is not None for value in dict(metrics or {}).values())
+    )
+
+
 def format_active_evidence(
     snapshot: Mapping[str, Any],
     *,
     voltage_v: Optional[float] = None,
     current_a: Optional[float] = None,
     temp_c: Optional[float] = None,
+    mode: Optional[str] = None,
 ) -> str:
     """Detailed controller evidence for the secondary controller-status screen."""
 
     metrics = dict(snapshot.get("metrics") or {})
-    is_cv = bool(snapshot.get("is_cv"))
-    is_cc = bool(snapshot.get("is_cc"))
+    display_mode = _display_mode(snapshot, mode)
+    is_cv = display_mode == "CV"
+    is_cc = display_mode == "CC"
+    runtime_available = _runtime_analysis_available(snapshot)
     lines = []
     hold_active = snapshot.get("finish_hold_started_at") is not None or snapshot.get("delta_reported") is True
     finish_evidence = snapshot.get("finish_evidence")
@@ -258,7 +287,7 @@ def format_active_evidence(
         intent_text = intent_raw
     lines.append(f"Контур: <b>{html.escape(authority)}</b> · {html.escape(intent_text)}")
 
-    expected_mode = "CV" if is_cv else ("CC" if is_cc else "")
+    expected_mode = display_mode
     evidence_mode = str(finish_evidence.get("mode") or "") if isinstance(finish_evidence, Mapping) else ""
     evidence_available = (
         hold_active
@@ -276,6 +305,8 @@ def format_active_evidence(
         lines.append(f"{'Imin' if mode == 'CV' else 'Vmax'} {reference} · {'ΔI' if mode == 'CV' else 'ΔV'} {delta}")
     elif hold_active and "finish_evidence" in snapshot:
         lines.append(f"<b>Delta подтверждена ранее · {expected_mode or evidence_mode}</b> · Evidence unavailable после восстановления")
+    elif not runtime_available:
+        lines.append("Анализ после восстановления недоступен")
     elif is_cv:
         imin = metrics.get("current_min_a")
         delta = metrics.get("delta_current_from_min_a")
@@ -298,9 +329,10 @@ def format_active_evidence(
         lines.append("Режим регулятора пока не подтверждён")
 
     trend = metrics.get("d_temp_c_per_min")
-    decision = str(snapshot.get("decision") or "continue")
+    decision = snapshot.get("decision") if runtime_available else None
+    decision_text = str(decision) if decision not in (None, "") else "Ожидание свежего анализа после восстановления"
     lines.append(
-        f"Температурный тренд {_fmt(trend, 3, ' °C/мин')} · решение <code>{html.escape(decision)}</code>"
+        f"Температурный тренд {_fmt(trend, 3, ' °C/мин')} · решение <code>{html.escape(decision_text)}</code>"
     )
     if hold_active:
         lines.append("Δ подтверждена · <b>финальная выдержка 2 ч</b>")

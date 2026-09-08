@@ -53,6 +53,24 @@ class V2UiPolishTests(unittest.TestCase):
         self.assertIn("Evidence unavailable", text)
         self.assertNotIn("Imin: ищем", text)
 
+    def test_empty_runtime_after_restore_does_not_claim_minimum_missing(self):
+        text = format_active_evidence_pretty({
+            "is_cv": True, "runtime_analysis_available": False,
+            "metrics": {}, "decision": None,
+        })
+        self.assertIn("Анализ после восстановления недоступен", text)
+        self.assertNotIn("Imin: ищем", text)
+
+    def test_durable_cc_mode_is_used_when_runtime_mode_is_empty(self):
+        text = format_active_evidence_pretty({
+            "runtime_analysis_available": False, "finish_hold_started_at": 100.0,
+            "delta_reported": True, "finish_evidence": {
+                "available": True, "mode": "CC", "reference_value": 16.47,
+                "accepted_delta": 0.05,
+            }, "metrics": {},
+        })
+        self.assertIn("Vmax 16.47 V", text)
+
     def test_unconfirmed_regulator_does_not_leak_internal_state(self):
         text = format_active_evidence_pretty(
             {"authoritative": True, "intent": "recovery", "is_cv": False, "is_cc": False}

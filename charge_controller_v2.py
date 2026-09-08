@@ -1257,6 +1257,9 @@ class ChargeControllerV2(ChargeController):
                 "delta_voltage_from_max_v": m.delta_voltage_from_max_v,
                 "voltage_reversal_threshold_v": m.voltage_reversal_threshold_v,
             }
+        runtime_analysis_available = bool(
+            self._v2_runtime is not None and self._v2_runtime.records
+        )
         return {
             "authoritative": self._v2_authoritative,
             "battery_id": self._v2_battery_id,
@@ -1268,6 +1271,7 @@ class ChargeControllerV2(ChargeController):
             "finish_hold_started_at": self.finish_timer_start,
             "delta_reported": bool(getattr(self, "_delta_reported", False)),
             "finish_evidence": finish_evidence,
+            "runtime_analysis_available": runtime_analysis_available,
             "decision": decision,
             "reason": reason,
             "events": events,

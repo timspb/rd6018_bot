@@ -7,7 +7,7 @@ from typing import Any, Mapping, Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from pb_domain import ChargeIntent
-from v2_ui import INTENT_LABELS
+from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
 
 
 _DECISION_LABELS = {
@@ -86,6 +86,7 @@ def format_active_evidence_pretty(
     current_a: Optional[float] = None,
     temp_c: Optional[float] = None,
     include_header: bool = True,
+    mode: Optional[str] = None,
 ) -> str:
     """Operator-facing evidence block: compact, mode-specific and jargon-light."""
 
@@ -99,12 +100,14 @@ def format_active_evidence_pretty(
     if not snapshot.get("authoritative", True):
         lines.append("⚠️ Управление временно на резервной legacy-логике")
 
-    is_cv = bool(snapshot.get("is_cv"))
-    is_cc = bool(snapshot.get("is_cc"))
+    display_mode = _display_mode(snapshot, mode)
+    is_cv = display_mode == "CV"
+    is_cc = display_mode == "CC"
+    runtime_available = _runtime_analysis_available(snapshot)
     hold_active = snapshot.get("finish_hold_started_at") is not None or snapshot.get("delta_reported") is True
     finish_evidence = snapshot.get("finish_evidence")
 
-    expected_mode = "CV" if is_cv else ("CC" if is_cc else "")
+    expected_mode = display_mode
     evidence_mode = str(finish_evidence.get("mode") or "") if isinstance(finish_evidence, Mapping) else ""
     evidence_available = (
         hold_active
@@ -125,6 +128,8 @@ def format_active_evidence_pretty(
             lines.append("<b>Delta подтверждена ранее</b> · Evidence unavailable после восстановления")
     elif hold_active and "finish_evidence" in snapshot:
         lines.append(f"<b>Delta подтверждена ранее · {expected_mode or evidence_mode}</b> · Evidence unavailable после восстановления")
+    elif not runtime_available:
+        lines.append("Анализ после восстановления недоступен")
     elif is_cv:
         imin = _finite(metrics.get("current_min_a"))
         age = _duration(metrics.get("seconds_since_current_min"))
@@ -163,10 +168,12 @@ def format_active_evidence_pretty(
     if hold_active:
         lines.append("Δ подтверждена · <b>финальная выдержка 2 ч</b>")
     else:
-        decision = str(snapshot.get("decision") or "continue")
+        decision = snapshot.get("decision") if runtime_available else None
         decision_line = _DECISION_LABELS.get(decision)
         if decision_line:
             lines.append(decision_line)
+        elif not runtime_available:
+            lines.append("Ожидание свежего анализа после восстановления")
 
     return "\n".join(lines)
 
@@ -285,7 +292,7 @@ def install_dashboard_polish(app: Any, ui_module: Any) -> None:
             controller.STAGE_MIX,
         }:
             try:
-                evidence = format_active_evidence_pretty(snapshot, include_header=False)
+                evidence = format_active_evidence_pretty(snapshot, include_header=False, mode=mode)
             except Exception:
                 evidence = ""
             if evidence:

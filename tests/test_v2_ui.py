@@ -110,6 +110,33 @@ class V2UiTests(unittest.TestCase):
         self.assertIn("Evidence unavailable", text)
         self.assertNotIn("Imin", text)
 
+    def test_empty_runtime_after_restore_is_explicitly_unavailable(self):
+        text = format_active_evidence({
+            "is_cv": True, "runtime_analysis_available": False,
+            "metrics": {}, "decision": None, "reason": None, "events": [],
+        })
+        self.assertIn("Анализ после восстановления недоступен", text)
+        self.assertNotIn("Imin не достигнут", text)
+        self.assertIn("Ожидание свежего анализа после восстановления", text)
+
+    def test_durable_finish_mode_is_display_fallback_without_live_mode(self):
+        text = format_active_evidence({
+            "runtime_analysis_available": False, "finish_hold_started_at": 100.0,
+            "delta_reported": True, "finish_evidence": {
+                "available": True, "mode": "CC", "reference_value": 16.47,
+                "accepted_delta": 0.05, "accepted_at": 100.0,
+            }, "metrics": {},
+        })
+        self.assertIn("Vmax 16.47 V", text)
+        self.assertNotIn("режим не подтверждён", text)
+
+    def test_real_runtime_decision_remains_visible(self):
+        text = format_active_evidence({
+            "is_cv": True, "runtime_analysis_available": True,
+            "metrics": {"current_min_a": 0.4}, "decision": "continue",
+        })
+        self.assertIn("решение <code>continue</code>", text)
+
     def test_battery_card_surfaces_longitudinal_state_without_dev_labels(self):
         lifecycle = BatteryLifecycle(
             condition=BatteryCondition.REHYDRATED, water_added_total_ml=240,

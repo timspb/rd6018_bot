@@ -161,7 +161,7 @@ def _compact_stage_status(state: OperatorHmiState) -> str:
     return ""
 
 
-def _durable_finish_status(snapshot: Mapping[str, Any]) -> Optional[str]:
+def _durable_finish_status(snapshot: Mapping[str, Any], live_mode: str = "") -> Optional[str]:
     hold_active = snapshot.get("finish_hold_started_at") is not None or snapshot.get("delta_reported") is True
     if not hold_active:
         return None
@@ -170,7 +170,9 @@ def _durable_finish_status(snapshot: Mapping[str, Any]) -> Optional[str]:
     evidence = snapshot.get("finish_evidence")
     if isinstance(evidence, Mapping) and evidence.get("available") is True:
         mode = str(evidence.get("mode") or "")
-        expected_mode = "CV" if snapshot.get("is_cv") else ("CC" if snapshot.get("is_cc") else "")
+        expected_mode = live_mode if live_mode in {"CV", "CC"} else (
+            "CV" if snapshot.get("is_cv") else ("CC" if snapshot.get("is_cc") else "")
+        )
         reference = _finite(evidence.get("reference_value"))
         delta = _finite(evidence.get("accepted_delta"))
         if mode == expected_mode == "CV" and reference is not None and delta is not None:
@@ -303,9 +305,11 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             snapshot = controller.v2_ui_snapshot()
             metrics = dict(snapshot.get("metrics") or {})
             hold_started = snapshot.get("finish_hold_started_at")
-            durable_status = _durable_finish_status(snapshot)
+            durable_status = _durable_finish_status(snapshot, regulator)
             if durable_status is not None:
                 stage_status = durable_status
+            elif snapshot.get("runtime_analysis_available") is False and regulator in {"CV", "CC"}:
+                stage_status = "⏳ Анализ после восстановления недоступен"
             elif regulator == "CV":
                 minimum = _finite(metrics.get("current_min_a"))
                 if minimum is None or minimum <= 0:

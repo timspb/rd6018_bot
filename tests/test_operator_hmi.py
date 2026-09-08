@@ -355,6 +355,25 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
         self.assertLess(text.index("Imin"), text.index("Защита"))
 
+    def test_empty_runtime_after_restore_does_not_claim_imin_missing(self):
+        controller = types.SimpleNamespace(
+            is_active=True,
+            current_stage="Mix Mode",
+            battery_type="Ca/Ca",
+            ah_capacity=72,
+            v2_ui_snapshot=lambda: {
+                "is_cv": False, "is_cc": False,
+                "runtime_analysis_available": False,
+                "finish_hold_started_at": None, "metrics": {},
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        state = build_operator_hmi_state(app, live())
+        text = render_operator_panel(state)
+        self.assertIn("Анализ после восстановления недоступен", text)
+        self.assertNotIn("Imin не достигнут", text)
+
     def test_main_actions_are_grouped_and_service_menu_hides_diagnostics(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)
         state = build_operator_hmi_state(app, live())
