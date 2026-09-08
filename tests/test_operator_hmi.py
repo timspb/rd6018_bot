@@ -6,6 +6,7 @@ from operator_hmi import (
     HmiProcessState,
     build_operator_hmi_state,
     build_operator_keyboard,
+    _more_keyboard,
     render_operator_details,
     render_operator_panel,
 )
@@ -176,11 +177,11 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("operator_adopted_stop", callbacks)
         self.assertIn("operator_details", callbacks)
         self.assertIn("logs", callbacks)
-        self.assertIn("ai_analysis", callbacks)
-        self.assertNotIn("operator_graph", callbacks)
+        self.assertNotIn("ai_analysis", callbacks)
+        self.assertIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
-        self.assertNotIn("operator_more", callbacks)
+        self.assertIn("operator_more", callbacks)
         self.assertNotIn("rd_hands_off_disable", callbacks)
         self.assertNotIn("chart_30m", callbacks)
         self.assertNotIn("chart_2h", callbacks)
@@ -212,16 +213,30 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
         self.assertEqual(texts[0], "⚡ Режимы заряда")
         self.assertIn("charge_modes", callbacks)
-        self.assertIn("v2_manual_choose", callbacks)
+        self.assertNotIn("v2_manual_choose", callbacks)
         self.assertIn("logs", callbacks)
-        self.assertIn("ai_analysis", callbacks)
+        self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
-        self.assertNotIn("operator_more", callbacks)
+        self.assertIn("operator_more", callbacks)
         self.assertNotIn("v2_status", callbacks)
         self.assertNotIn("entities_status", callbacks)
         self.assertNotIn("chart_30m", callbacks)
+
+    def test_more_menu_contains_service_actions_and_manual(self):
+        app = FakeApp(observer=None, hands_off=False)
+        state = build_operator_hmi_state(app, live(output="off"))
+        callbacks = [
+            button.callback_data
+            for row in _more_keyboard(state).inline_keyboard
+            for button in row
+        ]
+        self.assertIn("ai_analysis", callbacks)
+        self.assertIn("v2_status", callbacks)
+        self.assertIn("entities_status", callbacks)
+        self.assertIn("operator_service_details", callbacks)
+        self.assertIn("v2_manual_choose", callbacks)
 
     def test_adopted_details_are_truthful_about_low_level_authority(self):
         app = FakeApp(observer=FakeObserver())
@@ -380,9 +395,11 @@ class OperatorHmiTests(unittest.TestCase):
         keyboard = build_operator_keyboard(app, state)
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
-        self.assertEqual(len(rows[1]), 3)  # details, events, AI
+        self.assertEqual(len(rows[1]), 3)  # details, graph, events
         self.assertIn("logs", {button.callback_data for button in rows[1]})
-        self.assertIn("ai_analysis", {button.callback_data for button in rows[1]})
+        self.assertIn("operator_graph", {button.callback_data for button in rows[1]})
+        self.assertIn("operator_more", {button.callback_data for row in rows for button in row})
+        self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})
         self.assertEqual(len(rows[-1]), 1)  # refresh
 
     def test_paused_charge_has_resume_and_terminal_stop_side_by_side(self):

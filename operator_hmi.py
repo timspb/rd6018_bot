@@ -484,6 +484,11 @@ def render_operator_panel(state: OperatorHmiState) -> str:
 
 
 def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboardMarkup:
+    """Authoritative L2 operator keyboard.
+
+    Other builders remain compatibility surfaces for legacy handlers, but the
+    installed production panel always routes through this builder.
+    """
     def with_refresh(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -491,17 +496,20 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
     rows: list[list[InlineKeyboardButton]] = []
     info_row = [
         InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
+        InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
         InlineKeyboardButton(text="📋 События", callback_data="logs"),
-        InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
     ]
+    more_row = [InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")]
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
         rows.append(info_row)
+        rows.append(more_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.INTERRUPTED:
         rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
         rows.append(info_row)
+        rows.append(more_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.HANDS_OFF:
@@ -509,6 +517,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             rows.append([InlineKeyboardButton(text="🧲 Подхватить текущий Mix", callback_data="rd_live_mix")])
             rows.append([InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off")])
         rows.append(info_row)
+        rows.append(more_row)
         if not state.output_on:
             rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
         return with_refresh(rows)
@@ -517,16 +526,10 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append([InlineKeyboardButton(text="⚡ Режимы заряда", callback_data="charge_modes")])
         rows.append(
             [
-                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose"),
                 InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
             ]
         )
-        rows.append(
-            [
-                InlineKeyboardButton(text="📋 События", callback_data="logs"),
-                InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
-            ]
-        )
+        rows.append(more_row)
         return with_refresh(rows)
 
     if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
@@ -541,15 +544,17 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             ]
         )
         rows.append(info_row)
+        rows.append(more_row)
         return with_refresh(rows)
 
     rows.append(info_row)
+    rows.append(more_row)
     rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
     return with_refresh(rows)
 
 
 def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
-    lines = ["<b>📋 Полная информация по заряду</b>", ""]
+    lines = ["<b>📋 Информация для оператора</b>", ""]
     ah = _finite(live.get("ah"))
     uptime = str(live.get("uptime") or "—")
     input_voltage = _finite(live.get("input_voltage"))
@@ -614,12 +619,37 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
                 f"🔌 Вход: {_value(input_voltage, 1, 'V')} · ⏱ Работа: {html.escape(uptime)}",
             ]
         )
+    lines.append(f"🛡 Защита: {html.escape(state.safety)}")
+    return "\n".join(lines)
+
+
+def render_operator_service_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
+    """Technical read-only details kept outside the operator screen."""
+    lines = ["<b>🛠 Сервисная информация</b>", ""]
+    lines.append(f"Authority: <code>{html.escape(state.authority.value)}</code>")
+    lines.append(f"Output: <code>{'ON' if state.output_on else 'OFF'}</code>")
+    lines.append(f"Режим: <code>{html.escape(state.regulator or '—')}</code>")
+    controller = getattr(app, "charge_controller", None)
+    if controller is not None:
+        try:
+            snapshot = controller.v2_ui_snapshot()
+        except Exception:
+            snapshot = {}
+        lines.append(f"Этап: <code>{html.escape(str(getattr(controller, 'current_stage', '—')))}</code>")
+        lines.append(f"V2 analysis: <code>{'available' if snapshot.get('runtime_analysis_available') else 'unavailable'}</code>")
+        lines.append(f"Decision: <code>{html.escape(str(snapshot.get('decision') or '—'))}</code>")
     ovp = _finite(live.get("ovp"))
     ocp = _finite(live.get("ocp"))
     protection = html.escape(str(live.get("protection_code") or "—"))
     regulation = html.escape(str(live.get("regulation_code") or "—"))
-    lines.append(f"\n🛡 Защиты RD: OVP {_value(ovp, 2, 'V')} · OCP {_value(ocp, 2, 'A')}")
-    lines.append(f"Коды: protection <code>{protection}</code> · regulation <code>{regulation}</code>")
+    lines.extend(
+        [
+            f"OVP/OCP: <code>{_value(ovp, 2, 'V')} / {_value(ocp, 2, 'A')}</code>",
+            f"Protection/Regulation: <code>{protection} / {regulation}</code>",
+            f"Heartbeat: <code>{html.escape(str(live.get('last_reported') or live.get('last_updated') or '—'))}</code>",
+            "Lease/Modbus details доступны в диагностическом экране.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -675,9 +705,18 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
 def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
+            InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
+            InlineKeyboardButton(text="🎛 V2 контроллер", callback_data="v2_status"),
         ],
+        [
+            InlineKeyboardButton(text="🩺 Диагностика HA", callback_data="entities_status"),
+            InlineKeyboardButton(text="🛠 Сервис", callback_data="operator_service_details"),
+        ],
+        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
     ]
+    if state.process_state is HmiProcessState.IDLE:
+        rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
+        rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="🧲 Статус Mix", callback_data="rd_live_mix_status")])
     if state.process_state is HmiProcessState.HANDS_OFF and not state.output_on:
@@ -792,6 +831,19 @@ def install_operator_hmi(app: Any) -> None:
         await call.answer()
         await call.message.answer(
             render_operator_details(app, state, live),
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=_back_keyboard(),
+        )
+
+    @app.router.callback_query(F.data == "operator_service_details")
+    async def _operator_service_details(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        live = await app.hass.get_all_live()
+        state = build_operator_hmi_state(app, live)
+        await call.answer()
+        await call.message.answer(
+            render_operator_service_details(app, state, live),
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
