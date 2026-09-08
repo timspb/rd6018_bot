@@ -1307,6 +1307,80 @@ class ChargeControllerV2(ChargeController):
             "metrics": metrics,
         }
 
+    def signal_analyzer_diagnostic_snapshot(self) -> Dict[str, Any]:
+        """Return a read-only, non-authoritative analyzer diagnostic snapshot.
+
+        This deliberately exposes observation state only.  It is not consumed by
+        the controller, safety gates, persistence, or operator HMI decisions.
+        """
+        context = self._v2_session_signal_context
+        runtime = self._v2_runtime
+        analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
+        records = getattr(runtime, "records", None) if runtime is not None else None
+        last_record = records[-1] if records else None
+        if analyzer is None or not isinstance(context, dict):
+            return {
+                "available": False,
+                "session_id": context.get("session_id") if isinstance(context, dict) else self._v2_trace_session_id,
+                "mode": context.get("mode") if isinstance(context, dict) else None,
+                "runtime_evidence_available": False,
+                "cc": {"voltage_max_v": None, "voltage_max_time": None,
+                       "delta_reference_v": None, "voltage_reversal_confirmations": 0,
+                       "voltage_reversal_emitted": False},
+                "cv": {"current_min_a": None, "current_min_time": None,
+                       "delta_reference_a": None, "current_reversal_confirmations": 0,
+                       "current_reversal_emitted": False},
+                "last_sample": None,
+            }
+
+        point = last_record.point if last_record is not None else None
+        invalid = bool(last_record and last_record.analysis.has(SignalEvent.TELEMETRY_INVALID))
+        output_on = context.get("output_on")
+        accepted = bool(last_record is not None and not invalid and output_on is not False)
+        reject_reason = None
+        if invalid:
+            reject_reason = "telemetry_invalid"
+        elif last_record is not None and output_on is False:
+            reject_reason = "output_off_gate"
+        elif last_record is None:
+            reject_reason = "no_runtime_sample"
+
+        last_sample = None
+        if point is not None:
+            last_sample = {
+                "timestamp": point.timestamp_s,
+                "voltage": point.voltage_v,
+                "current": point.current_a,
+                "is_cv": point.is_cv,
+                "is_cc": point.is_cc,
+                "output_on": output_on,
+                "telemetry_valid": not invalid,
+                "accepted": accepted,
+                "reject_reason": reject_reason,
+            }
+        snapshot = self.v2_ui_snapshot()
+        return {
+            "available": True,
+            "session_id": context.get("session_id"),
+            "mode": context.get("mode"),
+            "runtime_evidence_available": bool(snapshot.get("runtime_evidence_available")),
+            "cc": {
+                "voltage_max_v": analyzer._voltage_max_v,
+                "voltage_max_time": analyzer._voltage_max_time_s,
+                "delta_reference_v": analyzer._voltage_max_v,
+                "voltage_reversal_confirmations": analyzer._voltage_reversal_confirmations,
+                "voltage_reversal_emitted": bool(analyzer._voltage_reversal_emitted),
+            },
+            "cv": {
+                "current_min_a": analyzer._current_min_a,
+                "current_min_time": analyzer._current_min_time_s,
+                "delta_reference_a": analyzer._current_min_a,
+                "current_reversal_confirmations": analyzer._reversal_confirmations,
+                "current_reversal_emitted": bool(analyzer._reversal_emitted),
+            },
+            "last_sample": last_sample,
+        }
+
     @property
     def recovery_shadow_summary(self) -> Dict[str, Any]:
         if self._v2_runtime is None:

@@ -251,6 +251,12 @@ class PhysicalTestControl:
         manager = self.app.rd_control_mode_manager
         adoption = self.app.rd_managed_live_adoption
         manual = self.app.manual_session_manager
+        controller = getattr(self.app, "charge_controller", None)
+        signal_snapshot_fn = getattr(controller, "signal_analyzer_diagnostic_snapshot", None)
+        signal_snapshot = signal_snapshot_fn() if callable(signal_snapshot_fn) else {
+            "available": False,
+            "reason": "signal analyzer snapshot unavailable",
+        }
         return {
             "rd_control_mode": _enum_value(manager.mode),
             "adoption_state": _enum_value(adoption.state),
@@ -277,6 +283,7 @@ class PhysicalTestControl:
                 "output_age_s": live.get("_meta", {}).get("switch", {}).get("age_s"),
                 "output_source_key": live.get("_meta", {}).get("switch", {}).get("source_key"),
             },
+            "signal_analyzer": signal_snapshot,
         }
 
     async def _enter_hands_off_verified_off(self) -> Dict[str, Any]:
