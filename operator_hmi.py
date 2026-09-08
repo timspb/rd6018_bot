@@ -310,10 +310,17 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             process = HmiProcessState.PAUSED
         elif "storage" in lowered or "хран" in lowered:
             process = HmiProcessState.STORAGE
+        operator_paused = bool(getattr(app, "_operator_pause_active", lambda: False)())
+        if operator_paused:
+            process = HmiProcessState.PAUSED
         return OperatorHmiState(
             process_state=process,
             authority=HmiAuthority.AUTO,
-            title=f"RD6018 · {stage_label.upper() if stage_label else 'ЗАРЯД'}",
+            title=(
+                f"RD6018 · ПАУЗА · {stage_label.upper() if stage_label else 'ЗАРЯД'}"
+                if operator_paused
+                else f"RD6018 · {stage_label.upper() if stage_label else 'ЗАРЯД'}"
+            ),
             output_on=output_on,
             regulator=regulator,
             battery_label=battery_label,
@@ -494,7 +501,16 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         return with_refresh(rows)
 
     if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
-        rows.append([InlineKeyboardButton(text="🛑 Остановить заряд", callback_data="power_toggle")])
+        operator_paused = bool(getattr(app, "_operator_pause_active", lambda: False)())
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="▶️ Продолжить" if operator_paused else "⏸ Пауза",
+                    callback_data="operator_pause_toggle",
+                ),
+                InlineKeyboardButton(text="🛑 Стоп", callback_data="power_toggle"),
+            ]
+        )
         rows.append(info_row)
         return with_refresh(rows)
 
@@ -750,6 +766,26 @@ def install_operator_hmi(app: Any) -> None:
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
+
+    @app.router.callback_query(F.data == "operator_pause_toggle")
+    async def _operator_pause_toggle_handler(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        handler = getattr(app, "_operator_pause_toggle", None)
+        if handler is None:
+            await call.answer("Пауза недоступна", show_alert=True)
+            return
+        try:
+            message = await handler(call)
+            await call.answer(message or "Готово")
+        except Exception as exc:
+            app.logger.exception("operator pause failed: %s", exc)
+            await call.answer("Не удалось изменить паузу", show_alert=True)
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        refresh = getattr(app, "_refresh_operator_panel", None)
+        if refresh is not None:
+            await refresh(call.message.chat.id, user_id, call.message.message_id)
 
     @app.router.callback_query(F.data == "operator_graph")
     async def _operator_graph(call: Any) -> None:

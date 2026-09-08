@@ -233,12 +233,76 @@ manual_off_time_sec: Optional[float] = None
 manual_off_start_time: float = 0.0
 
 MANUAL_OFF_FILE = "manual_off_state.json"
+OPERATOR_PAUSE_FILE = "operator_pause_state.json"
+operator_pause_started_at: Optional[float] = None
 
 CHART_RANGE_30M = "30m"
 CHART_RANGE_2H = "2h"
 CHART_RANGE_SESSION = "session"
 CHART_RANGE_DEFAULT = CHART_RANGE_2H
 CHART_RANGE_VALUES = {CHART_RANGE_30M, CHART_RANGE_2H, CHART_RANGE_SESSION}
+
+
+def _operator_pause_active() -> bool:
+    return operator_pause_started_at is not None
+
+
+def _save_operator_pause_state() -> None:
+    if operator_pause_started_at is None:
+        try:
+            if os.path.exists(OPERATOR_PAUSE_FILE):
+                os.remove(OPERATOR_PAUSE_FILE)
+        except OSError:
+            pass
+        return
+    try:
+        with open(OPERATOR_PAUSE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"started_at": operator_pause_started_at}, f)
+    except OSError as ex:
+        logger.warning("Could not save operator pause state: %s", ex)
+
+
+def _load_operator_pause_state() -> None:
+    global operator_pause_started_at
+    if not os.path.exists(OPERATOR_PAUSE_FILE):
+        return
+    try:
+        with open(OPERATOR_PAUSE_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        started_at = float(raw.get("started_at"))
+        if started_at > 0:
+            operator_pause_started_at = started_at
+            logger.info("Operator pause restored from %s", OPERATOR_PAUSE_FILE)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        logger.warning("Ignoring invalid operator pause state")
+
+
+def _clear_operator_pause() -> None:
+    global operator_pause_started_at
+    operator_pause_started_at = None
+    _save_operator_pause_state()
+
+
+def _shift_operator_pause_clocks(pause_seconds: float) -> None:
+    """Freeze controller deadlines and evidence clocks during an operator pause."""
+    if pause_seconds <= 0:
+        return
+    for name in (
+        "stage_start_time",
+        "total_start_time",
+        "finish_timer_start",
+        "_first_stage_hold_since",
+        "_stuck_current_since",
+        "_safe_wait_start",
+        "_blanking_until",
+        "_delta_monitor_after",
+        "_cv_since",
+        "_v2_trace_started_at",
+        "_v2_main_plateau_since",
+    ):
+        value = getattr(charge_controller, name, None)
+        if isinstance(value, (int, float)) and value > 0:
+            setattr(charge_controller, name, float(value) + pause_seconds)
 
 
 def _save_manual_off_state() -> None:
@@ -780,6 +844,7 @@ async def _hard_stop_charge(clear_session: bool = True) -> None:
     await hass.turn_off(ENTITY_MAP["switch"])
     await _apply_idle_protection()
     charge_controller.stop(clear_session=clear_session)
+    _clear_operator_pause()
 
 
 def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
@@ -1266,6 +1331,98 @@ async def _safe_output_on() -> bool:
         return str(live.get("switch", "")).lower() == "on"
     except Exception:
         return False
+
+
+async def _operator_pause_toggle(call: Any) -> str:
+    """Pause/resume the active charge without converting it into a stop."""
+    global operator_pause_started_at, last_chat_id, last_user_id
+
+    user_id = call.from_user.id if call.from_user else 0
+    if not _is_action_allowed(user_id, "operator_pause_toggle", cooldown_sec=1.5):
+        return "Команда уже выполняется..."
+    last_chat_id = call.message.chat.id
+    last_user_id = user_id
+    live = await hass.get_all_live()
+    output_on = str(live.get("switch", "")).lower() == "on"
+
+    if not _operator_pause_active():
+        if not charge_controller.is_active:
+            return "Активной сессии заряда нет"
+        if output_on:
+            await hass.turn_off(ENTITY_MAP["switch"])
+        after = await hass.get_all_live()
+        if str(after.get("switch", "")).lower() == "on":
+            return "Пауза не включена: Output не подтверждён OFF"
+        charge_controller._save_session(
+            _safe_float(after.get("battery_voltage")),
+            _safe_float(after.get("current")),
+            _safe_float(after.get("ah")),
+        )
+        operator_pause_started_at = time.time()
+        _save_operator_pause_state()
+        log_event(
+            charge_controller.current_stage,
+            _safe_float(after.get("battery_voltage")),
+            _safe_float(after.get("current")),
+            _safe_float(after.get("temp_ext")),
+            _safe_float(after.get("ah")),
+            "OPERATOR_PAUSE_ON",
+        )
+        return "Пауза включена · Output OFF подтверждён"
+
+    if output_on:
+        await hass.turn_off(ENTITY_MAP["switch"])
+        after = await hass.get_all_live()
+        if str(after.get("switch", "")).lower() == "on":
+            return "Продолжение заблокировано: Output не подтверждён OFF"
+        live = after
+
+    ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
+    ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+    temp_ext = _safe_float(live.get("temp_ext"))
+    input_voltage = _safe_float(live.get("input_voltage"), 0.0)
+    if ovp_triggered or ocp_triggered:
+        return "Продолжение заблокировано: активна защита OVP/OCP"
+    if temp_ext < MIN_START_TEMP:
+        return f"Продолжение заблокировано: температура АКБ {temp_ext:.1f}°C"
+    if input_voltage < MIN_INPUT_VOLTAGE:
+        return f"Продолжение заблокировано: вход БП {input_voltage:.0f}V"
+
+    if not charge_controller.is_active:
+        ok, _ = charge_controller.try_restore_session(
+            _safe_float(live.get("battery_voltage")),
+            _safe_float(live.get("current")),
+            _safe_float(live.get("ah")),
+        )
+        if not ok:
+            return "Продолжение заблокировано: сессия не восстановлена"
+
+    pause_seconds = max(0.0, time.time() - float(operator_pause_started_at or time.time()))
+    stage = charge_controller.current_stage
+    if stage == charge_controller.STAGE_SAFE_WAIT:
+        _shift_operator_pause_clocks(pause_seconds)
+        _clear_operator_pause()
+        return "Пауза снята · ожидание продолжает контролироваться"
+
+    uv, ui = charge_controller._get_target_v_i(temp_ext)
+    await _apply_phase_protection(uv, ui)
+    await hass.set_voltage(uv)
+    await hass.set_current(_cap_current(ui))
+    enabled = await hass.turn_on(ENTITY_MAP["switch"])
+    if not enabled:
+        return "Продолжение заблокировано: безопасное включение не подтверждено"
+
+    _shift_operator_pause_clocks(pause_seconds)
+    _clear_operator_pause()
+    log_event(
+        charge_controller.current_stage,
+        _safe_float(live.get("battery_voltage")),
+        _safe_float(live.get("current")),
+        temp_ext,
+        _safe_float(live.get("ah")),
+        "OPERATOR_PAUSE_OFF",
+    )
+    return "Пауза снята · заряд продолжен"
 
 
 async def _build_ai_analysis_text() -> str:
@@ -2060,6 +2217,16 @@ async def data_logger() -> None:
                     _clear_manual_off()
             
             await add_record(battery_v, i, p, t)
+
+            # Explicit operator pause: keep telemetry/safety monitoring alive, but
+            # never let recovery, controller ticks or link restoration re-energize
+            # the Output until the operator explicitly resumes the session.
+            if _operator_pause_active():
+                if output_on:
+                    logger.warning("Operator pause found Output ON; forcing verified OFF")
+                    await hass.turn_off(ENTITY_MAP["switch"])
+                await asyncio.sleep(30)
+                continue
 
             # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В (battery_mode не требуем — после потери связи мы сами выключили выход)
             if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
@@ -3661,6 +3828,9 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
         ok, msg = charge_controller.try_restore_session(battery_v, i, ah)
+        if not ok and _operator_pause_active():
+            logger.warning("Clearing operator pause: no charge session to restore")
+            _clear_operator_pause()
         if ok and msg:
             _apply_restore_time_corrections(charge_controller, live)
         allow_turn_on = ok and msg and not ovp_triggered and not ocp_triggered and input_voltage >= MIN_INPUT_VOLTAGE
@@ -3892,6 +4062,7 @@ async def main() -> None:
         logger.warning("trim_log_older_than_days at startup: %s", ex)
 
     _load_manual_off_state()
+    _load_operator_pause_state()
 
     # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, вход ≥ 60 В
     global last_checkpoint_time
@@ -3913,7 +4084,9 @@ async def main() -> None:
                 and not ocp_triggered
                 and input_voltage >= MIN_INPUT_VOLTAGE
             )
-            if allow_turn_on:
+            if _operator_pause_active():
+                logger.info("Auto-resume skipped: operator pause is active")
+            elif allow_turn_on:
                 if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                     uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                     await _apply_phase_protection(uv, ui)

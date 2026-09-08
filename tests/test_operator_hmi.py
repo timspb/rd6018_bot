@@ -360,11 +360,22 @@ class OperatorHmiTests(unittest.TestCase):
         state = build_operator_hmi_state(app, live())
         keyboard = build_operator_keyboard(app, state)
         rows = keyboard.inline_keyboard
-        self.assertEqual(len(rows[0]), 1)  # stop
+        self.assertEqual(len(rows[0]), 2)  # pause + stop
         self.assertEqual(len(rows[1]), 3)  # details, events, AI
         self.assertIn("logs", {button.callback_data for button in rows[1]})
         self.assertIn("ai_analysis", {button.callback_data for button in rows[1]})
         self.assertEqual(len(rows[-1]), 1)  # refresh
+
+    def test_paused_charge_has_resume_and_terminal_stop_side_by_side(self):
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app._operator_pause_active = lambda: True
+        state = build_operator_hmi_state(app, live())
+        keyboard = build_operator_keyboard(app, state)
+        first_row = keyboard.inline_keyboard[0]
+        self.assertEqual([button.text for button in first_row], ["▶️ Продолжить", "🛑 Стоп"])
+        self.assertEqual(first_row[0].callback_data, "operator_pause_toggle")
+        self.assertEqual(first_row[1].text, "🛑 Стоп")
+        self.assertIn(first_row[1].callback_data, {"power_toggle", "operator_managed_stop"})
 
     def test_fault_panel_keeps_protection_reason(self):
         values = live(output="off")
