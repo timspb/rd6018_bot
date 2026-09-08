@@ -138,7 +138,12 @@ def _compact_transition(state: OperatorHmiState) -> str:
 def _compact_stage_status(state: OperatorHmiState) -> str:
     """Render finish evidence as one compact operator-facing line."""
     if getattr(state, "stage_status", ""):
-        return str(state.stage_status)
+        stage_status = str(state.stage_status)
+        # Vmax is a CC-only finish criterion.  Never expose it while the
+        # panel has positively identified the regulator as CV.
+        if state.regulator == "CV" and "Vmax" in stage_status:
+            return "⏳ Imin не достигнут"
+        return stage_status
     progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress or "").split())))
     if state.regulator == "CV":
         match = re.search(r"Imin\s+([0-9]+(?:\.[0-9]+)?)\s*A.*?после Imin\s+([0-9чм ]+)", progress)

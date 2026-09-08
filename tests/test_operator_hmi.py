@@ -322,6 +322,20 @@ class OperatorHmiTests(unittest.TestCase):
         )
         self.assertIn("⏳ Imin не достигнут", render_operator_panel(state))
 
+    def test_cv_panel_never_shows_cc_vmax_status(self):
+        state = types.SimpleNamespace(
+            title="MIX", process_state=HmiProcessState.RUNNING,
+            authority=types.SimpleNamespace(value="auto"), output_on=True,
+            regulator="CV", battery_label="Ca/Ca · 72 Ah", battery_voltage_v=16.4,
+            current_a=0.7, battery_temp_c=27.0, target_voltage_v=16.5,
+            current_limit_a=2.16, progress="CV · Imin: ищем",
+            stage_status="⏳ Vmax не достигнут",
+            safety="Защита: норма", attention="normal",
+        )
+        text = render_operator_panel(state)
+        self.assertIn("⏳ Imin не достигнут", text)
+        self.assertNotIn("Vmax", text)
+
     def test_active_controller_snapshot_drives_stage_status(self):
         controller = types.SimpleNamespace(
             is_active=True,
