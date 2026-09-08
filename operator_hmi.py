@@ -554,7 +554,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
         InlineKeyboardButton(text="📋 События", callback_data="logs"),
     ]
-    more_row = [InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")]
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
         rows.append(info_row)
@@ -570,7 +569,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
             rows.append([InlineKeyboardButton(text="🧲 Подхватить текущий Mix", callback_data="rd_live_mix")])
             rows.append([InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off")])
         rows.append(info_row)
-        rows.append(more_row)
         if not state.output_on:
             rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
         return with_refresh(rows)
@@ -582,7 +580,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
                 InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
             ]
         )
-        rows.append(more_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.STORAGE:
@@ -604,7 +601,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         return with_refresh(rows)
 
     rows.append(info_row)
-    rows.append(more_row)
     rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
     return with_refresh(rows)
 

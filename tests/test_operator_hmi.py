@@ -220,7 +220,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
-        self.assertIn("operator_more", callbacks)
+        self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("v2_status", callbacks)
         self.assertNotIn("entities_status", callbacks)
         self.assertNotIn("chart_30m", callbacks)
