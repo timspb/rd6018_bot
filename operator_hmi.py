@@ -343,8 +343,13 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             durable_status = _durable_finish_status(snapshot, regulator)
             if durable_status is not None:
                 stage_status = durable_status
-            elif snapshot.get("runtime_analysis_available") is False and regulator in {"CV", "CC"}:
-                stage_status = "⏳ Анализ после восстановления недоступен"
+            elif regulator in {"CV", "CC"} and not bool(
+                snapshot.get(
+                    "runtime_evidence_available",
+                    snapshot.get("runtime_analysis_available", False),
+                )
+            ):
+                stage_status = "⏳ Анализ Imin недоступен" if regulator == "CV" else "⏳ Анализ Vmax недоступен"
             elif regulator == "CV":
                 minimum = _finite(metrics.get("current_min_a"))
                 if minimum is None or minimum <= 0:

@@ -1273,6 +1273,21 @@ class ChargeControllerV2(ChargeController):
         runtime_analysis_available = bool(
             self._v2_runtime is not None and self._v2_runtime.records
         )
+        # A record alone is not proof that the current extrema decision is
+        # usable.  Neutral/off and invalid samples are deliberately recorded
+        # for diagnostics, but must not authorize an operator-facing extrema
+        # claim after restore or an output transition.
+        runtime_evidence_available = False
+        context = self._v2_session_signal_context
+        if runtime_analysis_available and isinstance(context, dict):
+            expected_mode = "CV" if self.is_cv else ("CC" if self.is_cc else None)
+            last = self._v2_runtime.records[-1]
+            runtime_evidence_available = (
+                context.get("mode") == expected_mode
+                and context.get("output_on") is True
+                and context.get("telemetry_valid") is True
+                and not last.analysis.has(SignalEvent.TELEMETRY_INVALID)
+            )
         return {
             "authoritative": self._v2_authoritative,
             "battery_id": self._v2_battery_id,
@@ -1285,6 +1300,7 @@ class ChargeControllerV2(ChargeController):
             "delta_reported": bool(getattr(self, "_delta_reported", False)),
             "finish_evidence": finish_evidence,
             "runtime_analysis_available": runtime_analysis_available,
+            "runtime_evidence_available": runtime_evidence_available,
             "decision": decision,
             "reason": reason,
             "events": events,
