@@ -175,7 +175,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(texts[0], "⏹ Остановить Mix")
         self.assertIn("operator_adopted_stop", callbacks)
         self.assertIn("operator_details", callbacks)
-        self.assertIn("operator_graph", callbacks)
+        self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
         self.assertIn("operator_more", callbacks)
@@ -211,7 +211,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(texts[0], "▶ Новая программа")
         self.assertIn("charge_modes", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
-        self.assertIn("operator_graph", callbacks)
+        self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("v2_batteries", callbacks)
         self.assertIn("operator_more", callbacks)
@@ -260,6 +260,40 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertIn("CC", text)
+
+    def test_cv_panel_exposes_compact_minimum_hold_status(self):
+        values = live()
+        values["is_cv"] = "on"
+        state = types.SimpleNamespace(
+            title="Обычный заряд",
+            process_state=HmiProcessState.RUNNING,
+            authority=types.SimpleNamespace(value="auto"),
+            output_on=True,
+            regulator="CV",
+            battery_label="Ca/Ca · 72 Ah",
+            battery_voltage_v=14.71,
+            current_a=0.22,
+            battery_temp_c=27.0,
+            target_voltage_v=16.46,
+            current_limit_a=2.16,
+            progress="CV · Imin 0.220 A · ΔI 0.010 A / 0.030 A · после Imin 2ч 02м",
+            safety="Защита: норма",
+            attention="normal",
+        )
+        text = render_operator_panel(state)
+        self.assertIn("✅ Imin 0.220 A · ⏱ 2ч 02м", text)
+        self.assertLess(text.index("Imin"), text.index("Защита"))
+
+    def test_cv_panel_shows_unreached_minimum_compactly(self):
+        state = types.SimpleNamespace(
+            title="Обычный заряд", process_state=HmiProcessState.RUNNING,
+            authority=types.SimpleNamespace(value="auto"), output_on=True,
+            regulator="CV", battery_label="", battery_voltage_v=14.7,
+            current_a=0.7, battery_temp_c=27.0, target_voltage_v=16.46,
+            current_limit_a=2.16, progress="CV · Imin: ищем",
+            safety="Защита: норма", attention="normal",
+        )
+        self.assertIn("⏳ Imin не достигнут", render_operator_panel(state))
 
     def test_fault_panel_keeps_protection_reason(self):
         values = live(output="off")

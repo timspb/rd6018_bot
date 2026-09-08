@@ -58,7 +58,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertNotIn("chart_session", dashboard_callbacks)
         self.assertNotIn("v2_status", dashboard_callbacks)
         self.assertNotIn("entities_status", dashboard_callbacks)
-        self.assertIn("operator_graph", dashboard_callbacks)
+        self.assertNotIn("operator_graph", dashboard_callbacks)
         self.assertIn("operator_more", dashboard_callbacks)
 
     def test_charge_mode_copy_matches_normal_full_auto_contract(self):
@@ -93,7 +93,7 @@ class V2EntrypointTests(unittest.TestCase):
             self.assertIn("operator_managed_stop", callbacks)
             self.assertNotIn("power_toggle", callbacks)
             self.assertIn("operator_details", callbacks)
-            self.assertIn("operator_graph", callbacks)
+            self.assertNotIn("operator_graph", callbacks)
         finally:
             manager.mode = old_mode
             controller.current_stage = old_stage

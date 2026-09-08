@@ -134,6 +134,24 @@ def _compact_transition(state: OperatorHmiState) -> str:
     return f"➡️ {progress[:90]}"
 
 
+def _compact_stage_status(state: OperatorHmiState) -> str:
+    """Render finish evidence as one compact operator-facing line."""
+    progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress or "").split())))
+    if state.regulator == "CV":
+        match = re.search(r"Imin\s+([0-9]+(?:\.[0-9]+)?)\s*A.*?после Imin\s+([0-9чм ]+)", progress)
+        if match:
+            return f"✅ Imin {match.group(1)} A · ⏱ {match.group(2).strip()}"
+        if "Imin: ищем" in progress or "Хвост тока ещё не сформирован" in progress or "свежий Imin" in progress:
+            return "⏳ Imin не достигнут"
+    if state.regulator == "CC":
+        match = re.search(r"Vmax\s+([0-9]+(?:\.[0-9]+)?)\s*V.*?после Vmax\s+([0-9чм ]+)", progress)
+        if match:
+            return f"✅ Vmax {match.group(1)} V · ⏱ {match.group(2).strip()}"
+        if "Vmax: ищем" in progress or "свежий Vmax" in progress:
+            return "⏳ Vmax не достигнут"
+    return ""
+
+
 def _observer_runtime(app: Any) -> tuple[Any, str]:
     observer = getattr(app, "rd_live_mix_observer", None)
     if observer is None:
@@ -378,6 +396,9 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
         lines.append(f"🎯 {target} · лимит {limit}")
+    stage_status = _compact_stage_status(state)
+    if stage_status:
+        lines.append(stage_status)
     lines.append(f"🛡 {html.escape(state.safety.removeprefix('🛡 ').strip())}")
     transition = _compact_transition(state)
     if transition:
@@ -401,7 +422,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append(
             [
                 InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-                InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
             ]
         )
         rows.append(
@@ -417,7 +437,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append(
             [
                 InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-                InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
             ]
         )
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
@@ -430,7 +449,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append(
             [
                 InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-                InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
             ]
         )
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
@@ -441,7 +459,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append(
             [
                 InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose"),
-                InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
             ]
         )
         rows.append(
@@ -457,7 +474,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         rows.append(
             [
                 InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-                InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
             ]
         )
         rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])
@@ -466,7 +482,6 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
     rows.append(
         [
             InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-            InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
         ]
     )
     rows.append([InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more")])

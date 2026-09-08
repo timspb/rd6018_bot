@@ -19,6 +19,15 @@ _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
 
 
+def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int):
+    """Place chart ranges immediately below the graph on the main panel."""
+    panel = hmi.build_operator_keyboard(app, state)
+    graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
+    return app.InlineKeyboardMarkup(
+        inline_keyboard=(graph_rows[:1] if graph_rows else []) + list(panel.inline_keyboard)
+    )
+
+
 def _binary(value: Any) -> Optional[bool]:
     if isinstance(value, bool):
         return value
@@ -360,7 +369,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
 
         state = truthful_builder(app, live)
         caption = truthful_panel(state)
-        markup = hmi.build_operator_keyboard(app, state)
+        markup = _main_graph_markup(app, state, user_id)
         try:
             await app.bot.edit_message_caption(
                 chat_id=chat_id,
@@ -401,7 +410,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
 
         state = truthful_builder(app, live)
         caption = truthful_panel(state)
-        markup = hmi.build_operator_keyboard(app, state)
+        markup = _main_graph_markup(app, state, user_id)
 
         photo = None
         try:
