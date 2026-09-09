@@ -17,6 +17,14 @@ class RestoreTerminalGuardTests(unittest.TestCase):
         controller = SimpleNamespace(current_stage="Done", STAGE_DONE="Done")
         self.assertFalse(_restore_allows_auto_enable(controller))
 
+    def test_cooling_restore_cannot_auto_enable_output(self):
+        controller = SimpleNamespace(
+            current_stage="🌡 Остывание",
+            STAGE_DONE="Done",
+            STAGE_COOLING="🌡 Остывание",
+        )
+        self.assertFalse(_restore_allows_auto_enable(controller))
+
 
 if __name__ == "__main__":
     unittest.main()

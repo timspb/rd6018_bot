@@ -171,8 +171,12 @@ charge_controller = ChargeControllerV2(hass, notify_cb=_charge_notify)
 
 
 def _restore_allows_auto_enable(controller: Any) -> bool:
-    """Terminal sessions may be restored for display, never auto-resumed."""
-    return controller.current_stage != controller.STAGE_DONE
+    """Only active charge sessions may be auto-resumed after restore."""
+    blocked_stages = {controller.STAGE_DONE}
+    cooling_stage = getattr(controller, "STAGE_COOLING", None)
+    if cooling_stage is not None:
+        blocked_stages.add(cooling_stage)
+    return controller.current_stage not in blocked_stages
 
 
 def _is_chat_allowed(chat_id: int) -> bool:
