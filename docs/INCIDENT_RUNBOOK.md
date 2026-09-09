@@ -24,6 +24,21 @@ Safety boundaries remain:
 - AUTO and MANUAL sessions are absent.
 - Owner is unclear.
 
+### Bounded ownership-decision window
+
+When canonical Output is freshly confirmed ON but no managed software session exists, the host may leave the existing external program untouched only for the existing short orphan window (45 s) so ownership can be resolved.
+
+This is **not** Pb authority and does not make the external program a valid managed charge. During this window:
+
+- fresh canonical Output truth is mandatory;
+- fresh RD protection evidence must be NORMAL;
+- a positively observed internal PSU over-temperature remains immediate OFF authority;
+- missing `temp_ext`, battery-voltage plausibility, Pb recipe setpoints/readbacks, and regulation mode are not used to seize the external program before ownership is chosen;
+- the Pb edge lease is not renewed merely because the external Output was observed;
+- expiry without an explicit ownership decision ends in verified Output OFF.
+
+A stale/unknown Output or protection state, any RD protection trip, or expiry of the window is not graced. Selecting managed adoption still requires the full D061 battery/temperature/program/readback/TOCTOU preflight; the short decision window never satisfies or weakens that preflight.
+
 ### Recovery choices
 
 1. Adopt ownership only through explicit live-adoption contract.
