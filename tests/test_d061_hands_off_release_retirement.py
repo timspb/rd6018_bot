@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import tempfile
@@ -98,13 +97,20 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
                 handle,
             )
 
+    @staticmethod
+    def _app(coordinator, *, manual_active=True):
+        return types.SimpleNamespace(
+            rd_managed_live_adoption=coordinator,
+            manual_session_manager=types.SimpleNamespace(is_active=manual_active),
+        )
+
     async def test_committed_hands_off_suppresses_d061_off_and_retires_journal(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_file = f"{tmp}/d061.json"
             intent_file = f"{tmp}/release.json"
             coordinator = FakeCoordinator(state_file)
             manager = FakeManager(coordinator)
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator)
 
             install_adopted_hands_off_release_retirement(
                 app, manager, intent_file=intent_file
@@ -123,7 +129,7 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             coordinator = FakeCoordinator(f"{tmp}/d061.json")
             manager = FakeManager(coordinator, behavior="postcommit-warning")
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator)
             intent_file = f"{tmp}/release.json"
             install_adopted_hands_off_release_retirement(
                 app, manager, intent_file=intent_file
@@ -141,7 +147,7 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             coordinator = FakeCoordinator(f"{tmp}/d061.json")
             manager = FakeManager(coordinator, behavior="precommit-fail")
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator)
             intent_file = f"{tmp}/release.json"
             install_adopted_hands_off_release_retirement(
                 app, manager, intent_file=intent_file
@@ -155,13 +161,48 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(coordinator.verified_off_calls, 0)
             self.assertFalse(os.path.exists(intent_file))
 
+    async def test_active_d061_without_manual_authority_cannot_be_released(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(f"{tmp}/d061.json")
+            manager = FakeManager(coordinator)
+            app = self._app(coordinator, manual_active=False)
+            intent_file = f"{tmp}/release.json"
+            install_adopted_hands_off_release_retirement(
+                app, manager, intent_file=intent_file
+            )
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "software authority is missing"):
+                await manager.enter_hands_off()
+
+            self.assertTrue(manager.pb_managed)
+            self.assertTrue(coordinator.active)
+            self.assertFalse(os.path.exists(intent_file))
+            self.assertEqual(coordinator.verified_off_calls, 0)
+
+    async def test_active_d061_already_hands_off_needs_preexisting_exact_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(f"{tmp}/d061.json")
+            manager = FakeManager(coordinator, mode=RdControlMode.HANDS_OFF)
+            app = self._app(coordinator)
+            intent_file = f"{tmp}/release.json"
+            install_adopted_hands_off_release_retirement(
+                app, manager, intent_file=intent_file
+            )
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "no matching release intent"):
+                await manager.enter_hands_off()
+
+            self.assertTrue(manager.hands_off)
+            self.assertTrue(coordinator.active)
+            self.assertEqual(coordinator.verified_off_calls, 0)
+
     async def test_off_pending_cannot_be_converted_into_hands_off_release(self):
         with tempfile.TemporaryDirectory() as tmp:
             coordinator = FakeCoordinator(
                 f"{tmp}/d061.json", state=ManagedAdoptionState.OFF_PENDING
             )
             manager = FakeManager(coordinator)
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator)
             install_adopted_hands_off_release_retirement(
                 app, manager, intent_file=f"{tmp}/release.json"
             )
@@ -182,7 +223,7 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
                 session_id="d061-restart",
             )
             manager = FakeManager(coordinator, mode=RdControlMode.HANDS_OFF)
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator, manual_active=False)
             self._intent(intent_file, "d061-restart")
 
             install_adopted_hands_off_release_retirement(
@@ -203,7 +244,7 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
                 session_id="d061-managed",
             )
             manager = FakeManager(coordinator, mode=RdControlMode.PB_MANAGED)
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator, manual_active=False)
             self._intent(intent_file, "d061-managed")
 
             install_adopted_hands_off_release_retirement(
@@ -223,7 +264,7 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
                 session_id="current",
             )
             manager = FakeManager(coordinator, mode=RdControlMode.HANDS_OFF)
-            app = types.SimpleNamespace(rd_managed_live_adoption=coordinator)
+            app = self._app(coordinator, manual_active=False)
             intent_file = f"{tmp}/release.json"
             self._intent(intent_file, "other-session")
 
