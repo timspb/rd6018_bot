@@ -26,7 +26,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         "temp_int",
         "switch",
     )
-    # An unconfirmed OFF is a latched containment state, not a command loop.  When
+    # An unconfirmed OFF is a latched containment state, not a command loop. When
     # fresh evidence still positively says ON we may retry OFF at a bounded cadence;
     # unknown/stale Output evidence never causes command spam.
     OFF_UNCONFIRMED_RETRY_S = 60.0
@@ -62,9 +62,9 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
 
     def _notify(self, key: str, message: str) -> None:
-        # INC-006: one operator alarm per unconfirmed-OFF incident.  Repeated safety
+        # INC-006: one operator alarm per unconfirmed-OFF incident. Repeated safety
         # polls must not re-page the operator every NOTIFY_REPEAT_S while the same
-        # physical state remains unknown.  A later proven OFF clears the incident and
+        # physical state remains unknown. A later proven OFF clears the incident and
         # allows a new independent failure to notify again.
         if key == "off_unconfirmed":
             if self._off_unconfirmed_notice_active:
@@ -107,9 +107,14 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             )
 
         # Fresh evidence still says ON. Retry at a bounded cadence; the original
-        # incident notification remains latched and will not be emitted again.
+        # incident notification remains latched and will not be emitted again. A zero
+        # retry timestamp means no retry has run yet; do not make the first retry depend
+        # on host monotonic uptime (fresh processes can have uptime < retry interval).
         now = time.monotonic()
-        if now - self._off_unconfirmed_last_retry_at >= self.OFF_UNCONFIRMED_RETRY_S:
+        if (
+            self._off_unconfirmed_last_retry_at <= 0.0
+            or now - self._off_unconfirmed_last_retry_at >= self.OFF_UNCONFIRMED_RETRY_S
+        ):
             self._off_unconfirmed_last_retry_at = now
             try:
                 if await self._ensure_output_off(
