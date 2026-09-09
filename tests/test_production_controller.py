@@ -541,6 +541,62 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertAlmostEqual(restored._safe_wait_target_v, 13.8)
             self.assertAlmostEqual(restored._safe_wait_start, 900.0)
 
+    def test_done_transition_persists_terminal_session_and_restores_done(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+            controller.current_stage = controller.STAGE_MIX
+            controller.stage_start_time = 900.0
+            actions = {}
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1000.0
+            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+                "production_controller.time.time", return_value=1000.0
+            ):
+                controller._stop_and_diagnose(
+                    actions=actions,
+                    now=1000.0,
+                    voltage=16.47,
+                    current=0.66,
+                    temp=27.0,
+                    ah=1.0,
+                    reason="test terminal transition",
+                )
+                with open(session_file, "r", encoding="utf-8") as handle:
+                    saved = json.load(handle)
+
+            self.assertEqual(saved["stage"], controller.STAGE_DONE)
+            self.assertEqual(saved["terminal_state_at"], 1000.0)
+            self.assertEqual(saved["terminal_session_id"], controller._v2_trace_session_id)
+            self.assertEqual(saved["terminal_metadata"]["stage"], controller.STAGE_DONE)
+            self.assertAlmostEqual(saved["terminal_metadata"]["voltage"], 16.47)
+            self.assertAlmostEqual(saved["terminal_metadata"]["current"], 0.66)
+
+            restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1010.0
+            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+                "production_controller.time.time", return_value=1010.0
+            ):
+                ok, _ = restored.try_restore_session(
+                    13.8, 0.0, 1.0, output_is_on=False, is_cv=False, is_cc=False
+                )
+
+            self.assertTrue(ok)
+            self.assertEqual(restored.current_stage, restored.STAGE_DONE)
+
+    def test_legacy_session_without_terminal_fields_remains_active_mix(self):
+        ok, target, _, persisted = self._restore_document(
+            self._legacy_session(intent=ChargeIntent.RECOVERY)
+        )
+        self.assertTrue(ok)
+        self.assertEqual(persisted["stage"], "Mix Mode")
+        self.assertEqual(target[0], 16.5)
+
     def test_delta_marker_without_finish_timer_is_discarded(self):
         document = self._legacy_session(intent=ChargeIntent.RECOVERY)
         document.update({

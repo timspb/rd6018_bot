@@ -176,7 +176,7 @@ class ChargeControllerV2(ChargeController):
             return {}
 
     def _write_trace_identity_to_session_file(self) -> None:
-        if self.current_stage in (self.STAGE_IDLE, self.STAGE_DONE):
+        if self.current_stage == self.STAGE_IDLE:
             return
         if not self._v2_trace_session_id or self._v2_trace_started_at <= 0:
             return
@@ -720,7 +720,7 @@ class ChargeControllerV2(ChargeController):
             "Выход выключен; требуется оценка графика/АКБ перед новым HV-этапом."
         )
         actions["log_event"] = "V2_STOP_DIAGNOSE"
-        self._clear_session_file()
+        self._save_session(voltage, current, ah)
         logger.warning("V2 diagnostic stop %s -> Done | %s", prev, reason)
 
     def _advance_agm_step(

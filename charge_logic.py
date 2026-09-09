@@ -722,7 +722,7 @@ class ChargeController:
 
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
         """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
-        if self.current_stage in (self.STAGE_IDLE, self.STAGE_DONE):
+        if self.current_stage == self.STAGE_IDLE:
             return
         target_finish = self._get_target_finish_time()
         if self.current_stage == self.STAGE_SAFE_WAIT:
@@ -745,6 +745,8 @@ class ChargeController:
                         uv, ui = tv, ti
                 except (OSError, json.JSONDecodeError, TypeError, ValueError):
                     pass
+        saved_at = time.time()
+        terminal = self.current_stage == self.STAGE_DONE
         data = {
             "profile": self.battery_type,
             "stage": self.current_stage,
@@ -773,7 +775,16 @@ class ChargeController:
             "previous_stage": self.previous_stage,
             "last_transition_reason": self._last_transition_reason,
             "stage_history": list(self._stage_history),
-            "saved_at": time.time(),
+            "saved_at": saved_at,
+            "terminal_state_at": self.stage_start_time if terminal else None,
+            "terminal_session_id": getattr(self, "_v2_trace_session_id", None) if terminal else None,
+            "terminal_metadata": {
+                "stage": self.STAGE_DONE,
+                "reason": self._last_transition_reason,
+                "voltage": float(voltage),
+                "current": float(current),
+                "ah": float(ah),
+            } if terminal else None,
         }
         try:
             with open(SESSION_FILE, "w", encoding="utf-8") as f:
@@ -898,6 +909,7 @@ class ChargeController:
             logger.info("Restore: total_start_time invalid or >24h, set to now()")
 
         target_finish = data.get("target_finish_time")
+        restored_terminal = False
         target_v_raw = float(data.get("target_voltage", 14.7))
         target_v = clamp_legacy_target_voltage(target_v_raw)
         if abs(target_v - target_v_raw) >= 0.01:
@@ -948,6 +960,7 @@ class ChargeController:
                     self.current_stage = self.STAGE_DONE
                     self._clear_restored_targets()
                     self.stage_start_time = now
+                    restored_terminal = True
                 remaining_min = 0
                 msg = (
                     f"🔄 <b>Сессия восстановлена!</b>\n\n"
@@ -1019,6 +1032,8 @@ class ChargeController:
                 "remaining_min": remaining_min,
             },
         )
+        if restored_terminal:
+            self._save_session(voltage, current, ah)
         self._stage_tracking_enabled = True
         return True, msg
 
@@ -2586,7 +2601,7 @@ class ChargeController:
                     "Требуется диагностика АКБ."
                 )
                 actions["log_event"] = "START"
-                self._clear_session_file()
+                self._save_session(voltage, current, ah)
                 return actions
 
             # Ручной режим: используем только дельта-триггер для завершения (v2.0: мониторинг только после 120 сек)
@@ -2627,7 +2642,7 @@ class ChargeController:
                             f"Порог: {self._custom_delta_threshold:.3f}"
                         )
                         actions["log_event"] = "START"
-                        self._clear_session_file()
+                        self._save_session(voltage, current, ah)
                         return actions
                     else:
                         # Триггер в процессе подтверждения
@@ -2868,7 +2883,7 @@ class ChargeController:
                         f"V_max={self.v_max_recorded:.2f}В." if self.v_max_recorded else f"Storage {uv:.1f}V."
                     )
                     actions["log_event"] = "START"
-                    self._clear_session_file()
+                    self._save_session(voltage, current, ah)
                 else:
                     self.v_max_recorded = None
                     self.i_min_recorded = None
@@ -2900,7 +2915,7 @@ class ChargeController:
                 )
                 actions["log_event"] = "START"
                 if self.current_stage == self.STAGE_DONE:
-                    self._clear_session_file()
+                    self._save_session(voltage, current, ah)
                 else:
                     self.v_max_recorded = None
                     self.i_min_recorded = None
