@@ -371,8 +371,10 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         app.hass.off_confirms = False
         guard = self._guard(app)
         guard._off_unconfirmed = True
+        guard._off_unconfirmed_notice_active = True
+        guard.OFF_UNCONFIRMED_RETRY_S = 3600.0
 
-        with self.assertRaisesRegex(OutputOffNotConfirmed, "OFF"):
+        with self.assertRaisesRegex(OutputOffNotConfirmed, "ON"):
             await guard.get_all_live()
 
         self.assertTrue(guard._off_unconfirmed)
@@ -380,14 +382,21 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hass.turn_off_calls, 1)
         self.assertIsNone(guard._orphan_output_seen_at)
 
+        # A second background poll inside the retry interval is containment-only.
         app.hass.off_confirms = True
+        with self.assertRaisesRegex(OutputOffNotConfirmed, "ON"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+        # Once the bounded retry becomes due, the same recovery path may prove OFF.
+        guard._off_unconfirmed_last_retry_at = 0.0
         observed = await guard.get_all_live()
         self.assertEqual(observed["switch"], "off")
         self.assertFalse(guard._off_unconfirmed)
         self.assertEqual(app.hass.turn_off_calls, 2)
         self.assertIsNone(guard._orphan_output_seen_at)
 
-    async def test_off_unconfirmed_with_unknown_switch_still_attempts_shutdown(self):
+    async def test_off_unconfirmed_with_unknown_switch_is_passive_containment(self):
         controller = DummyController()
         controller.is_active = False
         live = self._with_freshness(self._live())
@@ -396,11 +405,12 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         app.hass.off_confirms = False
         guard = self._guard(app)
         guard._off_unconfirmed = True
+        guard._off_unconfirmed_notice_active = True
 
-        with self.assertRaises(OutputOffNotConfirmed):
+        with self.assertRaisesRegex(OutputOffNotConfirmed, "unknown/stale"):
             await guard.get_all_live()
 
-        self.assertEqual(app.hass.turn_off_calls, 1)
+        self.assertEqual(app.hass.turn_off_calls, 0)
         self.assertTrue(guard._off_unconfirmed)
 
     def test_v2_metadata_bridge_preserves_home_assistant_last_reported(self):
