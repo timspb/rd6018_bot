@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import tempfile
@@ -125,6 +124,11 @@ def _intent_matches(path: str, coordinator: Any) -> bool:
     )
 
 
+def _manual_authority_active(app: Any) -> bool:
+    manual = getattr(app, "manual_session_manager", None)
+    return bool(manual is not None and getattr(manual, "is_active", False))
+
+
 def install_adopted_hands_off_release_retirement(
     app: Any,
     manager: Any,
@@ -202,6 +206,32 @@ def install_adopted_hands_off_release_retirement(
         releasing_d061 = bool(getattr(coordinator, "active", False))
         if not releasing_d061:
             return bool(await original_enter_hands_off())
+
+        # ACTIVE D061 is valid only while its adopted Manual software authority still
+        # exists under PB_MANAGED. Do not turn a broken authority invariant into an
+        # external-release authorization merely because somebody called HANDS_OFF.
+        if bool(getattr(manager, "hands_off", False)):
+            if _intent_matches(path, coordinator):
+                _retire_adopted_authority(
+                    coordinator,
+                    reason=(
+                        "intentional HANDS_OFF release finalized after durable commit; "
+                        "D061 authority retired without Output change"
+                    ),
+                )
+                _clear_intent(path)
+                return True
+            raise RuntimeSafetyError(
+                "RD HANDS_OFF/D061 state is inconsistent: active adopted authority has no matching release intent"
+            )
+        if not bool(getattr(manager, "pb_managed", False)):
+            raise RuntimeSafetyError(
+                "D061 HANDS_OFF release blocked: managed ownership is not positively established"
+            )
+        if not _manual_authority_active(app):
+            raise RuntimeSafetyError(
+                "D061 HANDS_OFF release blocked: adopted Manual software authority is missing; verified Output OFF containment is required"
+            )
 
         _persist_intent(path, coordinator)
         try:
