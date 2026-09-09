@@ -16,6 +16,7 @@ from diagnostic_persistence import (
     install_diagnostic_persistence,
     recover_diagnostic_persistence,
 )
+from done_storage_restore import install_done_storage_restore
 from live_output_readback_v2 import install_output_state_readback
 from manual_context_v2 import (
     install_manual_context_preprocessor,
@@ -65,6 +66,10 @@ install_manual_context_preprocessor(_legacy)
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
 _v2_ui_enabled = _env_enabled("V2_UI", True)
 install_v2(_legacy, install_ui=_v2_ui_enabled)
+# ``Done`` historically overloaded managed Storage (Output ON) and terminal stop
+# (Output OFF). Persist the physical intent explicitly and replace the legacy blanket
+# restore guard before any startup recovery path can evaluate a saved Done session.
+install_done_storage_restore(_legacy)
 # Telegram transport is not part of RD/edge safety authority, but a single transient
 # DNS EAI_NODATA during aiogram bootstrap must not kill the production runtime before
 # its local monitor/watchdog tasks come up. Restrict retry semantics to read-only getMe
