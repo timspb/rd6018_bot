@@ -23,7 +23,26 @@ class SoftWatchdogIncident:
         self.last_attempt_at = 0.0
 
 
+def _pb_watchdog_suspended(app: Any) -> bool:
+    """Return True when Pb software no longer owns RD actuator authority.
+
+    HANDS_OFF is an outer ownership boundary, not a degraded managed-charge state.
+    The legacy HA heartbeat watchdog must therefore remain completely non-actuating
+    while HANDS_OFF owns the PSU, including during the live release transaction.
+    """
+    manager = getattr(app, "rd_control_mode_manager", None)
+    if manager is None:
+        return False
+    return bool(
+        getattr(manager, "hands_off", False)
+        or getattr(manager, "release_in_progress", False)
+    )
+
+
 def _managed_authority_active(app: Any) -> bool:
+    if _pb_watchdog_suspended(app):
+        return False
+
     controller = getattr(app, "charge_controller", None)
     if controller is not None:
         if bool(getattr(controller, "_last_known_output_on", False)):
@@ -75,19 +94,26 @@ async def soft_watchdog_poll_once(
 ) -> None:
     """Run one legacy soft-watchdog decision without creating an actuator storm.
 
-    The data/logger heartbeat remains the authority for detecting the outage.  An idle
-    system whose last known Output is OFF is passive: losing telemetry alone is not a
-    reason to spam OFF/protection writes.  If Output was known ON or a managed command
-    is still active, request the existing hard-stop path immediately. Failed attempts
-    may retry only at a bounded cadence while the same outage persists. A successful
-    hard stop is terminal for this incident; the independent 15-minute edge lease is
-    still the backstop when the remote command path is unavailable.
+    The data/logger heartbeat remains the authority for detecting the outage while Pb
+    software owns RD. An idle PB-managed system whose last known Output is OFF is
+    passive. If Output was known ON or a managed command is still active, request the
+    existing hard-stop path immediately and retry failed remote shutdowns only at a
+    bounded cadence.
+
+    HANDS_OFF is outside this watchdog's authority entirely. Entering HANDS_OFF resets
+    any in-process Pb outage incident and no hard-stop/protection write is attempted,
+    even if legacy state still remembers that Output was ON before the ownership
+    transfer. Intrinsic RD protections remain local hardware behavior.
     """
     current = time.time() if now is None else float(now)
     last_ok = float(getattr(app, "last_ha_ok_time", 0.0) or 0.0)
     timeout = float(getattr(app, "SOFT_WATCHDOG_TIMEOUT", 180.0))
 
     if last_ok <= 0.0 or current - last_ok < timeout:
+        incident.reset()
+        return
+
+    if _pb_watchdog_suspended(app):
         incident.reset()
         return
 
