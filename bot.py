@@ -40,6 +40,7 @@ from physical_test_control_programmed_readback_v2 import (
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
 from rd_control_mode import install_rd_control_mode
+from rd_hands_off_background import install_hands_off_background_isolation
 from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
@@ -106,6 +107,11 @@ _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
 # software session through the dedicated positively-ACKed live edge release. Ordinary
 # edge disarm remains verified-OFF only.
 install_rd_hands_off_release(_legacy, _rd_control_mode)
+# Legacy background workers predate D060 and can otherwise keep probing restore,
+# chemistry tick/manual-off/pause or Pb hard-stop logic after durable HANDS_OFF. Make
+# those paths observational only once ownership has actually committed; pre-commit
+# safety during a live release remains unchanged.
+install_hands_off_background_isolation(_legacy, _rd_control_mode)
 # While HANDS_OFF owns an externally-running RD program, the operator may attach the
 # read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
 # all Delta authority starts from fresh post-activation source reports.
