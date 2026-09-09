@@ -16,12 +16,14 @@ class FakeHass:
             entity="button.test_safety_lease_adopt_live_output",
             protection_entity="sensor.test_protection_status_code",
             ttl_entity="sensor.test_safety_lease_ttl",
+            autonomous_entity="binary_sensor.test_safety_autonomous_mode",
         )
         self.states = {
             # HA button entities commonly report unknown even when available.
             self.adopt_config.entity: "unknown",
             self.adopt_config.protection_entity: 0,
             self.adopt_config.ttl_entity: self.lease_config.lease_ttl_s,
+            self.adopt_config.autonomous_entity: "off",
             self.lease_config.armed_entity: "off",
             self.lease_config.tripped_entity: "off",
             self.lease_config.boot_quarantine_entity: "off",
@@ -84,6 +86,43 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared.generation, 21)
         self.assertEqual(hass.pressed, [])
+
+    async def test_autonomous_mode_blocks_live_adoption_before_command(self):
+        hass = FakeHass()
+        hass.states[hass.adopt_config.autonomous_entity] = "on"
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "AUTONOMOUS is active"):
+            await adoption.prepare()
+
+        self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
+
+    async def test_missing_autonomous_authority_blocks_live_adoption_read_only(self):
+        hass = FakeHass()
+        hass.states[hass.adopt_config.autonomous_entity] = "unavailable"
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "autonomous authority is missing/unavailable"):
+            await adoption.prepare()
+
+        self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
+
+    async def test_autonomous_transition_after_prepare_blocks_before_command_boundary(self):
+        hass = FakeHass()
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+        prepared = await adoption.prepare()
+        hass.states[hass.adopt_config.autonomous_entity] = "on"
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "AUTONOMOUS is active"):
+            await adoption.adopt(expected_generation=prepared.generation)
+
+        self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_missing_entity_fails_before_command(self):
         hass = FakeHass()
@@ -280,6 +319,10 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             adoption.config.ttl_entity,
             f"sensor.{prefix}_safety_lease_ttl",
+        )
+        self.assertEqual(
+            adoption.config.autonomous_entity,
+            f"binary_sensor.{prefix}_safety_autonomous_mode",
         )
 
 
