@@ -19,6 +19,12 @@ class AutonomousInstallOrderContractTests(unittest.TestCase):
         autonomous_hmi = text.index("install_rd_autonomous_final_hmi(_legacy")
         self.assertLess(truth, autonomous_hmi)
 
+    def test_legacy_background_isolation_sees_final_startup_authority_gate(self):
+        text = Path("bot.py").read_text(encoding="utf-8")
+        startup = text.index("install_rd_startup_authority_gate(_legacy")
+        background = text.index("install_hands_off_background_isolation(_legacy")
+        self.assertLess(startup, background)
+
     def test_production_entrypoint_remains_bot_py(self):
         text = Path("AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("Production: `python bot.py`", text)
