@@ -12,6 +12,7 @@ from done_storage_restore import (
     DONE_COMPLETION_TERMINAL,
     DONE_OUTPUT_OFF,
     DONE_OUTPUT_ON,
+    _paused_done_resume_is_authorized,
     install_done_storage_restore,
     restore_allows_auto_enable,
 )
@@ -149,6 +150,46 @@ class DoneStorageRestoreTests(unittest.TestCase):
                 normalized = json.load(handle)
             self.assertEqual(normalized["completion_kind"], DONE_COMPLETION_TERMINAL)
             self.assertEqual(normalized["output_intent"], DONE_OUTPUT_OFF)
+
+    def test_operator_pause_cannot_bypass_ambiguous_done_restore_guard(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = os.path.join(tempdir, "charge_session.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump({"stage": "Done", "saved_at": 1.0}, handle)
+            idle = SimpleNamespace(current_stage="Idle", STAGE_DONE="Done", is_active=False)
+            app = SimpleNamespace(_operator_pause_active=lambda: True)
+            with patch("charge_logic.SESSION_FILE", path):
+                self.assertFalse(_paused_done_resume_is_authorized(app, idle))
+
+    def test_operator_pause_accepts_only_explicit_storage_done_document_before_restore(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = os.path.join(tempdir, "charge_session.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "stage": "Done",
+                        "done_state_version": 1,
+                        "completion_kind": DONE_COMPLETION_STORAGE,
+                        "output_intent": DONE_OUTPUT_ON,
+                    },
+                    handle,
+                )
+            idle = SimpleNamespace(current_stage="Idle", STAGE_DONE="Done", is_active=False)
+            app = SimpleNamespace(_operator_pause_active=lambda: True)
+            with patch("charge_logic.SESSION_FILE", path):
+                self.assertTrue(_paused_done_resume_is_authorized(app, idle))
+
+    def test_operator_pause_blocks_already_restored_terminal_done(self):
+        terminal_done = SimpleNamespace(
+            current_stage="Done",
+            STAGE_DONE="Done",
+            is_active=True,
+            _done_outcome_authoritative=True,
+            _done_completion_kind=DONE_COMPLETION_TERMINAL,
+            _done_output_intent=DONE_OUTPUT_OFF,
+        )
+        app = SimpleNamespace(_operator_pause_active=lambda: True)
+        self.assertFalse(_paused_done_resume_is_authorized(app, terminal_done))
 
     def test_non_done_restore_guard_contract_is_unchanged(self):
         active = SimpleNamespace(
