@@ -597,6 +597,54 @@ class ProductionControllerTests(unittest.TestCase):
                 restored_document["terminal_session_id"],
                 restored._v2_trace_session_id,
             )
+            self.assertAlmostEqual(restored_document["terminal_metadata"]["voltage"], 16.47)
+            self.assertAlmostEqual(restored_document["terminal_metadata"]["current"], 0.66)
+            self.assertTrue(restored_document["terminal_metadata"]["availability"]["voltage"])
+
+    def test_terminal_metadata_marks_unknown_measurements_unavailable(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+            controller.current_stage = controller.STAGE_DONE
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1000.0
+            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+                "production_controller.time.time", return_value=1000.0
+            ):
+                controller._save_session(0.0, 0.0, 0.0)
+            with open(session_file, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)["terminal_metadata"]
+            self.assertIsNone(saved["voltage"])
+            self.assertIsNone(saved["current"])
+            self.assertIsNone(saved["ah"])
+            self.assertEqual(
+                saved["availability"], {"voltage": False, "current": False, "ah": False}
+            )
+
+    def test_terminal_metadata_does_not_overwrite_valid_values_with_zero(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            session_file = os.path.join(tempdir, "charge_session.json")
+            controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+            controller.current_stage = controller.STAGE_DONE
+            with patch("charge_logic.SESSION_FILE", session_file), patch(
+                "charge_controller_v2.SESSION_FILE", session_file
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_logic.time.time", return_value=1000.0
+            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+                "production_controller.time.time", return_value=1000.0
+            ):
+                controller._save_session(13.8, 0.66, 10.5)
+                controller._save_session(0.0, 0.0, 0.0)
+            with open(session_file, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)["terminal_metadata"]
+            self.assertAlmostEqual(saved["voltage"], 13.8)
+            self.assertAlmostEqual(saved["current"], 0.66)
+            self.assertAlmostEqual(saved["ah"], 10.5)
+            self.assertEqual(
+                saved["availability"], {"voltage": True, "current": True, "ah": True}
+            )
 
     def test_legacy_session_without_terminal_fields_remains_active_mix(self):
         ok, target, _, persisted = self._restore_document(

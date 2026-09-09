@@ -745,8 +745,39 @@ class ChargeController:
                         uv, ui = tv, ti
                 except (OSError, json.JSONDecodeError, TypeError, ValueError):
                     pass
+        previous_terminal_metadata = {}
+        if os.path.exists(SESSION_FILE):
+            try:
+                with open(SESSION_FILE, "r", encoding="utf-8") as f:
+                    previous_document = json.load(f)
+                if isinstance(previous_document, dict) and isinstance(
+                    previous_document.get("terminal_metadata"), dict
+                ):
+                    previous_terminal_metadata = previous_document["terminal_metadata"]
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        def terminal_measurement(name: str, value: Any) -> Tuple[Optional[float], bool]:
+            """Keep only evidenced positive measurements; never replace them with defaults."""
+            try:
+                candidate = float(value)
+            except (TypeError, ValueError, OverflowError):
+                candidate = 0.0
+            if math.isfinite(candidate) and candidate > 0.0:
+                return candidate, True
+            try:
+                previous = float(previous_terminal_metadata.get(name))
+            except (TypeError, ValueError, OverflowError):
+                previous = 0.0
+            if math.isfinite(previous) and previous > 0.0:
+                return previous, True
+            return None, False
+
         saved_at = time.time()
         terminal = self.current_stage == self.STAGE_DONE
+        terminal_voltage, terminal_voltage_available = terminal_measurement("voltage", voltage)
+        terminal_current, terminal_current_available = terminal_measurement("current", current)
+        terminal_ah, terminal_ah_available = terminal_measurement("ah", ah)
         data = {
             "profile": self.battery_type,
             "stage": self.current_stage,
@@ -781,9 +812,14 @@ class ChargeController:
             "terminal_metadata": {
                 "stage": self.STAGE_DONE,
                 "reason": self._last_transition_reason,
-                "voltage": float(voltage),
-                "current": float(current),
-                "ah": float(ah),
+                "voltage": terminal_voltage,
+                "current": terminal_current,
+                "ah": terminal_ah,
+                "availability": {
+                    "voltage": terminal_voltage_available,
+                    "current": terminal_current_available,
+                    "ah": terminal_ah_available,
+                },
             } if terminal else None,
         }
         try:
