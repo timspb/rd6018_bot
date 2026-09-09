@@ -203,19 +203,63 @@ if _v2_ui_enabled:
 _legacy_main = _legacy.main
 
 
+def _explicit_edge_authority(raw: object) -> bool:
+    """Return whether the raw snapshot positively identifies managed/autonomous edge authority."""
+    if not isinstance(raw, dict):
+        return False
+    value = raw.get("autonomous_mode")
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"on", "off", "true", "false", "1", "0"}
+    return False
+
+
+async def _prime_rd_edge_authority() -> bool:
+    """Resolve edge authority before any startup path is allowed to actuate.
+
+    An unavailable/unknown authority is treated as provisional external ownership:
+    managed startup recovery is skipped and rd_control_mode blocks bot actuators until
+    a later raw snapshot positively reports autonomous OFF or ON. This prevents stale
+    managed restart containment from shutting down a deliberately autonomous PSU before
+    its edge mode has been observed.
+    """
+    try:
+        raw = await _rd_control_mode.guard._raw_live()
+    except Exception:
+        _rd_control_mode._edge_autonomous = True
+        return False
+    if not _explicit_edge_authority(raw):
+        _rd_control_mode._edge_autonomous = True
+        return False
+    _rd_control_mode._observe_edge_mode(raw)
+    return True
+
+
 async def main() -> None:
     await init_v2_storage()
-    # Neither managed live-adoption authority is resumable. D062 is recovered first
-    # because it owns a chemistry HV budget; if it was active/pending at crash, startup
-    # may only continue toward verified OFF before any generic managed heartbeat starts.
-    await _rd_managed_mix_adoption.recover_startup()
-    # D061 Adopted Manual follows the same restart containment rule.
-    await _rd_managed_live_adoption.recover_startup()
-    # A normal HANDS_OFF observer also never resumes. If it had already committed final
-    # OFF_PENDING, only that OFF containment is allowed to continue.
-    if _rd_live_mix_observer is not None:
-        await _rd_live_mix_observer.recover_startup()
-    await recover_diagnostic_persistence(_legacy)
+    edge_authority_known = await _prime_rd_edge_authority()
+
+    # Startup recovery contains or restores managed software authority. It must never
+    # run before explicit edge authority is known, and it is not allowed to actuate a
+    # PSU whose persistent edge mode is AUTONOMOUS. If authority is temporarily
+    # unavailable, the control-mode wrappers remain provisionally passive until a later
+    # raw telemetry snapshot resolves the edge bit.
+    if edge_authority_known and not _rd_control_mode.edge_autonomous:
+        # Neither managed live-adoption authority is resumable. D062 is recovered first
+        # because it owns a chemistry HV budget; if it was active/pending at crash,
+        # startup may only continue toward verified OFF before any heartbeat starts.
+        await _rd_managed_mix_adoption.recover_startup()
+        # D061 Adopted Manual follows the same restart containment rule.
+        await _rd_managed_live_adoption.recover_startup()
+        # A normal HANDS_OFF observer also never resumes. If it had already committed
+        # final OFF_PENDING, only that OFF containment is allowed to continue.
+        if _rd_live_mix_observer is not None:
+            await _rd_live_mix_observer.recover_startup()
+        await recover_diagnostic_persistence(_legacy)
+
     await _physical_test_control.start()
     try:
         await _legacy_main()
