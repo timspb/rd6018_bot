@@ -9,6 +9,9 @@ class EspHomeIntrinsicSafetyContractTests(unittest.TestCase):
             "esphome/packages/rd6018_intrinsic_safety.yaml"
         ).read_text(encoding="utf-8")
         cls.target = Path("esphome/rd6018.yaml").read_text(encoding="utf-8")
+        cls.executable_package = "\n".join(
+            line.split("#", 1)[0] for line in cls.package.splitlines()
+        )
 
     def test_canonical_target_includes_intrinsic_safety_package(self):
         self.assertIn(
@@ -31,6 +34,7 @@ class EspHomeIntrinsicSafetyContractTests(unittest.TestCase):
         self.assertIn("switch.turn_off: rd6018_safety_output", self.package)
 
     def test_intrinsic_guard_is_not_pb_or_control_plane_gated(self):
+        executable = self.executable_package.lower()
         for forbidden in (
             "temp_ext",
             "battery_voltage",
@@ -43,7 +47,7 @@ class EspHomeIntrinsicSafetyContractTests(unittest.TestCase):
             "telegram",
         ):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, self.package.lower())
+                self.assertNotIn(forbidden, executable)
 
     def test_missing_telemetry_is_not_converted_into_an_autonomous_off_reason(self):
         # Positive evidence only: NaN/unknown temperature or protection state does
@@ -64,7 +68,7 @@ class EspHomeIntrinsicSafetyContractTests(unittest.TestCase):
             "switch.turn_on",
         ):
             with self.subTest(actuator=actuator):
-                self.assertNotIn(actuator, self.package)
+                self.assertNotIn(actuator, self.executable_package)
 
 
 if __name__ == "__main__":
