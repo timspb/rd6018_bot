@@ -41,6 +41,7 @@ from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
+from rd_ownership_recovery import install_rd_ownership_recovery
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
@@ -161,6 +162,11 @@ install_physical_test_control_diagnostic(_legacy, _physical_test_control)
 # the graph-backed transport is composed underneath the final semantic state/controls.
 if _v2_ui_enabled:
     install_operator_hmi(_legacy)
+    # Re-compose ownership at the *final* semantic HMI boundary. Earlier ownership
+    # wrappers target the legacy dashboard builder and were being replaced by
+    # install_operator_hmi(), which made HANDS_OFF/release unavailable exactly when an
+    # orphan external Output needed operator recovery.
+    install_rd_ownership_recovery(_legacy, _rd_control_mode)
     # A second-step adopted-Mix OFF button in an old Telegram message must not remain
     # an indefinitely valid actuator capability. Bind it to the exact current observer
     # epoch before composing the remaining operator actions.
