@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class RdOwnership(str, Enum):
@@ -25,9 +26,8 @@ class RdOperationMode(str, Enum):
 class RdOperatingState:
     """Pure domain state separating ownership from application operation.
 
-    This module intentionally does not change runtime/ESPHome behavior. It gives
-    later safety and edge work one explicit source of truth instead of inferring
-    hardware policy from PB session state or Wi-Fi availability.
+    This module gives runtime and edge work one explicit source of truth instead of
+    inferring hardware policy from Pb session state or Wi-Fi availability.
     """
 
     ownership: RdOwnership
@@ -89,3 +89,25 @@ class RdOperatingState:
                 "unsupported RD operating state: "
                 f"ownership={self.ownership.value}, operation={self.operation.value}"
             )
+
+
+def operating_state_from_control_mode(mode: Any) -> RdOperatingState:
+    """Map the existing durable control-mode contract onto the new domain model.
+
+    The production state file currently persists ``pb_managed`` / ``hands_off``.
+    Until persistence is migrated, this adapter is the only accepted interpretation:
+
+    - PB_MANAGED -> BOT + MANAGED
+    - HANDS_OFF -> EXTERNAL + AUTONOMOUS
+
+    Unknown/corrupt values are rejected rather than being interpreted as autonomous.
+    The caller may therefore retain the existing fail-closed PB_MANAGED recovery path.
+    """
+
+    raw = getattr(mode, "value", mode)
+    value = str(raw or "").strip().lower()
+    if value == "pb_managed":
+        return RdOperatingState.bot_managed()
+    if value == "hands_off":
+        return RdOperatingState.external_autonomous()
+    raise ValueError(f"unsupported legacy RD control mode: {value or '<empty>'}")

@@ -1,6 +1,12 @@
 import unittest
 
-from rd_operation_mode import RdOperatingState, RdOperationMode, RdOwnership
+from rd_control_mode import RdControlMode
+from rd_operation_mode import (
+    RdOperatingState,
+    RdOperationMode,
+    RdOwnership,
+    operating_state_from_control_mode,
+)
 
 
 class RdOperationModeTests(unittest.TestCase):
@@ -40,6 +46,36 @@ class RdOperationModeTests(unittest.TestCase):
             with self.subTest(state=state):
                 with self.assertRaisesRegex(ValueError, "unsupported RD operating state"):
                     state.validate_supported()
+
+    def test_existing_pb_managed_maps_to_bot_managed(self):
+        state = operating_state_from_control_mode(RdControlMode.PB_MANAGED)
+
+        self.assertEqual(state, RdOperatingState.bot_managed())
+        self.assertTrue(state.control_plane_required)
+        self.assertTrue(state.managed_edge_lease_required)
+
+    def test_existing_hands_off_maps_to_external_autonomous(self):
+        state = operating_state_from_control_mode(RdControlMode.HANDS_OFF)
+
+        self.assertEqual(state, RdOperatingState.external_autonomous())
+        self.assertFalse(state.control_plane_required)
+        self.assertFalse(state.external_temperature_required_by_mode)
+
+    def test_persisted_string_values_map_identically(self):
+        self.assertEqual(
+            operating_state_from_control_mode("pb_managed"),
+            RdOperatingState.bot_managed(),
+        )
+        self.assertEqual(
+            operating_state_from_control_mode("hands_off"),
+            RdOperatingState.external_autonomous(),
+        )
+
+    def test_unknown_or_empty_legacy_mode_never_infers_autonomous(self):
+        for raw in (None, "", "autonomous", "unknown", object()):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(ValueError, "unsupported legacy RD control mode"):
+                    operating_state_from_control_mode(raw)
 
 
 if __name__ == "__main__":
