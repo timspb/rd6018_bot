@@ -3,6 +3,7 @@ name: ESPHome firmware
 on:
   push:
     branches:
+      - 'main'
       - 'refactor/**'
       - 'fix/**'
     paths:
