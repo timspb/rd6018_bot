@@ -1,7 +1,7 @@
 # RD6018 V2 ESPHome firmware
 
 This directory is the canonical firmware source and build/install runbook for the
-RD6018 edge used by the Pb Recovery V2 controller.
+RD6018 edge used by the Pb Recovery V2 controller and the generic autonomous PSU mode.
 
 The repository contains **no production Wi-Fi, Home Assistant API, OTA or network
 secrets**. Production secrets live only in the operator's local
@@ -13,9 +13,10 @@ secrets**. Production secrets live only in the operator's local
 esphome/
 ├── rd6018.yaml                         # only Device Builder node
 ├── packages/
-│   ├── rd6018_safety_lease.yaml       # 15 min dead-man + boot quarantine
+│   ├── rd6018_safety_lease.yaml       # managed dead-man + persistent autonomous authority
 │   ├── rd6018_telemetry_v2.yaml       # corrected RD6018 telemetry
-│   └── rd6018_live_adoption.yaml      # HANDS_OFF release/live adoption
+│   ├── rd6018_intrinsic_safety.yaml   # edge-local PSU intrinsic protection
+│   └── rd6018_live_adoption.yaml      # HANDS_OFF -> managed live adoption
 ├── secrets.example.yaml               # dummy/example values only
 ├── build_firmware.sh                  # canonical reproducible CLI build
 └── README.md
@@ -36,18 +37,22 @@ The target is ESP8266 `esp01_1m`, RD6018 Modbus address `1`, UART
 
 ## Edge contract included in this firmware
 
-The firmware composes three safety packages:
+The firmware composes four edge packages:
 
 - `rd6018_safety_lease.yaml`
-  - exact local dead-man TTL: **900 s / 15 min**;
-  - initial arm requires fresh direct Output OFF evidence;
+  - exact managed local dead-man TTL: **900 s / 15 min**;
+  - initial managed arm requires fresh direct Output OFF evidence;
   - managed heartbeat may renew while Output is legitimately ON;
-  - stale control evidence or lease expiry latches a trip;
-  - the edge retries RD6018 Output OFF every 5 seconds after trip;
-  - every ESP reboot enters boot quarantine and repeatedly requests Output OFF
-    until fresh direct register-18 evidence proves OFF;
-  - ordinary Disarm is verified-OFF only;
-  - managed -> HANDS_OFF release is a distinct Output-preserving transaction.
+  - stale control evidence or lease expiry latches a managed trip;
+  - the edge retries RD6018 Output OFF every 5 seconds after managed trip;
+  - managed/default/conflicting reboot state enters verified-OFF boot quarantine;
+  - an explicitly persisted, non-conflicting `AUTONOMOUS` authority survives reboot
+    without making the managed lease/heartbeat an Output-OFF authority;
+  - `managed_session && autonomous_mode` is always a fail-closed conflict;
+  - ordinary Disarm is verified-OFF only and never means AUTONOMOUS;
+  - ordinary AUTONOMOUS enter/exit is explicit and Output-OFF-only;
+  - managed -> HANDS_OFF live release remains a distinct Output-preserving ownership
+    release and does **not** imply AUTONOMOUS.
 
 - `rd6018_telemetry_v2.yaml`
   - register 16 is exposed as the authoritative protection status code
@@ -63,15 +68,63 @@ The firmware composes three safety packages:
     this read-only mirror supplies canonical Output value/freshness evidence to V2;
   - calibration registers are read-only diagnostics.
 
+- `rd6018_intrinsic_safety.yaml`
+  - locally enforces the already accepted internal RD/PSU temperature cutoff at
+    **55 C**;
+  - a fresh non-zero raw register-16 protection code is local Output-OFF authority;
+  - repeats Output OFF while a positive intrinsic fault remains;
+  - is independent of Pb chemistry, charge session, `temp_ext`, HA/Telegram and managed
+    lease age;
+  - does **not** invent generic autonomous software voltage/current/power ceilings.
+    Native/configured RD OVP/OCP/OPP behavior and the generic V/I/power operating
+    envelope remain physical bench-validation items.
+
 - `rd6018_live_adoption.yaml`
   - publishes the actual configured lease TTL;
-  - provides `Safety Lease Adopt Live Output`;
+  - provides `Safety Lease Adopt Live Output` for ordinary non-autonomous HANDS_OFF;
   - adoption is refused unless the local TTL is exactly 900000 ms;
+  - adoption is refused while explicit AUTONOMOUS authority is active;
   - adoption requires fresh direct Modbus, Output ON and raw protection NORMAL;
   - successful adoption changes only ownership/lease state and does **not** write
     Output, voltage, current, OVP or OCP.
 
 `rd6018.yaml` also preserves the Home Assistant entity names used by the bot.
+
+## AUTONOMOUS is not HANDS_OFF
+
+The two states deliberately solve different problems:
+
+```text
+HANDS_OFF
+  = software/bot ownership release
+  = not proof of autonomous edge operation
+
+AUTONOMOUS
+  = explicit persistent edge operation authority
+  = generic PSU mode, independent from Pb/application assumptions
+```
+
+A missing Wi-Fi/HA/Telegram connection, an unarmed lease, or a missing Pb session
+never creates AUTONOMOUS implicitly. Unknown/corrupt/conflicting authority stays
+fail-closed and does not grant bot actuation.
+
+The first D065 implementation keeps ordinary transitions conservative:
+
+```text
+BOT/MANAGED -> AUTONOMOUS
+  confirmed fresh Output OFF
+  -> managed lease disarmed / bot ownership released
+  -> explicit edge Enter Autonomous
+  -> mode + generation + fresh readback positive ACK
+
+AUTONOMOUS -> BOT/MANAGED
+  confirmed fresh Output OFF
+  -> explicit edge Exit Autonomous
+  -> mode + generation + fresh readback positive ACK
+  -> fresh managed ownership return
+```
+
+There is no live Output-preserving Bot<->Autonomous transition in this version.
 
 ## 2026-09-03 source-heartbeat correction
 
@@ -93,7 +146,7 @@ battery_voltage stale age=45.2s>20.0s
 ```
 
 The 20 s fail-close is intentionally **not** widened. Instead, the canonical firmware
-now publishes unchanged critical observations as source reports:
+publishes unchanged critical observations as source reports:
 
 - `Output voltage` register 10: `force_update: true`;
 - `Output current` register 11: `force_update: true`;
@@ -101,16 +154,17 @@ now publishes unchanged critical observations as source reports:
 - `Protection Status Code` register 16: `force_update: true`;
 - `Regulation Mode Code` register 17: `force_update: true`;
 - corrected internal/external V2 temperature templates: `force_update: true`;
-- new read-only `Output State Code V2`, register 18: `force_update: true`.
+- read-only `Output State Code V2`, register 18: `force_update: true`.
 
 The public Home Assistant Output switch is still the write/actuator entity. The bot
 uses `Output State Code V2` only as the canonical read-only Output value/freshness
-source when it exists. Missing, invalid or stale evidence remains fail-closed.
+source when it exists. Missing, invalid or stale evidence remains fail-closed for
+managed authority.
 
-This source-heartbeat change does **not** modify `rd6018_safety_lease.yaml`, the
-900 s TTL, the 300 s bot renewal interval, lease expiry logic or boot quarantine.
-Therefore the already-completed 900 s physical watchdog tests do not need to be
-repeated solely because of this telemetry publication correction.
+The source-heartbeat correction itself did not widen the D056 900 s lease or 300 s
+renew interval. Later D064/D065 work adds intrinsic edge protection and explicit
+AUTONOMOUS authority; those are separate behavioral changes and have their own physical
+validation gates below.
 
 Code-bearing commit `28dd548bfddbb4a4913a1fd64be26c7bd3ededfa` passed exact-head:
 
@@ -119,10 +173,8 @@ CI #1091                 SUCCESS
 ESPHome firmware #29     SUCCESS
 ```
 
-Those results prove software/compile validity only. The corrected firmware must still
-be built with local production secrets, flashed at a safe interruption point and
-physically checked before the corrected D061 source-heartbeat path can be called a
-physical PASS.
+Those historical results prove that earlier source only. Current D065 source must pass
+its own exact-head CI/ESPHome compile and still requires physical deployment tests.
 
 ## Supported build environment
 
@@ -256,11 +308,12 @@ The final Home Assistant layout must be:
 ├── packages/
 │   ├── rd6018_safety_lease.yaml
 │   ├── rd6018_telemetry_v2.yaml
+│   ├── rd6018_intrinsic_safety.yaml
 │   └── rd6018_live_adoption.yaml
 └── secrets.yaml
 ```
 
-Do **not** place the three package YAML files directly in `/config/esphome/`;
+Do **not** place the four package YAML files directly in `/config/esphome/`;
 Device Builder may show them as separate offline devices.
 
 Do not overwrite an existing `secrets.yaml` with `secrets.example.yaml`. Add the
@@ -290,8 +343,9 @@ Only when interrupting RD6018 Output is safe:
 RD 6018 -> Install -> Wirelessly
 ```
 
-The ESP reboots during OTA. This firmware intentionally enters boot quarantine,
-so flashing is a session-interrupting operation, not a transparent update.
+The ESP reboots during OTA. Do not use persisted AUTONOMOUS as a promise of
+uninterrupted power during a firmware update: OTA/reboot/persistence behavior must be
+bench-validated before relying on it with a live load.
 
 CLI equivalent, when ESPHome CLI is available in the environment:
 
@@ -317,48 +371,70 @@ installed and network credentials are correct, later updates can be wireless.
 
 ## Mandatory flash safety boundary
 
-**Never flash/reboot while an external charge, Mix session or other load must
-remain energized.**
+**Never flash/reboot while an external charge, Mix session or other load must remain
+energized until the exact D065 firmware has passed the autonomous reboot bench gate.**
 
-On every reboot:
+Managed/default/conflicting authority retains the fail-closed reboot path:
 
 ```text
 ESP boot
+  -> managed/default/conflict
   -> boot quarantine
   -> repeated RD6018 Output OFF requests
   -> fresh direct Modbus register-18 OFF proof
   -> quarantine clears
 ```
 
-This is deliberate fail-closed behavior.
+Explicit valid AUTONOMOUS has a different source contract:
+
+```text
+ESP boot
+  -> persisted autonomous=true && managed=false
+  -> no managed boot quarantine / lease expiry authority
+  -> D064 intrinsic local protection remains active
+```
+
+The second path is source/compile behavior until physically validated. Unknown or
+conflicting persistence never falls into it.
 
 ## ESP-only reboot validation caveat
 
 Do not use a same-image OTA flash merely as a substitute for an independent ESP
 restart test on the currently deployed node.
 
-The stronger reboot-containment proof requires:
+Managed reboot containment requires:
 
 ```text
 RD6018 remains powered
+managed/default authority
 Output initially ON
 only ESP8266 restarts
 boot quarantine drives RD6018 Output OFF
 fresh register-18 OFF proof clears quarantine
 ```
 
+AUTONOMOUS requires a separate inverse test:
+
+```text
+RD6018 remains powered
+explicit persisted AUTONOMOUS
+safe bench Output/load initially ON
+only ESP8266 restarts
+managed lease/quarantine does NOT turn Output off
+D064 intrinsic protection remains functional
+```
+
 Two common shortcuts are not valid evidence:
 
 - power-cycling RD6018 also removes the source of Output, so it cannot isolate the
-  ESP boot-quarantine action;
+  ESP authority behavior;
 - on the physically deployed node, the operator observed that after an OTA flash
   the ESP enters its captive/fallback Wi-Fi path and asks for Wi-Fi connectivity to
   be re-established/confirmed. That additional network-state transition means OTA
-  is not a clean ESP-only reboot injection for this bench claim.
+  is not a clean ESP-only reboot injection for either bench claim.
 
-Keep the ESP-only reboot gate pending until a clean independent reset/restart path
-is available while RD6018 remains continuously powered. This does not invalidate
-the normal post-flash boot-quarantine smoke evidence already observed.
+Keep both independent reboot gates pending until a clean reset/restart path is
+available while RD6018 remains continuously powered.
 
 ## Post-flash smoke gate
 
@@ -369,7 +445,9 @@ Safety Lease TTL             = 900 s
 Safety Lease Armed           = OFF
 Safety Lease Remaining       = 0 s
 Safety Lease Tripped         = OK/OFF
-Safety Boot Quarantine       = OK/OFF after fresh OFF proof
+Safety Boot Quarantine       = OK/OFF after fresh managed/default OFF proof
+Safety Autonomous Mode       = expected explicit value
+Safety Authority Conflict    = OFF
 Safety Modbus Age            fresh (well below 20 s)
 Protection Status Code       = 0 / NORMAL on an idle healthy RD
 Output State Code V2         = 0 while Output OFF
@@ -381,8 +459,12 @@ Also confirm that these entities exist:
 ```text
 Safety Lease Renew
 Safety Lease Disarm
+Safety Enter Autonomous
+Safety Exit Autonomous
 Safety Lease Release To Hands Off
 Safety Lease Adopt Live Output
+Safety Autonomous Mode
+Safety Authority Conflict
 Protection Status Code
 Regulation Mode Code
 Output State Code V2
@@ -391,41 +473,62 @@ Temperature External V2
 Output Power V2
 ```
 
-For the 2026-09-03 source-heartbeat correction, keep the values stable for at least
-30-60 seconds and inspect HA source timestamps. `last_reported` for the critical
-V2 sources used by the bot should continue advancing at roughly the 5 s Modbus/update
-cadence rather than aging past 20 s merely because the numerical value did not move.
-At minimum verify this behavior for battery voltage, output voltage/current, raw
+For the source-heartbeat correction, keep the values stable for at least 30-60
+seconds and inspect HA source timestamps. `last_reported` for the critical V2 sources
+used by the bot should continue advancing at roughly the 5 s Modbus/update cadence
+rather than aging past 20 s merely because the numerical value did not move. At
+minimum verify this behavior for battery voltage, output voltage/current, raw
 protection/regulation, corrected temperatures and `Output State Code V2`.
 
-### Verified-OFF arm/disarm smoke test
+### Verified-OFF managed arm/disarm smoke test
 
 With Output confirmed OFF and no battery/load requiring power:
 
-1. press `Safety Lease Renew`;
-2. verify Armed=ON, Generation increments and Remaining starts near 900 s;
-3. verify Output remains OFF;
-4. press `Safety Lease Disarm`;
-5. verify Armed=OFF, Remaining=0, trip/quarantine remain clear and Output remains OFF.
+1. ensure `Safety Autonomous Mode = OFF`;
+2. press `Safety Lease Renew`;
+3. verify Armed=ON, Generation increments and Remaining starts near 900 s;
+4. verify Output remains OFF;
+5. press `Safety Lease Disarm`;
+6. verify Armed=OFF, Remaining=0, trip/quarantine remain clear and Output remains OFF.
+
+### Verified-OFF autonomous enter/exit smoke test
+
+Only after the new firmware is deliberately selected for bench validation, with Output
+freshly confirmed OFF and no load requiring power:
+
+1. verify managed lease is disarmed and conflict is OFF;
+2. press `Safety Enter Autonomous`;
+3. verify `Safety Autonomous Mode = ON`, Generation advances, Armed remains OFF;
+4. reboot/power-loss testing is **not** implied by this smoke step;
+5. with Output still OFF, press `Safety Exit Autonomous`;
+6. verify mode returns OFF with Generation advance and no managed lease is silently
+   armed.
 
 ## Full physical acceptance gate
 
-A successful compile and the smoke test above do not by themselves authorize the
-complete D061/D062 bot workflows. Current physical status is tracked explicitly:
+A successful compile and smoke test do not authorize production AUTONOMOUS or complete
+D061/D062 workflows. Current physical status is tracked explicitly:
 
-- [x] exact 15 minute edge watchdog expiry and autonomous local Output OFF;
+- [x] pre-D065 exact 15 minute managed edge watchdog expiry and local Output OFF;
 - [x] verified-OFF trip latch recovery through Disarm;
 - [x] managed -> HANDS_OFF release preserving Output/V/I/OVP/OCP;
 - [x] HANDS_OFF -> edge live adoption preserving the running program;
-- [x] adopted lease expiry -> autonomous local Output OFF;
+- [x] adopted managed lease expiry -> local Output OFF;
 - [x] live-adopt command rejected while Output is already OFF;
 - [x] first real bot D061 preflight rejected stale HA battery-voltage source evidence read-only, before any edge command or actuator write;
 - [ ] corrected force-updated source heartbeat + `Output State Code V2` physically deployed/verified;
+- [ ] D064 55 C intrinsic local cutoff physically injected/verified;
+- [ ] D064 raw register-16 nonzero intrinsic local OFF physically injected/verified;
+- [ ] D065 explicit AUTONOMOUS enter/exit positive ACK on the exact firmware;
+- [ ] D065 AUTONOMOUS Output remains energized beyond 900 s with Wi-Fi/HA absent on a safe bench load;
+- [ ] D065 managed mode still trips/turns OFF after lease loss on the same firmware;
+- [ ] D065 autonomous ESP-only reboot with RD continuously powered and safe Output initially ON;
+- [ ] D065 managed ESP-only reboot retains boot-quarantine OFF behavior;
+- [ ] D065 persistent/torn-write conflict paths fail closed;
+- [ ] native/configured autonomous V/I/OVP/OCP/OPP/power behavior characterized before relying on generic PSU limits;
 - [ ] full bot D061 positive takeover after the corrected firmware/bot pairing;
-- [ ] ESP-only reboot with RD continuously powered and Output initially ON;
 - [ ] bot-side pre-command TOCTOU rejection on real hardware;
 - [ ] ambiguous command/ACK containment on real hardware;
-- [ ] raw-protection loss/non-NORMAL injection;
 - [ ] out-of-band authority increase forcing verified OFF;
 - [ ] complete bot-runtime downward ratchet/Stop/restart containment;
 - [ ] D063 prior-age accounting against a known external session start;
@@ -436,46 +539,41 @@ Only recorded physical evidence may close those gates.
 
 ## Current physical status
 
-As of the original 2026-09-02 flash, the canonical V2 firmware is physically installed
-on the target ESP8266/RD6018 and the edge-level safety/ownership primitives have real
-bench evidence:
+The previously deployed 2026-09-02 firmware provided real bench evidence for the
+pre-D065 managed lease/HANDS_OFF/live-adoption primitives:
 
 - ESPHome 2026.8.2 node returned online after production OTA;
 - `Safety Lease TTL = 900 s`;
-- raw protection/regulation V2 entities are present and readable;
-- boot quarantine cleared only after fresh direct Output OFF proof;
-- verified-OFF arm/disarm works;
-- a lease allowed to expire at 900 s latches trip;
-- with the RD6018 physically energized on a safe battery-disconnected bench, the
-  same expiry autonomously drove Output voltage/current to zero;
-- late recovery did not silently resume the old lease; verified-OFF Disarm cleared
-  the trip;
+- raw protection/regulation V2 entities were present/readable;
+- managed boot quarantine cleared only after fresh direct Output OFF proof;
+- verified-OFF managed arm/disarm worked;
+- a managed lease allowed to expire at 900 s latched trip and drove a safe
+  battery-disconnected Output to zero;
 - `Release To Hands Off` preserved an energized safe program and removed the lease
   without changing Output/V/I/OVP/OCP;
-- `Adopt Live Output` successfully acquired an already-running safe program with
-  raw protection NORMAL, armed the 900 s lease and preserved Output/V/I/OVP/OCP;
-- expiry of that adopted lease autonomously drove Output OFF;
+- `Adopt Live Output` acquired an already-running safe HANDS_OFF program with raw
+  protection NORMAL and preserved Output/V/I/OVP/OCP;
+- expiry of that adopted managed lease drove Output OFF;
 - pressing `Adopt Live Output` while Output was OFF left Armed OFF, Remaining 0,
   Generation unchanged and Output OFF.
 
 On 2026-09-03 the first real bot D061 preflight with a connected Varta AGM 80 Ah
-battery exposed the stale HA source-heartbeat defect described above. The transaction
-rejected before any edge command and did not alter the external HANDS_OFF program.
-The corrected firmware source compiles in CI but is **not yet physically installed**.
+battery exposed the stale HA source-heartbeat defect. The transaction rejected before
+any edge command and did not alter the external HANDS_OFF program.
 
-The detailed evidence record is:
+**D064/D065 AUTONOMOUS firmware in this branch has not been flashed or physically
+validated.** CI compile must not be reported as production deployment or as proof that
+an arbitrary load will remain powered through reboot/network loss.
+
+The historical detailed evidence record is:
 
 `docs/assistant/PHYSICAL_EDGE_VALIDATION_2026-09-02.md`
 
-This closes the basic **edge** implementation gate for D056, D060 release and the
-D061 ownership primitive. It also records a real read-only bot preflight failure. It
-does **not** close the complete D061/D062 bot-level failure-injection gate; the
-unchecked items above remain pending.
+It does not close the new autonomous gates above.
 
 ## Rollback
 
-Keep the last known working Home Assistant YAML and secrets backup before any
-flash.
+Keep the last known working Home Assistant YAML and secrets backup before any flash.
 
 If the new firmware is unsuitable:
 
@@ -485,5 +583,5 @@ If the new firmware is unsuitable:
 4. compile and flash the previous firmware;
 5. verify the node reconnects and Output remains in the intended safe state.
 
-Do not use rollback as a reason to bypass the new firmware's boot quarantine or
-verified-OFF requirements.
+Do not use rollback as a reason to bypass managed boot quarantine, verified-OFF
+requirements, explicit AUTONOMOUS authority, or intrinsic protection.
