@@ -203,8 +203,8 @@ def _install_cooling_guard(controller: Any) -> None:
 
         return actions
 
-    def guarded_restore(voltage: float, current: float, ah: float):
-        ok, message = original_restore(voltage, current, ah)
+    def guarded_restore(*args: Any, **kwargs: Any):
+        ok, message = original_restore(*args, **kwargs)
         if not ok or controller.current_stage != controller.STAGE_COOLING:
             return ok, message
 

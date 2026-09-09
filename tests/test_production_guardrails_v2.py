@@ -126,8 +126,10 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
         controller.current_stage = controller.STAGE_COOLING
         controller._v2_cooling_pause = None
         stopped = []
+        restore_calls = []
 
-        def legacy_restore(_voltage, _current, _ah):
+        def legacy_restore(_voltage, _current, _ah, **kwargs):
+            restore_calls.append(kwargs)
             return True, "legacy cooling restored"
 
         def stop(clear_session=True):
@@ -138,11 +140,22 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
         controller.stop = stop
         self._install(controller)
 
-        ok, message = controller.try_restore_session(13.0, 0.0, 5.0)
+        ok, message = controller.try_restore_session(
+            13.0,
+            0.0,
+            5.0,
+            output_is_on=False,
+            is_cv=False,
+            is_cc=True,
+        )
         self.assertFalse(ok)
         self.assertIn("automatic resume is disabled", message)
         self.assertEqual(stopped, [True])
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
+        self.assertEqual(
+            restore_calls,
+            [{"output_is_on": False, "is_cv": False, "is_cc": True}],
+        )
 
     def test_safe_wait_pause_requires_its_own_frozen_clock(self):
         controller = self._controller()
