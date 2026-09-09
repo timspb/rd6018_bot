@@ -5,14 +5,16 @@
 # can be copied directly into /config/esphome without creating fake package nodes.
 #
 # Edge contracts:
-#   - 15 minute local dead-man lease;
+#   - edge-local intrinsic PSU protection independent from Wi-Fi/HA;
+#   - 15 minute local dead-man lease for managed operation;
 #   - managed -> HANDS_OFF live release;
 #   - HANDS_OFF -> managed live adoption;
 #   - authoritative raw register-16/17 telemetry.
 #
-# IMPORTANT: flashing this firmware reboots the ESP. Boot quarantine intentionally
-# drives RD6018 Output OFF until a fresh direct register-18 readback proves OFF.
-# Do not flash it as a transparent upgrade while an external charge must remain ON.
+# IMPORTANT: flashing this firmware reboots the ESP. The current managed boot
+# quarantine contract still drives RD6018 Output OFF until a fresh direct
+# register-18 readback proves OFF. Autonomous reboot semantics are NOT enabled by
+# this slice yet; do not flash it as a transparent upgrade while Output must remain ON.
 #
 # Real credentials and local addressing belong in esphome/secrets.yaml (gitignored).
 # Never commit them.
@@ -36,6 +38,7 @@ substitutions:
 packages:
   safety_lease: !include packages/rd6018_safety_lease.yaml
   telemetry_v2: !include packages/rd6018_telemetry_v2.yaml
+  intrinsic_safety: !include packages/rd6018_intrinsic_safety.yaml
   live_adoption: !include packages/rd6018_live_adoption.yaml
 
 esphome:
@@ -45,7 +48,7 @@ esphome:
   name_add_mac_suffix: false
   project:
     name: "timspb.rd6018-pb-recovery-v2"
-    version: "2.0-edge-adoption"
+    version: "2.1-intrinsic-safety"
 
 esp8266:
   board: esp01_1m

@@ -212,6 +212,11 @@ The edge command uncertainty boundary is transaction-local. A stale `command_may
 
 For D062, the age accepted at preview is a conservative floor that ages forward. A later Recorder snapshot may increase that floor but may never reduce it; Recorder failure between preview and Execute also cannot reset or shrink already accepted elapsed time. If both a declaration and Recorder evidence exist, the larger aged value wins. If neither reliable Recorder age nor explicit operator declaration exists, managed takeover is forbidden and the program must remain in a non-autonomous alternative such as HANDS_OFF observation, Manual or explicit OFF. D063 therefore never creates a fresh full Ca20/EFB24/AGM10 autonomous window merely because observation started late.
 
+## D064 — intrinsic PSU protection is edge-local and independent of control-plane availability
+**ACCEPTED / SOFTWARE IMPLEMENTED / EXACT ESPHOME COMPILE + BENCH VALIDATION PENDING.** Intrinsic RD6018 protection must remain available even when Wi-Fi, Home Assistant, Telegram or the bot process is absent. The existing accepted internal-PSU software cutoff of 55 C is therefore also enforced locally by the canonical ESPHome target, and any fresh non-zero raw RD register-16 protection code (OVP/OCP/OPP or other non-zero fault) is local Output-OFF authority. This edge guard is application-agnostic: it does not inspect Pb chemistry, charge sessions, `temp_ext`, battery voltage, or managed lease age, and it never rewrites V/I/OVP/OCP setpoints.
+
+Missing/unknown intrinsic telemetry by itself is not converted into an autonomous OFF condition by this guard. D056 continues to own stale-control/lease fail-close semantics for managed operation. D064 does **not** yet enable autonomous reboot or disable the managed lease; the existing boot quarantine and lease behavior remain unchanged in this slice. Pb working ceilings such as 16.6/17.5 V and 12 A are not generic autonomous PSU limits and must not be silently reused as such. The exact ESPHome target must compile, then requires physical bench validation of local overtemperature/protection OFF behavior before deployment.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.

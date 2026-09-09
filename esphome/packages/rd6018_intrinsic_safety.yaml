@@ -1,0 +1,51 @@
+# RD6018 intrinsic edge-local PSU safety
+#
+# This package is deliberately independent from Pb chemistry, charge sessions,
+# Telegram, Home Assistant availability and the managed communication lease.
+# It consumes corrected local RD telemetry and can switch Output OFF without Wi-Fi.
+#
+# Accepted existing software authority:
+#   - internal RD temperature >= 55 C -> Output OFF
+#
+# RD hardware protection authority:
+#   - register 16 non-zero (OVP=1 / OCP=2 / OPP=3 / unknown non-zero) -> Output OFF
+#
+# Missing/stale telemetry by itself does NOT become an autonomous OFF reason here.
+# Managed communication-loss containment remains owned by rd6018_safety_lease.yaml.
+
+substitutions:
+  rd6018_intrinsic_temp_cutoff_c: "55.0"
+
+binary_sensor:
+  - platform: template
+    id: rd6018_intrinsic_safety_fault_sensor
+    name: "Intrinsic Safety Fault"
+    entity_category: diagnostic
+    device_class: problem
+    lambda: |-
+      const float temp_int = id(rd6018_temperature_internal_v2).state;
+      const float protection = id(rd6018_protection_status_code).state;
+      const bool overtemp = !isnan(temp_int) &&
+        temp_int >= ${rd6018_intrinsic_temp_cutoff_c}f;
+      const bool rd_fault = !isnan(protection) &&
+        ((uint16_t) protection) != 0U;
+      return overtemp || rd_fault;
+
+interval:
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              const float temp_int = id(rd6018_temperature_internal_v2).state;
+              const float protection = id(rd6018_protection_status_code).state;
+              const bool overtemp = !isnan(temp_int) &&
+                temp_int >= ${rd6018_intrinsic_temp_cutoff_c}f;
+              const bool rd_fault = !isnan(protection) &&
+                ((uint16_t) protection) != 0U;
+              return overtemp || rd_fault;
+          then:
+            # Repeated local OFF is intentional while positive intrinsic fault
+            # evidence remains. This actuator is local to the ESP/RD Modbus path and
+            # therefore does not depend on Wi-Fi, HA, Telegram or a bot process.
+            - switch.turn_off: rd6018_safety_output
