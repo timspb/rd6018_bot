@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from rd_adopted_hands_off_release import install_adopted_hands_off_release_retirement
+
 
 _SUPPRESSED_NOTIFY_FRAGMENTS = (
     "Сработала защита OVP",
@@ -83,6 +85,12 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
     """
     if bool(getattr(app, "_hands_off_background_isolation_installed", False)):
         return
+
+    # D067 composition happens here because bot.py installs this boundary only after
+    # D061 and the D065 startup gate both exist. It must reconcile an exact-session
+    # HANDS_OFF release marker before startup recovery gets a chance to reinterpret the
+    # old D061 journal as verified-OFF authority.
+    install_adopted_hands_off_release_retirement(app, manager)
 
     controller = getattr(app, "charge_controller", None)
     if controller is None:
