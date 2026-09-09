@@ -494,6 +494,13 @@ class SafeOutputCoordinator:
 
             await asyncio.sleep(min(self.readback_poll_interval_s, max(0.0, deadline - now)))
 
+    async def confirm_programmed_readback(
+        self,
+        request: OutputRequest,
+    ) -> tuple[Optional[TelemetrySnapshot], SafetyDecision]:
+        """Wait for canonical programmed V2 evidence before any Output ON."""
+        return await self._wait_for_programmed_readback(request)
+
     async def enable(self, request: OutputRequest) -> EnableResult:
         try:
             live = await self.adapter.get_all_live()
@@ -537,7 +544,7 @@ class SafeOutputCoordinator:
                     force_off=True,
                 )
 
-        _programmed, readback = await self._wait_for_programmed_readback(request)
+        _programmed, readback = await self.confirm_programmed_readback(request)
         if not readback.allowed:
             return await self._failure(readback.violations, readback.detail, force_off=True)
 

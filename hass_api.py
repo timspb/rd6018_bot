@@ -242,7 +242,8 @@ class HassClient:
             logger.error("HA turn_on blocked by safety preflight: %s", decision.detail)
             self._clear_programming_state()
             return False
-        verified = self._safety_supervisor.verify_programmed(request, before)
+        coordinator = SafeOutputCoordinator(self, self._safety_supervisor)
+        _programmed, verified = await coordinator.confirm_programmed_readback(request)
         if not verified.allowed:
             logger.error("HA turn_on blocked by setpoint readback: %s", verified.detail)
             self._clear_programming_state()

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from config import ENTITY_MAP
 from hass_api import HassClient
-from safe_output import SafetyViolation
+from safe_output import OutputRequest, SafeOutputCoordinator, SafetyViolation
 
 
 def live_state(**overrides):
@@ -111,6 +111,56 @@ class DelayedOutputV2HassClient(FakeHassClient):
         return True
 
 
+class DelayedProgrammedReadbackHassClient(FakeHassClient):
+    """Model protection/setpoint registers converging after HA accepts writes."""
+
+    def __init__(self, confirmation_reads=3):
+        super().__init__()
+        self.confirmation_reads = confirmation_reads
+        self.programmed_reads = 0
+        self._pending_readback = {}
+
+    async def set_value(self, entity_id, value):
+        mapping = {
+            ENTITY_MAP["set_voltage"]: ("set_voltage", "set_voltage_readback_v2"),
+            ENTITY_MAP["set_current"]: ("set_current", "set_current_readback_v2"),
+            ENTITY_MAP["ovp"]: ("ovp", "ovp_readback_v2"),
+            ENTITY_MAP["ocp"]: ("ocp", "ocp_readback_v2"),
+        }
+        item = mapping.get(entity_id)
+        if item is None:
+            return False
+        key, readback_key = item
+        self.live[key] = float(value)
+        self._pending_readback[readback_key] = float(value)
+        return True
+
+    async def get_all_live(self):
+        if len(self._programming_state) == 4:
+            self.programmed_reads += 1
+            if self.programmed_reads >= self.confirmation_reads:
+                for key, value in self._pending_readback.items():
+                    self.live[key] = value
+        return dict(self.live)
+
+
+class StaleProgrammedReadbackHassClient(FakeHassClient):
+    """Keep canonical V2 registers at their old values after accepted writes."""
+
+    async def set_value(self, entity_id, value):
+        mapping = {
+            ENTITY_MAP["set_voltage"]: "set_voltage",
+            ENTITY_MAP["set_current"]: "set_current",
+            ENTITY_MAP["ovp"]: "ovp",
+            ENTITY_MAP["ocp"]: "ocp",
+        }
+        key = mapping.get(entity_id)
+        if key is None:
+            return False
+        self.live[key] = float(value)
+        return True
+
+
 class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
     async def _program(self, client):
         self.assertTrue(await client.set_ovp(16.4))
@@ -129,6 +179,36 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(await client.turn_on())
         self.assertEqual(client.service_calls, ["turn_on"])
+
+    async def test_turn_on_waits_for_delayed_canonical_programmed_readback(self):
+        client = DelayedProgrammedReadbackHassClient(confirmation_reads=4)
+        await self._program(client)
+
+        self.assertTrue(await client.turn_on())
+        self.assertEqual(client.service_calls, ["turn_on"])
+        self.assertGreaterEqual(client.programmed_reads, 3)
+
+    async def test_stale_programmed_readback_fails_closed_before_enable(self):
+        client = StaleProgrammedReadbackHassClient()
+        client.live["set_voltage_readback_v2"] = 16.7
+        client.live["set_current_readback_v2"] = 2.5
+        client.live["ovp_readback_v2"] = 16.7
+        client.live["ocp_readback_v2"] = 12.0
+        request = OutputRequest(
+            voltage_v=16.3,
+            current_a=2.0,
+            ovp_v=16.4,
+            ocp_a=2.1,
+            recipe_voltage_ceiling_v=17.5,
+        )
+        result = await SafeOutputCoordinator(
+            client,
+            readback_timeout_s=0.01,
+            readback_poll_interval_s=0.005,
+        ).enable(request)
+
+        self.assertFalse(result.enabled)
+        self.assertEqual(client.service_calls, ["turn_off"])
 
     async def test_post_enable_accepts_output_v2_after_one_poll_interval(self):
         client = DelayedOutputV2HassClient()
