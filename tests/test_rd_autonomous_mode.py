@@ -2,7 +2,10 @@ import types
 import unittest
 
 from edge_safety_lease import EdgeSafetyLeaseConfig
-from rd_autonomous_mode import RdAutonomousModeCoordinator
+from rd_autonomous_mode import (
+    RdAutonomousModeCoordinator,
+    install_rd_autonomous_mode,
+)
 from runtime_safety import RuntimeSafetyError
 
 
@@ -27,8 +30,6 @@ class DummyManager:
     def __init__(self):
         self.guard = DummyGuard()
         self.mode = types.SimpleNamespace()
-        # Coordinator calls type(mode).HANDS_OFF/PB_MANAGED only in the already-edge
-        # recovery branch. Normal tests use the public transition methods below.
         self.hands_off = False
         self.pb_managed = True
         self._edge_autonomous = False
@@ -37,6 +38,10 @@ class DummyManager:
         self.sessions = False
         self.writes = []
         self.clear_calls = 0
+
+    @property
+    def edge_autonomous(self):
+        return bool(self._edge_autonomous)
 
     def _managed_session_active(self):
         return self.sessions
@@ -103,9 +108,7 @@ class RdAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_enter_crosses_hands_off_before_edge_autonomous(self):
         manager, coordinator = self.make()
-
         self.assertTrue(await coordinator.enter())
-
         self.assertEqual(manager.enter_calls, 1)
         self.assertTrue(manager.hands_off)
         self.assertFalse(manager.pb_managed)
@@ -116,20 +119,26 @@ class RdAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_entry_requires_confirmed_output_off(self):
         manager, coordinator = self.make()
         manager.guard.live["switch"] = "on"
-
         with self.assertRaisesRegex(RuntimeSafetyError, "confirmed Output OFF"):
             await coordinator.enter()
+        self.assertEqual(manager.enter_calls, 0)
+        self.assertEqual(coordinator.edge.enter_calls, 0)
 
+    async def test_entry_rejects_stale_output_off_evidence(self):
+        manager, coordinator = self.make()
+        manager.guard.live["_meta"] = {
+            "switch": {"status": "unavailable"},
+        }
+        with self.assertRaisesRegex(RuntimeSafetyError, "fresh confirmed Output OFF"):
+            await coordinator.enter()
         self.assertEqual(manager.enter_calls, 0)
         self.assertEqual(coordinator.edge.enter_calls, 0)
 
     async def test_ambiguous_edge_entry_never_rolls_back_bot_authority(self):
         manager, coordinator = self.make()
         coordinator.edge.fail_enter = True
-
         with self.assertRaisesRegex(RuntimeSafetyError, "RD remains HANDS_OFF"):
             await coordinator.enter()
-
         self.assertTrue(manager.hands_off)
         self.assertFalse(manager.pb_managed)
         self.assertEqual(manager.return_calls, 0)
@@ -142,9 +151,7 @@ class RdAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
         manager._edge_autonomous = True
         manager.guard.live["autonomous_mode"] = "on"
         coordinator.edge.autonomous = True
-
         self.assertTrue(await coordinator.exit())
-
         self.assertEqual(coordinator.edge.exit_calls, 1)
         self.assertEqual(manager.return_calls, 1)
         self.assertFalse(manager._edge_autonomous)
@@ -158,10 +165,8 @@ class RdAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
         manager.guard.live["autonomous_mode"] = "on"
         coordinator.edge.autonomous = True
         coordinator.edge.fail_exit = True
-
         with self.assertRaisesRegex(RuntimeSafetyError, "not positively acknowledged"):
             await coordinator.exit()
-
         self.assertTrue(manager._edge_autonomous)
         self.assertTrue(manager.hands_off)
         self.assertEqual(manager.return_calls, 0)
@@ -169,11 +174,23 @@ class RdAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
     async def test_active_managed_session_blocks_autonomous_entry(self):
         manager, coordinator = self.make()
         manager.sessions = True
-
         with self.assertRaisesRegex(RuntimeSafetyError, "active managed session"):
             await coordinator.enter()
-
         self.assertEqual(manager.enter_calls, 0)
+
+    async def test_stale_generic_pb_restore_cannot_bypass_edge_autonomous(self):
+        manager = DummyManager()
+        app = types.SimpleNamespace()
+        install_rd_autonomous_mode(app, manager, install_ui=False)
+        manager.hands_off = True
+        manager.pb_managed = False
+        manager._edge_autonomous = True
+
+        with self.assertRaisesRegex(RuntimeSafetyError, "explicit AUTONOMOUS exit"):
+            await manager.return_pb_control()
+
+        self.assertEqual(manager.return_calls, 0)
+        self.assertTrue(manager.hands_off)
 
 
 if __name__ == "__main__":
