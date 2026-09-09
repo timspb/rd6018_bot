@@ -24,22 +24,10 @@ Safety boundaries remain:
 - AUTO and MANUAL sessions are absent.
 - Owner is unclear.
 
-### Immediate actions
+### Recovery choices
 
-Do not start a new charge session.
-
-Collect:
-
-- Output state freshness;
-- protection status;
-- edge lease state;
-- last ownership transition;
-- persisted RD mode.
-
-### Expected recovery choices
-
-1. Adopt ownership only through the explicit live-adoption contract.
-2. Release to HANDS_OFF through the ownership transfer contract.
+1. Adopt ownership only through explicit live-adoption contract.
+2. Release to HANDS_OFF through ownership transfer contract.
 3. Verified Output OFF.
 
 Do not use direct setpoint writes.
@@ -47,13 +35,6 @@ Do not use direct setpoint writes.
 ---
 
 ## INC-002 — HANDS_OFF active but control must return
-
-### Preconditions
-
-- Operator intentionally released RD ownership.
-- Pb automation is not owner.
-
-### Recovery
 
 Require:
 
@@ -68,19 +49,13 @@ Do not revive an old session.
 
 ## INC-003 — Wi-Fi/network loss during managed charge
 
-### Expected behavior
-
-The edge lease is authoritative.
-
-On communication loss:
+Expected:
 
 - renewals stop;
-- lease expiry leads to local containment;
-- late application recovery must not silently resume charging.
+- edge lease may expire;
+- local containment may disable Output.
 
-### Investigation
-
-Check:
+Investigate:
 
 - lease generation;
 - last ACK;
@@ -90,8 +65,6 @@ Check:
 ---
 
 ## INC-004 — Telemetry stale or unknown
-
-### Rule
 
 Unknown is not OFF.
 
@@ -105,7 +78,7 @@ Recovery:
 
 1. Restore telemetry.
 2. Verify direct device state.
-3. Resume only through normal authorization.
+3. Resume only through authorization.
 
 ---
 
@@ -128,6 +101,70 @@ Required evidence:
 
 ---
 
+## INC-006 — Output OFF command not confirmed storm
+
+### Severity
+
+P0 control-plane failure.
+
+### Symptoms
+
+Repeated notifications:
+
+```
+Output OFF command not confirmed.
+Further enable is blocked.
+```
+
+while telemetry may show:
+
+```
+Voltage: 0
+Current: 0
+Temperature: unavailable/0
+Mode: unknown
+```
+
+### Classification
+
+This is not automatically a hardware overcurrent/overvoltage event.
+
+The system must distinguish:
+
+```
+OFF requested
+ |
+ +-- confirmed OFF
+ |
+ +-- confirmed ON -> safety fault
+ |
+ +-- UNKNOWN -> control-plane unavailable
+```
+
+### Forbidden behavior
+
+Do not convert repeated readback uncertainty into an endless safety notification loop.
+
+### Recovery
+
+Collect:
+
+- switch entity availability;
+- HA connectivity;
+- ESPHome connectivity;
+- physical output readback;
+- last safety decision reason.
+
+After the first unresolved event:
+
+- latch the incident;
+- block unsafe re-enable;
+- wait for operator or telemetry recovery.
+
+Do not blindly repeat actuator commands.
+
+---
+
 # Debug checklist
 
 ```text
@@ -138,6 +175,7 @@ Required evidence:
 5. Is there a valid session identity?
 6. What was the last ownership transition?
 7. What recovery path is explicitly authorized?
+8. Is OFF failure a device fault or an unavailable readback?
 ```
 
 # Development rules after incidents
