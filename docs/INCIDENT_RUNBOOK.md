@@ -165,6 +165,52 @@ Do not blindly repeat actuator commands.
 
 ---
 
+## INC-007 — ESPHome offline / RD operation without Wi-Fi
+
+### Severity
+
+P1 operational availability, potentially P0 if combined with active charging.
+
+### Symptoms
+
+- RD6018 hardware is physically available.
+- Wi-Fi is absent or unavailable.
+- ESPHome safety component cannot renew/report lease state.
+- Bot interprets missing network evidence as ownership/control failure.
+
+### Required behavior
+
+The ESPHome firmware must have a clearly defined offline operating contract.
+
+Separate:
+
+```
+Wi-Fi unavailable
+        !=
+RD hardware unsafe
+```
+
+Offline mode must define:
+
+- whether an already active output may continue;
+- lease timeout behavior;
+- local safety cutoff authority;
+- local telemetry availability;
+- recovery when Wi-Fi returns.
+
+### Recovery plan
+
+Firmware review required:
+
+- remove accidental dependency on Home Assistant availability for safe local operation;
+- keep local safety lease enforcement;
+- expose local state needed for recovery;
+- test boot and runtime behavior without Wi-Fi.
+
+Do not bypass the safety lease. The goal is deterministic offline behavior, not disabling protection.
+
+---
+
 # Debug checklist
 
 ```text
@@ -176,6 +222,7 @@ Do not blindly repeat actuator commands.
 6. What was the last ownership transition?
 7. What recovery path is explicitly authorized?
 8. Is OFF failure a device fault or an unavailable readback?
+9. Is ESPHome behavior defined without Wi-Fi?
 ```
 
 # Development rules after incidents
