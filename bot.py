@@ -28,6 +28,7 @@ from operator_hmi import install_operator_hmi
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
 from operator_navigation_recovery import install_operator_navigation_recovery
+from operator_output_truth import install_operator_output_truth
 from physical_test_control import install_physical_test_control
 from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
@@ -193,6 +194,11 @@ if _v2_ui_enabled:
     # setpoints that cannot be high-voltage Mix under any supported chemistry and gate
     # stale Telegram callback messages with the same live rule.
     install_mix_action_eligibility(_legacy)
+    # Last presentation boundary: stale/unknown canonical Output evidence must never be
+    # rendered as OFF or expose actions whose precondition is proven OFF. This wrapper
+    # is deliberately installed after every keyboard composer so UNKNOWN stays visible
+    # in the effective production panel without changing any actuator transaction.
+    install_operator_output_truth(_legacy)
 
 _legacy_main = _legacy.main
 
