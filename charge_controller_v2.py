@@ -190,6 +190,8 @@ class ChargeControllerV2(ChargeController):
         document["v2_intent"] = self._v2_intent.value
         document["v2_condition_before"] = self._v2_condition_before.value
         document["v2_authoritative"] = self._v2_authoritative
+        if self.current_stage == self.STAGE_DONE:
+            document["terminal_session_id"] = self._v2_trace_session_id
 
         tmp_path = f"{SESSION_FILE}.v2.tmp"
         try:

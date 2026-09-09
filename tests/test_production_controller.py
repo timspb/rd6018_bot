@@ -573,6 +573,9 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertEqual(saved["terminal_metadata"]["stage"], controller.STAGE_DONE)
             self.assertAlmostEqual(saved["terminal_metadata"]["voltage"], 16.47)
             self.assertAlmostEqual(saved["terminal_metadata"]["current"], 0.66)
+            saved["terminal_session_id"] = None
+            with open(session_file, "w", encoding="utf-8") as handle:
+                json.dump(saved, handle)
 
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
@@ -588,6 +591,12 @@ class ProductionControllerTests(unittest.TestCase):
 
             self.assertTrue(ok)
             self.assertEqual(restored.current_stage, restored.STAGE_DONE)
+            with open(session_file, "r", encoding="utf-8") as handle:
+                restored_document = json.load(handle)
+            self.assertEqual(
+                restored_document["terminal_session_id"],
+                restored._v2_trace_session_id,
+            )
 
     def test_legacy_session_without_terminal_fields_remains_active_mix(self):
         ok, target, _, persisted = self._restore_document(
