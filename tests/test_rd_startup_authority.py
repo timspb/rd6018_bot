@@ -54,6 +54,7 @@ class DummyManager:
         self.pb_managed = True
         self.hands_off = False
         self._edge_autonomous = False
+        self.return_calls = 0
 
     @property
     def edge_autonomous(self):
@@ -65,6 +66,12 @@ class DummyManager:
             self._edge_autonomous = True
         elif value in (False, 0, "off", "false", "0"):
             self._edge_autonomous = False
+
+    async def return_pb_control(self):
+        self.return_calls += 1
+        self.hands_off = False
+        self.pb_managed = True
+        return True
 
 
 class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
@@ -94,7 +101,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
             await app.hass.turn_on("switch.test")
 
         self.assertFalse(gate.managed_actuation_ready)
-        self.assertEqual(app.hass.turn_on_calls if hasattr(app.hass, "turn_on_calls") else 0, 0)
+        self.assertEqual(app.hass.turn_on_calls, 0)
 
     async def test_managed_recovery_may_use_verified_off_then_reopens_control(self):
         app, manager, _guard, gate = self.make()
@@ -134,6 +141,34 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
             await app.hass.turn_on("switch.test")
 
+    async def test_explicit_autonomous_exit_can_reopen_gate_after_clean_pb_return(self):
+        app, manager, guard, gate = self.make()
+        guard.raw["autonomous_mode"] = "on"
+
+        async def recover():
+            self.fail("managed recovery must not run while autonomous")
+
+        self.assertEqual(await gate.reconcile(recover), "autonomous")
+        manager.hands_off = True
+        # rd_autonomous_mode clears the manager bit only after positive edge EXIT ACK.
+        manager._edge_autonomous = False
+
+        self.assertTrue(await manager.return_pb_control())
+
+        self.assertEqual(manager.return_calls, 1)
+        self.assertTrue(gate.managed_actuation_ready)
+        self.assertFalse(gate.candidate_autonomous)
+        self.assertTrue(await app.hass.turn_on("switch.test"))
+
+    async def test_plain_hands_off_return_does_not_bypass_unresolved_startup_recovery(self):
+        _app, manager, _guard, gate = self.make()
+        manager.hands_off = True
+
+        self.assertTrue(await manager.return_pb_control())
+
+        self.assertFalse(gate.managed_actuation_ready)
+        self.assertIsNone(gate.candidate_autonomous)
+
     async def test_failed_managed_recovery_stays_blocked_without_retry_loop(self):
         app, _manager, _guard, gate = self.make()
         recovery_calls = 0
@@ -159,7 +194,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         live = await app.hass.get_all_live()
 
         self.assertEqual(live["raw_only"], 1)
-        self.assertEqual(app.hass.get_all_calls if hasattr(app.hass, "get_all_calls") else 0, 0)
+        self.assertEqual(app.hass.get_all_calls, 0)
         self.assertFalse(gate.managed_actuation_ready)
 
     def test_parser_never_infers_mode_from_unknown_values(self):
