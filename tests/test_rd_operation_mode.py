@@ -5,6 +5,7 @@ from rd_operation_mode import (
     RdOperatingState,
     RdOperationMode,
     RdOwnership,
+    operating_state_from_edge_authority,
     operating_state_from_control_mode,
 )
 
@@ -54,22 +55,27 @@ class RdOperationModeTests(unittest.TestCase):
         self.assertTrue(state.control_plane_required)
         self.assertTrue(state.managed_edge_lease_required)
 
-    def test_existing_hands_off_maps_to_external_autonomous(self):
-        state = operating_state_from_control_mode(RdControlMode.HANDS_OFF)
+    def test_hands_off_never_infers_autonomous(self):
+        with self.assertRaisesRegex(ValueError, "ownership transfer"):
+            operating_state_from_control_mode(RdControlMode.HANDS_OFF)
 
-        self.assertEqual(state, RdOperatingState.external_autonomous())
-        self.assertFalse(state.control_plane_required)
-        self.assertFalse(state.external_temperature_required_by_mode)
+    def test_explicit_edge_authority_selects_autonomous(self):
+        self.assertEqual(
+            operating_state_from_edge_authority("on"),
+            RdOperatingState.external_autonomous(),
+        )
+        self.assertEqual(
+            operating_state_from_edge_authority(False),
+            RdOperatingState.bot_managed(),
+        )
 
     def test_persisted_string_values_map_identically(self):
         self.assertEqual(
             operating_state_from_control_mode("pb_managed"),
             RdOperatingState.bot_managed(),
         )
-        self.assertEqual(
-            operating_state_from_control_mode("hands_off"),
-            RdOperatingState.external_autonomous(),
-        )
+        with self.assertRaisesRegex(ValueError, "ownership transfer"):
+            operating_state_from_control_mode("hands_off")
 
     def test_unknown_or_empty_legacy_mode_never_infers_autonomous(self):
         for raw in (None, "", "autonomous", "unknown", object()):

@@ -94,7 +94,7 @@ The currently persisted software values map conservatively as follows:
 
 ```
 PB_MANAGED -> BOT + MANAGED
-HANDS_OFF  -> EXTERNAL + AUTONOMOUS
+HANDS_OFF  -> ownership transfer only; explicit edge autonomous authority required
 ```
 
 Unknown/corrupt values must never imply AUTONOMOUS.

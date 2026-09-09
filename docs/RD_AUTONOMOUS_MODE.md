@@ -19,6 +19,10 @@ Who may issue application-level actuator commands:
   - external operator/application owns setpoints
   - bot does not run application control
 
+`HANDS_OFF` is the existing ownership-transfer workflow. It is not evidence that
+the edge is in `AUTONOMOUS`; the explicit persistent edge autonomous authority must
+be observed separately.
+
 ### Operation mode
 
 What type of operation is expected:
