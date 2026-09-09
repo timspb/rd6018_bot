@@ -63,24 +63,14 @@ class RdStartupAuthorityGate:
 
     @property
     def nonautonomous_ready(self) -> bool:
-        return bool(
-            self.reconciliation_complete
-            and self.managed_recovery_complete
-            and self.candidate_autonomous is False
-        )
+        return bool(self.reconciliation_complete and self.managed_recovery_complete and self.candidate_autonomous is False)
 
     @property
     def managed_actuation_ready(self) -> bool:
-        return bool(
-            self.nonautonomous_ready
-            and getattr(self.manager, "pb_managed", False)
-            and not getattr(self.manager, "edge_autonomous", False)
-        )
+        return bool(self.nonautonomous_ready and getattr(self.manager, "pb_managed", False) and not getattr(self.manager, "edge_autonomous", False))
 
     def _blocked(self, action: str) -> RuntimeSafetyError:
-        if self.candidate_autonomous is True or bool(
-            getattr(self.manager, "edge_autonomous", False)
-        ):
+        if self.candidate_autonomous is True or bool(getattr(self.manager, "edge_autonomous", False)):
             state = "edge AUTONOMOUS"
         elif self.candidate_autonomous is False:
             state = "managed startup recovery incomplete"
@@ -114,19 +104,14 @@ class RdStartupAuthorityGate:
 
         async def turn_on(entity_id: Optional[str] = None) -> bool:
             return await guarded("Output ON", original_turn_on, entity_id)
-
         async def turn_off(entity_id: Optional[str] = None) -> bool:
             return await guarded("Output OFF", original_turn_off, entity_id)
-
         async def set_voltage(value: float) -> bool:
             return await guarded("voltage write", original_set_voltage, value)
-
         async def set_current(value: float) -> bool:
             return await guarded("current write", original_set_current, value)
-
         async def set_ovp(value: float) -> bool:
             return await guarded("OVP write", original_set_ovp, value)
-
         async def set_ocp(value: float) -> bool:
             return await guarded("OCP write", original_set_ocp, value)
 
@@ -141,110 +126,66 @@ class RdStartupAuthorityGate:
 
     def _install_application_gate(self) -> None:
         controller = getattr(self.app, "charge_controller", None)
-        if controller is not None and not bool(
-            getattr(controller, "_rd_startup_authority_start_wrapped", False)
-        ):
+        if controller is not None and not bool(getattr(controller, "_rd_startup_authority_start_wrapped", False)):
             original_start = controller.start
-
             def start(*args: Any, **kwargs: Any) -> Any:
                 if not self.managed_actuation_ready:
                     raise self._blocked("automatic charge start")
                 return original_start(*args, **kwargs)
-
             controller.start = start
             controller._rd_startup_authority_start_wrapped = True
 
-        if controller is not None and callable(getattr(controller, "try_restore_session", None)) and not bool(
-            getattr(controller, "_rd_startup_authority_restore_wrapped", False)
-        ):
+        if controller is not None and callable(getattr(controller, "try_restore_session", None)) and not bool(getattr(controller, "_rd_startup_authority_restore_wrapped", False)):
             original_restore = controller.try_restore_session
-
             def restore(*args: Any, **kwargs: Any) -> Any:
                 if not self.managed_actuation_ready:
                     return False, None
                 return original_restore(*args, **kwargs)
-
             controller.try_restore_session = restore
             controller._rd_startup_authority_restore_wrapped = True
 
-        manual = getattr(self.app, "manual_session_manager", None)
-        if manual is not None and not bool(
-            getattr(manual, "_rd_startup_authority_start_wrapped", False)
-        ):
-            original_manual_start = manual.start
-
-            async def manual_start(*args: Any, **kwargs: Any) -> bool:
-                if not self.managed_actuation_ready:
-                    raise self._blocked("Manual charge start")
-                return bool(await original_manual_start(*args, **kwargs))
-
-            manual.start = manual_start
-            manual._rd_startup_authority_start_wrapped = True
-
         import v2_mix_mode
-
         if not bool(getattr(v2_mix_mode, "_rd_startup_authority_wrapped", False)):
             original_mix = v2_mix_mode.start_mix_transactional
-
             async def mix_start(app_arg: Any, event: Any, pending: Any) -> bool:
-                if not self.managed_actuation_ready:
+                installed = getattr(app_arg, "rd_startup_authority_gate", None) is self
+                if installed and not self.managed_actuation_ready:
                     raise self._blocked("Mix start")
                 return bool(await original_mix(app_arg, event, pending))
-
             v2_mix_mode.start_mix_transactional = mix_start
             v2_mix_mode._rd_startup_authority_wrapped = True
 
     def _install_ownership_gate(self) -> None:
         for attr in ("rd_managed_live_adoption", "rd_managed_mix_adoption"):
             coordinator = getattr(self.app, attr, None)
-            if coordinator is None or bool(
-                getattr(coordinator, "_rd_startup_authority_adopt_wrapped", False)
-            ):
+            if coordinator is None or bool(getattr(coordinator, "_rd_startup_authority_adopt_wrapped", False)):
                 continue
             original_adopt = coordinator.adopt
-
             async def adopt(*args: Any, __original=original_adopt, **kwargs: Any) -> bool:
                 if not self.nonautonomous_ready:
                     raise self._blocked("live ownership adoption")
                 return bool(await __original(*args, **kwargs))
-
             coordinator.adopt = adopt
             coordinator._rd_startup_authority_adopt_wrapped = True
 
         observer = getattr(self.app, "rd_live_mix_observer", None)
-        if observer is not None and not bool(
-            getattr(observer, "_rd_startup_authority_start_wrapped", False)
-        ):
+        if observer is not None and not bool(getattr(observer, "_rd_startup_authority_start_wrapped", False)):
             original_observer_start = observer.start
-
             async def observer_start(*args: Any, **kwargs: Any) -> Any:
                 if not self.nonautonomous_ready:
                     raise self._blocked("HANDS_OFF observer start")
                 return await original_observer_start(*args, **kwargs)
-
             observer.start = observer_start
             observer._rd_startup_authority_start_wrapped = True
 
     def _install_return_pb_gate(self) -> None:
         original = self.manager.return_pb_control
-
         async def return_pb_control() -> bool:
-            was_explicit_autonomous = bool(
-                self.candidate_autonomous is True
-                or getattr(self.manager, "edge_autonomous", False)
-            )
+            was_explicit_autonomous = bool(self.candidate_autonomous is True or getattr(self.manager, "edge_autonomous", False))
             result = bool(await original())
-            # rd_autonomous_mode clears the edge bit only after a positive edge EXIT ACK,
-            # and the underlying HANDS_OFF -> PB transaction independently requires
-            # fresh canonical Output OFF and clears stale AUTO restore authority. That
-            # exact two-boundary path is safe to reopen without waiting for the startup
-            # reconciliation task that intentionally ended while AUTONOMOUS was active.
-            if result and was_explicit_autonomous and bool(
-                getattr(self.manager, "pb_managed", False)
-            ):
+            if result and was_explicit_autonomous and bool(getattr(self.manager, "pb_managed", False)):
                 self.mark_managed_recovered()
             return result
-
         self.manager.return_pb_control = return_pb_control
 
     def hold_unresolved(self, reason: str = "edge authority unresolved") -> None:
@@ -267,20 +208,7 @@ class RdStartupAuthorityGate:
         self.reconciliation_error = ""
         self.manager._edge_autonomous = False
 
-    async def reconcile(
-        self,
-        recover: Callable[[], Awaitable[bool]],
-        *,
-        retry_s: float = 5.0,
-    ) -> str:
-        """Resolve edge authority then perform non-autonomous durable recovery once.
-
-        Read failures/unknown mode are retried without actuator authority. Once recovery
-        starts, failures are not blindly retried because an OFF transaction may already
-        be uncertain; normal control remains blocked and the incident requires explicit
-        operator/restart resolution rather than producing an OFF/alarm storm.
-        """
-
+    async def reconcile(self, recover: Callable[[], Awaitable[bool]], *, retry_s: float = 5.0) -> str:
         delay = max(1.0, float(retry_s))
         self.hold_unresolved()
         while True:
@@ -289,23 +217,18 @@ class RdStartupAuthorityGate:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.hold_unresolved(
-                    f"edge authority read failed: {type(exc).__name__}: {exc}"
-                )
+                self.hold_unresolved(f"edge authority read failed: {type(exc).__name__}: {exc}")
                 await asyncio.sleep(delay)
                 continue
-
             candidate = self.parse_explicit(raw)
             if candidate is None:
                 self.hold_unresolved("edge autonomous authority missing/unavailable")
                 await asyncio.sleep(delay)
                 continue
-
             self.manager._observe_edge_mode(raw)
             if candidate:
                 self.mark_autonomous()
                 return "autonomous"
-
             self.candidate_autonomous = False
             token = self._recovery_scope.set(True)
             try:
@@ -313,21 +236,15 @@ class RdStartupAuthorityGate:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.reconciliation_error = (
-                    f"managed startup recovery failed: {type(exc).__name__}: {exc}"
-                )
+                self.reconciliation_error = f"managed startup recovery failed: {type(exc).__name__}: {exc}"
                 self.reconciliation_complete = False
                 return "blocked"
             finally:
                 self._recovery_scope.reset(token)
-
             if not recovered:
-                self.reconciliation_error = (
-                    "managed startup recovery did not prove containment"
-                )
+                self.reconciliation_error = "managed startup recovery did not prove containment"
                 self.reconciliation_complete = False
                 return "blocked"
-
             self.mark_managed_recovered()
             return "managed"
 
