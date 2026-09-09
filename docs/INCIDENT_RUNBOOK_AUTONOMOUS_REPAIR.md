@@ -90,6 +90,15 @@ Operation:
     AUTONOMOUS
 ```
 
+The currently persisted software values map conservatively as follows:
+
+```
+PB_MANAGED -> BOT + MANAGED
+HANDS_OFF  -> EXTERNAL + AUTONOMOUS
+```
+
+Unknown/corrupt values must never imply AUTONOMOUS.
+
 ---
 
 ### C3 — Pb application assumptions leak into generic PSU operation
@@ -106,17 +115,42 @@ Managed Pb-only requirements must not terminate generic autonomous PSU use:
 
 ---
 
+### C4 — Accepted intrinsic software protection is not yet edge-local
+
+Severity: HIGH
+
+Confirmed current boundary:
+
+- the accepted internal RD temperature cutoff is 55 C in host-side software;
+- the canonical ESPHome telemetry package publishes internal temperature and raw
+  protection status but does not itself perform the 55 C shutdown;
+- the edge safety package currently performs communication/lease containment, not a
+  complete generic-PSU hardware-safety policy.
+
+Consequence:
+
+AUTONOMOUS cannot be implemented safely as a blanket bypass of the runtime guard.
+Intrinsic protection required during loss of Wi-Fi/HA must be moved or duplicated at
+an edge-local authority before control-plane lease shutdown is disabled for that mode.
+
+Do not invent new autonomous V/I/power thresholds. Use existing RD hardware protection
+status where authoritative and existing accepted software limits where already defined.
+
+---
+
 # Safety invariants
 
 Always active:
 
 - RD internal temperature protection;
-- absolute voltage limits;
-- absolute current limits;
-- power/thermal protection;
+- configured/hardware OVP/OCP/OPP protection;
 - hardware fault handling.
 
-Never weaken these while adding autonomous mode.
+Do not silently reinterpret Pb working limits (16.6/17.5 V, 12 A) as generic PSU
+hardware limits. Autonomous mode is load-agnostic and may use the native RD operating
+range subject to its configured/intrinsic protection contract.
+
+Never weaken intrinsic safety while adding autonomous mode.
 
 ---
 
@@ -128,10 +162,11 @@ RD6018 can operate as a general programmable power supply.
 
 Allowed loads:
 
-- batteries;
+- batteries of any chemistry;
 - electronics;
 - motors;
 - lamps;
+- heaters;
 - laboratory loads;
 - arbitrary DC equipment.
 
@@ -144,34 +179,42 @@ Not assumed:
 - HA;
 - Wi-Fi.
 
+`temp_ext` is application telemetry in this mode. Missing/unavailable `temp_ext` is not
+itself an autonomous fault. No generic emergency threshold is accepted until separately
+validated; existing 35/40/45 C limits are Pb battery policy and must not be reused blindly.
+
 ---
 
 # Repair phases
 
 ## Phase 1 — Domain separation
 
-Status: IN PROGRESS
+Status: DONE
 
-Add explicit concepts:
+Merged foundation:
 
-- ownership;
-- operation mode;
-- operating state.
+- `RdOwnership`;
+- `RdOperationMode`;
+- `RdOperatingState`;
+- supported-state validation;
+- generic-PSU autonomous semantics;
+- deterministic legacy control-mode mapping.
 
-No runtime behavior changes.
+No actuator or ESPHome behavior is changed by this phase.
 
 ---
 
 ## Phase 2 — Runtime safety separation
 
-Pending.
+Status: IN PROGRESS
 
 Audit:
 
 - orphan output handling;
 - controller_active;
 - telemetry requirements;
-- lease enforcement.
+- lease enforcement;
+- old `PB_MANAGED` / `HANDS_OFF` persistence bridge.
 
 Goal:
 
@@ -183,14 +226,34 @@ AUTONOMOUS does not fail only because control plane disappeared.
 
 ## Phase 3 — ESPHome contract
 
-Pending.
+Status: DESIGN/IMPLEMENTATION NEXT
 
 Required:
 
-- persistent local operating mode;
-- managed lease behavior unchanged;
-- autonomous mode not dependent on Wi-Fi heartbeat;
-- local physical safety retained.
+- persistent local autonomous authority, defaulting fail closed;
+- managed lease behavior unchanged while MANAGED;
+- autonomous mode not dependent on Wi-Fi/HA heartbeat;
+- local internal-temperature cutoff retained without HA;
+- raw RD OVP/OCP/OPP fault status remains safety authority;
+- mode transition while Output ON is explicit and transaction-bound;
+- reboot does not silently infer autonomous mode.
+
+Edge transition invariants under review:
+
+```
+managed -> autonomous live release:
+    healthy armed lease + fresh direct RD state
+    -> preserve Output/setpoints
+    -> persist autonomous ownership locally
+
+autonomous -> managed live adoption:
+    explicit adoption contract + fresh direct RD/protection evidence
+    -> atomically retire autonomous edge state
+    -> arm managed lease
+
+unknown/corrupt edge mode:
+    -> never infer autonomous
+```
 
 ---
 
@@ -205,6 +268,9 @@ Required tests:
 5. Bot cannot apply application setpoints in autonomous mode.
 6. Corrupt mode state fails closed.
 7. Reboot preserves deterministic mode behavior.
+8. Internal RD overtemperature still causes local OFF without HA.
+9. Raw OVP/OCP/OPP fault still causes local OFF.
+10. Exact ESPHome target compiles; physical flash/bench loss tests remain separate gates.
 
 ---
 
@@ -217,7 +283,8 @@ Do not implement:
 - RD_ALLOW_UNMANAGED_OUTPUT style switches;
 - disabling fail-closed globally;
 - treating V=0/I=0 as proof of OFF;
-- auto-adoption of arbitrary external charge states.
+- auto-adoption of arbitrary external charge states;
+- applying Pb chemistry ceilings as generic autonomous PSU hardware limits.
 
 ---
 
