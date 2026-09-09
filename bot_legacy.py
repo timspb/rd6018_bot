@@ -170,6 +170,11 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
 charge_controller = ChargeControllerV2(hass, notify_cb=_charge_notify)
 
 
+def _restore_allows_auto_enable(controller: Any) -> bool:
+    """Terminal sessions may be restored for display, never auto-resumed."""
+    return controller.current_stage != controller.STAGE_DONE
+
+
 def _is_chat_allowed(chat_id: int) -> bool:
     """Проверка доступа по ALLOWED_CHAT_IDS. Пустой список = доступ у всех."""
     if not ALLOWED_CHAT_IDS:
@@ -2242,6 +2247,8 @@ async def data_logger() -> None:
                         _apply_restore_time_corrections(charge_controller, live)
                         last_checkpoint_time = time.time()
                         allow_turn_on = (
+                            _restore_allows_auto_enable(charge_controller)
+                            and
                             not ovp_triggered
                             and not ocp_triggered
                             and input_voltage >= MIN_INPUT_VOLTAGE
@@ -2306,6 +2313,8 @@ async def data_logger() -> None:
                 if ok and msg:
                     _apply_restore_time_corrections(charge_controller, live)
                     allow = (
+                        _restore_allows_auto_enable(charge_controller)
+                        and
                         not ovp_triggered
                         and not ocp_triggered
                         and input_voltage >= MIN_INPUT_VOLTAGE
@@ -4098,6 +4107,8 @@ async def main() -> None:
             last_checkpoint_time = time.time()
             t_ext = _safe_float(live.get("temp_ext"))
             allow_turn_on = (
+                _restore_allows_auto_enable(charge_controller)
+                and
                 not ovp_triggered
                 and not ocp_triggered
                 and input_voltage >= MIN_INPUT_VOLTAGE
