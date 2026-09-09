@@ -46,6 +46,7 @@ from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
 from rd_ownership_recovery import install_rd_ownership_recovery
+from rd_startup_authority import install_rd_startup_authority_gate
 from soft_watchdog_containment import install_soft_watchdog_containment
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
@@ -209,70 +210,55 @@ if _v2_ui_enabled:
     # and exit affordances can never treat UNKNOWN/stale Output as confirmed OFF.
     install_rd_autonomous_final_hmi(_legacy, _rd_autonomous_mode)
 
+# Final execution boundary: before any normal application or ownership transaction can
+# use the fully composed actuator stack, explicit edge mode must be observed and stale
+# managed durable state must be reconciled. Recovery gets a task-local verified-OFF
+# exception; ordinary bot/Telegram/background work remains blocked in parallel.
+_rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_mode)
+
 _legacy_main = _legacy.main
 
 
-def _explicit_edge_authority(raw: object) -> bool:
-    """Return whether the raw snapshot positively identifies managed/autonomous edge authority."""
-    if not isinstance(raw, dict):
+async def _recover_managed_startup_authority() -> bool:
+    # Neither managed live-adoption authority is resumable. D062 is recovered first
+    # because it owns a chemistry HV budget; if it was active/pending at crash, startup
+    # may only continue toward verified OFF before ordinary managed authority reopens.
+    if not await _rd_managed_mix_adoption.recover_startup():
         return False
-    value = raw.get("autonomous_mode")
-    if isinstance(value, bool):
-        return True
-    if isinstance(value, (int, float)) and value in (0, 1):
-        return True
-    if isinstance(value, str):
-        return value.strip().lower() in {"on", "off", "true", "false", "1", "0"}
-    return False
-
-
-async def _prime_rd_edge_authority() -> bool:
-    """Resolve edge authority before any startup path is allowed to actuate.
-
-    An unavailable/unknown authority is treated as provisional external ownership:
-    managed startup recovery is skipped and rd_control_mode blocks bot actuators until
-    a later raw snapshot positively reports autonomous OFF or ON. This prevents stale
-    managed restart containment from shutting down a deliberately autonomous PSU before
-    its edge mode has been observed.
-    """
-    try:
-        raw = await _rd_control_mode.guard._raw_live()
-    except Exception:
-        _rd_control_mode._edge_autonomous = True
+    if not await _rd_managed_live_adoption.recover_startup():
         return False
-    if not _explicit_edge_authority(raw):
-        _rd_control_mode._edge_autonomous = True
-        return False
-    _rd_control_mode._observe_edge_mode(raw)
+    # A normal HANDS_OFF observer also never resumes. If it had already committed final
+    # OFF_PENDING, only that OFF containment is allowed to continue.
+    if _rd_live_mix_observer is not None:
+        if not await _rd_live_mix_observer.recover_startup():
+            return False
+    await recover_diagnostic_persistence(_legacy)
     return True
 
 
 async def main() -> None:
     await init_v2_storage()
-    edge_authority_known = await _prime_rd_edge_authority()
 
-    # Startup recovery contains or restores managed software authority. It must never
-    # run before explicit edge authority is known, and it is not allowed to actuate a
-    # PSU whose persistent edge mode is AUTONOMOUS. If authority is temporarily
-    # unavailable, the control-mode wrappers remain provisionally passive until a later
-    # raw telemetry snapshot resolves the edge bit.
-    if edge_authority_known and not _rd_control_mode.edge_autonomous:
-        # Neither managed live-adoption authority is resumable. D062 is recovered first
-        # because it owns a chemistry HV budget; if it was active/pending at crash,
-        # startup may only continue toward verified OFF before any heartbeat starts.
-        await _rd_managed_mix_adoption.recover_startup()
-        # D061 Adopted Manual follows the same restart containment rule.
-        await _rd_managed_live_adoption.recover_startup()
-        # A normal HANDS_OFF observer also never resumes. If it had already committed
-        # final OFF_PENDING, only that OFF containment is allowed to continue.
-        if _rd_live_mix_observer is not None:
-            await _rd_live_mix_observer.recover_startup()
-        await recover_diagnostic_persistence(_legacy)
+    # Reconciliation runs alongside the transport/UI runtime, but the outer startup
+    # gate keeps every ordinary actuator and start/adoption path closed until this task
+    # returns managed. If the edge is AUTONOMOUS it returns without managed recovery;
+    # if edge authority is temporarily unavailable it retries read-only. A recovery
+    # failure remains blocked and is not looped into an OFF/alarm storm.
+    authority_task = asyncio.create_task(
+        _rd_startup_authority.reconcile(_recover_managed_startup_authority),
+        name="rd6018-startup-authority-reconciliation",
+    )
 
     await _physical_test_control.start()
     try:
         await _legacy_main()
     finally:
+        if not authority_task.done():
+            authority_task.cancel()
+            try:
+                await authority_task
+            except asyncio.CancelledError:
+                pass
         await _physical_test_control.stop()
 
 
