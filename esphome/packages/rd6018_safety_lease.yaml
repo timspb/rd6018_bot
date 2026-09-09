@@ -1,24 +1,25 @@
-# RD6018 local dead-man safety lease
+# RD6018 local dead-man safety lease and autonomous ownership state
 #
 # Include this file as an ESPHome package in the *same node* that owns the
 # RD6018 Modbus controller. It assumes that controller has id: powersupply,
 # matching the current rdtech ESPHome layout (whose controller poll interval is 5 s).
 #
-# Safety model:
+# Managed safety model:
 #   bot/HA -> renew every 5 min
 #   local lease TTL -> 15 min
 #   missed renewals -> local Modbus Output OFF, retried every 5 s
 #   stale direct RD6018 Modbus/control readback (>20 s) -> latch trip and retry OFF
-#   every ESPHome reboot -> boot quarantine: repeatedly force Output OFF before
-#                           any new lease can be armed
-#   explicit HANDS_OFF transfer -> clear only the managed-session lease while ON;
-#                                  do not clear trip/quarantine or alter RD Output
+#   managed/non-autonomous reboot -> boot quarantine and verified-OFF recovery
 #
-# The trip is latched. A late bot cannot simply renew an expired lease and resume
-# an old high-voltage session. Normal disarm is accepted only when direct Modbus is
-# fresh and a recent direct read of register 18 confirms RD6018 Output OFF. Releasing
-# an intentionally running RD6018 to operator HANDS_OFF uses a distinct command and
-# is accepted only from a healthy, already-armed managed state.
+# Autonomous ownership model:
+#   explicit transfer only -> persistent autonomous bit
+#   no managed heartbeat/lease authority while autonomous
+#   reboot while valid autonomous ownership is preserved without communication OFF
+#   intrinsic PSU safety remains separately active in rd6018_intrinsic_safety.yaml
+#
+# Persistent conflict (managed_session && autonomous_mode) always fails closed.
+# Unknown/default firmware state is non-autonomous and therefore retains the existing
+# managed boot-quarantine behavior.
 
 substitutions:
   rd6018_safety_lease_ttl_ms: "900000"        # 15 minutes
@@ -26,22 +27,37 @@ substitutions:
 
 esphome:
   on_boot:
-    # Do not trust an old output state across a controller reboot. Even if the
-    # persistent managed-session preference had not yet reached flash, quarantine
-    # independently forces RD6018 OFF as soon as direct Modbus becomes usable.
     priority: -100
     then:
       - lambda: |-
+          const bool managed = id(rd6018_safety_managed_session);
+          const bool autonomous = id(rd6018_safety_autonomous_mode);
+
+          // Only an explicitly persisted, non-conflicting autonomous state may
+          // survive reboot without the managed verified-OFF quarantine.
+          if (autonomous && !managed) {
+            id(rd6018_safety_boot_quarantine) = false;
+            id(rd6018_safety_lease_tripped) = false;
+            id(rd6018_safety_last_renew_ms) = 0;
+            return;
+          }
+
           id(rd6018_safety_boot_quarantine) = true;
-          if (id(rd6018_safety_managed_session)) {
+          if (managed || (managed && autonomous)) {
             id(rd6018_safety_lease_tripped) = true;
           }
 
-# Only the managed-session bit is persistent. The 5-minute heartbeat itself is
-# deliberately RAM-only to avoid flash writes on every renewal. Boot quarantine
-# makes safety independent from the small persistence-write timing window.
+# Ownership changes are rare, so both ownership bits are persistent. The heartbeat
+# timestamp itself remains RAM-only to avoid flash writes on every renewal. A torn
+# persistence transition can only produce a non-autonomous or conflicting state; both
+# are fail-closed at boot and never silently infer autonomous ownership.
 globals:
   - id: rd6018_safety_managed_session
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+
+  - id: rd6018_safety_autonomous_mode
     type: bool
     restore_value: yes
     initial_value: "false"
@@ -147,7 +163,8 @@ sensor:
     accuracy_decimals: 0
     update_interval: 1s
     lambda: |-
-      if (id(rd6018_safety_boot_quarantine) ||
+      if (id(rd6018_safety_autonomous_mode) ||
+          id(rd6018_safety_boot_quarantine) ||
           !id(rd6018_safety_managed_session) ||
           id(rd6018_safety_lease_tripped)) {
         return 0.0f;
@@ -164,8 +181,25 @@ binary_sensor:
     entity_category: diagnostic
     lambda: |-
       return id(rd6018_safety_managed_session) &&
+             !id(rd6018_safety_autonomous_mode) &&
              !id(rd6018_safety_lease_tripped) &&
              !id(rd6018_safety_boot_quarantine);
+
+  - platform: template
+    id: rd6018_safety_autonomous_mode_sensor
+    name: "Safety Autonomous Mode"
+    entity_category: diagnostic
+    lambda: |-
+      return id(rd6018_safety_autonomous_mode);
+
+  - platform: template
+    id: rd6018_safety_authority_conflict_sensor
+    name: "Safety Authority Conflict"
+    entity_category: diagnostic
+    device_class: problem
+    lambda: |-
+      return id(rd6018_safety_managed_session) &&
+             id(rd6018_safety_autonomous_mode);
 
   - platform: template
     id: rd6018_safety_lease_tripped_sensor
@@ -211,8 +245,8 @@ button:
               ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
             const bool control_fresh = telemetry_fresh && output_fresh;
 
-            // No lease may be armed until reboot quarantine has proved RD is OFF.
-            // Trip is also latched; only a verified-OFF disarm may clear it.
+            // Managed heartbeats never cross or repair autonomous ownership.
+            if (id(rd6018_safety_autonomous_mode)) return;
             if (id(rd6018_safety_boot_quarantine)) return;
             if (id(rd6018_safety_lease_tripped)) return;
             if (!control_fresh) {
@@ -226,7 +260,6 @@ button:
               return;
             }
 
-            // Avoid rewriting the persistent bool on every heartbeat.
             if (!id(rd6018_safety_managed_session)) {
               id(rd6018_safety_managed_session) = true;
             }
@@ -248,8 +281,8 @@ button:
             const bool output_fresh = output_rx != 0 &&
               ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
 
-            // Never clear a safety trip based only on an HA command. RD6018 must
-            // itself have answered recently and register 18 must freshly confirm OFF.
+            // Ordinary managed disarm is not an autonomous-mode transition.
+            if (id(rd6018_safety_autonomous_mode)) return;
             if (!telemetry_fresh || !output_fresh || id(rd6018_safety_output_on_readback)) return;
             if (id(rd6018_safety_managed_session)) {
               id(rd6018_safety_managed_session) = false;
@@ -257,6 +290,62 @@ button:
             id(rd6018_safety_lease_tripped) = false;
             id(rd6018_safety_boot_quarantine) = false;
             id(rd6018_safety_last_renew_ms) = 0;
+
+  - platform: template
+    id: rd6018_safety_enter_autonomous_button
+    name: "Safety Enter Autonomous"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+
+            // Inactive entry is deliberately Output-OFF only. Preserving an already
+            // energized managed Output uses the distinct release command below.
+            if (id(rd6018_safety_managed_session)) return;
+            if (id(rd6018_safety_autonomous_mode)) return;
+            if (id(rd6018_safety_lease_tripped)) return;
+            if (id(rd6018_safety_boot_quarantine)) return;
+            if (!telemetry_fresh || !output_fresh) return;
+            if (id(rd6018_safety_output_on_readback)) return;
+
+            id(rd6018_safety_autonomous_mode) = true;
+            id(rd6018_safety_last_renew_ms) = 0;
+            id(rd6018_safety_generation)++;
+
+  - platform: template
+    id: rd6018_safety_exit_autonomous_button
+    name: "Safety Exit Autonomous"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+
+            // Return to managed-idle requires direct confirmed OFF. It does not arm
+            // a managed lease or revive any old software session.
+            if (!id(rd6018_safety_autonomous_mode)) return;
+            if (id(rd6018_safety_managed_session)) return;
+            if (id(rd6018_safety_lease_tripped)) return;
+            if (id(rd6018_safety_boot_quarantine)) return;
+            if (!telemetry_fresh || !output_fresh) return;
+            if (id(rd6018_safety_output_on_readback)) return;
+
+            id(rd6018_safety_autonomous_mode) = false;
+            id(rd6018_safety_last_renew_ms) = 0;
+            id(rd6018_safety_generation)++;
 
   - platform: template
     id: rd6018_safety_lease_release_to_hands_off_button
@@ -274,15 +363,17 @@ button:
               ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
             const bool control_fresh = telemetry_fresh && output_fresh;
 
-            // This command is an ownership transfer, not a generic disarm shortcut.
-            // It may preserve Output ON only from a healthy, already-managed lease.
-            // It never clears a trip/quarantine and never changes register 18.
+            if (id(rd6018_safety_autonomous_mode)) return;
             if (id(rd6018_safety_boot_quarantine)) return;
             if (id(rd6018_safety_lease_tripped)) return;
             if (!control_fresh) return;
             if (!id(rd6018_safety_managed_session)) return;
 
+            // Clear managed authority first. A power loss between the two persistent
+            // updates falls back to non-autonomous boot quarantine, never to an
+            // incorrectly inferred autonomous state.
             id(rd6018_safety_managed_session) = false;
+            id(rd6018_safety_autonomous_mode) = true;
             id(rd6018_safety_last_renew_ms) = 0;
             id(rd6018_safety_generation)++;
 
@@ -298,8 +389,13 @@ interval:
           const bool output_fresh = output_rx != 0 &&
             ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
           const bool control_fresh = telemetry_fresh && output_fresh;
+          const bool conflict = id(rd6018_safety_managed_session) &&
+            id(rd6018_safety_autonomous_mode);
 
-          if (id(rd6018_safety_managed_session)) {
+          if (conflict) {
+            id(rd6018_safety_boot_quarantine) = true;
+            id(rd6018_safety_lease_tripped) = true;
+          } else if (id(rd6018_safety_managed_session)) {
             const uint32_t elapsed = (uint32_t) (now - id(rd6018_safety_last_renew_ms));
             if (!control_fresh || elapsed >= ${rd6018_safety_lease_ttl_ms}UL) {
               id(rd6018_safety_lease_tripped) = true;
@@ -312,14 +408,13 @@ interval:
                      (id(rd6018_safety_managed_session) &&
                       id(rd6018_safety_lease_tripped));
           then:
-            # Repeated OFF is intentional. If the UART was temporarily unavailable,
-            # the first successful Modbus opportunity after recovery must still be OFF.
             - switch.turn_off: rd6018_safety_output
       - lambda: |-
-          // Boot quarantine clears automatically only after a fresh direct read of
-          // Output register 18 confirms OFF. Do not trust the switch object's default
-          // in-memory state before that register has actually been observed.
+          // Valid autonomous ownership never enters boot quarantine. If autonomous
+          // and quarantine coexist, treat it as a conflict/containment state and do
+          // not auto-clear it from one OFF readback.
           if (!id(rd6018_safety_boot_quarantine)) return;
+          if (id(rd6018_safety_autonomous_mode)) return;
           const uint32_t now = millis();
           const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
           const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
