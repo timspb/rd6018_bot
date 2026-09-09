@@ -211,6 +211,62 @@ Do not bypass the safety lease. The goal is deterministic offline behavior, not 
 
 ---
 
+## INC-008 — adopted Manual was released to HANDS_OFF but stale D061 authority requests OFF
+
+### Severity
+
+P0 ownership-boundary failure if the external Output is still intentionally running.
+
+### Symptoms
+
+- a D061 Adopted Manual session was active;
+- the operator explicitly released the running RD6018 to HANDS_OFF without changing Output/V/I/OVP/OCP;
+- a later D061 monitor poll or process restart attempts verified Output OFF;
+- or the D061 journal reappears as `OFF_PENDING` although durable HANDS_OFF owns the PSU.
+
+### Classification
+
+This is a split ownership-journal problem, not permission to weaken D061 restart containment globally.
+
+The valid transaction is:
+
+```
+D061 ACTIVE + PB_MANAGED
+        |
+        | exact-session durable release intent
+        v
+D060 HANDS_OFF durable commit
+        |
+        v
+D061 journal -> INTERRUPTED
+Output/program unchanged
+```
+
+Before the durable HANDS_OFF commit, D061 remains managed safety authority. After the commit, only the exact matching release transaction may retire that same D061 OFF claim.
+
+### Required behavior
+
+- pre-commit failure keeps `PB_MANAGED` and ordinary D061 fail-closed restart/OFF semantics;
+- a D061 state already in `OFF_PENDING` cannot be converted into HANDS_OFF release;
+- generic HANDS_OFF alone is not proof that an adopted session was intentionally released;
+- a stale or mismatched session marker grants no authority;
+- HANDS_OFF plus the matching exact-session release marker may recover after crash by retiring D061 to `INTERRUPTED` without touching Output;
+- ambiguous edge ACK after the durable HANDS_OFF commit must not resurrect D061 OFF authority or silently roll back to PB control.
+
+### Recovery
+
+Collect together:
+
+- durable RD control mode;
+- D061 adoption state and `session_id`;
+- adopted-HANDS_OFF release-intent state and `session_id`;
+- edge lease generation and release ACK evidence;
+- canonical Output readback.
+
+Do not manually delete journals or infer release from Output voltage/current. If durable ownership and exact-session evidence do not match, keep fail-closed containment and recover through verified Output OFF followed by a fresh ownership transaction.
+
+---
+
 # Debug checklist
 
 ```text
@@ -223,6 +279,7 @@ Do not bypass the safety lease. The goal is deterministic offline behavior, not 
 7. What recovery path is explicitly authorized?
 8. Is OFF failure a device fault or an unavailable readback?
 9. Is ESPHome behavior defined without Wi-Fi?
+10. If D061 was released live, do durable HANDS_OFF and the exact release session agree?
 ```
 
 # Development rules after incidents
