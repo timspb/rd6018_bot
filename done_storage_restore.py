@@ -96,7 +96,8 @@ def _write_done_outcome(controller: Any) -> None:
 
 def restore_allows_auto_enable(controller: Any) -> bool:
     """Fail closed for restored Done unless durable state proves managed Storage."""
-    if controller.current_stage == controller.STAGE_DONE:
+    done_stage = getattr(controller, "STAGE_DONE", "Done")
+    if controller.current_stage == done_stage:
         return bool(
             getattr(controller, "_done_outcome_authoritative", False)
             and getattr(controller, "_done_completion_kind", None)
@@ -116,7 +117,8 @@ def _paused_done_resume_is_authorized(app: Any, controller: Any) -> bool:
     if not callable(pause_active) or not bool(pause_active()):
         return True
 
-    if controller.current_stage == controller.STAGE_DONE:
+    done_stage = getattr(controller, "STAGE_DONE", "Done")
+    if controller.current_stage == done_stage:
         return restore_allows_auto_enable(controller)
 
     if bool(getattr(controller, "is_active", False)):
@@ -127,7 +129,7 @@ def _paused_done_resume_is_authorized(app: Any, controller: Any) -> bool:
     # legacy/terminal Done record cannot use the pause UI as an alternate energization
     # path around the normal startup restore guard.
     document = _read_session_document()
-    if document.get("stage") != controller.STAGE_DONE:
+    if document.get("stage") != done_stage:
         return True
     return _explicit_storage_outcome(document)
 
