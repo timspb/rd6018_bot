@@ -26,6 +26,7 @@ class RdStartupAuthorityGate:
         self.manager = manager
         self.guard = manager.guard
         self.candidate_autonomous: Optional[bool] = None
+        self.reconciliation_started = False
         self.reconciliation_complete = False
         self.managed_recovery_complete = False
         self.reconciliation_error = ""
@@ -209,6 +210,7 @@ class RdStartupAuthorityGate:
         self.manager._edge_autonomous = False
 
     async def reconcile(self, recover: Callable[[], Awaitable[bool]], *, retry_s: float = 5.0) -> str:
+        self.reconciliation_started = True
         delay = max(1.0, float(retry_s))
         self.hold_unresolved()
         while True:
