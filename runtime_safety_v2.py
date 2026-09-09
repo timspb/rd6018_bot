@@ -12,7 +12,7 @@ from rd6018_telemetry import (
     resolve_protection,
     telemetry_freshness,
 )
-from runtime_safety import RuntimeSafetyError, _binary, _finite
+from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
 from runtime_safety_strict import StrictRuntimeSafetyGuard
 
 
@@ -26,6 +26,10 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         "temp_int",
         "switch",
     )
+    # An unconfirmed OFF is a latched containment state, not a command loop.  When
+    # fresh evidence still positively says ON we may retry OFF at a bounded cadence;
+    # unknown/stale Output evidence never causes command spam.
+    OFF_UNCONFIRMED_RETRY_S = 60.0
 
     @staticmethod
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:
@@ -38,6 +42,8 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     def __init__(self, app: Any) -> None:
         super().__init__(app)
         self._install_last_reported_metadata_bridge()
+        self._off_unconfirmed_notice_active = False
+        self._off_unconfirmed_last_retry_at = 0.0
         configured_policy = getattr(app, "external_temp_integrity_policy", None)
         policy = (
             configured_policy
@@ -53,6 +59,70 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
                     "external_temp_integrity_fault_v2.json",
                 )
             ),
+        )
+
+    def _notify(self, key: str, message: str) -> None:
+        # INC-006: one operator alarm per unconfirmed-OFF incident.  Repeated safety
+        # polls must not re-page the operator every NOTIFY_REPEAT_S while the same
+        # physical state remains unknown.  A later proven OFF clears the incident and
+        # allows a new independent failure to notify again.
+        if key == "off_unconfirmed":
+            if self._off_unconfirmed_notice_active:
+                return
+            self._off_unconfirmed_notice_active = True
+        super()._notify(key, message)
+
+    def _clear_off_unconfirmed_containment(self) -> None:
+        self._off_unconfirmed = False
+        self._off_unconfirmed_notice_active = False
+        self._off_unconfirmed_last_retry_at = 0.0
+        self._orphan_output_seen_at = None
+
+    def _output_evidence_is_fresh(self, live: dict[str, Any]) -> bool:
+        try:
+            return bool(telemetry_freshness(live, ("switch",)).valid)
+        except Exception:
+            return False
+
+    async def _recover_off_unconfirmed(self, live: dict[str, Any]) -> dict[str, Any]:
+        """Contain one failed OFF without turning background polling into an OFF storm.
+
+        Fresh confirmed OFF self-heals the latch. Fresh confirmed ON permits a bounded
+        retry because the device is still known energized. Unknown/stale Output remains
+        fail-closed for all future ON requests but is passive: no repeated actuator
+        command and no repeated operator alarm until evidence changes.
+        """
+        evidence = self._output_evidence(live)
+        fresh = self._output_evidence_is_fresh(live)
+        self._orphan_output_seen_at = None
+
+        if fresh and evidence.state is False:
+            self._clear_off_unconfirmed_containment()
+            await self._disarm_edge_lease_best_effort()
+            return live
+
+        if not fresh or evidence.state is None:
+            raise OutputOffNotConfirmed(
+                "previous Output OFF remains unconfirmed: physical Output state is unknown/stale"
+            )
+
+        # Fresh evidence still says ON. Retry at a bounded cadence; the original
+        # incident notification remains latched and will not be emitted again.
+        now = time.monotonic()
+        if now - self._off_unconfirmed_last_retry_at >= self.OFF_UNCONFIRMED_RETRY_S:
+            self._off_unconfirmed_last_retry_at = now
+            try:
+                if await self._ensure_output_off(
+                    "previous Output OFF remains unconfirmed; fresh telemetry still reports ON"
+                ):
+                    self._clear_off_unconfirmed_containment()
+                    await self._disarm_edge_lease_best_effort()
+                    return await self._raw_live()
+            except OutputOffNotConfirmed:
+                pass
+
+        raise OutputOffNotConfirmed(
+            "previous Output OFF remains unconfirmed: fresh telemetry still reports ON"
         )
 
     def _install_last_reported_metadata_bridge(self) -> None:
@@ -305,6 +375,17 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
 
     async def turn_on(self, entity_id: Optional[str] = None) -> bool:
+        if self._off_unconfirmed:
+            live = await self._raw_live()
+            evidence = self._output_evidence(live)
+            if self._output_evidence_is_fresh(live) and evidence.state is False:
+                self._clear_off_unconfirmed_containment()
+                await self._disarm_edge_lease_best_effort()
+            else:
+                raise OutputOffNotConfirmed(
+                    "previous OFF command remains unconfirmed; fresh confirmed OFF is required before Output ON"
+                )
+
         monitor = self.external_temp_integrity
         if not monitor.latched:
             return await super().turn_on(entity_id)
@@ -362,15 +443,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         monitor = self.external_temp_integrity
 
         if self._off_unconfirmed:
-            if output_state is False:
-                self._off_unconfirmed = False
-                self._orphan_output_seen_at = None
-                await self._disarm_edge_lease_best_effort()
-                return live
-            await self._ensure_output_off("previous Output OFF remains unconfirmed")
-            await self._disarm_edge_lease_best_effort()
-            self._orphan_output_seen_at = None
-            return await self._raw_live()
+            return await self._recover_off_unconfirmed(live)
 
         # A latched Class-C fault remains non-actuating while Output is OFF, but the
         # normal telemetry loop may collect clean *distinct source reports* so a later
@@ -427,8 +500,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             )
 
         if output_state is False:
-            self._off_unconfirmed = False
-            self._orphan_output_seen_at = None
+            self._clear_off_unconfirmed_containment()
             return live
 
         if output_state is True and not self.controller_active:
