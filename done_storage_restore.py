@@ -110,6 +110,28 @@ def restore_allows_auto_enable(controller: Any) -> bool:
     return True
 
 
+def _paused_done_resume_is_authorized(app: Any, controller: Any) -> bool:
+    """Apply the same durable Done intent to the separate operator-pause resume path."""
+    pause_active = getattr(app, "_operator_pause_active", None)
+    if not callable(pause_active) or not bool(pause_active()):
+        return True
+
+    if controller.current_stage == controller.STAGE_DONE:
+        return restore_allows_auto_enable(controller)
+
+    if bool(getattr(controller, "is_active", False)):
+        return True
+
+    # After a process restart the controller may still be Idle until the pause handler
+    # calls try_restore_session(). Inspect the durable document *before* that call so a
+    # legacy/terminal Done record cannot use the pause UI as an alternate energization
+    # path around the normal startup restore guard.
+    document = _read_session_document()
+    if document.get("stage") != controller.STAGE_DONE:
+        return True
+    return _explicit_storage_outcome(document)
+
+
 def install_done_storage_restore(app: Any) -> None:
     """Add explicit durable Done/Storage output intent to the final production controller.
 
@@ -134,6 +156,7 @@ def install_done_storage_restore(app: Any) -> None:
     original_save_session = controller._save_session
     original_try_restore_session = controller.try_restore_session
     original_tick = controller.tick
+    original_operator_pause_toggle = getattr(app, "_operator_pause_toggle", None)
 
     def save_session_with_done_outcome(voltage: float, current: float, ah: float) -> Any:
         if controller.current_stage == controller.STAGE_DONE:
@@ -225,8 +248,19 @@ def install_done_storage_restore(app: Any) -> None:
         finally:
             controller._done_transition_source_stage = None
 
+    async def operator_pause_toggle_with_done_guard(call: Any) -> Any:
+        if not _paused_done_resume_is_authorized(app, controller):
+            return (
+                "Продолжение заблокировано: сохранённый Done не имеет "
+                "подтверждённого Storage Output ON intent"
+            )
+        assert callable(original_operator_pause_toggle)
+        return await original_operator_pause_toggle(call)
+
     controller._save_session = save_session_with_done_outcome
     controller.try_restore_session = try_restore_session_with_done_outcome
     controller.tick = tick_with_done_outcome
     app._restore_allows_auto_enable = restore_allows_auto_enable
+    if callable(original_operator_pause_toggle):
+        app._operator_pause_toggle = operator_pause_toggle_with_done_guard
     app._done_storage_restore_installed = True
