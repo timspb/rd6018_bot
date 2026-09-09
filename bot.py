@@ -44,6 +44,7 @@ from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
 from rd_ownership_recovery import install_rd_ownership_recovery
+from soft_watchdog_containment import install_soft_watchdog_containment
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
@@ -70,6 +71,12 @@ install_v2(_legacy, install_ui=_v2_ui_enabled)
 # (Output OFF). Persist the physical intent explicitly and replace the legacy blanket
 # restore guard before any startup recovery path can evaluate a saved Done session.
 install_done_storage_restore(_legacy)
+# The legacy 3-minute software watchdog ran every 10 seconds and called the full hard
+# stop on every poll during one outage. Keep its immediate fail-safe role, but make the
+# outage an incident: idle/proven-OFF loss is passive, while managed/last-known-ON state
+# gets one immediate shutdown attempt and only bounded retries if remote I/O is down.
+# The independently proven 15-minute edge lease remains the blind-operation backstop.
+install_soft_watchdog_containment(_legacy)
 # Telegram transport is not part of RD/edge safety authority, but a single transient
 # DNS EAI_NODATA during aiogram bootstrap must not kill the production runtime before
 # its local monitor/watchdog tasks come up. Restrict retry semantics to read-only getMe
