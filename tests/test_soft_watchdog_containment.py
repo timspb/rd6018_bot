@@ -23,7 +23,15 @@ class DummyLogger:
 class DummyApp:
     SOFT_WATCHDOG_TIMEOUT = 180.0
 
-    def __init__(self, *, output_on=False, controller_active=False, manual_active=False):
+    def __init__(
+        self,
+        *,
+        output_on=False,
+        controller_active=False,
+        manual_active=False,
+        hands_off=False,
+        release_in_progress=False,
+    ):
         self.last_ha_ok_time = 100.0
         self.charge_controller = SimpleNamespace(
             _last_known_output_on=bool(output_on),
@@ -31,6 +39,10 @@ class DummyApp:
             current_stage="Main Charge" if controller_active else "Idle",
         )
         self.manual_session_manager = SimpleNamespace(is_active=bool(manual_active))
+        self.rd_control_mode_manager = SimpleNamespace(
+            hands_off=bool(hands_off),
+            release_in_progress=bool(release_in_progress),
+        )
         self.runtime_safety_guard = None
         self.logger = DummyLogger()
         self.hard_stop_calls = 0
@@ -128,6 +140,45 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(app.hard_stop_calls, 1)
         self.assertTrue(incident.shutdown_complete)
+
+    async def test_hands_off_outage_never_invokes_pb_hard_stop(self):
+        app = DummyApp(
+            output_on=True,
+            controller_active=False,
+            hands_off=True,
+        )
+        incident = SoftWatchdogIncident(
+            active=True,
+            logged=True,
+            shutdown_complete=False,
+            last_attempt_at=390.0,
+        )
+
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+        await soft_watchdog_poll_once(app, incident, now=700.0)
+
+        self.assertEqual(app.hard_stop_calls, 0)
+        self.assertFalse(incident.active)
+        self.assertFalse(incident.logged)
+        self.assertFalse(incident.shutdown_complete)
+        self.assertEqual(incident.last_attempt_at, 0.0)
+        self.assertEqual(app.events, [])
+        self.assertEqual(app.logger.critical_messages, [])
+
+    async def test_live_hands_off_release_suspends_watchdog_during_transfer(self):
+        app = DummyApp(
+            output_on=True,
+            controller_active=True,
+            release_in_progress=True,
+        )
+        incident = SoftWatchdogIncident()
+
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+
+        self.assertEqual(app.hard_stop_calls, 0)
+        self.assertFalse(incident.active)
+        self.assertEqual(app.events, [])
+        self.assertEqual(app.logger.critical_messages, [])
 
     async def test_fresh_heartbeat_resets_incident_for_future_independent_outage(self):
         app = DummyApp(output_on=True)
