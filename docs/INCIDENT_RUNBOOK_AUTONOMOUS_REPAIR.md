@@ -32,7 +32,8 @@ Plain HANDS_OFF does not promise reboot/offline operation and never implies AUTO
 7. Managed startup recovery may not actuate before explicit edge autonomous authority is resolved.
 8. Stale HANDS_OFF -> PB callbacks cannot bypass explicit AUTONOMOUS exit.
 9. HANDS_OFF live release leaves AUTONOMOUS OFF; D061 live adoption remains a separate HANDS_OFF transaction and rejects AUTONOMOUS.
-10. Repo CI is not production/bench evidence.
+10. Legacy Pb background workers are observational whenever Pb software lacks reconciled managed authority. They do not regain authority merely because raw telemetry is reachable.
+11. Repo CI is not production/bench evidence.
 
 # Generic autonomous safety evidence
 
@@ -67,9 +68,9 @@ Merged PR #14 provides the proven intrinsic local guards above.
 
 ## Phase 3 — Explicit persistent AUTONOMOUS authority
 
-IMPLEMENTED ON PR #15 BRANCH / REVIEW IN PROGRESS.
+DONE REPO-SIDE / BENCH PENDING.
 
-Current branch provides:
+Merged PR #15 (`98e0d4501cf48f8a539726d97f504f11fbfe0efc`) provides:
 
 - persistent ESP autonomous bit;
 - autonomous reboot independent of managed lease heartbeat;
@@ -82,26 +83,40 @@ Current branch provides:
 - bot actuator/start/restore block while autonomous;
 - startup managed recovery gated on explicit edge authority;
 - stale generic PB-return path blocked while AUTONOMOUS is active;
-- HANDS_OFF release restored so it does not set AUTONOMOUS;
-- D061 live HANDS_OFF adoption restored and made explicitly non-autonomous.
+- HANDS_OFF release does not set AUTONOMOUS;
+- D061 live HANDS_OFF adoption remains explicitly non-autonomous.
 
-## Phase 4 — Repository validation
+## Phase 4 — Legacy background authority isolation
+
+IN PROGRESS on `fix/external-background-authority`.
+
+Post-merge audit found that `bot_legacy.data_logger()` still executes Pb-era controller tick, restore probing, Manual-Off/operator-pause policy, host hard-stop claims and control notifications after the outer ownership layer has already moved to HANDS_OFF/AUTONOMOUS. Final actuator wrappers reject most writes, but the resulting exceptions can be reclassified by the legacy loop as HA/link-loss incidents and mutate stale Pb state or emit misleading control claims.
+
+Required repair:
+
+1. raw telemetry/database collection may continue;
+2. controller tick and background restore are inert outside reconciled managed authority;
+3. host Pb `_hard_stop_charge` is inert there because D064 owns intrinsic local protection;
+4. stale Manual-Off/operator-pause authority is retired after explicit external ownership, but merely unresolved startup must not destroy their persisted managed state;
+5. legacy Pb control notifications/events are suppressed while external/unresolved;
+6. D065 task-local startup `recovery_scope` remains exempt so verified managed containment can execute;
+7. reconciled PB_MANAGED and pre-commit live release retain existing safety behavior.
+
+## Phase 5 — Repository validation
 
 IN PROGRESS.
 
-Required before merge:
+Required before the background-isolation merge:
 
-1. exact current-head Python 3.10/3.11/3.12 CI PASS;
-2. exact current-head canonical ESPHome compile PASS;
-3. HANDS_OFF/AUTONOMOUS separation regressions;
-4. D061 HANDS_OFF live-adoption regression;
-5. startup authority-gate regression;
-6. autonomous edge positive-ACK tests;
-7. global transition tests including ambiguous command containment;
-8. production install-order test;
-9. numbered durable decision for the behavior change.
+1. exact-head Python 3.10/3.11/3.12 CI PASS;
+2. production install-order assertion proving background isolation sees the final startup authority gate;
+3. HANDS_OFF and explicit AUTONOMOUS background-inert regressions;
+4. unresolved-startup sibling-task regression;
+5. startup recovery-scope exemption regression;
+6. managed/pre-commit safety regression;
+7. durable D066 behavior decision.
 
-## Phase 5 — Physical validation
+## Phase 6 — Physical validation
 
 NOT STARTED. Production unchanged; ESPHome has not been flashed by this repair work.
 

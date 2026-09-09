@@ -41,6 +41,7 @@ from physical_test_control_source_faults import install_physical_test_control_so
 from production_guardrails_v2 import install_production_guardrails
 from rd_autonomous_mode import install_rd_autonomous_final_hmi, install_rd_autonomous_mode
 from rd_control_mode import install_rd_control_mode
+from rd_hands_off_background import install_hands_off_background_isolation
 from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
@@ -215,6 +216,11 @@ if _v2_ui_enabled:
 # managed durable state must be reconciled. Recovery gets a task-local verified-OFF
 # exception; ordinary bot/Telegram/background work remains blocked in parallel.
 _rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_mode)
+# D066: the legacy logger/restore/tick loop remains useful for raw telemetry, but it
+# must not claim Pb actuator/chemistry authority in HANDS_OFF, AUTONOMOUS, or sibling
+# tasks while D065 startup authority is unresolved. Install after the startup gate so
+# its dynamic predicate sees the final authority boundary; recovery_scope stays exempt.
+install_hands_off_background_isolation(_legacy, _rd_control_mode)
 
 _legacy_main = _legacy.main
 
