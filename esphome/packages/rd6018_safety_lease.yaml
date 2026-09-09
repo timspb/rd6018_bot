@@ -1,4 +1,4 @@
-# RD6018 local dead-man safety lease and autonomous ownership state
+# RD6018 local dead-man safety lease and autonomous operation state
 #
 # Include this file as an ESPHome package in the *same node* that owns the
 # RD6018 Modbus controller. It assumes that controller has id: powersupply,
@@ -11,15 +11,16 @@
 #   stale direct RD6018 Modbus/control readback (>20 s) -> latch trip and retry OFF
 #   managed/non-autonomous reboot -> boot quarantine and verified-OFF recovery
 #
-# Autonomous ownership model:
-#   explicit transfer only -> persistent autonomous bit
+# Autonomous operation model:
+#   explicit OFF-only transition -> persistent autonomous bit
 #   no managed heartbeat/lease authority while autonomous
-#   reboot while valid autonomous ownership is preserved without communication OFF
+#   reboot while valid autonomous operation is preserved without communication OFF
 #   intrinsic PSU safety remains separately active in rd6018_intrinsic_safety.yaml
 #
-# Persistent conflict (managed_session && autonomous_mode) always fails closed.
-# Unknown/default firmware state is non-autonomous and therefore retains the existing
-# managed boot-quarantine behavior.
+# HANDS_OFF is intentionally separate: it releases bot actuator ownership but does not
+# imply offline/reboot-safe autonomous operation. Persistent conflict
+# (managed_session && autonomous_mode) always fails closed. Unknown/default firmware
+# state is non-autonomous and therefore retains the existing managed boot quarantine.
 
 substitutions:
   rd6018_safety_lease_ttl_ms: "900000"        # 15 minutes
@@ -43,14 +44,14 @@ esphome:
           }
 
           id(rd6018_safety_boot_quarantine) = true;
-          if (managed || (managed && autonomous)) {
+          if (managed) {
             id(rd6018_safety_lease_tripped) = true;
           }
 
-# Ownership changes are rare, so both ownership bits are persistent. The heartbeat
+# Operation/lease changes are rare, so both bits are persistent. The heartbeat
 # timestamp itself remains RAM-only to avoid flash writes on every renewal. A torn
 # persistence transition can only produce a non-autonomous or conflicting state; both
-# are fail-closed at boot and never silently infer autonomous ownership.
+# are fail-closed at boot and never silently infer autonomous operation.
 globals:
   - id: rd6018_safety_managed_session
     type: bool
@@ -245,7 +246,7 @@ button:
               ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
             const bool control_fresh = telemetry_fresh && output_fresh;
 
-            // Managed heartbeats never cross or repair autonomous ownership.
+            // Managed heartbeats never cross or repair autonomous operation.
             if (id(rd6018_safety_autonomous_mode)) return;
             if (id(rd6018_safety_boot_quarantine)) return;
             if (id(rd6018_safety_lease_tripped)) return;
@@ -306,8 +307,8 @@ button:
             const bool output_fresh = output_rx != 0 &&
               ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
 
-            // Inactive entry is deliberately Output-OFF only. Preserving an already
-            // energized managed Output uses the distinct release command below.
+            // Autonomous entry is deliberately Output-OFF only. HANDS_OFF release is
+            // a separate ownership transfer and never sets this persistent mode.
             if (id(rd6018_safety_managed_session)) return;
             if (id(rd6018_safety_autonomous_mode)) return;
             if (id(rd6018_safety_lease_tripped)) return;
@@ -369,11 +370,10 @@ button:
             if (!control_fresh) return;
             if (!id(rd6018_safety_managed_session)) return;
 
-            // Clear managed authority first. A power loss between the two persistent
-            // updates falls back to non-autonomous boot quarantine, never to an
-            // incorrectly inferred autonomous state.
+            // HANDS_OFF releases only the managed dead-man. It does not grant the
+            // separate offline/reboot autonomous operation contract and never changes
+            // register 18 or the V/I/OVP/OCP program.
             id(rd6018_safety_managed_session) = false;
-            id(rd6018_safety_autonomous_mode) = true;
             id(rd6018_safety_last_renew_ms) = 0;
             id(rd6018_safety_generation)++;
 
@@ -410,9 +410,9 @@ interval:
           then:
             - switch.turn_off: rd6018_safety_output
       - lambda: |-
-          // Valid autonomous ownership never enters boot quarantine. If autonomous
-          // and quarantine coexist, treat it as a conflict/containment state and do
-          // not auto-clear it from one OFF readback.
+          // Valid autonomous operation never enters boot quarantine. If autonomous
+          // and quarantine coexist, treat it as conflict/containment and do not
+          // auto-clear it from one OFF readback.
           if (!id(rd6018_safety_boot_quarantine)) return;
           if (id(rd6018_safety_autonomous_mode)) return;
           const uint32_t now = millis();
