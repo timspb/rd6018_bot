@@ -260,8 +260,8 @@ class MixActiveAuthorityMixin:
         super()._enter_mix(*args, **kwargs)
         self._mix_active_authority.begin(self._mix_authority_session_id(), active=False)
 
-    def try_restore_session(self, voltage: float, current: float, ah: float):
-        ok, message = super().try_restore_session(voltage, current, ah)
+    def try_restore_session(self, *args: Any, **kwargs: Any):
+        ok, message = super().try_restore_session(*args, **kwargs)
         if not ok:
             return ok, message
 

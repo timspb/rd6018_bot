@@ -173,6 +173,37 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertTrue(manager.hands_off)
 
+    def test_restore_wrapper_forwards_extended_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, _manager, _guard = self._app(f"{tmp}/mode.json")
+            received = []
+
+            def restore(*args, **kwargs):
+                received.append((args, kwargs))
+                return False, None
+
+            app.charge_controller.try_restore_session = restore
+            install_rd_control_mode(app, install_ui=False)
+
+            app.charge_controller.try_restore_session(
+                14.2,
+                0.3,
+                70.0,
+                output_is_on=True,
+                is_cv=True,
+                is_cc=False,
+            )
+
+            self.assertEqual(
+                received,
+                [
+                    (
+                        (14.2, 0.3, 70.0),
+                        {"output_is_on": True, "is_cv": True, "is_cc": False},
+                    )
+                ],
+            )
+
     async def test_hands_off_blocks_bot_actuators_without_actuating(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, _guard = self._app(f"{tmp}/mode.json")

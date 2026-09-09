@@ -1,8 +1,12 @@
+import types
 import unittest
+from unittest.mock import patch
 
 from battery_fault_engine import DiagnosticAuthority
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
 from pb_domain import ChargeIntent
+from production_controller import ProductionChargeControllerV2
+from production_guardrails_v2 import install_production_guardrails
 from v2_authority import AuthorityAction, AuthorityDecision
 
 
@@ -60,6 +64,45 @@ class DiagnosticControllerTests(unittest.TestCase):
             AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
         )
         self.assertIsNotNone(veto)
+
+    def test_restore_contract_propagates_through_mix_and_cooling_wrappers(self):
+        controller = self._controller()
+        received = []
+
+        def production_restore(_controller, *args, **kwargs):
+            received.append((args, kwargs))
+            return False, None
+
+        app = types.SimpleNamespace(
+            charge_controller=controller,
+            MIN_INPUT_VOLTAGE=60.0,
+        )
+        with patch.object(
+            ProductionChargeControllerV2,
+            "try_restore_session",
+            production_restore,
+        ):
+            install_production_guardrails(app)
+            controller.try_restore_session(
+                14.2,
+                0.3,
+                70.0,
+                output_is_on=True,
+                is_cv=True,
+                is_cc=False,
+            )
+            controller.try_restore_session(14.2, 0.3, 70.0)
+
+        self.assertEqual(
+            received,
+            [
+                (
+                    (14.2, 0.3, 70.0),
+                    {"output_is_on": True, "is_cv": True, "is_cc": False},
+                ),
+                ((14.2, 0.3, 70.0), {}),
+            ],
+        )
 
 
 if __name__ == "__main__":
