@@ -41,12 +41,16 @@ class OperatorNavigationRecoveryTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _app():
         refreshed = []
+
+        async def check_chat_and_respond(call):
+            return True
+
         app = types.SimpleNamespace(
             router=DummyRouter(),
             bot=DummyBot(),
             user_dashboard={7: 100},
             chat_dashboard={11: 100},
-            _check_chat_and_respond=lambda call: True,
+            _check_chat_and_respond=check_chat_and_respond,
         )
 
         async def refresh(chat_id, user_id, message_id):
