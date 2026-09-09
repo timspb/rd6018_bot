@@ -40,14 +40,6 @@ def _external_authority(manager: Any) -> bool:
 
 
 def _startup_background_suspended(app: Any) -> bool:
-    """Suspend sibling background authority only during real startup reconciliation.
-
-    Importing the production composition installs D065's gate but does not itself start
-    the runtime reconciliation task. Treating that inert object as an unresolved boot
-    leaks process-global wrapper state into isolated helpers/tests. Once reconcile()
-    starts, ordinary sibling work stays passive until managed authority is proven. The
-    task-local recovery scope remains the narrow containment exemption.
-    """
     startup = getattr(app, "rd_startup_authority_gate", None)
     if startup is None or not bool(getattr(startup, "reconciliation_started", False)):
         return False
@@ -69,28 +61,15 @@ def _event_name(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
 
 
 def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
-    """Make legacy Pb background workers observational outside managed authority.
-
-    D060 HANDS_OFF and D065 AUTONOMOUS are not degraded Pb sessions. Likewise, while
-    production startup reconciliation is actively resolving edge authority, ordinary
-    background work has no actuator or chemistry authority. The legacy data logger may
-    continue collecting raw telemetry, but it must not run Pb chemistry, restore a
-    session, execute stale Manual-Off/pause policy, claim a host-side hard stop, or emit
-    control-claim notifications/events.
-
-    D064 intrinsic ESP/RD protection remains local authority. D056 managed lease and all
-    existing Pb behavior remain unchanged once managed startup reconciliation completes.
-    A task-local D065 startup recovery scope is explicitly exempt so verified managed
-    containment can still execute without opening sibling background tasks.
-    """
+    """Make legacy Pb background workers observational outside managed authority."""
     if bool(getattr(app, "_hands_off_background_isolation_installed", False)):
         return
 
-    # D067 composition happens here because bot.py installs this boundary only after
-    # D061 and the D065 startup gate both exist. It must reconcile an exact-session
-    # HANDS_OFF release marker before startup recovery gets a chance to reinterpret the
-    # old D061 journal as verified-OFF authority.
-    install_adopted_hands_off_release_retirement(app, manager)
+    # Production reaches this after D061 and D065 are installed. Keep isolated unit
+    # compositions that intentionally omit D061 usable; bot.py install-order coverage
+    # proves the real runtime does compose this retirement boundary.
+    if getattr(app, "rd_managed_live_adoption", None) is not None:
+        install_adopted_hands_off_release_retirement(app, manager)
 
     controller = getattr(app, "charge_controller", None)
     if controller is None:
