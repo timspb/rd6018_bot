@@ -2,304 +2,124 @@
 
 ## Purpose
 
-This document is the coordination source for the RD6018 autonomous-mode repair.
+This is the coordination source for the autonomous-mode repair, separate from Codex/repo-agent reports. It tracks confirmed incident conclusions, invariants, completed repair boundaries and remaining validation gates.
 
-It is intentionally separate from Codex/repo-agent reports.
+# Incident
 
-Use this file to track:
+RD6018 moved away from the home control plane can lose Output because the managed communication lease was previously the only durable offline ownership model. Wi-Fi loss is not itself an RD hardware fault.
 
-- confirmed incidents;
-- root causes;
-- invariants;
-- decisions;
-- completed repairs;
-- remaining validation gates.
+# Confirmed architecture
 
-Do not mix implementation logs with incident conclusions.
-
----
-
-# Incident: RD output unexpectedly disabled after leaving managed environment
-
-## Symptoms
-
-Observed:
-
-- RD works while connected to home environment.
-- RD moved to another location loses expected operation.
-- Output can be disabled after control-plane loss.
-- Repeated safety notifications can occur when OFF confirmation is unavailable.
-
-Initial assumption "Wi-Fi loss is an RD hardware fault" is rejected.
-
-The investigation target is the software ownership/safety boundary.
-
----
-
-# Classification
-
-## Confirmed classes
-
-### C1 — Ownership/application policy mixed with hardware safety
-
-Severity: HIGH
-
-Problem:
-
-The system currently combines:
-
-- bot authority;
-- charging application state;
-- communication health;
-- physical safety.
-
-Required split:
-
-```
-Hardware safety
-        !=
-Application control
-        !=
-Control-plane availability
+```text
+Hardware safety != Application control != Control-plane availability
 ```
 
----
+`HANDS_OFF` and `AUTONOMOUS` are distinct:
 
-### C2 — HANDS_OFF is not a full operating mode
+- `HANDS_OFF` = software ownership release / bot actuator block.
+- `AUTONOMOUS` = explicit persistent ESP operation authority allowing generic PSU use without managed heartbeat availability.
 
-Severity: MEDIUM/HIGH
-
-Current meaning:
-
-- ownership release;
-- bot actuator block.
-
-It is not equivalent to:
-
-- generic PSU autonomous operation.
-
-Required model:
-
-```
-Ownership:
-    BOT
-    EXTERNAL
-
-Operation:
-    MANAGED
-    AUTONOMOUS
-```
-
-The currently persisted software values map conservatively as follows:
-
-```
-PB_MANAGED -> BOT + MANAGED
-HANDS_OFF  -> ownership transfer only; explicit edge autonomous authority required
-```
-
-Unknown/corrupt values must never imply AUTONOMOUS.
-
----
-
-### C3 — Pb application assumptions leak into generic PSU operation
-
-Severity: HIGH
-
-Managed Pb-only requirements must not terminate generic autonomous PSU use:
-
-- charge session;
-- chemistry profile;
-- external battery temperature;
-- restore state;
-- Pb FSM.
-
----
-
-### C4 — Accepted intrinsic software protection is not yet edge-local
-
-Severity: HIGH
-
-Confirmed current boundary:
-
-- the accepted internal RD temperature cutoff is 55 C in host-side software;
-- the canonical ESPHome telemetry package publishes internal temperature and raw
-  protection status but does not itself perform the 55 C shutdown;
-- the edge safety package currently performs communication/lease containment, not a
-  complete generic-PSU hardware-safety policy.
-
-Consequence:
-
-AUTONOMOUS cannot be implemented safely as a blanket bypass of the runtime guard.
-Intrinsic protection required during loss of Wi-Fi/HA must be moved or duplicated at
-an edge-local authority before control-plane lease shutdown is disabled for that mode.
-
-Do not invent new autonomous V/I/power thresholds. Use existing RD hardware protection
-status where authoritative and existing accepted software limits where already defined.
-
----
+Plain HANDS_OFF does not promise reboot/offline operation and never implies AUTONOMOUS.
 
 # Safety invariants
 
-Always active:
+1. `unknown != OFF`; V=0/I=0 is never Output-OFF proof.
+2. AUTONOMOUS is never inferred from Wi-Fi loss, HA loss, HANDS_OFF or an unarmed lease.
+3. Unknown/corrupt edge mode does not grant autonomous authority.
+4. Managed D056 lease/Pb fail-closed semantics are not weakened.
+5. AUTONOMOUS enter/exit requires fresh canonical Output OFF and positive edge mode/generation/readback ACK.
+6. Ambiguous autonomous entry never silently restores PB_MANAGED; HANDS_OFF remains the conservative boundary.
+7. Managed startup recovery may not actuate before explicit edge autonomous authority is resolved.
+8. Stale HANDS_OFF -> PB callbacks cannot bypass explicit AUTONOMOUS exit.
+9. HANDS_OFF live release leaves AUTONOMOUS OFF; D061 live adoption remains a separate HANDS_OFF transaction and rejects AUTONOMOUS.
+10. Repo CI is not production/bench evidence.
 
-- RD internal temperature protection;
-- configured/hardware OVP/OCP/OPP protection;
-- hardware fault handling.
+# Generic autonomous safety evidence
 
-Do not silently reinterpret Pb working limits (16.6/17.5 V, 12 A) as generic PSU
-hardware limits. Autonomous mode is load-agnostic and may use the native RD operating
-range subject to its configured/intrinsic protection contract.
+Proven repo-side edge-local intrinsic authorities from D064 / merged PR #14:
 
-Never weaken intrinsic safety while adding autonomous mode.
+- accepted internal RD/PSU temperature cutoff 55 C -> local Output OFF;
+- fresh non-zero raw RD register-16 protection code -> local Output OFF.
 
----
+Not yet proven as generic autonomous software ceilings:
 
-# Autonomous contract
+- absolute voltage;
+- absolute current;
+- absolute power.
 
-AUTONOMOUS means:
+Do not reuse Pb values such as 16.6/17.5 V or 12 A as generic PSU limits. RD native V/I/power protection requires exact-firmware bench validation.
 
-RD6018 can operate as a general programmable power supply.
+`temp_ext` is application telemetry in AUTONOMOUS. Missing/unavailable/stale `temp_ext` is not itself an autonomous fault. Any future autonomous external-probe emergency threshold requires separate physical validation; Pb 35/40/45 C policy must not be reused blindly.
 
-Allowed loads:
-
-- batteries of any chemistry;
-- electronics;
-- motors;
-- lamps;
-- heaters;
-- laboratory loads;
-- arbitrary DC equipment.
-
-Not assumed:
-
-- Pb chemistry;
-- charging algorithm;
-- battery sensor;
-- Telegram;
-- HA;
-- Wi-Fi.
-
-`temp_ext` is application telemetry in this mode. Missing/unavailable `temp_ext` is not
-itself an autonomous fault. No generic emergency threshold is accepted until separately
-validated; existing 35/40/45 C limits are Pb battery policy and must not be reused blindly.
-
----
-
-# Repair phases
+# Repair status
 
 ## Phase 1 — Domain separation
 
-Status: DONE
+DONE.
 
-Merged foundation:
+AUTONOMOUS means generic PSU operation, not autonomous Pb charging. Ownership and operation authority are separate.
 
-- `RdOwnership`;
-- `RdOperationMode`;
-- `RdOperatingState`;
-- supported-state validation;
-- generic-PSU autonomous semantics;
-- deterministic legacy control-mode mapping.
+## Phase 2 — Edge intrinsic safety
 
-No actuator or ESPHome behavior is changed by this phase.
+DONE REPO-SIDE / BENCH PENDING.
 
----
+Merged PR #14 provides the proven intrinsic local guards above.
 
-## Phase 2 — Runtime safety separation
+## Phase 3 — Explicit persistent AUTONOMOUS authority
 
-Status: IN PROGRESS
+IMPLEMENTED ON PR #15 BRANCH / REVIEW IN PROGRESS.
 
-Audit:
+Current branch provides:
 
-- orphan output handling;
-- controller_active;
-- telemetry requirements;
-- lease enforcement;
-- old `PB_MANAGED` / `HANDS_OFF` persistence bridge.
+- persistent ESP autonomous bit;
+- autonomous reboot independent of managed lease heartbeat;
+- managed+autonomous conflict fail-closed;
+- OFF-only edge enter/exit commands;
+- positive Python ACK with mode + generation + fresh unarmed edge readback;
+- global Bot/AUTONOMOUS coordinator;
+- two-step Telegram confirmation for autonomous entry;
+- final HMI switch composed after Output-truth normalization;
+- bot actuator/start/restore block while autonomous;
+- startup managed recovery gated on explicit edge authority;
+- stale generic PB-return path blocked while AUTONOMOUS is active;
+- HANDS_OFF release restored so it does not set AUTONOMOUS;
+- D061 live HANDS_OFF adoption restored and made explicitly non-autonomous.
 
-Goal:
+## Phase 4 — Repository validation
 
-MANAGED keeps current fail-closed behavior.
+IN PROGRESS.
 
-AUTONOMOUS does not fail only because control plane disappeared.
+Required before merge:
 
----
+1. exact current-head Python 3.10/3.11/3.12 CI PASS;
+2. exact current-head canonical ESPHome compile PASS;
+3. HANDS_OFF/AUTONOMOUS separation regressions;
+4. D061 HANDS_OFF live-adoption regression;
+5. startup authority-gate regression;
+6. autonomous edge positive-ACK tests;
+7. global transition tests including ambiguous command containment;
+8. production install-order test;
+9. numbered durable decision for the behavior change.
 
-## Phase 3 — ESPHome contract
+## Phase 5 — Physical validation
 
-Status: DESIGN/IMPLEMENTATION NEXT
+NOT STARTED. Production unchanged; ESPHome has not been flashed by this repair work.
 
-Required:
+Before deployment:
 
-- persistent local autonomous authority, defaulting fail closed;
-- managed lease behavior unchanged while MANAGED;
-- autonomous mode not dependent on Wi-Fi/HA heartbeat;
-- local internal-temperature cutoff retained without HA;
-- raw RD OVP/OCP/OPP fault status remains safety authority;
-- mode transition while Output ON is explicit and transaction-bound;
-- reboot does not silently infer autonomous mode.
-
-Edge transition invariants under review:
-
-```
-managed -> autonomous live release:
-    healthy armed lease + fresh direct RD state
-    -> preserve Output/setpoints
-    -> persist autonomous ownership locally
-
-autonomous -> managed live adoption:
-    explicit adoption contract + fresh direct RD/protection evidence
-    -> atomically retire autonomous edge state
-    -> arm managed lease
-
-unknown/corrupt edge mode:
-    -> never infer autonomous
-```
-
----
-
-## Phase 4 — Validation
-
-Required tests:
-
-1. MANAGED + lost Wi-Fi keeps existing safety behavior.
-2. AUTONOMOUS + no HA does not disable output solely for communication loss.
-3. AUTONOMOUS + no temp_ext is valid.
-4. AUTONOMOUS has no Pb restore/start path.
-5. Bot cannot apply application setpoints in autonomous mode.
-6. Corrupt mode state fails closed.
-7. Reboot preserves deterministic mode behavior.
-8. Internal RD overtemperature still causes local OFF without HA.
-9. Raw OVP/OCP/OPP fault still causes local OFF.
-10. Exact ESPHome target compiles; physical flash/bench loss tests remain separate gates.
-
----
+1. flash the exact merged firmware;
+2. prove AUTONOMOUS survives ESP reboot as designed;
+3. with AUTONOMOUS Output ON, remove Wi-Fi/HA beyond the D056 TTL and prove communication loss alone does not OFF;
+4. return to managed and prove D056 heartbeat loss still OFFs;
+5. prove local 55 C and raw protection-code OFF on the actual node;
+6. test power loss around autonomous persistence transitions;
+7. characterize native voltage/current/power protection before declaring generic autonomous limits;
+8. validate any optional external-probe emergency rule separately.
 
 # Forbidden fixes
 
-Do not implement:
+Do not use unlimited orphan timeout, global safety bypass, `RD_ALLOW_UNMANAGED_OUTPUT`, managed fail-close disable, V=0/I=0 as OFF proof, automatic arbitrary adoption, HANDS_OFF-as-AUTONOMOUS, or Pb chemistry ceilings as generic PSU limits.
 
-- unlimited orphan timeout;
-- global safety bypass;
-- RD_ALLOW_UNMANAGED_OUTPUT style switches;
-- disabling fail-closed globally;
-- treating V=0/I=0 as proof of OFF;
-- auto-adoption of arbitrary external charge states;
-- applying Pb chemistry ceilings as generic autonomous PSU hardware limits.
+# Evidence separation
 
----
-
-# Evidence separation rule
-
-Codex reports:
-
-- implementation findings;
-- patches;
-- test output.
-
-This runbook:
-
-- incident classification;
-- architecture decisions;
-- acceptance criteria.
-
-They must not replace each other.
+Codex/repo-agent reports provide implementation findings/diffs/test output. This runbook owns incident classification, invariants, accepted repair boundary and validation gates. Neither replaces the other.
