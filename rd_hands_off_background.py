@@ -38,14 +38,16 @@ def _external_authority(manager: Any) -> bool:
 
 
 def _startup_background_suspended(app: Any) -> bool:
-    """Keep sibling background work passive until D065 startup reconciliation completes.
+    """Suspend sibling background authority only during real startup reconciliation.
 
-    The reconciliation task has a task-local recovery scope. That narrow scope must keep
-    the existing managed containment helpers available while ordinary logger/watchdog
-    tasks in parallel remain observational.
+    Importing the production composition installs D065's gate but does not itself start
+    the runtime reconciliation task. Treating that inert object as an unresolved boot
+    leaks process-global wrapper state into isolated helpers/tests. Once reconcile()
+    starts, ordinary sibling work stays passive until managed authority is proven. The
+    task-local recovery scope remains the narrow containment exemption.
     """
     startup = getattr(app, "rd_startup_authority_gate", None)
-    if startup is None:
+    if startup is None or not bool(getattr(startup, "reconciliation_started", False)):
         return False
     if bool(getattr(startup, "recovery_scope", False)):
         return False
@@ -68,10 +70,11 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
     """Make legacy Pb background workers observational outside managed authority.
 
     D060 HANDS_OFF and D065 AUTONOMOUS are not degraded Pb sessions. Likewise, while
-    startup edge authority is unresolved, ordinary background work has no actuator or
-    chemistry authority. The legacy data logger may continue collecting raw telemetry,
-    but it must not run Pb chemistry, restore a session, execute stale Manual-Off/pause
-    policy, claim a host-side hard stop, or emit control-claim notifications/events.
+    production startup reconciliation is actively resolving edge authority, ordinary
+    background work has no actuator or chemistry authority. The legacy data logger may
+    continue collecting raw telemetry, but it must not run Pb chemistry, restore a
+    session, execute stale Manual-Off/pause policy, claim a host-side hard stop, or emit
+    control-claim notifications/events.
 
     D064 intrinsic ESP/RD protection remains local authority. D056 managed lease and all
     existing Pb behavior remain unchanged once managed startup reconciliation completes.
@@ -95,8 +98,6 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
 
     async def authority_aware_tick(*args: Any, **kwargs: Any) -> Any:
         if _pb_background_suspended(app, manager):
-            # Keep the legacy watchdog heartbeat fresh without running Pb chemistry or
-            # producing actuator actions. The data logger still stores raw telemetry.
             controller.last_update_time = time.time()
             return {}
         return await original_tick(*args, **kwargs)
@@ -108,7 +109,6 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
 
     async def authority_aware_hard_stop(*args: Any, **kwargs: Any) -> Any:
         if _pb_background_suspended(app, manager):
-            # Host Pb policy has no actuator authority here. D064 remains edge-local.
             return None
         if not callable(original_hard_stop):
             raise RuntimeError("legacy hard-stop helper is unavailable")
@@ -116,9 +116,6 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
 
     def authority_aware_manual_off(*args: Any, **kwargs: Any) -> bool:
         if _pb_background_suspended(app, manager):
-            # Once ownership is explicitly external, retire stale Pb kill conditions.
-            # During merely unresolved startup, keep persistence intact until authority
-            # is known; only make the condition temporarily non-authoritative.
             if _external_authority(manager) and callable(original_manual_off_active) and bool(
                 original_manual_off_active(*args, **kwargs)
             ):
@@ -172,8 +169,6 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
         app._operator_pause_active = authority_aware_operator_pause
     if callable(original_notify):
         app._charge_notify = authority_aware_notify
-        # Controller.notify was captured during construction and bypasses later module
-        # global replacement. Point it at the same authority-aware notification gate.
         if getattr(controller, "notify", None) is original_notify:
             controller.notify = authority_aware_notify
     if callable(original_log_event):
