@@ -35,6 +35,7 @@ class RdStartupAuthorityGate:
         self._install_hass_gate()
         self._install_application_gate()
         self._install_ownership_gate()
+        self._install_return_pb_gate()
 
     @staticmethod
     def parse_explicit(raw: Any) -> Optional[bool]:
@@ -223,6 +224,28 @@ class RdStartupAuthorityGate:
 
             observer.start = observer_start
             observer._rd_startup_authority_start_wrapped = True
+
+    def _install_return_pb_gate(self) -> None:
+        original = self.manager.return_pb_control
+
+        async def return_pb_control() -> bool:
+            was_explicit_autonomous = bool(
+                self.candidate_autonomous is True
+                or getattr(self.manager, "edge_autonomous", False)
+            )
+            result = bool(await original())
+            # rd_autonomous_mode clears the edge bit only after a positive edge EXIT ACK,
+            # and the underlying HANDS_OFF -> PB transaction independently requires
+            # fresh canonical Output OFF and clears stale AUTO restore authority. That
+            # exact two-boundary path is safe to reopen without waiting for the startup
+            # reconciliation task that intentionally ended while AUTONOMOUS was active.
+            if result and was_explicit_autonomous and bool(
+                getattr(self.manager, "pb_managed", False)
+            ):
+                self.mark_managed_recovered()
+            return result
+
+        self.manager.return_pb_control = return_pb_control
 
     def hold_unresolved(self, reason: str = "edge authority unresolved") -> None:
         self.candidate_autonomous = None
