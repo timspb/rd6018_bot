@@ -226,6 +226,11 @@ While explicit AUTONOMOUS authority is active, managed communication-lease expir
 
 `temp_ext` is optional application telemetry in AUTONOMOUS: missing/unavailable/stale external temperature alone is not a fault. No generic external-temperature emergency threshold and no generic autonomous V/I/power software ceiling is accepted here; those require separate physical characterization rather than reusing Pb limits. Exact firmware compile proves configuration validity only. Autonomous reboot, Wi-Fi/HA loss beyond 900 s, persistence/power-loss transitions, intrinsic trip behavior, and native V/I/power protection still require bench validation before production deployment.
 
+## D066 — legacy Pb background workers are observational outside reconciled managed authority
+**ACCEPTED / IMPLEMENTED IN SOFTWARE / CI PENDING.** Raw telemetry/database collection may continue while the RD is externally owned or while D065 startup authority is unresolved, but legacy Pb background work has no chemistry or actuator authority there. In durable HANDS_OFF, explicit AUTONOMOUS, and ordinary sibling tasks before managed startup reconciliation completes, controller `tick`, background restore probing, stale Manual-Off/operator-pause policy, host-side Pb hard-stop claims and legacy control-claim notifications/events are therefore suppressed. D064 edge-local intrinsic protection remains active and D056 continues to own managed communication-loss safety.
+
+Explicit external ownership retires stale Pb Manual-Off/operator-pause persistence because that policy no longer owns the PSU. Merely unresolved startup does not destroy those persisted managed conditions; it only makes them temporarily non-authoritative until edge ownership is known. D065's task-local startup `recovery_scope` is exempt from the background suspension so the already-defined verified managed containment path can execute without opening ordinary sibling logger/watchdog authority. Once startup reconciliation proves PB_MANAGED, legacy managed safety behavior is unchanged; a pre-commit live ownership release also retains normal managed safety until external ownership is durably committed.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
