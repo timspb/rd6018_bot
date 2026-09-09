@@ -28,6 +28,7 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
         edge_autonomous=False,
         release_in_progress=False,
         startup_ready=True,
+        reconciliation_started=True,
         recovery_scope=False,
         with_startup=True,
     ):
@@ -79,6 +80,7 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
         if with_startup:
             app.rd_startup_authority_gate = SimpleNamespace(
                 managed_actuation_ready=startup_ready,
+                reconciliation_started=reconciliation_started,
                 recovery_scope=recovery_scope,
             )
         controller.notify = notify
@@ -118,9 +120,10 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.restore_calls, 0)
         self.assertEqual(hard_stop_calls, [])
 
-    async def test_unresolved_startup_suspends_background_without_destroying_persisted_policy(self):
+    async def test_unresolved_started_startup_suspends_without_destroying_policy(self):
         app, _manager, controller, hard_stop_calls, notices, events, cleared, state = self._app(
             startup_ready=False,
+            reconciliation_started=True,
             recovery_scope=False,
         )
 
@@ -135,6 +138,30 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hard_stop_calls, [])
         self.assertEqual(notices, [])
         self.assertEqual(events, [])
+        self.assertEqual(cleared, {"manual": 0, "pause": 0})
+        self.assertEqual(state, {"manual": True, "pause": True})
+
+    async def test_installed_but_not_started_gate_does_not_leak_into_helpers(self):
+        app, _manager, controller, hard_stop_calls, notices, events, cleared, state = self._app(
+            startup_ready=False,
+            reconciliation_started=False,
+        )
+
+        actions = await controller.tick()
+        restored = controller.try_restore_session()
+        await app._hard_stop_charge()
+        self.assertTrue(app._has_manual_off_condition())
+        self.assertTrue(app._operator_pause_active())
+        app._charge_notify("observer: import-only helper")
+        app.log_event("Idle", 0.0, 0.0, 0.0, 0.0, "WATCHDOG_TIMEOUT")
+
+        self.assertTrue(actions["turn_off"])
+        self.assertEqual(restored, (True, "restored"))
+        self.assertEqual(controller.tick_calls, 1)
+        self.assertEqual(controller.restore_calls, 1)
+        self.assertEqual(len(hard_stop_calls), 1)
+        self.assertEqual(notices, ["observer: import-only helper"])
+        self.assertEqual(len(events), 1)
         self.assertEqual(cleared, {"manual": 0, "pause": 0})
         self.assertEqual(state, {"manual": True, "pause": True})
 
@@ -191,6 +218,7 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_task_local_startup_recovery_scope_keeps_containment_helpers_available(self):
         app, _manager, controller, hard_stop_calls, *_ = self._app(
             startup_ready=False,
+            reconciliation_started=True,
             recovery_scope=True,
         )
 
