@@ -173,6 +173,44 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertTrue(manager.hands_off)
 
+    async def test_edge_autonomous_observation_blocks_pb_paths_without_actuation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            app.hass.live["autonomous_mode"] = "on"
+
+            live = await app.hass.get_all_live()
+
+            self.assertTrue(manager.edge_autonomous)
+            self.assertEqual(live["autonomous_mode"], "on")
+            with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
+                await app.hass.turn_on()
+            with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
+                app.charge_controller.start("Ca/Ca", 60)
+            self.assertEqual(app.hass.turn_on_calls, 0)
+            self.assertEqual(app.charge_controller.start_calls, 0)
+
+    async def test_edge_autonomous_blocks_restore_without_invoking_controller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            app.hass.live["autonomous_mode"] = "on"
+            received = []
+
+            def restore(*args, **kwargs):
+                received.append((args, kwargs))
+                return True, "Mix Mode"
+
+            app.charge_controller.try_restore_session = restore
+            app.rd_control_mode_manager = None
+            app.hass._rd_control_mode_wrapped = False
+            manager = install_rd_control_mode(app, install_ui=False)
+            await app.hass.get_all_live()
+            app.charge_controller.try_restore_session(
+                14.2, 0.3, 70.0, output_is_on=True, is_cv=True, is_cc=False
+            )
+
+            self.assertTrue(manager.edge_autonomous)
+            self.assertEqual(received, [])
+
     def test_restore_wrapper_forwards_extended_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, _manager, _guard = self._app(f"{tmp}/mode.json")

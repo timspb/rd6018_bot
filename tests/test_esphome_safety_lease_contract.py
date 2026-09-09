@@ -71,6 +71,49 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
         self.assertIn("address: 18", output_block)
         self.assertIn("bitmask: 0x1", output_block)
 
+    def test_autonomous_authority_is_separate_from_hands_off_transfer(self):
+        self.assertIn("rd6018_safety_autonomous_mode", self.text)
+        self.assertIn("id: rd6018_safety_enter_autonomous_button", self.text)
+        self.assertIn("id: rd6018_safety_exit_autonomous_button", self.text)
+        self.assertIn("if (id(rd6018_safety_autonomous_mode)) return;", self.text)
+
+    def test_autonomous_entry_requires_fresh_verified_off(self):
+        entry = self.text.split("id: rd6018_safety_enter_autonomous_button", 1)[1].split(
+            "- platform: template", 1
+        )[0]
+        self.assertIn("if (!telemetry_fresh || !output_fresh) return;", entry)
+        self.assertIn("if (id(rd6018_safety_output_on_readback)) return;", entry)
+        self.assertIn("id(rd6018_safety_autonomous_mode) = true;", entry)
+
+    def test_autonomous_boot_does_not_run_managed_lease_quarantine(self):
+        self.assertIn("if (autonomous && !managed)", self.text)
+        self.assertIn("if (id(rd6018_safety_autonomous_mode)) return;", self.text)
+        self.assertIn("const bool conflict = id(rd6018_safety_managed_session)", self.text)
+
+    def test_autonomous_conflict_is_fail_closed(self):
+        conflict = self.text.split("const bool conflict =", 1)[1].split(
+            "// Valid autonomous ownership", 1
+        )[0]
+        self.assertIn("id(rd6018_safety_boot_quarantine) = true;", conflict)
+        self.assertIn("id(rd6018_safety_lease_tripped) = true;", conflict)
+
+    def test_autonomous_does_not_depend_on_managed_lease_or_external_temperature(self):
+        autonomous = self.text.split("// Valid autonomous ownership", 1)[0]
+        self.assertNotIn("temp_ext", autonomous)
+        self.assertNotIn("wifi", self.text.lower())
+        self.assertNotIn("telegram", self.text.lower())
+        self.assertNotIn("home assistant", self.text.lower())
+        self.assertIn("else if (id(rd6018_safety_managed_session))", self.text)
+        self.assertIn("if (id(rd6018_safety_autonomous_mode)) return;", self.text)
+        self.assertIn("id(rd6018_safety_autonomous_mode) ||", self.text)
+
+    def test_live_adoption_requires_explicit_autonomous_authority(self):
+        adoption = Path("esphome/packages/rd6018_live_adoption.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("if (!id(rd6018_safety_autonomous_mode)) return;", adoption)
+        self.assertNotIn("id(rd6018_safety_autonomous_mode) = true;", adoption)
+
 
 if __name__ == "__main__":
     unittest.main()
