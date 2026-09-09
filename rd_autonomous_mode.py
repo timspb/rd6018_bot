@@ -139,12 +139,19 @@ class RdAutonomousModeCoordinator:
 
 
 def _filter_callback(markup: InlineKeyboardMarkup, callback: str) -> InlineKeyboardMarkup:
+    return _filter_callbacks(markup, {callback})
+
+
+def _filter_callbacks(
+    markup: InlineKeyboardMarkup,
+    blocked: set[str],
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for row in markup.inline_keyboard:
         kept = [
             button
             for button in row
-            if str(getattr(button, "callback_data", "") or "") != callback
+            if str(getattr(button, "callback_data", "") or "") not in blocked
         ]
         if kept:
             rows.append(kept)
@@ -271,12 +278,31 @@ def install_rd_autonomous_mode(
 
 
 def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoordinator) -> None:
-    """Compose the global Bot/Autonomous switch after Output-truth normalization."""
+    """Compose the global Bot/Autonomous switch after Output-truth normalization.
+
+    This is also the last stale-capability barrier. A Telegram keyboard rendered before
+    AUTONOMOUS was selected must not leave Pb adoption/Mix controls as live capabilities,
+    and the HANDS_OFF Mix observer must not acquire future-OFF authority in AUTONOMOUS.
+    """
     if bool(getattr(app, "_rd_autonomous_final_hmi_installed", False)):
         return
 
     import operator_hmi as hmi
     from operator_output_truth import output_known
+
+    observer = getattr(app, "rd_live_mix_observer", None)
+    if observer is not None and not bool(getattr(observer, "_autonomous_start_guarded", False)):
+        original_observer_start = observer.start
+
+        async def guarded_observer_start(*args: Any, **kwargs: Any) -> Any:
+            if coordinator.manager.edge_autonomous:
+                raise RuntimeSafetyError(
+                    "HANDS_OFF Mix observer is disabled while edge AUTONOMOUS is active"
+                )
+            return await original_observer_start(*args, **kwargs)
+
+        observer.start = guarded_observer_start
+        observer._autonomous_start_guarded = True
 
     original = hmi.build_operator_keyboard
 
@@ -285,8 +311,24 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
         manager = coordinator.manager
 
         if manager.edge_autonomous:
-            # The generic HANDS_OFF "return Pb" callback does not own the edge mode.
-            markup = _filter_callback(markup, "rd_hands_off_disable")
+            # AUTONOMOUS is a generic PSU state. Remove every Pb/adoption/ownership
+            # affordance that can be inherited from the underlying HANDS_OFF HMI. The
+            # only ownership transition exposed here is the explicit OFF-only edge exit.
+            markup = _filter_callbacks(
+                markup,
+                {
+                    "rd_hands_off_disable",
+                    "rd_managed_adopt",
+                    "rd_managed_mix",
+                    "rd_live_mix",
+                    "rd_ownership_adopt",
+                    "rd_ownership_hands_off",
+                    "rd_hands_off_release_confirm",
+                    "charge_modes",
+                    "power_toggle",
+                    "menu_off",
+                },
+            )
             if output_known(state) and not bool(getattr(state, "output_on", False)):
                 return _append_unique(
                     markup,
