@@ -252,6 +252,51 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return None
         return f"critical runtime telemetry is stale/incoherent: {freshness.detail}"
 
+    def _foreign_output_safety_error(self, live: dict[str, Any]) -> Optional[str]:
+        """Validate only ownership-neutral evidence during the orphan decision window.
+
+        A freshly observed Output ON with no software charge session is not yet a Pb
+        program. Requiring battery temperature, battery-voltage plausibility, recipe
+        setpoints or regulation mode before the operator can choose Adopt/HANDS_OFF/OFF
+        would let Pb policy seize an externally programmed PSU before ownership is
+        resolved. The short D068 window therefore keeps only physical Output truth and
+        RD protection status as mandatory host evidence. A positively observed internal
+        PSU over-temperature remains immediate OFF authority; missing temp_int alone is
+        left to D064's edge-local intrinsic guard during this bounded window.
+        """
+        if not isinstance(live.get("_meta"), dict):
+            return "unmanaged Output ON lacks freshness metadata for ownership recovery"
+
+        protection_keys: tuple[str, ...]
+        if self._available(live.get("protection_code")):
+            protection_keys = ("protection_code",)
+        else:
+            protection_keys = ("ovp_triggered", "ocp_triggered")
+
+        freshness = telemetry_freshness(live, ("switch",) + protection_keys)
+        if not freshness.valid:
+            return (
+                "unmanaged Output ON has stale/incoherent ownership-neutral telemetry: "
+                f"{freshness.detail}"
+            )
+
+        protection = resolve_protection(live)
+        if protection.status is ProtectionStatus.UNKNOWN:
+            return "RD6018 protection status is unknown during ownership recovery"
+        if protection.tripped:
+            return f"RD6018 {protection.status.value.upper()} protection is tripped"
+
+        temp_int = _finite(live.get("temp_int"))
+        if (
+            temp_int is not None
+            and temp_int >= float(self.policy.max_internal_temp_c)
+        ):
+            return (
+                f"RD6018 temperature {temp_int:.1f}C >= "
+                f"{self.policy.max_internal_temp_c:.1f}C"
+            )
+        return None
+
     def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
         protection = resolve_protection(live)
         if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
@@ -476,6 +521,37 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             self._orphan_output_seen_at = None
             return live
 
+        # D068: an already-ON Output with no managed software session first gets one
+        # short ownership-decision window. This is not a managed Pb grace period: it
+        # keeps canonical Output/protection truth and hard PSU trip authority, but does
+        # not apply battery chemistry, temp_ext or recipe-program requirements before
+        # the operator can choose Adopt, HANDS_OFF, or verified OFF. D061 performs the
+        # complete managed preflight if adoption is actually selected.
+        if output_state is True and not self.controller_active:
+            foreign_error = self._foreign_output_safety_error(live)
+            if foreign_error is not None:
+                await self._fail_closed(
+                    "unmanaged_output_safety",
+                    foreign_error,
+                    output_state=True,
+                )
+            now = time.monotonic()
+            if self._orphan_output_seen_at is None:
+                self._orphan_output_seen_at = now
+                return live
+            if now - self._orphan_output_seen_at >= self.ORPHAN_OUTPUT_GRACE_S:
+                await self._fail_closed(
+                    "unmanaged_output",
+                    "RD6018 output remains ON without an explicit ownership decision",
+                    output_state=True,
+                )
+            return live
+
+        # A real managed authority starts a new ownership epoch. A stale orphan timer
+        # from a prior external-output decision must never shorten a later orphan grace.
+        if self.controller_active:
+            self._orphan_output_seen_at = None
+
         error = self._critical_telemetry_error(
             live,
             require_programming=output_state is True,
@@ -506,19 +582,6 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
 
         if output_state is False:
             self._clear_off_unconfirmed_containment()
-            return live
-
-        if output_state is True and not self.controller_active:
-            now = time.monotonic()
-            if self._orphan_output_seen_at is None:
-                self._orphan_output_seen_at = now
-                return live
-            if now - self._orphan_output_seen_at >= self.ORPHAN_OUTPUT_GRACE_S:
-                await self._fail_closed(
-                    "unmanaged_output",
-                    "RD6018 output remains ON without a managed/restored session",
-                    output_state=True,
-                )
             return live
 
         if output_state is True:
