@@ -32,17 +32,21 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
 
     def test_reboot_state_is_persisted_but_heartbeat_is_not(self):
         managed_block = self.text.split("- id: rd6018_safety_managed_session", 1)[1].split(
+            "- id: rd6018_safety_autonomous_mode", 1
+        )[0]
+        autonomous_block = self.text.split("- id: rd6018_safety_autonomous_mode", 1)[1].split(
             "- id: rd6018_safety_lease_tripped", 1
         )[0]
         renew_block = self.text.split("- id: rd6018_safety_last_renew_ms", 1)[1].split(
             "- id: rd6018_safety_last_modbus_rx_ms", 1
         )[0]
         self.assertIn("restore_value: yes", managed_block)
+        self.assertIn("restore_value: yes", autonomous_block)
         self.assertIn("restore_value: no", renew_block)
 
-    def test_every_reboot_enters_fail_closed_quarantine(self):
+    def test_non_autonomous_reboot_enters_fail_closed_quarantine(self):
         self.assertIn("id(rd6018_safety_boot_quarantine) = true;", self.text)
-        self.assertIn("if (id(rd6018_safety_boot_quarantine)) return;", self.text)
+        self.assertIn("if (autonomous && !managed)", self.text)
         self.assertIn(
             "return id(rd6018_safety_boot_quarantine) ||",
             self.text,
@@ -71,7 +75,7 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
         self.assertIn("address: 18", output_block)
         self.assertIn("bitmask: 0x1", output_block)
 
-    def test_autonomous_authority_is_separate_from_hands_off_transfer(self):
+    def test_autonomous_operation_is_explicit_and_separate(self):
         self.assertIn("rd6018_safety_autonomous_mode", self.text)
         self.assertIn("id: rd6018_safety_enter_autonomous_button", self.text)
         self.assertIn("id: rd6018_safety_exit_autonomous_button", self.text)
@@ -92,27 +96,33 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
 
     def test_autonomous_conflict_is_fail_closed(self):
         conflict = self.text.split("const bool conflict =", 1)[1].split(
-            "// Valid autonomous ownership", 1
+            "} else if (id(rd6018_safety_managed_session))", 1
         )[0]
         self.assertIn("id(rd6018_safety_boot_quarantine) = true;", conflict)
         self.assertIn("id(rd6018_safety_lease_tripped) = true;", conflict)
 
     def test_autonomous_does_not_depend_on_managed_lease_or_external_temperature(self):
-        autonomous = self.text.split("// Valid autonomous ownership", 1)[0]
-        self.assertNotIn("temp_ext", autonomous)
+        self.assertNotIn("temp_ext", self.text)
         self.assertNotIn("wifi", self.text.lower())
         self.assertNotIn("telegram", self.text.lower())
         self.assertNotIn("home assistant", self.text.lower())
         self.assertIn("else if (id(rd6018_safety_managed_session))", self.text)
-        self.assertIn("if (id(rd6018_safety_autonomous_mode)) return;", self.text)
         self.assertIn("id(rd6018_safety_autonomous_mode) ||", self.text)
 
-    def test_live_adoption_requires_explicit_autonomous_authority(self):
+    def test_hands_off_release_never_enables_autonomous_operation(self):
+        release = self.text.split(
+            "id: rd6018_safety_lease_release_to_hands_off_button", 1
+        )[1].split("interval:", 1)[0]
+        self.assertIn("id(rd6018_safety_managed_session) = false;", release)
+        self.assertNotIn("id(rd6018_safety_autonomous_mode) = true;", release)
+
+    def test_d061_live_adoption_is_hands_off_only_not_autonomous(self):
         adoption = Path("esphome/packages/rd6018_live_adoption.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("if (!id(rd6018_safety_autonomous_mode)) return;", adoption)
-        self.assertNotIn("id(rd6018_safety_autonomous_mode) = true;", adoption)
+        self.assertIn("if (id(rd6018_safety_autonomous_mode)) return;", adoption)
+        self.assertNotIn("id(rd6018_safety_autonomous_mode) = false;", adoption)
+        self.assertIn("id(rd6018_safety_managed_session) = true;", adoption)
 
 
 if __name__ == "__main__":
