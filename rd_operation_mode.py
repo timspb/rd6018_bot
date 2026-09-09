@@ -24,11 +24,7 @@ class RdOperationMode(str, Enum):
 
 @dataclass(frozen=True)
 class RdOperatingState:
-    """Pure domain state separating ownership from application operation.
-
-    This module gives runtime and edge work one explicit source of truth instead of
-    inferring hardware policy from Pb session state or Wi-Fi availability.
-    """
+    """Pure domain state separating ownership from application operation."""
 
     ownership: RdOwnership
     operation: RdOperationMode
@@ -62,24 +58,16 @@ class RdOperatingState:
 
     @property
     def external_temperature_required_by_mode(self) -> bool:
-        """Only the current bot-managed Pb application requires temp_ext.
-
-        Autonomous mode is load-agnostic: the connected device may be a battery,
-        motor, electronics, heater, lamp, bench load, or anything else. Absence of
-        temp_ext therefore cannot itself be an autonomous safety fault.
-        """
-
+        """Only the current bot-managed Pb application requires temp_ext."""
         return self.pb_application_allowed
 
     @property
     def local_hardware_safety_required(self) -> bool:
         """Intrinsic PSU safety is never disabled by ownership/mode selection."""
-
         return True
 
     def validate_supported(self) -> None:
         """Reject combinations whose runtime contract has not been implemented yet."""
-
         supported = {
             (RdOwnership.BOT, RdOperationMode.MANAGED),
             (RdOwnership.EXTERNAL, RdOperationMode.AUTONOMOUS),
@@ -92,22 +80,42 @@ class RdOperatingState:
 
 
 def operating_state_from_control_mode(mode: Any) -> RdOperatingState:
-    """Map the existing durable control-mode contract onto the new domain model.
+    """Map only explicit legacy managed authority onto the operation model.
 
-    The production state file currently persists ``pb_managed`` / ``hands_off``.
-    Until persistence is migrated, this adapter is the only accepted interpretation:
-
-    - PB_MANAGED -> BOT + MANAGED
-    - HANDS_OFF -> EXTERNAL + AUTONOMOUS
-
-    Unknown/corrupt values are rejected rather than being interpreted as autonomous.
-    The caller may therefore retain the existing fail-closed PB_MANAGED recovery path.
+    `HANDS_OFF` is ownership transfer, not proof of autonomous operation. Unknown,
+    corrupt, or HANDS_OFF values are rejected rather than granting another authority.
     """
-
     raw = getattr(mode, "value", mode)
     value = str(raw or "").strip().lower()
     if value == "pb_managed":
         return RdOperatingState.bot_managed()
     if value == "hands_off":
-        return RdOperatingState.external_autonomous()
+        raise ValueError(
+            "HANDS_OFF is ownership transfer; explicit edge autonomous authority required"
+        )
     raise ValueError(f"unsupported legacy RD control mode: {value or '<empty>'}")
+
+
+def operating_state_from_edge_authority(autonomous: Any) -> RdOperatingState:
+    """Interpret only an explicit edge autonomous authority bit.
+
+    Explicit true -> EXTERNAL/AUTONOMOUS.
+    Explicit false -> BOT/MANAGED candidate.
+
+    Missing, empty, `unknown`, `unavailable`, malformed or otherwise non-explicit
+    evidence raises instead of granting bot actuation. Runtime may then retain its
+    provisional passive/fail-closed boundary until a real edge report arrives.
+    """
+    if isinstance(autonomous, str):
+        value = autonomous.strip().lower()
+        if value in {"on", "true", "1"}:
+            autonomous = True
+        elif value in {"off", "false", "0"}:
+            autonomous = False
+        else:
+            raise ValueError("unsupported edge autonomous authority value")
+    if autonomous is True:
+        return RdOperatingState.external_autonomous()
+    if autonomous is False:
+        return RdOperatingState.bot_managed()
+    raise ValueError("unsupported edge autonomous authority value")

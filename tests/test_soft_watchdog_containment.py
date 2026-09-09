@@ -30,7 +30,9 @@ class DummyApp:
         controller_active=False,
         manual_active=False,
         hands_off=False,
+        edge_autonomous=False,
         release_in_progress=False,
+        startup_ready=True,
     ):
         self.last_ha_ok_time = 100.0
         self.charge_controller = SimpleNamespace(
@@ -41,7 +43,11 @@ class DummyApp:
         self.manual_session_manager = SimpleNamespace(is_active=bool(manual_active))
         self.rd_control_mode_manager = SimpleNamespace(
             hands_off=bool(hands_off),
+            edge_autonomous=bool(edge_autonomous),
             release_in_progress=bool(release_in_progress),
+        )
+        self.rd_startup_authority_gate = SimpleNamespace(
+            managed_actuation_ready=bool(startup_ready)
         )
         self.runtime_safety_guard = None
         self.logger = DummyLogger()
@@ -164,6 +170,37 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(incident.last_attempt_at, 0.0)
         self.assertEqual(app.events, [])
         self.assertEqual(app.logger.critical_messages, [])
+
+    async def test_autonomous_outage_never_invokes_pb_hard_stop_even_if_software_mode_is_managed(self):
+        app = DummyApp(
+            output_on=True,
+            controller_active=True,
+            hands_off=False,
+            edge_autonomous=True,
+            startup_ready=False,
+        )
+        incident = SoftWatchdogIncident(active=True, logged=True, last_attempt_at=390.0)
+
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+        await soft_watchdog_poll_once(app, incident, now=700.0)
+
+        self.assertEqual(app.hard_stop_calls, 0)
+        self.assertFalse(incident.active)
+        self.assertEqual(app.events, [])
+
+    async def test_unresolved_startup_authority_never_invokes_pb_hard_stop(self):
+        app = DummyApp(
+            output_on=True,
+            controller_active=True,
+            startup_ready=False,
+        )
+        incident = SoftWatchdogIncident()
+
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+
+        self.assertEqual(app.hard_stop_calls, 0)
+        self.assertFalse(incident.active)
+        self.assertEqual(app.events, [])
 
     async def test_live_hands_off_release_suspends_watchdog_during_transfer(self):
         app = DummyApp(

@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from edge_safety_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError
+from edge_safety_lease import (
+    EdgeLeaseState,
+    EdgeSafetyLease,
+    EdgeSafetyLeaseError,
+    _bool_state,
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +22,7 @@ class EdgeLiveAdoptionConfig:
     entity: str = ""
     protection_entity: str = ""
     ttl_entity: str = ""
+    autonomous_entity: str = ""
 
 
 class EdgeLiveAdoption:
@@ -34,6 +40,11 @@ class EdgeLiveAdoption:
     ownership command. The deployed pre-D061 firmware used a 30-minute lease while D056
     accepts 15 minutes. A command-local TTL guard is still retained in ESPHome, but
     Python does not use a rejected button press as its compatibility probe.
+
+    Explicit D065 AUTONOMOUS is not a D061 source state. It is rejected read-only before
+    the edge-command uncertainty boundary so a stale Pb-adoption callback cannot turn an
+    autonomous generic PSU into verified-OFF containment merely because the ESP command
+    correctly refused the takeover.
 
     A failed/ambiguous command deliberately leaves renewals suspended. Once a live-adopt
     command may have reached ESPHome, software must not blindly resume managed heartbeat
@@ -74,12 +85,19 @@ class EdgeLiveAdoption:
             or os.getenv("RD6018_EDGE_TTL_ENTITY")
             or ""
         ).strip()
+        autonomous_entity = str(
+            configured.autonomous_entity
+            or os.getenv("RD6018_EDGE_AUTONOMOUS_ENTITY")
+            or ""
+        ).strip()
         if renew.startswith("button.") and renew.endswith(suffix):
             base = renew[len("button.") : -len(suffix)]
             if not protection_entity:
                 protection_entity = f"sensor.{base}_protection_status_code"
             if not ttl_entity:
                 ttl_entity = f"sensor.{base}_safety_lease_ttl"
+            if not autonomous_entity:
+                autonomous_entity = f"binary_sensor.{base}_safety_autonomous_mode"
         if not protection_entity:
             raise ValueError(
                 "raw protection-code entity is not configured and cannot be derived from renew entity"
@@ -88,10 +106,15 @@ class EdgeLiveAdoption:
             raise ValueError(
                 "edge lease TTL entity is not configured and cannot be derived from renew entity"
             )
+        if not autonomous_entity:
+            raise ValueError(
+                "edge autonomous entity is not configured and cannot be derived from renew entity"
+            )
         self.config = EdgeLiveAdoptionConfig(
             entity=entity,
             protection_entity=protection_entity,
             ttl_entity=ttl_entity,
+            autonomous_entity=autonomous_entity,
         )
 
     @property
@@ -107,6 +130,18 @@ class EdgeLiveAdoption:
         if state is None or str(state).strip().lower() == "unavailable":
             raise EdgeSafetyLeaseError(
                 "edge live-adoption entity is missing/unavailable"
+            )
+
+    async def _require_not_autonomous(self) -> None:
+        raw = await self.lease._state_value(self.config.autonomous_entity)
+        autonomous = _bool_state(raw)
+        if autonomous is None:
+            raise EdgeSafetyLeaseError(
+                "edge autonomous authority is missing/unavailable; live adoption is blocked"
+            )
+        if autonomous:
+            raise EdgeSafetyLeaseError(
+                "edge AUTONOMOUS is active; exit AUTONOMOUS with confirmed Output OFF before live Pb adoption"
             )
 
     async def _require_target_ttl(self) -> None:
@@ -226,6 +261,7 @@ class EdgeLiveAdoption:
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
+            await self._require_not_autonomous()
             await self._require_target_ttl()
             await self._require_raw_protection_normal()
             state = await self.lease.read_state()
@@ -252,6 +288,7 @@ class EdgeLiveAdoption:
         self.lease.suspend_renewals()
         async with self.lease._operation_lock:
             await self._require_entity()
+            await self._require_not_autonomous()
             await self._require_target_ttl()
             await self._require_raw_protection_normal()
             before = await self.lease.read_state()
@@ -263,6 +300,10 @@ class EdgeLiveAdoption:
                 raise EdgeSafetyLeaseError(
                     "edge lease generation changed after live-adoption preflight"
                 )
+            # Re-check the independent edge operation mode immediately before the
+            # command uncertainty boundary. ESPHome also refuses the command if a
+            # concurrent operator transition races this read.
+            await self._require_not_autonomous()
 
             # From this point onward an exception/negative HTTP result cannot prove
             # that the command did not reach ESPHome. Coordinator containment must

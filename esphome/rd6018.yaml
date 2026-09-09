@@ -7,14 +7,16 @@
 # Edge contracts:
 #   - edge-local intrinsic PSU protection independent from Wi-Fi/HA;
 #   - 15 minute local dead-man lease for managed operation;
+#   - explicit persistent AUTONOMOUS operation authority;
 #   - managed -> HANDS_OFF live release;
 #   - HANDS_OFF -> managed live adoption;
 #   - authoritative raw register-16/17 telemetry.
 #
-# IMPORTANT: flashing this firmware reboots the ESP. The current managed boot
-# quarantine contract still drives RD6018 Output OFF until a fresh direct
-# register-18 readback proves OFF. Autonomous reboot semantics are NOT enabled by
-# this slice yet; do not flash it as a transparent upgrade while Output must remain ON.
+# IMPORTANT: flashing this firmware reboots the ESP. A valid persisted AUTONOMOUS
+# authority survives reboot without the managed lease quarantine; managed/default/
+# conflicting authority remains fail-closed and uses the existing verified-OFF boot
+# quarantine. Never flash merely to change modes while Output must remain uninterrupted;
+# autonomous reboot/power-loss behavior still requires physical bench validation.
 #
 # Real credentials and local addressing belong in esphome/secrets.yaml (gitignored).
 # Never commit them.
@@ -48,7 +50,7 @@ esphome:
   name_add_mac_suffix: false
   project:
     name: "timspb.rd6018-pb-recovery-v2"
-    version: "2.1-intrinsic-safety"
+    version: "2.2-autonomous-authority"
 
 esp8266:
   board: esp01_1m

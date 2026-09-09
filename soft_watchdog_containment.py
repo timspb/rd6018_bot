@@ -24,17 +24,23 @@ class SoftWatchdogIncident:
 
 
 def _pb_watchdog_suspended(app: Any) -> bool:
-    """Return True when Pb software no longer owns RD actuator authority.
+    """Return True when Pb software does not have reconciled actuator authority.
 
-    HANDS_OFF is an outer ownership boundary, not a degraded managed-charge state.
-    The legacy HA heartbeat watchdog must therefore remain completely non-actuating
-    while HANDS_OFF owns the PSU, including during the live release transaction.
+    HANDS_OFF and explicit D065 AUTONOMOUS are outer ownership/operation boundaries,
+    not degraded managed-charge states. Startup edge authority is also initially
+    unknown; until the final startup gate proves non-autonomous recovery complete, the
+    legacy HA heartbeat watchdog must remain passive. The managed D056 edge lease and
+    D064 intrinsic firmware protections remain the independent local safety authorities.
     """
     manager = getattr(app, "rd_control_mode_manager", None)
     if manager is None:
         return False
+    startup = getattr(app, "rd_startup_authority_gate", None)
+    if startup is not None and not bool(getattr(startup, "managed_actuation_ready", False)):
+        return True
     return bool(
         getattr(manager, "hands_off", False)
+        or getattr(manager, "edge_autonomous", False)
         or getattr(manager, "release_in_progress", False)
     )
 
@@ -100,10 +106,10 @@ async def soft_watchdog_poll_once(
     existing hard-stop path immediately and retry failed remote shutdowns only at a
     bounded cadence.
 
-    HANDS_OFF is outside this watchdog's authority entirely. Entering HANDS_OFF resets
-    any in-process Pb outage incident and no hard-stop/protection write is attempted,
-    even if legacy state still remembers that Output was ON before the ownership
-    transfer. Intrinsic RD protections remain local hardware behavior.
+    HANDS_OFF, AUTONOMOUS and unresolved startup authority are outside this watchdog's
+    authority entirely. Entering one of those states resets any in-process Pb outage
+    incident and no hard-stop/protection write is attempted, even if legacy state still
+    remembers that Output was ON before the ownership transition.
     """
     current = time.time() if now is None else float(now)
     last_ok = float(getattr(app, "last_ha_ok_time", 0.0) or 0.0)

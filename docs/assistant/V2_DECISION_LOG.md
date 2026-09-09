@@ -217,6 +217,15 @@ For D062, the age accepted at preview is a conservative floor that ages forward.
 
 Missing/unknown intrinsic telemetry by itself is not converted into an autonomous OFF condition by this guard. D056 continues to own stale-control/lease fail-close semantics for managed operation. D064 does **not** yet enable autonomous reboot or disable the managed lease; the existing boot quarantine and lease behavior remain unchanged in this slice. Pb working ceilings such as 16.6/17.5 V and 12 A are not generic autonomous PSU limits and must not be silently reused as such. The exact ESPHome target must compile, then requires physical bench validation of local overtemperature/protection OFF behavior before deployment.
 
+## D065 — AUTONOMOUS is explicit persistent edge operation authority, not HANDS_OFF
+**ACCEPTED / SOFTWARE IMPLEMENTED / EXACT ESPHOME COMPILE PASS / PHYSICAL BENCH VALIDATION PENDING.** `AUTONOMOUS` is a generic, load-agnostic PSU operating mode. It is selected only by an explicit persistent edge authority bit; `HANDS_OFF`, an unarmed lease, missing Wi-Fi/HA/Telegram, or absence of a Pb session never imply it. The currently supported effective states are `BOT + MANAGED` and `EXTERNAL + AUTONOMOUS`; unknown/corrupt/conflicting authority is fail-closed and never grants bot actuation or silently infers autonomous operation.
+
+The first implementation deliberately makes ordinary AUTONOMOUS entry and exit Output-OFF-only. Python requires fresh canonical Output OFF, then the edge transaction requires an unarmed healthy lease boundary, fresh direct Modbus/control evidence, an explicit mode transition, generation advance, and positive readback. Ambiguous entry leaves software conservatively in HANDS_OFF/external ownership and never rolls back to bot authority. Returning to managed control requires positive AUTONOMOUS exit plus confirmed OFF and does not revive an old Pb session.
+
+While explicit AUTONOMOUS authority is active, managed communication-lease expiry is not Output-OFF authority, and bot Output/V/I/OVP/OCP writes plus AUTO/Manual/Mix start/restore paths are blocked. Managed D056 behavior is unchanged outside AUTONOMOUS. Startup managed recovery is not allowed to actuate before edge authority is positively known and is skipped while AUTONOMOUS is confirmed. D064 intrinsic local protection remains active regardless of control-plane availability.
+
+`temp_ext` is optional application telemetry in AUTONOMOUS: missing/unavailable/stale external temperature alone is not a fault. No generic external-temperature emergency threshold and no generic autonomous V/I/power software ceiling is accepted here; those require separate physical characterization rather than reusing Pb limits. Exact firmware compile proves configuration validity only. Autonomous reboot, Wi-Fi/HA loss beyond 900 s, persistence/power-loss transitions, intrinsic trip behavior, and native V/I/power protection still require bench validation before production deployment.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.

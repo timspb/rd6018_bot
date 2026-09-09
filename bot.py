@@ -39,12 +39,14 @@ from physical_test_control_programmed_readback_v2 import (
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
+from rd_autonomous_mode import install_rd_autonomous_final_hmi, install_rd_autonomous_mode
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
 from rd_ownership_recovery import install_rd_ownership_recovery
+from rd_startup_authority import install_rd_startup_authority_gate
 from soft_watchdog_containment import install_soft_watchdog_containment
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
@@ -102,9 +104,16 @@ if _v2_ui_enabled:
 # boundary last so HANDS_OFF blocks every already-composed bot actuator path while
 # leaving raw telemetry available and preserving the explicit operator-only OFF action.
 _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
+# AUTONOMOUS is a separate operation axis above HANDS_OFF. It requires a dedicated
+# persistent edge ACK and never treats plain HANDS_OFF as evidence of offline operation.
+_rd_autonomous_mode = install_rd_autonomous_mode(
+    _legacy,
+    _rd_control_mode,
+    install_ui=_v2_ui_enabled,
+)
 # A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
 # software session through the dedicated positively-ACKed live edge release. Ordinary
-# edge disarm remains verified-OFF only.
+# edge disarm remains verified-OFF only and does not enable AUTONOMOUS.
 install_rd_hands_off_release(_legacy, _rd_control_mode)
 # While HANDS_OFF owns an externally-running RD program, the operator may attach the
 # read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
@@ -115,11 +124,9 @@ _rd_live_mix_observer = (
     else None
 )
 # D061 managed live adoption is a different transaction: it can acquire the local
-# dead-man around an already-ON Output, re-read the exact live program, and only then
-# cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. No Output/setpoint write
-# occurs at the adoption point, and the captured V/I/OVP/OCP authority can only ratchet
-# downward. Install the safety wrappers even with V2_UI disabled so restart containment
-# of a previously adopted session cannot depend on presentation mode.
+# dead-man around an already-ON HANDS_OFF Output, re-read the exact live program, and
+# only then cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. Explicit
+# AUTONOMOUS must exit while Output is OFF and is never live-adopted here.
 _rd_managed_live_adoption = install_managed_live_adoption(
     _legacy,
     _rd_control_mode,
@@ -199,27 +206,59 @@ if _v2_ui_enabled:
     # is deliberately installed after every keyboard composer so UNKNOWN stays visible
     # in the effective production panel without changing any actuator transaction.
     install_operator_output_truth(_legacy)
+    # The Bot/AUTONOMOUS switch is composed after output-truth normalization so entry
+    # and exit affordances can never treat UNKNOWN/stale Output as confirmed OFF.
+    install_rd_autonomous_final_hmi(_legacy, _rd_autonomous_mode)
+
+# Final execution boundary: before any normal application or ownership transaction can
+# use the fully composed actuator stack, explicit edge mode must be observed and stale
+# managed durable state must be reconciled. Recovery gets a task-local verified-OFF
+# exception; ordinary bot/Telegram/background work remains blocked in parallel.
+_rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_mode)
 
 _legacy_main = _legacy.main
 
 
-async def main() -> None:
-    await init_v2_storage()
+async def _recover_managed_startup_authority() -> bool:
     # Neither managed live-adoption authority is resumable. D062 is recovered first
     # because it owns a chemistry HV budget; if it was active/pending at crash, startup
-    # may only continue toward verified OFF before any generic managed heartbeat starts.
-    await _rd_managed_mix_adoption.recover_startup()
-    # D061 Adopted Manual follows the same restart containment rule.
-    await _rd_managed_live_adoption.recover_startup()
+    # may only continue toward verified OFF before ordinary managed authority reopens.
+    if not await _rd_managed_mix_adoption.recover_startup():
+        return False
+    if not await _rd_managed_live_adoption.recover_startup():
+        return False
     # A normal HANDS_OFF observer also never resumes. If it had already committed final
     # OFF_PENDING, only that OFF containment is allowed to continue.
     if _rd_live_mix_observer is not None:
-        await _rd_live_mix_observer.recover_startup()
+        if not await _rd_live_mix_observer.recover_startup():
+            return False
     await recover_diagnostic_persistence(_legacy)
+    return True
+
+
+async def main() -> None:
+    await init_v2_storage()
+
+    # Reconciliation runs alongside the transport/UI runtime, but the outer startup
+    # gate keeps every ordinary actuator and start/adoption path closed until this task
+    # returns managed. If the edge is AUTONOMOUS it returns without managed recovery;
+    # if edge authority is temporarily unavailable it retries read-only. A recovery
+    # failure remains blocked and is not looped into an OFF/alarm storm.
+    authority_task = asyncio.create_task(
+        _rd_startup_authority.reconcile(_recover_managed_startup_authority),
+        name="rd6018-startup-authority-reconciliation",
+    )
+
     await _physical_test_control.start()
     try:
         await _legacy_main()
     finally:
+        if not authority_task.done():
+            authority_task.cancel()
+            try:
+                await authority_task
+            except asyncio.CancelledError:
+                pass
         await _physical_test_control.stop()
 
 
