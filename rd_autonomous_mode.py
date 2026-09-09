@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from edge_autonomous_mode import EdgeAutonomousAuthority
 from operator_confirmation import ConfirmationStore
+from rd6018_telemetry import telemetry_freshness
 from runtime_safety import RuntimeSafetyError, _binary
 
 
@@ -43,8 +44,12 @@ class RdAutonomousModeCoordinator:
     async def _require_output_off(self) -> dict[str, Any]:
         live = await self.guard._raw_live()
         self.manager._observe_edge_mode(live)
+        try:
+            fresh = bool(telemetry_freshness(live, ("switch",)).valid)
+        except Exception:
+            fresh = False
         state = _binary(live.get("switch"))
-        if state is not False:
+        if not fresh or state is not False:
             raise RuntimeSafetyError(
                 "AUTONOMOUS transition requires fresh confirmed Output OFF; current RD state was not changed"
             )
@@ -172,6 +177,21 @@ def install_rd_autonomous_mode(
 
     coordinator = RdAutonomousModeCoordinator(app, manager)
     app.rd_autonomous_mode = coordinator
+
+    # Historical/stale HANDS_OFF buttons call manager.return_pb_control() directly.
+    # Once explicit edge AUTONOMOUS is observed, that generic ownership callback must
+    # never bypass the edge EXIT_AUTONOMOUS positive-ACK transaction.
+    original_return_pb_control = manager.return_pb_control
+
+    async def guarded_return_pb_control() -> bool:
+        if manager.edge_autonomous:
+            raise RuntimeSafetyError(
+                "PB control restore blocked: edge AUTONOMOUS is active; use explicit AUTONOMOUS exit"
+            )
+        return bool(await original_return_pb_control())
+
+    manager.return_pb_control = guarded_return_pb_control
+
     if not install_ui:
         return coordinator
 
