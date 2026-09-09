@@ -1,9 +1,10 @@
 # RD6018 live ownership acquisition extension
 #
 # Include this package alongside the canonical rd6018_safety_lease.yaml AND the V2
-# telemetry package. It adds the dedicated AUTONOMOUS/HANDS_OFF -> managed acquisition
-# command plus an edge-local direct register-16 protection probe. Ordinary lease arm
-# remains verified-OFF.
+# telemetry package. It adds the dedicated HANDS_OFF -> managed acquisition command
+# plus an edge-local direct register-16 protection probe. Ordinary lease arm remains
+# verified-OFF. Explicit AUTONOMOUS operation is a separate boundary and is not live-
+# adopted while Output is ON; returning from AUTONOMOUS is deliberately OFF-only.
 #
 # D056 requires a 15-minute local lease. This package publishes the actual configured
 # TTL and independently refuses live adoption unless that TTL is exactly 900000 ms,
@@ -68,9 +69,10 @@ button:
 
             if (${rd6018_safety_lease_ttl_ms}UL != 900000UL) return;
 
-            // Live adoption is a real ownership transition. An arbitrary unarmed
-            // state is insufficient: the edge must durably say EXTERNAL/AUTONOMOUS.
-            if (!id(rd6018_safety_autonomous_mode)) return;
+            // D061 owns only an externally controlled HANDS_OFF Output. Explicit
+            // AUTONOMOUS is a different operation contract and must first exit while
+            // Output is confirmed OFF; never silently collapse the two states.
+            if (id(rd6018_safety_autonomous_mode)) return;
             if (id(rd6018_safety_boot_quarantine)) return;
             if (id(rd6018_safety_lease_tripped)) return;
             if (!control_fresh) return;
@@ -78,11 +80,8 @@ button:
             if (!id(rd6018_safety_output_on_readback)) return;
             if (id(rd6018_safety_protection_code) != 0U) return;
 
-            // Retire autonomous ownership before arming managed authority. If power
-            // is lost between these persistent writes, reboot falls back to the
-            // non-autonomous boot quarantine rather than silently preserving Output.
-            // Output and all V/I/OVP/OCP registers remain untouched.
-            id(rd6018_safety_autonomous_mode) = false;
+            // Preserve Output and every RD setpoint/protection register exactly as-is.
+            // Only managed ownership/dead-man state changes.
             id(rd6018_safety_managed_session) = true;
             id(rd6018_safety_last_renew_ms) = now;
             id(rd6018_safety_generation)++;
