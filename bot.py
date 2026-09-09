@@ -39,6 +39,7 @@ from physical_test_control_programmed_readback_v2 import (
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from production_guardrails_v2 import install_production_guardrails
+from rd_autonomous_mode import install_rd_autonomous_final_hmi, install_rd_autonomous_mode
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
 from rd_live_adoption import install_rd_live_adoption
@@ -102,9 +103,16 @@ if _v2_ui_enabled:
 # boundary last so HANDS_OFF blocks every already-composed bot actuator path while
 # leaving raw telemetry available and preserving the explicit operator-only OFF action.
 _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
+# AUTONOMOUS is a separate operation axis above HANDS_OFF. It requires a dedicated
+# persistent edge ACK and never treats plain HANDS_OFF as evidence of offline operation.
+_rd_autonomous_mode = install_rd_autonomous_mode(
+    _legacy,
+    _rd_control_mode,
+    install_ui=_v2_ui_enabled,
+)
 # A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
 # software session through the dedicated positively-ACKed live edge release. Ordinary
-# edge disarm remains verified-OFF only.
+# edge disarm remains verified-OFF only and does not enable AUTONOMOUS.
 install_rd_hands_off_release(_legacy, _rd_control_mode)
 # While HANDS_OFF owns an externally-running RD program, the operator may attach the
 # read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
@@ -115,11 +123,9 @@ _rd_live_mix_observer = (
     else None
 )
 # D061 managed live adoption is a different transaction: it can acquire the local
-# dead-man around an already-ON Output, re-read the exact live program, and only then
-# cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. No Output/setpoint write
-# occurs at the adoption point, and the captured V/I/OVP/OCP authority can only ratchet
-# downward. Install the safety wrappers even with V2_UI disabled so restart containment
-# of a previously adopted session cannot depend on presentation mode.
+# dead-man around an already-ON HANDS_OFF Output, re-read the exact live program, and
+# only then cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. Explicit
+# AUTONOMOUS must exit while Output is OFF and is never live-adopted here.
 _rd_managed_live_adoption = install_managed_live_adoption(
     _legacy,
     _rd_control_mode,
@@ -199,6 +205,9 @@ if _v2_ui_enabled:
     # is deliberately installed after every keyboard composer so UNKNOWN stays visible
     # in the effective production panel without changing any actuator transaction.
     install_operator_output_truth(_legacy)
+    # The Bot/AUTONOMOUS switch is composed after output-truth normalization so entry
+    # and exit affordances can never treat UNKNOWN/stale Output as confirmed OFF.
+    install_rd_autonomous_final_hmi(_legacy, _rd_autonomous_mode)
 
 _legacy_main = _legacy.main
 
