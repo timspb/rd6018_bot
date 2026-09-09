@@ -1,35 +1,40 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from typing import Any, Awaitable, Callable, Optional
+
+from runtime_safety import RuntimeSafetyError
 
 
 class RdStartupAuthorityGate:
-    """Keep managed actuator authority closed until edge mode is reconciled.
+    """Keep normal control closed until edge mode and durable startup state agree.
 
     D065 makes the ESP edge bit authoritative for AUTONOMOUS operation. A transiently
-    unavailable Home Assistant/edge snapshot at process startup therefore cannot be
-    treated as either managed or autonomous permission. Existing rd_control_mode
-    wrappers already block every normal bot actuator while ``edge_autonomous`` is true;
-    this gate deliberately uses that conservative state as a provisional lock until a
-    fresh explicit edge mode is observed and any stale managed startup authority has
-    been contained.
+    unavailable edge/HA snapshot at process startup is therefore neither managed nor
+    autonomous permission. This outermost production gate prevents ordinary bot actions
+    and application/ownership starts until the edge mode is explicit and non-autonomous
+    durable recovery has completed.
 
-    The lock is not a claim that the edge is autonomous. ``candidate_autonomous`` keeps
-    the observed edge truth separate from the provisional software block.
+    Recovery itself may need the already-existing verified-OFF actuator transaction.
+    A task-local context variable grants that narrow path without opening normal bot
+    commands in parallel. Unknown state never becomes OFF, HANDS_OFF or AUTONOMOUS.
     """
 
-    def __init__(self, manager: Any) -> None:
+    def __init__(self, app: Any, manager: Any) -> None:
+        self.app = app
         self.manager = manager
         self.guard = manager.guard
         self.candidate_autonomous: Optional[bool] = None
-        self.managed_recovery_complete = False
         self.reconciliation_complete = False
+        self.managed_recovery_complete = False
         self.reconciliation_error = ""
-        self._original_observe = manager._observe_edge_mode
-        self._original_return_pb = manager.return_pb_control
-        self._install_observation_gate()
-        self._install_clean_return_gate()
+        self._recovery_scope: contextvars.ContextVar[bool] = contextvars.ContextVar(
+            "rd_startup_recovery_scope", default=False
+        )
+        self._install_hass_gate()
+        self._install_application_gate()
+        self._install_ownership_gate()
 
     @staticmethod
     def parse_explicit(raw: Any) -> Optional[bool]:
@@ -51,82 +56,206 @@ class RdStartupAuthorityGate:
                 return False
         return None
 
-    def _install_observation_gate(self) -> None:
-        gate = self
+    @property
+    def recovery_scope(self) -> bool:
+        return bool(self._recovery_scope.get())
 
-        def observe(live: Any) -> None:
-            candidate = gate.parse_explicit(live)
-            if candidate is None:
-                # Unknown is not a mode transition. Keep the current conservative lock.
-                return
-            gate.candidate_autonomous = candidate
-            if candidate:
-                gate._original_observe(live)
-                gate.managed_recovery_complete = False
-                gate.reconciliation_complete = True
-                gate.reconciliation_error = ""
-                return
-            if gate.managed_recovery_complete:
-                gate._original_observe(live)
-                return
-            # A fresh managed edge observation is necessary but not sufficient after a
-            # process restart: D061/D062/diagnostic durable state may still require OFF
-            # containment. Keep every normal bot actuator behind the existing
-            # edge_autonomous software block until reconcile_managed() completes.
-            gate.manager._edge_autonomous = True
+    @property
+    def nonautonomous_ready(self) -> bool:
+        return bool(
+            self.reconciliation_complete
+            and self.managed_recovery_complete
+            and self.candidate_autonomous is False
+        )
 
-        self.manager._observe_edge_mode = observe
+    @property
+    def managed_actuation_ready(self) -> bool:
+        return bool(
+            self.nonautonomous_ready
+            and getattr(self.manager, "pb_managed", False)
+            and not getattr(self.manager, "edge_autonomous", False)
+        )
 
-    def _install_clean_return_gate(self) -> None:
-        gate = self
+    def _blocked(self, action: str) -> RuntimeSafetyError:
+        if self.candidate_autonomous is True or bool(
+            getattr(self.manager, "edge_autonomous", False)
+        ):
+            state = "edge AUTONOMOUS"
+        elif self.candidate_autonomous is False:
+            state = "managed startup recovery incomplete"
+        else:
+            state = "edge authority unresolved"
+        return RuntimeSafetyError(f"{state}: bot {action} is blocked")
 
-        async def return_pb_control() -> bool:
-            was_hands_off = bool(getattr(gate.manager, "hands_off", False))
-            result = bool(await gate._original_return_pb())
-            # The underlying HANDS_OFF -> PB transaction requires fresh confirmed OFF,
-            # clears stale AUTO restore authority, and never resumes an old session.
-            # That explicit clean boundary is sufficient to reopen ordinary managed
-            # starts even if the process originally booted while AUTONOMOUS/unreachable.
-            if result and was_hands_off and bool(getattr(gate.manager, "pb_managed", False)):
-                gate.mark_managed_recovered()
-            return result
+    def _install_hass_gate(self) -> None:
+        hass = self.app.hass
+        if bool(getattr(hass, "_rd_startup_authority_gate_wrapped", False)):
+            return
+        original_get_all_live = hass.get_all_live
+        original_turn_on = hass.turn_on
+        original_turn_off = hass.turn_off
+        original_set_voltage = hass.set_voltage
+        original_set_current = hass.set_current
+        original_set_ovp = hass.set_ovp
+        original_set_ocp = hass.set_ocp
 
-        self.manager.return_pb_control = return_pb_control
+        async def get_all_live() -> dict[str, Any]:
+            if self.nonautonomous_ready:
+                return await original_get_all_live()
+            raw = await self.guard._raw_live()
+            self.manager._observe_edge_mode(raw)
+            return raw
+
+        async def guarded(action: str, fn: Callable[..., Awaitable[Any]], *args: Any) -> bool:
+            if not self.recovery_scope and not self.managed_actuation_ready:
+                raise self._blocked(action)
+            return bool(await fn(*args))
+
+        async def turn_on(entity_id: Optional[str] = None) -> bool:
+            return await guarded("Output ON", original_turn_on, entity_id)
+
+        async def turn_off(entity_id: Optional[str] = None) -> bool:
+            return await guarded("Output OFF", original_turn_off, entity_id)
+
+        async def set_voltage(value: float) -> bool:
+            return await guarded("voltage write", original_set_voltage, value)
+
+        async def set_current(value: float) -> bool:
+            return await guarded("current write", original_set_current, value)
+
+        async def set_ovp(value: float) -> bool:
+            return await guarded("OVP write", original_set_ovp, value)
+
+        async def set_ocp(value: float) -> bool:
+            return await guarded("OCP write", original_set_ocp, value)
+
+        hass.get_all_live = get_all_live
+        hass.turn_on = turn_on
+        hass.turn_off = turn_off
+        hass.set_voltage = set_voltage
+        hass.set_current = set_current
+        hass.set_ovp = set_ovp
+        hass.set_ocp = set_ocp
+        hass._rd_startup_authority_gate_wrapped = True
+
+    def _install_application_gate(self) -> None:
+        controller = getattr(self.app, "charge_controller", None)
+        if controller is not None and not bool(
+            getattr(controller, "_rd_startup_authority_start_wrapped", False)
+        ):
+            original_start = controller.start
+
+            def start(*args: Any, **kwargs: Any) -> Any:
+                if not self.managed_actuation_ready:
+                    raise self._blocked("automatic charge start")
+                return original_start(*args, **kwargs)
+
+            controller.start = start
+            controller._rd_startup_authority_start_wrapped = True
+
+        if controller is not None and callable(getattr(controller, "try_restore_session", None)) and not bool(
+            getattr(controller, "_rd_startup_authority_restore_wrapped", False)
+        ):
+            original_restore = controller.try_restore_session
+
+            def restore(*args: Any, **kwargs: Any) -> Any:
+                if not self.managed_actuation_ready:
+                    return False, None
+                return original_restore(*args, **kwargs)
+
+            controller.try_restore_session = restore
+            controller._rd_startup_authority_restore_wrapped = True
+
+        manual = getattr(self.app, "manual_session_manager", None)
+        if manual is not None and not bool(
+            getattr(manual, "_rd_startup_authority_start_wrapped", False)
+        ):
+            original_manual_start = manual.start
+
+            async def manual_start(*args: Any, **kwargs: Any) -> bool:
+                if not self.managed_actuation_ready:
+                    raise self._blocked("Manual charge start")
+                return bool(await original_manual_start(*args, **kwargs))
+
+            manual.start = manual_start
+            manual._rd_startup_authority_start_wrapped = True
+
+        import v2_mix_mode
+
+        if not bool(getattr(v2_mix_mode, "_rd_startup_authority_wrapped", False)):
+            original_mix = v2_mix_mode.start_mix_transactional
+
+            async def mix_start(app_arg: Any, event: Any, pending: Any) -> bool:
+                if not self.managed_actuation_ready:
+                    raise self._blocked("Mix start")
+                return bool(await original_mix(app_arg, event, pending))
+
+            v2_mix_mode.start_mix_transactional = mix_start
+            v2_mix_mode._rd_startup_authority_wrapped = True
+
+    def _install_ownership_gate(self) -> None:
+        for attr in ("rd_managed_live_adoption", "rd_managed_mix_adoption"):
+            coordinator = getattr(self.app, attr, None)
+            if coordinator is None or bool(
+                getattr(coordinator, "_rd_startup_authority_adopt_wrapped", False)
+            ):
+                continue
+            original_adopt = coordinator.adopt
+
+            async def adopt(*args: Any, __original=original_adopt, **kwargs: Any) -> bool:
+                if not self.nonautonomous_ready:
+                    raise self._blocked("live ownership adoption")
+                return bool(await __original(*args, **kwargs))
+
+            coordinator.adopt = adopt
+            coordinator._rd_startup_authority_adopt_wrapped = True
+
+        observer = getattr(self.app, "rd_live_mix_observer", None)
+        if observer is not None and not bool(
+            getattr(observer, "_rd_startup_authority_start_wrapped", False)
+        ):
+            original_observer_start = observer.start
+
+            async def observer_start(*args: Any, **kwargs: Any) -> Any:
+                if not self.nonautonomous_ready:
+                    raise self._blocked("HANDS_OFF observer start")
+                return await original_observer_start(*args, **kwargs)
+
+            observer.start = observer_start
+            observer._rd_startup_authority_start_wrapped = True
 
     def hold_unresolved(self, reason: str = "edge authority unresolved") -> None:
         self.candidate_autonomous = None
-        self.managed_recovery_complete = False
         self.reconciliation_complete = False
+        self.managed_recovery_complete = False
         self.reconciliation_error = str(reason)
-        self.manager._edge_autonomous = True
 
     def mark_autonomous(self) -> None:
         self.candidate_autonomous = True
-        self.managed_recovery_complete = False
         self.reconciliation_complete = True
+        self.managed_recovery_complete = False
         self.reconciliation_error = ""
         self.manager._edge_autonomous = True
 
     def mark_managed_recovered(self) -> None:
         self.candidate_autonomous = False
-        self.managed_recovery_complete = True
         self.reconciliation_complete = True
+        self.managed_recovery_complete = True
         self.reconciliation_error = ""
         self.manager._edge_autonomous = False
 
-    async def reconcile_managed(
+    async def reconcile(
         self,
         recover: Callable[[], Awaitable[bool]],
         *,
         retry_s: float = 5.0,
     ) -> str:
-        """Resolve edge authority and contain stale managed startup state once.
+        """Resolve edge authority then perform non-autonomous durable recovery once.
 
-        Read failures/unknown entity values are retried read-only while bot authority is
-        blocked. Once a managed edge is positively observed, the supplied recovery
-        transaction runs. A failed recovery is *not* blindly retried because it may
-        already have crossed an Output-OFF uncertainty boundary; authority stays blocked
-        and an operator/restart can resolve the incident without creating an OFF storm.
+        Read failures/unknown mode are retried without actuator authority. Once recovery
+        starts, failures are not blindly retried because an OFF transaction may already
+        be uncertain; normal control remains blocked and the incident requires explicit
+        operator/restart resolution rather than producing an OFF/alarm storm.
         """
 
         delay = max(1.0, float(retry_s))
@@ -137,7 +266,9 @@ class RdStartupAuthorityGate:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.hold_unresolved(f"edge authority read failed: {type(exc).__name__}: {exc}")
+                self.hold_unresolved(
+                    f"edge authority read failed: {type(exc).__name__}: {exc}"
+                )
                 await asyncio.sleep(delay)
                 continue
 
@@ -146,16 +277,14 @@ class RdStartupAuthorityGate:
                 self.hold_unresolved("edge autonomous authority missing/unavailable")
                 await asyncio.sleep(delay)
                 continue
+
+            self.manager._observe_edge_mode(raw)
             if candidate:
-                self._original_observe(raw)
                 self.mark_autonomous()
                 return "autonomous"
 
-            # Preserve the provisional actuator lock while stale managed durable state
-            # is reconciled. Do not call the gated observer here: its purpose is exactly
-            # to keep this lock closed until recovery returns positive evidence.
             self.candidate_autonomous = False
-            self.manager._edge_autonomous = True
+            token = self._recovery_scope.set(True)
             try:
                 recovered = bool(await recover())
             except asyncio.CancelledError:
@@ -166,8 +295,13 @@ class RdStartupAuthorityGate:
                 )
                 self.reconciliation_complete = False
                 return "blocked"
+            finally:
+                self._recovery_scope.reset(token)
+
             if not recovered:
-                self.reconciliation_error = "managed startup recovery did not prove containment"
+                self.reconciliation_error = (
+                    "managed startup recovery did not prove containment"
+                )
                 self.reconciliation_complete = False
                 return "blocked"
 
@@ -175,10 +309,10 @@ class RdStartupAuthorityGate:
             return "managed"
 
 
-def install_rd_startup_authority_gate(manager: Any) -> RdStartupAuthorityGate:
-    existing = getattr(manager, "_rd_startup_authority_gate", None)
+def install_rd_startup_authority_gate(app: Any, manager: Any) -> RdStartupAuthorityGate:
+    existing = getattr(app, "rd_startup_authority_gate", None)
     if isinstance(existing, RdStartupAuthorityGate):
         return existing
-    gate = RdStartupAuthorityGate(manager)
-    manager._rd_startup_authority_gate = gate
+    gate = RdStartupAuthorityGate(app, manager)
+    app.rd_startup_authority_gate = gate
     return gate
