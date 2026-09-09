@@ -26,6 +26,7 @@ from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
+from operator_navigation_recovery import install_operator_navigation_recovery
 from physical_test_control import install_physical_test_control
 from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
@@ -161,6 +162,9 @@ install_physical_test_control_diagnostic(_legacy, _physical_test_control)
 # then converted from the legacy ON/OFF toggle into a session-bound L4 stop-only action;
 # the graph-backed transport is composed underneath the final semantic state/controls.
 if _v2_ui_enabled:
+    # Register the real Back/Home handler before operator_hmi installs its historical
+    # no-op compatibility handler for the same callback.
+    install_operator_navigation_recovery(_legacy)
     install_operator_hmi(_legacy)
     # Re-compose ownership at the *final* semantic HMI boundary. Earlier ownership
     # wrappers target the legacy dashboard builder and were being replaced by
