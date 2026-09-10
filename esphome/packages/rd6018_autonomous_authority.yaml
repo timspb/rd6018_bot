@@ -1,0 +1,71 @@
+# Explicit persistent AUTONOMOUS operation authority.
+#
+# This package is intentionally separate from the managed safety lease. It adds no
+# generic PSU limits and never turns RD6018 Output ON. Entry and exit are accepted
+# only while fresh direct telemetry proves Output OFF; the binary sensor is the
+# read-only authority observation consumed by the Python runtime.
+
+globals:
+  - id: rd6018_safety_autonomous_mode
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+
+binary_sensor:
+  - platform: template
+    id: rd6018_safety_autonomous_mode_sensor
+    name: "Safety Autonomous Mode"
+    entity_category: diagnostic
+    lambda: |-
+      return id(rd6018_safety_autonomous_mode);
+
+button:
+  - platform: template
+    id: rd6018_safety_enter_autonomous_button
+    name: "Safety Enter Autonomous"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+
+            // Autonomous entry is explicit and Output-OFF-only. HANDS_OFF and an
+            // unarmed lease never imply this state.
+            if (!telemetry_fresh || !output_fresh) return;
+            if (id(rd6018_safety_output_on_readback)) return;
+            if (id(rd6018_safety_boot_quarantine)) return;
+            if (id(rd6018_safety_lease_tripped)) return;
+            if (id(rd6018_safety_managed_session)) return;
+            id(rd6018_safety_autonomous_mode) = true;
+            id(rd6018_safety_generation)++;
+
+  - platform: template
+    id: rd6018_safety_exit_autonomous_button
+    name: "Safety Exit Autonomous"
+    entity_category: diagnostic
+    on_press:
+      then:
+        - lambda: |-
+            const uint32_t now = millis();
+            const uint32_t telemetry_rx = id(rd6018_safety_last_modbus_rx_ms);
+            const uint32_t output_rx = id(rd6018_safety_last_output_rx_ms);
+            const bool telemetry_fresh = telemetry_rx != 0 &&
+              ((uint32_t) (now - telemetry_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+            const bool output_fresh = output_rx != 0 &&
+              ((uint32_t) (now - output_rx)) <= ${rd6018_safety_modbus_stale_ms}UL;
+
+            // Returning to managed operation is also Output-OFF-only. The bot must
+            // observe the resulting OFF state before it can resume managed control.
+            if (!id(rd6018_safety_autonomous_mode)) return;
+            if (!telemetry_fresh || !output_fresh) return;
+            if (id(rd6018_safety_output_on_readback)) return;
+            if (id(rd6018_safety_boot_quarantine)) return;
+            if (id(rd6018_safety_lease_tripped)) return;
+            id(rd6018_safety_autonomous_mode) = false;
+            id(rd6018_safety_generation)++;

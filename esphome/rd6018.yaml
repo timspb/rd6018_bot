@@ -35,6 +35,7 @@ substitutions:
 
 packages:
   safety_lease: !include packages/rd6018_safety_lease.yaml
+  autonomous_authority: !include packages/rd6018_autonomous_authority.yaml
   telemetry_v2: !include packages/rd6018_telemetry_v2.yaml
   live_adoption: !include packages/rd6018_live_adoption.yaml
 
