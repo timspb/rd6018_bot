@@ -177,8 +177,8 @@ class V2MixOnlyTests(unittest.IsolatedAsyncioTestCase):
             for row in _start_keyboard().inline_keyboard
             for button in row
         ]
-        self.assertIn("v2_manual", menu_callbacks)
-        self.assertIn("v2_manual", preview_callbacks)
+        self.assertIn("v2_manual_choose", menu_callbacks)
+        self.assertIn("v2_manual_choose", preview_callbacks)
 
     def test_preview_is_explicitly_mix_only(self):
         text = build_mix_only_preview(PENDING)
