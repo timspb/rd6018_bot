@@ -9,6 +9,8 @@ from safe_output import EnableResult, SafetyViolation
 from v2_mix_mode import (
     PendingMixStart,
     build_mix_only_preview,
+    _mix_menu_keyboard,
+    _start_keyboard,
     start_mix_transactional,
 )
 
@@ -164,6 +166,20 @@ PENDING = PendingMixStart(
 
 
 class V2MixOnlyTests(unittest.IsolatedAsyncioTestCase):
+    def test_auto_mix_exposes_existing_manual_v_i_delta_entry(self):
+        menu_callbacks = [
+            button.callback_data
+            for row in _mix_menu_keyboard([]).inline_keyboard
+            for button in row
+        ]
+        preview_callbacks = [
+            button.callback_data
+            for row in _start_keyboard().inline_keyboard
+            for button in row
+        ]
+        self.assertIn("v2_manual", menu_callbacks)
+        self.assertIn("v2_manual", preview_callbacks)
+
     def test_preview_is_explicitly_mix_only(self):
         text = build_mix_only_preview(PENDING)
         self.assertIn("Старт сразу с Mix", text)
