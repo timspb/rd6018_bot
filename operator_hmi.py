@@ -99,6 +99,18 @@ def _duration(seconds: Any) -> str:
     return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
 
 
+def _manual_extrema_status(manual: Any, regulator: str) -> str:
+    if regulator == "CC":
+        maximum = _finite(getattr(manual, "_vmax", None))
+        if maximum is not None:
+            return f"✅ Факт Vmax зафиксирован: {maximum:.2f} V · ожидается ΔV"
+    if regulator == "CV":
+        minimum = _finite(getattr(manual, "_imin", None))
+        if minimum is not None:
+            return f"✅ Факт Imin зафиксирован: {minimum:.2f} A · ожидается ΔI"
+    return ""
+
+
 def _bold_value(value: Optional[float], digits: int, suffix: str) -> str:
     rendered = _value(value, digits, suffix)
     return rendered if rendered == "—" else f"<b>{rendered}</b>"
@@ -446,6 +458,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             progress="Управляемая ручная сессия",
             safety=safety,
             attention=attention,
+            stage_status=_manual_extrema_status(manual, regulator),
             stage_time=_duration(elapsed_s),
             total_time=_duration(elapsed_s),
             delivered_ah=_finite(live.get("ah")),
