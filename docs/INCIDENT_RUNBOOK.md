@@ -180,18 +180,51 @@ Do not blindly repeat actuator commands.
 
 ---
 
-## INC-007 — ESPHome offline / RD operation without Wi-Fi
+## INC-007 — RD6018 moved away from home network / autonomous operation
 
 ### Severity
 
 P1 operational availability, potentially P0 if combined with active charging.
 
-### Symptoms
+### Incident summary
 
-- RD6018 hardware is physically available.
-- Wi-Fi is absent or unavailable.
-- ESPHome safety component cannot renew/report lease state.
-- Bot interprets missing network evidence as ownership/control failure.
+- RD6018 operated normally only while the home control plane was available.
+- Loss of Wi-Fi, Home Assistant or Telegram was interpreted as a managed
+  communication/ownership failure and could shut down an otherwise healthy PSU.
+
+The root cause was a missing separation between control-plane availability and
+physical safety authority. A network outage is not, by itself, evidence that the
+RD hardware or its load is unsafe.
+
+### Resolution
+
+The supported solution is an explicit persistent edge `AUTONOMOUS` operation mode.
+It is generic programmable-PSU operation, not autonomous Pb charging and not a
+safety bypass. The edge mode is granted only by an explicit positive edge
+acknowledgement; `HANDS_OFF`, an unarmed lease, missing network services or a
+missing Pb session never imply it.
+
+### State model
+
+| State | Authority and behavior |
+|---|---|
+| `PB_MANAGED` | Bot owns Output, setpoints, sessions and Pb charging logic. Existing managed lease, readback and fail-closed rules apply. |
+| `HANDS_OFF` | Bot relinquishes application ownership. Bot actuator paths are blocked; this state does not grant autonomous reboot/offline operation. |
+| `AUTONOMOUS` | The edge owns generic PSU operation. The bot cannot set V/I, start charging, restore sessions or resume the Pb FSM. Local intrinsic edge/RD protection remains active. |
+
+### Failure matrix
+
+| Condition | `PB_MANAGED` | `HANDS_OFF` | `AUTONOMOUS` |
+|---|---|---|---|
+| Wi-Fi loss | Managed control may fail closed; lease remains the managed backstop. | Bot is passive; external ownership remains. | Not an Output-OFF reason. |
+| HA loss | Managed telemetry/control failure is fail-closed. | Bot actuator paths remain blocked. | Not an Output-OFF reason. |
+| Telegram loss | Managed bot control is unavailable; safety remains active. | No bot actuator authority. | Not an Output-OFF reason. |
+| Bot restart | Startup resolves edge authority, then performs managed recovery. | No automatic Pb resume. | Persistent edge authority may continue; bot Pb restore is blocked. |
+| ESP reboot | Managed/non-autonomous boot quarantine and lease contract apply. | No autonomous implication. | Persistent non-conflicting autonomous state is evaluated by the edge. |
+| Lease timeout | Local managed Output-OFF containment remains required. | No bot lease authority. | Managed lease timeout does not turn off valid autonomous operation. |
+| External temp unavailable | Managed Pb policy remains fail-closed. | Not a bot ownership input. | Not an autonomous fault by itself. |
+| Internal PSU overtemperature | Hard safety Output-OFF. | Hard safety Output-OFF. | Edge-local hard safety Output-OFF. |
+| Hardware protection | Hard safety Output-OFF. | Hard safety Output-OFF. | Edge/RD-local protection remains authoritative. |
 
 ### Required behavior
 
@@ -205,22 +238,27 @@ Wi-Fi unavailable
 RD hardware unsafe
 ```
 
-Offline mode must define:
+The autonomous contract defines:
 
-- whether an already active output may continue;
-- lease timeout behavior;
-- local safety cutoff authority;
-- local telemetry availability;
-- recovery when Wi-Fi returns.
+- an already active generic PSU output is not shut down solely by home-control-plane loss;
+- managed lease timeout is not autonomous authority;
+- local intrinsic safety remains active at the ESP/RD boundary;
+- Pb telemetry/session data is not required for autonomous operation;
+- return to managed control is an explicit Output-OFF-only transition with acknowledgement.
 
-### Recovery plan
+### Validation status and recovery plan
 
-Firmware review required:
+The software boundary is closed, but exact firmware behavior still requires the
+bench gate in [`autonomous_bench_validation.md`](autonomous_bench_validation.md).
+In particular, do not claim generic autonomous V/I/power ceilings until they are
+physically characterized.
 
-- remove accidental dependency on Home Assistant availability for safe local operation;
-- keep local safety lease enforcement;
-- expose local state needed for recovery;
-- test boot and runtime behavior without Wi-Fi.
+Firmware validation must confirm:
+
+- local intrinsic protection remains independent of Home Assistant availability;
+- managed lease enforcement remains intact outside `AUTONOMOUS`;
+- local state needed for recovery is exposed and unambiguous;
+- boot and runtime behavior is deterministic without Wi-Fi.
 
 Do not bypass the safety lease. The goal is deterministic offline behavior, not disabling protection.
 

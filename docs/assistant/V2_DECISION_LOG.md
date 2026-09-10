@@ -245,6 +245,20 @@ Host-side evidence during that bounded window is intentionally ownership-neutral
 
 Once a managed software session exists, the orphan timer is cleared and the ordinary D055/full runtime telemetry, Pb envelope, protection/readback and lease-renewal rules apply unchanged. D061 live adoption also remains unchanged and still runs its full managed preflight/TOCTOU contract before acquiring authority; the D068 decision window cannot satisfy that preflight by itself. Operational guidance is part of `../INCIDENT_RUNBOOK.md` INC-001.
 
+## D069 — Autonomous operation release preparation
+**ACCEPTED / SOFTWARE BOUNDARY CLOSED / EXACT-NODE PHYSICAL VALIDATION PENDING.** `AUTONOMOUS` is an operation mode for generic programmable-PSU use, not an ownership bypass and not autonomous Pb charging. It requires explicit persistent edge authority and positive acknowledgement. `HANDS_OFF`, missing Wi-Fi/HA/Telegram, an unarmed lease or absence of a Pb session never implies autonomous authority.
+
+Rejected as unsafe or out of contract:
+
+- disabling physical or managed safety;
+- increasing watchdog/orphan timeouts as a substitute for authority separation;
+- treating `HANDS_OFF` as autonomous operation;
+- bypassing `SafeOutput` or canonical readback requirements;
+- allowing autonomous mode to start or restore Pb AUTO/MIX sessions.
+
+The software delivery is documentation- and validation-ready only after the
+exact ESPHome target passes the bench plan in `../autonomous_bench_validation.md`.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.
