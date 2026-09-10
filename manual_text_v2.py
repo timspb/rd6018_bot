@@ -175,15 +175,15 @@ def manual_help_text() -> str:
         "safety/readback transaction; химическая FSM в Manual не выполняется.\n\n"
         "<code>14.70 5.0</code>\n"
         "<code>14.70 5.0 2:00</code> — остановить через 2 ч активного времени\n"
-        "<code>16.50 1.5 I<=0.30</code>\n"
+        "<code>16.50 1.5 I&lt;=0.30</code>\n"
         "<code>16.50 1.5 V>=16.40</code>\n"
         "<code>16.50 1.5 1.00A</code> — остановить при достижении 1.00 A\n"
         "<code>16.50 1.5 16.20V</code> — остановить при достижении 16.20 V\n"
         "<code>16.50 1.5 delta=0.03</code> — mode-aware CV/CC delta stop\n\n"
-        "Условия можно комбинировать. Доступны V>=, V<=, V=, I>=, I<=, I=, "
+        "Условия можно комбинировать. Доступны V&gt;=, V&lt;=, V=, I&gt;=, I&lt;=, I=, "
         "таймер H:MM[:SS], delta=.\n"
-        f"Жёсткий envelope: U <= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, "
-        f"I <= <b>{MAX_STAGE_CURRENT:.1f} A</b>. OVP/OCP рассчитываются автоматически."
+        f"Жёсткий envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, "
+        f"I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>. OVP/OCP рассчитываются автоматически."
     )
 
 

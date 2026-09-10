@@ -12,9 +12,17 @@ from manual_context_v2 import BoundManualTextMiddleware
 from manual_mode import ManualSessionState
 from manual_runtime_v2 import ProductionManualSessionManager
 from manual_text_v2 import ManualTextMiddleware
+from manual_text_v2 import manual_help_text
 
 
 class ManualContextEntrypointTests(unittest.TestCase):
+    def test_manual_help_html_escapes_comparison_operators(self) -> None:
+        text = manual_help_text()
+        self.assertIn("I&lt;=0.30", text)
+        self.assertIn("V&lt;=", text)
+        self.assertIn("U &lt;=", text)
+        self.assertNotIn("<code>16.50 1.5 I<=", text)
+
     def test_program_menu_routes_manual_through_identity_choice(self) -> None:
         keyboard = bot._build_charge_modes_keyboard()
         callbacks = {
