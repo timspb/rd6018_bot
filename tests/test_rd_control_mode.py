@@ -173,23 +173,33 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertTrue(manager.hands_off)
 
-    async def test_edge_autonomous_control_plane_loss_does_not_shutdown_output(self):
+    async def test_edge_autonomous_is_re_resolved_after_process_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_file = f"{tmp}/mode.json"
+            app1, manager1, _guard1 = self._app(state_file)
+            app1.hass.live["autonomous_mode"] = "on"
+            await app1.hass.get_all_live()
+            self.assertTrue(manager1.edge_autonomous)
+
+            # The persistent authority is the edge observation, not a second bot
+            # mode file. A fresh process must resolve the same edge bit before any
+            # restore or actuator path is used.
+            app2, manager2, _guard2 = self._app(state_file)
+            app2.hass.live["autonomous_mode"] = "on"
+            await app2.hass.get_all_live()
+            self.assertTrue(manager2.edge_autonomous)
+            with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
+                await app2.hass.turn_on()
+            self.assertEqual(app2.hass.turn_on_calls, 0)
+
+    async def test_missing_edge_state_does_not_create_autonomous_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, _guard = self._app(f"{tmp}/mode.json")
-            app.hass.live["autonomous_mode"] = "on"
+            app.hass.live.pop("autonomous_mode", None)
+            manager._observe_edge_mode(app.hass.live)
 
-            # The first raw observation positively establishes edge ownership.
-            await app.hass.get_all_live()
-            self.assertTrue(manager.edge_autonomous)
-
-            # A later unavailable control-plane read must not enter the managed
-            # orphan/lease shutdown path while the edge authority remains known.
-            app.hass.live["control_plane"] = "offline"
-            live = await app.hass.get_all_live()
-
-            self.assertEqual(live["switch"], "on")
-            self.assertEqual(app.hass.turn_off_calls, 0)
-            self.assertTrue(manager.edge_autonomous)
+            self.assertFalse(manager.edge_autonomous)
+            self.assertEqual(app.hass.live["switch"], "on")
 
     async def test_edge_autonomous_observation_blocks_pb_paths_without_actuation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,6 +216,23 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
                 app.charge_controller.start("Ca/Ca", 60)
             self.assertEqual(app.hass.turn_on_calls, 0)
             self.assertEqual(app.charge_controller.start_calls, 0)
+
+    async def test_edge_autonomous_control_plane_loss_does_not_shutdown_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            app.hass.live["autonomous_mode"] = "on"
+
+            await app.hass.get_all_live()
+            self.assertTrue(manager.edge_autonomous)
+
+            # A later unavailable control-plane read must not enter the managed
+            # orphan/lease shutdown path while the edge authority remains known.
+            app.hass.live["control_plane"] = "offline"
+            live = await app.hass.get_all_live()
+
+            self.assertEqual(live["switch"], "on")
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertTrue(manager.edge_autonomous)
 
     async def test_edge_autonomous_blocks_restore_without_invoking_controller(self):
         with tempfile.TemporaryDirectory() as tmp:
