@@ -58,18 +58,7 @@ Procedure:
 
 Expected: no managed shutdown and no bot actuator command.
 
-### A04 — Telegram unavailable
-
-Procedure:
-
-1. Confirm AUTONOMOUS and a safe locally controlled Output state.
-2. Block Telegram transport only; do not alter HA, firmware or RD controls.
-3. Observe for the approved test interval and record Output/protection state.
-4. Restore Telegram and record any state transition.
-
-Expected: no managed shutdown and no bot actuator command.
-
-### A05 — ESP reboot
+### A04 — ESP reboot
 
 Procedure:
 
@@ -77,10 +66,22 @@ Procedure:
 2. Reboot the ESP only; do not restart or reconfigure the bot.
 3. Wait for the edge to publish its post-boot state and record quarantine/trip indicators.
 4. Confirm AUTONOMOUS persistence and deterministic Output behavior.
-5. Repeat under an approved safe load test only if A01–A04 passed.
+5. Repeat under an approved safe load test only if A01–A03 passed.
 
 Expected: autonomous state resolution is deterministic; no accidental managed
 lease quarantine or surprise bot resume occurs.
+
+### A05 — Local safety
+
+Procedure:
+
+1. Confirm AUTONOMOUS, the approved safe generic program, emergency disconnect and local readbacks.
+2. Validate internal PSU thermal protection and RD hardware protection using only approved non-destructive stimuli.
+3. Record local protection indication, Output state and recovery behavior.
+4. Stop on any ambiguous or unexpected electrical state.
+
+Expected: intrinsic edge/RD protection remains active in AUTONOMOUS. Do not
+infer generic voltage/current/power limits from Pb recipe limits or perform unsafe electrical tests.
 
 ### A06 — Return to MANAGED
 
@@ -95,23 +96,27 @@ Procedure:
 Expected: explicit acknowledgement, no surprise Output ON, and a fresh managed
 start required.
 
-### A07 — Physical safety
+### A07 — Relocation scenario
 
 Procedure:
 
-1. Confirm the emergency disconnect and an operator are present.
-2. Use only approved non-destructive fault stimuli and the exact flashed firmware.
-3. Validate internal PSU thermal protection and RD hardware protection behavior.
-4. Record the local protection indication, Output state and recovery behavior.
-5. Stop on any ambiguous or unexpected electrical state.
+1. Confirm A01 passed, the safe generic program is recorded and the emergency disconnect is ready.
+2. Capture home-side mode/generation and Output evidence.
+3. Move the device without the original Wi-Fi, HA or Telegram.
+4. Use only local RD controls and do not attempt host recovery.
 
-- internal PSU thermal protection;
-- RD hardware protection behavior;
-- local Output-OFF behavior when intrinsic protection trips;
-- behavior when the control-plane network is absent.
+Expected: operation continues under explicit edge/RD protection without the home
+control plane. Use the emergency disconnect and complete a failure report if
+authority becomes ambiguous.
 
-Expected: intrinsic edge/RD protection remains active in AUTONOMOUS. Do not
-infer generic voltage/current/power limits from Pb recipe limits.
+### Transport sub-check — Telegram unavailable
+
+1. Confirm AUTONOMOUS and a safe locally controlled Output state.
+2. Block Telegram transport only; do not alter HA, firmware or RD controls.
+3. Observe for the approved interval and record Output/protection state.
+4. Restore Telegram and record any state transition.
+
+Expected: no Telegram-caused shutdown or bot actuator command.
 
 ## Evidence and stop conditions
 
@@ -119,4 +124,86 @@ Record firmware version, node identity, timestamps, raw readbacks, edge mode and
 generation, Output state, protection state and recovery result. Stop immediately
 on ambiguous authority, missing acknowledgement, unexpected Output change or
 uncertain protection behavior. Restore Output OFF at the end unless the approved
-test explicitly requires otherwise.
+ test explicitly requires otherwise.
+
+## Evidence gate by test
+
+For every case, missing evidence is a failed gate, not an inferred pass.
+
+### A01 — Enter AUTONOMOUS
+
+Before: expect Output OFF and no managed session; record mode, ownership, generation, edge lease/trip state and required operator confirmation.
+
+During: observe explicit operator action, edge mode/generation ACK, persistence and rejected bot actuator probes. Do not change setpoints or start/restore Pb charging.
+
+After: PASS requires persistent AUTONOMOUS plus rejected bot control. FAIL on missing ACK, accepted actuator command or unexpected Output change. Keep Output OFF and follow rollback.
+
+### A02 — Wi-Fi loss
+
+Before: expect confirmed AUTONOMOUS and an approved safe generic load/program; capture local Output/protection readbacks and host health logs.
+
+During: disconnect Wi-Fi and wait at least 30 minutes. Observe locally without changing the RD program or using bot commands.
+
+After: PASS means no host/lease shutdown solely from Wi-Fi loss. FAIL means autonomous Output is disabled by that loss. Restore connectivity, preserve evidence and stop.
+
+### A03 — Home Assistant unavailable
+
+Before: expect confirmed AUTONOMOUS and a safe local program; record HA, edge, Output and protection state.
+
+During: isolate HA/control plane for the approved interval; do not alter firmware, RD controls or setpoints.
+
+After: PASS means RD remains locally operating. FAIL means HA absence alone changes autonomous Output. Restore HA and stop on ambiguity.
+
+### A04 — ESP reboot
+
+Before: expect Output OFF; record persistent mode, managed-session bit, generation, quarantine/trip and local readback.
+
+During: reboot only the ESP and observe boot authority publication. Do not restart the bot or alter the RD program.
+
+After: PASS means deterministic autonomous persistence without managed recovery or surprise enable. FAIL means unknown state, lost authority or managed actuation. Keep Output OFF and roll back.
+
+### A05 — Local safety
+
+Before: expect AUTONOMOUS with the approved safe generic program, Output/protection readbacks and emergency disconnect ready.
+
+During: verify internal thermal and RD hardware protection with approved non-destructive stimuli. Do not perform unsafe electrical tests or defeat protection.
+
+After: PASS means intrinsic protection remains active and produces the documented safe result. FAIL on missing protection, ambiguous state or unexpected Output behavior. Use the emergency disconnect, preserve evidence and stop.
+
+### A06 — Return to MANAGED
+
+Before: expect AUTONOMOUS with fresh canonical Output OFF evidence; record mode/generation and edge state.
+
+During: request explicit exit and observe edge ACK/generation advance, then PB_MANAGED. Do not use stale historical callbacks.
+
+After: PASS requires `AUTONOMOUS -> Output OFF -> edge ACK -> PB_MANAGED` and no old-session resume. FAIL if PB_MANAGED is reached while Output is ON. Preserve evidence and stop.
+
+### A07 — Relocation scenario
+
+Before: expect A01 passed, safe generic program recorded and emergency disconnect ready; capture home-side mode/generation and Output evidence.
+
+During: move the device without original Wi-Fi, HA or Telegram. Use only local RD controls and do not attempt host recovery.
+
+After: PASS means operation continues under explicit edge/RD protection. FAIL means control-plane absence stops operation or authority becomes ambiguous. Use the emergency disconnect if needed and complete a failure report.
+
+## Rollback procedure
+
+If any case fails:
+
+1. Stop the campaign; do not continue testing.
+2. Disable autonomous authority through the existing explicit edge procedure.
+3. Return to `PB_MANAGED` only after Output OFF is positively verified and edge acknowledgement is received.
+4. Preserve logs, telemetry, timestamps, readbacks and the failure report.
+5. Do not use a timeout increase, `HANDS_OFF` inference or safety bypass.
+
+## Hardware acceptance matrix
+
+| Test | Software layer | Firmware layer | Physical result | Status |
+|---|---|---|---|---|
+| A01 Enter AUTONOMOUS | Explicit transition and bot actuator block | Persistent mode, generation and ACK | Output OFF boundary confirmed | `____` |
+| A02 Wi-Fi loss | Host watchdog/orphan paths inactive | Autonomous edge operation | No shutdown after >=30 min solely from Wi-Fi loss | `____` |
+| A03 HA loss | Managed HA paths inactive | Autonomous edge operation | RD remains locally operating | `____` |
+| A04 ESP reboot | Startup waits for authority | Persistent autonomous boot | Deterministic state, no surprise enable | `____` |
+| A05 Local safety | No safety bypass in bot | Intrinsic thermal/hardware protection | Safe protection response | `____` |
+| A06 Return Managed | Explicit OFF-only exit | Positive exit ACK/generation | PB_MANAGED only after verified OFF | `____` |
+| A07 Relocation | No host recovery dependency | Local autonomous/intrinsic safety | Independent of home infrastructure | `____` |
