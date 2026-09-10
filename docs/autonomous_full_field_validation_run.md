@@ -66,6 +66,60 @@ For A01–A03, attach the detailed records:
 - [`autonomous_A02_wifi_loss_execution_record.md`](autonomous_A02_wifi_loss_execution_record.md)
 - [`autonomous_A03_wifi_restore_execution_record.md`](autonomous_A03_wifi_restore_execution_record.md)
 
+## A01 Physical Evidence
+
+Complete this block during the first real hardware execution. A01 is not
+`PASS` without explicit edge acknowledgement, persistent autonomous state,
+an OwnershipSnapshot and evidence that no unexpected actuator command occurred.
+
+### Identity
+
+- Date/time (UTC):
+- Operator:
+- Location:
+- RD model:
+- RD firmware:
+- ESPHome firmware SHA:
+- Bot SHA:
+
+### Initial state
+
+- Mode:
+- OwnershipSnapshot:
+- Confidence:
+- Output state:
+- Voltage:
+- Current:
+- Temperature:
+
+### Transition
+
+- Command timestamp (UTC):
+- Edge ACK timestamp (UTC):
+- Persistent autonomous state confirmation (timestamp/readback):
+- Edge generation / acknowledgement evidence:
+- Bot actuator-authority check:
+
+### After transition
+
+- Mode:
+- OwnershipSnapshot:
+- Confidence:
+- Output state:
+- Telemetry (voltage/current/temperature):
+- Unexpected actuator command observed: `YES / NO`
+- Evidence locations (logs/readbacks/screenshots):
+
+### Result
+
+- Result: `PASS / FAIL`
+- Notes:
+
+If any required evidence is missing, record `UNKNOWN` and do not mark A01
+`PASS`. For a failed or ambiguous result use the canonical
+[`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+form.
+
 ## 3. Evidence record for each test
 
 Duplicate this block for every A01–A07 case and subcase.
@@ -158,4 +212,3 @@ Mark `AUTONOMOUS READY` only when every test has complete evidence and PASS:
 Final decision: `AUTONOMOUS READY / NOT READY / BLOCKED`
 
 Final notes:
-
