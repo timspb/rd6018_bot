@@ -67,3 +67,17 @@ Internal PSU protection remains mandatory.
 ## Migration rule
 
 Do not disable safety. Move ownership and application policy out of the hardware safety layer.
+
+## Edge contract boundary
+
+The Python runtime does not create a second local autonomous-state store. It observes
+the read-only `autonomous_mode` value from the edge snapshot and treats only an
+explicit valid `on` value as `EXTERNAL/AUTONOMOUS`. Missing, stale or invalid edge
+state does not grant autonomous authority; the existing managed fail-closed path
+remains in force.
+
+Persistence of the autonomous bit belongs to the matching ESPHome firmware and must
+survive the edge restart/power-loss contract. This branch does not modify or flash
+ESPHome. The approved baseline firmware package must therefore be upgraded and
+bench-validated separately before this software observation path can be treated as
+an end-to-end physical AUTONOMOUS release.
