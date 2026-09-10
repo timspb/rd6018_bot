@@ -46,7 +46,8 @@ class RdControlModeManager:
         self.persistence_ok = True
         self._transition_lock = asyncio.Lock()
         self._release_in_progress = False
-        self._edge_autonomous = False
+        # None means edge authority has not been resolved in this process.
+        self._edge_autonomous: Optional[bool] = None
         self._load()
 
     @property
@@ -63,7 +64,11 @@ class RdControlModeManager:
 
     @property
     def edge_autonomous(self) -> bool:
-        return bool(self._edge_autonomous)
+        return self._edge_autonomous is True
+
+    @property
+    def edge_authority_known(self) -> bool:
+        return self._edge_autonomous is not None
 
     def _observe_edge_mode(self, live: Any) -> None:
         if not isinstance(live, dict):
@@ -287,6 +292,8 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         def _blocked(action: str) -> RuntimeSafetyError:
             if manager.edge_autonomous:
                 state = "RD AUTONOMOUS"
+            elif not manager.edge_authority_known:
+                state = "RD edge authority unresolved"
             else:
                 state = "HANDS_OFF transfer" if manager.release_in_progress else "RD HANDS_OFF"
             return RuntimeSafetyError(
@@ -294,32 +301,57 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
             )
 
         async def turn_on(entity_id: Optional[str] = None) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise _blocked("Output ON")
             return await managed_turn_on(entity_id)
 
         async def turn_off(entity_id: Optional[str] = None) -> bool:
-            if manager.hands_off or manager.edge_autonomous:
+            if manager.hands_off or manager.edge_autonomous or not manager.edge_authority_known:
                 raise _blocked("Output OFF")
             return await managed_turn_off(entity_id)
 
         async def set_voltage(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise _blocked("voltage write")
             return await managed_set_voltage(value)
 
         async def set_current(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise _blocked("current write")
             return await managed_set_current(value)
 
         async def set_ovp(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise _blocked("OVP write")
             return await managed_set_ovp(value)
 
         async def set_ocp(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise _blocked("OCP write")
             return await managed_set_ocp(value)
 
@@ -339,7 +371,12 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         original_start = controller.start
 
         def guarded_controller_start(*args: Any, **kwargs: Any) -> Any:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise RuntimeSafetyError(
                     "RD AUTONOMOUS: automatic charge start is disabled"
                     if manager.edge_autonomous
@@ -356,7 +393,12 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         original_restore = controller.try_restore_session
 
         def guarded_restore(*args: Any, **kwargs: Any) -> Any:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 return False, None
             return original_restore(*args, **kwargs)
 
@@ -370,7 +412,12 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
         original_manual_start = manual.start
 
         async def guarded_manual_start(*args: Any, **kwargs: Any) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
+            if (
+                manager.hands_off
+                or manager.edge_autonomous
+                or not manager.edge_authority_known
+                or manager.release_in_progress
+            ):
                 raise RuntimeSafetyError(
                     "RD AUTONOMOUS: Manual charge start is disabled"
                     if manager.edge_autonomous
@@ -396,6 +443,7 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
             if rd_mode is not None and bool(
                 getattr(rd_mode, "hands_off", False)
                 or getattr(rd_mode, "edge_autonomous", False)
+                or not getattr(rd_mode, "edge_authority_known", False)
                 or getattr(rd_mode, "release_in_progress", False)
             ):
                 message = (

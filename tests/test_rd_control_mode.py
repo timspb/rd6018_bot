@@ -109,6 +109,7 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             "temp_int": 35.0,
             "input_voltage": 40.0,
             "switch": "on",
+            "autonomous_mode": "off",
             "ovp_triggered": "off",
             "ocp_triggered": "off",
             "set_voltage": 18.2,
@@ -158,6 +159,8 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             )
 
         manager = install_rd_control_mode(app, install_ui=install_ui)
+        # Normal managed fixtures represent a completed startup authority read.
+        manager._observe_edge_mode(app.hass.live)
         return app, manager, guard
 
     async def test_hands_off_observes_non_pb_state_without_fail_closed(self):
@@ -196,10 +199,35 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, _guard = self._app(f"{tmp}/mode.json")
             app.hass.live.pop("autonomous_mode", None)
-            manager._observe_edge_mode(app.hass.live)
+            manager._edge_autonomous = None
 
             self.assertFalse(manager.edge_autonomous)
+            self.assertFalse(manager.edge_authority_known)
             self.assertEqual(app.hass.live["switch"], "on")
+
+    async def test_unresolved_edge_authority_blocks_startup_actuation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            manager._edge_autonomous = None
+            received = []
+
+            def restore(*args, **kwargs):
+                received.append((args, kwargs))
+                return True, "Mix Mode"
+
+            app.charge_controller.try_restore_session = restore
+            app.rd_control_mode_manager = None
+            app.hass._rd_control_mode_wrapped = False
+            manager = install_rd_control_mode(app, install_ui=False)
+            with self.assertRaisesRegex(RuntimeSafetyError, "unresolved"):
+                await app.hass.turn_on()
+            self.assertEqual(app.charge_controller.start_calls, 0)
+            self.assertEqual(
+                app.charge_controller.try_restore_session(14.2, 0.3, 70.0),
+                (False, None),
+            )
+            self.assertEqual(received, [])
+            self.assertFalse(manager.edge_authority_known)
 
     async def test_edge_autonomous_observation_blocks_pb_paths_without_actuation(self):
         with tempfile.TemporaryDirectory() as tmp:
