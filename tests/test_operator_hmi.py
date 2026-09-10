@@ -313,6 +313,23 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Этап: 01:01", panel)
         self.assertIn("залито: 7.26 Ah", panel)
 
+    def test_manual_cc_panel_shows_confirmed_voltage_maximum(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=120.0,
+            request=types.SimpleNamespace(capacity_ah=None, stop=types.SimpleNamespace(max_active_seconds=None)),
+            _vmax=17.20,
+            _imin=None,
+        )
+        values = live(output="on")
+        values["is_cv"] = "off"
+        values["is_cc"] = "on"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("Факт Vmax зафиксирован: 17.20 V", panel)
+        self.assertNotIn("Vmax не достигнут", panel)
+
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))
         state = build_operator_hmi_state(app, live())
