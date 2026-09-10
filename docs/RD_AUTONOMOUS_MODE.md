@@ -81,3 +81,19 @@ Repo/CI success is not physical deployment evidence. Before production use of au
 6. RD native voltage/current/power protection behavior before declaring generic limits.
 
 Do not weaken managed safety to make autonomous operation work. The solution is explicit authority separation, not a bypass flag or a longer orphan timeout.
+
+## Read-only ownership provenance diagnostics
+
+The software may expose an `OwnershipSnapshot` for diagnostics, logs and future
+UI. It reports the observed operation mode, Output state, ownership provenance
+(`BOT_MANAGED`, `FOREIGN_OBSERVED`, `AUTONOMOUS` or `UNKNOWN`) and evidence
+confidence. This snapshot is explanatory only: it cannot change mode, acquire
+ownership, block commands or issue actuator calls.
+
+`AUTONOMOUS` provenance requires the explicit persistent ESPHome autonomous bit
+and fresh edge evidence. `BOT_MANAGED` is based on an active managed session and
+its lease/session evidence. An ON Output observed after normal operation with no
+such authority is reported as `FOREIGN_OBSERVED`; during startup/recovery, an ON
+Output with no provenance remains `UNKNOWN` until ownership is explicitly
+resolved. No provenance value is an authority source or an automatic-adoption
+signal.
