@@ -286,9 +286,6 @@ def _mix_menu_keyboard(records: list[Any]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="AGM", callback_data="v2_mix_profile_agm"),
         ]
     )
-    rows.append(
-        [InlineKeyboardButton(text="🛠 Ручной V/I/Δ", callback_data="v2_manual_choose")]
-    )
     rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -297,7 +294,6 @@ def _start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="▶ Запустить Auto Mix", callback_data="v2_mix_start")],
-            [InlineKeyboardButton(text="🛠 Ручной V/I/Δ", callback_data="v2_manual_choose")],
             [InlineKeyboardButton(text="⬅ Auto Mix", callback_data="v2_mix")],
         ]
     )
@@ -321,14 +317,7 @@ def install_mix_only_mode(app: Any) -> None:
     def modes_keyboard() -> InlineKeyboardMarkup:
         markup = original_modes_keyboard()
         rows = [list(row) for row in markup.inline_keyboard]
-        insert_at = next(
-            (
-                idx
-                for idx, row in enumerate(rows)
-                if any(button.callback_data in {"v2_manual", "v2_manual_choose"} for button in row)
-            ),
-            max(0, len(rows) - 1),
-        )
+        insert_at = max(0, len(rows) - 1)
         rows.insert(
             insert_at,
             [InlineKeyboardButton(text="⚗ Авто Mix", callback_data="v2_mix")],
