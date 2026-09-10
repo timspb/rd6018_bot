@@ -3,6 +3,10 @@
 Use one copy of this record for the first physical RD6018 validation. This is
 an evidence sheet, not permission to bypass an authority or safety gate.
 
+For any failed or ambiguous A01–A03 result, use the canonical
+[`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+form.
+
 ## Session information
 
 - Date/time (UTC): `________________________________________`
@@ -134,4 +138,3 @@ If any test fails:
 - Failure report required: `YES / NO`
 - Operator sign-off: `________________________________________`
 - Reviewer sign-off: `________________________________________`
-

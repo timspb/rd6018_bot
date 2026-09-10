@@ -1,5 +1,8 @@
 # AUTONOMOUS bench validation plan
 
+Use [`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+for any failed or ambiguous hardware result.
+
 Status: software boundary implemented; exact-node physical validation required before production reliance.
 
 This plan validates the already-implemented `AUTONOMOUS` edge operation mode. It

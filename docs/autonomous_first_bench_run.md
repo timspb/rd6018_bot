@@ -5,6 +5,10 @@ authority bypass. Use the operator checklist and baseline capture first. Stop
 on any unexpected Output change, missing acknowledgement, ambiguous ownership
 or unclear protection behavior.
 
+Record failures with the canonical
+[`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+form.
+
 ## Preconditions
 
 - Record the exact software and ESPHome firmware SHAs.
@@ -144,4 +148,3 @@ ambiguous result. Disable AUTONOMOUS only through the existing explicit edge
 procedure, return to `PB_MANAGED` only after positively verified Output OFF and
 edge acknowledgement, and preserve logs, telemetry, timestamps, snapshots and
 the failure report.
-

@@ -4,6 +4,10 @@ This is a fill-in operator record for the first physical validation of the
 explicit `PB_MANAGED -> AUTONOMOUS` transition. It records evidence only and
 does not grant authority or replace the approved safety procedure.
 
+For any failed or ambiguous A01 result, use the canonical
+[`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+form.
+
 ## Identification
 
 - Date/time (UTC): `________________________________________`

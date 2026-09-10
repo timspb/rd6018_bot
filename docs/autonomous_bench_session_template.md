@@ -1,5 +1,8 @@
 # AUTONOMOUS bench session record
 
+Use [`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+for any failed or ambiguous hardware result.
+
 Session ID: `____________________________`
 
 Date/time (UTC): `____________________________`

@@ -1,5 +1,8 @@
 # AUTONOMOUS operator checklist
 
+Use [`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+for any failed or ambiguous hardware result.
+
 Use this checklist with [`autonomous_bench_validation.md`](autonomous_bench_validation.md).
 It is a field record, not permission to bypass a safety gate.
 

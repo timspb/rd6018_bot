@@ -1,5 +1,8 @@
 # AUTONOMOUS hardware test cover sheet
 
+Use [`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
+for any failed or ambiguous hardware result.
+
 Complete before the first physical validation run.
 
 ## Device
@@ -90,4 +93,3 @@ For every test, record:
 
 Stop on any failed criterion or ambiguous state. Use the documented rollback
 procedure and preserve the complete evidence set.
-
