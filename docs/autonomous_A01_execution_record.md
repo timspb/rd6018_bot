@@ -8,23 +8,18 @@ For any failed or ambiguous A01 result, use the canonical
 [`autonomous_hardware_failure_capture.md`](autonomous_hardware_failure_capture.md)
 form.
 
-## Identification
+## Pre-flight
 
 - Date/time (UTC): `________________________________________`
 - Operator: `________________________________________`
 - Location: `________________________________________`
-- Software SHA: `________________________________________`
-- ESPHome SHA: `________________________________________`
+- Bot SHA: `________________________________________`
+- ESPHome firmware SHA: `________________________________________`
 - RD model: `________________________________________`
 - RD firmware: `________________________________________`
-
-## Initial state
-
-Record the direct readback and read-only `OwnershipSnapshot` before the
-transition.
-
-- Before transition mode: `PB_MANAGED / HANDS_OFF / AUTONOMOUS`
-- OwnershipSnapshot: `________________________________________`
+- Load: `________________________________________`
+- Initial mode: `PB_MANAGED / HANDS_OFF / AUTONOMOUS`
+- Initial ownership `OwnershipSnapshot`: `________________________________________`
 - Output: `ON / OFF / UNKNOWN`
 - Voltage: `________________ V`
 - Current: `________________ A`
@@ -34,7 +29,9 @@ transition.
 Initial evidence locations (logs, readbacks, screenshots):
 `________________________________________`
 
-## A01 Steps
+## Transition
+
+Starting state must be `PB_MANAGED` with Output `OFF`.
 
 ### Step 1 — Verify Output OFF
 
@@ -74,7 +71,18 @@ confidence: VERIFIED
 - Unexpected Output command observed: `YES / NO`
 - Evidence location: `________________________________________`
 
-## Acceptance
+## Evidence
+
+Record the complete transition evidence:
+
+- Timestamp(s): `________________________________________`
+- Telegram/operator action: `________________________________________`
+- ESP state (mode/generation/persistence): `________________________________________`
+- Ownership state: `________________________________________`
+- RD state (Output/V/I/protection): `________________________________________`
+- Logs/readbacks/screenshots: `________________________________________`
+
+## PASS
 
 A01 is PASS only when all criteria are positively evidenced:
 
@@ -92,11 +100,25 @@ A01 is PASS only when all criteria are positively evidenced:
 | Managed actuator authority absent | | | |
 | No unexpected Output command | | | |
 
-## Result
+## FAIL
 
-- A01 result: `PASS / FAIL / BLOCKED`
-- Operator notes: `________________________________________`
-- Evidence archive: `________________________________________`
+Stop immediately if any of these conditions occurs:
+
+- no edge ACK;
+- mixed authority;
+- unexpected Output command;
+- autonomous state is not persistent.
+
+Do not retry an ambiguous transition. Preserve the evidence and use the
+documented rollback procedure.
+
+## A01 result
+
+- Observed: `________________________________________`
+- Expected: `________________________________________`
+- Evidence: `________________________________________`
+- Result: `PASS / FAIL / BLOCKED`
+- Notes: `________________________________________`
 - Operator sign-off: `________________________________________`
 - Reviewer sign-off: `________________________________________`
 
