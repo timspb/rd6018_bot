@@ -1,5 +1,7 @@
 # AUTONOMOUS A03 Wi-Fi restore execution record
 
+The master operator entry point is [`autonomous_full_field_validation_run.md`](autonomous_full_field_validation_run.md); this document is the detailed A03 evidence attachment.
+
 This record validates that restoration of the control plane restores observation only. It must not transfer ownership from the edge back to the bot.
 
 Use with [the hardware failure capture form](autonomous_hardware_failure_capture.md). Stop the test on any unexpected actuator or ownership change.

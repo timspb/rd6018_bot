@@ -1,5 +1,7 @@
 # AUTONOMOUS A01 execution record
 
+The master operator entry point is [`autonomous_full_field_validation_run.md`](autonomous_full_field_validation_run.md); this document is the detailed A01 evidence attachment.
+
 This is a fill-in operator record for the first physical validation of the
 explicit `PB_MANAGED -> AUTONOMOUS` transition. It records evidence only and
 does not grant authority or replace the approved safety procedure.

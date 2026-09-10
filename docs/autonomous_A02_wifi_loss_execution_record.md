@@ -1,5 +1,7 @@
 # AUTONOMOUS A02 Wi-Fi-loss execution record
 
+The master operator entry point is [`autonomous_full_field_validation_run.md`](autonomous_full_field_validation_run.md); this document is the detailed A02 evidence attachment.
+
 This record validates loss and restoration of the home control plane after A01
 has passed. It records evidence only; it does not change authority or safety
 behavior. For a failure, use the canonical
@@ -132,4 +134,3 @@ Stop testing immediately on:
 Preserve logs, timestamps, snapshots, ESP/RD readbacks and the current state.
 Do not toggle modes repeatedly. Return to a safe state using the documented
 rollback procedure; do not treat Wi-Fi loss as authorization for takeover.
-
