@@ -143,15 +143,17 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         self.hass.live.update({"switch": "on", "current": 0.66, "is_cv": True, "is_cc": False})
 
         clock = iter(range(1000, 2000, 100))
-        with patch("manual_mode.time.time", side_effect=lambda: next(clock)):
-            await manager.observe_once()
-            await manager.observe_once()
-            await manager.observe_once()
+        with self.assertLogs("rd6018.manual", level="INFO") as captured:
+            with patch("manual_mode.time.time", side_effect=lambda: next(clock)):
+                await manager.observe_once()
+                await manager.observe_once()
+                await manager.observe_once()
 
         self.assertEqual(manager.state, ManualSessionState.FINISH_HOLD)
         self.assertEqual(manager.stop_reason, "manual_delta_confirmed")
         self.assertEqual(self.hass.off_calls, 0)
         self.assertIsNotNone(manager.finish_hold_started_at)
+        self.assertTrue(any("finish hold started" in line for line in captured.output))
 
     async def test_finish_hold_turns_output_off_only_after_two_hours(self):
         request = ManualChargeRequest(

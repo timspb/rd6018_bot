@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import os
 import time
@@ -23,6 +24,8 @@ MANUAL_POLL_SEC = 5.0
 MANUAL_COOLING_PAUSE_C = 40.0
 MANUAL_COOLING_RESUME_C = 35.0
 MANUAL_TEMP_CRITICAL_C = 45.0
+
+logger = logging.getLogger("rd6018.manual")
 
 
 class ManualSessionState(str, Enum):
@@ -328,6 +331,7 @@ class ManualSessionManager:
                 self._imin = current
                 self._delta_confirmations = 0
                 self._last_delta_confirmation = 0.0
+                logger.info("Manual Mix Imin captured: %.3fA", current)
             elif current >= self._imin + threshold:
                 candidate = True
         elif mode is RegulationMode.CC:
@@ -335,6 +339,7 @@ class ManualSessionManager:
                 self._vmax = voltage
                 self._delta_confirmations = 0
                 self._last_delta_confirmation = 0.0
+                logger.info("Manual Mix Vmax captured: %.3fV", voltage)
             elif voltage <= self._vmax - threshold:
                 candidate = True
         else:
@@ -351,6 +356,13 @@ class ManualSessionManager:
             return None
         self._last_delta_confirmation = now
         self._delta_confirmations += 1
+        logger.info(
+            "Manual Mix delta confirmation %d/%d: mode=%s threshold=%.3f",
+            self._delta_confirmations,
+            MANUAL_DELTA_CONFIRM_COUNT,
+            mode.value,
+            threshold,
+        )
         if self._delta_confirmations >= MANUAL_DELTA_CONFIRM_COUNT:
             return "manual_delta_confirmed"
         return None
@@ -375,6 +387,10 @@ class ManualSessionManager:
                 self.finish_hold_started_at is not None
                 and time.time() - self.finish_hold_started_at >= MANUAL_DELTA_FINISH_HOLD_SEC
             ):
+                logger.info(
+                    "Manual Mix finish hold complete: elapsed=%.0fs; verified OFF requested",
+                    time.time() - self.finish_hold_started_at,
+                )
                 await self.stop("manual_delta_finish_hold_complete")
             return
         if temp >= MANUAL_COOLING_PAUSE_C:
@@ -394,6 +410,14 @@ class ManualSessionManager:
                 self.finish_hold_started_at = time.time()
                 self.stop_reason = reason
                 self._persist()
+                logger.info(
+                    "Manual Mix finish hold started: mode=%s threshold=%.3f hold=%ds Imin=%s Vmax=%s",
+                    resolve_regulation(live).value,
+                    self.request.stop.delta or 0.0,
+                    MANUAL_DELTA_FINISH_HOLD_SEC,
+                    f"{self._imin:.3f}A" if self._imin is not None else "n/a",
+                    f"{self._vmax:.3f}V" if self._vmax is not None else "n/a",
+                )
             else:
                 await self.stop(reason)
 
