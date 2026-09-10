@@ -19,7 +19,13 @@ the managed lease contract.
 
 ### A01 — Enter AUTONOMOUS
 
-Using the existing explicit transition workflow:
+Procedure:
+
+1. Confirm the preconditions and record the initial edge mode, generation and Output readback.
+2. Request the existing explicit AUTONOMOUS transition as an operator action.
+3. Confirm the edge command acknowledgement, mode readback and generation advance.
+4. Reboot or reread the edge state as permitted by the test setup and confirm persistence.
+5. Attempt only safe, non-actuating bot control probes and record that they are rejected.
 
 - require fresh confirmed Output OFF;
 - verify positive edge mode/generation/readback acknowledgement;
@@ -30,47 +36,74 @@ Expected: explicit acknowledgement, durable state, and no bot control authority.
 
 ### A02 — Wi-Fi loss
 
-With a safe generic PSU program and Output ON, remove Wi-Fi without changing the
-RD controls.
+Procedure:
+
+1. Enter AUTONOMOUS and confirm the positive edge acknowledgement.
+2. Apply a pre-approved safe generic PSU program and enable Output locally.
+3. Disconnect Wi-Fi while leaving the RD controls and load unchanged.
+4. Wait at least 30 minutes, recording periodic local Output/protection observations.
+5. Restore Wi-Fi and record whether any transition occurred.
 
 Expected: Output remains under edge/RD control; no host shutdown is caused solely
 by Wi-Fi loss.
 
 ### A03 — Home Assistant unavailable
 
-Keep the edge in AUTONOMOUS and make HA unavailable.
+Procedure:
+
+1. Confirm AUTONOMOUS and a safe locally controlled Output state.
+2. Disable or isolate the HA/control-plane path without changing the RD program.
+3. Observe for the approved test interval and record Output/protection state.
+4. Restore HA and record any state transition.
 
 Expected: no managed shutdown and no bot actuator command.
 
 ### A04 — Telegram unavailable
 
-Keep the edge in AUTONOMOUS and make Telegram unavailable.
+Procedure:
+
+1. Confirm AUTONOMOUS and a safe locally controlled Output state.
+2. Block Telegram transport only; do not alter HA, firmware or RD controls.
+3. Observe for the approved test interval and record Output/protection state.
+4. Restore Telegram and record any state transition.
 
 Expected: no managed shutdown and no bot actuator command.
 
 ### A05 — ESP reboot
 
-With Output OFF first, reboot the ESP node and observe the persisted authority.
-Repeat only under an explicitly approved safe load test.
+Procedure:
+
+1. Confirm Output OFF and record persistent mode, managed-session bit and generation.
+2. Reboot the ESP only; do not restart or reconfigure the bot.
+3. Wait for the edge to publish its post-boot state and record quarantine/trip indicators.
+4. Confirm AUTONOMOUS persistence and deterministic Output behavior.
+5. Repeat under an approved safe load test only if A01–A04 passed.
 
 Expected: autonomous state resolution is deterministic; no accidental managed
 lease quarantine or surprise bot resume occurs.
 
 ### A06 — Return to MANAGED
 
-With Output OFF and fresh confirmed readback:
+Procedure:
 
-- request explicit autonomous exit;
-- verify positive edge acknowledgement and generation transition;
-- verify software returns to `PB_MANAGED` only after the OFF-only boundary;
-- verify no old Pb session or setpoints are silently resumed.
+1. Confirm Output OFF and fresh canonical readback.
+2. Request explicit autonomous exit.
+3. Verify the edge acknowledgement and generation transition.
+4. Verify software returns to `PB_MANAGED` only after the OFF-only boundary.
+5. Verify no old Pb session or setpoints are silently resumed.
 
 Expected: explicit acknowledgement, no surprise Output ON, and a fresh managed
 start required.
 
 ### A07 — Physical safety
 
-Under controlled, non-destructive conditions validate:
+Procedure:
+
+1. Confirm the emergency disconnect and an operator are present.
+2. Use only approved non-destructive fault stimuli and the exact flashed firmware.
+3. Validate internal PSU thermal protection and RD hardware protection behavior.
+4. Record the local protection indication, Output state and recovery behavior.
+5. Stop on any ambiguous or unexpected electrical state.
 
 - internal PSU thermal protection;
 - RD hardware protection behavior;
