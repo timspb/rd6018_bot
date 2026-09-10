@@ -18,6 +18,7 @@ MANUAL_SESSION_FILE = "manual_session_v2.json"
 MANUAL_DELTA_BLANKING_SEC = 120.0
 MANUAL_DELTA_CONFIRM_COUNT = 3
 MANUAL_DELTA_CONFIRM_INTERVAL_SEC = 60.0
+MANUAL_DELTA_FINISH_HOLD_SEC = 2 * 60 * 60
 MANUAL_POLL_SEC = 5.0
 MANUAL_COOLING_PAUSE_C = 40.0
 MANUAL_COOLING_RESUME_C = 35.0
@@ -28,6 +29,7 @@ class ManualSessionState(str, Enum):
     IDLE = "idle"
     ARMING = "arming"
     ACTIVE = "active"
+    FINISH_HOLD = "finish_hold"
     COOLING = "cooling"
     INTERRUPTED = "interrupted"
     STOPPED = "stopped"
@@ -94,9 +96,10 @@ class ManualChargeRequest:
 class ManualSessionManager:
     """Explicit manual authority: operator rules + non-bypassable hard safety.
 
-    No Pb chemistry transition is executed here.  A configured timer/delta/threshold is
-    an operator stop condition, not an automatic recipe decision.  OVP/OCP are always
-    derived from the requested V/I and are never user-overridable.
+    No Pb chemistry transition is executed here. A configured timer/threshold is an
+    operator stop condition. A configured delta uses the explicit Manual Mix lifecycle:
+    extrema -> spaced confirmation -> sticky finish hold -> verified OFF. OVP/OCP are
+    always derived from the requested V/I and are never user-overridable.
     """
 
     def __init__(self, app: Any, *, session_file: str = MANUAL_SESSION_FILE) -> None:
@@ -107,6 +110,7 @@ class ManualSessionManager:
         self.started_at = 0.0
         self.paused_total_s = 0.0
         self.cooling_started_at: Optional[float] = None
+        self.finish_hold_started_at: Optional[float] = None
         self.stop_reason = ""
         self._task: Optional[asyncio.Task] = None
         self._vmax: Optional[float] = None
@@ -121,6 +125,7 @@ class ManualSessionManager:
             ManualSessionState.ARMING,
             ManualSessionState.ACTIVE,
             ManualSessionState.COOLING,
+            ManualSessionState.FINISH_HOLD,
         }
 
     @property
@@ -141,6 +146,7 @@ class ManualSessionManager:
             "started_at": self.started_at,
             "paused_total_s": self.paused_total_s,
             "cooling_started_at": self.cooling_started_at,
+            "finish_hold_started_at": self.finish_hold_started_at,
             "stop_reason": self.stop_reason,
             "saved_at": time.time(),
         }
@@ -185,6 +191,7 @@ class ManualSessionManager:
             ManualSessionState.ARMING.value,
             ManualSessionState.ACTIVE.value,
             ManualSessionState.COOLING.value,
+            ManualSessionState.FINISH_HOLD.value,
         }:
             # A process restart never silently re-energizes Manual.  The persisted
             # request remains available for operator review/re-authorization.
@@ -193,6 +200,7 @@ class ManualSessionManager:
             self.started_at = float(raw.get("started_at") or 0.0)
             self.paused_total_s = float(raw.get("paused_total_s") or 0.0)
             self.cooling_started_at = None
+            self.finish_hold_started_at = None
             self._persist()
 
     def _reset_delta_tracking(self) -> None:
@@ -212,6 +220,7 @@ class ManualSessionManager:
         self.started_at = time.time()
         self.paused_total_s = 0.0
         self.cooling_started_at = None
+        self.finish_hold_started_at = None
         self.stop_reason = ""
         self._reset_delta_tracking()
         self._persist()
@@ -266,6 +275,7 @@ class ManualSessionManager:
         if self.cooling_started_at is not None:
             self.paused_total_s += max(0.0, now - self.cooling_started_at)
         self.cooling_started_at = None
+        self.finish_hold_started_at = None
         self.state = ManualSessionState.ARMING
         self._persist()
         result = await self.app.hass.safe_enable_output(
@@ -360,6 +370,13 @@ class ManualSessionManager:
             if temp <= MANUAL_COOLING_RESUME_C:
                 await self._resume_after_cooling()
             return
+        if self.state is ManualSessionState.FINISH_HOLD:
+            if (
+                self.finish_hold_started_at is not None
+                and time.time() - self.finish_hold_started_at >= MANUAL_DELTA_FINISH_HOLD_SEC
+            ):
+                await self.stop("manual_delta_finish_hold_complete")
+            return
         if temp >= MANUAL_COOLING_PAUSE_C:
             await self._enter_cooling()
             return
@@ -372,7 +389,13 @@ class ManualSessionManager:
         if reason is None:
             reason = self._delta_reason(live, now=time.time())
         if reason is not None:
-            await self.stop(reason)
+            if reason == "manual_delta_confirmed":
+                self.state = ManualSessionState.FINISH_HOLD
+                self.finish_hold_started_at = time.time()
+                self.stop_reason = reason
+                self._persist()
+            else:
+                await self.stop(reason)
 
     async def _run(self) -> None:
         try:

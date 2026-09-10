@@ -4,8 +4,14 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from manual_mode import ManualChargeRequest, ManualSessionState
+from manual_mode import (
+    MANUAL_DELTA_FINISH_HOLD_SEC,
+    ManualChargeRequest,
+    ManualSessionState,
+    ManualStopConditions,
+)
 from manual_runtime_v2 import ProductionManualSessionManager
 
 
@@ -110,6 +116,34 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.hass.enable_requests), 2)
         self.assertAlmostEqual(self.hass.enable_requests[-1]["voltage_v"], 16.5)
         self.assertAlmostEqual(self.hass.enable_requests[-1]["current_a"], 1.5)
+
+    async def test_manual_mix_delta_uses_extrema_then_two_hour_hold(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(
+            16.5,
+            1.5,
+            stop=ManualStopConditions(delta=0.06),
+        )
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = 1.0
+        manager._imin = 0.60
+        self.hass.live.update({"switch": "on", "current": 0.66, "is_cv": True, "is_cc": False})
+
+        clock = iter(range(1000, 2000, 100))
+        with patch("manual_mode.time.time", side_effect=lambda: next(clock)):
+            await manager.observe_once()
+            await manager.observe_once()
+            await manager.observe_once()
+
+        self.assertEqual(manager.state, ManualSessionState.FINISH_HOLD)
+        self.assertEqual(manager.stop_reason, "manual_delta_confirmed")
+        self.assertEqual(self.hass.off_calls, 0)
+        self.assertIsNotNone(manager.finish_hold_started_at)
+
+        manager.finish_hold_started_at = time.time() - MANUAL_DELTA_FINISH_HOLD_SEC - 1
+        await manager.observe_once()
+        self.assertEqual(manager.state, ManualSessionState.STOPPED)
+        self.assertEqual(manager.stop_reason, "manual_delta_finish_hold_complete")
 
     async def test_denied_safe_enable_with_unconfirmed_off_stays_managed(self):
         manager = self._manager()

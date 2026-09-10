@@ -4,10 +4,12 @@ import os
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from manual_mode import (
     ManualChargeRequest,
+    MANUAL_DELTA_FINISH_HOLD_SEC,
     ManualSessionManager,
     ManualSessionState,
     ManualStopConditions,
@@ -126,6 +128,49 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manager.state, ManualSessionState.STOPPED)
         self.assertEqual(manager.stop_reason, "manual_time_limit")
         self.assertGreaterEqual(self.hass.off_calls, 1)
+
+    async def test_delta_confirmation_starts_hold_before_verified_off(self):
+        request = ManualChargeRequest(
+            voltage_v=16.5,
+            current_a=1.5,
+            stop=ManualStopConditions(delta=0.06),
+        )
+        manager = ManualSessionManager(self.app, session_file=self.session_file)
+        manager.request = request
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = 1.0
+        manager._imin = 0.60
+        self.hass.live.update({"switch": "on", "current": 0.66, "is_cv": True, "is_cc": False})
+
+        clock = iter(range(1000, 2000, 100))
+        with patch("manual_mode.time.time", side_effect=lambda: next(clock)):
+            await manager.observe_once()
+            await manager.observe_once()
+            await manager.observe_once()
+
+        self.assertEqual(manager.state, ManualSessionState.FINISH_HOLD)
+        self.assertEqual(manager.stop_reason, "manual_delta_confirmed")
+        self.assertEqual(self.hass.off_calls, 0)
+        self.assertIsNotNone(manager.finish_hold_started_at)
+
+    async def test_finish_hold_turns_output_off_only_after_two_hours(self):
+        request = ManualChargeRequest(
+            voltage_v=16.5,
+            current_a=1.5,
+            stop=ManualStopConditions(delta=0.06),
+        )
+        manager = ManualSessionManager(self.app, session_file=self.session_file)
+        manager.request = request
+        manager.state = ManualSessionState.FINISH_HOLD
+        manager.started_at = 1.0
+        manager.finish_hold_started_at = time.time() - MANUAL_DELTA_FINISH_HOLD_SEC - 1
+        self.hass.live["switch"] = "on"
+
+        await manager.observe_once()
+
+        self.assertEqual(manager.state, ManualSessionState.STOPPED)
+        self.assertEqual(manager.stop_reason, "manual_delta_finish_hold_complete")
+        self.assertEqual(self.hass.off_calls, 1)
 
     def test_active_persisted_manual_never_auto_resumes_after_restart(self):
         with open(self.session_file, "w", encoding="utf-8") as handle:

@@ -179,9 +179,9 @@ def manual_help_text() -> str:
         "<code>16.50 1.5 V>=16.40</code>\n"
         "<code>16.50 1.5 1.00A</code> — остановить при достижении 1.00 A\n"
         "<code>16.50 1.5 16.20V</code> — остановить при достижении 16.20 V\n"
-        "<code>16.50 1.5 delta=0.03</code> — mode-aware CV/CC delta stop\n\n"
+        "<code>16.50 1.5 delta=0.03</code> — mode-aware Imin/Vmax delta; затем выдержка 2 ч\n\n"
         "Условия можно комбинировать. Доступны V&gt;=, V&lt;=, V=, I&gt;=, I&lt;=, I=, "
-        "таймер H:MM[:SS], delta=.\n"
+        "таймер H:MM[:SS], delta=. Для Manual Mix после 3 подтверждений Delta запускается выдержка 2 ч.\n"
         f"Жёсткий envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, "
         f"I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>. OVP/OCP рассчитываются автоматически."
     )
