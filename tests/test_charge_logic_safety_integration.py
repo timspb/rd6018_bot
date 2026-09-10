@@ -36,6 +36,24 @@ class ChargeLogicSafetyIntegrationTests(unittest.IsolatedAsyncioTestCase):
         voltage, _ = controller._mix_target(10.0)
         self.assertEqual(voltage, MAX_VOLTAGE)
 
+    async def test_idle_legacy_controller_does_not_report_manual_voltage(self):
+        notices = []
+        controller = ChargeController(DummyHass(), notify_cb=notices.append)
+
+        actions = await controller.tick(
+            voltage=16.77,
+            current=2.14,
+            temp_ext=23.0,
+            is_cv=False,
+            is_cc=False,
+            ah=0.0,
+            output_is_on=True,
+        )
+
+        self.assertNotIn("notify", actions)
+        self.assertEqual(notices, [])
+        self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
+
     async def test_manual_off_cannot_bypass_main_hard_timeout_or_escalate_to_mix(self):
         controller = self._controller_at_stage(
             ChargeController.PROFILE_CA,

@@ -2517,6 +2517,12 @@ class ChargeController:
             )
             self.emergency_hv_disconnect = False
 
+        # Manual V2 owns its own active safety/readback transaction.  The legacy
+        # controller stays idle while Manual is running and must not report its
+        # legacy 16.6 V profile ceiling against an unrelated Manual setpoint.
+        if self.current_stage == self.STAGE_IDLE:
+            return actions
+
         elapsed = now - self.stage_start_time
         stage_duration_min = elapsed / 60.0
         err = self._check_temp_safety(temp, voltage, current, ah, stage_duration_min)
@@ -2530,9 +2536,6 @@ class ChargeController:
 
         if voltage > MAX_VOLTAGE:
             actions["notify"] = f"<b>⚠️ Напряжение</b> {voltage:.2f}V превышает лимит!"
-
-        if self.current_stage == self.STAGE_IDLE:
-            return actions
 
         if self._pending_log_event:
             actions["log_event"] = self._pending_log_event
