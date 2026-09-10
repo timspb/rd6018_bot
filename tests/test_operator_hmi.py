@@ -308,6 +308,9 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Лимит: 00:58", text)
         self.assertIn("Отдано: 7.26 Ah", text)
         self.assertIn("Заданная ёмкость: 72.00 Ah", text)
+        panel = render_operator_panel(state)
+        self.assertIn("Этап: 01:01", panel)
+        self.assertIn("залито: 7.26 Ah", panel)
 
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))

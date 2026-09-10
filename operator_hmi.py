@@ -54,6 +54,9 @@ class OperatorHmiState:
     attention: str = "normal"
     stage_status: str = ""
     finish_evidence: Optional[Mapping[str, Any]] = None
+    stage_time: str = ""
+    total_time: str = ""
+    delivered_ah: Optional[float] = None
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -425,6 +428,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
 
     manual = getattr(app, "manual_session_manager", None)
     if manual is not None and bool(getattr(manual, "is_active", False)):
+        elapsed_s = getattr(manual, "active_elapsed_s", None)
         return OperatorHmiState(
             process_state=HmiProcessState.RUNNING,
             authority=HmiAuthority.MANUAL,
@@ -442,6 +446,9 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             progress="Управляемая ручная сессия",
             safety=safety,
             attention=attention,
+            stage_time=_duration(elapsed_s),
+            total_time=_duration(elapsed_s),
+            delivered_ah=_finite(live.get("ah")),
         )
 
     if _manual_is_interrupted(app):
@@ -557,6 +564,12 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
         lines.append(f"🎯 {target} · {limit} 🌡 БП {_temperature(getattr(state, 'psu_temp_c', None))}")
+    if state.stage_time or state.total_time or state.delivered_ah is not None:
+        lines.append(
+            f"⏱ Этап: {html.escape(state.stage_time or '—')} · "
+            f"всего: {html.escape(state.total_time or '—')} · "
+            f"залито: {_value(state.delivered_ah, 2, 'Ah')}"
+        )
     stage_status = _compact_stage_status(state)
     transition = _compact_transition(state)
     stage_status_warning = str(getattr(state, "stage_status", ""))
