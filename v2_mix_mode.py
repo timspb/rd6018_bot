@@ -286,6 +286,9 @@ def _mix_menu_keyboard(records: list[Any]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="AGM", callback_data="v2_mix_profile_agm"),
         ]
     )
+    rows.append(
+        [InlineKeyboardButton(text="🛠 Ручной V/I/Δ", callback_data="v2_manual")]
+    )
     rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -294,6 +297,7 @@ def _start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="▶ Запустить Auto Mix", callback_data="v2_mix_start")],
+            [InlineKeyboardButton(text="🛠 Ручной V/I/Δ", callback_data="v2_manual")],
             [InlineKeyboardButton(text="⬅ Auto Mix", callback_data="v2_mix")],
         ]
     )
@@ -386,7 +390,8 @@ def install_mix_only_mode(app: Any) -> None:
             call,
             "<b>⚗ Автоматический Mix</b>\n\n"
             "Старт сразу с Mix без PREP/Main/Recovery. "
-            "Выберите сохранённую АКБ или химию для разового запуска.",
+            "Выберите сохранённую АКБ или химию для разового запуска.\n"
+            "Для ручных V/I и редактируемого Δ используйте Manual.",
             reply_markup=_mix_menu_keyboard(records),
         )
 
