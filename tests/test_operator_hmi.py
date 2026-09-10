@@ -239,6 +239,22 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("operator_service_details", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
+    def test_interrupted_manual_restore_actions_are_on_first_screen(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=False,
+            state=types.SimpleNamespace(value="interrupted"),
+            battery_id="China",
+        )
+        state = build_operator_hmi_state(app, live(output="off"))
+        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+        self.assertIn("требует авторизации", state.progress)
+        keyboard = build_operator_keyboard(app, state)
+        self.assertEqual(
+            [button.callback_data for button in keyboard.inline_keyboard[0]],
+            ["v2_manual_reauthorize", "v2_manual_discard"],
+        )
+
     def test_adopted_details_are_truthful_about_low_level_authority(self):
         app = FakeApp(observer=FakeObserver())
         live_data = live()

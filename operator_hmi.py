@@ -223,6 +223,12 @@ def _observer_runtime(app: Any) -> tuple[Any, str]:
     return observer, state
 
 
+def _manual_is_interrupted(app: Any) -> bool:
+    manager = getattr(app, "manual_session_manager", None)
+    state = getattr(getattr(manager, "state", None), "value", getattr(manager, "state", ""))
+    return str(state or "").strip().lower() == "interrupted"
+
+
 def _observer_progress(observer: Any, state: str, regulator: str) -> str:
     if state == "off_pending":
         return "Финиш подтверждён · Output OFF ожидает подтверждения"
@@ -438,6 +444,26 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             attention=attention,
         )
 
+    if _manual_is_interrupted(app):
+        return OperatorHmiState(
+            process_state=HmiProcessState.IDLE,
+            authority=HmiAuthority.NONE,
+            title="RD6018 · ПРЕРВАННЫЙ ЗАРЯД",
+            output_on=output_on,
+            regulator=regulator,
+            battery_label=str(getattr(manual, "battery_id", "") or ""),
+            battery_voltage_v=battery_v,
+            current_a=current,
+            power_w=power,
+            battery_temp_c=temp_ext,
+            psu_temp_c=temp_int,
+            target_voltage_v=set_v,
+            current_limit_a=set_i,
+            progress="Сохранённый заряд требует авторизации или отказа",
+            safety=safety,
+            attention="warning",
+        )
+
     if hands_off:
         return OperatorHmiState(
             process_state=HmiProcessState.HANDS_OFF,
@@ -563,6 +589,13 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     rows: list[list[InlineKeyboardButton]] = []
+    if _manual_is_interrupted(app):
+        rows.append(
+            [
+                InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
+                InlineKeyboardButton(text="🗑 Отказаться", callback_data="v2_manual_discard"),
+            ]
+        )
     info_row = [
         InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
         InlineKeyboardButton(text="📋 События", callback_data="logs"),
