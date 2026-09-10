@@ -2,10 +2,28 @@ import unittest
 
 from battery_registry import BatteryRecord
 from pb_domain import BatteryChemistry, BatteryCondition, BatteryIdentity, BatteryLifecycle, ChargeIntent
+from v2_bot_ui import _battery_actions_keyboard, _format_battery_logs
 from v2_ui import battery_button_label, build_program_preview, format_active_evidence, format_battery_card
 
 
 class V2UiTests(unittest.TestCase):
+    def test_saved_battery_actions_separate_charge_and_log_archive(self):
+        callbacks = [
+            button.callback_data
+            for row in _battery_actions_keyboard().inline_keyboard
+            for button in row
+        ]
+        self.assertEqual(callbacks, ["v2_battery_charge", "v2_battery_logs", "v2_batteries"])
+
+    def test_battery_log_archive_is_empty_without_recorded_cycles(self):
+        record = BatteryRecord(
+            BatteryIdentity("china", BatteryChemistry.CA_CA, 72, "China", "Ancl"),
+            BatteryLifecycle(),
+        )
+        text = _format_battery_logs(record, [])
+        self.assertIn("Журнал зарядов", text)
+        self.assertIn("Записанных зарядов нет", text)
+
     def test_normal_preview_preserves_standard_auto_hv_chain(self):
         preview = build_program_preview(
             profile="AGM", capacity_ah=70, intent=ChargeIntent.NORMAL,

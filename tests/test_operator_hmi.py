@@ -177,7 +177,8 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(texts[0], "⏹ Остановить Mix")
         self.assertIn("operator_adopted_stop", callbacks)
         self.assertIn("operator_details", callbacks)
-        self.assertIn("logs", callbacks)
+        self.assertIn("operator_current_logs", callbacks)
+        self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
@@ -438,8 +439,9 @@ class OperatorHmiTests(unittest.TestCase):
         keyboard = build_operator_keyboard(app, state)
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
-        self.assertEqual(len(rows[1]), 2)  # details, events
-        self.assertIn("logs", {button.callback_data for button in rows[1]})
+        self.assertEqual(len(rows[1]), 2)  # details, current-charge logs
+        self.assertIn("operator_current_logs", {button.callback_data for button in rows[1]})
+        self.assertNotIn("logs", {button.callback_data for button in rows[1]})
         self.assertNotIn("operator_graph", {button.callback_data for row in rows for button in row})
         self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})

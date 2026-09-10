@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from aiogram import F
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from battery_registry import BatteryRecord, upsert_battery
+from battery_registry import BatteryRecord, list_recovery_cycles, upsert_battery
 from pb_domain import (
     BatteryChemistry,
     BatteryCondition,
@@ -59,6 +60,45 @@ def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
         ]
     )
+
+
+def _battery_actions_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Заряд", callback_data="v2_battery_charge")],
+            [InlineKeyboardButton(text="📋 Логи", callback_data="v2_battery_logs")],
+            [InlineKeyboardButton(text="⬅️ К АКБ", callback_data="v2_batteries")],
+        ]
+    )
+
+
+def _format_battery_logs(record: BatteryRecord, cycles: list[Any]) -> str:
+    lines = [f"<b>📋 Журнал зарядов · {html.escape(battery_button_label(record))}</b>", ""]
+    if not cycles:
+        return "\n".join(lines + ["Записанных зарядов нет."])
+    for cycle in reversed(cycles):
+        started = datetime.fromtimestamp(cycle.started_at).strftime("%Y-%m-%d %H:%M")
+        outcome = cycle.outcome or ("завершён" if cycle.completed_at else "не завершён")
+        lines.append(f"<b>{html.escape(started)}</b> · {html.escape(intent_label(cycle.intent))}")
+        lines.append(f"Результат: {html.escape(outcome)}")
+        if cycle.main_target_v is not None or cycle.main_imin_a is not None:
+            main = ["Основной этап"]
+            if cycle.main_target_v is not None:
+                main.append(f"V={cycle.main_target_v:g} V")
+            if cycle.main_imin_a is not None:
+                main.append(f"Imin={cycle.main_imin_a:g} A")
+            lines.append(" · ".join(main))
+        if cycle.hv_target_v is not None or cycle.hv_imin_a is not None or cycle.hv_reversal_delta_a is not None:
+            hv = ["HV/Mix"]
+            if cycle.hv_target_v is not None:
+                hv.append(f"V={cycle.hv_target_v:g} V")
+            if cycle.hv_imin_a is not None:
+                hv.append(f"Imin={cycle.hv_imin_a:g} A")
+            if cycle.hv_reversal_delta_a is not None:
+                hv.append(f"ΔI={cycle.hv_reversal_delta_a:g} A")
+            lines.append(" · ".join(hv))
+        lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 def _preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
@@ -418,7 +458,10 @@ def install_v2_ui(app: Any) -> None:
             "Например:\n<code>varta70 | AGM | 70 | Varta | Silver Dynamic AGM</code>",
         )
 
-    @app.router.callback_query(F.data.startswith("v2_battery_") & ~F.data.in_({"v2_battery_add"}))
+    @app.router.callback_query(
+        F.data.startswith("v2_battery_")
+        & ~F.data.in_({"v2_battery_add", "v2_battery_charge", "v2_battery_logs", "v2_battery_start"})
+    )
     async def battery_select_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
@@ -436,8 +479,41 @@ def install_v2_ui(app: Any) -> None:
         _selected_battery[user_id] = record
         await _safe_answer(
             call,
+            f"{format_battery_card(record)}\n\n<b>Раздел АКБ</b>",
+            reply_markup=_battery_actions_keyboard(),
+        )
+
+    @app.router.callback_query(F.data == "v2_battery_charge")
+    async def battery_charge_handler(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        record = _selected_battery.get(user_id)
+        if record is None:
+            await call.answer("Сначала выберите АКБ", show_alert=True)
+            return
+        await call.answer()
+        await _safe_answer(
+            call,
             f"{format_battery_card(record)}\n\n<b>Что делаем?</b>",
             reply_markup=_intent_keyboard("v2_bat_intent"),
+        )
+
+    @app.router.callback_query(F.data == "v2_battery_logs")
+    async def battery_logs_handler(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        record = _selected_battery.get(user_id)
+        if record is None:
+            await call.answer("Сначала выберите АКБ", show_alert=True)
+            return
+        await call.answer()
+        cycles = await list_recovery_cycles(record.identity.battery_id, limit=20)
+        await _safe_answer(
+            call,
+            _format_battery_logs(record, cycles),
+            reply_markup=_battery_actions_keyboard(),
         )
 
     @app.router.callback_query(F.data.startswith("v2_profile_"))

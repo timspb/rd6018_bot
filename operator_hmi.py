@@ -11,6 +11,7 @@ from typing import Any, Mapping, Optional
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from charging_log import get_recent_events
 from rd6018_telemetry import telemetry_freshness
 
 
@@ -555,18 +556,19 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     rows: list[list[InlineKeyboardButton]] = []
-    info_row = [
+    info_row = [InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details")]
+    active_info_row = [
         InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-        InlineKeyboardButton(text="📋 События", callback_data="logs"),
+        InlineKeyboardButton(text="📋 Логи текущего заряда", callback_data="operator_current_logs"),
     ]
     if state.process_state is HmiProcessState.ADOPTED_MIX:
         rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
-        rows.append(info_row)
+        rows.append(active_info_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.INTERRUPTED:
         rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
-        rows.append(info_row)
+        rows.append(active_info_row)
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.HANDS_OFF:
@@ -602,7 +604,7 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
                 InlineKeyboardButton(text="🛑 Стоп", callback_data="power_toggle"),
             ]
         )
-        rows.append(info_row)
+        rows.append(active_info_row)
         return with_refresh(rows)
 
     rows.append(info_row)
@@ -769,8 +771,14 @@ def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🩺 Диагностика HA", callback_data="entities_status"),
             InlineKeyboardButton(text="🛠 Сервис", callback_data="operator_service_details"),
         ],
-        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
     ]
+    if state.process_state in {
+        HmiProcessState.RUNNING,
+        HmiProcessState.PAUSED,
+        HmiProcessState.ADOPTED_MIX,
+        HmiProcessState.INTERRUPTED,
+    }:
+        rows.append([InlineKeyboardButton(text="📋 Логи текущего заряда", callback_data="operator_current_logs")])
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
         rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
@@ -888,6 +896,32 @@ def install_operator_hmi(app: Any) -> None:
         await call.answer()
         await call.message.answer(
             render_operator_details(app, state, live),
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=_back_keyboard(),
+        )
+
+    @app.router.callback_query(F.data == "operator_current_logs")
+    async def _operator_current_logs(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        live = await app.hass.get_all_live()
+        state = build_operator_hmi_state(app, live)
+        if state.process_state not in {
+            HmiProcessState.RUNNING,
+            HmiProcessState.PAUSED,
+            HmiProcessState.ADOPTED_MIX,
+            HmiProcessState.INTERRUPTED,
+        }:
+            await call.answer("Активный заряд отсутствует", show_alert=True)
+            return
+        events = get_recent_events(limit=25)
+        lines = ["<b>📋 Логи текущего заряда</b>", ""]
+        lines.extend(f"<code>{html.escape(str(event))}</code>" for event in events)
+        if not events:
+            lines.append("Для текущей сессии записанных событий нет.")
+        await call.answer()
+        await call.message.answer(
+            "\n".join(lines),
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
