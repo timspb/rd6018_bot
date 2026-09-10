@@ -1,0 +1,30 @@
+name: ESPHome autonomous validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compile-autonomous-rd6018:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out selected branch or commit
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Build autonomous validation firmware
+        env:
+          ESPHOME_SECRETS_MODE: example
+        run: ./esphome/build_firmware.sh
+
+      - name: Upload autonomous validation firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: rd6018-controller-v2-autonomous-${{ github.sha }}
+          path: esphome/dist/rd6018-controller-v2.bin
+          if-no-files-found: error
+          retention-days: 14
