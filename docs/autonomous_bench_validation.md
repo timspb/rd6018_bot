@@ -15,6 +15,33 @@ the managed lease contract.
 - Begin with Output OFF and no active managed Pb session.
 - Capture timestamps and positive acknowledgements for every transition.
 
+## Four-dimensional state model
+
+Every observation records all four dimensions; mode and Output alone are not
+enough to determine the correct response.
+
+| Dimension | Values | Meaning |
+|---|---|---|
+| Operation mode | `PB_MANAGED`, `HANDS_OFF`, `AUTONOMOUS` | How the RD is operated; `HANDS_OFF` is ownership transfer, not autonomous operation. |
+| Output state | `OFF`, `ON` | Current physical Output readback. |
+| Ownership provenance | `BOT_MANAGED`, `FOREIGN`, `AUTONOMOUS`, `UNKNOWN` | Who started or currently owns an ON Output, with `UNKNOWN` used when evidence is insufficient. |
+| Control plane | `ONLINE`, `OFFLINE`, `RECOVERING` | Availability of Wi-Fi/HA/Telegram and recovery progress; this does not by itself establish ownership. |
+
+`BOT_MANAGED` requires evidence such as a bot-started Output, a restored
+managed session or an active charge session. `FOREIGN` covers manual or
+external-controller activation. `AUTONOMOUS` is edge-owned operation. Never
+infer ownership from voltage/current, Wi-Fi loss or an unarmed lease alone.
+
+## Wi-Fi-loss ownership matrix
+
+| Mode | Ownership provenance | Output | Control plane event | Required behavior |
+|---|---|---|---|---|
+| `PB_MANAGED` | `BOT_MANAGED` | `ON` | Wi-Fi loss | Existing managed fail-closed behavior. |
+| `PB_MANAGED` | `FOREIGN` | `ON` | Wi-Fi loss | Do not classify it as a bot-owned charge; use the explicit ownership-decision flow, with no automatic adoption or takeover. |
+| `AUTONOMOUS` | `AUTONOMOUS` | `ON` | Wi-Fi loss | Continue edge-owned operation; no bot shutdown solely for control-plane loss. |
+| Any mode | Any provenance | `OFF` | Wi-Fi loss | No emergency action solely because Wi-Fi disappeared. |
+| `AUTONOMOUS` | `AUTONOMOUS` | `ON` or `OFF` | Wi-Fi recovery | Monitoring may resume, but ownership and mode do not change; issue no actuator command and perform no automatic takeover. |
+
 ## Tests
 
 ### A01 — Enter AUTONOMOUS
@@ -34,18 +61,57 @@ Procedure:
 
 Expected: explicit acknowledgement, durable state, and no bot control authority.
 
-### A02 — Wi-Fi loss
+### A02 — Wi-Fi loss and ownership provenance
 
 Procedure:
 
-1. Enter AUTONOMOUS and confirm the positive edge acknowledgement.
-2. Apply a pre-approved safe generic PSU program and enable Output locally.
-3. Disconnect Wi-Fi while leaving the RD controls and load unchanged.
-4. Wait at least 30 minutes, recording periodic local Output/protection observations.
-5. Restore Wi-Fi and record whether any transition occurred.
+Run the following subcases independently, recording mode, Output,
+ownership provenance and control-plane state before and after each case.
 
-Expected: Output remains under edge/RD control; no host shutdown is caused solely
-by Wi-Fi loss.
+#### A02.1 — Output OFF
+
+1. Confirm Output OFF in the selected mode.
+2. Disconnect Wi-Fi and observe without changing the RD or issuing bot commands.
+3. Restore Wi-Fi and record any transition.
+
+Expected: no emergency action solely because Wi-Fi disappeared.
+
+#### A02.2 — BOT_MANAGED Output ON
+
+1. Start a pre-approved managed operation through the existing managed path.
+2. Confirm `PB_MANAGED`, `BOT_MANAGED`, Output ON and fresh lease evidence.
+3. Disconnect Wi-Fi and observe the existing managed fail-closed response.
+
+Expected: current managed behavior remains unchanged.
+
+#### A02.3 — FOREIGN Output ON
+
+1. Establish and record manual/external/unknown provenance without claiming bot ownership.
+2. Confirm the applicable ownership-decision flow before disconnecting Wi-Fi.
+3. Disconnect Wi-Fi and observe without automatic adoption or takeover.
+
+Expected: the Output is not treated as a bot-owned Pb charge; any containment
+or ownership decision follows the existing explicit contract.
+
+#### A02.4 — AUTONOMOUS Output ON
+
+1. Enter AUTONOMOUS with positive edge acknowledgement.
+2. Apply the pre-approved safe generic program and confirm edge-owned Output ON.
+3. Disconnect Wi-Fi and wait at least 30 minutes, recording local Output and protection observations.
+
+Expected: operation continues under edge/RD control; no bot shutdown solely
+from Wi-Fi loss.
+
+#### A02.5 — Wi-Fi recovery after AUTONOMOUS
+
+1. Restore Wi-Fi after A02.4 while preserving the autonomous mode and Output state.
+2. Observe monitoring resumption and record mode, ownership, generation and Output.
+
+Expected: monitoring may resume, but no ownership change, actuator command or
+automatic takeover occurs.
+
+Expected: subcase-specific behavior above; record the exact result for each
+subcase and stop on any ownership ambiguity.
 
 ### A03 — Home Assistant unavailable
 
@@ -140,11 +206,11 @@ After: PASS requires persistent AUTONOMOUS plus rejected bot control. FAIL on mi
 
 ### A02 — Wi-Fi loss
 
-Before: expect confirmed AUTONOMOUS and an approved safe generic load/program; capture local Output/protection readbacks and host health logs.
+Before: execute A02.1–A02.5 independently. For every subcase record expected mode, Output, ownership provenance, control-plane state, local Output/protection readbacks and host health logs.
 
-During: disconnect Wi-Fi and wait at least 30 minutes. Observe locally without changing the RD program or using bot commands.
+During: disconnect Wi-Fi only for the selected subcase; for A02.4 wait at least 30 minutes. Observe locally without changing the RD program or using bot commands. For A02.5 restore Wi-Fi only after the autonomous observation interval.
 
-After: PASS means no host/lease shutdown solely from Wi-Fi loss. FAIL means autonomous Output is disabled by that loss. Restore connectivity, preserve evidence and stop.
+After: A02.1 passes with no action solely from Wi-Fi loss; A02.2 preserves existing managed fail-close behavior; A02.3 does not auto-adopt or classify foreign Output as bot-owned; A02.4 has no autonomous shutdown; A02.5 resumes monitoring without ownership change or actuator command. Any mismatch, automatic takeover or ambiguity is FAIL: restore connectivity, preserve evidence and stop.
 
 ### A03 — Home Assistant unavailable
 
