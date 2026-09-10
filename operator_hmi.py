@@ -88,6 +88,14 @@ def _value(value: Optional[float], digits: int, suffix: str) -> str:
     return "—" if value is None else f"{value:.{digits}f} {suffix}"
 
 
+def _duration(seconds: Any) -> str:
+    value = _finite(seconds)
+    if value is None:
+        return "—"
+    total = max(0, int(value))
+    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
+
+
 def _bold_value(value: Optional[float], digits: int, suffix: str) -> str:
     rendered = _value(value, digits, suffix)
     return rendered if rendered == "—" else f"<b>{rendered}</b>"
@@ -670,6 +678,27 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
             if state.progress:
                 progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress).split())))
                 lines.append(f"🎯 Финиш: {html.escape(progress)}")
+        else:
+            manual = getattr(app, "manual_session_manager", None)
+            if manual is not None and bool(getattr(manual, "is_active", False)):
+                request = getattr(manual, "request", None)
+                elapsed = _duration(getattr(manual, "active_elapsed_s", None))
+                limit = getattr(getattr(request, "stop", None), "max_active_seconds", None)
+                remaining = "—"
+                if _finite(limit) is not None and _finite(getattr(manual, "active_elapsed_s", None)) is not None:
+                    remaining = _duration(max(0.0, float(limit) - float(manual.active_elapsed_s)))
+                capacity = _finite(getattr(request, "capacity_ah", None)) if request is not None else None
+                lines.extend(
+                    [
+                        "",
+                        "🧠 <b>Статистика ручного заряда</b>",
+                        f"📍 Этап: <b>Ручной режим</b>",
+                        f"⏱ Этап: {elapsed} · всего {elapsed}",
+                        f"⌛ Лимит: {remaining}",
+                        f"📦 Отдано: {_value(ah, 2, 'Ah')}",
+                        f"🔋 Заданная ёмкость: {_value(capacity, 2, 'Ah')}",
+                    ]
+                )
         lines.extend(
             [
                 f"🎯 Уставки: {_value(state.target_voltage_v, 2, 'V')} · лимит {_value(state.current_limit_a, 2, 'A')}",

@@ -274,6 +274,25 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Уставки: 16.54 V · лимит 1.01 A", text)
         self.assertIn("Защита:", text)
 
+    def test_details_contains_stage_time_and_delivered_capacity_for_manual_charge(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=3661.0,
+            request=types.SimpleNamespace(
+                capacity_ah=72.0,
+                stop=types.SimpleNamespace(max_active_seconds=7200.0),
+            ),
+        )
+        state = build_operator_hmi_state(app, live())
+        text = render_operator_details(app, state, {**live(), "ah": 7.26})
+        self.assertIn("Статистика ручного заряда", text)
+        self.assertIn("Этап: <b>Ручной режим</b>", text)
+        self.assertIn("Этап: 01:01 · всего 01:01", text)
+        self.assertIn("Лимит: 00:58", text)
+        self.assertIn("Отдано: 7.26 Ah", text)
+        self.assertIn("Заданная ёмкость: 72.00 Ah", text)
+
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))
         state = build_operator_hmi_state(app, live())
