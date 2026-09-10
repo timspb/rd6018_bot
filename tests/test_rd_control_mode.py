@@ -173,6 +173,24 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertTrue(manager.hands_off)
 
+    async def test_edge_autonomous_control_plane_loss_does_not_shutdown_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            app.hass.live["autonomous_mode"] = "on"
+
+            # The first raw observation positively establishes edge ownership.
+            await app.hass.get_all_live()
+            self.assertTrue(manager.edge_autonomous)
+
+            # A later unavailable control-plane read must not enter the managed
+            # orphan/lease shutdown path while the edge authority remains known.
+            app.hass.live["control_plane"] = "offline"
+            live = await app.hass.get_all_live()
+
+            self.assertEqual(live["switch"], "on")
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertTrue(manager.edge_autonomous)
+
     async def test_edge_autonomous_observation_blocks_pb_paths_without_actuation(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, _guard = self._app(f"{tmp}/mode.json")
