@@ -100,6 +100,13 @@ def _duration(seconds: Any) -> str:
 
 
 def _manual_extrema_status(manual: Any, regulator: str) -> str:
+    request = getattr(manual, "request", None)
+    if getattr(request, "operation_mode", "") == "mix":
+        hold_started = getattr(manual, "finish_hold_started_at", None)
+        if hold_started is not None:
+            held_s = max(0.0, time.time() - float(hold_started))
+            held_m = int(held_s // 60)
+            return f"✅ Δ подтверждена · выдержка {held_m // 60}ч {(held_m % 60):02d}м / 2ч"
     if regulator == "CC":
         maximum = _finite(getattr(manual, "_vmax", None))
         if maximum is not None:
@@ -444,7 +451,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
         return OperatorHmiState(
             process_state=HmiProcessState.RUNNING,
             authority=HmiAuthority.MANUAL,
-            title="RD6018 · РУЧНОЙ РЕЖИМ",
+            title=f"RD6018 · {getattr(getattr(manual, 'request', None), 'operation_mode_label', 'Ручной режим')}",
             output_on=output_on,
             regulator=regulator,
             battery_label=str(getattr(manual, "battery_id", "") or ""),

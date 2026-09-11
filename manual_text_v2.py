@@ -205,12 +205,16 @@ def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
         conditions.append(f"I<={stop.current_le_a:.2f}")
     if parsed.reach_current_a is not None:
         conditions.append(f"I={parsed.reach_current_a:.2f} reach")
-    if stop.delta is not None:
+    if request.operation_mode == "mix" and stop.delta is not None:
         conditions.append(f"delta={stop.delta:.3f}")
+    if request.operation_mode == "main":
+        conditions.insert(0, "CV Imin по штатному порогу")
+    elif stop.delta is not None:
+        conditions.append("после Delta выдержка 2ч")
     suffix = ", ".join(conditions) if conditions else "только operator stop / hard safety"
     verb = "перенастроен" if replaced else "запущен"
     return (
-        f"<b>🛠 Manual {verb}</b>\n"
+        f"<b>🛠 {request.operation_mode_label} {verb.lower()}</b>\n"
         f"U={request.voltage_v:.2f} V · I={request.current_a:.2f} A\n"
         f"OVP={request.ovp_v:.2f} V · OCP={request.ocp_a:.2f} A\n"
         f"Stop: <code>{html.escape(suffix)}</code>\n"
