@@ -245,15 +245,6 @@ def install_rd_ownership_recovery(
                 )]],
             )
 
-        if state.authority in {hmi.HmiAuthority.AUTO, hmi.HmiAuthority.MANUAL}:
-            return _append_unique(
-                markup,
-                [[InlineKeyboardButton(
-                    text="🔓 Отпустить РД — не лезь",
-                    callback_data="rd_hands_off_release_confirm",
-                )]],
-            )
-
         return markup
 
     hmi.build_operator_keyboard = build_operator_keyboard
