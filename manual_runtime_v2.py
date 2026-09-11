@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import os
+import sqlite3
 import time
 from typing import Any, Optional
 
@@ -173,7 +174,7 @@ class ProductionManualSessionManager(ManualSessionManager):
                         float(record.identity.nominal_capacity_ah),
                     )
                 )
-        except (AttributeError, TypeError, ValueError):
+        except (AttributeError, TypeError, ValueError, sqlite3.OperationalError):
             pass
         return MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
 
