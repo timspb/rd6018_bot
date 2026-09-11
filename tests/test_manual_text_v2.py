@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 import v2_sg_ui
-from manual_text_v2 import _another_dialog_owns_text, parse_manual_command
+from manual_text_v2 import _another_dialog_owns_text, manual_help_text, parse_manual_command
 
 
 class ManualTextV2Tests(unittest.TestCase):
@@ -45,6 +45,13 @@ class ManualTextV2Tests(unittest.TestCase):
 
     def test_non_manual_text_falls_through(self):
         self.assertIsNone(parse_manual_command("покажи график за два часа"))
+
+    def test_manual_help_escapes_comparison_operators_for_telegram_html(self):
+        text = manual_help_text()
+        self.assertIn("I&lt;=0.30", text)
+        self.assertIn("V&gt;=16.40", text)
+        self.assertNotIn("I<=0.30", text)
+        self.assertNotIn("V>=16.40", text)
 
     def test_numeric_manual_prefix_with_unknown_condition_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "неизвестное условие"):
