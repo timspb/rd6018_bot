@@ -239,6 +239,22 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("operator_service_details", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
+    def test_interrupted_manual_restore_actions_are_on_first_screen(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=False,
+            state=types.SimpleNamespace(value="interrupted"),
+            battery_id="China",
+        )
+        state = build_operator_hmi_state(app, live(output="off"))
+        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+        self.assertIn("требует авторизации", state.progress)
+        keyboard = build_operator_keyboard(app, state)
+        self.assertEqual(
+            [button.callback_data for button in keyboard.inline_keyboard[0]],
+            ["v2_manual_reauthorize", "v2_manual_discard"],
+        )
+
     def test_adopted_details_are_truthful_about_low_level_authority(self):
         app = FakeApp(observer=FakeObserver())
         live_data = live()
@@ -273,6 +289,46 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Набрано: 7.26 Ah", text)
         self.assertIn("Уставки: 16.54 V · лимит 1.01 A", text)
         self.assertIn("Защита:", text)
+
+    def test_details_contains_stage_time_and_delivered_capacity_for_manual_charge(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=3661.0,
+            request=types.SimpleNamespace(
+                capacity_ah=72.0,
+                stop=types.SimpleNamespace(max_active_seconds=7200.0),
+            ),
+        )
+        live_data = {**live(), "ah": 7.26}
+        state = build_operator_hmi_state(app, live_data)
+        text = render_operator_details(app, state, {**live(), "ah": 7.26})
+        self.assertIn("Статистика ручного заряда", text)
+        self.assertIn("Этап: <b>Ручной режим</b>", text)
+        self.assertIn("Этап: 01:01 · всего 01:01", text)
+        self.assertIn("Лимит: 00:58", text)
+        self.assertIn("Отдано: 7.26 Ah", text)
+        self.assertIn("Заданная ёмкость: 72.00 Ah", text)
+        panel = render_operator_panel(state)
+        self.assertIn("Этап: 01:01", panel)
+        self.assertIn("залито: 7.26 Ah", panel)
+
+    def test_manual_cc_panel_shows_confirmed_voltage_maximum(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=120.0,
+            request=types.SimpleNamespace(capacity_ah=None, stop=types.SimpleNamespace(max_active_seconds=None)),
+            _vmax=17.20,
+            _imin=None,
+        )
+        values = live(output="on")
+        values["is_cv"] = "off"
+        values["is_cc"] = "on"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("✅ Vmax: 17.20 V", panel)
+        self.assertNotIn("Vmax не достигнут", panel)
 
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))

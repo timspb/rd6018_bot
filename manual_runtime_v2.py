@@ -4,15 +4,19 @@ import asyncio
 import json
 import math
 import os
+import sqlite3
 import time
 from typing import Any, Optional
 
 from manual_mode import (
+    MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A,
     MANUAL_POLL_SEC,
     ManualChargeRequest,
     ManualSessionManager,
     ManualSessionState,
 )
+from battery_registry import get_battery
+from first_stage_evidence import tail_current_threshold_a
 from rd6018_telemetry import as_bool, finite_float
 
 
@@ -147,6 +151,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         )
         self.reach_voltage_v = reach_v
         self.reach_current_a = reach_i
+        self.main_tail_current_threshold_a = await self._resolve_main_tail_threshold(request)
         self._previous_voltage_v = None
         self._previous_current_a = None
         try:
@@ -156,6 +161,22 @@ class ProductionManualSessionManager(ManualSessionManager):
         if not enabled:
             self._preserve_containment_after_denied_enable("manual_start_denied")
         return enabled
+
+    async def _resolve_main_tail_threshold(self, request: ManualChargeRequest) -> float:
+        if not request.battery_id:
+            return MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
+        try:
+            record = await get_battery(request.battery_id)
+            if record is not None:
+                return float(
+                    tail_current_threshold_a(
+                        record.identity.chemistry,
+                        float(record.identity.nominal_capacity_ah),
+                    )
+                )
+        except (AttributeError, TypeError, ValueError, sqlite3.OperationalError):
+            pass
+        return MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
 
     async def _retire_runner(self) -> None:
         task = self._task

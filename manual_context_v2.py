@@ -215,7 +215,10 @@ def install_manual_context_ui(app: Any) -> None:
 
     app._build_charge_modes_keyboard = _build_modes_with_manual_context
 
-    @app.router.callback_query(F.data == "v2_manual_choose")
+    # Keep the historical Auto Mix callback readable for already-sent Telegram
+    # keyboards. New keyboards use v2_manual_choose directly; this alias does not
+    # reintroduce the Auto Mix button or create a second Manual workflow.
+    @app.router.callback_query(F.data.in_({"v2_manual_choose", "v2_manual"}))
     async def _manual_choose(call: CallbackQuery) -> None:
         if not await app._check_chat_and_respond(call):
             return

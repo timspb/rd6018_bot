@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
 from runtime_safety_v2 import V2RuntimeSafetyGuard
@@ -226,6 +227,35 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeSafetyError, "telemetry voltage"):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
+
+    async def test_complete_readback_outage_gets_180_second_grace(self):
+        live = self._with_freshness(self._live())
+        for key in ("battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch"):
+            live[key] = None
+        app = self._app(live)
+        guard = self._guard(app)
+        with patch("runtime_safety_v2.time.monotonic", side_effect=[100.0, 279.0, 281.0] + [281.0] * 20):
+            await guard.get_all_live()
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            await guard.get_all_live()
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            with self.assertRaisesRegex(RuntimeSafetyError, "battery_voltage"):
+                await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_valid_sample_resets_readback_outage_grace(self):
+        broken = self._with_freshness(self._live())
+        for key in ("battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch"):
+            broken[key] = None
+        app = self._app(broken)
+        guard = self._guard(app)
+        with patch("runtime_safety_v2.time.monotonic", side_effect=[100.0, 200.0, 300.0]):
+            await guard.get_all_live()
+            app.hass.live = self._with_freshness(self._live())
+            await guard.get_all_live()
+            app.hass.live = dict(broken)
+            await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 0)
 
     async def test_measured_output_voltage_over_recipe_ceiling_fails_closed(self):
         live = self._live()

@@ -22,6 +22,9 @@ MANUAL_POLL_SEC = 5.0
 MANUAL_COOLING_PAUSE_C = 40.0
 MANUAL_COOLING_RESUME_C = 35.0
 MANUAL_TEMP_CRITICAL_C = 45.0
+MANUAL_MIX_VOLTAGE_THRESHOLD_V = 15.8
+MANUAL_MIX_FINISH_HOLD_SEC = 2 * 60 * 60
+MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A = 0.30
 
 
 class ManualSessionState(str, Enum):
@@ -90,6 +93,14 @@ class ManualChargeRequest:
     def ocp_a(self) -> float:
         return float(self.current_a) + float(OCP_OFFSET)
 
+    @property
+    def operation_mode(self) -> str:
+        return "mix" if float(self.voltage_v) >= MANUAL_MIX_VOLTAGE_THRESHOLD_V else "main"
+
+    @property
+    def operation_mode_label(self) -> str:
+        return "Ручной МИКС" if self.operation_mode == "mix" else "Ручной Основной"
+
 
 class ManualSessionManager:
     """Explicit manual authority: operator rules + non-bypassable hard safety.
@@ -113,6 +124,8 @@ class ManualSessionManager:
         self._imin: Optional[float] = None
         self._delta_confirmations = 0
         self._last_delta_confirmation = 0.0
+        self.finish_hold_started_at: Optional[float] = None
+        self.main_tail_current_threshold_a = MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
         self._restore_as_interrupted()
 
     @property
@@ -142,6 +155,7 @@ class ManualSessionManager:
             "paused_total_s": self.paused_total_s,
             "cooling_started_at": self.cooling_started_at,
             "stop_reason": self.stop_reason,
+            "finish_hold_started_at": self.finish_hold_started_at,
             "saved_at": time.time(),
         }
 
@@ -181,6 +195,12 @@ class ManualSessionManager:
             except (KeyError, TypeError, ValueError):
                 self.request = None
         previous = str(raw.get("state") or "")
+        saved_hold = raw.get("finish_hold_started_at")
+        if saved_hold is not None:
+            try:
+                self.finish_hold_started_at = float(saved_hold)
+            except (TypeError, ValueError):
+                self.finish_hold_started_at = None
         if previous in {
             ManualSessionState.ARMING.value,
             ManualSessionState.ACTIVE.value,
@@ -214,6 +234,7 @@ class ManualSessionManager:
         self.cooling_started_at = None
         self.stop_reason = ""
         self._reset_delta_tracking()
+        self.finish_hold_started_at = None
         self._persist()
 
         result = await self.app.hass.safe_enable_output(
@@ -257,6 +278,7 @@ class ManualSessionManager:
         self.cooling_started_at = time.time()
         self._delta_confirmations = 0
         self._last_delta_confirmation = 0.0
+        self.finish_hold_started_at = None
         self._persist()
 
     async def _resume_after_cooling(self) -> None:
@@ -284,6 +306,7 @@ class ManualSessionManager:
         # Cooling breaks continuity-dependent delta confirmation, but extrema remain
         # useful as historical diagnostics only; start a fresh stop-condition segment.
         self._reset_delta_tracking()
+        self.finish_hold_started_at = None
         self._persist()
 
     def _threshold_reason(self, voltage: float, current: float) -> Optional[str]:
@@ -303,6 +326,8 @@ class ManualSessionManager:
 
     def _delta_reason(self, live: dict[str, Any], *, now: float) -> Optional[str]:
         assert self.request is not None
+        if self.request.operation_mode != "mix":
+            return None
         threshold = self.request.stop.delta
         if threshold is None or now - self.started_at < MANUAL_DELTA_BLANKING_SEC:
             return None
@@ -345,6 +370,33 @@ class ManualSessionManager:
             return "manual_delta_confirmed"
         return None
 
+    def _main_tail_reason(self, live: dict[str, Any]) -> Optional[str]:
+        assert self.request is not None
+        if self.request.operation_mode != "main":
+            return None
+        voltage = finite_float(live.get("battery_voltage"))
+        current = finite_float(live.get("current"))
+        if voltage is None or current is None:
+            return None
+        if resolve_regulation(live) is not RegulationMode.CV:
+            return None
+        if voltage < float(self.request.voltage_v) - 0.20:
+            return None
+        if self._imin is None or current < self._imin:
+            self._imin = current
+        if current <= float(self.main_tail_current_threshold_a):
+            return "manual_main_cv_imin"
+        return None
+
+    def _mix_hold_reason(self, *, now: float) -> Optional[str]:
+        if self.request is None or self.request.operation_mode != "mix":
+            return None
+        if self.finish_hold_started_at is None:
+            return None
+        if now - float(self.finish_hold_started_at) >= MANUAL_MIX_FINISH_HOLD_SEC:
+            return "manual_mix_delta_hold_complete"
+        return None
+
     async def observe_once(self) -> None:
         if not self.is_active or self.request is None:
             return
@@ -368,9 +420,18 @@ class ManualSessionManager:
         current = finite_float(live.get("current"))
         if voltage is None or current is None:
             return
+        now = time.time()
         reason = self._threshold_reason(voltage, current)
         if reason is None:
-            reason = self._delta_reason(live, now=time.time())
+            reason = self._main_tail_reason(live)
+        if reason is None:
+            reason = self._mix_hold_reason(now=now)
+        if reason is None:
+            reason = self._delta_reason(live, now=now)
+            if reason == "manual_delta_confirmed":
+                self.finish_hold_started_at = now
+                self._persist()
+                reason = None
         if reason is not None:
             await self.stop(reason)
 
