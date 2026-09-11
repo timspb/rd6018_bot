@@ -2139,7 +2139,14 @@ async def data_logger() -> None:
             battery_mode = str(live.get("battery_mode", "")).lower() == "on"
             input_voltage = _safe_float(live.get("input_voltage"), 0.0)
             temp_int = _safe_float(live.get("temp_int"), 0.0)
-            mode = "CV" if is_cv else ("CC" if is_cc else "режим не подтверждён")
+            manual_manager = globals().get("manual_session_manager")
+            manual_request = getattr(manual_manager, "request", None)
+            manual_active = bool(getattr(manual_manager, "is_active", False) and manual_request)
+            mode = (
+                getattr(manual_request, "operation_mode_label", "Ручной")
+                if manual_active
+                else ("CV" if is_cv else ("CC" if is_cc else "режим не подтверждён"))
+            )
             last_live_context = (
                 f"📊 Факт: V {battery_v:.2f}В | I {i:.2f}А | T {t:.1f}°C | "
                 f"режим {mode}"
@@ -2355,6 +2362,7 @@ async def data_logger() -> None:
                 battery_v, i, temp_ext, is_cv, ah, output_switch,
                 manual_off_active=_has_manual_off_condition(),
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
             if actions.get("notify"):
                 _charge_notify(str(actions["notify"]))

@@ -601,6 +601,7 @@ class ChargeControllerV2(ChargeController):
         output_is_on: Optional[Any],
         manual_off_active: bool,
         is_cc: Optional[bool],
+        manual_active: bool,
     ) -> Dict[str, Any]:
         """Run legacy common safety while masking its Main/Mix transition triggers."""
         if not self._is_authoritative_stage(stage_before):
@@ -613,6 +614,7 @@ class ChargeControllerV2(ChargeController):
                 output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
 
         saved_blanking = self._blanking_until
@@ -640,6 +642,7 @@ class ChargeControllerV2(ChargeController):
                 output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
         finally:
             # A safety transition (Cooling/Done/Idle) owns its new timestamps/state.
@@ -994,6 +997,7 @@ class ChargeControllerV2(ChargeController):
         output_is_on: Optional[Any] = None,
         manual_off_active: bool = False,
         is_cc: Optional[bool] = None,
+        manual_active: bool = False,
     ) -> Dict[str, Any]:
         stage_before = self.current_stage
         target_before = self._v2_target_voltage_v
@@ -1013,6 +1017,7 @@ class ChargeControllerV2(ChargeController):
             output_is_on=output_is_on,
             manual_off_active=manual_off_active,
             is_cc=is_cc,
+            manual_active=manual_active,
         )
 
         timestamp_s = self.last_update_time or time.time()

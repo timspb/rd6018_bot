@@ -2386,6 +2386,7 @@ class ChargeController:
         output_is_on: Optional[Any] = None,
         manual_off_active: bool = False,
         is_cc: Optional[bool] = None,
+        manual_active: bool = False,
     ) -> Dict[str, Any]:
         """
         Основной цикл. Вызывается из фоновой задачи каждые 30 сек.
@@ -2394,6 +2395,8 @@ class ChargeController:
         output_is_on — последнее известное состояние выхода (on/off); при unavailable
         по нему решаем, слать ли критическое уведомление или тихо перейти в IDLE.
         manual_off_active — задано условие «off»: часовые отчёты этапа не шлём.
+        manual_active — активна отдельная ручная V/I-сессия; её напряжение не
+        проверяется против Pb-рецептурного MAX_VOLTAGE.
 
         ВАЖНО: voltage — ВСЕГДА sensor.rd_6018_battery_voltage (напряжение на клеммах АКБ).
         Используется для расчёта дельты (спад 0.03В) и порогов перехода фаз.
@@ -2528,7 +2531,7 @@ class ChargeController:
             self.notify(err)
             return actions
 
-        if voltage > MAX_VOLTAGE:
+        if voltage > MAX_VOLTAGE and not manual_active:
             actions["notify"] = f"<b>⚠️ Напряжение</b> {voltage:.2f}V превышает лимит!"
 
         if self.current_stage == self.STAGE_IDLE:

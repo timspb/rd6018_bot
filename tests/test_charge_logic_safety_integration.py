@@ -86,6 +86,36 @@ class ChargeLogicSafetyIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
         self.assertEqual(controller._safe_wait_next_stage, controller.STAGE_DONE)
 
+    async def test_manual_session_does_not_emit_pb_voltage_limit_alert(self):
+        controller = self._controller_at_stage(
+            ChargeController.PROFILE_CUSTOM,
+            ChargeController.STAGE_IDLE,
+        )
+
+        manual_actions = await controller.tick(
+            voltage=17.1,
+            current=2.1,
+            temp_ext=25.0,
+            is_cv=False,
+            is_cc=True,
+            ah=0.0,
+            output_is_on=True,
+            manual_active=True,
+        )
+        self.assertNotIn("превышает лимит", manual_actions.get("notify", ""))
+
+        managed_actions = await controller.tick(
+            voltage=17.1,
+            current=2.1,
+            temp_ext=25.0,
+            is_cv=False,
+            is_cc=True,
+            ah=0.0,
+            output_is_on=True,
+            manual_active=False,
+        )
+        self.assertIn("превышает лимит", managed_actions.get("notify", ""))
+
     def test_restore_clamps_legacy_target_voltage(self):
         now = time.time()
         payload = {
