@@ -11,6 +11,7 @@ from typing import Any, Mapping, Optional
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
 
 
@@ -104,9 +105,24 @@ def _manual_extrema_status(manual: Any, regulator: str) -> str:
     if getattr(request, "operation_mode", "") == "mix":
         hold_started = getattr(manual, "finish_hold_started_at", None)
         if hold_started is not None:
-            held_s = max(0.0, time.time() - float(hold_started))
+            held_s = min(
+                MANUAL_MIX_FINISH_HOLD_SEC,
+                max(0.0, time.time() - float(hold_started)),
+            )
             held_m = int(held_s // 60)
-            return f"✅ Δ подтверждена · выдержка {held_m // 60}ч {(held_m % 60):02d}м / 2ч"
+            delta = _finite(getattr(getattr(request, "stop", None), "delta", None))
+            if regulator == "CV":
+                minimum = _finite(getattr(manual, "_imin", None))
+                reference = f"Imin {minimum:.2f}A" if minimum is not None else "Imin —"
+                delta_text = f"ΔI {delta:.2f}A" if delta is not None else "ΔI —"
+            else:
+                maximum = _finite(getattr(manual, "_vmax", None))
+                reference = f"Vmax {maximum:.2f}V" if maximum is not None else "Vmax —"
+                delta_text = f"ΔV {delta:.2f}V" if delta is not None else "ΔV —"
+            return (
+                f"✅ {reference} · {delta_text} · "
+                f"выдержка {held_m // 60}ч {(held_m % 60):02d}м / 2ч"
+            )
     if regulator == "CC":
         maximum = _finite(getattr(manual, "_vmax", None))
         if maximum is not None:

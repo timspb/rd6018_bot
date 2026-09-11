@@ -1,5 +1,6 @@
 import types
 import unittest
+import time
 from html.parser import HTMLParser
 
 from operator_hmi import (
@@ -10,6 +11,7 @@ from operator_hmi import (
     render_operator_details,
     render_operator_panel,
 )
+from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 
 
 class FakeObserver:
@@ -329,6 +331,29 @@ class OperatorHmiTests(unittest.TestCase):
         panel = render_operator_panel(state)
         self.assertIn("✅ Vmax: 17.20 V", panel)
         self.assertNotIn("Vmax не достигнут", panel)
+
+    def test_manual_mix_panel_shows_reference_delta_and_bounded_hold(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=15000.0,
+            finish_hold_started_at=time.time() - (MANUAL_MIX_FINISH_HOLD_SEC + 3600),
+            request=types.SimpleNamespace(
+                operation_mode="mix",
+                operation_mode_label="Ручной МИКС",
+                capacity_ah=None,
+                stop=types.SimpleNamespace(max_active_seconds=None, delta=0.06),
+            ),
+            _vmax=None,
+            _imin=0.42,
+        )
+        values = live(output="on")
+        values["is_cv"] = "on"
+        values["is_cc"] = "off"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("✅ Imin 0.42A · ΔI 0.06A · выдержка 2ч 00м / 2ч", panel)
+        self.assertNotIn("3ч", panel)
 
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))
