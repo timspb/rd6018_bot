@@ -62,6 +62,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         output_is_on: Optional[Any],
         manual_off_active: bool,
         is_cc: Optional[bool],
+        manual_active: bool,
     ) -> Dict[str, Any]:
         strategy_clock_owned = self._is_authoritative_stage(stage_before) and (
             stage_before == self.STAGE_MAIN
@@ -81,6 +82,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
                 output_is_on=output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
 
         # Main and pre-finish-hold Mix elapsed time are V2 strategy authority. Hide
@@ -103,6 +105,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
                 output_is_on=output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
         finally:
             if self.current_stage == stage_before:
