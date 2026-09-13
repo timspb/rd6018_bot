@@ -60,3 +60,20 @@ Storage are intentionally outside this domain.
 `ChargeStrategy` is the new domain execution owner. The old registry/
 `DeltaProgram` path remains available only for compatibility and shadow/adapter
 tests; it is not wired into the new recipe-backed strategy path.
+
+## MIX protection completion
+
+CV MIX has an explicit `MixCurrentContainmentState`. After the configured delay
+from MIX start, the domain limits the current intent to the confirmed
+`Imin + Delta-I + headroom`; recalculation is cadence-controlled and monotonic,
+so a rising measured current cannot raise the issued setpoint. The domain does
+not write the device.
+
+`ResetProtectionIntent` describes the OVP/OCP values the outer execution layer
+must restore after normal MIX completion or emergency MIX stop. It is an intent
+only; the physical reset remains outside this module.
+
+`MixTemperatureIntegrityPolicy` reuses the shared, calibrated
+`ExternalTempIntegrityMonitor`. A latched fresh-sample anomaly produces a MIX
+stop/diagnostic decision; it does not compensate by lowering current or continue
+the charge.
