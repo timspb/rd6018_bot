@@ -58,14 +58,14 @@ Result: `PASS` for the OFF-only AUTONOMOUS entry contract.
 
 ## C — local generic PSU operation
 
-Result: `BLOCKED_NO_LOCAL_CONTROL_SURFACE`.
+Result: `BLOCKED_NO_LOCAL_CONTROL`.
 
 The execution channel had no physical RD6018 front-panel/local control access.
 Output was not enabled through Telegram, HA, or the physical-test socket.
 
 ## D — Wi-Fi/HA loss with Output ON
 
-Result: `BLOCKED_NO_INDEPENDENT_OBSERVER`.
+Result: `BLOCKED_NO_INDEPENDENT_OBSERVER` / `BLOCKED_NO_SAFE_NETWORK_ISOLATION`.
 
 Output was not enabled, and no network outage was induced. A continuous
 independent physical observer and an approved reversible network-isolation
@@ -74,7 +74,7 @@ mechanism were not available through the execution channel. Outage duration:
 
 ## E — ESP-only reboot persistence
 
-Result: `BLOCKED_NOT_DETERMINISTIC`.
+Result: `BLOCKED_NO_APPROVED_ESP_ONLY_METHOD`.
 
 No approved ESP-only reboot method was available through the execution
 channel. No reboot, OTA, flash or firmware change was performed.
@@ -130,7 +130,7 @@ network isolation and an approved ESP-only reboot method.
 A PASS
 B PASS
 C BLOCKED_NO_LOCAL_CONTROL
-D BLOCKED_NO_INDEPENDENT_OBSERVER
+D BLOCKED_NO_INDEPENDENT_OBSERVER / BLOCKED_NO_SAFE_NETWORK_ISOLATION
 E BLOCKED_NO_APPROVED_ESP_ONLY_METHOD
 F PASS
 CLEANUP PASS
