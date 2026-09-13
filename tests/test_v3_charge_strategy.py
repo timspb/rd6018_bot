@@ -1,6 +1,7 @@
 import ast
 import pathlib
 import unittest
+from dataclasses import replace
 
 from runtime.charge import BatteryProfile, ChargeEngine, ChemistryProfile, Measurements, MixAuthorityState
 from runtime.charge.strategy import (
@@ -92,6 +93,31 @@ class V3ChargeStrategyTests(unittest.TestCase):
         result = self.strategy.evaluate(state, Measurements(16.5, 0.5, 25.0, 2.0), mix_mode="CV")
         self.assertEqual("MIX_CV_DELTA_CONFIRMED", result.reason)
         self.assertTrue(self.strategy.evaluate(state, Measurements(16.5, 0.5, 25.0, 12.0), mix_mode="CV").completed)
+
+    def test_mix_cv_current_containment_starts_after_mix_delay(self):
+        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0)
+        mix = MixPolicy(MixPolicyConfig(10000.0, self.strategy.recipe.mix.config.cc, cv))
+        mix.evaluate("CV", Measurements(16.5, 0.4, 25.0, 0.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 1.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 2.0))
+
+        before_delay = mix.evaluate("CV", Measurements(16.5, 0.8, 25.0, 1799.0))
+        self.assertAlmostEqual(before_delay.target_current, 2.0)
+
+        after_delay = mix.evaluate("CV", Measurements(16.5, 0.8, 25.0, 1800.0))
+        self.assertAlmostEqual(after_delay.target_current, 0.9)
+
+    def test_mix_cv_current_containment_does_not_follow_rising_current(self):
+        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0)
+        mix = MixPolicy(MixPolicyConfig(10000.0, self.strategy.recipe.mix.config.cc, cv))
+        mix.evaluate("CV", Measurements(16.5, 0.4, 25.0, 0.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 1.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 2.0))
+
+        first = mix.evaluate("CV", Measurements(16.5, 0.8, 25.0, 1800.0))
+        later = mix.evaluate("CV", Measurements(16.5, 1.8, 25.0, 2400.0))
+        self.assertAlmostEqual(first.target_current, 0.9)
+        self.assertAlmostEqual(later.target_current, 0.9)
 
     def test_strategy_domain_has_no_infrastructure_imports(self):
         root = pathlib.Path(__file__).parents[1] / "runtime" / "charge" / "strategy"

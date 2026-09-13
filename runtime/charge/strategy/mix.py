@@ -25,6 +25,8 @@ class MixExitRuntimeState:
     observed_imin: Optional[float] = None
     confirmation_count: int = 0
     hold_started_at: Optional[float] = None
+    containment_current_setpoint: Optional[float] = None
+    last_containment_update_at: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -59,11 +61,21 @@ class CVMixExitConfig:
     hold_stage: str = "mix_hold"
     completed_stage: str = "done"
     confirmation_interval_seconds: float = 0.0
+    containment_start_seconds: float = 30 * 60
+    containment_recalc_seconds: float = 10 * 60
+    containment_headroom_a: float = 0.4
 
     def __post_init__(self) -> None:
         if min(self.imin_current, self.delta_current, self.target_voltage, self.target_current) <= 0:
             raise ValueError("CV Mix recipe values must be positive")
-        if self.confirmations_required <= 0 or self.hold_seconds < 0 or self.confirmation_interval_seconds < 0:
+        if (
+            self.confirmations_required <= 0
+            or self.hold_seconds < 0
+            or self.confirmation_interval_seconds < 0
+            or self.containment_start_seconds < 0
+            or self.containment_recalc_seconds <= 0
+            or self.containment_headroom_a < 0
+        ):
             raise ValueError("CV Mix timing configuration is invalid")
 
 
@@ -157,8 +169,53 @@ class MixPolicy:
         if mode == "CC":
             return self.cc.evaluate(measurements)
         if mode == "CV":
-            return self.cv.evaluate(measurements)
+            intent = self.cv.evaluate(measurements)
+            return self._apply_cv_containment(intent, measurements)
         raise ValueError("Mix mode must be CC or CV")
+
+    def _apply_cv_containment(self, intent: ChargeIntent, measurements: Measurements) -> ChargeIntent:
+        """Cap the V3 CV Mix current intent without touching any actuator.
+
+        The cap is anchored to confirmed Imin and therefore cannot follow a
+        rising measured current.  It is eligible only after the configured
+        elapsed Mix time and is refreshed on the configured cadence.  A
+        refresh can only lower the already-issued domain setpoint.
+        """
+        if (
+            intent.completed
+            or
+            intent.target_current is None
+            or self.authority.started_at is None
+            or measurements.time is None
+            or self.cv.state.observed_imin is None
+        ):
+            return intent
+        elapsed = measurements.time - self.authority.started_at
+        if elapsed < self.cv.config.containment_start_seconds:
+            return intent
+        last = self.cv.state.last_containment_update_at
+        if last is not None and measurements.time - last < self.cv.config.containment_recalc_seconds:
+            if self.cv.state.containment_current_setpoint is None:
+                return intent
+            return self._with_current(intent, self.cv.state.containment_current_setpoint)
+
+        candidate = self.cv.state.observed_imin + self.cv.config.delta_current + self.cv.config.containment_headroom_a
+        candidate = min(candidate, self.cv.config.target_current)
+        previous = self.cv.state.containment_current_setpoint
+        setpoint = candidate if previous is None else min(previous, candidate)
+        self.cv.state.containment_current_setpoint = setpoint
+        self.cv.state.last_containment_update_at = measurements.time
+        return self._with_current(intent, setpoint)
+
+    @staticmethod
+    def _with_current(intent: ChargeIntent, current: float) -> ChargeIntent:
+        return ChargeIntent(
+            intent.target_voltage,
+            current,
+            intent.next_stage,
+            intent.completed,
+            intent.reason,
+        )
 
     def _account_authority(self, measurements: Measurements) -> None:
         if self.authority.started_at is None and measurements.time is not None:

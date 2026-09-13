@@ -47,7 +47,7 @@ def factory_recipe(chemistry: ProductionChemistry | ChemistryProfile | str) -> V
         fallback = MainFallbackPolicy(MainFallbackPolicyConfig(259200.0, "AGM", 0.2, main_voltage=15.0, main_current=8.0))
         detector = PlateauDetector(PlateauDetectorConfig(3, 0.05, 0.2, 0.02))
         cc = CCMixExitConfig(16.3, 0.03, 3, 7200.0, 16.3, 2.4)
-        cv = CVMixExitConfig(0.2, 0.06, 3, 7200.0, 16.3, 2.4)
+        cv = CVMixExitConfig(0.2, 0.06, 3, 7200.0, 16.3, 2.4, containment_start_seconds=1800.0, containment_recalc_seconds=600.0, containment_headroom_a=0.4)
         authority = 36000.0
     elif profile == ChemistryProfile.EFB:
         main = MainPolicyConfig(14.8, 7.0, 0.3, 10800.0, 0.3, 2400.0)
@@ -55,7 +55,7 @@ def factory_recipe(chemistry: ProductionChemistry | ChemistryProfile | str) -> V
         fallback = MainFallbackPolicy(MainFallbackPolicyConfig(259200.0, "EFB", 0.3, main_voltage=14.8, main_current=7.0))
         detector = PlateauDetector(PlateauDetectorConfig(3, 0.05, 0.3, 0.02))
         cc = CCMixExitConfig(16.5, 0.03, 3, 7200.0, 16.5, 2.1)
-        cv = CVMixExitConfig(0.3, 0.09, 3, 7200.0, 16.5, 2.1)
+        cv = CVMixExitConfig(0.3, 0.09, 3, 7200.0, 16.5, 2.1, containment_start_seconds=1800.0, containment_recalc_seconds=600.0, containment_headroom_a=0.4)
         authority = 86400.0
     else:
         main = MainPolicyConfig(14.7, 7.0, 0.3, 10800.0, 0.3, 2400.0)
@@ -63,7 +63,7 @@ def factory_recipe(chemistry: ProductionChemistry | ChemistryProfile | str) -> V
         fallback = MainFallbackPolicy(MainFallbackPolicyConfig(259200.0, "CALCIUM", 0.3, main_voltage=14.7, main_current=7.0))
         detector = PlateauDetector(PlateauDetectorConfig(3, 0.05, 0.3, 0.02))
         cc = CCMixExitConfig(16.5, 0.03, 3, 7200.0, 16.5, 2.1)
-        cv = CVMixExitConfig(0.3, 0.09, 3, 7200.0, 16.5, 2.1)
+        cv = CVMixExitConfig(0.3, 0.09, 3, 7200.0, 16.5, 2.1, containment_start_seconds=1800.0, containment_recalc_seconds=600.0, containment_headroom_a=0.4)
         authority = 72000.0
     strategy_main = MainPolicy(main, plateau_detector=detector)
     recipe = ChargeRecipe(
