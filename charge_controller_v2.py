@@ -564,6 +564,27 @@ class ChargeControllerV2(ChargeController):
             record.decision.reason,
         )
 
+    def _log_stage_transition(
+        self,
+        *,
+        old_stage: str,
+        new_stage: str,
+        timestamp_s: float,
+        reason: str,
+    ) -> None:
+        """Emit one structured transition record without changing FSM behavior."""
+        if old_stage == new_stage:
+            return
+        owner = "v2" if self._v2_authoritative else "legacy"
+        logger.info(
+            "CHARGE_TRANSITION old=%s new=%s reason=%s owner=%s timestamp=%.3f",
+            old_stage,
+            new_stage,
+            reason or "unspecified",
+            owner,
+            float(timestamp_s),
+        )
+
     @staticmethod
     def _log_transition_audit(audit: Optional[LegacyTransitionAudit]) -> None:
         if audit is None:
@@ -1234,6 +1255,18 @@ class ChargeControllerV2(ChargeController):
             except Exception:
                 self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
+
+        transition_reason = ""
+        if authority_decision is not None:
+            transition_reason = str(authority_decision.reason or "")
+        if not transition_reason:
+            transition_reason = str(actions.get("log_event") or actions.get("log_event_end") or "")
+        self._log_stage_transition(
+            old_stage=stage_before,
+            new_stage=self.current_stage,
+            timestamp_s=timestamp_s,
+            reason=transition_reason,
+        )
 
         # Mix scaffold temporarily hid the true stage clock from legacy persistence.
         # Rewrite the durable session after restoring/applying the authoritative state.

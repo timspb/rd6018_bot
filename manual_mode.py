@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import os
 import time
@@ -25,6 +26,8 @@ MANUAL_TEMP_CRITICAL_C = 45.0
 MANUAL_MIX_VOLTAGE_THRESHOLD_V = 15.8
 MANUAL_MIX_FINISH_HOLD_SEC = 2 * 60 * 60
 MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A = 0.30
+
+logger = logging.getLogger("rd6018.manual")
 
 
 class ManualSessionState(str, Enum):
@@ -128,6 +131,18 @@ class ManualSessionManager:
         self.main_tail_current_threshold_a = MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
         self._restore_as_interrupted()
 
+    def _transition_state(self, new_state: ManualSessionState, reason: str) -> None:
+        old_state = self.state
+        self.state = new_state
+        if old_state is not new_state:
+            logger.info(
+                "MANUAL_TRANSITION old=%s new=%s reason=%s owner=manual timestamp=%.3f",
+                old_state.value,
+                new_state.value,
+                reason,
+                time.time(),
+            )
+
     @property
     def is_active(self) -> bool:
         return self.state in {
@@ -208,7 +223,10 @@ class ManualSessionManager:
         }:
             # A process restart never silently re-energizes Manual.  The persisted
             # request remains available for operator review/re-authorization.
-            self.state = ManualSessionState.INTERRUPTED
+            self._transition_state(
+                ManualSessionState.INTERRUPTED,
+                "process_restart_requires_operator_reauthorization",
+            )
             self.stop_reason = "process_restart_requires_operator_reauthorization"
             self.started_at = float(raw.get("started_at") or 0.0)
             self.paused_total_s = float(raw.get("paused_total_s") or 0.0)
@@ -228,7 +246,7 @@ class ManualSessionManager:
             raise RuntimeError("automatic charge controller is active")
 
         self.request = request
-        self.state = ManualSessionState.ARMING
+        self._transition_state(ManualSessionState.ARMING, "operator_start")
         self.started_at = time.time()
         self.paused_total_s = 0.0
         self.cooling_started_at = None
@@ -245,12 +263,12 @@ class ManualSessionManager:
             recipe_voltage_ceiling_v=float(MAX_MANUAL_VOLTAGE),
         )
         if not result.enabled:
-            self.state = ManualSessionState.FAILED
             self.stop_reason = result.detail or "safe_enable_failed"
+            self._transition_state(ManualSessionState.FAILED, self.stop_reason)
             self._persist()
             return False
 
-        self.state = ManualSessionState.ACTIVE
+        self._transition_state(ManualSessionState.ACTIVE, "safe_enable_confirmed")
         self._persist()
         self._task = asyncio.create_task(self._run(), name="rd6018-manual-session")
         return True
@@ -261,7 +279,10 @@ class ManualSessionManager:
         try:
             confirmed = bool(await self.app.hass.turn_off())
         finally:
-            self.state = ManualSessionState.STOPPED if confirmed else ManualSessionState.FAILED
+            self._transition_state(
+                ManualSessionState.STOPPED if confirmed else ManualSessionState.FAILED,
+                self.stop_reason,
+            )
             self.cooling_started_at = None
             self._persist()
         return confirmed
@@ -270,11 +291,11 @@ class ManualSessionManager:
         if self.state is ManualSessionState.COOLING:
             return
         if not await self.app.hass.turn_off():
-            self.state = ManualSessionState.FAILED
             self.stop_reason = "cooling_output_off_unconfirmed"
+            self._transition_state(ManualSessionState.FAILED, self.stop_reason)
             self._persist()
             return
-        self.state = ManualSessionState.COOLING
+        self._transition_state(ManualSessionState.COOLING, "thermal_pause")
         self.cooling_started_at = time.time()
         self._delta_confirmations = 0
         self._last_delta_confirmation = 0.0
@@ -288,7 +309,7 @@ class ManualSessionManager:
         if self.cooling_started_at is not None:
             self.paused_total_s += max(0.0, now - self.cooling_started_at)
         self.cooling_started_at = None
-        self.state = ManualSessionState.ARMING
+        self._transition_state(ManualSessionState.ARMING, "cooling_resume_prepare")
         self._persist()
         result = await self.app.hass.safe_enable_output(
             voltage_v=self.request.voltage_v,
@@ -298,11 +319,11 @@ class ManualSessionManager:
             recipe_voltage_ceiling_v=float(MAX_MANUAL_VOLTAGE),
         )
         if not result.enabled:
-            self.state = ManualSessionState.FAILED
             self.stop_reason = result.detail or "cooling_resume_failed"
+            self._transition_state(ManualSessionState.FAILED, self.stop_reason)
             self._persist()
             return
-        self.state = ManualSessionState.ACTIVE
+        self._transition_state(ManualSessionState.ACTIVE, "cooling_resume_confirmed")
         # Cooling breaks continuity-dependent delta confirmation, but extrema remain
         # useful as historical diagnostics only; start a fresh stop-condition segment.
         self._reset_delta_tracking()
@@ -343,6 +364,11 @@ class ManualSessionManager:
                 self._imin = current
                 self._delta_confirmations = 0
                 self._last_delta_confirmation = 0.0
+                logger.info(
+                    "MANUAL_EVIDENCE kind=minimum event=update mode=CV value=%.3f timestamp=%.3f",
+                    current,
+                    now,
+                )
             elif current >= self._imin + threshold:
                 candidate = True
         elif mode is RegulationMode.CC:
@@ -350,6 +376,11 @@ class ManualSessionManager:
                 self._vmax = voltage
                 self._delta_confirmations = 0
                 self._last_delta_confirmation = 0.0
+                logger.info(
+                    "MANUAL_EVIDENCE kind=maximum event=update mode=CC value=%.3f timestamp=%.3f",
+                    voltage,
+                    now,
+                )
             elif voltage <= self._vmax - threshold:
                 candidate = True
         else:
@@ -366,6 +397,14 @@ class ManualSessionManager:
             return None
         self._last_delta_confirmation = now
         self._delta_confirmations += 1
+        logger.info(
+            "MANUAL_EVIDENCE kind=delta event=confirmation mode=%s count=%d reference=%.3f threshold=%.3f timestamp=%.3f",
+            mode.value,
+            self._delta_confirmations,
+            self._imin if mode is RegulationMode.CV else self._vmax,
+            threshold,
+            now,
+        )
         if self._delta_confirmations >= MANUAL_DELTA_CONFIRM_COUNT:
             return "manual_delta_confirmed"
         return None
@@ -394,6 +433,11 @@ class ManualSessionManager:
         if self.finish_hold_started_at is None:
             return None
         if now - float(self.finish_hold_started_at) >= MANUAL_MIX_FINISH_HOLD_SEC:
+            logger.info(
+                "MANUAL_EVIDENCE kind=delta event=hold_complete mode=mix hold_seconds=%.1f timestamp=%.3f",
+                MANUAL_MIX_FINISH_HOLD_SEC,
+                now,
+            )
             return "manual_mix_delta_hold_complete"
         return None
 
@@ -431,6 +475,11 @@ class ManualSessionManager:
             if reason == "manual_delta_confirmed":
                 self.finish_hold_started_at = now
                 self._persist()
+                logger.info(
+                    "MANUAL_EVIDENCE kind=delta event=hold_start mode=mix hold_seconds=%.1f timestamp=%.3f",
+                    MANUAL_MIX_FINISH_HOLD_SEC,
+                    now,
+                )
                 reason = None
         if reason is not None:
             await self.stop(reason)
@@ -449,7 +498,7 @@ class ManualSessionManager:
             try:
                 await self.app.hass.turn_off()
             finally:
-                self.state = ManualSessionState.FAILED
+                self._transition_state(ManualSessionState.FAILED, self.stop_reason)
                 self._persist()
 
     async def start_from_legacy_ui(self, message: Any, user_id: int, params: dict[str, float]) -> None:
