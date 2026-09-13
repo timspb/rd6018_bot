@@ -42,10 +42,11 @@ class V2EntrypointTests(unittest.TestCase):
         )
         self.assertEqual(bot._compact_dashboard_caption.__name__, "compact_dashboard_caption")
 
-        # Production import has no live hardware state. Its durable ownership state is
-        # allowed to affect the exact main-panel branch, but the final renderer must no
-        # longer expose the old graph-range/developer button carpet. The graph itself
-        # remains in the dashboard media and ranges live in the graph workspace.
+        # The first production dashboard is the UX baseline.  The graph transport keeps
+        # its 30m/2h/Session workspace, while the primary shell restores familiar V1
+        # navigation around the final V2 semantic controls.  START is only a route into
+        # the V2 battery/program chooser; the legacy raw power-toggle authority must not
+        # reappear.
         dashboard = bot._build_dashboard_keyboard(False, 1)
         dashboard_callbacks = {
             button.callback_data
@@ -53,13 +54,28 @@ class V2EntrypointTests(unittest.TestCase):
             for button in row
             if button.callback_data
         }
+        dashboard_texts = {
+            button.text
+            for row in dashboard.inline_keyboard
+            for button in row
+        }
         self.assertNotIn("chart_30m", dashboard_callbacks)
         self.assertNotIn("chart_2h", dashboard_callbacks)
         self.assertNotIn("chart_session", dashboard_callbacks)
         self.assertNotIn("v2_status", dashboard_callbacks)
         self.assertNotIn("entities_status", dashboard_callbacks)
         self.assertNotIn("operator_graph", dashboard_callbacks)
-        self.assertNotIn("operator_more", dashboard_callbacks)
+        self.assertNotIn("power_toggle", dashboard_callbacks)
+        self.assertIn("v2_batteries", dashboard_callbacks)
+        self.assertIn("charge_modes", dashboard_callbacks)
+        self.assertIn("operator_more", dashboard_callbacks)
+        self.assertIn("🚀 СТАРТ", dashboard_texts)
+        self.assertIn("⚙️ Режимы", dashboard_texts)
+        self.assertIn("🔄 Обновить", dashboard_texts)
+        self.assertIn("📋 Полная инфо", dashboard_texts)
+        self.assertIn("📝 Логи", dashboard_texts)
+        self.assertIn("🧠 AI анализ", dashboard_texts)
+        self.assertIn("🛠 Ещё", dashboard_texts)
 
     def test_charge_mode_copy_matches_normal_full_auto_contract(self):
         text = bot._charge_modes_text()
