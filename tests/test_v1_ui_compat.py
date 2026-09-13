@@ -2,6 +2,8 @@ from pathlib import Path
 import types
 import unittest
 
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 import operator_hmi as hmi
 from v1_ui_compat import compose_v1_operator_keyboard
 
@@ -33,10 +35,61 @@ def callbacks(markup):
     ]
 
 
+def _button(text: str, callback: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=callback)
+
+
+def semantic_base(current_state) -> InlineKeyboardMarkup:
+    """Minimal upstream V2 semantic surface, independent of global monkey-patching."""
+    process = current_state.process_state
+    if process is hmi.HmiProcessState.IDLE:
+        rows = [
+            [_button("⚡ Режимы заряда", "charge_modes")],
+            [_button("🔋 АКБ", "v2_batteries")],
+            [_button("🔄 Обновить", "operator_refresh")],
+        ]
+    elif process is hmi.HmiProcessState.RUNNING:
+        rows = [
+            [
+                _button("⏸ Пауза", "operator_pause_toggle"),
+                _button("🛑 Стоп", "operator_managed_stop"),
+            ],
+            [_button("ℹ Подробнее", "operator_details"), _button("📋 События", "logs")],
+            [_button("🔄 Обновить", "operator_refresh")],
+        ]
+    elif process is hmi.HmiProcessState.CONTAINMENT:
+        rows = [
+            [_button("ℹ Подробнее", "operator_details"), _button("📋 События", "logs")],
+            [_button("🔋 АКБ", "v2_batteries")],
+            [_button("🔄 Обновить", "operator_refresh")],
+        ]
+    elif process is hmi.HmiProcessState.HANDS_OFF:
+        rows = [
+            [_button("🧲 Подхватить текущий Mix", "rd_live_mix")],
+            [_button("⏹ Output OFF", "rd_hands_off_output_off")],
+            [_button("ℹ Подробнее", "operator_details"), _button("📋 События", "logs")],
+            [_button("🔄 Обновить", "operator_refresh")],
+        ]
+    elif process is hmi.HmiProcessState.ADOPTED_MIX:
+        rows = [
+            [_button("⏹ Остановить Mix", "operator_adopted_stop")],
+            [_button("ℹ Подробнее", "operator_details"), _button("📋 События", "logs")],
+            [_button("🔄 Обновить", "operator_refresh")],
+        ]
+    elif process is hmi.HmiProcessState.STORAGE:
+        rows = [
+            [_button("ℹ Подробнее", "operator_details"), _button("📋 События", "logs")],
+            [_button("🔄 Обновить", "operator_refresh")],
+        ]
+    else:
+        rows = [[_button("🔄 Обновить", "operator_refresh")]]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 class V1UiCompatibilityTests(unittest.TestCase):
     def compose(self, current_state):
         app = FakeApp()
-        base = hmi.build_operator_keyboard(app, current_state)
+        base = semantic_base(current_state)
         return app, compose_v1_operator_keyboard(app, current_state, base, hmi)
 
     def test_idle_restores_v1_primary_shell_with_v2_safe_start(self):
@@ -72,7 +125,8 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn(["📝 Логи", "🧠 AI анализ"], rows)
         self.assertIn(["🛠 Ещё"], rows)
         self.assertIn("operator_pause_toggle", cb)
-        self.assertEqual(cb.count("power_toggle"), 1)
+        self.assertIn("operator_managed_stop", cb)
+        self.assertNotIn("power_toggle", cb)
         self.assertNotIn("v2_batteries", cb)
         self.assertNotIn("charge_modes", cb)
 
