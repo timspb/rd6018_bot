@@ -8,6 +8,7 @@ from .limits import ChargeLimits
 from .measurements import Measurements
 from .program import ChargeProgram
 from .state import ChargeState
+from .adapters import LegacyChargeProgramAdapter
 
 __all__ = [
     "BatteryProfile",
@@ -17,5 +18,6 @@ __all__ = [
     "ChargeProgram",
     "ChargeState",
     "ChemistryProfile",
+    "LegacyChargeProgramAdapter",
     "Measurements",
 ]
