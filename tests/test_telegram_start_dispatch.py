@@ -42,6 +42,18 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    @staticmethod
+    def _graph_patches():
+        return (
+            patch.object(app.hass, "get_all_live", new=AsyncMock(return_value={})),
+            patch.object(
+                app,
+                "get_graph_data_with_temp",
+                new=AsyncMock(return_value=([1.0], [12.5], [0.2], [25.0])),
+            ),
+            patch.object(app, "generate_chart", return_value=io.BytesIO(b"synthetic-png")),
+        )
+
     async def test_start_recovers_to_text_when_graph_delivery_fails(self):
         """Exercise real Dispatcher -> /start -> final graph dashboard transport."""
         manager = app.terminal_panel_manager
@@ -59,14 +71,11 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
                 return SimpleNamespace(message_id=88)
             raise AssertionError(f"unexpected Telegram method: {type(method).__name__}")
 
+        graph_live, graph_data, graph_render = self._graph_patches()
         with (
-            patch.object(app.hass, "get_all_live", new=AsyncMock(return_value={})),
-            patch.object(
-                app,
-                "get_graph_data_with_temp",
-                new=AsyncMock(return_value=([1.0], [12.5], [0.2], [25.0])),
-            ),
-            patch.object(app, "generate_chart", return_value=io.BytesIO(b"synthetic-png")),
+            graph_live,
+            graph_data,
+            graph_render,
             patch.object(Bot, "__call__", new=fake_telegram_api),
         ):
             await app.dp.feed_update(app.bot, self._start_update())
@@ -76,6 +85,37 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.user_dashboard[1], 88)
         self.assertEqual(app.chat_dashboard[1], 88)
         self.assertEqual(manager.panel_id(1), 88)
+
+    async def test_start_preserves_primary_error_when_text_fallback_also_fails(self):
+        """A total Telegram outage must not be converted into false handled success."""
+        manager = app.terminal_panel_manager
+        manager.adopt(chat_id=1, user_id=1, message_id=77)
+        calls = []
+
+        async def fake_telegram_api(_bot, method, *args, **kwargs):
+            del args, kwargs
+            calls.append(type(method).__name__)
+            if isinstance(method, DeleteMessage):
+                return True
+            if isinstance(method, SendPhoto):
+                raise RuntimeError("synthetic sendPhoto rejection")
+            if isinstance(method, SendMessage):
+                raise RuntimeError("synthetic sendMessage rejection")
+            raise AssertionError(f"unexpected Telegram method: {type(method).__name__}")
+
+        graph_live, graph_data, graph_render = self._graph_patches()
+        with (
+            graph_live,
+            graph_data,
+            graph_render,
+            patch.object(Bot, "__call__", new=fake_telegram_api),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "synthetic sendPhoto rejection"):
+                await app.dp.feed_update(app.bot, self._start_update())
+
+        self.assertIn("SendPhoto", calls)
+        self.assertIn("SendMessage", calls)
+        self.assertEqual(manager.panel_id(1), 77)
 
 
 if __name__ == "__main__":
