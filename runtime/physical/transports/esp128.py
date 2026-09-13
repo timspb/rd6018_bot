@@ -19,6 +19,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.client: APIClient | None = None
         self.entities: tuple[Any, ...] = ()
         self.services: tuple[Any, ...] = ()
+        self._entities_by_key: dict[int, list[Any]] = {}
 
     async def _connect(self):
         key = os.getenv(self.config.connection.key_env or "", "")
@@ -27,6 +28,9 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.client = APIClient(self.config.connection.host, self.config.connection.port, noise_psk=key)
         await self.client.connect(login=True)
         self.entities, self.services = await self.client.list_entities_services()
+        self._entities_by_key = {}
+        for entity in self.entities:
+            self._entities_by_key.setdefault(int(entity.key), []).append(entity)
 
     async def discover(self):
         if self.client is None: await self._connect()
@@ -34,25 +38,31 @@ class ESPHomeTransport(ReadOnlyTransport):
 
     async def get_snapshot(self):
         if self.client is None: await self._connect()
-        states = {}
+        states: dict[str, list[tuple[str, Any]]] = {}
         def on_state(state):
-            key = getattr(state, "key", None) or getattr(state, "object_id", None) or getattr(state, "name", None)
-            if key is not None:
-                states[str(key)] = getattr(state, "state", None)
+            key = getattr(state, "key", None)
+            if key is None:
+                return
+            for entity in self._entities_by_key.get(int(key), ()):
+                states.setdefault(str(entity.object_id), []).append((type(state).__name__, getattr(state, "state", None)))
         self.client.subscribe_states(on_state)
         await asyncio.sleep(0.5)
         def value(name):
             wanted = self.config.entities.get(name)
-            for key, state in states.items():
-                if key == wanted or key.endswith(str(wanted)):
+            values = states.get(str(wanted), ())
+            preferred = "SensorState" if name in {"voltage", "current", "temperature", "output_state"} else "NumberState"
+            for state_type, state in values:
+                if state_type == preferred:
                     return state
+            if values:
+                return values[-1][1]
             return None
         def number(name):
             try: return float(value(name))
             except (TypeError, ValueError): return None
         output = value("output_state")
         output_state = None if output is None else bool(output) if isinstance(output, bool) else bool(float(output))
-        return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"))
+        return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"))
 
     async def get_capabilities(self):
         return HardwareCapability(False, False, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, False, False, False, True, True, True)

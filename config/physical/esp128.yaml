@@ -18,11 +18,11 @@ connection:
 # Имена объектов ESPHome; при изменении прошивки обновляется только этот mapping
 # ESPHome object names; firmware changes update only this mapping
 entities:
-  voltage: rd6018_output_voltage_legacy
-  current: rd6018_output_current_legacy
-  temperature: rd6018_temperature_internal_v2
-  output_state: rd6018_output_state_code_v2
-  configured_voltage: rd6018_set_voltage_readback_v2
-  configured_current: rd6018_set_current_readback_v2
-  ovp: rd6018_ovp_readback_v2
-  ocp: rd6018_ocp_readback_v2
+  voltage: output_voltage
+  current: output_current
+  temperature: temperature
+  output_state: output_state_code_v2
+  configured_voltage: set_voltage_readback_v2
+  configured_current: set_current_readback_v2
+  ovp: ovp_readback_v2
+  ocp: ocp_readback_v2

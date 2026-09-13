@@ -7,3 +7,12 @@ require_manual_arm: true
 # Интервал чтения телеметрии, секунды
 # Telemetry polling interval, seconds
 telemetry_interval_s: 5
+# Допуск сравнения напряжения между источниками, вольты
+# Cross-source voltage comparison tolerance, volts
+snapshot_voltage_tolerance_v: 0.06
+# Допуск сравнения тока между источниками, амперы
+# Cross-source current comparison tolerance, amperes
+snapshot_current_tolerance_a: 0.06
+# Допуск свежести снимков при сравнении, секунды
+# Snapshot timestamp freshness tolerance, seconds
+snapshot_timestamp_tolerance_s: 10

@@ -16,6 +16,7 @@ class HardwareSnapshot:
     configured_current: float | None = None
     ovp: float | None = None
     ocp: float | None = None
+    temperature: float | None = None
 
 
 @dataclass(frozen=True)

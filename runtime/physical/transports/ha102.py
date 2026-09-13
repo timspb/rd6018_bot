@@ -40,8 +40,17 @@ class HA102Transport(ReadOnlyTransport):
             try: return float(value)
             except (TypeError, ValueError): return None
         output = values.get("output_state", {}).get("state")
-        state = None if output is None else str(output) not in {"0", "off", "false", "unknown", "unavailable"}
-        return HardwareSnapshot(time.time(), "connected", output_state=state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"))
+        state = None
+        if output is not None:
+            normalized = str(output).strip().lower()
+            if normalized in {"unknown", "unavailable", "none", ""}:
+                state = None
+            else:
+                try:
+                    state = float(normalized) != 0.0
+                except ValueError:
+                    state = normalized not in {"off", "false", "no"}
+        return HardwareSnapshot(time.time(), "connected", output_state=state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"))
 
     async def get_capabilities(self):
         return HardwareCapability(False, False, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, False, False, False, True, True, True)
