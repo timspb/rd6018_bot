@@ -14,6 +14,12 @@ from .programs import ManualProgram, ManualTargets
 from .programs import MinimumConfig, MinimumProgram
 from .programs import DeltaConfig, DeltaProgram
 from .registry import ProgramRegistry
+from .strategy import (
+    ChargeRecipe, ChargeStrategy, StrategyRuntimeState,
+    MainPolicy, MainPolicyConfig, RecoveryPolicy, RecoveryPolicyConfig,
+    MixPolicy, MixPolicyConfig, CCMixExitPolicy, CCMixExitConfig,
+    CVMixExitPolicy, CVMixExitConfig,
+)
 from .service import ChargeRuntimeSnapshot, ChargeService
 from .contracts import (
     ChargeDecisionCase,
@@ -58,4 +64,8 @@ __all__ = [
     "DecisionValidationStatus",
     "delta_cases",
     "validate_case",
+    "ChargeRecipe", "ChargeStrategy", "StrategyRuntimeState",
+    "MainPolicy", "MainPolicyConfig", "RecoveryPolicy", "RecoveryPolicyConfig",
+    "MixPolicy", "MixPolicyConfig", "CCMixExitPolicy", "CCMixExitConfig",
+    "CVMixExitPolicy", "CVMixExitConfig",
 ]

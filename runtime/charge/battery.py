@@ -7,6 +7,7 @@ from typing import Optional
 
 from .chemistry import ChemistryProfile
 from .limits import ChargeLimits
+from .strategy import ChargeRecipe
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class BatteryProfile:
     manufacturer: Optional[str] = None
     nominal_voltage: float = 12.0
     limits: Optional[ChargeLimits] = None
+    recipe: Optional[ChargeRecipe] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.chemistry, ChemistryProfile):
@@ -28,4 +30,5 @@ class BatteryProfile:
             raise ValueError("nominal voltage must be positive")
         if self.limits is not None and not isinstance(self.limits, ChargeLimits):
             raise TypeError("limits must be ChargeLimits or None")
-
+        if self.recipe is not None and not isinstance(self.recipe, ChargeRecipe):
+            raise TypeError("recipe must be ChargeRecipe or None")
