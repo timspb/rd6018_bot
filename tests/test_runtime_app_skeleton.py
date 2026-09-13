@@ -1,5 +1,4 @@
 import asyncio
-import importlib.util
 import pathlib
 import unittest
 
@@ -35,9 +34,24 @@ class RuntimeAppSkeletonTests(unittest.TestCase):
     def test_skeleton_has_no_actuator_capability(self):
         app = RuntimeApp()
 
-        self.assertIsNone(app.dependencies.output)
-        self.assertIsNone(app.dependencies.hass_client)
+        self.assertIsNone(app.dependencies.hass)
         self.assertFalse(any(name in dir(app) for name in ("turn_on", "turn_off")))
+
+    def test_dependency_container_has_infrastructure_slots_only(self):
+        dependencies = RuntimeDependencies()
+
+        for name in ("config", "storage", "persistence", "hass", "logger", "clock"):
+            self.assertTrue(hasattr(dependencies, name))
+        for forbidden in ("controller", "telegram", "output", "lease", "esp"):
+            self.assertFalse(hasattr(dependencies, forbidden))
+
+    def test_runtime_does_not_construct_actuator_dependencies(self):
+        app = RuntimeApp()
+
+        self.assertIsNone(app.dependencies.config)
+        self.assertIsNone(app.dependencies.storage)
+        self.assertIsNone(app.dependencies.persistence)
+        self.assertIsNone(app.dependencies.hass)
 
 
 if __name__ == "__main__":

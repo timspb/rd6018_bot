@@ -9,8 +9,9 @@ from .lifecycle import LifecycleManager, LifecycleState
 class RuntimeApp:
     """Passive application container for the staged V3 migration.
 
-    No production object is created here.  In particular, this module has no
-    Telegram, HA, controller, RD, lease, or safety integration.
+    No production object is created here.  Infrastructure is supplied through
+    ``RuntimeDependencies``; this module has no Telegram, controller, RD,
+    lease, output, or safety integration.
     """
 
     def __init__(self, dependencies: RuntimeDependencies | None = None) -> None:
