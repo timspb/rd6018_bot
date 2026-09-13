@@ -13,6 +13,10 @@ Both paths were executed separately. No automatic connector switching was
 used. The selected connector sent only `DISABLE_OUTPUT`; each run then read a
 fresh snapshot and verified the result.
 
+The Output was already `OFF` before both commands. Therefore this run proves
+command delivery plus the verified-OFF postcondition, but does not claim an
+observable `ON -> OFF` state transition.
+
 ## Readback
 
 | Connector | Before Output | Before I | After Output | After I | Set V | Set I | OVP | OCP | Temperature |
