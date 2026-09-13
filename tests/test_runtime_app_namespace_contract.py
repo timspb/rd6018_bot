@@ -202,7 +202,6 @@ CRITICAL_OWNERSHIP = {
         "rd_control_mode.py",
         "rd_hands_off_release.py",
         "rd_live_adoption.py",
-        "v1_ui_compat.py",
         "v2_bootstrap.py",
         "v2_bot_ui.py",
     },
