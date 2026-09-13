@@ -14,6 +14,7 @@ from runtime.output.execution_policy import ExecutionPolicyDecision
 from runtime.output.executor.command_plan import PhysicalCommandPlan, PhysicalCommandStep
 from runtime.output.executor.contract import ExecutionLeaseState
 from runtime.output.intent import OutputAction, SafeOutputIntent
+from runtime.physical.lease import BenchExecutionLease, BenchLeaseProvider, BenchLeaseScope
 
 from .audit import PhysicalExecutionAudit
 from .capabilities import HardwareCapability
@@ -79,7 +80,9 @@ class PhysicalExecutionGate:
             violations.append("manual_arm_required")
         if not safety.allowed:
             violations.append("safety_policy_denied")
-        if lease is None or lease.status != "active" or not lease.owner:
+        lease_status = getattr(lease, "status", None)
+        lease_owner = getattr(lease, "owner", None) or getattr(lease, "operator", None)
+        if lease is None or str(getattr(lease_status, "value", lease_status)) != "active" or not lease_owner:
             violations.append("valid_execution_lease_required")
         if capability is None:
             violations.append("hardware_capability_required")
@@ -192,11 +195,13 @@ class PhysicalBridgeExecutor:
         )
 
     async def execute_verified_disable(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
-                                       lease: ExecutionLeaseState | None, capability: HardwareCapability | None,
-                                       envelope: Any = None):
+                                       lease: BenchExecutionLease | None, capability: HardwareCapability | None,
+                                       envelope: Any = None, *, lease_provider: BenchLeaseProvider | None = None):
         """Execute only the verified-off plan on an async read/write transport."""
         if plan.intent.action is not OutputAction.DISABLE:
             raise PhysicalExecutionError("verified-disable executor accepts DISABLE_OUTPUT only")
+        if lease_provider is None or not lease_provider.validate(lease, BenchLeaseScope.DISABLE_OUTPUT_ONLY):
+            raise PhysicalExecutionError("valid DISABLE_OUTPUT bench lease is required")
         validation = self.prepare(plan, safety, lease, capability, envelope)
         if not validation.allowed:
             raise PhysicalExecutionError(validation.reason + ":" + ",".join(validation.violations))

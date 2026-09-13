@@ -2,11 +2,11 @@ import asyncio
 import unittest
 
 from runtime.output.bridge import HardwareCapability, PhysicalBridgeExecutor, PhysicalExecutionConfig, PhysicalExecutionGate
-from runtime.output.executor import ExecutionLeaseState
 from runtime.output.executor.command_plan import PhysicalCommandPlan, PhysicalCommandStep
 from runtime.output.execution_policy import ExecutionPolicyDecision
 from runtime.output.intent import OutputAction, SafeOutputIntent
 from runtime.output.bridge import HardwareSnapshot
+from runtime.physical.lease import BenchLeaseProvider, BenchLeaseScope
 
 
 class _AsyncTransport:
@@ -40,9 +40,12 @@ class VerifiedOffExecutionTests(unittest.TestCase):
         gate = PhysicalExecutionGate(PhysicalExecutionConfig(enabled=True))
         gate.arm("operator")
         executor = PhysicalBridgeExecutor(gate, transport)
+        provider = BenchLeaseProvider(duration_s=60)
+        lease = provider.request("operator", BenchLeaseScope.DISABLE_OUTPUT_ONLY)
         record = asyncio.run(executor.execute_verified_disable(
             _plan(), ExecutionPolicyDecision(True, "ok"),
-            ExecutionLeaseState("bench", 1, 1, "active"), _capability()))
+            lease, _capability(),
+            lease_provider=provider))
         self.assertEqual(record.result, "EXECUTED")
         self.assertEqual(transport.calls, ["disable_output"])
         self.assertEqual(record.readback["after"].output_state, False)
@@ -53,8 +56,10 @@ class VerifiedOffExecutionTests(unittest.TestCase):
         gate = PhysicalExecutionGate(PhysicalExecutionConfig(enabled=True))
         gate.arm("operator")
         executor = PhysicalBridgeExecutor(gate, transport)
+        provider = BenchLeaseProvider(duration_s=60)
+        lease = provider.request("operator", BenchLeaseScope.DISABLE_OUTPUT_ONLY)
         with self.assertRaises(Exception):
             asyncio.run(executor.execute_verified_disable(
                 _plan(), ExecutionPolicyDecision(True, "ok"),
-                ExecutionLeaseState("bench", 1, 1, "active"), _capability()))
+                lease, _capability(), lease_provider=provider))
         self.assertEqual(transport.calls, ["disable_output"])
