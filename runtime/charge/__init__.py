@@ -14,6 +14,7 @@ from .programs import ManualProgram, ManualTargets
 from .programs import MinimumConfig, MinimumProgram
 from .programs import DeltaConfig, DeltaProgram
 from .registry import ProgramRegistry
+from .service import ChargeRuntimeSnapshot, ChargeService
 from .contracts import (
     ChargeDecisionCase,
     DecisionMismatch,
@@ -43,6 +44,8 @@ __all__ = [
     "DeltaConfig",
     "DeltaProgram",
     "ProgramRegistry",
+    "ChargeRuntimeSnapshot",
+    "ChargeService",
     "ChargeDecisionCase",
     "DELTA_TRANSITIONS",
     "DeltaDecisionCase",

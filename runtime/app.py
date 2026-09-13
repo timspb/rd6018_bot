@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from .dependencies import RuntimeDependencies
+from .charge import ChargeService, DecisionValidationResult, ProgramRegistry
+from .charge.contracts import ChargeDecisionCase
 from .lifecycle import LifecycleManager, LifecycleState
 
 
@@ -17,6 +19,8 @@ class RuntimeApp:
     def __init__(self, dependencies: RuntimeDependencies | None = None) -> None:
         self.dependencies = dependencies or RuntimeDependencies()
         self.lifecycle = LifecycleManager()
+        registry = self.dependencies.program_registry or ProgramRegistry.with_defaults()
+        self.charge_service = ChargeService(registry, self.dependencies.clock)
 
     @property
     def state(self) -> LifecycleState:
@@ -27,3 +31,14 @@ class RuntimeApp:
 
     async def stop(self) -> None:
         await self.lifecycle.stop()
+
+    def shadow_tick(self, case: ChargeDecisionCase, program_config: object):
+        """Evaluate a native case and compare it with its expected intent."""
+        snapshot = self.charge_service.evaluate(
+            case.battery_profile,
+            case.input_config["program"],
+            program_config,
+            case.charge_state,
+            case.measurements,
+        )
+        return snapshot, DecisionValidationResult.compare(case, snapshot.intent)

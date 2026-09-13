@@ -17,7 +17,7 @@ manual_cases = (
         battery_profile=_MANUAL_BATTERY,
         measurements=Measurements(12.6, 0.0, 25.0, 1.0),
         charge_state=ChargeState(program="manual", stage="manual"),
-        input_config={"voltage": 14.7, "current": 5.0},
+        input_config={"program": "manual", "voltage": 14.7, "current": 5.0},
         expected_intent=ChargeIntent(14.7, 5.0, "manual", False, "MANUAL_START"),
     ),
 )
@@ -28,7 +28,7 @@ minimum_cases = (
         battery_profile=_MINIMUM_BATTERY,
         measurements=Measurements(14.0, 2.0, 25.0, 1.0),
         charge_state=ChargeState(program="minimum", stage="main"),
-        input_config={"target_voltage": 14.4, "target_current": 5.0, "completion_current": 0.3, "completion_voltage": 14.2},
+        input_config={"program": "minimum", "target_voltage": 14.4, "target_current": 5.0, "completion_current": 0.3, "completion_voltage": 14.2},
         expected_intent=ChargeIntent(14.4, 5.0, "minimum", False, "MINIMUM_ACTIVE"),
     ),
     ChargeDecisionCase(
@@ -36,7 +36,7 @@ minimum_cases = (
         battery_profile=_MINIMUM_BATTERY,
         measurements=Measurements(14.3, 0.2, 25.0, 2.0),
         charge_state=ChargeState(program="minimum", stage="main"),
-        input_config={"target_voltage": 14.4, "target_current": 5.0, "completion_current": 0.3, "completion_voltage": 14.2},
+        input_config={"program": "minimum", "target_voltage": 14.4, "target_current": 5.0, "completion_current": 0.3, "completion_voltage": 14.2},
         expected_intent=ChargeIntent(14.4, 5.0, "delta", True, "MINIMUM_COMPLETE"),
     ),
 )

@@ -23,3 +23,4 @@ class RuntimeDependencies:
     hass: Optional[Any] = None
     logger: logging.Logger = logging.getLogger("rd6018.runtime")
     clock: Callable[[], float] = time.time
+    program_registry: Optional[Any] = None

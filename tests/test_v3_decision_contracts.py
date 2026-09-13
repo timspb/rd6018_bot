@@ -33,7 +33,7 @@ class V3DecisionContractTests(unittest.TestCase):
         for case in minimum_cases:
             result = validate_case(
                 case,
-                MinimumProgram(case.battery_profile, MinimumConfig(**case.input_config)),
+                MinimumProgram(case.battery_profile, MinimumConfig(**{key: value for key, value in case.input_config.items() if key != "program"})),
             )
             self.assertIs(DecisionValidationStatus.MATCH, result.status)
 
