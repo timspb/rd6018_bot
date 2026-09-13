@@ -342,6 +342,7 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
                     "rd_ownership_hands_off",
                     "rd_hands_off_release_confirm",
                     "charge_modes",
+                    "v2_batteries",
                     "power_toggle",
                     "menu_off",
                 },
