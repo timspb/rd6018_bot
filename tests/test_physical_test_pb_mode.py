@@ -23,7 +23,7 @@ class FakeLease:
         )
 
     async def read_state(self):
-        return self.state
+        return SimpleNamespace(**vars(self.state))
 
 
 class FakeGuard:
