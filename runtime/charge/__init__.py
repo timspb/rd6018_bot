@@ -9,6 +9,7 @@ from .measurements import Measurements
 from .program import ChargeProgram
 from .state import ChargeState
 from .adapters import LegacyChargeProgramAdapter
+from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 
 __all__ = [
     "BatteryProfile",
@@ -20,4 +21,7 @@ __all__ = [
     "ChemistryProfile",
     "LegacyChargeProgramAdapter",
     "Measurements",
+    "ChargeDecisionShadow",
+    "ComparisonResult",
+    "DecisionComparison",
 ]
