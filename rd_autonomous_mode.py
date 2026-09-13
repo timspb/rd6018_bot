@@ -199,6 +199,22 @@ def install_rd_autonomous_mode(
 
     manager.return_pb_control = guarded_return_pb_control
 
+    # The same stale-capability rule applies to the explicit HANDS_OFF Output-OFF
+    # control.  It intentionally bypasses the public HassClient wrappers so an operator
+    # can contain a HANDS_OFF PSU, but that narrow capability must disappear once the
+    # edge owns explicit AUTONOMOUS authority.  Physical/front-panel controls remain the
+    # only actuator authority until the OFF-only autonomous exit transaction completes.
+    original_operator_output_off = manager.operator_output_off
+
+    async def guarded_operator_output_off(entity_id: Optional[str] = None) -> bool:
+        if manager.edge_autonomous:
+            raise RuntimeSafetyError(
+                "RD AUTONOMOUS: bot Output OFF is disabled; use the physical RD6018 controls"
+            )
+        return bool(await original_operator_output_off(entity_id))
+
+    manager.operator_output_off = guarded_operator_output_off
+
     if not install_ui:
         return coordinator
 
@@ -318,6 +334,7 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
                 markup,
                 {
                     "rd_hands_off_disable",
+                    "rd_hands_off_output_off",
                     "rd_managed_adopt",
                     "rd_managed_mix",
                     "rd_live_mix",
