@@ -67,3 +67,7 @@ The verification service is available for the future physical executor, but it
 is not wired into production runtime. Automatic execution remains disabled;
 the real bench path still requires a real operator, a valid
 `DISABLE_OUTPUT_ONLY` bench lease and explicit gate ARM.
+
+The first physical `DISABLE_OUTPUT` run was completed successfully and is
+recorded in `docs/V3_FIRST_PHYSICAL_DISABLE_EVIDENCE_2026-09-13.md`. The next
+setpoint-write gate remains separate and was not exercised by that run.
