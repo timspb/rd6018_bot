@@ -23,6 +23,8 @@ class ChargeView:
     timer_text: str = ""
     remaining_hold_seconds: float | None = None
     targets: Mapping[str, object] = field(default_factory=dict)
+    active_limits: Mapping[str, object] = field(default_factory=dict)
+    active_recipe: str | None = None
 
 
 @dataclass(frozen=True)
