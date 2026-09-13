@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from ..intent import ChargeIntent
@@ -19,14 +19,24 @@ class MixAuthorityState:
 
 
 @dataclass
+class MixCurrentContainmentState:
+    """State for the delayed CV-Mix current-setpoint containment."""
+
+    enabled: bool = False
+    activated_at: Optional[float] = None
+    fixed_limit: Optional[float] = None
+    last_recalculation: Optional[float] = None
+    reduction_count: int = 0
+
+
+@dataclass
 class MixExitRuntimeState:
     phase: str = "unarmed"
     observed_vmax: Optional[float] = None
     observed_imin: Optional[float] = None
     confirmation_count: int = 0
     hold_started_at: Optional[float] = None
-    containment_current_setpoint: Optional[float] = None
-    last_containment_update_at: Optional[float] = None
+    containment: MixCurrentContainmentState = field(default_factory=MixCurrentContainmentState)
 
 
 @dataclass(frozen=True)
@@ -193,18 +203,23 @@ class MixPolicy:
         elapsed = measurements.time - self.authority.started_at
         if elapsed < self.cv.config.containment_start_seconds:
             return intent
-        last = self.cv.state.last_containment_update_at
+        containment = self.cv.state.containment
+        last = containment.last_recalculation
         if last is not None and measurements.time - last < self.cv.config.containment_recalc_seconds:
-            if self.cv.state.containment_current_setpoint is None:
+            if containment.fixed_limit is None:
                 return intent
-            return self._with_current(intent, self.cv.state.containment_current_setpoint)
+            return self._with_current(intent, containment.fixed_limit)
 
         candidate = self.cv.state.observed_imin + self.cv.config.delta_current + self.cv.config.containment_headroom_a
         candidate = min(candidate, self.cv.config.target_current)
-        previous = self.cv.state.containment_current_setpoint
+        previous = containment.fixed_limit
         setpoint = candidate if previous is None else min(previous, candidate)
-        self.cv.state.containment_current_setpoint = setpoint
-        self.cv.state.last_containment_update_at = measurements.time
+        if previous is not None and setpoint < previous:
+            containment.reduction_count += 1
+        containment.enabled = True
+        containment.activated_at = containment.activated_at or measurements.time
+        containment.fixed_limit = setpoint
+        containment.last_recalculation = measurements.time
         return self._with_current(intent, setpoint)
 
     @staticmethod

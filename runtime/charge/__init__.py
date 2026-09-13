@@ -21,6 +21,8 @@ from .strategy import (
     MainPolicy, MainPolicyConfig, RecoveryPolicy, RecoveryPolicyConfig,
     MixPolicy, MixPolicyConfig, CCMixExitPolicy, CCMixExitConfig,
     CVMixExitPolicy, CVMixExitConfig, MixAuthorityState,
+    MixCurrentContainmentState, ResetProtectionIntent, post_mix_reset_intent,
+    emergency_stop_reset_intent, MixTemperatureDecision, MixTemperatureIntegrityPolicy,
 )
 from .service import ChargeRuntimeSnapshot, ChargeService
 from .contracts import (
@@ -72,4 +74,6 @@ __all__ = [
     "MainPolicy", "MainPolicyConfig", "RecoveryPolicy", "RecoveryPolicyConfig",
     "MixPolicy", "MixPolicyConfig", "CCMixExitPolicy", "CCMixExitConfig",
     "CVMixExitPolicy", "CVMixExitConfig", "MixAuthorityState",
+    "MixCurrentContainmentState", "ResetProtectionIntent", "post_mix_reset_intent",
+    "emergency_stop_reset_intent", "MixTemperatureDecision", "MixTemperatureIntegrityPolicy",
 ]
