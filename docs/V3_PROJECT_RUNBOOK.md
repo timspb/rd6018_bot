@@ -162,7 +162,20 @@ UI — read-only consumer ViewModel. Он показывает stage/phase, па
 форматирование не находится в charge engine. V1 UI не удалять и не менять без
 отдельной задачи.
 
-## 11. Следующие шаги
+## 11. Operator Application Interface
+
+Текущий PR добавляет изолированный application/presentation/telegram контракт:
+
+```text
+Telegram adapter -> OperatorInterface -> OperatorSnapshot -> declarative renderer
+```
+
+`OperatorSnapshot` и `PanelLayout` содержат только данные и декларативные действия.
+Они не содержат HA/RD/controller объектов. Старый V1/V2 UI и его callbacks пока
+остаются production-путём; их прямые связи перечислены в UI-аудите и устраняются
+только после parity-проверок.
+
+## 12. Следующие шаги
 
 1. Завершить независимую physical evidence-проверку ESP-direct.
 2. Устранить/задокументировать HA control/readback latency без обхода safety.
@@ -171,7 +184,7 @@ UI — read-only consumer ViewModel. Он показывает stage/phase, па
 5. Только после parity и bench gates — controlled charge bench.
 6. Production migration — отдельное решение после физического evidence.
 
-## 12. Запрещённые направления
+## 13. Запрещённые направления
 
 - bot direct hardware control;
 - параллельные несогласованные FSM;
