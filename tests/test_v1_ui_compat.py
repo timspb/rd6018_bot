@@ -113,6 +113,30 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
+    def test_filtered_idle_does_not_reconstruct_start_or_more(self):
+        current_state = state(
+            hmi.HmiProcessState.IDLE,
+            hmi.HmiAuthority.NONE,
+            output_on=False,
+        )
+        base = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [_button("⚡ Режимы заряда", "charge_modes")],
+                [_button("🔄 Обновить", "operator_refresh")],
+            ]
+        )
+        markup = compose_v1_operator_keyboard(FakeApp(), current_state, base, hmi)
+        cb = callbacks(markup)
+
+        self.assertIn("operator_refresh", cb)
+        self.assertIn("operator_details", cb)
+        self.assertIn("logs", cb)
+        self.assertIn("ai_analysis", cb)
+        self.assertNotIn("v2_batteries", cb)
+        self.assertNotIn("charge_modes", cb)
+        self.assertNotIn("operator_more", cb)
+        self.assertNotIn("power_toggle", cb)
+
     def test_running_keeps_v2_pause_stop_and_restores_v1_information_rows(self):
         _app, markup = self.compose(
             state(hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, output_on=True)
