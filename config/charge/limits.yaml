@@ -1,0 +1,12 @@
+# Единицы и базовые ограничения домена; конкретный рецепт может быть уже
+# уже более узким, но не может расширить эти пределы.
+# Units and base domain limits; a recipe may be narrower but cannot widen them.
+# Максимальное напряжение профиля, вольты
+# Profile maximum voltage, volts
+max_voltage_v: 18
+# Максимальный ток профиля, амперы
+# Profile maximum current, amperes
+max_current_a: 18
+# Максимальная температура корпуса, градусы Цельсия
+# Maximum device temperature, degrees Celsius
+max_temperature_c: 55

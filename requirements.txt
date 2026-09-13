@@ -3,4 +3,5 @@ aiohttp>=3.8
 aiosqlite>=0.19
 matplotlib>=3.7
 python-dotenv>=1.0
+PyYAML>=6.0
 pytz>=2023.3

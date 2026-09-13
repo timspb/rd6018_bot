@@ -1,0 +1,16 @@
+# Тип транспорта
+# Transport type
+type: esphome
+connection:
+  # Адрес ESPHome API
+  # ESPHome API address
+  host: 192.168.1.28
+  # Порт ESPHome native API, TCP
+  # ESPHome native API port, TCP
+  port: 6053
+  # API использует Noise-шифрование
+  # API uses Noise encryption
+  encrypted: true
+  # Имя переменной окружения с ключом шифрования
+  # Environment variable containing the encryption key
+  key_env: ESPHOME_API_KEY

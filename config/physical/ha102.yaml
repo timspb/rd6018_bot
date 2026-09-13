@@ -1,0 +1,16 @@
+# Тип транспорта
+# Transport type
+type: home_assistant
+connection:
+  # Адрес Home Assistant
+  # Home Assistant server address
+  host: 192.168.1.102
+  # Порт API Home Assistant, TCP
+  # Home Assistant API port, TCP
+  port: 8123
+  # Имя переменной окружения с API-токеном
+  # Environment variable containing the API token
+  token_env: HA_TOKEN
+  # Использовать TLS; фактический URL задаётся текущим deployment config
+  # Use TLS; the effective URL remains owned by deployment configuration
+  tls: false

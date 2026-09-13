@@ -1,0 +1,29 @@
+# Используемый физический транспорт по умолчанию
+# Default physical transport
+default_transport: ha102
+
+transports:
+  # Транспорт через Home Assistant
+  # Home Assistant transport
+  ha102:
+    # Разрешить выбор транспорта; это не включает физическое выполнение
+    # Enable selection; this does not enable physical execution
+    enabled: true
+    # Порядок предпочтения, без единиц измерения
+    # Selection priority, unitless
+    priority: 10
+    # Имя профиля подключения
+    # Connection profile name
+    profile: ha102
+  # Прямой ESPHome API транспорт
+  # Direct ESPHome API transport
+  esp128:
+    # Разрешить выбор транспорта; это не включает физическое выполнение
+    # Enable selection; this does not enable physical execution
+    enabled: true
+    # Порядок предпочтения, без единиц измерения
+    # Selection priority, unitless
+    priority: 20
+    # Имя профиля подключения
+    # Connection profile name
+    profile: esp128
