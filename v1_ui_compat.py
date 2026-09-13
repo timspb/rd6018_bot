@@ -82,16 +82,24 @@ def compose_v1_operator_keyboard(
     # Do not resurrect an action removed by a later V2 safety/authority filter. The
     # semantic IDLE surface normally carries both callbacks; requiring both makes a
     # partially filtered surface fail closed instead of reconstructing the missing one.
-    start_allowed = (
-        process_state is hmi.HmiProcessState.IDLE
-        and {"charge_modes", "v2_batteries"}.issubset(final_callbacks)
-    )
+    idle_authorized = {"charge_modes", "v2_batteries"}.issubset(final_callbacks)
+    start_allowed = process_state is hmi.HmiProcessState.IDLE and idle_authorized
+
+    # ``is_on=False`` is not sufficient evidence for IDLE because UNKNOWN/stale Output
+    # is intentionally rendered through some legacy boolean entrypoints as false. If a
+    # final V2 filter has removed either IDLE entry callback, treat the compatibility
+    # shell itself as containment: no START/Modes and no additive ``More`` surface.
+    shell_process_state = process_state
+    shell_authority = authority
+    if process_state is hmi.HmiProcessState.IDLE and not idle_authorized:
+        shell_process_state = hmi.HmiProcessState.CONTAINMENT
+        shell_authority = hmi.HmiAuthority.CONTAINMENT
 
     blocked = set(_SHELL_CALLBACKS)
-    if process_state is hmi.HmiProcessState.IDLE:
+    if shell_process_state is hmi.HmiProcessState.IDLE:
         blocked.update({"charge_modes", "v2_batteries"})
-    elif process_state is hmi.HmiProcessState.CONTAINMENT:
-        blocked.add("v2_batteries")
+    elif shell_process_state is hmi.HmiProcessState.CONTAINMENT:
+        blocked.update({"charge_modes", "v2_batteries"})
 
     stripped = _filter_callbacks(base, blocked)
     rows = [list(row) for row in stripped.inline_keyboard]
@@ -119,12 +127,12 @@ def compose_v1_operator_keyboard(
     # ``Ещё`` is the additive V2 extension to the familiar V1 shell. Keep it away
     # from ownership-special states where its submenu could advertise irrelevant or
     # stale ownership actions. Those states retain their dedicated semantic controls.
-    if process_state in {
+    if shell_process_state in {
         hmi.HmiProcessState.IDLE,
         hmi.HmiProcessState.RUNNING,
         hmi.HmiProcessState.PAUSED,
         hmi.HmiProcessState.STORAGE,
-    } and authority is not hmi.HmiAuthority.CONTAINMENT:
+    } and shell_authority is not hmi.HmiAuthority.CONTAINMENT:
         _append_row(
             rows,
             InlineKeyboardButton(text="🛠 Ещё", callback_data="operator_more"),
