@@ -1,13 +1,13 @@
 """Pure charge data and program contracts for the staged V3 migration."""
 
 from .battery import BatteryProfile
-from .chemistry import ChemistryProfile
+from .chemistry import ChemistryProfile, ProductionChemistry, map_production_chemistry
 from .engine import ChargeEngine
 from .intent import ChargeIntent
 from .limits import ChargeLimits
 from .measurements import Measurements
 from .program import ChargeProgram
-from .state import ChargeState
+from .state import ChargeState, DeltaRuntimeState
 from .adapters import LegacyChargeProgramAdapter
 from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 from .programs import ManualProgram, ManualTargets
@@ -32,6 +32,9 @@ __all__ = [
     "ChargeProgram",
     "ChargeState",
     "ChemistryProfile",
+    "ProductionChemistry",
+    "map_production_chemistry",
+    "DeltaRuntimeState",
     "LegacyChargeProgramAdapter",
     "Measurements",
     "ChargeDecisionShadow",
