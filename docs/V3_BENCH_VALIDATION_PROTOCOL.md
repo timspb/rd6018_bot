@@ -40,6 +40,11 @@ Required order:
 6. Record operator, timestamps, transport, before/after snapshots, readback and
    result.
 
+The physical sequence is always `V3 -> selected HA or ESPHome transport ->
+RD6018 command -> RD state change -> fresh readback confirmation`. HA102 and
+ESP128 are alternative paths to the RD, not a chained HA-then-ESP command
+sequence. No success is recorded from command delivery alone.
+
 This phase does not set voltage/current, enable Output, reset OVP/OCP or start
 the production runtime. HA control is `switch.rd_6018_output`; ESPHome control
 is object `output`. Their endpoint and entity mappings remain in
