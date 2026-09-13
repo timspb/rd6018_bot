@@ -145,3 +145,24 @@ after the fact. The repository runbook still contains an older blanket
 prohibition against node 101. For this run that restriction was superseded by
 the explicit project-owner authorization recorded above; this does not change
 the runbook's other safety requirements.
+
+## Post-run discovery
+
+### ESP-only reboot discovery
+
+Result: `BLOCKED_NO_APPROVED_ESP_ONLY_METHOD`.
+
+Read-only HA inventory found no RD6018/ESP restart or reboot entity. The
+ESPHome YAML/package tree contains no restart component or existing reboot
+service for this node. OTA/reflash remains prohibited and would not be a clean
+ESP-only reboot test. No reboot was performed.
+
+### Independent observer and network isolation discovery
+
+Result: `BLOCKED_NO_INDEPENDENT_OBSERVER` and
+`BLOCKED_NO_SAFE_NETWORK_ISOLATION`.
+
+Read-only HA inventory found no camera or independent external measurement
+entity. The node has only `eth0` for the relevant LAN path; its nftables input
+and output policies are `accept` and no approved reversible isolation rule or
+mechanism was found. No network outage was induced.
