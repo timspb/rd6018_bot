@@ -12,6 +12,13 @@ from .adapters import LegacyChargeProgramAdapter
 from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 from .programs import ManualProgram, ManualTargets
 from .programs import MinimumConfig, MinimumProgram
+from .contracts import (
+    ChargeDecisionCase,
+    DecisionMismatch,
+    DecisionValidationResult,
+    DecisionValidationStatus,
+    validate_case,
+)
 
 __all__ = [
     "BatteryProfile",
@@ -30,4 +37,9 @@ __all__ = [
     "ManualTargets",
     "MinimumConfig",
     "MinimumProgram",
+    "ChargeDecisionCase",
+    "DecisionMismatch",
+    "DecisionValidationResult",
+    "DecisionValidationStatus",
+    "validate_case",
 ]
