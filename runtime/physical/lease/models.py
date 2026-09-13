@@ -6,6 +6,7 @@ from enum import Enum
 
 class BenchLeaseScope(str, Enum):
     DISABLE_OUTPUT_ONLY = "DISABLE_OUTPUT_ONLY"
+    CONTROLLED_STATE_TRANSITION = "CONTROLLED_STATE_TRANSITION"
 
 
 class BenchLeaseStatus(str, Enum):

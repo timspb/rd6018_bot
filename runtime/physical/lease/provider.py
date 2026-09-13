@@ -24,7 +24,7 @@ class BenchLeaseProvider:
         if not operator:
             self.audit.record(lease_id=None, operator="", scope=str(scope), action="request", result="REJECTED", reason="operator_required")
             raise ValueError("operator is required")
-        if scope is not BenchLeaseScope.DISABLE_OUTPUT_ONLY:
+        if scope not in {BenchLeaseScope.DISABLE_OUTPUT_ONLY, BenchLeaseScope.CONTROLLED_STATE_TRANSITION}:
             self.audit.record(lease_id=None, operator=operator, scope=str(scope), action="request", result="REJECTED", reason="scope_not_allowed")
             raise ValueError("bench scope is not allowed")
         now = self.clock()

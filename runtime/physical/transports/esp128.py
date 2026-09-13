@@ -62,7 +62,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             except (TypeError, ValueError): return None
         output = value("output_state")
         output_state = None if output is None else bool(output) if isinstance(output, bool) else bool(float(output))
-        return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"))
+        return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
 
     async def disable_output(self) -> None:
         """The only physical write exposed in the first verified-off phase."""
@@ -73,7 +73,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.client.switch_command(int(entity.key), False, int(entity.device_id))
 
     async def get_capabilities(self):
-        return HardwareCapability(False, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, False, False, False, True, True, True)
+        return HardwareCapability(True, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, True, True, False, True, True, True)
 
     async def health_check(self):
         await self.discover()

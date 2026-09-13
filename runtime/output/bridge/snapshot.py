@@ -17,6 +17,7 @@ class HardwareSnapshot:
     ovp: float | None = None
     ocp: float | None = None
     temperature: float | None = None
+    battery_voltage: float | None = None
 
 
 @dataclass(frozen=True)

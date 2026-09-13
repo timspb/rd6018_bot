@@ -15,6 +15,12 @@ Run in order:
 4. `safe_parameter_write`: set voltage and current, with readback after each; never enable.
 5. `controlled_enable`: set V/I/OVP/OCP, read back, enable, and verify ON.
 
+For `controlled_enable`, the bench voltage is selected only after the pre-action
+snapshot: `Vset = measured battery voltage + configured voltage margin`. A
+fixed voltage below the observed battery voltage is invalid. OVP and OCP are
+then derived from the selected V/I setpoints using configured margins. The
+battery-voltage source and selected values must be recorded in evidence.
+
 Any missing safety precondition, stale/invalid readback, HARD_STOP, capability
 mismatch, or gate rejection is a fail-closed result. Every step records
 operator, command, expected/observed result, readback and notes. The final
@@ -49,3 +55,17 @@ This phase does not set voltage/current, enable Output, reset OVP/OCP or start
 the production runtime. HA control is `switch.rd_6018_output`; ESPHome control
 is object `output`. Their endpoint and entity mappings remain in
 `config/physical/ha102.yaml` and `config/physical/esp128.yaml`.
+
+## Controlled output transition: battery-aware bench sequence
+
+The `OFF -> ON -> OFF` bench scenario is allowed only after both connectors
+confirm `Output OFF`, zero measured current, fresh snapshots and a known
+battery voltage. The runner must calculate the test voltage from that snapshot
+and must reject a missing battery-voltage reading. It must then record the
+selected Vset, Iset, OVP and OCP before any enable action. Parameter readback
+is polled using the configured readback timeout/interval because HA/ESPHome
+state propagation is asynchronous. Output is enabled only after all four
+setpoints match, verified ON, and immediately disabled and verified OFF.
+The configured bench hold interval is used between the ON readback and the
+disable command, so the ON state is independently observable and the test does
+not collapse into an unmeasurably short pulse.

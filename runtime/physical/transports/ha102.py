@@ -50,7 +50,7 @@ class HA102Transport(ReadOnlyTransport):
                     state = float(normalized) != 0.0
                 except ValueError:
                     state = normalized not in {"off", "false", "no"}
-        return HardwareSnapshot(time.time(), "connected", output_state=state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"))
+        return HardwareSnapshot(time.time(), "connected", output_state=state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
 
     async def disable_output(self) -> None:
         """The only physical write exposed in the first verified-off phase."""
@@ -69,7 +69,7 @@ class HA102Transport(ReadOnlyTransport):
                 raise RuntimeError(f"HA disable failed: HTTP {response.status}")
 
     async def get_capabilities(self):
-        return HardwareCapability(False, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, False, False, False, True, True, True)
+        return HardwareCapability(True, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, True, True, False, True, True, True)
 
     async def health_check(self):
         await self._get(next(iter(self.config.entities.values())))

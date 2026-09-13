@@ -28,6 +28,7 @@ class ConfigBundle:
     safety: dict[str, Any]
     runtime: dict[str, Any]
     connectors: dict[str, dict[str, Any]] | None = None
+    bench: dict[str, Any] | None = None
 
 
 def _connection(data: dict[str, Any], label: str) -> ConnectionConfig:
@@ -53,4 +54,5 @@ def load_config(root: str | Path) -> ConfigBundle:
         transports, RDConfig(**rd_values), load_yaml(base / "charge" / "recipes.yaml"),
         load_yaml(base / "safety" / "safety_limits.yaml"), load_yaml(base / "runtime" / "runtime.yaml"),
         dict(load_yaml(base / "physical" / "connectors.yaml").get("connectors", {})),
+        load_yaml(base / "physical" / "bench.yaml"),
     )

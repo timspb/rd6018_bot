@@ -6,6 +6,8 @@ injected by a future bench-only integration and is never created here.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Protocol
@@ -228,11 +230,95 @@ class PhysicalBridgeExecutor:
                               actions=actions, readback={"before": before}, result="FAILED", error=str(exc))
             raise
 
+    async def execute_controlled_transition(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
+                                             lease: BenchExecutionLease | None, capability: HardwareCapability | None,
+                                             *, lease_provider: BenchLeaseProvider | None = None,
+                                             envelope: Any = None, parameters: dict[str, float],
+                                             tolerances: dict[str, float] | None = None,
+                                             readback_timeout_s: float = 5.0,
+                                             readback_poll_interval_s: float = 0.5,
+                                             on_hold_seconds: float = 0.0):
+        """Bench-only OFF->ON->OFF flow with parameter and state readback."""
+        if lease_provider is None or lease is None or not lease_provider.validate(lease, BenchLeaseScope.CONTROLLED_STATE_TRANSITION):
+            raise PhysicalExecutionError("valid bench lease is required")
+        if plan.intent.action is not OutputAction.ENABLE:
+            raise PhysicalExecutionError("controlled transition requires ENABLE plan")
+        validation = self.prepare(plan, safety, lease, capability, envelope)
+        if not validation.allowed:
+            raise PhysicalExecutionError(validation.reason + ":" + ",".join(validation.violations))
+        before = await self.transport.read_snapshot()
+        actions = ["before_snapshot"]
+        self.gate.begin(validation)
+        try:
+            for name, method in (("set_voltage", "set_voltage"), ("set_current", "set_current"),
+                                 ("set_ovp", "set_ovp"), ("set_ocp", "set_ocp")):
+                await getattr(self.transport, method)(parameters[name])
+                actions.append(name)
+                field = {"set_voltage": "voltage_setpoint", "set_current": "current_setpoint",
+                         "set_ovp": "ovp", "set_ocp": "ocp"}[name]
+                programmed = await _wait_for_setpoint(
+                    self.transport, field, parameters[name], tolerances or {},
+                    timeout_s=readback_timeout_s, poll_interval_s=readback_poll_interval_s,
+                )
+                if programmed is None:
+                    raise PhysicalExecutionError(f"{name} readback missing")
+            programmed = await self.transport.read_snapshot()
+            actions.append("readback_parameters")
+            expected = {"voltage_setpoint": parameters["set_voltage"], "current_setpoint": parameters["set_current"],
+                        "ovp": parameters["set_ovp"], "ocp": parameters["set_ocp"]}
+            tolerances = tolerances or {}
+            for field, value in expected.items():
+                actual = getattr(programmed, {"voltage_setpoint": "configured_voltage", "current_setpoint": "configured_current"}.get(field, field))
+                if actual is None or abs(float(actual) - value) > tolerances.get(field, 0.0):
+                    raise PhysicalExecutionError(f"{field} readback mismatch")
+            await self.transport.enable_output()
+            actions.append("enable_output")
+            on = await self.transport.read_snapshot()
+            actions.append("verify_on")
+            if on is None or on.output_state is not True:
+                raise PhysicalExecutionError("output ON was not confirmed")
+            if on_hold_seconds < 0:
+                raise PhysicalExecutionError("invalid ON hold configuration")
+            await asyncio.sleep(on_hold_seconds)
+            actions.append("on_hold")
+            await self.transport.disable_output()
+            actions.append("disable_output")
+            off = await self.transport.read_snapshot()
+            actions.append("verify_off")
+            if off is None or off.output_state is not False or off.measured_current is None or abs(float(off.measured_current)) > tolerances.get("measured_current", 0.0):
+                raise PhysicalExecutionError("output OFF and zero-current were not confirmed")
+            record = self.audit.record(plan, self.gate.operator or "unknown", self.gate.state.value,
+                                       actions=actions, readback={"before": before, "parameters": programmed, "on": on, "off": off}, result="EXECUTED")
+            self.gate.complete()
+            return record
+        except Exception as exc:
+            self.gate.fail()
+            self.audit.record(plan, self.gate.operator or "unknown", self.gate.state.value,
+                              actions=actions, readback={"before": before}, result="FAILED", error=str(exc))
+            raise
+
     def rollback(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
                  lease: ExecutionLeaseState | None, capability: HardwareCapability | None):
         disable_plan = build_disable_plan()
         return self.execute(disable_plan, safety, lease, capability)
 
+
+async def _wait_for_setpoint(transport: PhysicalBridgeTransport, field: str, expected: float,
+                             tolerances: dict[str, float], *, timeout_s: float,
+                             poll_interval_s: float):
+    if timeout_s < 0 or poll_interval_s <= 0:
+        raise PhysicalExecutionError("invalid readback polling configuration")
+    field_name = {"voltage_setpoint": "configured_voltage", "current_setpoint": "configured_current"}.get(field, field)
+    deadline = time.monotonic() + timeout_s
+    while True:
+        snapshot = await transport.read_snapshot()
+        actual = getattr(snapshot, field_name, None) if snapshot is not None else None
+        tolerance = tolerances.get(field)
+        if actual is not None and tolerance is not None and abs(float(actual) - expected) <= tolerance:
+            return snapshot
+        if time.monotonic() >= deadline:
+            return snapshot
+        await asyncio.sleep(poll_interval_s)
 
 def _readback_value(readback: Any, name: str) -> Any:
     return readback.get(name) if isinstance(readback, dict) else getattr(readback, name, None)

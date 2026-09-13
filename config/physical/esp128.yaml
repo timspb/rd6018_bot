@@ -19,9 +19,14 @@ connection:
 # ESPHome object names; firmware changes update only this mapping
 entities:
   control_output: output
+  control_voltage: output_voltage
+  control_current: output_current
+  control_ovp: over_voltage_protection
+  control_ocp: over_current_protection
   voltage: output_voltage
   current: output_current
   temperature: temperature
+  battery_voltage: battery_voltage
   output_state: output_state_code_v2
   configured_voltage: set_voltage_readback_v2
   configured_current: set_current_readback_v2
