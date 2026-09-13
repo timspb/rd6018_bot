@@ -10,6 +10,7 @@ from .program import ChargeProgram
 from .state import ChargeState
 from .adapters import LegacyChargeProgramAdapter
 from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
+from .programs import ManualProgram, ManualTargets
 
 __all__ = [
     "BatteryProfile",
@@ -24,4 +25,6 @@ __all__ = [
     "ChargeDecisionShadow",
     "ComparisonResult",
     "DecisionComparison",
+    "ManualProgram",
+    "ManualTargets",
 ]
