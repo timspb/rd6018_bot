@@ -986,7 +986,20 @@ class ChargeControllerV2(ChargeController):
                 f"{evidence}\nSticky finish-hold: 2ч."
             )
             actions["log_event"] = f"V2_FINISH_HOLD_START | {evidence}"
+            logger.info(
+                "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
+                self._delta_trigger_mode or "unknown",
+                MIX_DONE_TIMER,
+                timestamp_s,
+            )
         elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
+            if self.finish_timer_start is not None:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=delta event=hold_complete mode=%s hold_seconds=%.1f timestamp=%.3f",
+                    self._delta_trigger_mode or "unknown",
+                    max(0.0, timestamp_s - float(self.finish_timer_start)),
+                    timestamp_s,
+                )
             self._enter_safe_wait_done(
                 actions=actions,
                 now=timestamp_s,
@@ -997,6 +1010,11 @@ class ChargeControllerV2(ChargeController):
                 reason=decision.reason,
             )
         elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
+            logger.info(
+                "CHARGE_EVIDENCE kind=stop event=diagnose reason=%s owner=v2 timestamp=%.3f",
+                decision.reason,
+                timestamp_s,
+            )
             self._stop_and_diagnose(
                 actions=actions,
                 now=timestamp_s,
@@ -1077,6 +1095,26 @@ class ChargeControllerV2(ChargeController):
                     metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
                     stage_before,
                     self._v2_trace_session_id or "-",
+                )
+            if SignalEvent.VOLTAGE_MAXIMUM_UPDATED in record.analysis.events:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=maximum event=update mode=CC Vmax=%.3f timestamp=%.3f",
+                    metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
+                    timestamp_s,
+                )
+            if SignalEvent.CURRENT_REVERSAL_CONFIRMED in record.analysis.events:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=delta event=confirmation mode=CV Imin=%.3f delta=%.3f timestamp=%.3f",
+                    metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
+                    metrics.delta_current_from_min_a if metrics.delta_current_from_min_a is not None else float("nan"),
+                    timestamp_s,
+                )
+            if SignalEvent.VOLTAGE_REVERSAL_CONFIRMED in record.analysis.events:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=delta event=confirmation mode=CC Vmax=%.3f delta=%.3f timestamp=%.3f",
+                    metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
+                    metrics.delta_voltage_from_max_v if metrics.delta_voltage_from_max_v is not None else float("nan"),
+                    timestamp_s,
                 )
             analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
             mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)

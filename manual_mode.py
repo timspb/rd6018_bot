@@ -423,6 +423,11 @@ class ManualSessionManager:
             return None
         if self._imin is None or current < self._imin:
             self._imin = current
+            logger.info(
+                "MANUAL_EVIDENCE kind=minimum event=update mode=CV value=%.3f timestamp=%.3f",
+                current,
+                time.time(),
+            )
         if current <= float(self.main_tail_current_threshold_a):
             return "manual_main_cv_imin"
         return None
