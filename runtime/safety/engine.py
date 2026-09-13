@@ -53,6 +53,7 @@ class SafetyDecision:
     reason: str
     violations: tuple[SafetyViolation, ...] = ()
     limits_applied: Mapping[str, float] = field(default_factory=dict)
+    intent: ChargeIntent | None = None
 
     @property
     def accepted(self) -> bool:
@@ -75,8 +76,8 @@ class SafetyEngine:
         if violations:
             return self._reject(violations[0], tuple(violations))
         if intent.completed and intent.target_voltage is None and intent.target_current is None:
-            return self._accept("COMPLETED_INTENT")
-        return self._accept("ACCEPTED")
+            return self._accept("COMPLETED_INTENT", intent)
+        return self._accept("ACCEPTED", intent)
 
     def _context_violation(self, measurements: Measurements, state: SafetyContext) -> SafetyViolation | None:
         if not state.telemetry_valid:
@@ -124,8 +125,8 @@ class SafetyEngine:
             violations.append(SafetyViolation("recipe", "battery profile has no validated recipe"))
         return violations
 
-    def _accept(self, reason: str) -> SafetyDecision:
-        return SafetyDecision(True, reason, (), self._limits())
+    def _accept(self, reason: str, intent: ChargeIntent) -> SafetyDecision:
+        return SafetyDecision(True, reason, (), self._limits(), intent)
 
     def _reject(self, first: SafetyViolation, violations: tuple[SafetyViolation, ...] = ()) -> SafetyDecision:
         reasons = {
