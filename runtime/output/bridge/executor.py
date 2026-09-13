@@ -39,6 +39,10 @@ class PhysicalBridgeTransport(Protocol):
 
     def readback(self) -> Any: ...
 
+    async def disable_output(self) -> None: ...
+
+    async def read_snapshot(self) -> Any: ...
+
 
 @dataclass(frozen=True)
 class GateValidation:
@@ -186,6 +190,38 @@ class PhysicalBridgeExecutor:
             plan, self.gate.operator or "unknown", self.gate.state.value,
             actions=("verify_readback",), readback=readback, result="VERIFIED",
         )
+
+    async def execute_verified_disable(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
+                                       lease: ExecutionLeaseState | None, capability: HardwareCapability | None,
+                                       envelope: Any = None):
+        """Execute only the verified-off plan on an async read/write transport."""
+        if plan.intent.action is not OutputAction.DISABLE:
+            raise PhysicalExecutionError("verified-disable executor accepts DISABLE_OUTPUT only")
+        validation = self.prepare(plan, safety, lease, capability, envelope)
+        if not validation.allowed:
+            raise PhysicalExecutionError(validation.reason + ":" + ",".join(validation.violations))
+        before = await self.transport.read_snapshot()
+        self.gate.begin(validation)
+        actions = ["before_snapshot"]
+        try:
+            await self.transport.disable_output()
+            actions.append("disable_output")
+            after = await self.transport.read_snapshot()
+            actions.extend(("read_output_state", "verify_off", "verify_current"))
+            if after is None or getattr(after, "output_state", None) is not False:
+                raise PhysicalExecutionError("output OFF was not confirmed")
+            current = getattr(after, "measured_current", None)
+            if current is None or abs(float(current)) > 0.01:
+                raise PhysicalExecutionError("zero-current readback was not confirmed")
+            record = self.audit.record(plan, self.gate.operator or "unknown", self.gate.state.value,
+                                       actions=actions, readback={"before": before, "after": after}, result="EXECUTED")
+            self.gate.complete()
+            return record
+        except Exception as exc:
+            self.gate.fail()
+            self.audit.record(plan, self.gate.operator or "unknown", self.gate.state.value,
+                              actions=actions, readback={"before": before}, result="FAILED", error=str(exc))
+            raise
 
     def rollback(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
                  lease: ExecutionLeaseState | None, capability: HardwareCapability | None):

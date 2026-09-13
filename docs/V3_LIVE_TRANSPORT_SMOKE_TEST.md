@@ -6,8 +6,9 @@ and health check, then closes both connections and records
 `PhysicalSnapshotEvidence`.
 
 No executor, gate arm, service call, Output command, setpoint write or reset
-method is reachable from this runner. A run is valid only when both snapshots
-are connected and the comparison is not `INCONCLUSIVE`; small numeric
+method is reachable from this runner; the runner is strictly read-only. A run
+is valid only when both snapshots are connected and the comparison is not
+`INCONCLUSIVE`; small numeric
 differences are accepted using the configured tolerances in
 `config/runtime/runtime.yaml`. Timestamp freshness is also part of comparison.
 

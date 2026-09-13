@@ -18,6 +18,7 @@ connection:
 # Канонические read-only сущности RD6018 в HA
 # Canonical RD6018 read-only entities in HA
 entities:
+  control_output: switch.rd_6018_output
   voltage: sensor.rd_6018_output_voltage
   current: sensor.rd_6018_output_current
   temperature: sensor.rd6018_rd_6018_temperature_internal_v2

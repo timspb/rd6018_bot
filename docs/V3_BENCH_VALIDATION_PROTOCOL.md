@@ -21,3 +21,26 @@ operator, command, expected/observed result, readback and notes. The final
 controlled-enable scenario is not an automatic charge test and must not be
 connected to scheduler, Telegram, HA, or production runtime.
 
+## First physical write: verified OFF only
+
+The first write-capable run is restricted to `DISABLE_OUTPUT`. It must use the
+manual `PhysicalExecutionGate` and an active real bench lease. The runner must
+not synthesize a lease or safety evidence. `PhysicalExecutionConfig.enabled`
+remains `false` by default; enabling it for a bench run is an explicit,
+operator-local action and is not a production configuration change.
+
+Required order:
+
+1. Read and record a pre-snapshot.
+2. Pass Safety preflight, envelope validation, capability check and manual
+   ARM.
+3. Send exactly one `DISABLE_OUTPUT` through the selected transport.
+4. Read a fresh post-snapshot.
+5. Pass only when `output_state == OFF` and `measured_current == 0`.
+6. Record operator, timestamps, transport, before/after snapshots, readback and
+   result.
+
+This phase does not set voltage/current, enable Output, reset OVP/OCP or start
+the production runtime. HA control is `switch.rd_6018_output`; ESPHome control
+is object `output`. Their endpoint and entity mappings remain in
+`config/physical/ha102.yaml` and `config/physical/esp128.yaml`.

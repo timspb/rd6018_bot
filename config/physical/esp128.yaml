@@ -18,6 +18,7 @@ connection:
 # Имена объектов ESPHome; при изменении прошивки обновляется только этот mapping
 # ESPHome object names; firmware changes update only this mapping
 entities:
+  control_output: output
   voltage: output_voltage
   current: output_current
   temperature: temperature
