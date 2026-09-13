@@ -50,15 +50,23 @@ class AutonomousRuntimeCompositionTests(unittest.IsolatedAsyncioTestCase):
         self.manager._edge_autonomous = True
         ensure_off = AsyncMock(return_value=True)
         disarm = AsyncMock(return_value=None)
+        dashboard = AsyncMock(return_value=612)
         telegram_calls = []
 
         async def fake_telegram_api(_bot, method, *args, **kwargs):
             del args, kwargs
-            telegram_calls.append(type(method).__name__)
+            telegram_calls.append(
+                (
+                    type(method).__name__,
+                    str(getattr(method, "text", "") or ""),
+                    bool(getattr(method, "show_alert", False)),
+                )
+            )
             return True
 
         with (
             patch.object(app, "_check_chat_and_respond", new=AsyncMock(return_value=True)),
+            patch.object(app, "_build_and_send_dashboard", new=dashboard),
             patch.object(self.manager.guard, "_ensure_output_off", new=ensure_off),
             patch.object(self.manager.guard, "_disarm_edge_lease_best_effort", new=disarm),
             patch.object(Bot, "__call__", new=fake_telegram_api),
@@ -70,30 +78,37 @@ class AutonomousRuntimeCompositionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ensure_off.await_count, 0)
         self.assertEqual(disarm.await_count, 0)
-        self.assertIn("AnswerCallbackQuery", telegram_calls)
+        self.assertTrue(
+            any(
+                name == "AnswerCallbackQuery"
+                and "AUTONOMOUS" in text
+                and show_alert
+                for name, text, show_alert in telegram_calls
+            ),
+            telegram_calls,
+        )
 
     async def test_autonomous_ha_outage_does_not_invoke_pb_hard_stop(self):
         """Exercise the composed app watchdog boundary under explicit AUTONOMOUS."""
-        self.manager.mode = RdControlMode.HANDS_OFF
+        # Deliberately leave the persisted software mode looking managed. The explicit
+        # edge AUTONOMOUS bit alone must revoke the legacy Pb watchdog's actuator authority.
+        self.manager.mode = RdControlMode.PB_MANAGED
         self.manager._edge_autonomous = True
         incident = SoftWatchdogIncident(active=True, logged=True, last_attempt_at=1.0)
         hard_stop = AsyncMock()
         old_last_ok = app.last_ha_ok_time
         old_timeout = app.SOFT_WATCHDOG_TIMEOUT
-        old_controller_active = bool(app.charge_controller.is_active)
-        old_last_known = bool(getattr(app.charge_controller, "_last_known_output_on", False))
+        old_startup = app.rd_startup_authority_gate
         try:
             app.last_ha_ok_time = 100.0
             app.SOFT_WATCHDOG_TIMEOUT = 180.0
-            app.charge_controller.is_active = True
-            app.charge_controller._last_known_output_on = True
+            app.rd_startup_authority_gate = None
             with patch.object(app, "_hard_stop_charge", new=hard_stop):
                 await soft_watchdog_poll_once(app, incident, now=700.0)
         finally:
             app.last_ha_ok_time = old_last_ok
             app.SOFT_WATCHDOG_TIMEOUT = old_timeout
-            app.charge_controller.is_active = old_controller_active
-            app.charge_controller._last_known_output_on = old_last_known
+            app.rd_startup_authority_gate = old_startup
 
         self.assertEqual(hard_stop.await_count, 0)
         self.assertFalse(incident.active)
