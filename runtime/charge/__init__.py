@@ -7,6 +7,7 @@ from .intent import ChargeIntent
 from .limits import ChargeLimits
 from .measurements import Measurements
 from .post import FinishIntent
+from .profiles import RecipeDTO, ValidatedChargeRecipe, RecipeRegistry, ChargeRecipeValidator
 from .program import ChargeProgram
 from .state import ChargeState, DeltaRuntimeState
 from .adapters import LegacyChargeProgramAdapter
@@ -45,6 +46,7 @@ __all__ = [
     "LegacyChargeProgramAdapter",
     "Measurements",
     "FinishIntent",
+    "RecipeDTO", "ValidatedChargeRecipe", "RecipeRegistry", "ChargeRecipeValidator",
     "ChargeDecisionShadow",
     "ComparisonResult",
     "DecisionComparison",

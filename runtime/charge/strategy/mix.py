@@ -38,11 +38,12 @@ class CCMixExitConfig:
     active_stage: str = "mix"
     hold_stage: str = "mix_hold"
     completed_stage: str = "done"
+    confirmation_interval_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if min(self.vmax_voltage, self.delta_voltage, self.target_voltage, self.target_current) <= 0:
             raise ValueError("CC Mix recipe values must be positive")
-        if self.confirmations_required <= 0 or self.hold_seconds < 0:
+        if self.confirmations_required <= 0 or self.hold_seconds < 0 or self.confirmation_interval_seconds < 0:
             raise ValueError("CC Mix timing configuration is invalid")
 
 
@@ -57,11 +58,12 @@ class CVMixExitConfig:
     active_stage: str = "mix"
     hold_stage: str = "mix_hold"
     completed_stage: str = "done"
+    confirmation_interval_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if min(self.imin_current, self.delta_current, self.target_voltage, self.target_current) <= 0:
             raise ValueError("CV Mix recipe values must be positive")
-        if self.confirmations_required <= 0 or self.hold_seconds < 0:
+        if self.confirmations_required <= 0 or self.hold_seconds < 0 or self.confirmation_interval_seconds < 0:
             raise ValueError("CV Mix timing configuration is invalid")
 
 

@@ -17,6 +17,7 @@ class RecoveryPolicyConfig:
     attempt_budget: int
     recovery_voltage: float
     recovery_current: float
+    recovery_seconds: float = 0.0
     recovery_stage: str = "recovery"
     main_stage: str = "main"
     mix_stage: str = "mix"
@@ -24,7 +25,7 @@ class RecoveryPolicyConfig:
     exhausted_action: str = "mix"
 
     def __post_init__(self) -> None:
-        if self.attempt_budget < 0 or self.recovery_voltage <= 0 or self.recovery_current <= 0:
+        if self.attempt_budget < 0 or self.recovery_voltage <= 0 or self.recovery_current <= 0 or self.recovery_seconds < 0:
             raise ValueError("recovery recipe is invalid")
         if self.exhausted_action not in {"mix", "remain_main"}:
             raise ValueError("recovery exhausted_action must be mix or remain_main")
