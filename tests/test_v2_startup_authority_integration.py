@@ -7,6 +7,11 @@ from rd_startup_authority import RdStartupAuthorityGate
 
 
 class _FakeController:
+    STAGE_MAIN = "Main Charge"
+    STAGE_SAFE_WAIT = "Безопасное ожидание"
+    STAGE_DONE = "Done"
+    STAGE_COOLING = "🌡 Остывание"
+
     def __init__(self, restored_event):
         self.is_active = False
         self.current_stage = "Idle"
@@ -20,24 +25,29 @@ class _FakeController:
 
     def try_restore_session(self, *args, **kwargs):
         self.restore_calls.append((args, kwargs))
-        self.current_stage = "Main Charge"
+        self.current_stage = self.STAGE_MAIN
         self.is_active = True
         self._restored_event.set()
         return True, "restored"
 
+    def _get_target_v_i(self, _temp_ext):
+        return 14.8, 2.0
+
 
 class _FakeHass:
-    def __init__(self):
+    def __init__(self, *, turn_on_results=None):
         self.get_all_calls = 0
         self.turn_on_calls = 0
         self.turn_off_calls = 0
         self.write_calls = 0
+        self.turn_on_results = list(turn_on_results or [True])
         self.live = {
             "autonomous_mode": "off",
             "switch": "off",
             "battery_voltage": 12.5,
             "current": 0.0,
             "ah": 4.2,
+            "temp_ext": 25.0,
             "is_cv": "off",
             "is_cc": "off",
         }
@@ -48,10 +58,14 @@ class _FakeHass:
 
     async def turn_on(self, entity_id=None):
         self.turn_on_calls += 1
-        return True
+        result = self.turn_on_results.pop(0) if self.turn_on_results else True
+        if result:
+            self.live["switch"] = "on"
+        return result
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
+        self.live["switch"] = "off"
         return True
 
     async def set_voltage(self, value):
@@ -120,6 +134,27 @@ class _FakePhysicalControl:
 
 
 class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _fake_legacy(hass, controller):
+        async def apply_phase_protection(uv, ui):
+            await hass.set_ovp(float(uv) + 0.1)
+            await hass.set_ocp(float(ui) + 0.1)
+
+        return types.SimpleNamespace(
+            hass=hass,
+            charge_controller=controller,
+            _safe_float=lambda value, default=0.0: float(value if value is not None else default),
+            _apply_restore_time_corrections=lambda _controller, _live: None,
+            _restore_allows_auto_enable=lambda ctrl: ctrl.current_stage not in {ctrl.STAGE_DONE, ctrl.STAGE_COOLING},
+            _operator_pause_active=lambda: False,
+            _apply_phase_protection=apply_phase_protection,
+            _cap_current=lambda value: float(value),
+            ENTITY_MAP={"switch": "switch.output"},
+            last_checkpoint_time=0.0,
+            time=types.SimpleNamespace(time=lambda: 1234.0),
+            logger=types.SimpleNamespace(info=lambda *args, **kwargs: None),
+        )
+
     async def test_real_entrypoint_replays_legacy_restore_race_once_after_managed_recovery(self):
         """Exercise the actual bot.py main orchestration, not only a source contract."""
         shim = bot.main.__globals__
@@ -129,15 +164,7 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         controller = _FakeController(restored)
         guard = _BlockingGuard(hass, allow_edge_read)
         manager = _FakeManager(guard)
-        fake_legacy = types.SimpleNamespace(
-            hass=hass,
-            charge_controller=controller,
-            _safe_float=lambda value, default=0.0: float(value if value is not None else default),
-            _apply_restore_time_corrections=lambda _controller, _live: None,
-            last_checkpoint_time=0.0,
-            time=types.SimpleNamespace(time=lambda: 1234.0),
-            logger=types.SimpleNamespace(info=lambda *args, **kwargs: None),
-        )
+        fake_legacy = self._fake_legacy(hass, controller)
         gate = RdStartupAuthorityGate(fake_legacy, manager)
         physical = _FakePhysicalControl()
         recovery_calls = 0
@@ -168,7 +195,7 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
             allow_edge_read.set()
             await asyncio.wait_for(restored.wait(), timeout=1.0)
-            for _ in range(10):
+            for _ in range(20):
                 if not gate.deferred_restore_requested:
                     break
                 await asyncio.sleep(0)
@@ -196,12 +223,38 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["output_is_on"], False)
         self.assertTrue(gate.managed_actuation_ready)
         self.assertEqual(hass.get_all_calls, 1)
-        self.assertEqual(hass.turn_on_calls, 0)
+        self.assertEqual(hass.turn_on_calls, 1)
         self.assertEqual(hass.turn_off_calls, 0)
-        self.assertEqual(hass.write_calls, 0)
+        self.assertEqual(hass.write_calls, 4)
+        self.assertEqual(hass.live["switch"], "on")
         self.assertEqual(fake_legacy.last_checkpoint_time, 1234.0)
         self.assertEqual(physical.starts, 1)
         self.assertEqual(physical.stops, 1)
+
+    async def test_failed_physical_resume_retries_without_restoring_session_twice(self):
+        """Retry only physical convergence after software restore has already succeeded."""
+        shim = bot.main.__globals__
+        restored = asyncio.Event()
+        hass = _FakeHass(turn_on_results=[False, True])
+        controller = _FakeController(restored)
+        fake_legacy = self._fake_legacy(hass, controller)
+        original_legacy = shim["_legacy"]
+        try:
+            shim["_legacy"] = fake_legacy
+            with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
+                await shim["_replay_deferred_startup_restore"]()
+
+            self.assertTrue(controller.is_active)
+            self.assertEqual(len(controller.restore_calls), 1)
+            self.assertEqual(hass.live["switch"], "off")
+
+            await shim["_replay_deferred_startup_restore"]()
+        finally:
+            shim["_legacy"] = original_legacy
+
+        self.assertEqual(len(controller.restore_calls), 1)
+        self.assertEqual(hass.turn_on_calls, 2)
+        self.assertEqual(hass.live["switch"], "on")
 
 
 if __name__ == "__main__":
