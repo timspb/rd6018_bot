@@ -36,6 +36,7 @@ class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
                 ah=20.0,
                 output_is_on=True,
                 manual_off_active=False,
+                manual_active=False,
                 is_cc=False,
             )
 

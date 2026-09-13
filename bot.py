@@ -47,7 +47,10 @@ from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
 from rd_ownership_recovery import install_rd_ownership_recovery
-from rd_startup_authority import install_rd_startup_authority_gate
+from rd_startup_authority import (
+    install_rd_startup_authority_gate,
+    reconcile_startup_authority,
+)
 from soft_watchdog_containment import install_soft_watchdog_containment
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
@@ -242,16 +245,55 @@ async def _recover_managed_startup_authority() -> bool:
     return True
 
 
+async def _replay_deferred_startup_restore() -> None:
+    """Restore controller state once MANAGED startup authority is proven.
+
+    The legacy startup path may have reached try_restore_session while edge authority
+    was still UNKNOWN. At this point the gate is open only for explicit MANAGED state.
+    Re-read live telemetry so the delayed restore never reuses the stale startup sample.
+    This function intentionally performs no actuator write: the normal data_logger/tick
+    path realizes the restored controller state using its own fresh safety envelope.
+    """
+
+    controller = _legacy.charge_controller
+    if bool(getattr(controller, "is_active", False)):
+        return
+
+    live = await _legacy.hass.get_all_live()
+    ok, _msg = controller.try_restore_session(
+        _legacy._safe_float(live.get("battery_voltage")),
+        _legacy._safe_float(live.get("current")),
+        _legacy._safe_float(live.get("ah")),
+        output_is_on=(str(live.get("switch", "")).lower() == "on"),
+        is_cv=str(live.get("is_cv", "")).lower() == "on",
+        is_cc=str(live.get("is_cc", "")).lower() == "on",
+    )
+    if not ok:
+        return
+
+    _legacy._apply_restore_time_corrections(controller, live)
+    _legacy.last_checkpoint_time = _legacy.time.time()
+    _legacy.logger.info(
+        "Deferred startup session state restored after MANAGED authority reconciliation: %s",
+        controller.current_stage,
+    )
+
+
 async def main() -> None:
     await init_v2_storage()
 
     # Reconciliation runs alongside the transport/UI runtime, but the outer startup
     # gate keeps every ordinary actuator and start/adoption path closed until this task
-    # returns managed. If the edge is AUTONOMOUS it returns without managed recovery;
-    # if edge authority is temporarily unavailable it retries read-only. A recovery
-    # failure remains blocked and is not looped into an OFF/alarm storm.
+    # returns MANAGED. Unknown edge authority retries read-only. Failed durable managed
+    # containment is retried at a throttled cadence while remaining fail-closed. If the
+    # legacy startup restore raced the gate, its intent is replayed once with fresh live
+    # telemetry after MANAGED recovery; AUTONOMOUS startup discards that intent.
     authority_task = asyncio.create_task(
-        _rd_startup_authority.reconcile(_recover_managed_startup_authority),
+        reconcile_startup_authority(
+            _rd_startup_authority,
+            _recover_managed_startup_authority,
+            _replay_deferred_startup_restore,
+        ),
         name="rd6018-startup-authority-reconciliation",
     )
 

@@ -30,6 +30,8 @@ class RdStartupAuthorityGate:
         self.reconciliation_complete = False
         self.managed_recovery_complete = False
         self.reconciliation_error = ""
+        self.deferred_restore_error = ""
+        self._deferred_restore_requested = False
         self._recovery_scope: contextvars.ContextVar[bool] = contextvars.ContextVar(
             "rd_startup_recovery_scope", default=False
         )
@@ -63,6 +65,10 @@ class RdStartupAuthorityGate:
         return bool(self._recovery_scope.get())
 
     @property
+    def deferred_restore_requested(self) -> bool:
+        return bool(self._deferred_restore_requested)
+
+    @property
     def nonautonomous_ready(self) -> bool:
         return bool(self.reconciliation_complete and self.managed_recovery_complete and self.candidate_autonomous is False)
 
@@ -78,6 +84,17 @@ class RdStartupAuthorityGate:
         else:
             state = "edge authority unresolved"
         return RuntimeSafetyError(f"{state}: bot {action} is blocked")
+
+    def take_deferred_restore_request(self) -> bool:
+        requested = bool(self._deferred_restore_requested)
+        self._deferred_restore_requested = False
+        if requested:
+            self.deferred_restore_error = ""
+        return requested
+
+    def discard_deferred_restore_request(self) -> None:
+        self._deferred_restore_requested = False
+        self.deferred_restore_error = ""
 
     def _install_hass_gate(self) -> None:
         hass = self.app.hass
@@ -140,6 +157,10 @@ class RdStartupAuthorityGate:
             original_restore = controller.try_restore_session
             def restore(*args: Any, **kwargs: Any) -> Any:
                 if not self.managed_actuation_ready:
+                    # Legacy startup is synchronous here while edge reconciliation is
+                    # asynchronous. Preserve only the restore intent until MANAGED is
+                    # proven; never mutate controller state under UNKNOWN/AUTONOMOUS.
+                    self._deferred_restore_requested = True
                     return False, None
                 return original_restore(*args, **kwargs)
             controller.try_restore_session = restore
@@ -201,6 +222,8 @@ class RdStartupAuthorityGate:
         self.managed_recovery_complete = False
         self.reconciliation_error = ""
         self.manager._edge_autonomous = True
+        # Never revive a managed session observed before an AUTONOMOUS startup.
+        self.discard_deferred_restore_request()
 
     def mark_managed_recovered(self) -> None:
         self.candidate_autonomous = False
@@ -209,9 +232,16 @@ class RdStartupAuthorityGate:
         self.reconciliation_error = ""
         self.manager._edge_autonomous = False
 
-    async def reconcile(self, recover: Callable[[], Awaitable[bool]], *, retry_s: float = 5.0) -> str:
+    async def reconcile(
+        self,
+        recover: Callable[[], Awaitable[bool]],
+        *,
+        retry_s: float = 5.0,
+        recovery_retry_s: float = 30.0,
+    ) -> str:
         self.reconciliation_started = True
         delay = max(1.0, float(retry_s))
+        managed_retry_delay = max(delay, float(recovery_retry_s))
         self.hold_unresolved()
         while True:
             try:
@@ -233,22 +263,69 @@ class RdStartupAuthorityGate:
                 return "autonomous"
             self.candidate_autonomous = False
             token = self._recovery_scope.set(True)
+            recovery_exception: Optional[Exception] = None
             try:
                 recovered = bool(await recover())
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.reconciliation_error = f"managed startup recovery failed: {type(exc).__name__}: {exc}"
-                self.reconciliation_complete = False
-                return "blocked"
+                recovered = False
+                recovery_exception = exc
             finally:
                 self._recovery_scope.reset(token)
+            if recovery_exception is not None:
+                self.reconciliation_error = (
+                    "managed startup recovery failed: "
+                    f"{type(recovery_exception).__name__}: {recovery_exception}"
+                )
+                self.reconciliation_complete = False
+                self.managed_recovery_complete = False
+                await asyncio.sleep(managed_retry_delay)
+                continue
             if not recovered:
                 self.reconciliation_error = "managed startup recovery did not prove containment"
                 self.reconciliation_complete = False
-                return "blocked"
+                self.managed_recovery_complete = False
+                await asyncio.sleep(managed_retry_delay)
+                continue
             self.mark_managed_recovered()
             return "managed"
+
+
+async def reconcile_startup_authority(
+    gate: RdStartupAuthorityGate,
+    recover: Callable[[], Awaitable[bool]],
+    replay_deferred_restore: Callable[[], Awaitable[None]],
+    *,
+    retry_s: float = 5.0,
+    recovery_retry_s: float = 30.0,
+) -> str:
+    """Resolve authority, then replay one legacy startup restore with fresh evidence."""
+    result = await gate.reconcile(
+        recover,
+        retry_s=retry_s,
+        recovery_retry_s=recovery_retry_s,
+    )
+    if result != "managed" or not gate.deferred_restore_requested:
+        return result
+
+    replay_delay = max(1.0, float(retry_s))
+    while gate.deferred_restore_requested:
+        if not gate.managed_actuation_ready:
+            gate.discard_deferred_restore_request()
+            return result
+        try:
+            await replay_deferred_restore()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            gate.deferred_restore_error = (
+                f"deferred startup restore replay failed: {type(exc).__name__}: {exc}"
+            )
+            await asyncio.sleep(replay_delay)
+            continue
+        gate.take_deferred_restore_request()
+    return result
 
 
 def install_rd_startup_authority_gate(app: Any, manager: Any) -> RdStartupAuthorityGate:
