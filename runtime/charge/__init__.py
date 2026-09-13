@@ -19,6 +19,7 @@ from .contracts import (
     DecisionValidationStatus,
     validate_case,
 )
+from .contracts import DELTA_TRANSITIONS, DeltaDecisionCase, DeltaState, delta_cases
 
 __all__ = [
     "BatteryProfile",
@@ -38,8 +39,12 @@ __all__ = [
     "MinimumConfig",
     "MinimumProgram",
     "ChargeDecisionCase",
+    "DELTA_TRANSITIONS",
+    "DeltaDecisionCase",
+    "DeltaState",
     "DecisionMismatch",
     "DecisionValidationResult",
     "DecisionValidationStatus",
+    "delta_cases",
     "validate_case",
 ]
