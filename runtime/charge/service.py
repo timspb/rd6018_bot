@@ -11,6 +11,7 @@ from .intent import ChargeIntent
 from .measurements import Measurements
 from .registry import ProgramRegistry
 from .state import ChargeState
+from .strategy import ChargeStrategy, StrategyRuntimeState
 
 
 @dataclass(frozen=True)
@@ -36,15 +37,15 @@ class ChargeService:
         state: ChargeState,
         measurements: Measurements,
     ) -> ChargeRuntimeSnapshot:
-        engine = ChargeEngine(
-            battery,
-            registry=self.registry,
-            program_name=program_name,
-            program_config=program_config,
-        )
+        if battery.recipe is not None:
+            if not isinstance(program_config, StrategyRuntimeState):
+                raise TypeError("recipe-backed ChargeService requires StrategyRuntimeState")
+            engine = ChargeEngine(battery, strategy=ChargeStrategy(battery, battery.recipe))
+        else:
+            engine = ChargeEngine(battery, registry=self.registry, program_name=program_name, program_config=program_config)
         return ChargeRuntimeSnapshot(
             active_program=program_name.strip().lower(),
             battery_profile=battery,
-            intent=engine.evaluate(state, measurements),
+            intent=engine.evaluate(program_config if battery.recipe is not None else state, measurements),
             timestamp=self.clock(),
         )

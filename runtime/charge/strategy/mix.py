@@ -10,6 +10,15 @@ from ..measurements import Measurements
 
 
 @dataclass
+class MixAuthorityState:
+    active_seconds: float = 0.0
+    session_id: str | None = None
+    exhausted: bool = False
+    started_at: float | None = None
+    last_timestamp: float | None = None
+
+
+@dataclass
 class MixExitRuntimeState:
     phase: str = "unarmed"
     observed_vmax: Optional[float] = None
@@ -125,6 +134,7 @@ class MixPolicyConfig:
     active_authority_seconds: float
     cc: CCMixExitConfig
     cv: CVMixExitConfig
+    session_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.active_authority_seconds < 0:
@@ -132,14 +142,28 @@ class MixPolicyConfig:
 
 
 class MixPolicy:
-    def __init__(self, config: MixPolicyConfig) -> None:
+    def __init__(self, config: MixPolicyConfig, authority: MixAuthorityState | None = None) -> None:
         self.config = config
         self.cc = CCMixExitPolicy(config.cc)
         self.cv = CVMixExitPolicy(config.cv)
+        self.authority = authority or MixAuthorityState(session_id=config.session_id)
 
     def evaluate(self, mode: str, measurements: Measurements) -> ChargeIntent:
+        self._account_authority(measurements)
+        if self.authority.exhausted:
+            return ChargeIntent(None, None, "stopped", True, "MIX_TIMEOUT")
         if mode == "CC":
             return self.cc.evaluate(measurements)
         if mode == "CV":
             return self.cv.evaluate(measurements)
         raise ValueError("Mix mode must be CC or CV")
+
+    def _account_authority(self, measurements: Measurements) -> None:
+        if self.authority.started_at is None and measurements.time is not None:
+            self.authority.started_at = measurements.time
+            self.authority.last_timestamp = measurements.time
+        elif measurements.time is not None and self.authority.last_timestamp is not None:
+            self.authority.active_seconds += max(0.0, measurements.time - self.authority.last_timestamp)
+            self.authority.last_timestamp = measurements.time
+        if self.authority.active_seconds >= self.config.active_authority_seconds:
+            self.authority.exhausted = True

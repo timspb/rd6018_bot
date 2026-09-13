@@ -2,10 +2,11 @@ import ast
 import pathlib
 import unittest
 
-from runtime.charge import BatteryProfile, ChemistryProfile, Measurements
+from runtime.charge import BatteryProfile, ChargeEngine, ChemistryProfile, Measurements, MixAuthorityState
 from runtime.charge.strategy import (
     CCMixExitConfig, CVMixExitConfig, ChargeRecipe, ChargeStrategy,
-    MainPolicy, MainPolicyConfig, MixPolicy, MixPolicyConfig,
+    MainPolicy, MainPolicyConfig, MainFallbackPolicy, MainFallbackPolicyConfig,
+    MixPolicy, MixPolicyConfig, PlateauDetector, PlateauDetectorConfig,
     RecoveryPolicy, RecoveryPolicyConfig, StrategyRuntimeState,
 )
 
@@ -39,6 +40,41 @@ class V3ChargeStrategyTests(unittest.TestCase):
         self.strategy.evaluate(state, Measurements(14.8, 0.5, 25.0, 0.0))
         result = self.strategy.evaluate(state, Measurements(14.8, 0.5, 25.0, 10.0))
         self.assertEqual("mix", result.next_stage)
+
+    def test_agm_recovery_exhausted_remains_main(self):
+        state = StrategyRuntimeState()
+        recovery = RecoveryPolicy(RecoveryPolicyConfig(4, 16.3, 1.0, exhausted_action="remain_main"))
+        recovery.state.attempts = 4
+        result = recovery.on_plateau(15.0, 1.0)
+        self.assertEqual("main", result.next_stage)
+        self.assertNotEqual("mix", result.next_stage)
+
+    def test_main_fallback_is_chemistry_specific(self):
+        fallback = MainFallbackPolicy(MainFallbackPolicyConfig(100.0, "AGM", 0.2, main_voltage=15.0, main_current=1.0))
+        self.assertEqual("mix", fallback.evaluate(100.0, is_cv=True, current=0.2).next_stage)
+        self.assertTrue(fallback.evaluate(100.0, is_cv=False, current=1.0).completed)
+
+    def test_plateau_detector_separates_flat_cv_from_progress(self):
+        detector = PlateauDetector(PlateauDetectorConfig(3, 0.05, 0.4, 0.05))
+        flat = [Measurements(14.8, 0.6, 25.0, t) for t in (0.0, 1.0, 2.0)]
+        progress = [Measurements(14.8, i, 25.0, t) for t, i in ((0.0, 0.8), (1.0, 0.6), (2.0, 0.4))]
+        self.assertTrue(detector.is_plateau(flat, chemistry="EFB"))
+        self.assertFalse(detector.is_plateau(progress, chemistry="EFB"))
+
+    def test_mix_authority_exhaustion_stops_before_exit_logic(self):
+        authority = MixAuthorityState(session_id="s1")
+        mix = self.strategy.recipe.mix
+        mix.authority = authority
+        mix.config.cc  # config remains immutable and data-driven
+        mix.evaluate("CC", Measurements(16.5, 2.0, 25.0, 0.0))
+        result = mix.evaluate("CC", Measurements(16.5, 2.0, 25.0, 101.0))
+        self.assertEqual("MIX_TIMEOUT", result.reason)
+        self.assertTrue(result.completed)
+
+    def test_charge_engine_uses_recipe_strategy_owner(self):
+        engine = ChargeEngine(self.strategy.battery, strategy=self.strategy)
+        result = engine.evaluate(StrategyRuntimeState(), Measurements(14.8, 5.0, 25.0, 0.0))
+        self.assertEqual("main", result.next_stage)
 
     def test_mix_cc_vmax_delta_hold_exit(self):
         state = StrategyRuntimeState(stage="mix")

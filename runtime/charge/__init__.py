@@ -6,6 +6,7 @@ from .engine import ChargeEngine
 from .intent import ChargeIntent
 from .limits import ChargeLimits
 from .measurements import Measurements
+from .post import FinishIntent
 from .program import ChargeProgram
 from .state import ChargeState, DeltaRuntimeState
 from .adapters import LegacyChargeProgramAdapter
@@ -18,7 +19,7 @@ from .strategy import (
     ChargeRecipe, ChargeStrategy, StrategyRuntimeState,
     MainPolicy, MainPolicyConfig, RecoveryPolicy, RecoveryPolicyConfig,
     MixPolicy, MixPolicyConfig, CCMixExitPolicy, CCMixExitConfig,
-    CVMixExitPolicy, CVMixExitConfig,
+    CVMixExitPolicy, CVMixExitConfig, MixAuthorityState,
 )
 from .service import ChargeRuntimeSnapshot, ChargeService
 from .contracts import (
@@ -43,6 +44,7 @@ __all__ = [
     "DeltaRuntimeState",
     "LegacyChargeProgramAdapter",
     "Measurements",
+    "FinishIntent",
     "ChargeDecisionShadow",
     "ComparisonResult",
     "DecisionComparison",
@@ -67,5 +69,5 @@ __all__ = [
     "ChargeRecipe", "ChargeStrategy", "StrategyRuntimeState",
     "MainPolicy", "MainPolicyConfig", "RecoveryPolicy", "RecoveryPolicyConfig",
     "MixPolicy", "MixPolicyConfig", "CCMixExitPolicy", "CCMixExitConfig",
-    "CVMixExitPolicy", "CVMixExitConfig",
+    "CVMixExitPolicy", "CVMixExitConfig", "MixAuthorityState",
 ]

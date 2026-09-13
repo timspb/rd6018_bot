@@ -39,3 +39,24 @@ budget переход идёт в MIX; Delta не участвует в реше
 Strategy runtime state хранит counters/timestamps отдельно от generic timers.
 ChargeStrategy производит только `ChargeIntent`. SafetyEngine и OutputAdapter
 должны оставаться следующими boundaries до любой production migration.
+
+`FinishIntent` обозначает границу post-charge слоя; SAFE_WAIT и Storage здесь
+не реализуются и actuator authority в этой модели отсутствует.
+
+## Parity completion pass
+
+Recovery exhaustion is profile policy: Ca/Ca/EFB may enter MIX after the
+configured recovery budget, while AGM returns/remains in MAIN and uses its
+configured fallback policy. `MainFallbackPolicy` models the separate long-MAIN
+decision: Ca/Ca/EFB enter MIX; AGM enters MIX only for configured CV/low-current
+evidence, otherwise returns a diagnostic stop intent.
+
+`PlateauDetector` consumes measurement history and distinguishes flat CV plateau
+from a materially falling current (progress). `MixAuthorityState` accounts for
+active session time and produces `MIX_TIMEOUT` when the configured authority is
+exhausted. Post-charge `FinishIntent` is only a boundary marker; SAFE_WAIT and
+Storage are intentionally outside this domain.
+
+`ChargeStrategy` is the new domain execution owner. The old registry/
+`DeltaProgram` path remains available only for compatibility and shadow/adapter
+tests; it is not wired into the new recipe-backed strategy path.

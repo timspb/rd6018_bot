@@ -20,10 +20,14 @@ class RecoveryPolicyConfig:
     recovery_stage: str = "recovery"
     main_stage: str = "main"
     mix_stage: str = "mix"
+    exhausted_stage: str = "main"
+    exhausted_action: str = "mix"
 
     def __post_init__(self) -> None:
         if self.attempt_budget < 0 or self.recovery_voltage <= 0 or self.recovery_current <= 0:
             raise ValueError("recovery recipe is invalid")
+        if self.exhausted_action not in {"mix", "remain_main"}:
+            raise ValueError("recovery exhausted_action must be mix or remain_main")
 
 
 class RecoveryPolicy:
@@ -35,6 +39,8 @@ class RecoveryPolicy:
         if self.state.attempts < self.config.attempt_budget:
             self.state.attempts += 1
             return ChargeIntent(self.config.recovery_voltage, self.config.recovery_current, self.config.recovery_stage, False, "MAIN_PLATEAU_RECOVERY")
+        if self.config.exhausted_action == "remain_main":
+            return ChargeIntent(main_voltage, main_current, self.config.exhausted_stage, False, "RECOVERY_EXHAUSTED_MAIN")
         return ChargeIntent(main_voltage, main_current, self.config.mix_stage, False, "RECOVERY_EXHAUSTED_MIX")
 
     def return_to_main(self, main_voltage: float, main_current: float) -> ChargeIntent:
