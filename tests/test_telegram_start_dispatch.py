@@ -43,11 +43,7 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_start_recovers_to_text_when_graph_delivery_fails(self):
-        """Exercise real Dispatcher -> /start -> final graph dashboard transport.
-
-        A deterministic media-delivery failure must not leave the operator with no
-        response after the legacy handler has retired the previous dashboard.
-        """
+        """Exercise real Dispatcher -> /start -> final graph dashboard transport."""
         manager = app.terminal_panel_manager
         manager.adopt(chat_id=1, user_id=1, message_id=77)
         calls = []
@@ -64,7 +60,6 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
             raise AssertionError(f"unexpected Telegram method: {type(method).__name__}")
 
         with (
-            patch.object(app, "_chat_allowed", return_value=True),
             patch.object(app.hass, "get_all_live", new=AsyncMock(return_value={})),
             patch.object(
                 app,
