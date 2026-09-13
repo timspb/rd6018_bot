@@ -135,10 +135,13 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         hass, _clock, lease = self._lease()
         hass.renew_ack = False
 
-        with self.assertRaises(EdgeSafetyLeaseError):
-            await lease.arm()
+        with self.assertLogs("rd6018.edge_lease", level="WARNING") as captured:
+            with self.assertRaises(EdgeSafetyLeaseError):
+                await lease.arm()
 
         self.assertEqual(len(hass.presses), 1)
+        self.assertIn("generation_changed:False", captured.output[0])
+        self.assertIn("armed:False", captured.output[0])
 
     async def test_stale_direct_modbus_blocks_renew_before_button_press(self):
         hass, _clock, lease = self._lease()

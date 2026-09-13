@@ -11,6 +11,7 @@ from typing import Any, Mapping, Optional
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
 
 
@@ -54,6 +55,9 @@ class OperatorHmiState:
     attention: str = "normal"
     stage_status: str = ""
     finish_evidence: Optional[Mapping[str, Any]] = None
+    stage_time: str = ""
+    total_time: str = ""
+    delivered_ah: Optional[float] = None
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -86,6 +90,48 @@ def _temperature(value: Optional[float]) -> str:
 
 def _value(value: Optional[float], digits: int, suffix: str) -> str:
     return "—" if value is None else f"{value:.{digits}f} {suffix}"
+
+
+def _duration(seconds: Any) -> str:
+    value = _finite(seconds)
+    if value is None:
+        return "—"
+    total = max(0, int(value))
+    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
+
+
+def _manual_extrema_status(manual: Any, regulator: str) -> str:
+    request = getattr(manual, "request", None)
+    if getattr(request, "operation_mode", "") == "mix":
+        hold_started = getattr(manual, "finish_hold_started_at", None)
+        if hold_started is not None:
+            held_s = min(
+                MANUAL_MIX_FINISH_HOLD_SEC,
+                max(0.0, time.time() - float(hold_started)),
+            )
+            held_m = int(held_s // 60)
+            delta = _finite(getattr(getattr(request, "stop", None), "delta", None))
+            if regulator == "CV":
+                minimum = _finite(getattr(manual, "_imin", None))
+                reference = f"Imin {minimum:.2f}A" if minimum is not None else "Imin —"
+                delta_text = f"ΔI {delta:.2f}A" if delta is not None else "ΔI —"
+            else:
+                maximum = _finite(getattr(manual, "_vmax", None))
+                reference = f"Vmax {maximum:.2f}V" if maximum is not None else "Vmax —"
+                delta_text = f"ΔV {delta:.2f}V" if delta is not None else "ΔV —"
+            return (
+                f"✅ {reference} · {delta_text} · "
+                f"выдержка {held_m // 60}ч {(held_m % 60):02d}м / 2ч"
+            )
+    if regulator == "CC":
+        maximum = _finite(getattr(manual, "_vmax", None))
+        if maximum is not None:
+            return f"✅ Vmax: {maximum:.2f} V"
+    if regulator == "CV":
+        minimum = _finite(getattr(manual, "_imin", None))
+        if minimum is not None:
+            return f"✅ Imin: {minimum:.2f} A"
+    return ""
 
 
 def _bold_value(value: Optional[float], digits: int, suffix: str) -> str:
@@ -213,6 +259,12 @@ def _observer_runtime(app: Any) -> tuple[Any, str]:
         return None, ""
     state = str(getattr(getattr(observer, "state", None), "value", getattr(observer, "state", "")) or "")
     return observer, state
+
+
+def _manual_is_interrupted(app: Any) -> bool:
+    manager = getattr(app, "manual_session_manager", None)
+    state = getattr(getattr(manager, "state", None), "value", getattr(manager, "state", ""))
+    return str(state or "").strip().lower() == "interrupted"
 
 
 def _observer_progress(observer: Any, state: str, regulator: str) -> str:
@@ -411,10 +463,11 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
 
     manual = getattr(app, "manual_session_manager", None)
     if manual is not None and bool(getattr(manual, "is_active", False)):
+        elapsed_s = getattr(manual, "active_elapsed_s", None)
         return OperatorHmiState(
             process_state=HmiProcessState.RUNNING,
             authority=HmiAuthority.MANUAL,
-            title="RD6018 · РУЧНОЙ РЕЖИМ",
+            title=f"RD6018 · {getattr(getattr(manual, 'request', None), 'operation_mode_label', 'Ручной режим')}",
             output_on=output_on,
             regulator=regulator,
             battery_label=str(getattr(manual, "battery_id", "") or ""),
@@ -428,6 +481,30 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             progress="Управляемая ручная сессия",
             safety=safety,
             attention=attention,
+            stage_status=_manual_extrema_status(manual, regulator),
+            stage_time=_duration(elapsed_s),
+            total_time=_duration(elapsed_s),
+            delivered_ah=_finite(live.get("ah")),
+        )
+
+    if _manual_is_interrupted(app):
+        return OperatorHmiState(
+            process_state=HmiProcessState.IDLE,
+            authority=HmiAuthority.NONE,
+            title="RD6018 · ПРЕРВАННЫЙ ЗАРЯД",
+            output_on=output_on,
+            regulator=regulator,
+            battery_label=str(getattr(manual, "battery_id", "") or ""),
+            battery_voltage_v=battery_v,
+            current_a=current,
+            power_w=power,
+            battery_temp_c=temp_ext,
+            psu_temp_c=temp_int,
+            target_voltage_v=set_v,
+            current_limit_a=set_i,
+            progress="Сохранённый заряд требует авторизации или отказа",
+            safety=safety,
+            attention="warning",
         )
 
     if hands_off:
@@ -523,6 +600,15 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
         lines.append(f"🎯 {target} · {limit} 🌡 БП {_temperature(getattr(state, 'psu_temp_c', None))}")
+    stage_time = str(getattr(state, "stage_time", "") or "")
+    total_time = str(getattr(state, "total_time", "") or "")
+    delivered_ah = _finite(getattr(state, "delivered_ah", None))
+    if stage_time or total_time or delivered_ah is not None:
+        lines.append(
+            f"⏱ Этап: {html.escape(stage_time or '—')} · "
+            f"всего: {html.escape(total_time or '—')} · "
+            f"залито: {_value(delivered_ah, 2, 'Ah')}"
+        )
     stage_status = _compact_stage_status(state)
     transition = _compact_transition(state)
     stage_status_warning = str(getattr(state, "stage_status", ""))
@@ -555,6 +641,13 @@ def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboard
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     rows: list[list[InlineKeyboardButton]] = []
+    if _manual_is_interrupted(app):
+        rows.append(
+            [
+                InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
+                InlineKeyboardButton(text="🗑 Отказаться", callback_data="v2_manual_discard"),
+            ]
+        )
     info_row = [
         InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
         InlineKeyboardButton(text="📋 События", callback_data="logs"),
@@ -670,6 +763,27 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
             if state.progress:
                 progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress).split())))
                 lines.append(f"🎯 Финиш: {html.escape(progress)}")
+        else:
+            manual = getattr(app, "manual_session_manager", None)
+            if manual is not None and bool(getattr(manual, "is_active", False)):
+                request = getattr(manual, "request", None)
+                elapsed = _duration(getattr(manual, "active_elapsed_s", None))
+                limit = getattr(getattr(request, "stop", None), "max_active_seconds", None)
+                remaining = "—"
+                if _finite(limit) is not None and _finite(getattr(manual, "active_elapsed_s", None)) is not None:
+                    remaining = _duration(max(0.0, float(limit) - float(manual.active_elapsed_s)))
+                capacity = _finite(getattr(request, "capacity_ah", None)) if request is not None else None
+                lines.extend(
+                    [
+                        "",
+                        "🧠 <b>Статистика ручного заряда</b>",
+                        f"📍 Этап: <b>Ручной режим</b>",
+                        f"⏱ Этап: {elapsed} · всего {elapsed}",
+                        f"⌛ Лимит: {remaining}",
+                        f"📦 Отдано: {_value(ah, 2, 'Ah')}",
+                        f"🔋 Заданная ёмкость: {_value(capacity, 2, 'Ah')}",
+                    ]
+                )
         lines.extend(
             [
                 f"🎯 Уставки: {_value(state.target_voltage_v, 2, 'V')} · лимит {_value(state.current_limit_a, 2, 'A')}",
