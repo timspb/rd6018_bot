@@ -4,7 +4,8 @@ import unittest
 
 from runtime.charge import BatteryProfile, ChargeIntent, ChargeLimits, ChemistryProfile, Measurements
 from runtime.charge.profiles import RecipeRegistry
-from runtime.safety import SafetyContext, SafetyDecision, SafetyEngine, SafetyLimits, SafeOutputIntent, SafetyViolation
+from runtime.safety import SafetyContext, SafetyDecision, SafetyEngine, SafetyLimits, SafetyViolation
+from runtime.output import OutputAction, SafeOutputIntent
 
 
 class V3SafetyIntentBoundaryTests(unittest.TestCase):
@@ -54,8 +55,8 @@ class V3SafetyIntentBoundaryTests(unittest.TestCase):
         self.assertIn("chemistry_voltage", {item.type for item in decision.violations})
 
     def test_output_contract_is_data_only(self):
-        output_intent = SafeOutputIntent(14.4, 2.0, True)
-        self.assertTrue(output_intent.enable)
+        output_intent = SafeOutputIntent(OutputAction.ENABLE, 14.4, 2.0)
+        self.assertEqual(OutputAction.ENABLE, output_intent.action)
         self.assertIsInstance(SafetyViolation("test", "test"), SafetyViolation)
 
     def test_rejects_invalid_context_and_accepts_safe_completion(self):

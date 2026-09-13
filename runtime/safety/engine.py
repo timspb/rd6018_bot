@@ -8,6 +8,7 @@ from typing import Mapping, Optional
 from runtime.charge.battery import BatteryProfile
 from runtime.charge.intent import ChargeIntent
 from runtime.charge.measurements import Measurements
+from runtime.output.intent import SafeOutputIntent
 
 
 @dataclass(frozen=True)
@@ -44,16 +45,6 @@ class SafetyContext:
     allowed_next_stages: frozenset[str] | None = None
     now: float | None = None
     mix_authority_exhausted: bool = False
-
-
-@dataclass(frozen=True)
-class SafeOutputIntent:
-    """Future output boundary contract; it is not a physical command."""
-
-    target_voltage: float | None
-    target_current: float | None
-    enable: bool
-    source: str = "safety"
 
 
 @dataclass(frozen=True)
