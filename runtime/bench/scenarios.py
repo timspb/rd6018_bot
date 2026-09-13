@@ -37,6 +37,7 @@ def parameter_write_scenario(operator: str) -> BenchScenario:
 
 def controlled_enable_scenario(operator: str) -> BenchScenario:
     return _scenario("controlled_enable", operator, [
+        BenchStep("envelope_validation"),
         BenchStep("set_voltage", "set_voltage"),
         BenchStep("set_current", "set_current"),
         BenchStep("set_ovp", "set_ovp"),
@@ -45,4 +46,3 @@ def controlled_enable_scenario(operator: str) -> BenchScenario:
         BenchStep("enable_output", "enable"),
         BenchStep("verify_on", "read_output_state", True),
     ], safety=("safety_decision", "telemetry_fresh", "capability_match", "gate_armed"))
-

@@ -66,7 +66,8 @@ class PhysicalExecutionGate:
         self.state = PhysicalGateState.READY if self.config.enabled else PhysicalGateState.DISABLED
 
     def validate(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
-                 lease: ExecutionLeaseState | None, capability: HardwareCapability | None) -> GateValidation:
+                 lease: ExecutionLeaseState | None, capability: HardwareCapability | None,
+                 envelope: Any = None) -> GateValidation:
         violations = []
         if not self.config.enabled:
             violations.append("execution_disabled")
@@ -82,6 +83,8 @@ class PhysicalExecutionGate:
             violations.append("hardware_capability_mismatch")
         if plan.intent.action is OutputAction.ENABLE and (plan.protection_ovp is None or plan.protection_ocp is None):
             violations.append("protection_targets_required")
+        if envelope is not None and not envelope.allowed:
+            violations.append("hardware_battery_envelope_blocked")
         if violations:
             return GateValidation(False, "EXECUTION_GATE_REJECTED", tuple(violations))
         return GateValidation(True, "EXECUTION_GATE_ACCEPTED")
@@ -122,14 +125,14 @@ class PhysicalBridgeExecutor:
         self.audit = audit or PhysicalExecutionAudit()
 
     def prepare(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
-                lease: ExecutionLeaseState | None, capability: HardwareCapability | None) -> GateValidation:
-        validation = self.gate.validate(plan, safety, lease, capability)
+                lease: ExecutionLeaseState | None, capability: HardwareCapability | None, envelope: Any = None) -> GateValidation:
+        validation = self.gate.validate(plan, safety, lease, capability, envelope)
         self.audit.record(plan, self.gate.operator or "unknown", self.gate.state.value, result=validation.reason, error=None if validation.allowed else ";".join(validation.violations))
         return validation
 
     def execute(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
-                lease: ExecutionLeaseState | None, capability: HardwareCapability | None):
-        validation = self.prepare(plan, safety, lease, capability)
+                lease: ExecutionLeaseState | None, capability: HardwareCapability | None, envelope: Any = None):
+        validation = self.prepare(plan, safety, lease, capability, envelope)
         if not validation.allowed:
             raise PhysicalExecutionError(validation.reason + ": " + ",".join(validation.violations))
         self.gate.begin(validation)
