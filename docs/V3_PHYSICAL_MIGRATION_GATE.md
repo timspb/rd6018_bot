@@ -37,9 +37,10 @@ OVP/OCP <= absolute ceilings
 write + readback confirmation before enable
 ```
 
-This is not yet represented by `SafeOutputIntent`/`SafetyDecision` as a
-complete V3 domain contract. It is a migration blocker, not an authorization
-to add physical writes.
+The geometry and readback transaction are still migration requirements for the
+future physical bridge. The domain now represents the reset operation through
+the same `SafeOutputIntent` action contract; this does not authorize physical
+writes.
 
 ### MIX protection
 
@@ -52,9 +53,9 @@ recalculate every 10 min
 only decrease; never follow a rising measured current
 ```
 
-`ResetProtectionIntent` exists for the outer layer after normal or emergency
-MIX termination. It is intentionally not executed here and is not yet mapped
-to a physical adapter command.
+`ResetProtectionIntent` is converted by `OutputIntentFactory` into the common
+`SafeOutputIntent(RESET_PROTECTION)` action after an allowed safety decision.
+It is intentionally not executed here.
 
 ### Temperature integrity
 
@@ -66,9 +67,9 @@ promoted to a latch.
 
 ## SafeOutputIntent coverage
 
-Covered domain actions: enable, disable, set voltage, and set current. Resetting
-OVP/OCP is currently a separate `ResetProtectionIntent`; the future bridge must
-add an explicit, safety-reviewed mapping for it before physical migration.
+Covered domain actions: enable, disable, set voltage, set current, and reset
+OVP/OCP. The future bridge still requires explicit safety-reviewed mapping and
+readback parity for the reset action.
 
 ## Checklist
 
@@ -79,7 +80,8 @@ add an explicit, safety-reviewed mapping for it before physical migration.
 - [x] one output execution boundary exists
 - [x] V2 bridge is shadow-only
 - [ ] V2 decision parity is accepted for all production vectors
-- [ ] OVP/OCP reset mapping is complete
+- [x] OVP/OCP reset has one SafeOutputIntent representation
+- [ ] OVP/OCP geometry/readback mapping is physically proven
 
 ### Safety
 

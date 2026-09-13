@@ -85,6 +85,14 @@ class DecisionParityResult:
     v3_decision: V3DecisionSnapshot
     reason: str | None = None
 
+    @property
+    def v2_snapshot(self) -> LegacyDecisionSnapshot:
+        return self.v2_decision
+
+    @property
+    def v3_snapshot(self) -> V3DecisionSnapshot:
+        return self.v3_decision
+
 
 class DecisionParityComparator:
     FIELDS = ("phase", "stage", "transition", "completed", "enable", "target_voltage", "target_current", "safety_allowed", "violations")

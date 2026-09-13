@@ -16,6 +16,7 @@ class V3PhysicalMigrationGateTests(unittest.TestCase):
             SafeOutputIntent(OutputAction.DISABLE),
             SafeOutputIntent(OutputAction.SET_VOLTAGE, target_voltage=14.4),
             SafeOutputIntent(OutputAction.SET_CURRENT, target_current=2.0),
+            SafeOutputIntent(OutputAction.RESET_PROTECTION, target_ovp=17.5, target_ocp=12.0),
         )
         self.assertEqual({intent.action for intent in intents}, set(OutputAction))
 

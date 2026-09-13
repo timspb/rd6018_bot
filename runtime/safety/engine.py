@@ -9,6 +9,7 @@ from runtime.charge.battery import BatteryProfile
 from runtime.charge.intent import ChargeIntent
 from runtime.charge.measurements import Measurements
 from runtime.output.intent import SafeOutputIntent
+from runtime.charge.strategy.post_mix import ResetProtectionIntent
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class SafetyDecision:
     violations: tuple[SafetyViolation, ...] = ()
     limits_applied: Mapping[str, float] = field(default_factory=dict)
     intent: ChargeIntent | None = None
+    reset_protection: ResetProtectionIntent | None = None
 
     @property
     def accepted(self) -> bool:

@@ -2,6 +2,7 @@ import asyncio
 import unittest
 
 from runtime.charge import ChargeIntent, Measurements
+from runtime.charge.strategy import post_mix_reset_intent
 from runtime.output import OutputAction, OutputIntentFactory, SafeOutputIntent
 from runtime.output.bridge import ShadowOutputBridge
 from runtime.safety import SafetyContext, SafetyEngine, SafetyLimits
@@ -44,6 +45,19 @@ class V3OutputFactoryBridgeTests(unittest.TestCase):
         record = ShadowOutputBridge().map(self.factory.create(decision))
         self.assertEqual(OutputAction.DISABLE, record.intent.action)
         self.assertFalse(record.executed)
+
+    def test_reset_protection_uses_the_same_safe_output_intent(self):
+        reset = post_mix_reset_intent(17.5, 12.0, reason="MIX_FINISH")
+        decision = self.safety.evaluate(
+            ChargeIntent(completed=True, next_stage="done"), self.measurements, SafetyContext()
+        )
+        decision = decision.__class__(
+            True, decision.reason, decision.violations, decision.limits_applied,
+            decision.intent, reset,
+        )
+        intent = self.factory.create(decision)
+        self.assertEqual(OutputAction.RESET_PROTECTION, intent.action)
+        self.assertEqual((17.5, 12.0), (intent.target_ovp, intent.target_ocp))
 
 
 if __name__ == "__main__":
