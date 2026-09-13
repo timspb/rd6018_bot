@@ -65,7 +65,11 @@ and must reject a missing battery-voltage reading. It must then record the
 selected Vset, Iset, OVP and OCP before any enable action. Parameter readback
 is polled using the configured readback timeout/interval because HA/ESPHome
 state propagation is asynchronous. Output is enabled only after all four
-setpoints match, verified ON, and immediately disabled and verified OFF.
+setpoints match and ON is verified. Keep it enabled for the configured
+10-second bench hold, then send `DISABLE_OUTPUT`. The final result is accepted
+only after a fresh readback confirms both `Output OFF` and `measured current =
+0 A`; status OFF may arrive before the current reading reaches zero, so the
+configured readback polling window must be used.
 The configured bench hold interval is used between the ON readback and the
 disable command, so the ON state is independently observable and the test does
 not collapse into an unmeasurably short pulse.

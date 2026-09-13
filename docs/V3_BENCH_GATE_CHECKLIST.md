@@ -13,6 +13,10 @@
 - [ ] programmed/measured current
 - [ ] OVP/OCP
 - [ ] output state
+- [ ] battery voltage read before selecting bench Vset
+- [ ] Vset is above measured battery voltage by configured margin
+- [ ] final OFF confirmation includes measured current = 0 A
+- [ ] readback latency recorded for ON and OFF
 
 ## Safety
 
