@@ -12,7 +12,7 @@ from .bank_fault import (
     BankFaultEvidence, BankFaultLevel, BankFaultPolicy, BankFaultSignal,
     LegacyBankFaultAdapter, score_bank_fault,
 )
-from .safety_evidence import SafetyEvidence, evaluate_safety_evidence, safety_evidence_from_diagnostic
+from .safety_evidence import SafetyEvidence, combine_safety_evidence, evaluate_safety_evidence, safety_evidence_from_diagnostic
 
 __all__ = [
     "BatteryCondition", "BatteryDiagnosticEvidence", "BatteryDiagnosticReport",
@@ -22,4 +22,5 @@ __all__ = [
     "BankFaultEvidence", "BankFaultLevel", "BankFaultPolicy", "BankFaultSignal",
     "LegacyBankFaultAdapter", "score_bank_fault", "SafetyEvidence",
     "evaluate_safety_evidence", "safety_evidence_from_diagnostic",
+    "combine_safety_evidence",
 ]

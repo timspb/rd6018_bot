@@ -10,7 +10,7 @@ from runtime.charge.intent import ChargeIntent
 from runtime.charge.measurements import Measurements
 from runtime.output.intent import SafeOutputIntent
 from runtime.charge.strategy.post_mix import ResetProtectionIntent
-from runtime.diagnostics import DiagnosticAuthority, DiagnosticDecision
+from runtime.diagnostics import DiagnosticAuthority, DiagnosticDecision, SafetyEvidence, combine_safety_evidence
 from runtime.telemetry import TelemetrySnapshot
 
 
@@ -61,6 +61,8 @@ class SafetyDecision:
     intent: ChargeIntent | None = None
     reset_protection: ResetProtectionIntent | None = None
     shutdown_required: bool = False
+    authority: DiagnosticAuthority = DiagnosticAuthority.ALLOW
+    source_evidence: tuple[SafetyEvidence, ...] = ()
 
     @property
     def accepted(self) -> bool:
@@ -85,6 +87,21 @@ class SafetyEngine:
         if intent.completed and intent.target_voltage is None and intent.target_current is None:
             return self._accept("COMPLETED_INTENT", intent)
         return self._accept("ACCEPTED", intent)
+
+    def evaluate_evidence(self, evidence: tuple[SafetyEvidence, ...]) -> SafetyDecision:
+        """Shadow consumer for evidence-only decisions; it never applies output."""
+        combined = combine_safety_evidence(evidence)
+        if not combined.allowed:
+            violation = SafetyViolation("evidence", combined.reason, combined.severity)
+            return SafetyDecision(
+                False, "SAFETY_EVIDENCE_DENIED", (violation,), self._limits(),
+                authority=combined.authority, source_evidence=evidence,
+                shutdown_required=combined.authority is DiagnosticAuthority.HARD_STOP,
+            )
+        return SafetyDecision(
+            True, "SAFETY_EVIDENCE_ALLOWED", (), self._limits(),
+            authority=combined.authority, source_evidence=evidence,
+        )
 
     def _context_violation(self, measurements: Measurements, state: SafetyContext) -> SafetyViolation | None:
         if state.diagnostic is not None and state.diagnostic.authority is DiagnosticAuthority.HARD_STOP:
