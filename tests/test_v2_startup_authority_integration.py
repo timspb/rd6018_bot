@@ -7,6 +7,11 @@ from rd_startup_authority import RdStartupAuthorityGate
 
 
 class _FakeController:
+    STAGE_MAIN = "Main Charge"
+    STAGE_SAFE_WAIT = "Безопасное ожидание"
+    STAGE_DONE = "Done"
+    STAGE_COOLING = "🌡 Остывание"
+
     def __init__(self, restored_event):
         self.is_active = False
         self.current_stage = "Idle"
@@ -20,10 +25,13 @@ class _FakeController:
 
     def try_restore_session(self, *args, **kwargs):
         self.restore_calls.append((args, kwargs))
-        self.current_stage = "Main Charge"
+        self.current_stage = self.STAGE_MAIN
         self.is_active = True
         self._restored_event.set()
         return True, "restored"
+
+    def _get_target_v_i(self, _temp_ext):
+        return 14.8, 2.0
 
 
 class _FakeHass:
@@ -38,6 +46,7 @@ class _FakeHass:
             "battery_voltage": 12.5,
             "current": 0.0,
             "ah": 4.2,
+            "temp_ext": 25.0,
             "is_cv": "off",
             "is_cc": "off",
         }
@@ -48,10 +57,12 @@ class _FakeHass:
 
     async def turn_on(self, entity_id=None):
         self.turn_on_calls += 1
+        self.live["switch"] = "on"
         return True
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
+        self.live["switch"] = "off"
         return True
 
     async def set_voltage(self, value):
@@ -129,11 +140,21 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         controller = _FakeController(restored)
         guard = _BlockingGuard(hass, allow_edge_read)
         manager = _FakeManager(guard)
+
+        async def apply_phase_protection(uv, ui):
+            await hass.set_ovp(float(uv) + 0.1)
+            await hass.set_ocp(float(ui) + 0.1)
+
         fake_legacy = types.SimpleNamespace(
             hass=hass,
             charge_controller=controller,
             _safe_float=lambda value, default=0.0: float(value if value is not None else default),
             _apply_restore_time_corrections=lambda _controller, _live: None,
+            _restore_allows_auto_enable=lambda ctrl: ctrl.current_stage not in {ctrl.STAGE_DONE, ctrl.STAGE_COOLING},
+            _operator_pause_active=lambda: False,
+            _apply_phase_protection=apply_phase_protection,
+            _cap_current=lambda value: float(value),
+            ENTITY_MAP={"switch": "switch.output"},
             last_checkpoint_time=0.0,
             time=types.SimpleNamespace(time=lambda: 1234.0),
             logger=types.SimpleNamespace(info=lambda *args, **kwargs: None),
@@ -168,7 +189,7 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
             allow_edge_read.set()
             await asyncio.wait_for(restored.wait(), timeout=1.0)
-            for _ in range(10):
+            for _ in range(20):
                 if not gate.deferred_restore_requested:
                     break
                 await asyncio.sleep(0)
@@ -196,9 +217,10 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["output_is_on"], False)
         self.assertTrue(gate.managed_actuation_ready)
         self.assertEqual(hass.get_all_calls, 1)
-        self.assertEqual(hass.turn_on_calls, 0)
+        self.assertEqual(hass.turn_on_calls, 1)
         self.assertEqual(hass.turn_off_calls, 0)
-        self.assertEqual(hass.write_calls, 0)
+        self.assertEqual(hass.write_calls, 4)
+        self.assertEqual(hass.live["switch"], "on")
         self.assertEqual(fake_legacy.last_checkpoint_time, 1234.0)
         self.assertEqual(physical.starts, 1)
         self.assertEqual(physical.stops, 1)
