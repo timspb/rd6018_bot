@@ -15,10 +15,13 @@ The main graph/dashboard keeps the familiar V1 hierarchy:
 3. `Logs / AI analysis`;
 4. when a new program is positively allowed: `START / Modes`.
 
-V2 may append an `More` entry for additive controller/service functions.
+V2 may append a `More` entry for additive controller/service functions.
 
 The graph row is supplied by `operator_dashboard`; the remaining shell is composed by
-`v1_ui_compat` around the semantic `operator_hmi` keyboard.
+`v1_ui_compat` around the **final permitted** semantic keyboard. The compatibility
+adapter deliberately does not wrap the legacy
+`app._build_dashboard_keyboard(is_on: bool, ...)` surface because that boolean cannot
+distinguish confirmed OFF from stale/UNKNOWN Output.
 
 ## Semantic substitutions
 
@@ -47,26 +50,33 @@ parity:
 - HANDS_OFF and AUTONOMOUS keep their ownership-specific controls;
 - adopted/interrupted Mix keeps its dedicated recovery/stop controls;
 - terminal Storage does not regain Start/Stop merely for visual parity;
-- final Output-truth and AUTONOMOUS filters run after the V1 shell and may remove
-  controls whose physical preconditions are not positively proven.
+- the shell may restore `START / Modes` only when the final V2 keyboard still exposes
+  **both** safe IDLE entry callbacks (`v2_batteries` and `charge_modes`).
 
-This gives the project one stable operator UX while preserving the V2 authority model:
+The installer is registered before Output-truth/AUTONOMOUS composition, but the graph
+wrapper performs a dynamic call to `operator_hmi.build_operator_keyboard` at render
+time. Therefore the effective production order is:
 
 ```text
-V2 semantic state / evidence / authority
-                 |
-                 v
-          operator_hmi
-                 |
-                 v
-       V1-compatible shell
-                 |
-                 v
-        Output-truth filter
-                 |
-                 v
-       AUTONOMOUS filter
-                 |
-                 v
-         Telegram operator
+fresh live telemetry
+        |
+        v
+semantic/truthful HMI state
+        |
+        v
+V2 ownership + Output-truth + AUTONOMOUS keyboard filters
+        |
+        v
+final permitted callback set
+        |
+        v
+V1-compatible graph/dashboard shell
+        |
+        v
+Telegram operator
 ```
+
+This ordering is intentional. The V1 layer consumes authority decisions; it does not
+create them. If V2 removes either IDLE entry callback because Output is UNKNOWN,
+ownership is unresolved, or AUTONOMOUS is active, the V1 shell treats the presentation
+as containment and cannot reconstruct START, Modes or the additive `More` surface.
