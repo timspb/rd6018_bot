@@ -1,3 +1,4 @@
+from pathlib import Path
 import types
 import unittest
 
@@ -30,10 +31,6 @@ def callbacks(markup):
         for button in row
         if button.callback_data
     ]
-
-
-def texts(markup):
-    return [button.text for row in markup.inline_keyboard for button in row]
 
 
 class V1UiCompatibilityTests(unittest.TestCase):
@@ -150,6 +147,20 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertEqual(
             graph_callbacks[:3],
             ["operator_graph_30m", "operator_graph_2h", "operator_graph_session"],
+        )
+
+    def test_production_composes_v1_shell_before_truth_and_autonomous_filters(self):
+        truth = Path("operator_output_truth.py").read_text(encoding="utf-8")
+        self.assertIn("install_v1_ui_compat(app)", truth)
+        self.assertLess(
+            truth.index("install_v1_ui_compat(app)"),
+            truth.index("original_keyboard_builder = hmi.build_operator_keyboard"),
+        )
+
+        bot = Path("bot.py").read_text(encoding="utf-8")
+        self.assertLess(
+            bot.index("install_operator_output_truth(_legacy)"),
+            bot.index("install_rd_autonomous_final_hmi(_legacy"),
         )
 
 
