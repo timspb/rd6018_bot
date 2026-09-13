@@ -21,6 +21,7 @@ class V3ChargeServiceTests(unittest.TestCase):
 
         self.assertIsNotNone(app.charge_service)
         self.assertEqual(("delta", "manual", "minimum"), app.charge_service.registry.available())
+        self.assertIsNotNone(app.state_provider)
 
     def test_service_selects_program_and_returns_snapshot(self):
         battery = BatteryProfile(ChemistryProfile.AGM, 80.0)

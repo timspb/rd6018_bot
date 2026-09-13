@@ -5,6 +5,7 @@ from __future__ import annotations
 from .dependencies import RuntimeDependencies
 from .charge import ChargeService, DecisionValidationResult, ProgramRegistry
 from .charge.contracts import ChargeDecisionCase
+from .charge.state_provider import ChargeStateProvider
 from .lifecycle import LifecycleManager, LifecycleState
 
 
@@ -21,6 +22,7 @@ class RuntimeApp:
         self.lifecycle = LifecycleManager()
         registry = self.dependencies.program_registry or ProgramRegistry.with_defaults()
         self.charge_service = ChargeService(registry, self.dependencies.clock)
+        self.state_provider = ChargeStateProvider()
 
     @property
     def state(self) -> LifecycleState:
