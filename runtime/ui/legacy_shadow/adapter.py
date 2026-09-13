@@ -18,7 +18,7 @@ class LegacyUISnapshotAdapter:
         stage = str(charge.get("stage", data.get("stage", "unknown")))
         return LegacyUISnapshot(
             stage=stage,
-            phase=(None if charge.get("phase") is None else str(charge["phase"])),
+                phase=(None if charge.get("phase") is None else str(charge["phase"])),
             voltage=charge.get("voltage", data.get("voltage")),
             current=charge.get("current", data.get("current")),
             temperature=charge.get("temperature", data.get("temperature")),

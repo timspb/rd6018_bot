@@ -28,7 +28,7 @@ class UIParityComparator:
             "battery_status": legacy.battery_status, "output_enabled": legacy.output_enabled,
         }
         v3_values = {
-            "stage": v3.charge.stage, "phase": v3.charge.active_recipe,
+            "stage": v3.charge.stage, "phase": v3.charge.phase,
             "voltage": v3.telemetry.voltage, "current": v3.telemetry.current,
             "temperature": v3.telemetry.temperature, "timers": v3.charge.timer_text,
             "messages": v3.journal_tail, "warnings": v3.diagnostics.reasons,

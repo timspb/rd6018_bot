@@ -18,13 +18,21 @@ class TransitionView:
 class ChargeView:
     stage: str
     program: str
+    phase: str | None = None
     started_at: float | None = None
+    stage_elapsed_seconds: float | None = None
+    total_elapsed_seconds: float | None = None
+    waiting_for: str | None = None
     conditions: tuple[TransitionView, ...] = ()
     timer_text: str = ""
     remaining_hold_seconds: float | None = None
     targets: Mapping[str, object] = field(default_factory=dict)
     active_limits: Mapping[str, object] = field(default_factory=dict)
     active_recipe: str | None = None
+    chemistry: str | None = None
+    recovery: Mapping[str, object] = field(default_factory=dict)
+    hold: Mapping[str, object] = field(default_factory=dict)
+    evidence: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

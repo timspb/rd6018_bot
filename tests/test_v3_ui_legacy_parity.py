@@ -7,7 +7,7 @@ from runtime.ui.legacy_shadow import LegacyUISnapshotAdapter, UIParityComparator
 class V3UILegacyParityTests(unittest.TestCase):
     def _snapshot(self):
         return RuntimeUISnapshot(
-            ChargeView("MAIN", "normal", active_recipe="CV", timer_text="2ч"),
+            ChargeView("MAIN", "normal", phase="CV", active_recipe="CV", timer_text="2ч"),
             telemetry=TelemetryView(14.4, 2.0, 30.0),
             diagnostics=DiagnosticsView("healthy"),
             safety=SafetyView(True),

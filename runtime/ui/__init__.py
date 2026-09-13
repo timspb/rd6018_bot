@@ -5,5 +5,6 @@ from .models import (
     TransitionView,
 )
 from .adapter import LegacyUIAdapter
+from .screen import REQUIRED_SCREEN_FIELDS, missing_charge_screen_fields
 
-__all__ = ["ChargeView", "DiagnosticsView", "RuntimeUISnapshot", "SafetyView", "TelemetryView", "TransitionView", "LegacyUIAdapter"]
+__all__ = ["ChargeView", "DiagnosticsView", "RuntimeUISnapshot", "SafetyView", "TelemetryView", "TransitionView", "LegacyUIAdapter", "REQUIRED_SCREEN_FIELDS", "missing_charge_screen_fields"]
