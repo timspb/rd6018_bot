@@ -2,16 +2,20 @@
 
 from .battery import BatteryProfile
 from .chemistry import ChemistryProfile
+from .engine import ChargeEngine
 from .intent import ChargeIntent
 from .limits import ChargeLimits
+from .measurements import Measurements
 from .program import ChargeProgram
 from .state import ChargeState
 
 __all__ = [
     "BatteryProfile",
+    "ChargeEngine",
     "ChargeIntent",
     "ChargeLimits",
     "ChargeProgram",
     "ChargeState",
     "ChemistryProfile",
+    "Measurements",
 ]

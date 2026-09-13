@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Mapping
-
 from .intent import ChargeIntent
+from .measurements import Measurements
 from .state import ChargeState
 
 
@@ -16,8 +15,7 @@ class ChargeProgram(ABC):
     def evaluate(
         self,
         state: ChargeState,
-        measurements: Mapping[str, Any],
+        measurements: Measurements,
     ) -> ChargeIntent:
         """Return a pure charge intent for the supplied snapshots."""
         raise NotImplementedError
-
