@@ -12,6 +12,8 @@ from .adapters import LegacyChargeProgramAdapter
 from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 from .programs import ManualProgram, ManualTargets
 from .programs import MinimumConfig, MinimumProgram
+from .programs import DeltaConfig, DeltaProgram
+from .registry import ProgramRegistry
 from .contracts import (
     ChargeDecisionCase,
     DecisionMismatch,
@@ -38,6 +40,9 @@ __all__ = [
     "ManualTargets",
     "MinimumConfig",
     "MinimumProgram",
+    "DeltaConfig",
+    "DeltaProgram",
+    "ProgramRegistry",
     "ChargeDecisionCase",
     "DELTA_TRANSITIONS",
     "DeltaDecisionCase",
