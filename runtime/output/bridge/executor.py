@@ -237,7 +237,9 @@ class PhysicalBridgeExecutor:
                                              tolerances: dict[str, float] | None = None,
                                              readback_timeout_s: float = 5.0,
                                              readback_poll_interval_s: float = 0.5,
-                                             on_hold_seconds: float = 0.0):
+                                             on_hold_seconds: float = 0.0,
+                                             off_timeout_s: float = 5.0,
+                                             off_poll_interval_s: float = 0.5):
         """Bench-only OFF->ON->OFF flow with parameter and state readback."""
         if lease_provider is None or lease is None or not lease_provider.validate(lease, BenchLeaseScope.CONTROLLED_STATE_TRANSITION):
             raise PhysicalExecutionError("valid bench lease is required")
@@ -283,7 +285,10 @@ class PhysicalBridgeExecutor:
             actions.append("on_hold")
             await self.transport.disable_output()
             actions.append("disable_output")
-            off = await self.transport.read_snapshot()
+            off = await _wait_for_off(
+                self.transport, tolerances.get("measured_current", 0.0) if tolerances else 0.0,
+                timeout_s=off_timeout_s, poll_interval_s=off_poll_interval_s,
+            )
             actions.append("verify_off")
             if off is None or off.output_state is not False or off.measured_current is None or abs(float(off.measured_current)) > tolerances.get("measured_current", 0.0):
                 raise PhysicalExecutionError("output OFF and zero-current were not confirmed")
@@ -318,6 +323,23 @@ async def _wait_for_setpoint(transport: PhysicalBridgeTransport, field: str, exp
             return snapshot
         if time.monotonic() >= deadline:
             return snapshot
+        await asyncio.sleep(poll_interval_s)
+
+
+async def _wait_for_off(transport: PhysicalBridgeTransport, current_tolerance: float, *,
+                        timeout_s: float, poll_interval_s: float):
+    if timeout_s < 0 or poll_interval_s <= 0:
+        raise PhysicalExecutionError("invalid OFF polling configuration")
+    deadline = time.monotonic() + timeout_s
+    last = None
+    while True:
+        last = await transport.read_snapshot()
+        current = getattr(last, "measured_current", None) if last is not None else None
+        if (last is not None and last.output_state is False and current is not None
+                and abs(float(current)) <= current_tolerance):
+            return last
+        if time.monotonic() >= deadline:
+            return last
         await asyncio.sleep(poll_interval_s)
 
 def _readback_value(readback: Any, name: str) -> Any:

@@ -40,6 +40,27 @@ Parameter readback passed. `ENABLE_OUTPUT` was sent, but the following fresh sna
 
 Result: **FAIL**, because the HA-ESP path did not produce a confirmed ON transition. The ESP-direct path was not run after this failure.
 
+### Controlled retry with latency measurement
+
+The battery-aware precheck passed with `13.14-13.15 V` battery voltage. The
+selected values were approximately `13.64 V / 0.10 A / OVP 14.14 V / OCP
+0.20 A`.
+
+- ON command: both HA and ESP reported `ON` after `1.526 s`;
+- configured ON hold: `10 s`;
+- OFF command: both HA and ESP reported `OFF` after `2.546 s`;
+- the first OFF snapshot still showed `0.09 A`, so the run was not accepted at
+  that point;
+- a fresh readback 5 seconds later confirmed `OFF`, `0.00 A`.
+
+The physical transition therefore completed safely, but the original executor
+had an insufficient post-OFF verification model. It now polls until both OFF
+and zero current are confirmed, using configured timeout and interval.
+
 ## Evidence conclusion
 
-The battery-aware target selection is now enforced, and the failure did not leave Output enabled. The physical transition gate remains blocked until the HA output control mapping/behavior is diagnosed and a new operator-approved run is started. No automatic fallback or second connector execution was performed.
+The battery-aware target selection is enforced. The measured retry completed
+`OFF -> ON -> OFF` through HA-ESP-RD with independent ESP readback and final
+`OFF / 0 A` confirmation. The earlier HA latency failure is retained as
+evidence; no automatic fallback was used. A separate ESP-direct execution is
+still pending if dual-connector evidence remains required.

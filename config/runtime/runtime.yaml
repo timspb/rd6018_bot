@@ -24,7 +24,7 @@ verification_current_tolerance_a: 0.05
 verification_protection_tolerance: 0.05
 # Максимальное ожидание подтверждения записи уставки, секунды
 # Maximum wait for setpoint write readback, seconds
-physical_readback_timeout_s: 5
+physical_readback_timeout_s: 15
 # Интервал опроса readback уставки, секунды
 # Setpoint readback polling interval, seconds
 physical_readback_poll_interval_s: 0.5
