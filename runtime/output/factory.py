@@ -13,6 +13,8 @@ from .intent import OutputAction, SafeOutputIntent
 class OutputIntentFactory:
     def create(self, decision: SafetyDecision) -> SafeOutputIntent:
         if not decision.allowed:
+            if decision.shutdown_required:
+                return SafeOutputIntent(OutputAction.DISABLE, source="safety:diagnostic_hard_stop")
             raise ValueError("only an allowed SafetyDecision can be converted")
         if decision.reset_protection is not None:
             reset = decision.reset_protection

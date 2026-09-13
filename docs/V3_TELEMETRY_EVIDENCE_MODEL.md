@@ -31,6 +31,12 @@ and future diagnostic consumers. It is not stored in `ChargeState.timers`.
 has explicit start/reset/restore state. `TelemetryRecorder` is a persistence
 interface with an in-memory implementation only at this phase.
 
+Diagnostic consumers may turn accumulated telemetry evidence into a separate
+`DiagnosticDecision`. A confirmed cell fault is represented as `HARD_STOP` with
+evidence provenance; `SafetyEngine` consumes that decision and marks shutdown
+as required. Telemetry collection still does not infer faults or execute the
+shutdown.
+
 ## Ownership and limits
 
 The layer owns no transport client, actuator, lease, output, strategy, or

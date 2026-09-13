@@ -10,6 +10,8 @@ from runtime.charge.intent import ChargeIntent
 from runtime.charge.measurements import Measurements
 from runtime.output.intent import SafeOutputIntent
 from runtime.charge.strategy.post_mix import ResetProtectionIntent
+from runtime.diagnostics import DiagnosticAuthority, DiagnosticDecision
+from runtime.telemetry import TelemetrySnapshot
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,8 @@ class SafetyContext:
     allowed_next_stages: frozenset[str] | None = None
     now: float | None = None
     mix_authority_exhausted: bool = False
+    diagnostic: DiagnosticDecision | None = None
+    telemetry_snapshot: TelemetrySnapshot | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,7 @@ class SafetyDecision:
     limits_applied: Mapping[str, float] = field(default_factory=dict)
     intent: ChargeIntent | None = None
     reset_protection: ResetProtectionIntent | None = None
+    shutdown_required: bool = False
 
     @property
     def accepted(self) -> bool:
@@ -73,7 +78,7 @@ class SafetyEngine:
     def evaluate(self, intent: ChargeIntent, measurements: Measurements, state: SafetyContext) -> SafetyDecision:
         violation = self._context_violation(measurements, state)
         if violation is not None:
-            return self._reject(violation)
+            return self._reject(violation, shutdown_required=violation.type == "diagnostic_hard_stop")
         violations = self._intent_violations(intent, state)
         if violations:
             return self._reject(violations[0], tuple(violations))
@@ -82,6 +87,9 @@ class SafetyEngine:
         return self._accept("ACCEPTED", intent)
 
     def _context_violation(self, measurements: Measurements, state: SafetyContext) -> SafetyViolation | None:
+        if state.diagnostic is not None and state.diagnostic.authority is DiagnosticAuthority.HARD_STOP:
+            reason = ", ".join(state.diagnostic.reasons) or "confirmed battery fault"
+            return SafetyViolation("diagnostic_hard_stop", reason, "critical")
         if not state.telemetry_valid:
             return SafetyViolation("telemetry", "telemetry is invalid")
         if not state.ownership_allowed:
@@ -130,7 +138,13 @@ class SafetyEngine:
     def _accept(self, reason: str, intent: ChargeIntent) -> SafetyDecision:
         return SafetyDecision(True, reason, (), self._limits(), intent)
 
-    def _reject(self, first: SafetyViolation, violations: tuple[SafetyViolation, ...] = ()) -> SafetyDecision:
+    def _reject(
+        self,
+        first: SafetyViolation,
+        violations: tuple[SafetyViolation, ...] = (),
+        *,
+        shutdown_required: bool = False,
+    ) -> SafetyDecision:
         reasons = {
             "telemetry": "TELEMETRY_INVALID",
             "ownership": "OWNERSHIP_NOT_ALLOWED",
@@ -138,7 +152,13 @@ class SafetyEngine:
             "temperature": "TEMPERATURE_LIMIT",
             "telemetry_stale": "TELEMETRY_STALE",
         }
-        return SafetyDecision(False, reasons.get(first.type, first.type.upper()), violations or (first,), self._limits())
+        return SafetyDecision(
+            False,
+            reasons.get(first.type, first.type.upper()),
+            violations or (first,),
+            self._limits(),
+            shutdown_required=shutdown_required,
+        )
 
     def _limits(self) -> Mapping[str, float]:
         limits = {"max_voltage": self.limits.max_voltage, "max_current": self.limits.max_current}
