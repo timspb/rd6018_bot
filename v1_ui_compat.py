@@ -72,6 +72,7 @@ def compose_v1_operator_keyboard(
     renders the V1-like 30m / 2h / Session row immediately under the graph, so adding
     them again would create duplicate controls.
     """
+    del app  # Presentation composition has no runtime ownership state of its own.
 
     process_state = getattr(state, "process_state", None)
     authority = getattr(state, "authority", None)
@@ -128,14 +129,20 @@ def compose_v1_operator_keyboard(
 
 
 def install_v1_ui_compat(app: Any) -> None:
-    """Install V1 navigation as a presentation adapter around the semantic V2 HMI."""
+    """Install V1 navigation as a presentation adapter around the semantic V2 HMI.
 
-    if bool(getattr(app, "_v1_ui_compat_installed", False)):
-        return
+    Idempotence is carried by the wrapper function itself.  This adapter owns no app
+    runtime state, so installing it must not widen the frozen module-as-app namespace.
+    """
+    del app
 
     import operator_hmi as hmi
 
-    original = hmi.build_operator_keyboard
+    current = hmi.build_operator_keyboard
+    if bool(getattr(current, "_v1_ui_compat_wrapper", False)):
+        return
+
+    original = current
 
     def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
         return compose_v1_operator_keyboard(
@@ -145,5 +152,5 @@ def install_v1_ui_compat(app: Any) -> None:
             hmi,
         )
 
+    build_keyboard._v1_ui_compat_wrapper = True  # type: ignore[attr-defined]
     hmi.build_operator_keyboard = build_keyboard
-    app._v1_ui_compat_installed = True
