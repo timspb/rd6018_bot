@@ -14,6 +14,9 @@ import bot as app
 
 class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        # The synthetic private chat is explicitly authorized for this dispatcher
+        # test; otherwise the access guard returns before exercising /start.
+        app.ALLOWED_CHAT_IDS = ()
         app.user_dashboard.clear()
         app.chat_dashboard.clear()
         manager = app.terminal_panel_manager

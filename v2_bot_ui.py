@@ -439,7 +439,6 @@ def install_v2_ui(app: Any) -> None:
             f"{format_battery_card(record)}\n\n<b>Что делаем?</b>",
             reply_markup=_intent_keyboard("v2_bat_intent"),
         )
-
     @app.router.callback_query(F.data.startswith("v2_profile_"))
     async def quick_profile_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -523,15 +522,3 @@ def install_v2_ui(app: Any) -> None:
             reply_markup=_preview_keyboard("v2_battery_start"),
         )
 
-    @app.router.callback_query(F.data == "v2_battery_start")
-    async def battery_start_handler(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        await call.answer()
-        user_id = call.from_user.id if call.from_user else 0
-        pending = _pending_start.get(user_id)
-        if pending is None:
-            await call.answer("Preview устарел — выберите АКБ заново", show_alert=True)
-            return
-        if await _start_profile(app, call, pending):
-            _pending_start.pop(user_id, None)

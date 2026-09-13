@@ -1128,10 +1128,4 @@ def install_operator_hmi(app: Any) -> None:
             return
         await call.message.answer("⏹ Mix остановлен. Output подтверждён OFF.")
 
-    @app.router.callback_query(F.data == "operator_done")
-    async def _operator_done(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        await call.answer()
-
     app._operator_hmi_installed = True
