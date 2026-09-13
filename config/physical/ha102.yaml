@@ -14,3 +14,15 @@ connection:
   # Использовать TLS; фактический URL задаётся текущим deployment config
   # Use TLS; the effective URL remains owned by deployment configuration
   tls: false
+
+# Канонические read-only сущности RD6018 в HA
+# Canonical RD6018 read-only entities in HA
+entities:
+  voltage: sensor.rd_6018_output_voltage
+  current: sensor.rd_6018_output_current
+  temperature: sensor.rd6018_rd_6018_temperature_internal_v2
+  output_state: sensor.rd6018_rd_6018_output_state_code_v2
+  configured_voltage: sensor.rd6018_rd_6018_set_voltage_readback_v2
+  configured_current: sensor.rd6018_rd_6018_set_current_readback_v2
+  ovp: sensor.rd6018_rd_6018_ovp_readback_v2
+  ocp: sensor.rd6018_rd_6018_ocp_readback_v2

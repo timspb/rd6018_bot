@@ -20,6 +20,7 @@ class PhysicalTransportConfig:
     enabled: bool
     priority: int
     connection: ConnectionConfig
+    entities: dict[str, str]
 
 
 @dataclass(frozen=True)
