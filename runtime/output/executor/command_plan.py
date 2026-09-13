@@ -17,6 +17,8 @@ class PhysicalCommandStep:
 class PhysicalCommandPlan:
     intent: SafeOutputIntent
     steps: tuple[PhysicalCommandStep, ...]
+    protection_ovp: float | None = None
+    protection_ocp: float | None = None
     execution_allowed: bool = False
 
     def __post_init__(self) -> None:
@@ -24,9 +26,14 @@ class PhysicalCommandPlan:
             raise ValueError("command plan must remain non-executable in this phase")
         if not self.steps:
             raise ValueError("command plan must contain steps")
+        if (self.protection_ovp is None) != (self.protection_ocp is None):
+            raise ValueError("OVP and OCP plan targets must be provided together")
+        if any(value is not None and value <= 0 for value in (self.protection_ovp, self.protection_ocp)):
+            raise ValueError("protection plan targets must be positive")
 
 
-def build_command_plan(intent: SafeOutputIntent) -> PhysicalCommandPlan:
+def build_command_plan(intent: SafeOutputIntent, *, protection_ovp: float | None = None,
+                       protection_ocp: float | None = None) -> PhysicalCommandPlan:
     if intent.action is OutputAction.ENABLE:
         names = ("prepare", "set_voltage", "set_current", "set_ovp", "set_ocp", "readback_compare", "enable")
     elif intent.action is OutputAction.DISABLE:
@@ -36,4 +43,4 @@ def build_command_plan(intent: SafeOutputIntent) -> PhysicalCommandPlan:
     else:
         names = (intent.action.value,)
     steps = tuple(PhysicalCommandStep(name, name in {"readback_compare", "read_output_state", "confirm_off"}) for name in names)
-    return PhysicalCommandPlan(intent, steps)
+    return PhysicalCommandPlan(intent, steps, protection_ovp, protection_ocp)
