@@ -62,16 +62,27 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
         self.assertIn("gate.take_deferred_restore_request()", coordinator)
         self.assertIn("gate.discard_deferred_restore_request()", self.gate)
 
-    def test_deferred_restore_uses_fresh_live_and_no_direct_actuation(self):
+    def test_deferred_restore_uses_fresh_live_and_composed_safe_actuation(self):
         replay = self.text.split("async def _replay_deferred_startup_restore()", 1)[1]
         replay = replay.split("async def main()", 1)[0]
         self.assertIn("live = await _legacy.hass.get_all_live()", replay)
         self.assertIn("controller.try_restore_session(", replay)
         self.assertIn("_legacy._apply_restore_time_corrections(controller, live)", replay)
-        self.assertNotIn("turn_on(", replay)
-        self.assertNotIn("turn_off(", replay)
-        self.assertNotIn("set_voltage(", replay)
-        self.assertNotIn("set_current(", replay)
+        self.assertIn("_legacy._operator_pause_active()", replay)
+        self.assertIn("_legacy._restore_allows_auto_enable(controller)", replay)
+
+        # D-STARTUP-3 deliberately realizes an eligible restored MANAGED session only
+        # after startup reconciliation. The calls must go through the final composed
+        # HassClient/runtime-safety surface; raw actuator aliases would bypass the gate.
+        self.assertIn("await _legacy._apply_phase_protection(uv, ui)", replay)
+        self.assertIn("await _legacy.hass.set_voltage(uv)", replay)
+        self.assertIn("await _legacy.hass.set_current(_legacy._cap_current(ui))", replay)
+        self.assertIn("await _legacy.hass.turn_on(_legacy.ENTITY_MAP[\"switch\"])", replay)
+        self.assertIn("await _legacy.hass.turn_off(_legacy.ENTITY_MAP[\"switch\"])", replay)
+        self.assertNotIn("_raw_turn_on", replay)
+        self.assertNotIn("_raw_turn_off", replay)
+        self.assertNotIn("_raw_set_voltage", replay)
+        self.assertNotIn("_raw_set_current", replay)
 
 
 if __name__ == "__main__":
