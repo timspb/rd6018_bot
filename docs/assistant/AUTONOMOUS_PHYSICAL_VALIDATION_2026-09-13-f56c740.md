@@ -3,6 +3,7 @@
 ## Tested baseline
 
 - Target: node 101, explicitly authorized for this run
+- Target authorization: explicitly approved by project owner for this validation run
 - Hostname: `Deb11`
 - Tested bot SHA: `f56c7407d9838ef9c5ed05e48aa01ad24a01b79b`
 - `f56c740` is a descendant of PR #24 `b360533`; the physical-test client,
@@ -122,3 +123,25 @@ previously observed platform-specific failures and is not physical evidence.
 No product defect was proven. Do not claim physical AUTONOMOUS readiness until
 C, D and E are rerun with local control, independent observation, controlled
 network isolation and an approved ESP-only reboot method.
+
+## Final matrix
+
+```text
+A PASS
+B PASS
+C BLOCKED_NO_LOCAL_CONTROL
+D BLOCKED_NO_INDEPENDENT_OBSERVER
+E BLOCKED_NO_APPROVED_ESP_ONLY_METHOD
+F PASS
+CLEANUP PASS
+```
+
+## Evidence integrity and runbook drift
+
+The command responses and service/readback observations were captured during
+the run and summarized above. Full raw JSON response files and a separate raw
+log bundle were not persisted to the repository; they are not reconstructed
+after the fact. The repository runbook still contains an older blanket
+prohibition against node 101. For this run that restriction was superseded by
+the explicit project-owner authorization recorded above; this does not change
+the runbook's other safety requirements.
