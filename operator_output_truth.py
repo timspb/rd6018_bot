@@ -6,6 +6,7 @@ from typing import Any, Mapping, Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from rd6018_telemetry import telemetry_freshness
+from v1_ui_compat import install_v1_ui_compat
 
 
 OUTPUT_TRUTH_ATTR = "_output_state_known"
@@ -214,15 +215,26 @@ def _render_unknown_output(text: str, state: Any) -> str:
 def install_operator_output_truth(app: Any) -> None:
     """Make the final production HMI preserve Output ON/OFF/UNKNOWN evidence.
 
-    This installer must run after every keyboard composition layer.  It changes no
-    actuator authority: callbacks continue to use their existing fresh-readback and
-    verified-OFF transactions.  It only prevents stale/unknown Output telemetry from
+    This installer must run after every semantic keyboard composition layer. It changes
+    no actuator authority: callbacks continue to use their existing fresh-readback and
+    verified-OFF transactions. It only prevents stale/unknown Output telemetry from
     being presented as OFF or from exposing actions whose precondition is proven OFF.
+
+    The V1 compatibility installer is registered here, before this truth wrapper and
+    the later AUTONOMOUS wrapper finish composing ``operator_hmi``. Its graph adapter
+    resolves ``operator_hmi.build_operator_keyboard`` dynamically at render time, so
+    the familiar shell consumes the *final filtered* V2 callback set rather than
+    sitting in front of those safety filters.
     """
     if bool(getattr(app, "_operator_output_truth_installed", False)):
         return
 
     import operator_hmi as hmi
+
+    # Register only the graph/dashboard presentation adapter. It deliberately leaves
+    # the legacy boolean ``app._build_dashboard_keyboard`` untouched; at render time
+    # its graph wrapper will call the final truth/AUTONOMOUS keyboard dynamically.
+    install_v1_ui_compat(app)
 
     original_state_builder = hmi.build_operator_hmi_state
     original_keyboard_builder = hmi.build_operator_keyboard
