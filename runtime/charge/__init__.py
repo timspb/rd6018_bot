@@ -11,6 +11,7 @@ from .state import ChargeState
 from .adapters import LegacyChargeProgramAdapter
 from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 from .programs import ManualProgram, ManualTargets
+from .programs import MinimumConfig, MinimumProgram
 
 __all__ = [
     "BatteryProfile",
@@ -27,4 +28,6 @@ __all__ = [
     "DecisionComparison",
     "ManualProgram",
     "ManualTargets",
+    "MinimumConfig",
+    "MinimumProgram",
 ]
