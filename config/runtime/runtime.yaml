@@ -16,3 +16,9 @@ snapshot_current_tolerance_a: 0.06
 # Допуск свежести снимков при сравнении, секунды
 # Snapshot timestamp freshness tolerance, seconds
 snapshot_timestamp_tolerance_s: 10
+# Допуск сверки уставки напряжения перед/после физического действия, вольты
+verification_voltage_tolerance_v: 0.01
+# Допуск сверки уставки тока перед/после физического действия, амперы
+verification_current_tolerance_a: 0.05
+# Допуск сверки OVP/OCP перед/после физического действия
+verification_protection_tolerance: 0.05
