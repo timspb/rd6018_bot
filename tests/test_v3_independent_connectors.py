@@ -32,3 +32,10 @@ class IndependentConnectorTests(unittest.TestCase):
             esp.transport.health_check = lambda: asyncio.sleep(0, result={"connected": True})
             self.assertTrue((await esp.health_check())["connected"])
         asyncio.run(fail())
+
+    def test_write_surface_is_only_verified_disable(self):
+        config = load_config("config")
+        for name in ("ha_esp", "esp_direct"):
+            connector = PhysicalConnectorFactory(config).create(name)
+            self.assertTrue(callable(connector.disable_output))
+            self.assertTrue(callable(connector.read_snapshot))

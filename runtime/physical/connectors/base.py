@@ -25,3 +25,9 @@ class IndependentPhysicalConnector(ABC):
 
     @abstractmethod
     async def close(self) -> None: ...
+
+    @abstractmethod
+    async def disable_output(self) -> None: ...
+
+    @abstractmethod
+    async def read_snapshot(self) -> HardwareSnapshot: ...
