@@ -18,7 +18,8 @@ class RecipeRegistry:
 
     def create_custom_profile(self, dto: RecipeDTO) -> ValidatedChargeRecipe:
         self.validator.validate_dto(dto)
-        return self.validator.validate(apply_recipe_override(self.get_factory_recipe(dto.chemistry), dto.overrides))
+        base_name = dto.base_chemistry if dto.chemistry.strip().upper() == "CUSTOM" else dto.chemistry
+        return self.validator.validate(apply_recipe_override(self.get_factory_recipe(base_name), dto.overrides))
 
     def resolve_profile(self, chemistry: str, overrides: Mapping[str, Any] | None = None) -> ValidatedChargeRecipe:
         base = self.get_factory_recipe(chemistry)

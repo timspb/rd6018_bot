@@ -32,7 +32,9 @@ class V3RecipeProfileTests(unittest.TestCase):
         with self.assertRaises(RecipeValidationError):
             self.registry.create_custom_profile(RecipeDTO("", {}))
         with self.assertRaises(RecipeValidationError):
-            self.registry.create_custom_profile(RecipeDTO("CUSTOM", {}))
+            self.registry.create_custom_profile(RecipeDTO("CUSTOM", {}, {}))
+        custom = self.registry.create_custom_profile(RecipeDTO("CUSTOM", {"mix.cc.delta_voltage": 0.04}, "AGM"))
+        self.assertEqual(ChemistryProfile.AGM, custom.chemistry)
         with self.assertRaises(ValueError):
             self.registry.get_factory_recipe("UNKNOWN")
 

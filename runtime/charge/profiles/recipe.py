@@ -21,6 +21,7 @@ class RecipeDTO:
 
     chemistry: str
     overrides: Mapping[str, Any]
+    base_chemistry: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,9 @@ class ValidatedChargeRecipe:
 
 
 def factory_recipe(chemistry: ProductionChemistry | ChemistryProfile | str) -> ValidatedChargeRecipe:
+    label = getattr(chemistry, "value", chemistry)
+    if str(label).strip().upper() == "CUSTOM":
+        raise ValueError("CUSTOM requires an explicit recipe definition")
     profile = chemistry if isinstance(chemistry, ChemistryProfile) else map_production_chemistry(chemistry)
     # Factory values are data here, not algorithm constants.  They are kept
     # explicit per chemistry so a future editor can validate/override them.

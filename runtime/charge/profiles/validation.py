@@ -19,8 +19,8 @@ class ChargeRecipeValidator:
             raise RecipeValidationError("chemistry is required")
         if not isinstance(dto.overrides, dict):
             raise RecipeValidationError("overrides must be a mapping")
-        if dto.chemistry.strip().upper() == "CUSTOM" and not dto.overrides:
-            raise RecipeValidationError("CUSTOM requires explicit recipe overrides")
+        if dto.chemistry.strip().upper() == "CUSTOM" and not dto.base_chemistry:
+            raise RecipeValidationError("CUSTOM requires an explicit base_chemistry")
 
     def validate(self, recipe: ValidatedChargeRecipe) -> ValidatedChargeRecipe:
         if not recipe.chemistry:
