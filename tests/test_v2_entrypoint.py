@@ -4,6 +4,8 @@ import unittest
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+import operator_dashboard
+import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
 from production_controller import ProductionChargeControllerV2
 
@@ -18,6 +20,25 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertTrue(bot._v2_vin_psu_health_only)
         self.assertEqual(bot.MIN_INPUT_VOLTAGE, float("-inf"))
         self.assertTrue(bot.charge_controller._v2_production_cooling_guard_installed)
+
+    def _state(self, process_state, authority, *, output_on=False):
+        return hmi.OperatorHmiState(
+            process_state=process_state,
+            authority=authority,
+            title="",
+            output_on=output_on,
+            regulator="—",
+            battery_label="",
+            battery_voltage_v=None,
+            current_a=None,
+            power_w=None,
+            battery_temp_c=None,
+            psu_temp_c=None,
+            target_voltage_v=None,
+            current_limit_a=None,
+            progress="",
+            safety="",
+        )
 
     def test_final_semantic_operator_hmi_is_installed(self):
         self.assertTrue(bot._operator_hmi_installed)
@@ -34,37 +55,30 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("v2_mix", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
-        # The semantic layer owns caption/button meaning, while production deliberately
-        # keeps the graph/photo transport rather than switching L2 to a text-only card.
         self.assertEqual(
             bot._build_and_send_dashboard.__name__,
             "build_and_send_graph_dashboard",
         )
         self.assertEqual(bot._compact_dashboard_caption.__name__, "compact_dashboard_caption")
 
-        # The first production dashboard is the UX baseline.  The graph transport keeps
-        # its 30m/2h/Session workspace, while the primary shell restores familiar V1
-        # navigation around the final V2 semantic controls.  START is only a route into
-        # the V2 battery/program chooser; the legacy raw power-toggle authority must not
-        # reappear.
-        dashboard = bot._build_dashboard_keyboard(False, 1)
+        # V1 compatibility lives only on the truthful graph/dashboard path.  Do not
+        # decorate the legacy bool-only _build_dashboard_keyboard surface: it cannot
+        # distinguish confirmed OFF from stale/UNKNOWN Output.
+        state = self._state(hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE)
+        dashboard = operator_dashboard._main_graph_markup(bot, state, 1)
+        rows = dashboard.inline_keyboard
         dashboard_callbacks = {
             button.callback_data
-            for row in dashboard.inline_keyboard
+            for row in rows
             for button in row
             if button.callback_data
         }
-        dashboard_texts = {
-            button.text
-            for row in dashboard.inline_keyboard
-            for button in row
-        }
-        self.assertNotIn("chart_30m", dashboard_callbacks)
-        self.assertNotIn("chart_2h", dashboard_callbacks)
-        self.assertNotIn("chart_session", dashboard_callbacks)
-        self.assertNotIn("v2_status", dashboard_callbacks)
-        self.assertNotIn("entities_status", dashboard_callbacks)
-        self.assertNotIn("operator_graph", dashboard_callbacks)
+        dashboard_texts = {button.text for row in rows for button in row}
+
+        self.assertEqual(
+            [button.callback_data for button in rows[0]],
+            ["operator_graph_30m", "operator_graph_2h", "operator_graph_session"],
+        )
         self.assertNotIn("power_toggle", dashboard_callbacks)
         self.assertIn("v2_batteries", dashboard_callbacks)
         self.assertIn("charge_modes", dashboard_callbacks)
@@ -83,23 +97,19 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("recovery/Mix выполняются только по критериям", text)
         self.assertNotIn("без автоматического HV/Mix", text)
 
-    def test_active_managed_dashboard_uses_session_bound_stop_not_legacy_toggle(self):
-        # Temporarily present a normal managed session to the final semantic keyboard.
+    def test_active_managed_graph_dashboard_uses_session_bound_stop_not_legacy_toggle(self):
         manager = bot.rd_control_mode_manager
-        controller = bot.charge_controller
         old_mode = manager.mode
-        old_stage = controller.current_stage
-        old_profile = controller.battery_type
-        old_capacity = controller.ah_capacity
         try:
             from rd_control_mode import RdControlMode
 
             manager.mode = RdControlMode.PB_MANAGED
-            controller.current_stage = controller.STAGE_MAIN
-            controller.battery_type = controller.PROFILE_CA
-            controller.ah_capacity = 72
-            # is_active is a property derived from the stage.
-            dashboard = bot._build_dashboard_keyboard(True, 1)
+            state = self._state(
+                hmi.HmiProcessState.RUNNING,
+                hmi.HmiAuthority.AUTO,
+                output_on=True,
+            )
+            dashboard = operator_dashboard._main_graph_markup(bot, state, 1)
             callbacks = {
                 button.callback_data
                 for row in dashboard.inline_keyboard
@@ -109,12 +119,9 @@ class V2EntrypointTests(unittest.TestCase):
             self.assertIn("operator_managed_stop", callbacks)
             self.assertNotIn("power_toggle", callbacks)
             self.assertIn("operator_details", callbacks)
-            self.assertNotIn("operator_graph", callbacks)
+            self.assertIn("operator_more", callbacks)
         finally:
             manager.mode = old_mode
-            controller.current_stage = old_stage
-            controller.battery_type = old_profile
-            controller.ah_capacity = old_capacity
 
     def test_saved_battery_start_route_precedes_generic_battery_selector(self):
         handlers = bot.router.observers["callback_query"].handlers
