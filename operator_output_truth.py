@@ -6,6 +6,7 @@ from typing import Any, Mapping, Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from rd6018_telemetry import telemetry_freshness
+from v1_ui_compat import install_v1_ui_compat
 
 
 OUTPUT_TRUTH_ATTR = "_output_state_known"
@@ -223,6 +224,12 @@ def install_operator_output_truth(app: Any) -> None:
         return
 
     import operator_hmi as hmi
+
+    # V1 is the canonical operator UX shell, while all control semantics remain V2.
+    # Install that presentation adapter before capturing the keyboard so this truth
+    # layer (and the later AUTONOMOUS layer) stays authoritative and can remove any
+    # familiar action whose physical precondition is not positively proven.
+    install_v1_ui_compat(app)
 
     original_state_builder = hmi.build_operator_hmi_state
     original_keyboard_builder = hmi.build_operator_keyboard
