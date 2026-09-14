@@ -22,6 +22,15 @@ class ManualProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "MAIN must not define delta"):
             ManualChargeProfile.from_mapping(raw)
 
+    def test_legacy_hold_seconds_are_normalized_to_hours(self):
+        raw = {
+            "main": {"voltage_v": 14.7, "current_a": 5, "minimum_current_a": .3, "hold_seconds": 5400},
+            "mix": {"voltage_v": 16.5, "current_a": 1.5, "delta_voltage_v": .03, "delta_current_a": .03, "hold_seconds": 7200},
+        }
+        profile = ManualChargeProfile.from_mapping(raw)
+        self.assertEqual(profile.main.hold_hours, 1.5)
+        self.assertEqual(profile.mix.hold_hours, 2.0)
+
     def test_mix_requires_both_mode_deltas(self):
         raw = {
             "main": {"voltage_v": 14.7, "current_a": 5, "minimum_current_a": .3, "hold_hours": 0},

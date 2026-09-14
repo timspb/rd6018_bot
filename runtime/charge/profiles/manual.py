@@ -25,6 +25,22 @@ def _required_number(data: Mapping[str, Any], name: str, *, minimum: float = 0.0
     return result
 
 
+def _hold_hours(data: Mapping[str, Any]) -> float:
+    """Read hours and normalize an older persisted seconds value."""
+    if data.get("hold_hours") is not None:
+        return _required_number(data, "hold_hours")
+    legacy_seconds = data.get("hold_seconds")
+    if legacy_seconds is None:
+        raise ValueError("manual profile field is required: hold_hours")
+    try:
+        seconds = float(legacy_seconds)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("manual profile field must be numeric: hold_seconds") from exc
+    if seconds < 0:
+        raise ValueError("manual profile field must be >= 0: hold_seconds")
+    return seconds / 3600.0
+
+
 @dataclass(frozen=True)
 class ManualStageProfile:
     voltage_v: float
@@ -72,7 +88,7 @@ class ManualChargeProfile:
             return ManualStageProfile(
                 voltage_v=_required_number(raw, "voltage_v", minimum=0.01),
                 current_a=_required_number(raw, "current_a", minimum=0.01),
-                hold_hours=_required_number(raw, "hold_hours"),
+                hold_hours=_hold_hours(raw),
                 minimum_current_a=_required_number(raw, "minimum_current_a") if is_main else None,
                 delta_voltage_v=_required_number(raw, "delta_voltage_v", minimum=0.000001) if raw.get("delta_voltage_v") is not None else None,
                 delta_current_a=_required_number(raw, "delta_current_a", minimum=0.000001) if raw.get("delta_current_a") is not None else None,
