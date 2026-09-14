@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import math
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiogram import BaseMiddleware, F
@@ -14,7 +14,9 @@ from charge_logic import MAX_STAGE_CURRENT
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
 from manual_runtime_v2 import ProductionManualSessionManager
-from runtime.charge.profiles.manual import load_manual_profile
+from runtime.charge.profiles.manual import ManualChargeProfile, ManualStageProfile, load_manual_profile, save_manual_profile
+
+MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,51 @@ def _duration_seconds(text: str) -> float:
     return float(total)
 
 
+def _profile_number(value: str, *, duration: bool = False) -> float:
+    return _duration_seconds(value) if duration and ":" in value else _float(value.rstrip("АAaAvV"))
+
+
+def _parse_profile_stage(line: str, *, main: bool, base: ManualStageProfile) -> ManualStageProfile:
+    body = line.split(":", 1)[1] if ":" in line else line.split(None, 1)[1]
+    values: dict[str, str] = {}
+    for token in body.replace(",", ".").split():
+        if "=" not in token:
+            raise ValueError("поля режима задаются как ключ=значение")
+        key, value = token.split("=", 1)
+        values[key.strip().lower()] = value.strip()
+
+    def take(*names: str, duration: bool = False) -> float:
+        for name in names:
+            if name in values:
+                return _profile_number(values[name], duration=duration)
+        raise ValueError(f"не заполнено поле {names[0]}")
+
+    common = {
+        "voltage_v": take("u", "v", "voltage", "voltage_v"),
+        "current_a": take("i", "current", "current_a"),
+        "hold_seconds": take("hold", "hold_s", "hold_seconds", duration=True),
+    }
+    if main:
+        return replace(base, **common, minimum_current_a=take("imin", "minimum", "minimum_current_a"))
+    return replace(
+        base,
+        **common,
+        delta_voltage_v=take("dv", "deltav", "delta_voltage_v"),
+        delta_current_a=take("di", "deltai", "delta_current_a"),
+    )
+
+
+def parse_manual_profile_input(text: str) -> ManualChargeProfile:
+    """Parse the two-line operator form and return a validated profile."""
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if len(lines) != 2 or not lines[0].lower().startswith("main") or not lines[1].lower().startswith("mix"):
+        raise ValueError("нужны две строки: MAIN ... и MIX ...")
+    base = load_manual_profile(MANUAL_PROFILE_PATH)
+    main = _parse_profile_stage(lines[0], main=True, base=base.main)
+    mix = _parse_profile_stage(lines[1], main=False, base=base.mix)
+    return ManualChargeProfile(main=main, mix=mix, profile_id=base.profile_id)
+
+
 def _validate_stop_voltage(value: float) -> float:
     if value < 0 or value > float(MAX_MANUAL_VOLTAGE):
         raise ValueError(f"порог напряжения должен быть 0..{MAX_MANUAL_VOLTAGE:.1f} V")
@@ -79,7 +126,11 @@ def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
     if not raw or raw.startswith("/"):
         return None
     if raw.lower() in {"manual", "ручной", "manual_main_mix"}:
-        profile = load_manual_profile(Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml")
+        profile = load_manual_profile(MANUAL_PROFILE_PATH)
+        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile))
+    if "\n" in raw and raw.lower().lstrip().startswith("main"):
+        profile = parse_manual_profile_input(raw)
+        save_manual_profile(profile, MANUAL_PROFILE_PATH)
         return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile))
     tokens = raw.replace("≥", ">=").replace("≤", "<=").split()
     if len(tokens) < 2:
@@ -181,7 +232,11 @@ def manual_help_text() -> str:
         "Нижний порог MAIN: <code>I&lt;=0.30 A</code> подтверждается перед выдержкой.\n"
         "После подтверждения минимума и выдержки запускается MIX.\n"
         "MIX: ток, напряжение, ΔV, ΔI, выдержка.\n"
-        "Запуск: отправьте <code>MANUAL</code>. Старый формат одной строки отключён.\n"
+        "Для записи новых значений отправьте две строки:\n"
+        "<code>MAIN: U=14.7 I=5.0 Imin=0.30 hold=600</code>\n"
+        "<code>MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=7200</code>\n"
+        "После записи профиль запускается командой <code>MANUAL</code>.\n"
+        "Старый формат одной строки отключён.\n"
         f"Envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>."
     )
 

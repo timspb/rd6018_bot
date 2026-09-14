@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
 from typing import Any, Mapping
 
 import yaml
@@ -91,3 +92,36 @@ class ManualChargeProfile:
 def load_manual_profile(path: str | Path) -> ManualChargeProfile:
     with Path(path).open(encoding="utf-8") as handle:
         return ManualChargeProfile.from_mapping(yaml.safe_load(handle) or {})
+
+
+def save_manual_profile(profile: ManualChargeProfile, path: str | Path) -> None:
+    """Atomically persist operator-entered Manual values as configuration data."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "manual": {
+            "main": {
+                "voltage_v": profile.main.voltage_v,
+                "current_a": profile.main.current_a,
+                "minimum_current_a": profile.main.minimum_current_a,
+                "hold_seconds": profile.main.hold_seconds,
+                "confirmation_count": profile.main.confirmation_count,
+                "confirmation_interval_seconds": profile.main.confirmation_interval_seconds,
+            },
+            "mix": {
+                "voltage_v": profile.mix.voltage_v,
+                "current_a": profile.mix.current_a,
+                "delta_voltage_v": profile.mix.delta_voltage_v,
+                "delta_current_a": profile.mix.delta_current_a,
+                "hold_seconds": profile.mix.hold_seconds,
+                "confirmation_count": profile.mix.confirmation_count,
+                "confirmation_interval_seconds": profile.mix.confirmation_interval_seconds,
+            },
+        }
+    }
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write("# Настройки ручного маршрута MAIN -> MIX.\n")
+        handle.write("# Manual route configuration MAIN -> MIX.\n")
+        yaml.safe_dump(payload, handle, allow_unicode=True, sort_keys=False)
+    os.replace(temporary, target)
