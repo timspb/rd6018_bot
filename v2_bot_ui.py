@@ -348,8 +348,24 @@ def install_v2_ui(app: Any) -> None:
         _new_battery_input.discard(user_id)
         records = await list_batteries(limit=50)
         created = next((item for item in records if item.identity.battery_id == identity.battery_id), None)
-        text = format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена."
-        await message.answer(text, parse_mode=ParseMode.HTML)
+        visible_records = [
+            item for item in records if profile_for_chemistry(item.identity.chemistry)
+        ]
+        rows = [
+            [InlineKeyboardButton(text=battery_button_label(item), callback_data=f"v2_battery_{idx}")]
+            for idx, item in enumerate(visible_records)
+        ]
+        rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
+        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")])
+        text = (
+            (format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена.")
+            + "\n\n<b>Выберите сохранённую АКБ:</b>"
+        )
+        await message.answer(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
 
     app._build_dashboard_keyboard = build_dashboard_keyboard
     app._charge_modes_text = charge_modes_text
