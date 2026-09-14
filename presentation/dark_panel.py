@@ -45,6 +45,17 @@ _ICON_COLORS = {
     "➡️": (150, 200, 255),
 }
 
+_ICON_FALLBACKS = {
+    "🔋": "▣",
+    "⚡": "ϟ",
+    "🎯": "◎",
+    "🌡": "♨",
+    "⏱": "◷",
+    "✅": "✓",
+    "🛡": "◇",
+    "➡️": "→",
+}
+
 
 def _draw_line(draw: ImageDraw.ImageDraw, line: str, xy: tuple[int, int], font) -> None:
     """Draw text with a colored leading icon and white informational text."""
@@ -54,15 +65,16 @@ def _draw_line(draw: ImageDraw.ImageDraw, line: str, xy: tuple[int, int], font) 
     if color is None:
         draw.text((x, y), line, fill=(242, 242, 242), font=font)
         return
-    draw.text((x, y), token, fill=color, font=font)
-    token_width = draw.textbbox((0, 0), token, font=font)[2]
+    glyph = _ICON_FALLBACKS.get(token, token)
+    draw.text((x, y), glyph, fill=color, font=font)
+    token_width = draw.textbbox((0, 0), glyph, font=font)[2]
     draw.text((x + token_width + (6 if separator else 0), y), rest, fill=(242, 242, 242), font=font)
 
 
 def render_dark_panel(text: str, *, width: int | None = None) -> bytes:
     """Render a dark PNG card; optional width aligns it with the chart."""
     lines = _plain_lines(text) or ["RD6018"]
-    font = _font(24)
+    font = _font(31)
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     boxes = [probe.textbbox((0, 0), line, font=font) for line in lines]
     line_height = max((box[3] - box[1] for box in boxes), default=20) + 8

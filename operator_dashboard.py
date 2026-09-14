@@ -30,11 +30,32 @@ def _panel_actions(actions, *, dark: bool):
     """Apply presentation-only visibility rules to the immutable action view."""
     if actions is None or not dark:
         return actions
-    hidden = {hmi.OperatorAction.SHOW_LOG, hmi.OperatorAction.SHOW_DIAGNOSTICS}
+    hidden = {hmi.OperatorAction.SHOW_DIAGNOSTICS}
     return replace(
         actions,
         available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
     )
+
+
+def _toolbar_actions(actions):
+    """Keep graph ranges and the log in the dedicated top toolbar only."""
+    if actions is None:
+        return None
+    hidden = {hmi.OperatorAction.SHOW_LOG, hmi.OperatorAction.SHOW_GRAPH}
+    return replace(
+        actions,
+        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
+    )
+
+
+def _graph_toolbar(app: Any, user_id: int, actions=None):
+    graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
+    top_row = list(graph_rows[0]) if graph_rows else []
+    if actions is not None and any(
+        item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
+    ):
+        top_row.append(app.InlineKeyboardButton(text="📋 Лог", callback_data="logs"))
+    return top_row
 
 
 def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
@@ -43,13 +64,13 @@ def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, acti
     # The V3 path passes capabilities explicitly; compatibility callers retain
     # the unchanged legacy fallback.
     panel = (
-        hmi.build_operator_keyboard(app, state, actions=actions)
+        hmi.build_operator_keyboard(app, state, actions=_toolbar_actions(actions))
         if actions is not None
         else hmi.build_operator_keyboard(app, state)
     )
-    graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
+    top_row = _graph_toolbar(app, user_id, actions)
     return app.InlineKeyboardMarkup(
-        inline_keyboard=(graph_rows[:1] if graph_rows else []) + list(panel.inline_keyboard)
+        inline_keyboard=([top_row] if top_row else []) + list(panel.inline_keyboard)
     )
 
 
@@ -399,8 +420,12 @@ def install_operator_graph_dashboard(app: Any) -> None:
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
+        panel_actions = _toolbar_actions(actions)
         markup = (
-            hmi.build_operator_keyboard(app, state, actions=actions)
+            app.InlineKeyboardMarkup(
+                inline_keyboard=[_graph_toolbar(app, user_id, actions)]
+                + list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
+            )
             if _dark_panel_enabled()
             else _main_graph_markup(app, state, user_id, actions)
         )
@@ -491,8 +516,12 @@ def install_operator_graph_dashboard(app: Any) -> None:
         )
         caption = truthful_panel(state)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
+        panel_actions = _toolbar_actions(actions)
         markup = (
-            hmi.build_operator_keyboard(app, state, actions=actions)
+            app.InlineKeyboardMarkup(
+                inline_keyboard=[_graph_toolbar(app, user_id, actions)]
+                + list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
+            )
             if _dark_panel_enabled()
             else _main_graph_markup(app, state, user_id, actions)
         )

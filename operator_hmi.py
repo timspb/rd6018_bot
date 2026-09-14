@@ -315,6 +315,20 @@ def _battery_label_from_observer(observer: Any) -> str:
     return " · ".join(pieces)
 
 
+def _battery_label_from_manual(manual: Any) -> str:
+    """Return the selected battery identity carried by the Manual request."""
+    request = getattr(manual, "request", None)
+    battery_id = str(
+        (getattr(request, "battery_id", "") if request is not None else "")
+        or getattr(manual, "battery_id", "")
+    ).strip()
+    capacity = _finite(getattr(request, "capacity_ah", None) if request is not None else None)
+    pieces = [battery_id] if battery_id else []
+    if capacity is not None and capacity > 0:
+        pieces.append(f"{capacity:g} Ah")
+    return " · ".join(pieces)
+
+
 def _normal_safety(live: Mapping[str, Any]) -> tuple[str, str]:
     tripped = []
     if _on(live.get("ovp_triggered")):
@@ -494,7 +508,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             title=f"RD6018 · {getattr(getattr(manual, 'request', None), 'operation_mode_label', 'Ручной режим')}",
             output_on=output_on,
             regulator=regulator,
-            battery_label=str(getattr(manual, "battery_id", "") or ""),
+            battery_label=_battery_label_from_manual(manual),
             battery_voltage_v=battery_v,
             current_a=current,
             power_w=power,
@@ -520,7 +534,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             title="RD6018 · ПРЕРВАННЫЙ ЗАРЯД",
             output_on=output_on,
             regulator=regulator,
-            battery_label=str(getattr(manual, "battery_id", "") or ""),
+            battery_label=_battery_label_from_manual(manual),
             battery_voltage_v=battery_v,
             current_a=current,
             power_w=power,
