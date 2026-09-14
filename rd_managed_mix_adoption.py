@@ -113,7 +113,12 @@ def _install_hmi_composition(app: Any, coordinator: ManagedMixAdoptionCoordinato
             )
         return state
 
-    def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
+    def build_keyboard(
+        app_arg: Any,
+        state: Any,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
         if coordinator.active or coordinator.off_pending:
             return InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -133,7 +138,13 @@ def _install_hmi_composition(app: Any, coordinator: ManagedMixAdoptionCoordinato
                     ],
                 ]
             )
-        markup = original_keyboard(app_arg, state)
+        markup = (
+            original_keyboard(app_arg, state, actions=actions)
+            if actions is not None
+            else original_keyboard(app_arg, state)
+        )
+        if actions is not None:
+            return markup
         if (
             state.process_state is operator_hmi.HmiProcessState.HANDS_OFF
             and bool(state.output_on)

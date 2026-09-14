@@ -125,8 +125,20 @@ def install_operator_managed_stop(app: Any) -> None:
 
     base_keyboard = hmi.build_operator_keyboard
 
-    def stop_only_keyboard(app_arg: Any, state: hmi.OperatorHmiState) -> InlineKeyboardMarkup:
-        return _replace_legacy_power_toggle(base_keyboard(app_arg, state), state)
+    def stop_only_keyboard(
+        app_arg: Any,
+        state: hmi.OperatorHmiState,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        base = (
+            base_keyboard(app_arg, state, actions=actions)
+            if actions is not None
+            else base_keyboard(app_arg, state)
+        )
+        if actions is not None:
+            return base
+        return _replace_legacy_power_toggle(base, state)
 
     hmi.build_operator_keyboard = stop_only_keyboard
 

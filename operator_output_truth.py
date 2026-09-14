@@ -246,8 +246,19 @@ def install_operator_output_truth(app: Any) -> None:
         state = original_state_builder(app_arg, live)
         return normalize_operator_state(app_arg, state, live, hmi)
 
-    def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
-        markup = original_keyboard_builder(app_arg, state)
+    def build_keyboard(
+        app_arg: Any,
+        state: Any,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        markup = (
+            original_keyboard_builder(app_arg, state, actions=actions)
+            if actions is not None
+            else original_keyboard_builder(app_arg, state)
+        )
+        if actions is not None:
+            return markup
         return filter_keyboard_for_output_truth(app_arg, state, markup, hmi)
 
     def more_keyboard(state: Any) -> InlineKeyboardMarkup:

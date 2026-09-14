@@ -322,8 +322,15 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
 
     original = hmi.build_operator_keyboard
 
-    def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
-        markup = original(app_arg, state)
+    def build_keyboard(
+        app_arg: Any,
+        state: Any,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        markup = original(app_arg, state, actions=actions) if actions is not None else original(app_arg, state)
+        if actions is not None:
+            return markup
         manager = coordinator.manager
 
         if manager.edge_autonomous:

@@ -89,6 +89,38 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.chat_dashboard[1], 88)
         self.assertEqual(manager.panel_id(1), 88)
 
+    async def test_start_keeps_photo_dashboard_on_compatibility_path(self):
+        """The action-aware V1 compatibility wrapper must preserve SendPhoto."""
+        manager = app.terminal_panel_manager
+        manager.adopt(chat_id=1, user_id=1, message_id=77)
+        calls = []
+
+        async def fake_telegram_api(_bot, method, *args, **kwargs):
+            del args, kwargs
+            calls.append(type(method).__name__)
+            if isinstance(method, DeleteMessage):
+                return True
+            if isinstance(method, SendPhoto):
+                return SimpleNamespace(message_id=89)
+            if isinstance(method, SendMessage):
+                raise AssertionError("successful /start must not degrade to text-only panel")
+            raise AssertionError(f"unexpected Telegram method: {type(method).__name__}")
+
+        graph_live, graph_data, graph_render = self._graph_patches()
+        with (
+            graph_live,
+            graph_data,
+            graph_render,
+            patch.object(Bot, "__call__", new=fake_telegram_api),
+        ):
+            await app.dp.feed_update(app.bot, self._start_update())
+
+        self.assertIn("SendPhoto", calls)
+        self.assertNotIn("SendMessage", calls)
+        self.assertEqual(app.user_dashboard[1], 89)
+        self.assertEqual(app.chat_dashboard[1], 89)
+        self.assertEqual(manager.panel_id(1), 89)
+
     async def test_start_preserves_primary_error_when_text_fallback_also_fails(self):
         """A total Telegram outage must not be converted into false handled success."""
         manager = app.terminal_panel_manager

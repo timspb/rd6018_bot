@@ -179,8 +179,17 @@ def install_v1_ui_compat(app: Any) -> None:
 
     original_graph_builder = graph_builder
 
-    def main_graph_markup(app_arg: Any, state: Any, user_id: int) -> InlineKeyboardMarkup:
-        base = original_graph_builder(app_arg, state, user_id)
+    def main_graph_markup(
+        app_arg: Any,
+        state: Any,
+        user_id: int,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        base = (
+            original_graph_builder(app_arg, state, user_id, actions)
+            if actions is not None
+            else original_graph_builder(app_arg, state, user_id)
+        )
         return _compose_graph_markup(app_arg, state, base, hmi)
 
     main_graph_markup._v1_ui_compat_wrapper = True  # type: ignore[attr-defined]
