@@ -7,6 +7,8 @@ import bot
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_route import ProductionStartRouteAdapter
 from application.production_start_execution_port import ProductionStartMode
+from application.production_start_runner import ProductionStartRunner
+from application.v2_start_runner_adapter import V2StartRunnerAdapter
 from application.start_request import StartRequest
 from application.start_preflight import StartPreflightService
 from application.start_plan import approved_plan_from_preflight
@@ -73,10 +75,20 @@ class ProductionStartRouteTests(unittest.TestCase):
     def test_production_composition_installs_one_dry_run_route(self):
         self.assertIsInstance(bot._v3_production_start_route, ProductionStartRouteAdapter)
         self.assertEqual(bot._v3_production_start_route.mode, ProductionStartMode.DRY_RUN)
+        port = bot._v3_production_start_route.port
+        self.assertIsInstance(port.production_runner, ProductionStartRunner)
+        self.assertIsInstance(port.production_runner.transaction_runner, V2StartRunnerAdapter)
 
         source = Path("v2_bootstrap.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('F.data == "v2_battery_start"'), 1)
         self.assertNotIn("start_profile_transactional(app, call, pending)", source)
+
+    def test_composed_dry_run_keeps_runner_boundary_non_actuating(self):
+        composed_port = bot._v3_production_start_route.port
+        result = asyncio.run(ProductionStartRouteAdapter(_App(), port=composed_port).submit(_intent()))
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.reason, "dry_run_routed_no_mutation")
+        self.assertIsNotNone(composed_port.production_runner)
 
     def test_default_route_is_dry_run_and_preserves_trace(self):
         adapter = ProductionStartRouteAdapter(_App())

@@ -17,7 +17,7 @@ class V2StartRunnerAdapter:
     """Adapt V3 transaction data to ``start_profile_transactional`` only."""
 
     app: Any
-    event_factory: Callable[[V2StartTransactionInput], Any]
+    event_factory: Callable[[V2StartTransactionInput], Any] | None = None
     transaction_owner: V2StartOwner | None = None
 
     async def __call__(self, transaction: V2StartTransactionInput):
@@ -34,6 +34,8 @@ class V2StartRunnerAdapter:
             battery_id=transaction.battery_id,
             condition=transaction.condition,
         )
+        if self.event_factory is None:
+            raise RuntimeError("v2_start_event_context_not_configured")
         event = self.event_factory(transaction)
         started = await owner(self.app, event, pending)
         from .v2_start_transaction_adapter import V2TransactionOutcome
