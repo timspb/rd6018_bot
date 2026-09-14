@@ -1,0 +1,131 @@
+"""Data-only adapter contract for the preserved V2 START transaction owner."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Callable, Mapping
+
+from .start_plan import ApprovedStartPlan
+
+
+class StartExecutionStatus(str, Enum):
+    STARTED = "STARTED"
+    FAILED = "FAILED"
+    DENIED = "DENIED"
+    CONTAINED = "CONTAINED"
+
+
+class RollbackState(str, Enum):
+    NOT_REQUIRED = "NOT_REQUIRED"
+    OFF_CONFIRMED = "OFF_CONFIRMED"
+    OFF_UNCONFIRMED = "OFF_UNCONFIRMED"
+    SESSION_CLEARED = "SESSION_CLEARED"
+    SESSION_CONTAINED = "SESSION_CONTAINED"
+
+
+@dataclass(frozen=True)
+class V2StartTransactionInput:
+    profile: str
+    chemistry: str
+    capacity_ah: float
+    battery_id: str
+    recipe_id: str
+    target_voltage_v: float
+    target_current_a: float
+    ownership_decision: str
+    safety_decision: str
+
+
+@dataclass(frozen=True)
+class V2TransactionOutcome:
+    started: bool = False
+    denied: bool = False
+    contained: bool = False
+    output_off_confirmed: bool = False
+    output_off_unconfirmed: bool = False
+    session_cleared: bool = False
+    session_contained: bool = False
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class StartExecutionResult:
+    status: StartExecutionStatus
+    rollback: RollbackState
+    reason: str
+    transaction_input: V2StartTransactionInput
+
+
+class V2StartTransactionAdapter:
+    """Translate a V3 plan to V2 data without owning V2 execution."""
+
+    def prepare(self, plan: ApprovedStartPlan) -> V2StartTransactionInput:
+        if plan.ownership_result != "available":
+            raise ValueError("cannot prepare V2 transaction without ownership")
+        if plan.safety_result != "allowed":
+            raise ValueError("cannot prepare V2 transaction without safety approval")
+        return V2StartTransactionInput(
+            profile=plan.profile,
+            chemistry=plan.chemistry,
+            capacity_ah=float(plan.battery_identity.nominal_capacity_ah),
+            battery_id=plan.battery_identity.battery_id,
+            recipe_id=plan.recipe_id,
+            target_voltage_v=plan.target_preview.voltage_v,
+            target_current_a=plan.target_preview.current_a,
+            ownership_decision=plan.ownership_result,
+            safety_decision=plan.safety_result,
+        )
+
+    def normalize(
+        self,
+        plan: ApprovedStartPlan,
+        outcome: V2TransactionOutcome,
+    ) -> StartExecutionResult:
+        transaction_input = self.prepare(plan)
+        if outcome.contained or outcome.session_contained:
+            status = StartExecutionStatus.CONTAINED
+        elif outcome.denied:
+            status = StartExecutionStatus.DENIED
+        elif outcome.started:
+            status = StartExecutionStatus.STARTED
+        else:
+            status = StartExecutionStatus.FAILED
+
+        if outcome.session_contained:
+            rollback = RollbackState.SESSION_CONTAINED
+        elif outcome.output_off_unconfirmed:
+            rollback = RollbackState.OFF_UNCONFIRMED
+        elif outcome.session_cleared:
+            rollback = RollbackState.SESSION_CLEARED
+        elif outcome.output_off_confirmed:
+            rollback = RollbackState.OFF_CONFIRMED
+        else:
+            rollback = RollbackState.NOT_REQUIRED if status is StartExecutionStatus.STARTED else RollbackState.NOT_REQUIRED
+
+        return StartExecutionResult(status, rollback, outcome.reason or status.value, transaction_input)
+
+    def execute(
+        self,
+        plan: ApprovedStartPlan,
+        transaction_runner: Callable[[V2StartTransactionInput], Any] | None = None,
+        *,
+        active_enabled: bool = False,
+    ) -> StartExecutionResult:
+        """ACTIVE-off guard; the preserved V2 owner is not invoked by default."""
+        transaction_input = self.prepare(plan)
+        if not active_enabled:
+            return StartExecutionResult(
+                StartExecutionStatus.DENIED,
+                RollbackState.NOT_REQUIRED,
+                "active_execution_disabled",
+                transaction_input,
+            )
+        if transaction_runner is None:
+            return StartExecutionResult(
+                StartExecutionStatus.DENIED,
+                RollbackState.NOT_REQUIRED,
+                "v2_transaction_runner_not_configured",
+                transaction_input,
+            )
+        raise RuntimeError("ACTIVE V2 START transaction requires separate production approval")
