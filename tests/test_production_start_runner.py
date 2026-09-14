@@ -8,7 +8,8 @@ from application.production_start_execution_port import (
     ProductionStartMode,
 )
 from application.production_start_runner import ProductionStartRunner
-from application.v2_start_runner_adapter import V2StartRunnerAdapter
+from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
+from application.v2_start_event_context import V2StartEventContext
 from application.start_execution_contract import request_from_trace
 from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
@@ -20,7 +21,7 @@ from application.v2_start_transaction_adapter import (
     V2StartTransactionAdapter,
     V2TransactionOutcome,
 )
-from pb_domain import BatteryChemistry, BatteryIdentity
+from pb_domain import BatteryChemistry, BatteryCondition, BatteryIdentity, ChargeIntent
 
 
 class _Hass:
@@ -158,6 +159,52 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "v2-app")
         self.assertEqual(calls[0][1], ("event", "trace-owner"))
         self.assertEqual(calls[0][2].profile, "AGM")
+
+    def test_event_context_contains_correlation_and_domain_metadata(self):
+        transaction = V2StartTransactionAdapter().prepare(
+            _request().plan,
+            trace_id="trace-context",
+            intent=ChargeIntent.NORMAL,
+            condition=BatteryCondition.UNKNOWN,
+            execution_metadata={"operator": "operator-7", "source": "telegram"},
+        )
+        context = build_v2_start_event_context(transaction)
+        self.assertIsInstance(context, V2StartEventContext)
+        self.assertEqual(context.trace_id, "trace-context")
+        self.assertEqual(context.actor, "operator-7")
+        self.assertEqual(context.source, "telegram")
+        self.assertEqual(context.profile, "AGM")
+        self.assertEqual(context.capacity_ah, 70.0)
+        self.assertEqual(context.correlation_metadata["trace_id"], "trace-context")
+
+    def test_default_event_context_is_data_only(self):
+        transaction = V2StartTransactionAdapter().prepare(_request().plan, trace_id="trace-data")
+        context = build_v2_start_event_context(transaction)
+        self.assertFalse(hasattr(context, "controller"))
+        self.assertFalse(hasattr(context, "hass"))
+        self.assertEqual(context.trace_id, "trace-data")
+
+    def test_default_adapter_propagates_context_to_v2_owner(self):
+        received = []
+
+        async def fake_owner(_app, event, pending):
+            received.append((event, pending))
+            return True
+
+        transaction = V2StartTransactionAdapter().prepare(
+            _request().plan,
+            trace_id="trace-propagated",
+            execution_metadata={"operator": "operator-9", "source": "telegram"},
+        )
+        outcome = asyncio.run(
+            V2StartRunnerAdapter(app="v2-app", transaction_owner=fake_owner)(transaction)
+        )
+        self.assertTrue(outcome.started)
+        self.assertEqual(outcome.trace_id, "trace-propagated")
+        self.assertEqual(received[0][0].actor, "operator-9")
+        self.assertEqual(received[0][0].source, "telegram")
+        self.assertEqual(received[0][0].correlation_metadata["trace_id"], "trace-propagated")
+        self.assertEqual(received[0][1].profile, "AGM")
 
 
 if __name__ == "__main__":

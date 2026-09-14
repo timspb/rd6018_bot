@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from pb_domain import BatteryCondition, ChargeIntent
@@ -40,6 +41,14 @@ class V2StartTransactionInput:
     safety_decision: str
     intent: ChargeIntent = ChargeIntent.NORMAL
     condition: BatteryCondition = BatteryCondition.UNKNOWN
+    actor: str = ""
+    source: str = ""
+    intent_metadata: Mapping[str, Any] = field(default_factory=dict)
+    correlation_metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "intent_metadata", MappingProxyType(dict(self.intent_metadata)))
+        object.__setattr__(self, "correlation_metadata", MappingProxyType(dict(self.correlation_metadata)))
 
 
 @dataclass(frozen=True)
@@ -74,11 +83,18 @@ class V2StartTransactionAdapter:
         trace_id: str = "unbound",
         intent: ChargeIntent = ChargeIntent.NORMAL,
         condition: BatteryCondition = BatteryCondition.UNKNOWN,
+        execution_metadata: Mapping[str, Any] | None = None,
     ) -> V2StartTransactionInput:
         if plan.ownership_result != "available":
             raise ValueError("cannot prepare V2 transaction without ownership")
         if plan.safety_result != "allowed":
             raise ValueError("cannot prepare V2 transaction without safety approval")
+        metadata = dict(execution_metadata or {})
+        correlation_metadata = dict(metadata.get("correlation_metadata") or {})
+        correlation_metadata.setdefault("trace_id", trace_id)
+        intent_metadata = dict(metadata.get("intent_metadata") or {})
+        intent_metadata.setdefault("intent", intent.value)
+        intent_metadata.setdefault("condition", condition.value)
         return V2StartTransactionInput(
             trace_id=trace_id,
             profile=plan.profile,
@@ -92,6 +108,10 @@ class V2StartTransactionAdapter:
             safety_decision=plan.safety_result,
             intent=intent,
             condition=condition,
+            actor=str(metadata.get("operator") or metadata.get("user") or ""),
+            source=str(metadata.get("source") or ""),
+            intent_metadata=intent_metadata,
+            correlation_metadata=correlation_metadata,
         )
 
     def normalize(
