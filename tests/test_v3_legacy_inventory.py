@@ -10,7 +10,8 @@ class V3LegacyInventoryTests(unittest.TestCase):
     def test_production_has_single_polling_owner_and_single_telegram_construction(self):
         legacy = (ROOT / "bot_legacy.py").read_text(encoding="utf-8")
         adapter = (ROOT / "telegram" / "runtime.py").read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\bdp\.start_polling\s*\(", legacy)), 1)
+        self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", legacy)), 0)
+        self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bBot\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bDispatcher\s*\(", adapter)), 1)
 

@@ -25,7 +25,7 @@ from aiogram.types import (
     Message,
 )
 from aiogram.filters import Command
-from telegram.runtime import create_telegram_runtime
+from telegram.runtime import create_telegram_runtime, run_polling
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -4245,17 +4245,10 @@ async def main() -> None:
     asyncio.create_task(watchdog_loop())
     logger.info("RD6018 bot starting")
     logger.info("Если появится TelegramConflictError — запущен ещё один экземпляр бота. Остановите все кроме одного: pgrep -af 'bot.py' && kill <PID>")
-    dp.shutdown.register(on_shutdown)
     try:
-        await dp.start_polling(bot)
+        await run_polling(_telegram_runtime, shutdown_handler=on_shutdown)
     finally:
         await hass.close()
-        try:
-            session = getattr(bot, "session", None)
-            if session is not None and not getattr(session, "closed", True):
-                await session.close()
-        except Exception as ex:
-            logger.debug("Bot session close: %s", ex)
         logger.info("RD6018 bot stopped")
 
 

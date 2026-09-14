@@ -1,6 +1,6 @@
 import unittest
 
-from telegram.runtime import TelegramRuntime, create_telegram_runtime
+from telegram.runtime import TelegramRuntime, create_telegram_runtime, run_polling
 
 
 class TelegramRuntimeAdapterTests(unittest.TestCase):
@@ -16,6 +16,11 @@ class TelegramRuntimeAdapterTests(unittest.TestCase):
     def test_factory_rejects_missing_token(self):
         with self.assertRaises(ValueError):
             create_telegram_runtime("")
+
+    def test_polling_helper_registers_shutdown_handler(self):
+        runtime = create_telegram_runtime("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
+        self.assertTrue(callable(run_polling))
+        self.assertIsNotNone(runtime.dispatcher.shutdown)
 
     def test_adapter_has_no_runtime_or_physical_imports(self):
         import ast
