@@ -51,6 +51,12 @@ metadata to a future Telegram/UI adapter; no Telegram object is placed in
 `TelegramOperatorFeedbackAdapter` is the transport implementation for sending
 or editing that feedback; it does not create intents or invoke execution.
 
+`ActiveStartExecutionBridge` is the explicit composition point for a future
+ACTIVE call. It accepts only an already validated `StartExecutionRequest`,
+creates the data-only event context, attaches an `OperatorFeedbackPort`, and
+delegates to `ProductionStartRunner`. The default policy still denies ACTIVE;
+the bridge is not wired to Telegram START or physical execution.
+
 `v2_startup.start_profile_transactional()` remains the preserved V2 execution
 owner for the future explicitly gated ACTIVE handoff. The Telegram route no
 longer calls it directly.

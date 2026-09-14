@@ -15,6 +15,7 @@ from application.operator_feedback import (
     build_legacy_feedback_bridge,
 )
 from application.telegram_operator_feedback import TelegramOperatorFeedbackAdapter
+from application.active_start_bridge import ActiveStartExecutionBridge, LegacyOperatorEventFacade
 from application.start_execution_contract import request_from_trace
 from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
@@ -265,6 +266,56 @@ class ProductionStartRunnerTests(unittest.TestCase):
         source = Path("application/telegram_operator_feedback.py").read_text(encoding="utf-8")
         self.assertNotIn("ProductionStartRunner", source)
         self.assertNotIn("Physical", source)
+
+    def test_active_bridge_is_gated_and_does_not_call_owner_by_default(self):
+        calls = []
+
+        async def owner(*_args):
+            calls.append("owner")
+            return True
+
+        class Feedback:
+            async def publish(self, **_kwargs):
+                pass
+
+            async def update(self, **_kwargs):
+                pass
+
+        result = asyncio.run(
+            ActiveStartExecutionBridge(_App(), transaction_owner=owner).execute(_request(), Feedback())
+        )
+        self.assertEqual(result.status, StartExecutionStatus.DENIED)
+        self.assertEqual(calls, [])
+
+    def test_active_bridge_propagates_context_to_feedback_and_v2_owner(self):
+        received = []
+
+        async def owner(_app, event, pending):
+            self.assertIsInstance(event, LegacyOperatorEventFacade)
+            received.append((event, pending))
+            await event.message.answer("feedback")
+            return True
+
+        class Feedback:
+            def __init__(self):
+                self.events = []
+
+            async def publish(self, **event):
+                self.events.append(event)
+
+            async def update(self, **event):
+                self.events.append(event)
+
+        feedback = Feedback()
+        result = asyncio.run(
+            ActiveStartExecutionBridge(
+                _App(), activation_policy=_active_policy(), transaction_owner=owner
+            ).execute(_request(), feedback)
+        )
+        self.assertEqual(result.status, StartExecutionStatus.STARTED)
+        self.assertEqual(result.trace_id, "trace-runner")
+        self.assertEqual(received[0][0].message.context.trace_id, "trace-runner")
+        self.assertEqual(feedback.events[0]["trace_id"], "trace-runner")
 
 
 if __name__ == "__main__":
