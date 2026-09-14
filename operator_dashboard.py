@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
 from application.operator_snapshot_provider import OperatorSnapshotProvider
-from presentation.dark_panel import render_dark_panel
+from presentation.dark_panel import render_dark_dashboard, render_dark_panel
 from rd6018_telemetry import (
     ProtectionStatus,
     RegulationMode,
@@ -485,23 +485,25 @@ def install_operator_graph_dashboard(app: Any) -> None:
         )
 
         photo = None
-        if _dark_panel_enabled():
-            photo = app.BufferedInputFile(render_dark_panel(caption), filename="rd6018-panel.png")
         try:
-            if not _dark_panel_enabled():
-                _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
-                times, voltages, currents, temps = await app.get_graph_data_with_temp(
-                    limit=limit_pts,
-                    since_timestamp=graph_since,
-                )
-                buf = await app.asyncio.to_thread(
-                    app.generate_chart,
-                    times,
-                    voltages,
-                    currents,
-                    temps,
-                )
-                if buf:
+            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+            times, voltages, currents, temps = await app.get_graph_data_with_temp(
+                limit=limit_pts,
+                since_timestamp=graph_since,
+            )
+            buf = await app.asyncio.to_thread(
+                app.generate_chart,
+                times,
+                voltages,
+                currents,
+                temps,
+            )
+            if buf:
+                if _dark_panel_enabled():
+                    photo = app.BufferedInputFile(
+                        render_dark_dashboard(buf.getvalue(), caption), filename="rd6018-dashboard.png"
+                    )
+                else:
                     photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
         except Exception as exc:
             # Losing history/graph rendering must never hide the live operator state.

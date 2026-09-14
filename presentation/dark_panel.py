@@ -51,3 +51,22 @@ def render_dark_panel(text: str) -> bytes:
     output = io.BytesIO()
     image.save(output, format="PNG", optimize=True)
     return output.getvalue()
+
+
+def render_dark_dashboard(chart: bytes | None, text: str) -> bytes:
+    """Compose the existing chart above the dark operator state card."""
+    panel = Image.open(io.BytesIO(render_dark_panel(text))).convert("RGB")
+    if not chart:
+        return _png_bytes(panel)
+    graph = Image.open(io.BytesIO(chart)).convert("RGB")
+    width = max(graph.width, panel.width)
+    result = Image.new("RGB", (width, graph.height + panel.height), (20, 20, 20))
+    result.paste(graph, ((width - graph.width) // 2, 0))
+    result.paste(panel, ((width - panel.width) // 2, graph.height))
+    return _png_bytes(result)
+
+
+def _png_bytes(image: Image.Image) -> bytes:
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
