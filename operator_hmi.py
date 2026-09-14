@@ -1145,6 +1145,19 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_pause_toggle_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        interface = getattr(app, "operator_interface", None)
+        submit = getattr(interface, "submit_intent", None)
+        if callable(submit):
+            user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+            kind = (
+                OperatorIntentKind.RESUME_CHARGE
+                if bool(getattr(app, "_operator_pause_active", lambda: False)())
+                else OperatorIntentKind.PAUSE_CHARGE
+            )
+            result = await submit(OperatorIntent(kind=kind, source="telegram", user=user))
+            if getattr(result, "status", None) == "rejected":
+                await call.answer("Пауза пока недоступна", show_alert=True)
+                return
         handler = getattr(app, "_operator_pause_toggle", None)
         if handler is None:
             await call.answer("Пауза недоступна", show_alert=True)

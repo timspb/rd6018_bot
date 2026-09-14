@@ -13,6 +13,8 @@ from runtime.ui.commands.models import CommandResult, CommandStatus, DomainInten
 class OperatorIntentKind(str, Enum):
     START_CHARGE = "start_charge"
     STOP_CHARGE = "stop_charge"
+    PAUSE_CHARGE = "pause_charge"
+    RESUME_CHARGE = "resume_charge"
     SHOW_GRAPH = "show_graph"
     SHOW_LOG = "show_log"
     SHOW_JOURNAL = "show_journal"  # compatibility name for older callers
@@ -72,10 +74,15 @@ class IntentDispatcher:
             kind = OperatorIntentKind.SHOW_LOG
         elif kind is OperatorIntentKind.REFRESH:
             kind = OperatorIntentKind.REFRESH_PANEL
-        if kind not in self.READ_ONLY_KINDS and kind is not OperatorIntentKind.STOP_CHARGE:
+        routed_execution_kinds = {
+            OperatorIntentKind.STOP_CHARGE,
+            OperatorIntentKind.PAUSE_CHARGE,
+            OperatorIntentKind.RESUME_CHARGE,
+        }
+        if kind not in self.READ_ONLY_KINDS and kind not in routed_execution_kinds:
             return CommandResult(CommandStatus.REJECTED, "execution_intent_not_migrated")
-        if kind is OperatorIntentKind.STOP_CHARGE and kind not in self._routes:
-            return CommandResult(CommandStatus.REJECTED, "stop_route_not_wired")
+        if kind in routed_execution_kinds and kind not in self._routes:
+            return CommandResult(CommandStatus.REJECTED, f"{kind.value}_route_not_wired")
         normalized = OperatorIntent(kind, intent.source, intent.user, intent.parameters)
         route = self._routes.get(kind)
         if route is None:

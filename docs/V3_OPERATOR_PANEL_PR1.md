@@ -87,3 +87,10 @@ legacy route возвращается явный результат `routed_to_p
 маршрутизирует intent в существующий `operator_managed_stop` callback, но не
 вызывает stop transaction сам. Token binding, confirmation, ownership check и
 verified Output OFF полностью остаются в managed-stop runtime.
+## Pause command migration
+
+`PAUSE_CHARGE` и `RESUME_CHARGE` теперь проходят через
+`IntentDispatcher` и `PauseCommandHandler`. Adapter только проверяет тип
+intent и возвращает routing result. Сохранённый `_operator_pause_toggle`
+остаётся execution owner: он продолжает выполнять cooldown, ownership,
+verified Output OFF, persistence, safety checks и safe resume без изменений.

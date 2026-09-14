@@ -44,7 +44,21 @@ class OperatorIntentBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
         rejected = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.STOP_CHARGE))
         self.assertEqual(rejected.status, CommandStatus.REJECTED)
-        self.assertEqual(rejected.reason, "stop_route_not_wired")
+        self.assertEqual(rejected.reason, "stop_charge_route_not_wired")
+
+    async def test_pause_requires_and_uses_pause_route(self):
+        from application.pause_command import PauseCommandHandler
+
+        dispatcher = IntentDispatcher(
+            routes={
+                OperatorIntentKind.PAUSE_CHARGE: PauseCommandHandler().route,
+                OperatorIntentKind.RESUME_CHARGE: PauseCommandHandler().route,
+            }
+        )
+        paused = await dispatcher.dispatch(self.intent(OperatorIntentKind.PAUSE_CHARGE))
+        resumed = await dispatcher.dispatch(self.intent(OperatorIntentKind.RESUME_CHARGE))
+        self.assertEqual(paused.reason, "routed_to_preserved_pause_handler")
+        self.assertEqual(resumed.reason, "routed_to_preserved_pause_handler")
 
     async def test_legacy_read_names_normalize(self):
         result = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.SHOW_JOURNAL))
