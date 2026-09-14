@@ -45,7 +45,7 @@ class OperatorActionMatrixTests(unittest.TestCase):
         )
         keyboard = build_operator_keyboard(None, None, actions=view)  # type: ignore[arg-type]
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
-        self.assertEqual(callbacks, ["charge_modes", "logs", "operator_details", "operator_refresh"])
+        self.assertEqual(callbacks, ["charge_modes", "operator_refresh", "logs", "operator_details"])
 
 
 if __name__ == "__main__":

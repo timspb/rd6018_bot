@@ -105,6 +105,13 @@ def _duration(seconds: Any) -> str:
 
 def _manual_extrema_status(manual: Any, regulator: str) -> str:
     request = getattr(manual, "request", None)
+    if getattr(request, "operation_mode", "") == "main" and regulator == "CV":
+        profile = getattr(request, "profile", None)
+        required = int(getattr(getattr(profile, "main", None), "confirmation_count", 1) or 1)
+        confirmed = int(getattr(manual, "main_min_confirmations", 0) or 0)
+        if confirmed < required:
+            return "⏳ Imin не подтверждён"
+        return "✅ Imin подтверждён"
     if getattr(request, "operation_mode", "") == "mix":
         hold_started = getattr(manual, "finish_hold_started_at", None)
         if hold_started is not None:
@@ -331,6 +338,10 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
     temp_int = _finite(live.get("temp_int_v2"))
     if temp_int is None:
         temp_int = _finite(live.get("temp_int"))
+    if temp_int is None:
+        temp_int = _finite(live.get("psu_temperature"))
+    if temp_int is None:
+        temp_int = _finite(live.get("power_supply_temperature"))
     set_v = _finite(live.get("set_voltage"))
     set_i = _finite(live.get("set_current"))
     safety, attention = _normal_safety(live)
@@ -588,7 +599,10 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if active_panel:
         stage = _compact_stage_label(state)
         battery = _compact_battery_label(state.battery_label)
-        first_line = f"🔋 {battery} · {stage}" if battery else f"RD6018 · {stage}"
+        if authority_value == HmiAuthority.MANUAL.value or authority_value == HmiAuthority.MANUAL:
+            first_line = f"🔋 {battery} · РУЧНОЙ" if battery else "РУЧНОЙ"
+        else:
+            first_line = f"🔋 {battery} · {stage}" if battery else f"RD6018 · {stage}"
         if mode:
             first_line += f" · {mode}"
     else:
@@ -604,14 +618,14 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         limit = _value(state.current_limit_a, 2, "A")
         lines.append(f"🎯 {target} · {limit} 🌡 БП {_temperature(getattr(state, 'psu_temp_c', None))}")
     stage_time = str(getattr(state, "stage_time", "") or "")
-    total_time = str(getattr(state, "total_time", "") or "")
     delivered_ah = _finite(getattr(state, "delivered_ah", None))
-    if stage_time or total_time or delivered_ah is not None:
-        lines.append(
-            f"⏱ Этап: {html.escape(stage_time or '—')} · "
-            f"всего: {html.escape(total_time or '—')} · "
-            f"залито: {_value(delivered_ah, 2, 'Ah')}"
-        )
+    time_parts = []
+    if stage_time:
+        time_parts.append(f"⏱ {html.escape(stage_time)}")
+    if delivered_ah is not None:
+        time_parts.append(f"⚡ {_value(delivered_ah, 2, 'Ah')}")
+    if time_parts:
+        lines.append(" · ".join(time_parts))
     stage_status = _compact_stage_status(state)
     transition = _compact_transition(state)
     stage_status_warning = str(getattr(state, "stage_status", ""))
@@ -642,7 +656,6 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
         OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),
         OperatorAction.RESUME_CHARGE: ("▶️ Продолжить", "operator_pause_toggle"),
         OperatorAction.SHOW_LOG: ("📋 События", "logs"),
-        OperatorAction.SHOW_GRAPH: ("📈 График", "operator_graph"),
         OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", "operator_details"),
         OperatorAction.ACK: ("✅ Подтвердить", "operator_details"),
         OperatorAction.ADOPT_MIX: ("🧲 Подхватить Mix", "rd_live_mix"),
@@ -653,11 +666,41 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
         OperatorAction.RETURN_PB_CONTROL: ("🔒 Вернуть Pb-контроль", "rd_hands_off_disable"),
     }
     rows: list[list[InlineKeyboardButton]] = []
+    action_map = {item.action: item for item in actions.available_actions}
+    control_actions = [
+        action_map.get(OperatorAction.PAUSE_CHARGE),
+        action_map.get(OperatorAction.RESUME_CHARGE),
+        action_map.get(OperatorAction.STOP_CHARGE),
+    ]
+    control_buttons = []
+    for item in control_actions:
+        if item is None:
+            continue
+        label = labels.get(item.action)
+        if label is not None:
+            control_buttons.append(InlineKeyboardButton(text=label[0], callback_data=label[1]))
+    if control_buttons:
+        rows.append(control_buttons)
+    handled = {
+        OperatorAction.PAUSE_CHARGE,
+        OperatorAction.RESUME_CHARGE,
+        OperatorAction.STOP_CHARGE,
+        OperatorAction.SHOW_GRAPH,
+    }
+    secondary = {OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS}
     for item in actions.available_actions:
+        if item.action in handled or item.action in secondary:
+            continue
         label = labels.get(item.action)
         if label is not None:
             rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
     rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
+    for item in actions.available_actions:
+        if item.action not in secondary:
+            continue
+        label = labels.get(item.action)
+        if label is not None:
+            rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -729,8 +772,9 @@ def build_operator_keyboard(
                 InlineKeyboardButton(text="🛑 Стоп", callback_data="power_toggle"),
             ]
         )
+        rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
         rows.append(info_row)
-        return with_refresh(rows)
+        return InlineKeyboardMarkup(inline_keyboard=rows)
 
     rows.append(info_row)
     rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])

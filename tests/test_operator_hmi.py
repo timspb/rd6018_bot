@@ -312,8 +312,9 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Отдано: 7.26 Ah", text)
         self.assertIn("Заданная ёмкость: 72.00 Ah", text)
         panel = render_operator_panel(state)
-        self.assertIn("Этап: 01:01", panel)
-        self.assertIn("залито: 7.26 Ah", panel)
+        self.assertIn("⏱ 01:01", panel)
+        self.assertIn("⚡ 7.26 Ah", panel)
+        self.assertNotIn("всего:", panel)
 
     def test_manual_cc_panel_shows_confirmed_voltage_maximum(self):
         app = FakeApp(observer=None, hands_off=False)
@@ -519,12 +520,13 @@ class OperatorHmiTests(unittest.TestCase):
         keyboard = build_operator_keyboard(app, state)
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
-        self.assertEqual(len(rows[1]), 2)  # details, events
-        self.assertIn("logs", {button.callback_data for button in rows[1]})
+        self.assertEqual(len(rows[1]), 1)  # refresh before read-only menus
+        self.assertEqual(len(rows[2]), 2)  # details, events
+        self.assertIn("logs", {button.callback_data for button in rows[2]})
         self.assertNotIn("operator_graph", {button.callback_data for row in rows for button in row})
         self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})
-        self.assertEqual(len(rows[-1]), 1)  # refresh
+        self.assertEqual(rows[1][0].callback_data, "operator_refresh")
 
     def test_paused_charge_has_resume_and_terminal_stop_side_by_side(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)
