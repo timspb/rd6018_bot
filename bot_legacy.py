@@ -61,6 +61,7 @@ from hass_api import HassClient
 from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
+from pb_domain import BatteryCondition, ChargeIntent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -3089,6 +3090,35 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         await message.answer("Введите число (например 60).")
         schedule_dashboard_after_60(message.chat.id, user_id)
         return
+
+    # Production composition routes the legacy text-input continuation through
+    # the same V3 START boundary as saved-battery callbacks.  The old body below
+    # remains available only for rollback compositions that do not install V3.
+    route = globals().get("_v3_production_start_route")
+    if route is not None:
+        intent = OperatorIntent(
+            OperatorIntentKind.START_CHARGE,
+            "telegram",
+            str(user_id),
+            {
+                "profile": profile,
+                "capacity_ah": ah,
+                "battery_identity": None,
+                "battery_id": "operator-battery",
+                "intent": _pending_intent.get(user_id, ChargeIntent.NORMAL),
+                "condition": BatteryCondition.UNKNOWN,
+            },
+        )
+        result = await route.submit(intent)
+        if not result.accepted:
+            await message.answer(f"START отклонён: {result.reason}", parse_mode=ParseMode.HTML)
+            return
+        await message.answer(
+            f"✅ START preflight PASS; DRY_RUN, заряд не запущен ({result.trace_id[:8]})",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     del awaiting_ah[user_id]
     last_chat_id = message.chat.id
     last_user_id = message.from_user.id if message.from_user else 0

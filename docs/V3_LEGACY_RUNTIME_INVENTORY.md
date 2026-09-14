@@ -68,6 +68,10 @@ Telegram callback `v2_battery_start`
   -> `ProductionStartExecutionPort` (DRY_RUN by default)
 ```
 
+The quick-profile capacity continuation now enters the same route when V3 is
+composed. Its old mutating body remains only as a no-V3 rollback fallback and is
+not used by the production composition.
+
 The V2 transaction owner remains `start_profile_transactional()` through the
 existing adapter and is not duplicated. Legacy direct helpers remain present for
 rollback/compatibility and are not evidence of a second polling process. They are
