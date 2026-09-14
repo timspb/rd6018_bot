@@ -17,13 +17,14 @@ class V3LegacyInventoryTests(unittest.TestCase):
 
     def test_bot_entrypoint_does_not_execute_legacy_module_as_a_second_process(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        self.assertIn("import bot_legacy as _legacy", source)
+        self.assertIn("from runtime import v2_runtime as _legacy", source)
+        self.assertNotIn("import bot_legacy", source)
         self.assertIn("await _legacy_main()", source)
         self.assertEqual(len(re.findall(r"asyncio\.run\(main\(\)\)", source)), 1)
 
     def test_inventory_documents_legacy_import_as_current_blocker(self):
         text = (ROOT / "docs" / "V3_LEGACY_RUNTIME_INVENTORY.md").read_text(encoding="utf-8")
-        self.assertIn("legacy production import is confirmed", text)
+        self.assertIn("legacy module is quarantined from production imports", text)
         self.assertIn("ACTIVE remains fail-closed by default", text)
 
 

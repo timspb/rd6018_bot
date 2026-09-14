@@ -40,17 +40,17 @@ ENABLE_CALLS = frozenset(
         # These are reviewed guarded call-sites, not raw actuator bypasses.
         ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_off"),
         ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_on"),
-        ("bot_legacy.py", "_hard_stop_charge", "hass.turn_off"),
-        ("bot_legacy.py", "_operator_pause_toggle", "hass.turn_off"),
-        ("bot_legacy.py", "_operator_pause_toggle", "hass.turn_on"),
-        ("bot_legacy.py", "data_logger", "hass.turn_off"),
-        ("bot_legacy.py", "data_logger", "hass.turn_on"),
-        ("bot_legacy.py", "handle_ah_input", "hass.turn_on"),
-        ("bot_legacy.py", "main", "hass.turn_off"),
-        ("bot_legacy.py", "main", "hass.turn_on"),
-        ("bot_legacy.py", "power_toggle_handler", "hass.turn_off"),
-        ("bot_legacy.py", "power_toggle_handler", "hass.turn_on"),
-        ("bot_legacy.py", "start_custom_charge", "hass.turn_on"),
+        ("runtime/v2_runtime.py", "_hard_stop_charge", "hass.turn_off"),
+        ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_off"),
+        ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_on"),
+        ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
+        ("runtime/v2_runtime.py", "data_logger", "hass.turn_on"),
+        ("runtime/v2_runtime.py", "handle_ah_input", "hass.turn_on"),
+        ("runtime/v2_runtime.py", "main", "hass.turn_off"),
+        ("runtime/v2_runtime.py", "main", "hass.turn_on"),
+        ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_off"),
+        ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_on"),
+        ("runtime/v2_runtime.py", "start_custom_charge", "hass.turn_on"),
         ("diagnostic_persistence.py", "recover_diagnostic_persistence", "app.hass.turn_off"),
         ("diagnostic_probe.py", "_restore_or_off", "self.hass.turn_off"),
         ("manual_mode.py", "_enter_cooling", "self.app.hass.turn_off"),
@@ -126,16 +126,16 @@ class LegacyEnableInventoryTests(unittest.TestCase):
         )
 
     def test_legacy_direct_switch_calls_are_inventoried(self):
-        # bot_legacy.py is the primary source of direct (non safe_enable_output)
+        # The preserved V2 runtime is the primary source of direct (non safe_enable_output)
         # Output manipulation; its inventory must remain explicit.
-        legacy = {c for c in ENABLE_CALLS if c[0] == "bot_legacy.py"}
+        legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/v2_runtime.py"}
         self.assertTrue(
             legacy,
-            "bot_legacy.py direct Output calls must remain inventoried before extraction",
+            "preserved V2 direct Output calls must remain inventoried before extraction",
         )
         self.assertTrue(
             any(kind.endswith(".turn_on") for _, _, kind in legacy),
-            "bot_legacy.py must still declare its direct Output ON entrypoints",
+            "preserved V2 runtime must still declare its direct Output ON entrypoints",
         )
 
 

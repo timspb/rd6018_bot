@@ -11,27 +11,26 @@
 ```text
 python bot.py
   |
-  +-- import bot_legacy as _legacy
+  +-- import runtime.v2_runtime as _legacy
   +-- install_v2(_legacy)
   +-- install_*(_legacy)          # V2 safety/ownership/UI decorators
   +-- _legacy.operator_interface  # V3 read boundary
   +-- _legacy.main()              # один polling owner
 ```
 
-`bot.py` не запускает `bot_legacy.py` как отдельный процесс: импорт выполняется
-внутри одного процесса, а `asyncio.run()` находится только в `bot.py` при обычном
-production запуске. При этом production runtime всё ещё импортирует legacy-модуль
-и использует его глобальное состояние.
+`bot.py` импортирует `runtime.v2_runtime` внутри одного процесса. Историческое
+имя `bot_legacy.py` оставлено только как rollback shim и не входит в production
+import graph.
 
 ## Telegram lifecycle inventory
 
 | Объект | Файл/функция | Статус | Действие |
 |---|---|---|---|
-| `Bot(...)` | `bot_legacy.py:77` | один экземпляр в текущем процессе | MIGRATE в Telegram adapter |
-| `Dispatcher()` | `bot_legacy.py:78` | один экземпляр в текущем процессе | MIGRATE в Telegram adapter |
-| `dp.start_polling(bot)` | `bot_legacy.py:4249` | единственный найденный polling call | KEEP до завершения lifecycle migration |
+| `Bot(...)` | `runtime/v2_runtime.py:77` | один экземпляр в текущем процессе | MIGRATE в Telegram adapter |
+| `Dispatcher()` | `runtime/v2_runtime.py:78` | один экземпляр в текущем процессе | MIGRATE в Telegram adapter |
+| `dp.start_polling(bot)` | `runtime/v2_runtime.py:4249` | единственный найденный polling call | KEEP до завершения lifecycle migration |
 | `bot.main()` | `bot.py:336` | production asyncio entrypoint | KEEP, сократить до composition/lifecycle |
-| `bot_legacy.main()` | `bot_legacy.py:4155` | фактическая сборка legacy runtime | MIGRATE по фазам; не запускать отдельно |
+| `v2_runtime.main()` | `runtime/v2_runtime.py:4155` | фактическая сборка V2 runtime | MIGRATE по фазам; не запускать отдельно |
 
 ## Runtime ownership inventory
 
@@ -41,8 +40,8 @@ production запуске. При этом production runtime всё ещё им
 | Session lifecycle | `ProductionManualSessionManager` | `v2_bootstrap.py:install_v2` | KEEP; затем MIGRATE adapter-ом |
 | Safety/output | V2 safety stack | `v2_bootstrap.py`, `v2_startup.py` | KEEP до physical parity |
 | Startup recovery | V2 recovery composition | `runtime/v2_startup_recovery.py:V2StartupRecovery` | KEEP as V2 delegated owner |
-| Telegram command/callback handlers | legacy router | `bot_legacy.py:2511-4074` | MIGRATE по одному bounded path |
-| Dashboard transport | legacy functions + V3 decorators | `bot_legacy.py:1845-1980`, installers | MIGRATE read/presentation; renderer уже data-only |
+| Telegram command/callback handlers | preserved V2 router | `runtime/v2_runtime.py:2511-4074` | MIGRATE по одному bounded path |
+| Dashboard transport | V2 functions + V3 decorators | `runtime/v2_runtime.py:1845-1980`, installers | MIGRATE read/presentation; renderer уже data-only |
 | V3 START boundary | V3 route/preflight/port | `application/*`, wired in `v2_bootstrap.py` | KEEP; ACTIVE remains gated |
 
 ## Direct production references from `bot.py`
@@ -79,7 +78,7 @@ classified as `QUARANTINE` until route and parity tests permit removal.
 
 ## Background tasks registered by legacy main
 
-`bot_legacy.main()` registers `data_logger`, `charge_monitor`,
+`v2_runtime.main()` registers `data_logger`, `charge_monitor`,
 `soft_watchdog_loop`, and `watchdog_loop`, plus shutdown cleanup. These tasks may
 touch telemetry, persistence, ownership, safety, and output. They must be moved
 behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be removed.
@@ -95,21 +94,21 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 
 ### MIGRATE
 
-- Telegram bot/dispatcher construction and lifecycle in `bot_legacy.py`
-- command/callback registration in `bot_legacy.py`
+- Telegram bot/dispatcher construction and lifecycle in `runtime/v2_runtime.py`
+- command/callback registration in `runtime/v2_runtime.py`
 - legacy global runtime state used by UI and background tasks
 - startup recovery functions currently in `bot.py`
 
 ### QUARANTINE
 
-- `bot_legacy.py` direct entrypoint (`if __name__ == "__main__"`)
+- rollback shim `bot_legacy.py` direct entrypoint (`if __name__ == "__main__"`)
 - legacy direct START helpers not reachable from the authoritative production
   route
 - old UI compatibility handlers after their replacement has parity coverage
 
 ### REMOVE only after gates
 
-- `bot_legacy.py` production import
+- historical `bot_legacy.py` production import
 - direct legacy entrypoint and duplicate compatibility surfaces
 
 ## Phase 0 gate result
@@ -120,7 +119,8 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 - one production `asyncio.run(main())` path found;
 - ACTIVE remains fail-closed by default;
 - physical execution was not invoked;
-- legacy production import is confirmed and is the next migration blocker.
+- legacy module is quarantined from production imports; V2 runtime ownership is
+  retained under the neutral `runtime.v2_runtime` name until further extraction.
 
 ## Phase 1 progress
 
@@ -130,7 +130,7 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 - `runtime/background.py` owns task creation while legacy callbacks remain the
   domain owners;
 - `runtime/v2_startup_recovery.py` owns the production startup-recovery orchestration;
-- `bot_legacy.py` still owns handler definitions, startup recovery, background task
+- `runtime/v2_runtime.py` still owns handler definitions, startup recovery, background task
   callback bodies, and V2 domain state;
 - no second polling owner was introduced;
 - no ACTIVE or physical execution was invoked.

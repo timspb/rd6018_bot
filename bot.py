@@ -1,8 +1,8 @@
 """Production entrypoint for the evidence-driven V2 UI/controller.
 
-The previous monolithic Telegram runtime is kept byte-for-byte as bot_legacy.py.
-Set V2_UI=0 to keep its UI, and V2_AUTHORITATIVE=0 as the independent actuator
-rollback. Running bot_legacy.py directly is also available for emergency diagnosis.
+The preserved V2 runtime is isolated in ``runtime.v2_runtime``.  The historical
+module name remains only as a rollback compatibility shim; production imports the
+named runtime directly and keeps the existing V2 ownership boundaries intact.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import asyncio
 import os
 import sys
 
-import bot_legacy as _legacy
+from runtime import v2_runtime as _legacy
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from auto_manual_off_v2 import install_auto_manual_off_contract
 from diagnostic_persistence import install_diagnostic_persistence

@@ -42,7 +42,7 @@ class V2EntrypointTests(unittest.TestCase):
         )
 
     def test_import_bot_exposes_preserved_runtime_with_production_controller(self):
-        self.assertEqual(bot.__name__, "bot_legacy")
+        self.assertEqual(bot.__name__, "runtime.v2_runtime")
         self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
 
     def test_production_guardrails_are_installed_after_controller_composition(self):
