@@ -667,7 +667,8 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
     labels = {
         OperatorAction.START_CHARGE: ("⚡ Режимы заряда", "charge_modes"),
         OperatorAction.SELECT_PROFILE: ("🔋 АКБ", "v2_batteries"),
-        OperatorAction.STOP_CHARGE: ("🛑 Стоп", "power_toggle"),
+        # Newly rendered panels must use the managed confirmation-based route.
+        OperatorAction.STOP_CHARGE: ("🛑 Стоп", "operator_managed_stop"),
         OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),
         OperatorAction.RESUME_CHARGE: ("▶️ Продолжить", "operator_pause_toggle"),
         OperatorAction.SHOW_LOG: ("📋 События", "logs"),
@@ -784,7 +785,7 @@ def build_operator_keyboard(
                     text="▶️ Продолжить" if operator_paused else "⏸ Пауза",
                     callback_data="operator_pause_toggle",
                 ),
-                InlineKeyboardButton(text="🛑 Стоп", callback_data="power_toggle"),
+                InlineKeyboardButton(text="🛑 Стоп", callback_data="operator_managed_stop"),
             ]
         )
         rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
@@ -1206,12 +1207,16 @@ def install_operator_hmi(app: Any) -> None:
         if handler is None:
             await call.answer("Пауза недоступна", show_alert=True)
             return
+        # A managed pause may outlive Telegram's callback-query answer window.
+        # A late acknowledgement must not be reported as a failed pause.
         try:
-            message = await handler(call)
-            await call.answer(message or "Готово")
+            await call.answer()
+        except Exception:
+            pass
+        try:
+            await handler(call)
         except Exception as exc:
             app.logger.exception("operator pause failed: %s", exc)
-            await call.answer("Не удалось изменить паузу", show_alert=True)
             return
         user_id = call.from_user.id if call.from_user else 0
         refresh = getattr(app, "_refresh_operator_panel", None)

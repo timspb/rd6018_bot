@@ -575,7 +575,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual([button.text for button in first_row], ["▶️ Продолжить", "🛑 Стоп"])
         self.assertEqual(first_row[0].callback_data, "operator_pause_toggle")
         self.assertEqual(first_row[1].text, "🛑 Стоп")
-        self.assertIn(first_row[1].callback_data, {"power_toggle", "operator_managed_stop"})
+        self.assertEqual(first_row[1].callback_data, "operator_managed_stop")
 
     def test_fault_panel_keeps_protection_reason(self):
         values = live(output="off")
