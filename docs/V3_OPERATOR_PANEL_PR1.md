@@ -33,5 +33,8 @@ Generic power toggle не создаётся. Safety и freshness телемет
 
 ## Next step
 
-Добавить read-only legacy snapshot provider в composition root и сравнить новый
-renderer с V1/V2 panel до переноса любой callback-группы.
+Read-only `OperatorSnapshotProvider` теперь адаптирует live state, HMI state,
+diagnostics и journal в V3 snapshot. `compare_hmi_to_snapshot()` фиксирует
+расхождения без изменения runtime. Следующий шаг — подключить provider в
+composition root и сравнить новый renderer с V1/V2 panel до переноса любой
+callback-группы.

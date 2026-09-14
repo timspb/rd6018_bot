@@ -175,6 +175,11 @@ Telegram adapter -> OperatorInterface -> OperatorSnapshot -> declarative rendere
 остаются production-путём; их прямые связи перечислены в UI-аудите и устраняются
 только после parity-проверок.
 
+`application/operator_snapshot_provider.py` — read-only adapter текущего V1/V2
+runtime. Он читает live state, `OperatorHmiState`, diagnostics и journal, но не
+вызывает start/stop или actuator methods. `application/operator_snapshot_shadow.py`
+сравнивает legacy HMI с V3 snapshot.
+
 ## 12. Следующие шаги
 
 1. Завершить независимую physical evidence-проверку ESP-direct.
