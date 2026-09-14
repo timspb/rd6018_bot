@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Callable
 
 from .runtime_start_service import RuntimeStartService, StartExecutionTrace
+from .start_dry_run import StartDryRunIntegrationGate, StartDryRunReport
 from .start_plan import ApprovedStartPlan
 
 
@@ -76,6 +77,20 @@ class StartExecutionAdapter:
         )
         reason = "shadow_trace_created" if mode is StartExecutionMode.SHADOW else "dry_run_handoff_created"
         return StartAdapterResult(True, mode, reason, trace=trace, handoff_plan=handoff)
+
+    async def dry_run_integration(
+        self,
+        plan: ApprovedStartPlan,
+        app: Any,
+        *,
+        handoff_probe: Callable[[ApprovedStartPlan], Any] | None = None,
+    ) -> StartDryRunReport:
+        """Inspect the real V2 composition through the DRY_RUN-only gate."""
+        return await StartDryRunIntegrationGate().evaluate(
+            plan,
+            app,
+            handoff_probe=handoff_probe,
+        )
 
     def _active(self, plan: ApprovedStartPlan) -> StartAdapterResult:
         if not self.active_enabled:
