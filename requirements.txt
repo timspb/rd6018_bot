@@ -1,5 +1,6 @@
 aiogram>=3.0
 aiohttp>=3.8
+aioesphomeapi==46.4.1
 aiosqlite>=0.19
 matplotlib>=3.7
 python-dotenv>=1.0
