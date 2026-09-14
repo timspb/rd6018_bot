@@ -525,8 +525,37 @@ def install_v2_ui(app: Any) -> None:
         if pending is None:
             await call.answer("Preview устарел — выберите режим заново", show_alert=True)
             return
-        if await _start_profile(app, call, pending):
-            _pending_start.pop(user_id, None)
+        route = getattr(app, "_v3_production_start_route", None)
+        if route is None:
+            # Compatibility/rollback compositions without V3 retain the old
+            # owner; production bot.py always installs the route above.
+            if await _start_profile(app, call, pending):
+                _pending_start.pop(user_id, None)
+            return
+        intent = OperatorIntent(
+            OperatorIntentKind.START_CHARGE,
+            "telegram",
+            str(user_id),
+            {
+                "profile": pending.profile,
+                "capacity_ah": pending.capacity_ah,
+                "battery_identity": None,
+                "battery_id": pending.battery_id,
+                "intent": pending.intent,
+                "condition": pending.condition,
+            },
+        )
+        result = await route.submit(intent)
+        if not result.accepted:
+            await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            return
+        # DRY_RUN deliberately leaves the preview/session untouched.  The V2
+        # transaction owner is reached only after a separately authorized ACTIVE
+        # gate, so this callback cannot mutate controller/FSM/HA state.
+        await call.answer(
+            f"START preflight PASS; DRY_RUN, заряд не запущен ({result.trace_id[:8]})",
+            show_alert=True,
+        )
 
     @app.router.callback_query(F.data.startswith("v2_bat_intent_"))
     async def battery_intent_handler(call: Any) -> None:

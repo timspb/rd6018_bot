@@ -1,3 +1,4 @@
+import pathlib
 import unittest
 
 import bot
@@ -40,6 +41,16 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertTrue(callable(bot_legacy.handle_ah_input))
         self.assertTrue(callable(bot_legacy.start_custom_charge))
         self.assertIsNot(bot_legacy.handle_ah_input, v2_bot_ui._start_profile)
+
+    def test_quick_start_callback_uses_v3_route_when_composed(self):
+        source = (pathlib.Path(__file__).parents[1] / "v2_bot_ui.py").read_text(encoding="utf-8")
+        start = source.index('F.data == "v2_quick_start"')
+        end = source.index('F.data.startswith("v2_bat_intent_")', start)
+        callback = source[start:end]
+        self.assertIn("_v3_production_start_route", callback)
+        self.assertIn("await route.submit(intent)", callback)
+        self.assertNotIn("app.charge_controller.start(", callback)
+        self.assertNotIn("app.hass.turn_on(", callback)
 
 
 if __name__ == "__main__":
