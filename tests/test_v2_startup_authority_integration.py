@@ -4,6 +4,7 @@ import unittest
 
 import bot
 from rd_startup_authority import RdStartupAuthorityGate
+from runtime.v2_startup_recovery import V2StartupRecovery
 
 
 class _FakeController:
@@ -207,7 +208,9 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "_rd_startup_authority": gate,
             "_v2_startup_recovery": types.SimpleNamespace(
                 recover_managed_startup_authority=recover,
-                replay_deferred_startup_restore=shim["_replay_deferred_startup_restore"],
+                replay_deferred_startup_restore=V2StartupRecovery(
+                    fake_legacy, None, None
+                ).replay_deferred_startup_restore,
             ),
             "_physical_test_control": physical,
             "init_v2_storage": init_storage,
@@ -245,13 +248,13 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         try:
             shim["_legacy"] = fake_legacy
             with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
-                await shim["_replay_deferred_startup_restore"]()
+                await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
 
             self.assertTrue(controller.is_active)
             self.assertEqual(len(controller.restore_calls), 1)
             self.assertEqual(hass.live["switch"], "off")
 
-            await shim["_replay_deferred_startup_restore"]()
+            await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
         finally:
             shim["_legacy"] = original_legacy
 

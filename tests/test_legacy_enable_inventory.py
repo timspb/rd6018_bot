@@ -38,8 +38,8 @@ ENABLE_CALLS = frozenset(
         # D-STARTUP-3: after explicit MANAGED reconciliation, deferred restore may
         # converge physical Output through the final composed HassClient surface.
         # These are reviewed guarded call-sites, not raw actuator bypasses.
-        ("bot.py", "_replay_deferred_startup_restore", "_legacy.hass.turn_off"),
-        ("bot.py", "_replay_deferred_startup_restore", "_legacy.hass.turn_on"),
+        ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_off"),
+        ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_on"),
         ("bot_legacy.py", "_hard_stop_charge", "hass.turn_off"),
         ("bot_legacy.py", "_operator_pause_toggle", "hass.turn_off"),
         ("bot_legacy.py", "_operator_pause_toggle", "hass.turn_on"),

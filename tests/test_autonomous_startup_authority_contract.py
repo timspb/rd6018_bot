@@ -6,6 +6,7 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = Path("bot.py").read_text(encoding="utf-8")
+        cls.recovery = Path("runtime/v2_startup_recovery.py").read_text(encoding="utf-8")
         cls.gate = Path("rd_startup_authority.py").read_text(encoding="utf-8")
 
     def test_final_startup_gate_is_installed_after_runtime_composition(self):
@@ -17,14 +18,14 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
 
     def test_managed_recovery_is_inside_explicit_reconciliation_task(self):
         reconcile = self.text.index("reconcile_startup_authority(")
-        mix_recovery = self.text.index("await _rd_managed_mix_adoption.recover_startup()")
-        live_recovery = self.text.index("await _rd_managed_live_adoption.recover_startup()")
-        diagnostic_recovery = self.text.index("await recover_diagnostic_persistence(_legacy)")
+        mix_recovery = self.recovery.index("await self.managed_mix.recover_startup()")
+        live_recovery = self.recovery.index("await self.managed_live.recover_startup()")
+        diagnostic_recovery = self.recovery.index("await recover_diagnostic_persistence(self.app)")
         self.assertLess(mix_recovery, reconcile)
         self.assertLess(live_recovery, reconcile)
         self.assertLess(diagnostic_recovery, reconcile)
-        self.assertIn("if not await _rd_managed_mix_adoption.recover_startup():", self.text)
-        self.assertIn("if not await _rd_managed_live_adoption.recover_startup():", self.text)
+        self.assertIn("if not await self.managed_mix.recover_startup():", self.recovery)
+        self.assertIn("if not await self.managed_live.recover_startup():", self.recovery)
 
     def test_unknown_edge_authority_retries_read_only_and_never_opens_control(self):
         self.assertIn("candidate = self.parse_explicit(raw)", self.gate)
@@ -63,22 +64,21 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
         self.assertIn("gate.discard_deferred_restore_request()", self.gate)
 
     def test_deferred_restore_uses_fresh_live_and_composed_safe_actuation(self):
-        replay = self.text.split("async def _replay_deferred_startup_restore()", 1)[1]
-        replay = replay.split("async def main()", 1)[0]
-        self.assertIn("live = await _legacy.hass.get_all_live()", replay)
+        replay = self.recovery.split("async def replay_deferred_startup_restore(self)", 1)[1]
+        self.assertIn("live = await app.hass.get_all_live()", replay)
         self.assertIn("controller.try_restore_session(", replay)
-        self.assertIn("_legacy._apply_restore_time_corrections(controller, live)", replay)
-        self.assertIn("_legacy._operator_pause_active()", replay)
-        self.assertIn("_legacy._restore_allows_auto_enable(controller)", replay)
+        self.assertIn("app._apply_restore_time_corrections(controller, live)", replay)
+        self.assertIn("app._operator_pause_active()", replay)
+        self.assertIn("app._restore_allows_auto_enable(controller)", replay)
 
         # D-STARTUP-3 deliberately realizes an eligible restored MANAGED session only
         # after startup reconciliation. The calls must go through the final composed
         # HassClient/runtime-safety surface; raw actuator aliases would bypass the gate.
-        self.assertIn("await _legacy._apply_phase_protection(uv, ui)", replay)
-        self.assertIn("await _legacy.hass.set_voltage(uv)", replay)
-        self.assertIn("await _legacy.hass.set_current(_legacy._cap_current(ui))", replay)
-        self.assertIn("await _legacy.hass.turn_on(_legacy.ENTITY_MAP[\"switch\"])", replay)
-        self.assertIn("await _legacy.hass.turn_off(_legacy.ENTITY_MAP[\"switch\"])", replay)
+        self.assertIn("await app._apply_phase_protection(uv, ui)", replay)
+        self.assertIn("await app.hass.set_voltage(uv)", replay)
+        self.assertIn("await app.hass.set_current(app._cap_current(ui))", replay)
+        self.assertIn("await app.hass.turn_on(app.ENTITY_MAP[\"switch\"])", replay)
+        self.assertIn("await app.hass.turn_off(app.ENTITY_MAP[\"switch\"])", replay)
         self.assertNotIn("_raw_turn_on", replay)
         self.assertNotIn("_raw_turn_off", replay)
         self.assertNotIn("_raw_set_voltage", replay)

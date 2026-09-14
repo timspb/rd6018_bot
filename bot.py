@@ -13,10 +13,7 @@ import sys
 import bot_legacy as _legacy
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from auto_manual_off_v2 import install_auto_manual_off_contract
-from diagnostic_persistence import (
-    install_diagnostic_persistence,
-    recover_diagnostic_persistence,
-)
+from diagnostic_persistence import install_diagnostic_persistence
 from done_storage_restore import install_done_storage_restore
 from live_output_readback_v2 import install_output_state_readback
 from manual_context_v2 import (
@@ -239,105 +236,6 @@ _v2_startup_recovery = V2StartupRecovery(
     _rd_managed_live_adoption,
     _rd_live_mix_observer,
 )
-
-
-async def _recover_managed_startup_authority() -> bool:
-    # Neither managed live-adoption authority is resumable. D062 is recovered first
-    # because it owns a chemistry HV budget; if it was active/pending at crash, startup
-    # may only continue toward verified OFF before ordinary managed authority reopens.
-    if not await _rd_managed_mix_adoption.recover_startup():
-        return False
-    if not await _rd_managed_live_adoption.recover_startup():
-        return False
-    # A normal HANDS_OFF observer also never resumes. If it had already committed final
-    # OFF_PENDING, only that OFF containment is allowed to continue.
-    if _rd_live_mix_observer is not None:
-        if not await _rd_live_mix_observer.recover_startup():
-            return False
-    await recover_diagnostic_persistence(_legacy)
-    return True
-
-
-async def _replay_deferred_startup_restore() -> None:
-    """Restore and physically realize a deferred MANAGED startup session.
-
-    The legacy startup path may have reached ``try_restore_session`` while edge
-    authority was still UNKNOWN.  Re-read fresh live telemetry after MANAGED recovery,
-    restore software state exactly once, then converge an eligible saved session through
-    the already-composed safe-output transaction.  A failed physical realization raises
-    so ``reconcile_startup_authority`` retries without restoring the session twice.
-    """
-
-    controller = _legacy.charge_controller
-    live = await _legacy.hass.get_all_live()
-
-    if not bool(getattr(controller, "is_active", False)):
-        ok, _msg = controller.try_restore_session(
-            _legacy._safe_float(live.get("battery_voltage")),
-            _legacy._safe_float(live.get("current")),
-            _legacy._safe_float(live.get("ah")),
-            output_is_on=(str(live.get("switch", "")).lower() == "on"),
-            is_cv=str(live.get("is_cv", "")).lower() == "on",
-            is_cc=str(live.get("is_cc", "")).lower() == "on",
-        )
-        if not ok:
-            return
-
-        _legacy._apply_restore_time_corrections(controller, live)
-        _legacy.last_checkpoint_time = _legacy.time.time()
-        _legacy.logger.info(
-            "Deferred startup session state restored after MANAGED authority reconciliation: %s",
-            controller.current_stage,
-        )
-
-    # Durable operator pause is explicit OFF intent.  Do not turn a successful software
-    # restore into an implicit resume; the operator owns the later resume transaction.
-    if _legacy._operator_pause_active():
-        _legacy.logger.info("Deferred startup auto-resume skipped: operator pause is active")
-        return
-
-    # Done/Storage semantics are supplied by done_storage_restore.  Terminal Done and
-    # Cooling remain OFF; explicit managed Storage is allowed to use the same safe path.
-    if not _legacy._restore_allows_auto_enable(controller):
-        return
-
-    output_state = str(live.get("switch", "")).strip().lower()
-    safe_wait_stage = getattr(controller, "STAGE_SAFE_WAIT", None)
-    if safe_wait_stage is not None and controller.current_stage == safe_wait_stage:
-        # SAFE_WAIT is physically OFF by definition.  If restart evidence says ON,
-        # converge only in the safe direction through the existing verified-OFF path.
-        if output_state == "off":
-            return
-        if output_state != "on":
-            raise RuntimeError("deferred startup restore cannot resolve SAFE_WAIT Output state")
-        confirmed_off = await _legacy.hass.turn_off(_legacy.ENTITY_MAP["switch"])
-        if not confirmed_off:
-            raise RuntimeError("deferred startup SAFE_WAIT Output OFF was not confirmed")
-        return
-
-    # An already-energized managed session needs no duplicate programming/ON command.
-    if output_state == "on":
-        return
-    if output_state != "off":
-        raise RuntimeError("deferred startup restore cannot resolve canonical Output state")
-
-    raw_temp = live.get("temp_ext")
-    if raw_temp is None or str(raw_temp).strip().lower() in {"", "unknown", "unavailable", "none"}:
-        raise RuntimeError("deferred startup restore requires fresh battery temperature")
-    temp_ext = _legacy._safe_float(raw_temp)
-
-    uv, ui = controller._get_target_v_i(temp_ext)
-    await _legacy._apply_phase_protection(uv, ui)
-    await _legacy.hass.set_voltage(uv)
-    await _legacy.hass.set_current(_legacy._cap_current(ui))
-    enabled = await _legacy.hass.turn_on(_legacy.ENTITY_MAP["switch"])
-    if not enabled:
-        raise RuntimeError("deferred startup safe Output enable was not confirmed")
-
-    _legacy.logger.info(
-        "Deferred startup session physically resumed after MANAGED authority reconciliation: %s",
-        controller.current_stage,
-    )
 
 
 async def main() -> None:

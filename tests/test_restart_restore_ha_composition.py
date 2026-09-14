@@ -165,6 +165,7 @@ import json
 import time
 
 import bot
+from runtime.v2_startup_recovery import V2StartupRecovery
 from rd_startup_authority import reconcile_startup_authority
 
 shim = bot.main.__globals__
@@ -208,7 +209,7 @@ async def run():
     result = await reconcile_startup_authority(
         gate,
         recover,
-        shim["_replay_deferred_startup_restore"],
+        V2StartupRecovery(bot, None, None).replay_deferred_startup_restore,
     )
     live = await gate.guard._raw_live()
     payload = {
