@@ -63,6 +63,18 @@ class ManualTextV2Tests(unittest.TestCase):
         self.assertIn("Старый формат одной строки отключён", text)
         self.assertNotIn("I<=0.30", text)
         self.assertNotIn("V>=16.40", text)
+        self.assertNotIn("<pre>", text)
+        self.assertIn("hold=2", text)
+
+    def test_staged_profile_parser_uses_hours(self):
+        from manual_text_v2 import parse_manual_profile_input
+
+        profile = parse_manual_profile_input(
+            "MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
+            "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=2"
+        )
+        self.assertEqual(profile.main.hold_hours, 0.5)
+        self.assertEqual(profile.mix.hold_hours, 2.0)
 
     def test_numeric_manual_prefix_with_unknown_condition_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "неизвестное условие"):

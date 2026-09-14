@@ -7,7 +7,7 @@ manual:
     voltage_v: 14.7
     current_a: 5.0
     minimum_current_a: 0.30
-    hold_seconds: 0
+    hold_hours: 0
     confirmation_count: 3
     confirmation_interval_seconds: 60
   mix:
@@ -15,6 +15,6 @@ manual:
     current_a: 1.5
     delta_voltage_v: 0.03
     delta_current_a: 0.03
-    hold_seconds: 7200
+    hold_hours: 2
     confirmation_count: 3
     confirmation_interval_seconds: 60

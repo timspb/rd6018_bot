@@ -11,7 +11,9 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from battery_registry import get_battery
 from manual_mode import ManualChargeRequest, ManualSessionState
 from manual_runtime_v2 import ProductionManualSessionManager
-from manual_text_v2 import ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
+from manual_text_v2 import MANUAL_PROFILE_PATH, ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
+from runtime.charge.profiles.manual import load_manual_profile
+from v2_bot_ui import selected_battery_for_user
 from v2_battery_catalog import list_batteries
 
 
@@ -68,7 +70,7 @@ class BoundManualTextMiddleware(BaseMiddleware):
             return None
 
         try:
-            parsed = parse_manual_command(event.text)
+            parsed = parse_manual_command(event.text, battery_id=battery_id)
         except ValueError as exc:
             self.pending_battery.pop(user_id, None)
             await event.answer(f"❌ {html.escape(str(exc))}\n\n{manual_help_text()}")
@@ -133,6 +135,9 @@ class BoundManualTextMiddleware(BaseMiddleware):
             _format_start(bound, replaced=replaced_active)
             + f"\nАКБ: <code>{html.escape(battery_id)}</code> (только history identity)"
         )
+        show_now = getattr(self.app, "_build_and_send_dashboard", None)
+        if callable(show_now):
+            await show_now(event.chat.id, user_id)
         schedule = getattr(self.app, "schedule_dashboard_after_60", None)
         if callable(schedule):
             schedule(event.chat.id, user_id)
@@ -272,9 +277,61 @@ def install_manual_context_ui(app: Any) -> None:
         middleware.pending_battery[user_id] = battery_id
         await call.message.answer(
             f"<b>Manual для истории АКБ <code>{html.escape(battery_id)}</code></b>\n"
-            "V/I всё равно задаёт оператор; профиль АКБ не меняет уставки.\n\n"
+            "Параметры этого Manual сохранятся отдельно для выбранной АКБ.\n\n"
             + manual_help_text()
         )
+
+    @app.router.callback_query(F.data == "v2_battery_manual")
+    async def _start_saved_battery_manual(call: CallbackQuery) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        await call.answer()
+        user_id = call.from_user.id if call.from_user else 0
+        record = selected_battery_for_user(user_id)
+        if record is None:
+            await call.answer("Сначала выберите АКБ", show_alert=True)
+            return
+        battery_id = record.identity.battery_id
+        try:
+            profile = load_manual_profile(MANUAL_PROFILE_PATH, battery_id=battery_id)
+        except (OSError, ValueError) as exc:
+            await call.message.answer(f"❌ Сохранённый Manual не прочитан: {html.escape(str(exc))}")
+            return
+        manager = getattr(app, "manual_session_manager", None)
+        if not isinstance(manager, ProductionManualSessionManager):
+            await call.message.answer("❌ V2 Manual runtime не инициализирован.")
+            return
+        try:
+            enabled = await manager.start(
+                ManualChargeRequest.from_profile(
+                    profile,
+                    battery_id=battery_id,
+                    capacity_ah=record.identity.nominal_capacity_ah,
+                )
+            )
+        except (RuntimeError, ValueError) as exc:
+            await call.message.answer(f"❌ Manual не запущен: {html.escape(str(exc))}")
+            return
+        if not enabled:
+            await call.message.answer("❌ Manual не запущен: safety/readback transaction не подтверждён.")
+            return
+        app.last_chat_id = call.message.chat.id
+        app.last_user_id = user_id
+        await call.message.answer(
+            _format_start(
+                ParsedManualCommand(
+                    request=ManualChargeRequest.from_profile(
+                        profile,
+                        battery_id=battery_id,
+                        capacity_ah=record.identity.nominal_capacity_ah,
+                    )
+                ),
+                replaced=False,
+            ) + f"\nАКБ: <code>{html.escape(battery_id)}</code>"
+        )
+        show_now = getattr(app, "_build_and_send_dashboard", None)
+        if callable(show_now):
+            await show_now(call.message.chat.id, user_id)
 
     @app.router.callback_query(F.data == "v2_manual_interrupted")
     async def _manual_interrupted(call: CallbackQuery) -> None:

@@ -57,8 +57,17 @@ def _duration_seconds(text: str) -> float:
     return float(total)
 
 
+def _duration_hours(text: str) -> float:
+    if ":" not in str(text):
+        value = _float(text)
+        if value <= 0:
+            raise ValueError("выдержка должна быть больше нуля")
+        return value
+    return _duration_seconds(text) / 3600.0
+
+
 def _profile_number(value: str, *, duration: bool = False) -> float:
-    return _duration_seconds(value) if duration and ":" in value else _float(value.rstrip("АAaAvV"))
+    return _duration_hours(value) if duration else _float(value.rstrip("АAaAvV"))
 
 
 def _parse_profile_stage(line: str, *, main: bool, base: ManualStageProfile) -> ManualStageProfile:
@@ -79,7 +88,7 @@ def _parse_profile_stage(line: str, *, main: bool, base: ManualStageProfile) -> 
     common = {
         "voltage_v": take("u", "v", "voltage", "voltage_v"),
         "current_a": take("i", "current", "current_a"),
-        "hold_seconds": take("hold", "hold_s", "hold_seconds", duration=True),
+        "hold_hours": take("hold", "hold_h", "hold_hours", duration=True),
     }
     if main:
         return replace(base, **common, minimum_current_a=take("imin", "minimum", "minimum_current_a"))
@@ -91,12 +100,12 @@ def _parse_profile_stage(line: str, *, main: bool, base: ManualStageProfile) -> 
     )
 
 
-def parse_manual_profile_input(text: str) -> ManualChargeProfile:
+def parse_manual_profile_input(text: str, *, battery_id: str | None = None) -> ManualChargeProfile:
     """Parse the two-line operator form and return a validated profile."""
     lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
     if len(lines) != 2 or not lines[0].lower().startswith("main") or not lines[1].lower().startswith("mix"):
         raise ValueError("нужны две строки: MAIN ... и MIX ...")
-    base = load_manual_profile(MANUAL_PROFILE_PATH)
+    base = load_manual_profile(MANUAL_PROFILE_PATH, battery_id=battery_id)
     main = _parse_profile_stage(lines[0], main=True, base=base.main)
     mix = _parse_profile_stage(lines[1], main=False, base=base.mix)
     return ManualChargeProfile(main=main, mix=mix, profile_id=base.profile_id)
@@ -114,7 +123,7 @@ def _validate_stop_current(value: float) -> float:
     return value
 
 
-def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
+def parse_manual_command(text: str, *, battery_id: str | None = None) -> Optional[ParsedManualCommand]:
     """Parse the production Manual one-line DSL.
 
     The first two numeric tokens preserve the historic quick command. Additional tokens
@@ -126,12 +135,12 @@ def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
     if not raw or raw.startswith("/"):
         return None
     if raw.lower() in {"manual", "ручной", "manual_main_mix"}:
-        profile = load_manual_profile(MANUAL_PROFILE_PATH)
-        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile))
+        profile = load_manual_profile(MANUAL_PROFILE_PATH, battery_id=battery_id)
+        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile, battery_id=battery_id or ""))
     if "\n" in raw and raw.lower().lstrip().startswith("main"):
-        profile = parse_manual_profile_input(raw)
-        save_manual_profile(profile, MANUAL_PROFILE_PATH)
-        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile))
+        profile = parse_manual_profile_input(raw, battery_id=battery_id)
+        save_manual_profile(profile, MANUAL_PROFILE_PATH, battery_id=battery_id)
+        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile, battery_id=battery_id or ""))
     tokens = raw.replace("≥", ">=").replace("≤", "<=").split()
     if len(tokens) < 2:
         return None
@@ -233,8 +242,8 @@ def manual_help_text() -> str:
         "После подтверждения минимума и выдержки запускается MIX.\n"
         "MIX: ток, напряжение, ΔV, ΔI, выдержка.\n"
         "Скопируйте блок, при необходимости измените значения и отправьте его целиком:\n"
-        "<pre>MAIN: U=14.7 I=5.0 Imin=0.30 hold=600\n"
-        "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=7200</pre>"
+        "<code>MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
+        "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=2</code>\n"
         "После записи профиль запускается командой <code>MANUAL</code>.\n"
         "Старый формат одной строки отключён.\n"
         f"Envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>."
@@ -419,6 +428,9 @@ class ManualTextMiddleware(BaseMiddleware):
         self.app.last_chat_id = event.chat.id
         self.app.last_user_id = user_id
         await event.answer(_format_start(parsed, replaced=replaced))
+        show_now = getattr(self.app, "_build_and_send_dashboard", None)
+        if callable(show_now):
+            await show_now(event.chat.id, user_id)
         schedule = getattr(self.app, "schedule_dashboard_after_60", None)
         if callable(schedule):
             schedule(event.chat.id, user_id)

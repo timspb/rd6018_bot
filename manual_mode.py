@@ -222,7 +222,10 @@ class ManualSessionManager:
             try:
                 profile = None
                 if isinstance(request_raw.get("profile"), dict):
-                    profile = load_manual_profile(Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml")
+                    profile = load_manual_profile(
+                        Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml",
+                        battery_id=str(request_raw.get("battery_id") or "") or None,
+                    )
                 self.request = ManualChargeRequest(
                     voltage_v=float(request_raw["voltage_v"]),
                     current_a=float(request_raw["current_a"]),
@@ -492,7 +495,7 @@ class ManualSessionManager:
                 if self.main_min_hold_started_at is None:
                     self.main_min_hold_started_at = time.time()
                     return None
-                if time.time() - self.main_min_hold_started_at >= self.request.profile.main.hold_seconds:
+                if time.time() - self.main_min_hold_started_at >= self.request.profile.main.hold_hours * 3600.0:
                     return "manual_main_to_mix"
         return None
 
@@ -521,15 +524,15 @@ class ManualSessionManager:
             return None
         if self.finish_hold_started_at is None:
             return None
-        hold_seconds = (
-            self.request.profile.mix.hold_seconds
+        hold_hours = (
+            self.request.profile.mix.hold_hours
             if self.request.profile is not None
-            else MANUAL_MIX_FINISH_HOLD_SEC
+            else MANUAL_MIX_FINISH_HOLD_SEC / 3600.0
         )
-        if now - float(self.finish_hold_started_at) >= hold_seconds:
+        if now - float(self.finish_hold_started_at) >= hold_hours * 3600.0:
             logger.info(
-                "MANUAL_EVIDENCE kind=delta event=hold_complete mode=mix hold_seconds=%.1f timestamp=%.3f",
-                hold_seconds,
+                "MANUAL_EVIDENCE kind=delta event=hold_complete mode=mix hold_hours=%.2f timestamp=%.3f",
+                hold_hours,
                 now,
             )
             return "manual_mix_delta_hold_complete"
@@ -573,8 +576,8 @@ class ManualSessionManager:
                 self.finish_hold_started_at = now
                 self._persist()
                 logger.info(
-                    "MANUAL_EVIDENCE kind=delta event=hold_start mode=mix hold_seconds=%.1f timestamp=%.3f",
-                    self.request.profile.mix.hold_seconds if self.request.profile is not None else MANUAL_MIX_FINISH_HOLD_SEC,
+                    "MANUAL_EVIDENCE kind=delta event=hold_start mode=mix hold_hours=%.2f timestamp=%.3f",
+                    self.request.profile.mix.hold_hours if self.request.profile is not None else MANUAL_MIX_FINISH_HOLD_SEC / 3600.0,
                     now,
                 )
                 reason = None

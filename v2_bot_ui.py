@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from aiogram import F
@@ -26,6 +27,9 @@ from v2_ui import (
     profile_for_chemistry,
 )
 from application.intents import OperatorIntent, OperatorIntentKind
+from runtime.charge.profiles.manual import has_manual_profile
+
+MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,10 @@ _battery_pages: Dict[int, list[BatteryRecord]] = {}
 _selected_battery: Dict[int, BatteryRecord] = {}
 _new_battery_input: set[int] = set()
 _installed = False
+
+
+def selected_battery_for_user(user_id: int) -> Optional[BatteryRecord]:
+    return _selected_battery.get(int(user_id))
 
 
 def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -458,10 +466,18 @@ def install_v2_ui(app: Any) -> None:
             return
         record = records[idx]
         _selected_battery[user_id] = record
+        manual_button = []
+        if has_manual_profile(MANUAL_PROFILE_PATH, record.identity.battery_id):
+            manual_button = [[InlineKeyboardButton(
+                text="▶️ Запустить сохранённый Manual",
+                callback_data="v2_battery_manual",
+            )]]
         await _safe_answer(
             call,
             f"{format_battery_card(record)}\n\n<b>Что делаем?</b>",
-            reply_markup=_intent_keyboard("v2_bat_intent"),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=manual_button + _intent_keyboard("v2_bat_intent").inline_keyboard
+            ),
         )
     @app.router.callback_query(F.data.startswith("v2_profile_"))
     async def quick_profile_handler(call: Any) -> None:
