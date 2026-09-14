@@ -118,3 +118,16 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 - physical execution was not invoked;
 - legacy production import is confirmed and is the next migration blocker.
 
+## Phase 1 progress
+
+- `telegram/runtime.py` owns construction of the Bot/Dispatcher/Router bundle;
+- `telegram/runtime.py` owns command registration, polling invocation, and Telegram
+  session close;
+- `bot_legacy.py` still owns handler definitions, startup recovery, background task
+  creation, and V2 domain state;
+- no second polling owner was introduced;
+- no ACTIVE or physical execution was invoked.
+
+The remaining Phase 1 work is lifecycle extraction around the existing handler and
+V2 task callbacks. It must not move controller, session, safety, or physical
+ownership into the Telegram adapter.
