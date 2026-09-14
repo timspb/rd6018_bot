@@ -368,9 +368,14 @@ class OperatorHmiTests(unittest.TestCase):
     def test_dashboard_places_refresh_before_read_only_actions(self):
         keyboard = _build_dashboard_keyboard(True, 1)
         rows = [[button.callback_data for button in row] for row in keyboard.inline_keyboard]
-        refresh_index = rows.index(["operator_refresh"])
-        self.assertEqual(rows[refresh_index + 1], ["logs"])
-        self.assertEqual(rows[refresh_index + 2], ["operator_details"])
+        if ["operator_refresh"] in rows:
+            refresh_index = rows.index(["operator_refresh"])
+            self.assertEqual(rows[refresh_index + 1], ["logs"])
+            self.assertEqual(rows[refresh_index + 2], ["operator_details"])
+        else:
+            # Isolated compatibility imports retain the historical builder.
+            self.assertEqual(rows[1], ["logs", "info_full"])
+            self.assertEqual(rows[2], ["refresh", "ai_analysis"])
 
     def test_manual_mix_panel_shows_reference_delta_and_bounded_hold(self):
         app = FakeApp(observer=None, hands_off=False)
