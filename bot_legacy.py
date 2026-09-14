@@ -3868,6 +3868,15 @@ async def refresh_handler(call: CallbackQuery) -> None:
 async def power_toggle_handler(call: CallbackQuery) -> None:
     if not await _check_chat_and_respond(call):
         return
+    # Current managed sessions use the explicit two-step STOP workflow. Old
+    # Telegram messages can retain ``power_toggle``; never let that stale
+    # callback fall through to the legacy generic Output ON/OFF toggle.
+    if _legacy_power_toggle_is_disabled():
+        try:
+            await call.answer("Кнопка устарела — обновите панель", show_alert=True)
+        except Exception:
+            pass
+        return
     user_id = call.from_user.id if call.from_user else 0
     if not _is_action_allowed(user_id, "power_toggle", cooldown_sec=1.5):
         try:
@@ -3941,6 +3950,11 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
     old_id = user_dashboard.get(user_id) if user_id else None
     await send_dashboard(call, old_msg_id=old_id)
     schedule_dashboard_after_60(call.message.chat.id, user_id)
+
+
+def _legacy_power_toggle_is_disabled() -> bool:
+    """Return whether the managed STOP boundary owns current operator controls."""
+    return bool(globals().get("_operator_managed_stop_installed", False))
 
 
 @router.callback_query(F.data == "profile_custom")

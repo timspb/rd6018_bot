@@ -217,12 +217,12 @@ class ProductionManualSessionManager(ManualSessionManager):
         except Exception:
             confirmed = False
         if confirmed:
-            self.state = ManualSessionState.STOPPED
+            self._transition_state(ManualSessionState.STOPPED, self.stop_reason)
             self._previous_voltage_v = None
             self._previous_current_a = None
         else:
-            self.state = ManualSessionState.ARMING
             self.stop_reason = f"{reason}:output_off_unconfirmed"
+            self._transition_state(ManualSessionState.ARMING, self.stop_reason)
         self.cooling_started_at = None
         self._persist()
         return confirmed

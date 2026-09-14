@@ -141,6 +141,10 @@ HA и ESP-direct — альтернативные независимые пут�
 затем V/I/OVP/OCP readback, manual ARM, короткий ON hold, OFF и ожидание
 `Output OFF + current 0 A`.
 
+Операторский STOP ручной сессии выполняется через managed-stop workflow с
+verified Output OFF. Устаревший callback `power_toggle` после установки этого
+workflow не выполняет общий toggle и предлагает обновить панель.
+
 ## 9. Configuration model
 
 ```text
