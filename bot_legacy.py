@@ -13,8 +13,7 @@ import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Union, Any
 
-from aiogram import Bot, Dispatcher, F, Router
-from aiogram.client.default import DefaultBotProperties
+from aiogram import F
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 from aiogram.types import (
@@ -26,6 +25,7 @@ from aiogram.types import (
     Message,
 )
 from aiogram.filters import Command
+from telegram.runtime import create_telegram_runtime
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -74,9 +74,10 @@ if not TG_TOKEN:
         "TG_TOKEN не задан. Укажите TG_TOKEN или TELEGRAM_BOT_TOKEN в .env"
     )
 
-bot = Bot(token=TG_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-router = Router()
+_telegram_runtime = create_telegram_runtime(TG_TOKEN)
+bot = _telegram_runtime.bot
+dp = _telegram_runtime.dispatcher
+router = _telegram_runtime.router
 
 hass = HassClient(HA_URL, HA_TOKEN)
 
