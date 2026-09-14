@@ -71,6 +71,24 @@ class RuntimeStartService:
             telemetry_evidence=evidence,
         )
 
+    def create_execution_request(
+        self,
+        plan: ApprovedStartPlan,
+        *,
+        trace_id: str,
+        execution_metadata: Mapping[str, Any] | None = None,
+    ):
+        """Create a data-only port request; no execution owner is invoked."""
+        from .start_execution_contract import request_from_trace
+
+        trace = self.require_approved_trace(plan)
+        return request_from_trace(
+            plan,
+            trace,
+            trace_id=trace_id,
+            execution_metadata=execution_metadata,
+        )
+
     def require_approved_trace(self, plan: ApprovedStartPlan) -> StartExecutionTrace:
         trace = self.build_trace(plan)
         if not trace.allowed:
