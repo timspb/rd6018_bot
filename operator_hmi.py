@@ -199,8 +199,10 @@ def _compact_stage_label(state: OperatorHmiState) -> str:
     if state.process_state is HmiProcessState.STORAGE:
         return "FLOAT"
     title = html.unescape(re.sub(r"<[^>]*>", "", str(state.title or ""))).upper()
-    if "MIX" in title:
+    if "MIX" in title or "МИКС" in title:
         return "MIX"
+    if "MAIN" in title or "ОСНОВ" in title or "ОБЫЧН" in title or "РУЧНОЙ" in title:
+        return "MAIN"
     if "ВОССТАНОВЛЕНИ" in title:
         return "ВОССТАНОВЛЕНИЕ"
     if "КОНДИЦИ" in title:
@@ -600,14 +602,16 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         stage = _compact_stage_label(state)
         battery = _compact_battery_label(state.battery_label)
         if authority_value == HmiAuthority.MANUAL.value or authority_value == HmiAuthority.MANUAL:
-            first_line = f"🔋 {battery} · РУЧНОЙ" if battery else "РУЧНОЙ"
+            right_label = f"РУЧНОЙ · {stage or 'MAIN'}"
         else:
-            first_line = f"🔋 {battery} · {stage}" if battery else f"RD6018 · {stage}"
-        if mode:
-            first_line += f" · {mode}"
+            right_label = f"AUTO · {stage or 'ЗАРЯД'}"
+        left_label = f"RD6018 · ЗАРЯД · {mode or stage or '—'}"
+        first_line = left_label + (" " * max(4, 42 - len(left_label) - len(right_label))) + right_label
     else:
         first_line = str(state.title or "RD6018")
     lines = [f"<b>{html.escape(first_line)}</b>"]
+    if active_panel and battery:
+        lines.append(f"🔋 {html.escape(battery)}")
     lines.append(
         f"⚡ {_bold_value(state.battery_voltage_v, 2, 'V')} · "
         f"{_bold_value(state.current_a, 2, 'A')} · 🌡 АКБ "

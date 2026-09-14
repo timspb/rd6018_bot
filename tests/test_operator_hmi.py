@@ -87,7 +87,9 @@ class OperatorHmiTests(unittest.TestCase):
         )
         text = render_operator_panel(state)
 
-        self.assertIn("<b>🔋 Ca/Ca 72Ah · ВОССТАНОВЛЕНИЕ · CV</b>", text)
+        self.assertIn("<b>RD6018 · ЗАРЯД · CV", text)
+        self.assertIn("AUTO · ВОССТАНОВЛЕНИЕ</b>", text)
+        self.assertIn("🔋 Ca/Ca 72Ah", text)
         self.assertIn("<b>13.86 V</b>", text)
         self.assertIn("<b>0.00 A</b>", text)
         self.assertIn("<b>24.0 °C</b>", text)
@@ -96,7 +98,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("<b>7.20 A</b>", text)
         self.assertNotIn("Режим регулятора определяется", text)
         self.assertNotIn("&lt;b&gt;", text)
-        self.assertEqual(len(text.splitlines()), 4)
+        self.assertEqual(len(text.splitlines()), 5)
 
         class _Tags(HTMLParser):
             pass
@@ -153,9 +155,9 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
-        self.assertIn("Ca/Ca 72Ah · MIX · CV", text)
-        self.assertIn("Baic72 Ca/Ca 72Ah · MIX · CV", text)
-        self.assertIn("MIX · CV", text)
+        self.assertIn("RD6018 · ЗАРЯД · CV", text)
+        self.assertIn("AUTO · MIX</b>", text)
+        self.assertIn("🔋 Baic72 Ca/Ca 72Ah", text)
         self.assertIn("16.55 V", text)
         self.assertIn("0.90 A", text)
         self.assertIn("🎯 16.54 V · 1.01 A 🌡 БП 40.0°C", text)
@@ -312,6 +314,8 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Отдано: 7.26 Ah", text)
         self.assertIn("Заданная ёмкость: 72.00 Ah", text)
         panel = render_operator_panel(state)
+        self.assertIn("<b>RD6018 · ЗАРЯД · CV", panel)
+        self.assertIn("РУЧНОЙ · MAIN</b>", panel)
         self.assertIn("⏱ 01:01", panel)
         self.assertIn("⚡ 7.26 Ah", panel)
         self.assertNotIn("всего:", panel)
@@ -364,7 +368,8 @@ class OperatorHmiTests(unittest.TestCase):
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
         self.assertEqual(state.process_state, HmiProcessState.INTERRUPTED)
-        self.assertIn("MIX · CV", text)
+        self.assertIn("RD6018 · ЗАРЯД · CV", text)
+        self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("Подхват прерван", text)
         self.assertIn("rd_live_mix", callbacks)
         self.assertNotIn("operator_adopted_stop", callbacks)
