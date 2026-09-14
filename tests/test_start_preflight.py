@@ -10,6 +10,7 @@ from application.start_plan import (
     approved_plan_from_preflight,
     compare_approved_start_plan,
 )
+from application.runtime_start_service import RuntimeStartService, compare_start_execution_trace
 from pb_domain import BatteryChemistry, BatteryIdentity
 
 
@@ -176,6 +177,55 @@ class StartPreflightTests(unittest.IsolatedAsyncioTestCase):
                 "safety_status": "allowed",
             },
             plan,
+        )
+        self.assertEqual(comparison.status, "MATCH")
+
+    async def test_runtime_start_service_creates_shadow_trace_without_mutation(self):
+        app = _App()
+        result = await StartPreflightService(app).evaluate(request())
+        plan = approved_plan_from_preflight(result)
+        trace = RuntimeStartService().require_approved_trace(plan)
+        self.assertTrue(trace.allowed)
+        self.assertEqual(trace.session_decision, "clear")
+        self.assertEqual(trace.controller_handoff_decision, "deferred_no_mutation")
+        self.assertEqual(app.hass.writes, [])
+        self.assertFalse(app.charge_controller.is_active)
+
+    async def test_runtime_start_service_rejects_denied_shadow_plan(self):
+        app = _App()
+        result = await StartPreflightService(app).evaluate(request())
+        plan = approved_plan_from_preflight(result)
+        denied = ApprovedStartPlan(
+            profile=plan.profile,
+            chemistry=plan.chemistry,
+            recipe_id=plan.recipe_id,
+            target_preview=plan.target_preview,
+            current_limit_preview_a=plan.current_limit_preview_a,
+            battery_identity=plan.battery_identity,
+            ownership_result="hands_off",
+            safety_result=plan.safety_result,
+            telemetry_evidence=plan.telemetry_evidence,
+        )
+        with self.assertRaises(ValueError):
+            RuntimeStartService().require_approved_trace(denied)
+
+    async def test_runtime_start_trace_parity_matches_v2_capture(self):
+        result = await StartPreflightService(_App()).evaluate(request())
+        plan = approved_plan_from_preflight(result)
+        trace = RuntimeStartService().require_approved_trace(plan)
+        comparison = compare_start_execution_trace(
+            {
+                "profile": "AGM",
+                "chemistry": "agm",
+                "recipe_id": "agm:normal",
+                "target_voltage_v": 14.4,
+                "target_current_a": 7.0,
+                "ownership": "accepted",
+                "session": "clear",
+                "safety": "accepted",
+                "allowed": True,
+            },
+            trace,
         )
         self.assertEqual(comparison.status, "MATCH")
 

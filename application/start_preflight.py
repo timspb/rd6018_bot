@@ -132,6 +132,7 @@ class StartPreflightService:
                 "battery_voltage_v": snapshot.battery_voltage_v,
                 "temperature_ext_c": snapshot.temp_ext_c,
                 "output_on": snapshot.output_on,
+                "active_session": bool(getattr(controller, "is_active", False)),
             },
         )
 

@@ -79,6 +79,10 @@ telemetry, safety, recipe и target fields. Физический результ�
 target/current preview, battery identity, ownership/safety result и telemetry
 evidence. В нём нет controller, session, HA или physical objects.
 
+`RuntimeStartService` принимает такой план и строит `StartExecutionTrace`.
+Trace фиксирует ownership, session, safety и controller handoff decisions, но
+`controller.start()` и любые другие mutation/physical calls остаются запрещены.
+
 Перед миграцией START нужно закрыть parity report по реальным V2 capture-векторам,
 затем отдельно перенести только orchestration через `StartCommandHandler`.
 До этого production callback, controller, FSM, safety wrappers и physical path
