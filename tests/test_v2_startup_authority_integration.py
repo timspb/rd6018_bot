@@ -205,7 +205,10 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "_legacy": fake_legacy,
             "_legacy_main": legacy_main,
             "_rd_startup_authority": gate,
-            "_recover_managed_startup_authority": recover,
+            "_v2_startup_recovery": types.SimpleNamespace(
+                recover_managed_startup_authority=recover,
+                replay_deferred_startup_restore=shim["_replay_deferred_startup_restore"],
+            ),
             "_physical_test_control": physical,
             "init_v2_storage": init_storage,
         }

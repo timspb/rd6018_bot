@@ -56,6 +56,7 @@ from soft_watchdog_containment import install_soft_watchdog_containment
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
+from runtime.v2_startup_recovery import V2StartupRecovery
 
 
 def _env_enabled(name: str, default: bool = True) -> bool:
@@ -232,6 +233,12 @@ install_hands_off_background_isolation(_legacy, _rd_control_mode)
 _legacy.operator_interface = OperatorSnapshotProvider(_legacy)
 
 _legacy_main = _legacy.main
+_v2_startup_recovery = V2StartupRecovery(
+    _legacy,
+    _rd_managed_mix_adoption,
+    _rd_managed_live_adoption,
+    _rd_live_mix_observer,
+)
 
 
 async def _recover_managed_startup_authority() -> bool:
@@ -345,8 +352,8 @@ async def main() -> None:
     authority_task = asyncio.create_task(
         reconcile_startup_authority(
             _rd_startup_authority,
-            _recover_managed_startup_authority,
-            _replay_deferred_startup_restore,
+            _v2_startup_recovery.recover_managed_startup_authority,
+            _v2_startup_recovery.replay_deferred_startup_restore,
         ),
         name="rd6018-startup-authority-reconciliation",
     )
