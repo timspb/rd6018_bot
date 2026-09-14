@@ -129,6 +129,7 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
   session close;
 - `runtime/background.py` owns task creation while legacy callbacks remain the
   domain owners;
+- `runtime/v2_startup_recovery.py` owns the production startup-recovery orchestration;
 - `bot_legacy.py` still owns handler definitions, startup recovery, background task
   callback bodies, and V2 domain state;
 - no second polling owner was introduced;
@@ -137,6 +138,11 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 The remaining Phase 1 work is lifecycle extraction around the existing handler and
 V2 task callbacks. It must not move controller, session, safety, or physical
 ownership into the Telegram adapter.
+
+The production entrypoint now delegates startup authority recovery and deferred
+restore to `V2StartupRecovery`. The original helper functions remain in `bot.py` as
+temporary compatibility seams for rollback-oriented tests and must be removed only
+after their callers and source-contract tests are migrated.
 
 ## Verification after Phase 1 increments
 
