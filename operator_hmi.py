@@ -611,11 +611,12 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if active_panel:
         stage = _compact_stage_label(state)
         battery = _compact_battery_label(state.battery_label)
+        battery_name = str(state.battery_label or "").split("·", 1)[0].strip() or "ЗАРЯД"
         if authority_value == HmiAuthority.MANUAL.value or authority_value == HmiAuthority.MANUAL:
             right_label = f"РУЧНОЙ · {stage or 'MAIN'}"
         else:
             right_label = f"AUTO · {stage or 'ЗАРЯД'}"
-        left_label = f"RD6018 · ЗАРЯД · {mode or stage or '—'}"
+        left_label = f"RD6018 · {battery_name} · {mode or stage or '—'}"
         first_line = left_label + (" " * max(4, 42 - len(left_label) - len(right_label))) + right_label
     else:
         first_line = str(state.title or "RD6018")

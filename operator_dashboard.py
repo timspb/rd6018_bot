@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
 from application.operator_snapshot_provider import OperatorSnapshotProvider
+from presentation.dark_panel import render_dark_panel
 from rd6018_telemetry import (
     ProtectionStatus,
     RegulationMode,
@@ -18,6 +20,10 @@ _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
 _BASE_BUILD_OPERATOR_HMI_STATE = hmi.build_operator_hmi_state
 _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
+
+
+def _dark_panel_enabled() -> bool:
+    return os.getenv("OPERATOR_PANEL_STYLE", "text").strip().lower() in {"dark", "dark_card", "image"}
 
 
 def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
@@ -381,7 +387,31 @@ def install_operator_graph_dashboard(app: Any) -> None:
 
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id, actions)
+        markup = (
+            hmi.build_operator_keyboard(app, state, actions=actions)
+            if _dark_panel_enabled()
+            else _main_graph_markup(app, state, user_id, actions)
+        )
+        if _dark_panel_enabled():
+            card = app.BufferedInputFile(render_dark_panel(caption), filename="rd6018-panel.png")
+            try:
+                await app.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=app.InputMediaPhoto(media=card, caption=""),
+                    reply_markup=markup,
+                )
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    return
+                try:
+                    await app.bot.delete_message(chat_id, message_id)
+                except Exception:
+                    pass
+                sent = await app.bot.send_photo(chat_id, photo=card, caption="", reply_markup=markup)
+                app.user_dashboard[user_id] = sent.message_id
+                app.chat_dashboard[chat_id] = sent.message_id
+            return
         try:
             await app.bot.edit_message_caption(
                 chat_id=chat_id,
@@ -448,24 +478,31 @@ def install_operator_graph_dashboard(app: Any) -> None:
             )
         )
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id, actions)
+        markup = (
+            hmi.build_operator_keyboard(app, state, actions=actions)
+            if _dark_panel_enabled()
+            else _main_graph_markup(app, state, user_id, actions)
+        )
 
         photo = None
+        if _dark_panel_enabled():
+            photo = app.BufferedInputFile(render_dark_panel(caption), filename="rd6018-panel.png")
         try:
-            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
-            times, voltages, currents, temps = await app.get_graph_data_with_temp(
-                limit=limit_pts,
-                since_timestamp=graph_since,
-            )
-            buf = await app.asyncio.to_thread(
-                app.generate_chart,
-                times,
-                voltages,
-                currents,
-                temps,
-            )
-            if buf:
-                photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
+            if not _dark_panel_enabled():
+                _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+                times, voltages, currents, temps = await app.get_graph_data_with_temp(
+                    limit=limit_pts,
+                    since_timestamp=graph_since,
+                )
+                buf = await app.asyncio.to_thread(
+                    app.generate_chart,
+                    times,
+                    voltages,
+                    currents,
+                    temps,
+                )
+                if buf:
+                    photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
         except Exception as exc:
             # Losing history/graph rendering must never hide the live operator state.
             app.logger.warning("operator dashboard graph unavailable: %s", exc)
@@ -479,7 +516,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
                         message_id=target,
                         media=app.InputMediaPhoto(
                             media=photo,
-                            caption=caption,
+                            caption="" if _dark_panel_enabled() else caption,
                             parse_mode=app.ParseMode.HTML,
                         ),
                         reply_markup=markup,
@@ -509,7 +546,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             sent = await app.bot.send_photo(
                 chat_id,
                 photo=photo,
-                caption=caption,
+                caption="" if _dark_panel_enabled() else caption,
                 reply_markup=markup,
                 parse_mode=app.ParseMode.HTML,
             )

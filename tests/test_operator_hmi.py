@@ -88,7 +88,7 @@ class OperatorHmiTests(unittest.TestCase):
         )
         text = render_operator_panel(state)
 
-        self.assertIn("<b>RD6018 · ЗАРЯД · CV", text)
+        self.assertIn("<b>RD6018 · Ca/Ca · CV", text)
         self.assertIn("AUTO · ВОССТАНОВЛЕНИЕ</b>", text)
         self.assertIn("🔋 Ca/Ca 72Ah", text)
         self.assertIn("<b>13.86 V</b>", text)
@@ -156,7 +156,7 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
-        self.assertIn("RD6018 · ЗАРЯД · CV", text)
+        self.assertIn("RD6018 · Baic72 · CV", text)
         self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("🔋 Baic72 Ca/Ca 72Ah", text)
         self.assertIn("16.55 V", text)
@@ -299,6 +299,7 @@ class OperatorHmiTests(unittest.TestCase):
         app = FakeApp(observer=None, hands_off=False)
         app.manual_session_manager = types.SimpleNamespace(
             is_active=True,
+            battery_id="Baic72",
             active_elapsed_s=3661.0,
             request=types.SimpleNamespace(
                 capacity_ah=72.0,
@@ -315,7 +316,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Отдано: 7.26 Ah", text)
         self.assertIn("Заданная ёмкость: 72.00 Ah", text)
         panel = render_operator_panel(state)
-        self.assertIn("<b>RD6018 · ЗАРЯД · CV", panel)
+        self.assertIn("<b>RD6018 · Baic72 · CV", panel)
         self.assertIn("РУЧНОЙ · MAIN</b>", panel)
         self.assertIn("⏱ 01:01", panel)
         self.assertIn("⚡ 7.26 Ah", panel)
@@ -400,7 +401,7 @@ class OperatorHmiTests(unittest.TestCase):
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
         self.assertEqual(state.process_state, HmiProcessState.INTERRUPTED)
-        self.assertIn("RD6018 · ЗАРЯД · CV", text)
+        self.assertIn("RD6018 · Baic72 · CV", text)
         self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("Подхват прерван", text)
         self.assertIn("rd_live_mix", callbacks)
