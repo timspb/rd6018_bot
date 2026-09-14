@@ -8,7 +8,7 @@ from typing import Callable, Iterable
 from runtime.ui.commands.models import CommandResult, CommandStatus, UserCommand
 from runtime.ui.models import DiagnosticsView
 
-from .intents import OperatorIntent
+from .intents import IntentDispatcher, OperatorIntent
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
 from .operator_actions import OperatorActionsView
@@ -49,6 +49,7 @@ class CallbackOperatorInterface(OperatorInterface):
         service_details_provider: Callable[[], ServiceDetailsView] | None = None,
         actions_provider: Callable[[], OperatorActionsView] | None = None,
         intent_handler: Callable[[OperatorIntent | UserCommand], CommandResult] | None = None,
+        intent_dispatcher: IntentDispatcher | None = None,
     ) -> None:
         self._snapshot_provider = snapshot_provider
         self._diagnostics_provider = diagnostics_provider
@@ -57,6 +58,7 @@ class CallbackOperatorInterface(OperatorInterface):
         self._actions_provider = actions_provider
         self._journal_provider = journal_provider
         self._intent_handler = intent_handler
+        self._intent_dispatcher = intent_dispatcher or IntentDispatcher()
 
     async def get_operator_snapshot(self) -> OperatorSnapshot:
         return self._snapshot_provider()
@@ -85,6 +87,8 @@ class CallbackOperatorInterface(OperatorInterface):
         return tuple(self._journal_provider(limit))
 
     async def submit_intent(self, intent: OperatorIntent | UserCommand) -> CommandResult:
-        if self._intent_handler is None:
-            return CommandResult(CommandStatus.REJECTED, "operator_intent_not_wired")
-        return self._intent_handler(intent)
+        if self._intent_handler is not None:
+            return self._intent_handler(intent)
+        if isinstance(intent, OperatorIntent):
+            return await self._intent_dispatcher.dispatch(intent)
+        return CommandResult(CommandStatus.REJECTED, "user_command_not_migrated")

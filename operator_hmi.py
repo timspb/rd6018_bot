@@ -15,6 +15,7 @@ from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionsView
+from application.intents import OperatorIntent, OperatorIntentKind
 
 
 class HmiProcessState(str, Enum):
@@ -1000,6 +1001,18 @@ def install_operator_hmi(app: Any) -> None:
     if bool(getattr(app, "_operator_hmi_installed", False)):
         return
 
+    async def route_read_intent(call: Any, kind: OperatorIntentKind) -> bool:
+        interface = getattr(app, "operator_interface", None)
+        submit = getattr(interface, "submit_intent", None)
+        if not callable(submit):
+            return True
+        user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+        result = await submit(OperatorIntent(kind=kind, source="telegram", user=user))
+        if getattr(result, "status", None) == "rejected":
+            await call.answer("Действие пока не маршрутизировано", show_alert=True)
+            return False
+        return True
+
     async def build_and_send_dashboard(
         chat_id: int,
         user_id: int,
@@ -1096,6 +1109,8 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_details(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
+            return
         interface = getattr(app, "operator_interface", None)
         if interface is None:
             await call.answer("Интерфейс чтения недоступен", show_alert=True)
@@ -1111,6 +1126,8 @@ def install_operator_hmi(app: Any) -> None:
     @app.router.callback_query(F.data == "operator_service_details")
     async def _operator_service_details(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
+            return
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
             return
         interface = getattr(app, "operator_interface", None)
         if interface is None:
@@ -1148,6 +1165,8 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_graph(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_GRAPH):
+            return
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
         await _render_graph_workspace(app, call, user_id)
@@ -1155,6 +1174,8 @@ def install_operator_hmi(app: Any) -> None:
     @app.router.callback_query(F.data == "operator_refresh")
     async def _operator_refresh(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
+            return
+        if not await route_read_intent(call, OperatorIntentKind.REFRESH_PANEL):
             return
         await call.answer("Обновляю")
         user_id = call.from_user.id if call.from_user else 0
@@ -1184,6 +1205,8 @@ def install_operator_hmi(app: Any) -> None:
     @app.router.callback_query(F.data == "operator_more")
     async def _operator_more(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
+            return
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
             return
         interface = getattr(app, "operator_interface", None)
         if interface is None:

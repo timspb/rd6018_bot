@@ -72,3 +72,15 @@ execution callbacks.
 - graph range/presentation helpers, читающие параметры графика;
 - execution callbacks (`v2_bot_ui`, `v2_mix_mode`, `bot_legacy`, managed stop и
   pause handlers). Они намеренно не затронуты этим PR.
+
+## UserIntent routing
+
+`IntentDispatcher` является единой application-точкой для read-only действий:
+`SHOW_LOG`, `SHOW_GRAPH`, `SHOW_DIAGNOSTICS` и `REFRESH_PANEL`. Он не вызывает
+controller, SafetyEngine, HA или physical layer. Для ещё не подключённого
+legacy route возвращается явный результат `routed_to_preserved_callback`, после
+чего существующий callback продолжает прежнюю presentation-логику.
+
+`START_CHARGE`, `STOP_CHARGE`, `PAUSE`, `RESUME` и изменение профиля пока
+отклоняются как `execution_intent_not_migrated`; их callbacks и семантика
+остаются прежними.

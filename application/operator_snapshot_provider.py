@@ -15,6 +15,7 @@ from runtime.ui.models import ChargeView, DiagnosticsView, RuntimeUISnapshot, Sa
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
 from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+from .intents import IntentDispatcher, OperatorIntent
 
 
 class OperatorSnapshotProvider:
@@ -25,9 +26,10 @@ class OperatorSnapshotProvider:
     that can start/stop charging or write an actuator is called here.
     """
 
-    def __init__(self, app: Any, *, journal: Any = None) -> None:
+    def __init__(self, app: Any, *, journal: Any = None, intent_dispatcher: IntentDispatcher | None = None) -> None:
         self.app = app
         self.journal = journal
+        self.intent_dispatcher = intent_dispatcher or IntentDispatcher()
 
     async def get_operator_snapshot(self) -> OperatorSnapshot:
         live = await self.app.hass.get_all_live()
@@ -154,11 +156,12 @@ class OperatorSnapshotProvider:
         return tuple(format_entry(entry) if hasattr(entry, "short_message") else str(entry) for entry in entries)
 
     async def submit_intent(self, intent: Any):
-        """Fail closed until a command adapter is explicitly wired by a later PR."""
+        """Route read-only intents; execution intents remain unmigrated."""
         from runtime.ui.commands.models import CommandResult, CommandStatus
 
-        del intent
-        return CommandResult(CommandStatus.REJECTED, "operator_intent_provider_read_only")
+        if not isinstance(intent, OperatorIntent):
+            return CommandResult(CommandStatus.REJECTED, "invalid_operator_intent")
+        return await self.intent_dispatcher.dispatch(intent)
 
     def legacy_hmi_state(self, live: Mapping[str, Any]):
         """Expose the source state for shadow comparison; still read-only."""
