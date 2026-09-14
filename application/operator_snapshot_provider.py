@@ -13,6 +13,7 @@ from runtime.journal import format_entry
 from runtime.ui.models import ChargeView, DiagnosticsView, RuntimeUISnapshot, SafetyView, TelemetryView
 
 from .operator_snapshot import OperatorSnapshot
+from .operator_views import OperatorDetailsView, ServiceDetailsView
 
 
 class OperatorSnapshotProvider:
@@ -35,6 +36,82 @@ class OperatorSnapshotProvider:
     async def get_diagnostics(self) -> DiagnosticsView:
         live = await self.app.hass.get_all_live()
         return self._diagnostics(live)
+
+    async def get_operator_details(self) -> OperatorDetailsView:
+        live = await self.app.hass.get_all_live()
+        hmi = build_operator_hmi_state(self.app, live)
+        controller = getattr(self.app, "charge_controller", None)
+        timers = {}
+        if controller is not None and bool(getattr(controller, "is_active", False)):
+            try:
+                timers = dict(controller.get_timers() or {})
+            except Exception:
+                timers = {}
+        manual = getattr(self.app, "manual_session_manager", None)
+        request = getattr(manual, "request", None)
+        return OperatorDetailsView(
+            process_state=hmi.process_state.value,
+            authority=hmi.authority.value,
+            output_on=bool(hmi.output_on),
+            regulator=hmi.regulator,
+            battery_label=hmi.battery_label,
+            battery_voltage_v=hmi.battery_voltage_v,
+            current_a=hmi.current_a,
+            battery_temp_c=hmi.battery_temp_c,
+            psu_temp_c=hmi.psu_temp_c,
+            target_voltage_v=hmi.target_voltage_v,
+            current_limit_a=hmi.current_limit_a,
+            safety=hmi.safety,
+            progress=hmi.progress,
+            observer_state=self._observer_state(),
+            observer_status=str(getattr(getattr(self.app, "rd_live_mix_observer", None), "last_status", "") or ""),
+            stage=str(getattr(controller, "current_stage", "") or ""),
+            battery_type=str(getattr(controller, "battery_type", "") or ""),
+            capacity_ah=self._number(getattr(controller, "ah_capacity", None)),
+            stage_time=str(timers.get("stage_time", hmi.stage_time or "—")),
+            total_time=str(timers.get("total_time", hmi.total_time or "—")),
+            remaining_time=str(timers.get("remaining_time", "—")),
+            delivered_ah=hmi.delivered_ah if hmi.delivered_ah is not None else self._number(live.get("ah")),
+            input_voltage_v=self._number(live.get("input_voltage")),
+            uptime=str(live.get("uptime") or "—"),
+            manual_capacity_ah=self._number(getattr(request, "capacity_ah", None)),
+        )
+
+    async def get_service_details(self) -> ServiceDetailsView:
+        live = await self.app.hass.get_all_live()
+        hmi = build_operator_hmi_state(self.app, live)
+        controller = getattr(self.app, "charge_controller", None)
+        snapshot = {}
+        if controller is not None:
+            try:
+                snapshot = dict(controller.v2_ui_snapshot() or {})
+            except Exception:
+                snapshot = {}
+        return ServiceDetailsView(
+            authority=hmi.authority.value,
+            output_on=bool(hmi.output_on),
+            regulator=hmi.regulator,
+            stage=str(getattr(controller, "current_stage", "—") or "—"),
+            v2_analysis="available" if snapshot.get("runtime_analysis_available") else "unavailable",
+            decision=str(snapshot.get("decision") or "—"),
+            ovp_v=self._number(live.get("ovp")),
+            ocp_a=self._number(live.get("ocp")),
+            protection=str(live.get("protection_code") or "—"),
+            regulation=str(live.get("regulation_code") or "—"),
+            heartbeat=str(live.get("last_reported") or live.get("last_updated") or "—"),
+        )
+
+    def _observer_state(self) -> str:
+        observer = getattr(self.app, "rd_live_mix_observer", None)
+        raw = getattr(observer, "state", "") if observer is not None else ""
+        return str(getattr(raw, "value", raw) or "")
+
+    @staticmethod
+    def _number(value: Any) -> float | None:
+        try:
+            return None if value is None else float(value)
+        except (TypeError, ValueError):
+            return None
 
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]:
         if limit < 0:

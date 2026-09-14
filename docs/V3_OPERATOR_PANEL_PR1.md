@@ -42,3 +42,9 @@ callback-группы.
 Provider подключён в `bot.py` как read-only `operator_interface`. Основной
 dashboard refresh и graph dashboard получают состояние через
 `get_operator_snapshot()`; callbacks и их execution path не изменены.
+
+Details boundary также закрыт: `operator_details`, `operator_service_details` и
+`operator_more` используют `get_operator_details()`, `get_service_details()` и
+`get_operator_snapshot()`. Их renderer получает только DTO/snapshot. Legacy
+execution callbacks и ownership-conflict guard остаются отдельными переходными
+read/runtime связями до следующей миграции.

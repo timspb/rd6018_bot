@@ -13,6 +13,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
+from application.operator_views import OperatorDetailsView, ServiceDetailsView
 
 
 class HmiProcessState(str, Enum):
@@ -794,6 +795,45 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
     return "\n".join(lines)
 
 
+def render_operator_details_view(view: OperatorDetailsView) -> str:
+    """Render a read-only DTO without accessing runtime objects."""
+    lines = ["<b>📋 Информация для оператора</b>", ""]
+    if view.observer_state in {"active", "off_pending", "interrupted"}:
+        lines.extend([
+            f"Сессия: <b>{'Mix подхвачен' if view.observer_state != 'interrupted' else 'подхват прерван'}</b>",
+            f"АКБ: {html.escape(view.battery_label or '—')}",
+            f"Output: {'ON' if view.output_on else 'OFF'} · {html.escape(view.regulator)}",
+            f"Уставки прибора: {_value(view.target_voltage_v, 2, 'V')} / {_value(view.current_limit_a, 2, 'A')}",
+            f"Состояние наблюдателя: <code>{html.escape(view.observer_state or '—')}</code>",
+        ])
+        if view.observer_status:
+            lines.append(f"\nПоследнее: <code>{html.escape(view.observer_status)}</code>")
+    else:
+        lines.extend([
+            f"Состояние: <b>{html.escape(view.process_state)}</b> · Authority: <code>{html.escape(view.authority)}</code>",
+            f"Output: <b>{'ON' if view.output_on else 'OFF'}</b> · режим {html.escape(view.regulator)}",
+            f"⚡ {_value(view.battery_voltage_v, 3, 'V')} · {_value(view.current_a, 3, 'A')}",
+            f"🌡 АКБ: {_temperature(view.battery_temp_c)} · БП: {_temperature(view.psu_temp_c)}",
+        ])
+        if view.stage or view.battery_type:
+            lines.extend([
+                "", "🧠 <b>Статистика по этапу</b>",
+                f"📍 Этап: <b>{html.escape(view.stage or '—')}</b>",
+                f"🔋 АКБ: {html.escape(view.battery_type or view.battery_label or '—')}" + (f" · {view.capacity_ah:g} Ah" if view.capacity_ah else ""),
+                f"⏱ Этап: {html.escape(view.stage_time)} · всего {html.escape(view.total_time)}",
+                f"⌛ Лимит: {html.escape(view.remaining_time)}",
+                f"📦 Набрано: {_value(view.delivered_ah, 2, 'Ah')}",
+            ])
+        elif view.manual_capacity_ah is not None:
+            lines.extend(["", "🧠 <b>Статистика ручного заряда</b>", f"🔋 Заданная ёмкость: {_value(view.manual_capacity_ah, 2, 'Ah')}"])
+        lines.extend([
+            f"🎯 Уставки: {_value(view.target_voltage_v, 2, 'V')} · лимит {_value(view.current_limit_a, 2, 'A')}",
+            f"🔌 Вход: {_value(view.input_voltage_v, 1, 'V')} · ⏱ Работа: {html.escape(view.uptime)}",
+        ])
+    lines.append(f"🛡 Защита: {html.escape(view.safety)}")
+    return "\n".join(lines)
+
+
 def render_operator_service_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
     """Technical read-only details kept outside the operator screen."""
     lines = ["<b>🛠 Сервисная информация</b>", ""]
@@ -821,6 +861,23 @@ def render_operator_service_details(app: Any, state: OperatorHmiState, live: Map
             "Lease/Modbus details доступны в диагностическом экране.",
         ]
     )
+    return "\n".join(lines)
+
+
+def render_operator_service_details_view(view: ServiceDetailsView) -> str:
+    lines = ["<b>🛠 Сервисная информация</b>", ""]
+    lines.extend([
+        f"Authority: <code>{html.escape(view.authority)}</code>",
+        f"Output: <code>{'ON' if view.output_on else 'OFF'}</code>",
+        f"Режим: <code>{html.escape(view.regulator or '—')}</code>",
+        f"Этап: <code>{html.escape(view.stage)}</code>",
+        f"V2 analysis: <code>{view.v2_analysis}</code>",
+        f"Decision: <code>{html.escape(view.decision)}</code>",
+        f"OVP/OCP: <code>{_value(view.ovp_v, 2, 'V')} / {_value(view.ocp_a, 2, 'A')}</code>",
+        f"Protection/Regulation: <code>{html.escape(view.protection)} / {html.escape(view.regulation)}</code>",
+        f"Heartbeat: <code>{html.escape(view.heartbeat)}</code>",
+        "Lease/Modbus details доступны в диагностическом экране.",
+    ])
     return "\n".join(lines)
 
 
@@ -912,8 +969,12 @@ def install_operator_hmi(app: Any) -> None:
         old_msg_id: Optional[int] = None,
         anchor_msg_id: Optional[int] = None,
     ) -> int:
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            raise RuntimeError("operator interface is not installed")
+        snapshot = await interface.get_operator_snapshot()
+        from application.operator_snapshot_provider import OperatorSnapshotProvider
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         text = render_operator_panel(state)
         markup = build_operator_keyboard(app, state)
         target = old_msg_id or anchor_msg_id
@@ -997,11 +1058,14 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_details(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            await call.answer("Интерфейс чтения недоступен", show_alert=True)
+            return
+        details = await interface.get_operator_details()
         await call.answer()
         await call.message.answer(
-            render_operator_details(app, state, live),
+            render_operator_details_view(details),
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
@@ -1010,11 +1074,14 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_service_details(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            await call.answer("Интерфейс чтения недоступен", show_alert=True)
+            return
+        details = await interface.get_service_details()
         await call.answer()
         await call.message.answer(
-            render_operator_service_details(app, state, live),
+            render_operator_service_details_view(details),
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
@@ -1080,8 +1147,13 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_more(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            await call.answer("Интерфейс чтения недоступен", show_alert=True)
+            return
+        snapshot = await interface.get_operator_snapshot()
+        from application.operator_snapshot_provider import OperatorSnapshotProvider
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         await call.answer()
         await call.message.answer(
             "<b>Ещё</b>\n\nСервисные и диагностические экраны.",

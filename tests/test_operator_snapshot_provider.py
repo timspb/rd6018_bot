@@ -65,6 +65,15 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.state, "FAULT")
         self.assertIn("OVP", snapshot.faults)
 
+    async def test_details_and_service_details_are_dtos(self):
+        provider = OperatorSnapshotProvider(_App(live()))
+        details = await provider.get_operator_details()
+        service = await provider.get_service_details()
+        self.assertEqual(details.process_state, "idle")
+        self.assertEqual(service.output_on, False)
+        self.assertFalse(hasattr(details, "hass"))
+        self.assertFalse(hasattr(service, "controller"))
+
     async def test_shadow_matches_legacy_hmi_for_idle(self):
         provider = OperatorSnapshotProvider(_App(live()))
         snapshot = await provider.get_operator_snapshot()
