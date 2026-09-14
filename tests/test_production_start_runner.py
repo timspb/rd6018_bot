@@ -8,6 +8,7 @@ from application.production_start_execution_port import (
     ProductionStartMode,
 )
 from application.production_start_runner import ProductionStartRunner
+from application.v2_start_runner_adapter import V2StartRunnerAdapter
 from application.start_execution_contract import request_from_trace
 from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
@@ -134,6 +135,29 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertNotIn("ChargeController", source)
         self.assertNotIn("HassClient", source)
         self.assertNotIn("SafeOutputCoordinator", source)
+
+    def test_async_v2_runner_adapter_calls_only_transaction_owner(self):
+        calls = []
+
+        async def fake_owner(app, event, pending):
+            calls.append((app, event, pending))
+            return True
+
+        transaction = V2StartTransactionAdapter().prepare(
+            _request().plan,
+            trace_id="trace-owner",
+        )
+        adapter = V2StartRunnerAdapter(
+            app="v2-app",
+            event_factory=lambda item: ("event", item.trace_id),
+            transaction_owner=fake_owner,
+        )
+        outcome = asyncio.run(adapter(transaction))
+        self.assertTrue(outcome.started)
+        self.assertEqual(outcome.trace_id, "trace-owner")
+        self.assertEqual(calls[0][0], "v2-app")
+        self.assertEqual(calls[0][1], ("event", "trace-owner"))
+        self.assertEqual(calls[0][2].profile, "AGM")
 
 
 if __name__ == "__main__":

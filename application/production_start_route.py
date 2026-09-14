@@ -70,7 +70,12 @@ class ProductionStartRouteAdapter:
                 plan,
                 trace_id=trace_id,
                 mode=self.mode,
-                execution_metadata={"source": intent.source, "operator": intent.user},
+                execution_metadata={
+                    "source": intent.source,
+                    "operator": intent.user,
+                    "intent": request.intent,
+                    "condition": request.condition,
+                },
             )
         except (TypeError, ValueError) as exc:
             return ProductionStartRouteResult(False, trace_id, f"route_rejected:{exc}")

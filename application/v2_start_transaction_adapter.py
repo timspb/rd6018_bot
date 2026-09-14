@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Mapping
 
+from pb_domain import BatteryCondition, ChargeIntent
+
 from .start_plan import ApprovedStartPlan
 
 
@@ -36,6 +38,8 @@ class V2StartTransactionInput:
     target_current_a: float
     ownership_decision: str
     safety_decision: str
+    intent: ChargeIntent = ChargeIntent.NORMAL
+    condition: BatteryCondition = BatteryCondition.UNKNOWN
 
 
 @dataclass(frozen=True)
@@ -63,7 +67,14 @@ class StartExecutionResult:
 class V2StartTransactionAdapter:
     """Translate a V3 plan to V2 data without owning V2 execution."""
 
-    def prepare(self, plan: ApprovedStartPlan, *, trace_id: str = "unbound") -> V2StartTransactionInput:
+    def prepare(
+        self,
+        plan: ApprovedStartPlan,
+        *,
+        trace_id: str = "unbound",
+        intent: ChargeIntent = ChargeIntent.NORMAL,
+        condition: BatteryCondition = BatteryCondition.UNKNOWN,
+    ) -> V2StartTransactionInput:
         if plan.ownership_result != "available":
             raise ValueError("cannot prepare V2 transaction without ownership")
         if plan.safety_result != "allowed":
@@ -79,6 +90,8 @@ class V2StartTransactionAdapter:
             target_current_a=plan.target_preview.current_a,
             ownership_decision=plan.ownership_result,
             safety_decision=plan.safety_result,
+            intent=intent,
+            condition=condition,
         )
 
     def normalize(

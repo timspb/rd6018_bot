@@ -118,3 +118,43 @@ class ProductionStartExecutionPort:
             outcome,
             trace_id=request.trace_id,
         )
+
+    async def submit_active(
+        self,
+        plan: ApprovedStartPlan,
+        *,
+        trace_id: str,
+        execution_metadata: Mapping[str, Any] | None = None,
+    ) -> ProductionStartPortResult:
+        """Async ACTIVE boundary for the preserved async V2 transaction owner."""
+        trace = self.runtime_start_service.build_trace(plan)
+        if not trace.allowed:
+            return ProductionStartPortResult(False, ProductionStartMode.ACTIVE, trace_id, ", ".join(trace.reasons), trace=trace)
+        activation = self.activation_policy.evaluate(PolicyExecutionMode.ACTIVE)
+        if not activation.allowed:
+            return ProductionStartPortResult(False, ProductionStartMode.ACTIVE, trace_id, "active_execution_disabled", trace=trace)
+        request = request_from_trace(
+            plan,
+            trace,
+            trace_id=trace_id,
+            execution_metadata=execution_metadata,
+        )
+        if self.production_runner is None:
+            return ProductionStartPortResult(
+                False,
+                ProductionStartMode.ACTIVE,
+                trace_id,
+                "active_runner_not_configured",
+                trace=trace,
+                request=request,
+            )
+        result = await self.production_runner.execute_async(request)
+        return ProductionStartPortResult(
+            result.status is StartExecutionStatus.STARTED,
+            ProductionStartMode.ACTIVE,
+            trace_id,
+            result.reason,
+            trace=trace,
+            request=request,
+            execution_result=result,
+        )
