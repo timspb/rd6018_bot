@@ -13,6 +13,7 @@ from operator_hmi import (
 )
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from bot_legacy import _build_dashboard_keyboard
+from application.operator_actions import OperatorAction, OperatorActionsView
 
 
 class FakeObserver:
@@ -565,6 +566,13 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})
         self.assertEqual(rows[1][0].callback_data, "operator_refresh")
+
+    def test_idle_action_view_has_no_session_details_or_events(self):
+        actions = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+        available = {item.action for item in actions.available_actions}
+        self.assertEqual(available, {OperatorAction.START_CHARGE})
+        self.assertIn(OperatorAction.SHOW_LOG, actions.disabled_actions)
+        self.assertIn(OperatorAction.SHOW_DIAGNOSTICS, actions.disabled_actions)
 
     def test_paused_charge_has_resume_and_terminal_stop_side_by_side(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)

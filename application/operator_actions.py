@@ -45,8 +45,16 @@ class OperatorActionsView:
         if state == "IDLE" and safety_allowed:
             # Profile selection lives inside the single charge-modes workspace;
             # do not duplicate an independent battery/profile entry on the panel.
-            available = (OperatorAction.START_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
-            disabled = (OperatorAction.STOP_CHARGE, OperatorAction.PAUSE_CHARGE, OperatorAction.RESUME_CHARGE)
+            # There is no active session to inspect in IDLE. Logs/details remain
+            # available from their dedicated workspaces once a session exists.
+            available = (OperatorAction.START_CHARGE,)
+            disabled = (
+                OperatorAction.STOP_CHARGE,
+                OperatorAction.PAUSE_CHARGE,
+                OperatorAction.RESUME_CHARGE,
+                OperatorAction.SHOW_LOG,
+                OperatorAction.SHOW_DIAGNOSTICS,
+            )
         elif state == "CHARGING":
             values = [OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH]
             if pause_allowed:

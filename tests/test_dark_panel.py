@@ -1,4 +1,7 @@
 import unittest
+import io
+
+from PIL import Image
 
 from presentation.dark_panel import render_dark_dashboard, render_dark_panel
 
@@ -18,6 +21,12 @@ class DarkPanelTests(unittest.TestCase):
         dashboard = render_dark_dashboard(chart, "panel")
         self.assertTrue(dashboard.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertGreater(len(dashboard), len(chart))
+
+    def test_dashboard_panel_matches_chart_width(self):
+        chart = render_dark_panel("chart", width=640)
+        dashboard = render_dark_dashboard(chart, "🔋 АКБ\n⚡ 14.80 V")
+        image = Image.open(io.BytesIO(dashboard))
+        self.assertEqual(image.width, 640)
 
 
 if __name__ == "__main__":

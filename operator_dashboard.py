@@ -26,6 +26,17 @@ def _dark_panel_enabled() -> bool:
     return os.getenv("OPERATOR_PANEL_STYLE", "text").strip().lower() in {"dark", "dark_card", "image"}
 
 
+def _panel_actions(actions, *, dark: bool):
+    """Apply presentation-only visibility rules to the immutable action view."""
+    if actions is None or not dark:
+        return actions
+    hidden = {hmi.OperatorAction.SHOW_LOG, hmi.OperatorAction.SHOW_DIAGNOSTICS}
+    return replace(
+        actions,
+        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
+    )
+
+
 def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
     """Place chart ranges immediately below the graph on the main panel."""
     # Older composition wrappers preserve the two-argument builder signature.
@@ -386,6 +397,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             return
 
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
         markup = (
             hmi.build_operator_keyboard(app, state, actions=actions)
@@ -478,6 +490,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             )
         )
         caption = truthful_panel(state)
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
         markup = (
             hmi.build_operator_keyboard(app, state, actions=actions)
             if _dark_panel_enabled()
