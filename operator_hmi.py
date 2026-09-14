@@ -14,7 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
-from application.operator_actions import OperatorAction, OperatorActionsView
+from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from application.intents import OperatorIntent, OperatorIntentKind
 
 
@@ -734,67 +734,65 @@ def build_operator_keyboard(
     if actions is not None:
         return _keyboard_from_actions(actions)
 
-    def with_refresh(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
-        rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
-        return InlineKeyboardMarkup(inline_keyboard=rows)
-
-    rows: list[list[InlineKeyboardButton]] = []
-    if _manual_is_interrupted(app):
-        rows.append(
-            [
-                InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
-                InlineKeyboardButton(text="🗑 Отказаться", callback_data="v2_manual_discard"),
-            ]
-        )
-    info_row = [
-        InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-        InlineKeyboardButton(text="📋 События", callback_data="logs"),
-    ]
-    if state.process_state is HmiProcessState.ADOPTED_MIX:
-        rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    if state.process_state is HmiProcessState.INTERRUPTED:
-        rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    if state.process_state is HmiProcessState.HANDS_OFF:
-        if state.output_on:
-            rows.append([InlineKeyboardButton(text="🧲 Подхватить текущий Mix", callback_data="rd_live_mix")])
-            rows.append([InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off")])
-        rows.append(info_row)
-        if not state.output_on:
-            rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
-        return with_refresh(rows)
-
+    # Compatibility callers may omit the application action view.  Derive a
+    # conservative, data-only view from the already-built HMI state instead of
+    # reading controller/session objects from the presentation layer.
     if state.process_state is HmiProcessState.IDLE:
-        rows.append([InlineKeyboardButton(text="⚡ Режимы заряда", callback_data="charge_modes")])
-        return with_refresh(rows)
-
-    if state.process_state is HmiProcessState.STORAGE:
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
-        operator_paused = bool(getattr(app, "_operator_pause_active", lambda: False)())
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="▶️ Продолжить" if operator_paused else "⏸ Пауза",
-                    callback_data="operator_pause_toggle",
-                ),
-                InlineKeyboardButton(text="🛑 Стоп", callback_data="operator_managed_stop"),
-            ]
+        if "авторизац" in str(state.progress or "").lower():
+            return InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
+                    InlineKeyboardButton(text="🗑 Отказаться", callback_data="v2_manual_discard"),
+                ],
+                [InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")],
+            ])
+        else:
+            fallback = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+    elif state.process_state is HmiProcessState.STORAGE:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.SHOW_LOG,
+            OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    elif state.process_state is HmiProcessState.PAUSED:
+        fallback = OperatorActionsView(
+            tuple(OperatorActionSpec(action) for action in (
+                OperatorAction.RESUME_CHARGE,
+                OperatorAction.STOP_CHARGE,
+                OperatorAction.SHOW_LOG,
+                OperatorAction.SHOW_GRAPH,
+                OperatorAction.SHOW_DIAGNOSTICS,
+            )),
         )
-        rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
-        rows.append(info_row)
-        return InlineKeyboardMarkup(inline_keyboard=rows)
-
-    rows.append(info_row)
-    rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
-    return with_refresh(rows)
+    elif state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
+        fallback = OperatorActionsView(
+            tuple(OperatorActionSpec(action) for action in (
+                OperatorAction.PAUSE_CHARGE,
+                OperatorAction.STOP_CHARGE,
+                OperatorAction.SHOW_LOG,
+                OperatorAction.SHOW_GRAPH,
+                OperatorAction.SHOW_DIAGNOSTICS,
+            )),
+        )
+    elif state.process_state is HmiProcessState.HANDS_OFF:
+        actions = (
+            (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT)
+            if state.output_on
+            else (OperatorAction.SELECT_PROFILE, OperatorAction.SHOW_DIAGNOSTICS)
+        )
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in actions))
+    elif state.process_state is HmiProcessState.ADOPTED_MIX:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    elif state.process_state is HmiProcessState.INTERRUPTED:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    else:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    return _keyboard_from_actions(fallback)
 
 
 def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
