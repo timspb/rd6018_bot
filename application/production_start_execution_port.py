@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from .runtime_start_service import RuntimeStartService, StartExecutionTrace
+from .start_activation_policy import StartActivationPolicy, StartExecutionMode as PolicyExecutionMode
 from .start_execution_contract import StartExecutionRequest, request_from_trace
 from .start_plan import ApprovedStartPlan
 from .v2_start_transaction_adapter import (
@@ -40,9 +41,11 @@ class ProductionStartExecutionPort:
         self,
         runtime_start_service: RuntimeStartService | None = None,
         transaction_adapter: V2StartTransactionAdapter | None = None,
+        activation_policy: StartActivationPolicy | None = None,
     ) -> None:
         self.runtime_start_service = runtime_start_service or RuntimeStartService()
         self.transaction_adapter = transaction_adapter or V2StartTransactionAdapter()
+        self.activation_policy = activation_policy or StartActivationPolicy()
 
     def submit(
         self,
@@ -57,7 +60,14 @@ class ProductionStartExecutionPort:
             return ProductionStartPortResult(False, mode, trace_id, ", ".join(trace.reasons), trace=trace)
 
         if mode is ProductionStartMode.ACTIVE:
-            return ProductionStartPortResult(False, mode, trace_id, "active_execution_disabled", trace=trace)
+            activation = self.activation_policy.evaluate(PolicyExecutionMode.ACTIVE)
+            return ProductionStartPortResult(
+                activation.allowed,
+                mode,
+                trace_id,
+                "active_execution_allowed" if activation.allowed else "active_execution_disabled",
+                trace=trace,
+            )
 
         request = request_from_trace(
             plan,
