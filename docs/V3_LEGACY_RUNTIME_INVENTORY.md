@@ -40,7 +40,7 @@ production запуске. При этом production runtime всё ещё им
 | ChargeController/FSM | V2 controller | `v2_bootstrap.py:install_v2`, `diagnostic_controller.py` | KEEP до parity |
 | Session lifecycle | `ProductionManualSessionManager` | `v2_bootstrap.py:install_v2` | KEEP; затем MIGRATE adapter-ом |
 | Safety/output | V2 safety stack | `v2_bootstrap.py`, `v2_startup.py` | KEEP до physical parity |
-| Startup recovery | V2 recovery composition | `bot.py:_replay_deferred_startup_restore` | MIGRATE в runtime service после полного audit |
+| Startup recovery | V2 recovery composition | `runtime/v2_startup_recovery.py:V2StartupRecovery` | KEEP as V2 delegated owner |
 | Telegram command/callback handlers | legacy router | `bot_legacy.py:2511-4074` | MIGRATE по одному bounded path |
 | Dashboard transport | legacy functions + V3 decorators | `bot_legacy.py:1845-1980`, installers | MIGRATE read/presentation; renderer уже data-only |
 | V3 START boundary | V3 route/preflight/port | `application/*`, wired in `v2_bootstrap.py` | KEEP; ACTIVE remains gated |
