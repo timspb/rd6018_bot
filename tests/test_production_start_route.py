@@ -98,6 +98,58 @@ class ProductionStartRouteTests(unittest.TestCase):
         self.assertIsNone(result.plan)
         self.assertIn("preflight_denied:hands_off", result.reason)
 
+    def test_missing_intent_is_denied_before_recipe_selection(self):
+        values = dict(_intent().parameters)
+        values.pop("intent")
+        result = asyncio.run(
+            ProductionStartRouteAdapter(_App()).submit(
+                OperatorIntent(OperatorIntentKind.START_CHARGE, "telegram", "operator-1", values)
+            )
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.reason, "invalid_start_intent")
+        self.assertIsNone(result.plan)
+        self.assertIsNone(result.port_result)
+
+    def test_missing_condition_is_denied_before_recipe_selection(self):
+        values = dict(_intent().parameters)
+        values.pop("condition")
+        result = asyncio.run(
+            ProductionStartRouteAdapter(_App()).submit(
+                OperatorIntent(OperatorIntentKind.START_CHARGE, "telegram", "operator-1", values)
+            )
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.reason, "invalid_start_intent")
+        self.assertIsNone(result.plan)
+        self.assertIsNone(result.port_result)
+
+    def test_invalid_profile_is_denied_without_plan(self):
+        values = dict(_intent().parameters)
+        values["profile"] = "NOT_A_PROFILE"
+        _App.rd_control_mode_manager.hands_off = False
+        result = asyncio.run(
+            ProductionStartRouteAdapter(_App()).submit(
+                OperatorIntent(OperatorIntentKind.START_CHARGE, "telegram", "operator-1", values)
+            )
+        )
+        self.assertFalse(result.accepted)
+        self.assertTrue(result.reason.startswith("preflight_denied:"))
+        self.assertIn("invalid_profile", result.reason)
+        self.assertIsNone(result.plan)
+
+    def test_denied_start_keeps_trace_id_without_execution_result(self):
+        values = dict(_intent().parameters)
+        values.pop("intent")
+        result = asyncio.run(
+            ProductionStartRouteAdapter(_App()).submit(
+                OperatorIntent(OperatorIntentKind.START_CHARGE, "telegram", "operator-1", values)
+            )
+        )
+        self.assertFalse(result.accepted)
+        self.assertEqual(len(result.trace_id), 32)
+        self.assertIsNone(result.port_result)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,27 @@ from pb_domain import BatteryCondition, BatteryIdentity, ChargeIntent
 from recipe_engine import RecipeEnvelope
 
 
+class StartIntentValidator:
+    """Validate the operator payload before recipe selection can run."""
+
+    REQUIRED_FIELDS = frozenset({"profile", "capacity_ah", "intent", "condition"})
+
+    @classmethod
+    def validate(cls, values: Mapping[str, Any]) -> bool:
+        if not cls.REQUIRED_FIELDS.issubset(values):
+            return False
+        if not str(values.get("profile", "")).strip():
+            return False
+        try:
+            if float(values["capacity_ah"]) <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+        return isinstance(values.get("intent"), ChargeIntent) and isinstance(
+            values.get("condition"), BatteryCondition
+        )
+
+
 @dataclass(frozen=True)
 class StartRequest:
     profile: str

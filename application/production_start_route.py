@@ -14,7 +14,7 @@ from .production_start_execution_port import (
 )
 from .start_plan import ApprovedStartPlan, approved_plan_from_preflight
 from .start_preflight import StartPreflightService
-from .start_request import StartRequest
+from .start_request import StartIntentValidator, StartRequest
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,9 @@ class ProductionStartRouteAdapter:
     async def submit(self, intent: OperatorIntent) -> ProductionStartRouteResult:
         trace_id = uuid4().hex
         if intent.kind is not OperatorIntentKind.START_CHARGE:
+            return ProductionStartRouteResult(False, trace_id, "invalid_start_intent")
+
+        if not StartIntentValidator.validate(intent.parameters):
             return ProductionStartRouteResult(False, trace_id, "invalid_start_intent")
 
         try:
@@ -88,8 +91,8 @@ class ProductionStartRouteAdapter:
             capacity_ah=float(values["capacity_ah"]),
             battery_identity=values.get("battery_identity"),
             battery_id=str(values.get("battery_id", "operator-battery")),
-            intent=values.get("intent"),
-            condition=values.get("condition"),
+            intent=values["intent"],
+            condition=values["condition"],
             operator=intent.user,
             context={"source": intent.source},
         )
