@@ -1,6 +1,7 @@
 import pathlib
 import re
 import unittest
+import ast
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -21,6 +22,21 @@ class V3LegacyInventoryTests(unittest.TestCase):
         self.assertNotIn("import bot_legacy", source)
         self.assertIn("await _legacy_main()", source)
         self.assertEqual(len(re.findall(r"asyncio\.run\(main\(\)\)", source)), 1)
+
+    def test_production_sources_do_not_import_historical_module_name(self):
+        forbidden = []
+        for path in ROOT.rglob("*.py"):
+            if "tests" in path.parts or "__pycache__" in path.parts:
+                continue
+            if path.name == "bot_legacy.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    forbidden.extend(alias.name for alias in node.names if alias.name == "bot_legacy")
+                elif isinstance(node, ast.ImportFrom) and node.module == "bot_legacy":
+                    forbidden.append(node.module)
+        self.assertEqual(forbidden, [])
 
     def test_inventory_documents_legacy_import_as_current_blocker(self):
         text = (ROOT / "docs" / "V3_LEGACY_RUNTIME_INVENTORY.md").read_text(encoding="utf-8")

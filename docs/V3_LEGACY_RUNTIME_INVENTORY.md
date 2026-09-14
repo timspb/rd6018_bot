@@ -94,8 +94,10 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 
 ### MIGRATE
 
-- Telegram bot/dispatcher construction and lifecycle in `runtime/v2_runtime.py`
-- command/callback registration in `runtime/v2_runtime.py`
+- Telegram bot/dispatcher construction in `telegram/runtime.py`; lifecycle in
+  `runtime/v2_lifecycle.py`
+- handler definitions remain in `runtime/v2_runtime.py`; registration orchestration
+  is in `runtime/v2_lifecycle.py`
 - legacy global runtime state used by UI and background tasks
 - startup recovery functions currently in `bot.py`
 
@@ -125,13 +127,14 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 ## Phase 1 progress
 
 - `telegram/runtime.py` owns construction of the Bot/Dispatcher/Router bundle;
-- `telegram/runtime.py` owns command registration, polling invocation, and Telegram
-  session close;
+- `telegram/runtime.py` owns polling invocation and Telegram transport session close;
+- `runtime/v2_lifecycle.py` owns V2 startup/shutdown sequencing and command
+  registration orchestration;
 - `runtime/background.py` owns task creation while legacy callbacks remain the
   domain owners;
 - `runtime/v2_startup_recovery.py` owns the production startup-recovery orchestration;
-- `runtime/v2_runtime.py` still owns handler definitions, startup recovery, background task
-  callback bodies, and V2 domain state;
+- `runtime/v2_runtime.py` still owns handler definitions, callback bodies, and V2
+  domain state;
 - no second polling owner was introduced;
 - no ACTIVE or physical execution was invoked.
 

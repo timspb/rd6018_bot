@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 
 import aiohttp
@@ -25,7 +26,7 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
-from runtime.background import start_background_tasks
+from runtime.v2_lifecycle import V2RuntimeLifecycle
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -4151,126 +4152,15 @@ async def ai_analysis_handler(call: CallbackQuery) -> None:
 
 
 
-async def _periodic_db_cleanup() -> None:
-    """Фоновая очистка БД раз в 24 часа."""
-    while True:
-        await asyncio.sleep(24 * 3600)
-        try:
-            from database import cleanup_old_records
-            await cleanup_old_records()
-        except Exception as ex:
-            logger.error("Periodic DB cleanup failed: %s", ex)
-
+_lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)
 
 
 async def on_shutdown(dispatcher: Dispatcher) -> None:
-    """Graceful shutdown: закрыть HA-сессию, БД, сохранить сессию заряда."""
-    logger.info("Shutting down gracefully...")
-    try:
-        if charge_controller.is_active:
-            charge_controller._save_session(0.0, 0.0, 0.0)
-    except Exception as ex:
-        logger.warning("Failed to save session on shutdown: %s", ex)
-    try:
-        await hass.close()
-    except Exception:
-        pass
-    try:
-        from database import close_db
-        await close_db()
-    except Exception:
-        pass
-    logger.info("Shutdown complete.")
+    await _lifecycle.on_shutdown(dispatcher)
 
 
 async def main() -> None:
-    await init_db()
-    rotate_if_needed()
-    start_background_tasks(_periodic_db_cleanup)
-    # Очистка журнала событий от записей старше 30 дней
-    try:
-        n = trim_log_older_than_days(30)
-        if n > 0:
-            logger.info("Trimmed %d old lines from charging_history.log", n)
-    except Exception as ex:
-        logger.warning("trim_log_older_than_days at startup: %s", ex)
-
-    _load_manual_off_state()
-    _load_operator_pause_state()
-
-    # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, вход ≥ 60 В
-    # Production bot.py also probes this through V2StartupRecovery; the startup
-    # authority wrapper keeps this historical compatibility probe non-mutating until
-    # MANAGED is proven.
-    global last_checkpoint_time
-    try:
-        live = await hass.get_all_live()
-        battery_v = _safe_float(live.get("battery_voltage"))
-        i = _safe_float(live.get("current"))
-        ah = _safe_float(live.get("ah"))
-        ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
-        ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
-        input_voltage = _safe_float(live.get("input_voltage"), 0.0)
-        ok, msg = charge_controller.try_restore_session(
-            battery_v, i, ah,
-            output_is_on=(str(live.get("switch", "")).lower() == "on"),
-            is_cv=str(live.get("is_cv", "")).lower() == "on",
-            is_cc=str(live.get("is_cc", "")).lower() == "on",
-        )
-        if ok and msg:
-            _apply_restore_time_corrections(charge_controller, live)
-            last_checkpoint_time = time.time()
-            t_ext = _safe_float(live.get("temp_ext"))
-            allow_turn_on = (
-                _restore_allows_auto_enable(charge_controller)
-                and
-                not ovp_triggered
-                and not ocp_triggered
-                and input_voltage >= MIN_INPUT_VOLTAGE
-            )
-            if _operator_pause_active():
-                logger.info("Auto-resume skipped: operator pause is active")
-            elif allow_turn_on:
-                if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
-                    uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                    await _apply_phase_protection(uv, ui)
-                    await hass.set_voltage(uv)
-                    await hass.set_current(_cap_current(ui))
-                    await hass.turn_off(ENTITY_MAP["switch"])
-                else:
-                    uv, ui = charge_controller._get_target_v_i(t_ext)
-                    await _apply_phase_protection(uv, ui)
-                    await hass.set_voltage(uv)
-                    await hass.set_current(_cap_current(ui))
-                    await hass.turn_on(ENTITY_MAP["switch"])
-                log_event(
-                    charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t_ext,
-                    ah,
-                    "RESTORE",
-                )
-                _charge_notify(msg)
-                logger.info("Session restored: %s", charge_controller.current_stage)
-            else:
-                logger.info(
-                    "Auto-resume skipped: ovp=%s ocp=%s input_v=%.0f",
-                    ovp_triggered, ocp_triggered, input_voltage,
-                )
-    except Exception as ex:
-        logger.warning("Auto-resume check failed: %s", ex)
-
-    dp.include_router(router)
-    await configure_commands(_telegram_runtime)
-    start_background_tasks(data_logger, charge_monitor, soft_watchdog_loop, watchdog_loop)
-    logger.info("RD6018 bot starting")
-    logger.info("Если появится TelegramConflictError — запущен ещё один экземпляр бота. Остановите все кроме одного: pgrep -af 'bot.py' && kill <PID>")
-    try:
-        await run_polling(_telegram_runtime, shutdown_handler=on_shutdown)
-    finally:
-        await hass.close()
-        logger.info("RD6018 bot stopped")
+    await _lifecycle.run()
 
 
 if __name__ == "__main__":
