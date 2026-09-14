@@ -29,9 +29,22 @@ class OperatorIntentBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reason, "routed_to_preserved_callback")
 
     async def test_execution_intent_is_rejected(self):
-        result = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.STOP_CHARGE))
+        result = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.START_CHARGE))
         self.assertEqual(result.status, CommandStatus.REJECTED)
         self.assertEqual(result.reason, "execution_intent_not_migrated")
+
+    async def test_stop_requires_and_uses_stop_route(self):
+        from application.stop_command import StopCommandHandler
+
+        result = await IntentDispatcher(stop_handler=StopCommandHandler().route).dispatch(
+            self.intent(OperatorIntentKind.STOP_CHARGE)
+        )
+        self.assertEqual(result.status, CommandStatus.ACCEPTED)
+        self.assertEqual(result.reason, "routed_to_managed_stop_handler")
+
+        rejected = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.STOP_CHARGE))
+        self.assertEqual(rejected.status, CommandStatus.REJECTED)
+        self.assertEqual(rejected.reason, "stop_route_not_wired")
 
     async def test_legacy_read_names_normalize(self):
         result = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.SHOW_JOURNAL))

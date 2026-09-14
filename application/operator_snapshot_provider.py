@@ -16,6 +16,7 @@ from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
 from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from .intents import IntentDispatcher, OperatorIntent
+from .stop_command import StopCommandHandler
 
 
 class OperatorSnapshotProvider:
@@ -29,7 +30,7 @@ class OperatorSnapshotProvider:
     def __init__(self, app: Any, *, journal: Any = None, intent_dispatcher: IntentDispatcher | None = None) -> None:
         self.app = app
         self.journal = journal
-        self.intent_dispatcher = intent_dispatcher or IntentDispatcher()
+        self.intent_dispatcher = intent_dispatcher or IntentDispatcher(stop_handler=StopCommandHandler().route)
 
     async def get_operator_snapshot(self) -> OperatorSnapshot:
         live = await self.app.hass.get_all_live()

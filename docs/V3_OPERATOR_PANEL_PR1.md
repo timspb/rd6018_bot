@@ -83,4 +83,7 @@ legacy route возвращается явный результат `routed_to_p
 
 `START_CHARGE`, `STOP_CHARGE`, `PAUSE`, `RESUME` и изменение профиля пока
 отклоняются как `execution_intent_not_migrated`; их callbacks и семантика
-остаются прежними.
+остаются прежними. Исключение — `STOP_CHARGE`: его `StopCommandHandler`
+маршрутизирует intent в существующий `operator_managed_stop` callback, но не
+вызывает stop transaction сам. Token binding, confirmation, ownership check и
+verified Output OFF полностью остаются в managed-stop runtime.

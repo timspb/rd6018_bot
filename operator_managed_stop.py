@@ -10,11 +10,26 @@ import operator_hmi as hmi
 import telegram_panel
 from operator_confirmation import ConfirmationStore
 from rd_hands_off_release import _active_session_token, _auto_active, _manual_active
+from application.intents import OperatorIntent, OperatorIntentKind
 
 
 STOP_CONFIRM_CALLBACK = "operator_managed_stop"
 STOP_EXECUTE_CALLBACK = "operator_managed_stop_execute"
 STOP_CANCEL_CALLBACK = "operator_managed_stop_cancel"
+
+
+async def _route_stop_intent(app: Any, call: Any) -> bool:
+    """Pass STOP through the application boundary before old confirmation logic."""
+    interface = getattr(app, "operator_interface", None)
+    submit = getattr(interface, "submit_intent", None)
+    if not callable(submit):
+        return True
+    user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+    result = await submit(OperatorIntent(OperatorIntentKind.STOP_CHARGE, "telegram", user))
+    if getattr(result, "status", None) == "rejected":
+        await call.answer("Остановка пока недоступна", show_alert=True)
+        return False
+    return True
 
 
 def _replace_legacy_power_toggle(
@@ -125,6 +140,8 @@ def install_operator_managed_stop(app: Any) -> None:
     @app.router.callback_query(F.data == STOP_CONFIRM_CALLBACK)
     async def _managed_stop_confirm(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
+            return
+        if not await _route_stop_intent(app, call):
             return
         token = _active_session_token(app)
         if token is None:

@@ -55,8 +55,14 @@ class IntentDispatcher:
         }
     )
 
-    def __init__(self, routes: Mapping[OperatorIntentKind, IntentRoute] | None = None) -> None:
+    def __init__(
+        self,
+        routes: Mapping[OperatorIntentKind, IntentRoute] | None = None,
+        stop_handler: IntentRoute | None = None,
+    ) -> None:
         self._routes = dict(routes or {})
+        if stop_handler is not None:
+            self._routes[OperatorIntentKind.STOP_CHARGE] = stop_handler
 
     async def dispatch(self, intent: OperatorIntent) -> CommandResult:
         if not isinstance(intent, OperatorIntent):
@@ -66,8 +72,10 @@ class IntentDispatcher:
             kind = OperatorIntentKind.SHOW_LOG
         elif kind is OperatorIntentKind.REFRESH:
             kind = OperatorIntentKind.REFRESH_PANEL
-        if kind not in self.READ_ONLY_KINDS:
+        if kind not in self.READ_ONLY_KINDS and kind is not OperatorIntentKind.STOP_CHARGE:
             return CommandResult(CommandStatus.REJECTED, "execution_intent_not_migrated")
+        if kind is OperatorIntentKind.STOP_CHARGE and kind not in self._routes:
+            return CommandResult(CommandStatus.REJECTED, "stop_route_not_wired")
         normalized = OperatorIntent(kind, intent.source, intent.user, intent.parameters)
         route = self._routes.get(kind)
         if route is None:
