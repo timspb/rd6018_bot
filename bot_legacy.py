@@ -2811,6 +2811,50 @@ async def get_ai_context() -> str:
         return f"Ошибка получения AI контекста: {ex}"
 
 
+async def get_ai_context_dict() -> Dict[str, Any]:
+    """Return the structured AI context expected by the legacy AI engine.
+
+    The dialog already builds its human-readable context separately.  This
+    compatibility shape is intentionally read-only and fails closed to
+    explicit UNKNOWN values when telemetry or a controller snapshot is absent.
+    """
+    unknown: Dict[str, Any] = {
+        "output_status": "UNKNOWN",
+        "current_stage": "UNKNOWN",
+        "battery_type": "UNKNOWN",
+        "mode": "UNKNOWN",
+        "capacity_ah": "UNKNOWN",
+        "capacity_known": False,
+        "remaining_time": "—",
+        "v_batt_now": None,
+        "i_now": None,
+        "temp_ext_now": None,
+        "temp_int_now": None,
+    }
+    try:
+        live = await hass.get_all_live()
+        snapshot = _safe_stage_snapshot(_safe_float(live.get("temp_ext"))) or {}
+        capacity = getattr(charge_controller, "ah_capacity", 0) or 0
+        capacity_known = float(capacity) > 0
+        return {
+            **unknown,
+            "output_status": "ON" if str(live.get("switch", "")).lower() == "on" else "OFF",
+            "current_stage": snapshot.get("stage", getattr(charge_controller, "current_stage", "UNKNOWN")),
+            "battery_type": snapshot.get("profile", getattr(charge_controller, "battery_type", "UNKNOWN")),
+            "mode": snapshot.get("phase", "UNKNOWN"),
+            "capacity_ah": int(capacity) if capacity_known else "UNKNOWN",
+            "capacity_known": capacity_known,
+            "remaining_time": (snapshot.get("timers") or {}).get("remaining_time", "—"),
+            "v_batt_now": _safe_float(live.get("battery_voltage")),
+            "i_now": _safe_float(live.get("current")),
+            "temp_ext_now": _safe_float(live.get("temp_ext")),
+            "temp_int_now": _safe_float(live.get("temp_int")),
+        }
+    except Exception as ex:
+        logger.warning("get_ai_context_dict: unavailable: %s", ex)
+        return unknown
+
+
 async def get_current_context_for_llm() -> str:
     """v2.6 Получить расширенный контекст для LLM: таймеры, параметры RD6018, события."""
     # Используем новую функцию для обратной совместимости
