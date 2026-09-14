@@ -113,8 +113,9 @@ HA и ESP-direct — альтернативные независимые пут�
 | `d4c8e96` | controlled `OFF -> ON -> OFF` bench flow, battery-aware parameters |
 | `caa6811` | wait for post-OFF zero-current confirmation |
 | `022e01f` | runbook/checklist timing and battery-selection rules |
+| `8682eae` | compact charge-panel header with right-aligned MAIN/MIX stage |
 
-Текущий HEAD: `022e01ff9eb2c9421b0e5c39b81c298eff396463`.
+Текущий HEAD: `8682eaebe38a00c74b656556dd7c084a4a51de90`.
 
 ## 8. Physical execution status
 
@@ -156,7 +157,9 @@ config/
 
 ## 10. Journal/UI
 
-UI — read-only consumer ViewModel. Он показывает stage/phase, параметры,
+UI — read-only consumer ViewModel. Первая строка активной панели имеет вид
+`RD6018 · ЗАРЯД · <регулятор>` слева и `MAIN`/`MIX`/`FLOAT` справа; АКБ
+показывается отдельной строкой. Он показывает stage/phase, параметры,
 таймеры, transition evidence, diagnostics, safety, output и хвост журнала.
 Журнал имеет однострочные пользовательские записи и отдельные event records;
 форматирование не находится в charge engine. V1 UI не удалять и не менять без
