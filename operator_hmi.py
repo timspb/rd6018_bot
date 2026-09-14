@@ -494,7 +494,9 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             psu_temp_c=temp_int,
             target_voltage_v=set_v,
             current_limit_a=set_i,
-            progress="Управляемая ручная сессия",
+            # This is an internal authority label, not an operator-facing
+            # transition. The panel shows the actual stage/evidence instead.
+            progress="",
             safety=safety,
             attention=attention,
             stage_status=_manual_extrema_status(manual, regulator),

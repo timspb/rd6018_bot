@@ -191,10 +191,13 @@ class OperatorSnapshotProvider:
             "CHARGING": HmiProcessState.RUNNING,
             "FAULT": HmiProcessState.CONTAINMENT,
         }.get(snapshot.state, HmiProcessState.CONTAINMENT)
-        authority = HmiAuthority.AUTO if snapshot.state == "CHARGING" else (
-            HmiAuthority.NONE if snapshot.state == "IDLE" else HmiAuthority.CONTAINMENT
-        )
         view = snapshot.snapshot
+        authority_value = str(view.charge.program or "").lower()
+        authority = HmiAuthority.MANUAL if authority_value == HmiAuthority.MANUAL.value else (
+            HmiAuthority.AUTO if snapshot.state == "CHARGING" else (
+                HmiAuthority.NONE if snapshot.state == "IDLE" else HmiAuthority.CONTAINMENT
+            )
+        )
         return OperatorHmiState(
             process_state=process,
             authority=authority,
@@ -206,10 +209,10 @@ class OperatorSnapshotProvider:
             current_a=view.telemetry.current,
             power_w=view.output.get("power_w"),
             battery_temp_c=view.telemetry.temperature,
-            psu_temp_c=None,
+            psu_temp_c=view.telemetry.psu_temperature,
             target_voltage_v=view.charge.targets.get("voltage"),
             current_limit_a=view.charge.targets.get("current"),
-            progress=view.charge.waiting_for or "",
+            progress="" if authority_value == HmiAuthority.MANUAL.value else (view.charge.waiting_for or ""),
             safety=view.safety.reason or ("Защита: норма" if view.safety.allowed else "⚠️ Safety blocked"),
             attention="normal" if view.safety.allowed else "alarm",
             stage_status=str(view.charge.evidence.get("stage_status", "") or ""),
@@ -232,12 +235,18 @@ class OperatorSnapshotProvider:
             reason="; ".join(faults) if faults else ("telemetry_stale" if not fresh else ""),
             violations=faults,
         )
+        authority = getattr(hmi, "authority", "")
+        authority = getattr(authority, "value", authority)
         charge = ChargeView(
             stage=stage,
-            program=str(getattr(hmi, "authority", "") or ""),
+            program=str(authority or ""),
             phase=str(getattr(hmi, "regulator", "") or "") or None,
             timer_text=str(getattr(hmi, "stage_time", "") or getattr(hmi, "total_time", "") or ""),
-            waiting_for=str(getattr(hmi, "progress", "") or "") or None,
+            waiting_for=(
+                str(getattr(hmi, "progress", "") or "") or None
+                if authority != "manual"
+                else None
+            ),
             targets={"voltage": getattr(hmi, "target_voltage_v", None), "current": getattr(hmi, "current_limit_a", None)},
             evidence={"finish": getattr(hmi, "finish_evidence", None), "stage_status": getattr(hmi, "stage_status", "")},
         )
@@ -245,6 +254,7 @@ class OperatorSnapshotProvider:
             voltage=getattr(hmi, "battery_voltage_v", None),
             current=getattr(hmi, "current_a", None),
             temperature=getattr(hmi, "battery_temp_c", None),
+            psu_temperature=getattr(hmi, "psu_temp_c", None),
             accumulated_ah=getattr(hmi, "delivered_ah", None),
         )
         runtime_snapshot = RuntimeUISnapshot(

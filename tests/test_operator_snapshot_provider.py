@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from application.operator_snapshot_provider import OperatorSnapshotProvider
+from application.operator_snapshot import snapshot_from_mapping
 from application.operator_snapshot_shadow import compare_hmi_to_snapshot
 
 
@@ -45,6 +46,17 @@ def live(**overrides):
 
 
 class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
+    def test_snapshot_renderer_preserves_manual_authority_and_psu_temperature(self):
+        snapshot = snapshot_from_mapping({
+            "state": "CHARGING",
+            "charge": {"stage": "Main Charge", "program": "manual", "phase": "CV", "waiting_for": "internal"},
+            "telemetry": {"voltage": 13.55, "current": 1.46, "temperature": 23.0, "psu_temperature": 33.0},
+            "output": {"enabled": True},
+        })
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+        self.assertEqual(state.authority.value, "manual")
+        self.assertEqual(state.psu_temp_c, 33.0)
+        self.assertEqual(state.progress, "")
     async def test_idle_snapshot_is_read_only_and_maps_actions(self):
         provider = OperatorSnapshotProvider(_App(live()))
         snapshot = await provider.get_operator_snapshot()

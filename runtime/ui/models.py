@@ -40,6 +40,7 @@ class TelemetryView:
     voltage: float | None = None
     current: float | None = None
     temperature: float | None = None
+    psu_temperature: float | None = None
     accumulated_ah: float | None = None
 
 

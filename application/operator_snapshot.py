@@ -45,6 +45,7 @@ def snapshot_from_mapping(data: Mapping[str, Any]) -> OperatorSnapshot:
             voltage=telemetry_data.get("voltage"),
             current=telemetry_data.get("current"),
             temperature=telemetry_data.get("temperature"),
+            psu_temperature=telemetry_data.get("psu_temperature"),
             accumulated_ah=telemetry_data.get("accumulated_ah"),
         ),
         diagnostics=DiagnosticsView(
