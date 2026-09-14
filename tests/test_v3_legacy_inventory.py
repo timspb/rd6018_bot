@@ -9,9 +9,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class V3LegacyInventoryTests(unittest.TestCase):
     def test_production_has_single_polling_owner_and_single_telegram_construction(self):
         legacy = (ROOT / "bot_legacy.py").read_text(encoding="utf-8")
+        adapter = (ROOT / "telegram" / "runtime.py").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\bdp\.start_polling\s*\(", legacy)), 1)
-        self.assertEqual(len(re.findall(r"\bBot\s*\(", legacy)), 1)
-        self.assertEqual(len(re.findall(r"\bDispatcher\s*\(", legacy)), 1)
+        self.assertEqual(len(re.findall(r"\bBot\s*\(", adapter)), 1)
+        self.assertEqual(len(re.findall(r"\bDispatcher\s*\(", adapter)), 1)
 
     def test_bot_entrypoint_does_not_execute_legacy_module_as_a_second_process(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
