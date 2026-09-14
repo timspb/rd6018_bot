@@ -60,6 +60,7 @@ from graphing import generate_chart
 from hass_api import HassClient
 from time_utils import format_time_user_tz
 import html
+from application.intents import OperatorIntent, OperatorIntentKind
 
 logging.basicConfig(
     level=logging.INFO,
@@ -3954,6 +3955,16 @@ async def profile_selection(call: CallbackQuery) -> None:
     last_user_id = call.from_user.id if call.from_user else 0
     mapping = {"profile_caca": "Ca/Ca", "profile_efb": "EFB", "profile_agm": "AGM"}
     profile = mapping.get(call.data, "Ca/Ca")
+    interface = globals().get("operator_interface")
+    submit = getattr(interface, "submit_intent", None)
+    if callable(submit):
+        user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+        result = await submit(
+            OperatorIntent(OperatorIntentKind.SELECT_CHARGE_PROFILE, "telegram", user, {"profile": profile})
+        )
+        if getattr(result, "status", None) == "rejected":
+            await call.answer("Профиль недоступен", show_alert=True)
+            return
     user_id = call.from_user.id if call.from_user else 0
     awaiting_ah[user_id] = profile
     await call.message.answer(

@@ -25,6 +25,7 @@ from v2_ui import (
     intent_label,
     profile_for_chemistry,
 )
+from application.intents import OperatorIntent, OperatorIntentKind
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,21 @@ def _profile_from_callback(data: str) -> Optional[str]:
 async def _safe_answer(event: Any, text: str, *, reply_markup=None) -> None:
     message = event.message if hasattr(event, "message") and event.message is not None else event
     await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+
+
+async def _route_profile_intent(app: Any, call: Any, profile: str) -> bool:
+    interface = getattr(app, "operator_interface", None)
+    submit = getattr(interface, "submit_intent", None)
+    if not callable(submit):
+        return True
+    user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+    result = await submit(
+        OperatorIntent(OperatorIntentKind.SELECT_CHARGE_PROFILE, "telegram", user, {"profile": profile})
+    )
+    if getattr(result, "status", None) == "rejected":
+        await call.answer("Профиль недоступен", show_alert=True)
+        return False
+    return True
 
 
 async def _start_profile(app: Any, event: Any, pending: PendingStart) -> bool:
@@ -446,6 +462,8 @@ def install_v2_ui(app: Any) -> None:
         await call.answer()
         profile = _profile_from_callback(call.data or "")
         if not profile:
+            return
+        if not await _route_profile_intent(app, call, profile):
             return
         user_id = call.from_user.id if call.from_user else 0
         _pending_profile[user_id] = profile

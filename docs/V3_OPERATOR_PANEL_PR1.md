@@ -94,3 +94,12 @@ verified Output OFF полностью остаются в managed-stop runtime.
 intent и возвращает routing result. Сохранённый `_operator_pause_toggle`
 остаётся execution owner: он продолжает выполнять cooldown, ownership,
 verified Output OFF, persistence, safety checks и safe resume без изменений.
+
+## Charge profile selection migration
+
+`SELECT_CHARGE_PROFILE` теперь проходит через `ProfileCommandHandler` из двух
+существующих Telegram entry points: `v2_profile_*` и `profile_*`. Adapter
+проверяет только поддерживаемое legacy-значение (`AGM`, `EFB`, `Ca/Ca`,
+`Custom`) и не меняет controller state, recipe или targets. После принятого
+routing результата прежняя profile-selection логика продолжает работать.
+`START_CHARGE` намеренно не мигрирован.

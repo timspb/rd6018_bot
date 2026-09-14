@@ -60,6 +60,33 @@ class OperatorIntentBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(paused.reason, "routed_to_preserved_pause_handler")
         self.assertEqual(resumed.reason, "routed_to_preserved_pause_handler")
 
+    async def test_profile_selection_requires_and_uses_profile_route(self):
+        from application.profile_command import ProfileCommandHandler
+
+        dispatcher = IntentDispatcher(
+            routes={OperatorIntentKind.SELECT_CHARGE_PROFILE: ProfileCommandHandler().route}
+        )
+        selected = await dispatcher.dispatch(
+            OperatorIntent(
+                OperatorIntentKind.SELECT_CHARGE_PROFILE,
+                "telegram",
+                "42",
+                {"profile": "AGM"},
+            )
+        )
+        invalid = await dispatcher.dispatch(
+            OperatorIntent(
+                OperatorIntentKind.SELECT_CHARGE_PROFILE,
+                "telegram",
+                "42",
+                {"profile": "LiFePO4"},
+            )
+        )
+        self.assertEqual(selected.status, CommandStatus.ACCEPTED)
+        self.assertEqual(selected.reason, "routed_to_preserved_profile_handler")
+        self.assertEqual(invalid.status, CommandStatus.REJECTED)
+        self.assertEqual(invalid.reason, "unsupported_charge_profile")
+
     async def test_legacy_read_names_normalize(self):
         result = await IntentDispatcher().dispatch(self.intent(OperatorIntentKind.SHOW_JOURNAL))
         self.assertEqual(result.status, CommandStatus.ACCEPTED)

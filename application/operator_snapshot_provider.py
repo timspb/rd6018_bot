@@ -18,6 +18,7 @@ from .operator_actions import OperatorAction, OperatorActionSpec, OperatorAction
 from .intents import IntentDispatcher, OperatorIntent, OperatorIntentKind
 from .stop_command import StopCommandHandler
 from .pause_command import PauseCommandHandler
+from .profile_command import ProfileCommandHandler
 
 
 class OperatorSnapshotProvider:
@@ -33,11 +34,13 @@ class OperatorSnapshotProvider:
         self.journal = journal
         if intent_dispatcher is None:
             pause_handler = PauseCommandHandler().route
+            profile_handler = ProfileCommandHandler().route
             intent_dispatcher = IntentDispatcher(
                 stop_handler=StopCommandHandler().route,
                 routes={
                     OperatorIntentKind.PAUSE_CHARGE: pause_handler,
                     OperatorIntentKind.RESUME_CHARGE: pause_handler,
+                    OperatorIntentKind.SELECT_CHARGE_PROFILE: profile_handler,
                 },
             )
         self.intent_dispatcher = intent_dispatcher
