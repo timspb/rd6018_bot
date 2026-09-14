@@ -60,6 +60,42 @@ class OperatorSnapshotProvider:
         """Expose the source state for shadow comparison; still read-only."""
         return build_operator_hmi_state(self.app, live)
 
+    @staticmethod
+    def hmi_state_from_snapshot(snapshot: OperatorSnapshot):
+        """Adapt sanitized V3 data to the preserved renderer's data model."""
+        from operator_hmi import HmiAuthority, HmiProcessState, OperatorHmiState
+
+        process = {
+            "IDLE": HmiProcessState.IDLE,
+            "CHARGING": HmiProcessState.RUNNING,
+            "FAULT": HmiProcessState.CONTAINMENT,
+        }.get(snapshot.state, HmiProcessState.CONTAINMENT)
+        authority = HmiAuthority.AUTO if snapshot.state == "CHARGING" else (
+            HmiAuthority.NONE if snapshot.state == "IDLE" else HmiAuthority.CONTAINMENT
+        )
+        view = snapshot.snapshot
+        return OperatorHmiState(
+            process_state=process,
+            authority=authority,
+            title=f"RD6018 · {view.charge.stage}",
+            output_on=bool(view.output.get("enabled")),
+            regulator=view.charge.phase or "—",
+            battery_label=str(view.battery.get("label", "") or ""),
+            battery_voltage_v=view.telemetry.voltage,
+            current_a=view.telemetry.current,
+            power_w=view.output.get("power_w"),
+            battery_temp_c=view.telemetry.temperature,
+            psu_temp_c=None,
+            target_voltage_v=view.charge.targets.get("voltage"),
+            current_limit_a=view.charge.targets.get("current"),
+            progress=view.charge.waiting_for or "",
+            safety=view.safety.reason or ("Защита: норма" if view.safety.allowed else "⚠️ Safety blocked"),
+            attention="normal" if view.safety.allowed else "alarm",
+            stage_status=str(view.charge.evidence.get("stage_status", "") or ""),
+            stage_time=view.charge.timer_text,
+            delivered_ah=view.telemetry.accumulated_ah,
+        )
+
     def _build_snapshot(self, live: Mapping[str, Any], hmi: Any) -> OperatorSnapshot:
         fresh = telemetry_freshness(
             live, ("switch", "battery_voltage", "current", "protection_code", "regulation_code")

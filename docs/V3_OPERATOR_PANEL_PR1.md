@@ -38,3 +38,7 @@ diagnostics и journal в V3 snapshot. `compare_hmi_to_snapshot()` фиксир�
 расхождения без изменения runtime. Следующий шаг — подключить provider в
 composition root и сравнить новый renderer с V1/V2 panel до переноса любой
 callback-группы.
+
+Provider подключён в `bot.py` как read-only `operator_interface`. Основной
+dashboard refresh и graph dashboard получают состояние через
+`get_operator_snapshot()`; callbacks и их execution path не изменены.

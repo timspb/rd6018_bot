@@ -11,6 +11,7 @@ import os
 import sys
 
 import bot_legacy as _legacy
+from application.operator_snapshot_provider import OperatorSnapshotProvider
 from auto_manual_off_v2 import install_auto_manual_off_contract
 from diagnostic_persistence import (
     install_diagnostic_persistence,
@@ -224,6 +225,11 @@ _rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_m
 # tasks while D065 startup authority is unresolved. Install after the startup gate so
 # its dynamic predicate sees the final authority boundary; recovery_scope stays exempt.
 install_hands_off_background_isolation(_legacy, _rd_control_mode)
+
+# Read-only V3 application boundary for the operator panel. Existing callbacks
+# remain installed and retain their authority; only panel state acquisition uses
+# this provider in the current migration step.
+_legacy.operator_interface = OperatorSnapshotProvider(_legacy)
 
 _legacy_main = _legacy.main
 

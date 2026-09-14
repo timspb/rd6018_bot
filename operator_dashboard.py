@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
+from application.operator_snapshot_provider import OperatorSnapshotProvider
 from rd6018_telemetry import (
     ProtectionStatus,
     RegulationMode,
@@ -362,12 +363,15 @@ def install_operator_graph_dashboard(app: Any) -> None:
     async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> None:
         """Refresh only the live panel; do not rebuild the chart on button press."""
         try:
-            live = await app.hass.get_all_live()
+            interface = getattr(app, "operator_interface", None)
+            if interface is None:
+                raise RuntimeError("operator interface is not installed")
+            snapshot = await interface.get_operator_snapshot()
         except Exception as exc:
-            app.logger.error("Failed to refresh HA data for operator panel: %s", exc)
+            app.logger.error("Failed to refresh V3 operator snapshot: %s", exc)
             return
 
-        state = truthful_builder(app, live)
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         caption = truthful_panel(state)
         markup = _main_graph_markup(app, state, user_id)
         try:
@@ -403,12 +407,36 @@ def install_operator_graph_dashboard(app: Any) -> None:
         anchor_msg_id: Optional[int] = None,
     ) -> int:
         try:
-            live = await app.hass.get_all_live()
+            interface = getattr(app, "operator_interface", None)
+            if interface is None:
+                raise RuntimeError("operator interface is not installed")
+            snapshot = await interface.get_operator_snapshot()
         except Exception as exc:
-            app.logger.error("Failed to get HA data for operator dashboard: %s", exc)
-            live = {}
+            app.logger.error("Failed to get V3 operator snapshot for dashboard: %s", exc)
+            snapshot = None
 
-        state = truthful_builder(app, live)
+        state = (
+            OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+            if snapshot is not None
+            else hmi.OperatorHmiState(
+                hmi.HmiProcessState.CONTAINMENT,
+                hmi.HmiAuthority.CONTAINMENT,
+                "RD6018 · Состояние неизвестно",
+                False,
+                "—",
+                "",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Телеметрия недоступна",
+                "⚠️ Состояние не подтверждено",
+                attention="output_unknown",
+            )
+        )
         caption = truthful_panel(state)
         markup = _main_graph_markup(app, state, user_id)
 
