@@ -123,8 +123,10 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 - `telegram/runtime.py` owns construction of the Bot/Dispatcher/Router bundle;
 - `telegram/runtime.py` owns command registration, polling invocation, and Telegram
   session close;
+- `runtime/background.py` owns task creation while legacy callbacks remain the
+  domain owners;
 - `bot_legacy.py` still owns handler definitions, startup recovery, background task
-  creation, and V2 domain state;
+  callback bodies, and V2 domain state;
 - no second polling owner was introduced;
 - no ACTIVE or physical execution was invoked.
 

@@ -25,6 +25,7 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
+from runtime.background import start_background_tasks
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -4155,7 +4156,7 @@ async def on_shutdown(dispatcher: Dispatcher) -> None:
 async def main() -> None:
     await init_db()
     rotate_if_needed()
-    asyncio.create_task(_periodic_db_cleanup())
+    start_background_tasks(_periodic_db_cleanup)
     # Очистка журнала событий от записей старше 30 дней
     try:
         n = trim_log_older_than_days(30)
@@ -4229,10 +4230,7 @@ async def main() -> None:
 
     dp.include_router(router)
     await configure_commands(_telegram_runtime)
-    asyncio.create_task(data_logger())
-    asyncio.create_task(charge_monitor())
-    asyncio.create_task(soft_watchdog_loop())
-    asyncio.create_task(watchdog_loop())
+    start_background_tasks(data_logger, charge_monitor, soft_watchdog_loop, watchdog_loop)
     logger.info("RD6018 bot starting")
     logger.info("Если появится TelegramConflictError — запущен ещё один экземпляр бота. Остановите все кроме одного: pgrep -af 'bot.py' && kill <PID>")
     try:
