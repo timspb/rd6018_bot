@@ -14,6 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
+from application.operator_actions import OperatorAction, OperatorActionsView
 
 
 class HmiProcessState(str, Enum):
@@ -631,12 +632,48 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     return "\n".join(lines)
 
 
-def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboardMarkup:
+def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup:
+    """Render logical capabilities without reading runtime objects."""
+    labels = {
+        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", "charge_modes"),
+        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", "v2_batteries"),
+        OperatorAction.STOP_CHARGE: ("🛑 Стоп", "power_toggle"),
+        OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),
+        OperatorAction.RESUME_CHARGE: ("▶️ Продолжить", "operator_pause_toggle"),
+        OperatorAction.SHOW_LOG: ("📋 События", "logs"),
+        OperatorAction.SHOW_GRAPH: ("📈 График", "operator_graph"),
+        OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", "operator_details"),
+        OperatorAction.ACK: ("✅ Подтвердить", "operator_details"),
+        OperatorAction.ADOPT_MIX: ("🧲 Подхватить Mix", "rd_live_mix"),
+        OperatorAction.STOP_MIX: ("⏹ Остановить Mix", "operator_adopted_stop"),
+        OperatorAction.DISABLE_OUTPUT: ("⏹ Output OFF", "rd_hands_off_output_off"),
+        OperatorAction.REAUTHORIZE_MANUAL: ("▶ Авторизовать", "v2_manual_reauthorize"),
+        OperatorAction.DISCARD_MANUAL: ("🗑 Отказаться", "v2_manual_discard"),
+        OperatorAction.RETURN_PB_CONTROL: ("🔒 Вернуть Pb-контроль", "rd_hands_off_disable"),
+    }
+    rows: list[list[InlineKeyboardButton]] = []
+    for item in actions.available_actions:
+        label = labels.get(item.action)
+        if label is not None:
+            rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
+    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_operator_keyboard(
+    app: Any,
+    state: OperatorHmiState,
+    *,
+    actions: OperatorActionsView | None = None,
+) -> InlineKeyboardMarkup:
     """Authoritative L2 operator keyboard.
 
     Other builders remain compatibility surfaces for legacy handlers, but the
     installed production panel always routes through this builder.
     """
+    if actions is not None:
+        return _keyboard_from_actions(actions)
+
     def with_refresh(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -973,10 +1010,11 @@ def install_operator_hmi(app: Any) -> None:
         if interface is None:
             raise RuntimeError("operator interface is not installed")
         snapshot = await interface.get_operator_snapshot()
+        actions = await interface.get_operator_actions()
         from application.operator_snapshot_provider import OperatorSnapshotProvider
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         text = render_operator_panel(state)
-        markup = build_operator_keyboard(app, state)
+        markup = build_operator_keyboard(app, state, actions=actions)
         target = old_msg_id or anchor_msg_id
         if target:
             try:

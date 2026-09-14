@@ -20,9 +20,16 @@ _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
 
 
-def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int):
+def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
     """Place chart ranges immediately below the graph on the main panel."""
-    panel = hmi.build_operator_keyboard(app, state)
+    # Older composition wrappers preserve the two-argument builder signature.
+    # The V3 path passes capabilities explicitly; compatibility callers retain
+    # the unchanged legacy fallback.
+    panel = (
+        hmi.build_operator_keyboard(app, state, actions=actions)
+        if actions is not None
+        else hmi.build_operator_keyboard(app, state)
+    )
     graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
     return app.InlineKeyboardMarkup(
         inline_keyboard=(graph_rows[:1] if graph_rows else []) + list(panel.inline_keyboard)
@@ -367,13 +374,14 @@ def install_operator_graph_dashboard(app: Any) -> None:
             if interface is None:
                 raise RuntimeError("operator interface is not installed")
             snapshot = await interface.get_operator_snapshot()
+            actions = await interface.get_operator_actions()
         except Exception as exc:
             app.logger.error("Failed to refresh V3 operator snapshot: %s", exc)
             return
 
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id)
+        markup = _main_graph_markup(app, state, user_id, actions)
         try:
             await app.bot.edit_message_caption(
                 chat_id=chat_id,
@@ -406,11 +414,13 @@ def install_operator_graph_dashboard(app: Any) -> None:
         old_msg_id: Optional[int] = None,
         anchor_msg_id: Optional[int] = None,
     ) -> int:
+        actions = None
         try:
             interface = getattr(app, "operator_interface", None)
             if interface is None:
                 raise RuntimeError("operator interface is not installed")
             snapshot = await interface.get_operator_snapshot()
+            actions = await interface.get_operator_actions()
         except Exception as exc:
             app.logger.error("Failed to get V3 operator snapshot for dashboard: %s", exc)
             snapshot = None
@@ -438,7 +448,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             )
         )
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id)
+        markup = _main_graph_markup(app, state, user_id, actions)
 
         photo = None
         try:

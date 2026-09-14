@@ -14,6 +14,7 @@ from runtime.ui.models import ChargeView, DiagnosticsView, RuntimeUISnapshot, Sa
 
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
+from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 
 
 class OperatorSnapshotProvider:
@@ -100,6 +101,32 @@ class OperatorSnapshotProvider:
             regulation=str(live.get("regulation_code") or "—"),
             heartbeat=str(live.get("last_reported") or live.get("last_updated") or "—"),
         )
+
+    async def get_operator_actions(self) -> OperatorActionsView:
+        live = await self.app.hass.get_all_live()
+        hmi = build_operator_hmi_state(self.app, live)
+        if hmi.process_state is HmiProcessState.ADOPTED_MIX:
+            available = (OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
+            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "adopted_mix")
+        if hmi.process_state is HmiProcessState.INTERRUPTED:
+            available = (OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
+            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "interrupted")
+        if hmi.process_state is HmiProcessState.HANDS_OFF:
+            available = (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT) if hmi.output_on else (OperatorAction.SELECT_PROFILE, OperatorAction.SHOW_DIAGNOSTICS)
+            return self._actions(available, (), "hands_off")
+        if hmi.process_state is HmiProcessState.STORAGE:
+            return self._actions((OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS), (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "storage")
+        if hmi.process_state in {HmiProcessState.RUNNING, HmiProcessState.PAUSED} and hmi.authority.value in {"auto", "manual"}:
+            paused = bool(getattr(self.app, "_operator_pause_active", lambda: False)())
+            available = (OperatorAction.RESUME_CHARGE if paused else OperatorAction.PAUSE_CHARGE, OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH, OperatorAction.SHOW_DIAGNOSTICS)
+            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "charging")
+        snapshot = self._build_snapshot(live, hmi)
+        return OperatorActionsView.for_state(snapshot.state, safety_allowed=snapshot.snapshot.safety.allowed, pause_allowed=False)
+
+    @staticmethod
+    def _actions(available, disabled, reason: str) -> OperatorActionsView:
+        reasons = {action.value: reason for action in disabled}
+        return OperatorActionsView(tuple(OperatorActionSpec(action) for action in available), tuple(disabled), reasons)
 
     def _observer_state(self) -> str:
         observer = getattr(self.app, "rd_live_mix_observer", None)
@@ -215,7 +242,7 @@ class OperatorSnapshotProvider:
         return OperatorSnapshot(
             state=state,
             snapshot=runtime_snapshot,
-            available_actions=self._actions(state, fresh, bool(getattr(hmi, "output_on", False))),
+            available_actions=self._snapshot_actions(state, fresh, bool(getattr(hmi, "output_on", False))),
             faults=faults,
             telemetry_fresh=fresh,
         )
@@ -254,7 +281,7 @@ class OperatorSnapshotProvider:
         )
 
     @staticmethod
-    def _actions(state: str, fresh: bool, output_on: bool) -> tuple[str, ...]:
+    def _snapshot_actions(state: str, fresh: bool, output_on: bool) -> tuple[str, ...]:
         if state == "CHARGING":
             return ("stop_charge", "show_journal", "show_graph", "refresh")
         if state == "IDLE" and fresh and not output_on:

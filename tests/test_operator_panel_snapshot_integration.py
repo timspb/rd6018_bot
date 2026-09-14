@@ -18,6 +18,10 @@ class _Interface:
             "charge": {"stage": "IDLE"},
         })
 
+    async def get_operator_actions(self):
+        from application.operator_actions import OperatorActionsView
+        return OperatorActionsView.for_state("IDLE", safety_allowed=True)
+
 
 class _Bot:
     def __init__(self):
@@ -45,7 +49,7 @@ class OperatorPanelIntegrationTests(unittest.IsolatedAsyncioTestCase):
         # the read-path contract and supplies the minimal keyboard dependencies.
         import operator_dashboard
         original = operator_dashboard._main_graph_markup
-        operator_dashboard._main_graph_markup = lambda app, state, user_id: None
+        operator_dashboard._main_graph_markup = lambda app, state, user_id, actions=None: None
         try:
             install_operator_graph_dashboard(app)
             await app._refresh_operator_panel(1, 2, 99)

@@ -48,3 +48,27 @@ Details boundary также закрыт: `operator_details`, `operator_service_
 `get_operator_snapshot()`. Их renderer получает только DTO/snapshot. Legacy
 execution callbacks и ownership-conflict guard остаются отдельными переходными
 read/runtime связями до следующей миграции.
+
+## Capability boundary
+
+`OperatorSnapshotProvider.get_operator_actions()` формирует read-only
+`OperatorActionsView`. В нём находятся только логические возможности оператора:
+START/STOP/PAUSE/RESUME, выбор профиля, журнал, график, диагностика и
+специальные ownership-действия. Callback IDs и Telegram handlers остаются в
+presentation adapter и не входят в application contract.
+
+Основной dashboard получает `OperatorSnapshot` и `OperatorActionsView` через
+`OperatorInterface`; `build_operator_keyboard(..., actions=...)` только
+рендерит этот capability matrix. Старый двухаргументный builder сохранён как
+совместимый fallback для ещё не мигрированных внутренних вызовов и не изменяет
+execution callbacks.
+
+Оставшиеся переходные UI/runtime связи:
+
+- fallback `build_operator_keyboard(app, state)` и `_build_dashboard_keyboard`
+  для legacy ownership/recovery paths;
+- `_ownership_conflict()` в `operator_dashboard.py`, который только отображает
+  конфликт владельцев;
+- graph range/presentation helpers, читающие параметры графика;
+- execution callbacks (`v2_bot_ui`, `v2_mix_mode`, `bot_legacy`, managed stop и
+  pause handlers). Они намеренно не затронуты этим PR.
