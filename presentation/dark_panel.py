@@ -61,11 +61,12 @@ def _draw_line(draw: ImageDraw.ImageDraw, line: str, xy: tuple[int, int], font) 
     """Draw text with a colored leading icon and white informational text."""
     x, y = xy
     token, separator, rest = line.partition(" ")
-    color = _ICON_COLORS.get(token)
+    normalized = token.replace("\ufe0f", "")
+    color = _ICON_COLORS.get(token) or _ICON_COLORS.get(normalized)
     if color is None:
         draw.text((x, y), line, fill=(242, 242, 242), font=font)
         return
-    glyph = _ICON_FALLBACKS.get(token, token)
+    glyph = _ICON_FALLBACKS.get(token, _ICON_FALLBACKS.get(normalized, normalized))
     draw.text((x, y), glyph, fill=color, font=font)
     token_width = draw.textbbox((0, 0), glyph, font=font)[2]
     draw.text((x + token_width + (6 if separator else 0), y), rest, fill=(242, 242, 242), font=font)
