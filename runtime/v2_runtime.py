@@ -14,7 +14,7 @@ import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Union, Any
 
-from aiogram import F
+from aiogram import Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.types import (
     BufferedInputFile,
