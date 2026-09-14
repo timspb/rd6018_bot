@@ -4199,6 +4199,9 @@ async def main() -> None:
     _load_operator_pause_state()
 
     # Auto-Resume: восстановить сессию, если charge_session.json < 60 мин и нет OVP/OCP, вход ≥ 60 В
+    # Production bot.py also probes this through V2StartupRecovery; the startup
+    # authority wrapper keeps this historical compatibility probe non-mutating until
+    # MANAGED is proven.
     global last_checkpoint_time
     try:
         live = await hass.get_all_live()
