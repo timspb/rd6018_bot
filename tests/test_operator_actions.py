@@ -11,10 +11,9 @@ def _actions(view: OperatorActionsView) -> set[OperatorAction]:
 
 
 class OperatorActionMatrixTests(unittest.TestCase):
-    def test_idle_offers_start_and_read_only_information(self):
+    def test_idle_offers_start_without_inactive_read_only_buttons(self):
         view = OperatorActionsView.for_state("IDLE", safety_allowed=True)
-        self.assertTrue({OperatorAction.START_CHARGE,
-                         OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS} <= _actions(view))
+        self.assertEqual(_actions(view), {OperatorAction.START_CHARGE})
         self.assertNotIn(OperatorAction.SELECT_PROFILE, _actions(view))
         self.assertNotIn(OperatorAction.STOP_CHARGE, _actions(view))
         self.assertNotIn(OperatorAction.PAUSE_CHARGE, _actions(view))

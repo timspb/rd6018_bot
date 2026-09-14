@@ -560,8 +560,14 @@ class OperatorHmiTests(unittest.TestCase):
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
         self.assertEqual(len(rows[1]), 1)  # refresh before read-only menus
-        self.assertEqual(len(rows[2]), 2)  # details, events
-        self.assertIn("logs", {button.callback_data for button in rows[2]})
+        self.assertEqual(len(rows[2]), 1)  # events/details are separate read-only rows
+        read_only_callbacks = {
+            button.callback_data
+            for row in rows[2:]
+            for button in row
+        }
+        self.assertIn("logs", read_only_callbacks)
+        self.assertIn("operator_details", read_only_callbacks)
         self.assertNotIn("operator_graph", {button.callback_data for row in rows for button in row})
         self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})

@@ -710,13 +710,15 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
         label = labels.get(item.action)
         if label is not None:
             rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
+    # Keep the refresh control ahead of the read-only workspaces on every panel.
+    # It updates the live panel in place; logs/details are separate views.
+    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
     for item in actions.available_actions:
         if item.action not in secondary:
             continue
         label = labels.get(item.action)
         if label is not None:
             rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
-    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
