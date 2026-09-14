@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 import v2_sg_ui
+from manual_mode import ManualChargeRequest
 from manual_text_v2 import _another_dialog_owns_text, _format_start, manual_help_text, parse_manual_command
 
 
@@ -75,6 +76,23 @@ class ManualTextV2Tests(unittest.TestCase):
         )
         self.assertEqual(profile.main.hold_hours, 0.5)
         self.assertEqual(profile.mix.hold_hours, 2.0)
+
+    def test_staged_start_message_shows_both_accepted_modes(self):
+        from manual_text_v2 import parse_manual_profile_input
+
+        profile = parse_manual_profile_input(
+            "MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
+            "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=2"
+        )
+        parsed = parse_manual_command("MANUAL")
+        assert parsed is not None
+        parsed = type(parsed)(request=ManualChargeRequest.from_profile(profile, battery_id="Baic72"))
+        text = _format_start(parsed, replaced=False)
+        self.assertIn("Принятые параметры", text)
+        self.assertIn("MAIN:", text)
+        self.assertIn("MIX:", text)
+        self.assertIn("hold=2 ч", text)
+        self.assertNotIn("Автоматическая химическая FSM", text)
 
     def test_numeric_manual_prefix_with_unknown_condition_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "неизвестное условие"):

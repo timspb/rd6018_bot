@@ -264,6 +264,20 @@ def _legacy_numeric_manual(text: str) -> bool:
 
 def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
     request = parsed.request
+    if request.profile is not None:
+        profile = request.profile
+        verb = "перенастроен" if replaced else "запущен"
+        battery = f"\nАКБ: <code>{html.escape(request.battery_id)}</code>" if request.battery_id else ""
+        return (
+            f"<b>🛠 Ручной MAIN → MIX {verb}</b>\n"
+            "Принятые параметры:\n"
+            f"MAIN: U={profile.main.voltage_v:.2f} V · I={profile.main.current_a:.2f} A · "
+            f"Imin={profile.main.minimum_current_a:.2f} A · hold={profile.main.hold_hours:g} ч\n"
+            f"MIX: U={profile.mix.voltage_v:.2f} V · I={profile.mix.current_a:.2f} A · "
+            f"ΔV={profile.mix.delta_voltage_v:.3f} V · ΔI={profile.mix.delta_current_a:.3f} A · "
+            f"hold={profile.mix.hold_hours:g} ч"
+            f"{battery}"
+        )
     stop = request.stop
     conditions: list[str] = []
     if stop.max_active_seconds is not None:
