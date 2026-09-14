@@ -48,6 +48,8 @@ Operator feedback is a separate `OperatorFeedbackPort`. The
 `LegacyOperatorFeedbackBridge` carries only status text, trace correlation and
 metadata to a future Telegram/UI adapter; no Telegram object is placed in
 `V2StartEventContext`, and the bridge has no runtime or physical authority.
+`TelegramOperatorFeedbackAdapter` is the transport implementation for sending
+or editing that feedback; it does not create intents or invoke execution.
 
 `v2_startup.start_profile_transactional()` remains the preserved V2 execution
 owner for the future explicitly gated ACTIVE handoff. The Telegram route no

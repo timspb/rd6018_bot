@@ -14,6 +14,7 @@ from application.operator_feedback import (
     LegacyFeedbackStatus,
     build_legacy_feedback_bridge,
 )
+from application.telegram_operator_feedback import TelegramOperatorFeedbackAdapter
 from application.start_execution_contract import request_from_trace
 from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
@@ -232,6 +233,38 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(published[0]["status"], "DENIED")
         self.assertFalse(hasattr(context, "telegram"))
         self.assertFalse(hasattr(context, "controller"))
+
+    def test_telegram_feedback_adapter_sends_and_updates_without_execution_access(self):
+        class FakeMessage:
+            def __init__(self):
+                self.sent = []
+                self.edited = []
+
+            async def answer(self, text):
+                self.sent.append(text)
+
+            async def edit_text(self, text):
+                self.edited.append(text)
+
+        message = FakeMessage()
+        adapter = TelegramOperatorFeedbackAdapter(message)
+        asyncio.run(adapter.publish(
+            trace_id="trace-telegram",
+            status="DENIED",
+            message="blocked",
+            metadata={"trace_id": "trace-telegram"},
+        ))
+        asyncio.run(adapter.update(
+            trace_id="trace-telegram",
+            status="FAILED",
+            message="failed",
+            metadata={"trace_id": "trace-telegram"},
+        ))
+        self.assertEqual(message.sent, ["blocked"])
+        self.assertEqual(message.edited, ["failed"])
+        source = Path("application/telegram_operator_feedback.py").read_text(encoding="utf-8")
+        self.assertNotIn("ProductionStartRunner", source)
+        self.assertNotIn("Physical", source)
 
 
 if __name__ == "__main__":

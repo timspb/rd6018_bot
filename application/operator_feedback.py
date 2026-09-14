@@ -15,6 +15,9 @@ class OperatorFeedbackPort(Protocol):
     async def publish(self, *, trace_id: str, status: str, message: str, metadata: Mapping[str, Any]) -> None:
         ...
 
+    async def update(self, *, trace_id: str, status: str, message: str, metadata: Mapping[str, Any]) -> None:
+        ...
+
 
 class LegacyFeedbackStatus(str, Enum):
     STARTED = "STARTED"
