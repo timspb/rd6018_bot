@@ -133,3 +133,16 @@ behind explicit runtime lifecycle interfaces before `bot_legacy.py` can be remov
 The remaining Phase 1 work is lifecycle extraction around the existing handler and
 V2 task callbacks. It must not move controller, session, safety, or physical
 ownership into the Telegram adapter.
+
+## Verification after Phase 1 increments
+
+- `test_v3_legacy_inventory.py`: PASS;
+- `test_telegram_runtime_adapter.py`: PASS;
+- `test_v2_entrypoint.py`: PASS;
+- `test_operator_hmi.py`: PASS for current semantic HMI tests;
+- `test_operator_actions.py`: PASS;
+- `compileall`: PASS;
+- full local suite: 1412 tests, one Windows-only AF_UNIX bench-control error and
+  one legacy compatibility-builder expectation remain; no new V3 transport failure
+  was observed;
+- host 101 was not deployed or started during this migration work.
