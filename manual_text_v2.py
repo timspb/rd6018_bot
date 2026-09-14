@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import math
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -13,6 +14,7 @@ from charge_logic import MAX_STAGE_CURRENT
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
 from manual_runtime_v2 import ProductionManualSessionManager
+from runtime.charge.profiles.manual import load_manual_profile
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,9 @@ def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
     raw = str(text or "").strip()
     if not raw or raw.startswith("/"):
         return None
+    if raw.lower() in {"manual", "ручной", "manual_main_mix"}:
+        profile = load_manual_profile(Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml")
+        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile))
     tokens = raw.replace("≥", ">=").replace("≤", "<=").split()
     if len(tokens) < 2:
         return None
@@ -170,21 +175,27 @@ def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
 
 def manual_help_text() -> str:
     return (
-        "<b>Ручной режим V2</b>\n\n"
-        "Укажите рабочие U и I одной строкой. Выход включается только через полный "
-        "safety/readback transaction; химическая FSM в Manual не выполняется.\n\n"
-        "<code>14.70 5.0</code>\n"
-        "<code>14.70 5.0 2:00</code> — остановить через 2 ч активного времени\n"
-        "<code>16.50 1.5 I&lt;=0.30</code>\n"
-        "<code>16.50 1.5 V&gt;=16.40</code>\n"
-        "<code>16.50 1.5 1.00A</code> — остановить при достижении 1.00 A\n"
-        "<code>16.50 1.5 16.20V</code> — остановить при достижении 16.20 V\n"
-        "<code>16.50 1.5 delta=0.03</code> — mode-aware CV/CC delta stop\n\n"
-        "Условия можно комбинировать. Доступны V&gt;=, V&lt;=, V=, I&gt;=, I&lt;=, I=, "
-        "таймер H:MM[:SS], delta=.\n"
-        f"Жёсткий envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, "
-        f"I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>. OVP/OCP рассчитываются автоматически."
+        "<b>Ручной режим MAIN → MIX</b>\n"
+        "Параметры задаются отдельно в <code>config/charge/manual.yaml</code>.\n"
+        "MAIN: ток, напряжение, подтверждённый нижний порог, выдержка.\n"
+        "Нижний порог MAIN: <code>I&lt;=0.30 A</code> подтверждается перед выдержкой.\n"
+        "После подтверждения минимума и выдержки запускается MIX.\n"
+        "MIX: ток, напряжение, ΔV, ΔI, выдержка.\n"
+        "Запуск: отправьте <code>MANUAL</code>. Старый формат одной строки отключён.\n"
+        f"Envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>."
     )
+
+
+def _legacy_numeric_manual(text: str) -> bool:
+    parts = str(text or "").replace(",", ".").split()
+    if len(parts) < 2:
+        return False
+    try:
+        float(parts[0])
+        float(parts[1])
+    except ValueError:
+        return False
+    return True
 
 
 def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
@@ -257,6 +268,14 @@ class ManualTextMiddleware(BaseMiddleware):
         # quick-command parser. The native Manual prompt itself needs no dialog FSM.
         if _another_dialog_owns_text(self.app, user_id):
             return await handler(event, data)
+
+        if _legacy_numeric_manual(text):
+            self.pending_users.discard(user_id)
+            await event.answer(
+                "❌ Старый формат Manual отключён. Используйте значения из конфигурации и отправьте "
+                "<code>MANUAL</code>.\n" + manual_help_text()
+            )
+            return None
 
         try:
             parsed = parse_manual_command(text)

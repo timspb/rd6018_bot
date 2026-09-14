@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from battery_registry import get_battery
 from manual_mode import ManualChargeRequest, ManualSessionState
 from manual_runtime_v2 import ProductionManualSessionManager
-from manual_text_v2 import ParsedManualCommand, _format_start, manual_help_text, parse_manual_command
+from manual_text_v2 import ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
 from v2_battery_catalog import list_batteries
 
 
@@ -59,6 +59,13 @@ class BoundManualTextMiddleware(BaseMiddleware):
             return await handler(event, data)
         if event.text.strip().startswith("/"):
             return await handler(event, data)
+        if _legacy_numeric_manual(event.text):
+            self.pending_battery.pop(user_id, None)
+            await event.answer(
+                "❌ Старый формат Manual отключён. Используйте значения из конфигурации и отправьте "
+                "<code>MANUAL</code>.\n" + manual_help_text()
+            )
+            return None
 
         try:
             parsed = parse_manual_command(event.text)

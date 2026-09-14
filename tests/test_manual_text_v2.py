@@ -57,8 +57,10 @@ class ManualTextV2Tests(unittest.TestCase):
 
     def test_manual_help_escapes_comparison_operators_for_telegram_html(self):
         text = manual_help_text()
-        self.assertIn("I&lt;=0.30", text)
-        self.assertIn("V&gt;=16.40", text)
+        self.assertIn("MAIN → MIX", text)
+        self.assertIn("config/charge/manual.yaml", text)
+        self.assertIn("I&lt;=0.30 A", text)
+        self.assertIn("Старый формат одной строки отключён", text)
         self.assertNotIn("I<=0.30", text)
         self.assertNotIn("V>=16.40", text)
 

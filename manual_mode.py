@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import time
+from pathlib import Path
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Optional
@@ -13,6 +14,7 @@ from typing import Any, Optional
 from charge_logic import MAX_STAGE_CURRENT, OCP_OFFSET, OVP_OFFSET
 from config import MAX_MANUAL_VOLTAGE
 from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
+from runtime.charge.profiles.manual import ManualChargeProfile, load_manual_profile
 
 
 MANUAL_SESSION_FILE = "manual_session_v2.json"
@@ -75,6 +77,8 @@ class ManualChargeRequest:
     battery_id: str = ""
     capacity_ah: Optional[float] = None
     notes: str = ""
+    profile: Optional[ManualChargeProfile] = None
+    stage: str = "main"
 
     def __post_init__(self) -> None:
         voltage = float(self.voltage_v)
@@ -87,6 +91,20 @@ class ManualChargeRequest:
             not math.isfinite(float(self.capacity_ah)) or self.capacity_ah <= 0
         ):
             raise ValueError("capacity_ah must be positive when present")
+        if self.stage not in {"main", "mix"}:
+            raise ValueError("manual stage must be main or mix")
+
+    @classmethod
+    def from_profile(cls, profile: ManualChargeProfile, *, battery_id: str = "", capacity_ah: Optional[float] = None) -> "ManualChargeRequest":
+        return cls(
+            voltage_v=profile.main.voltage_v,
+            current_a=profile.main.current_a,
+            battery_id=battery_id,
+            capacity_ah=capacity_ah,
+            notes="configured staged Manual profile",
+            profile=profile,
+            stage="main",
+        )
 
     @property
     def ovp_v(self) -> float:
@@ -98,7 +116,7 @@ class ManualChargeRequest:
 
     @property
     def operation_mode(self) -> str:
-        return "mix" if float(self.voltage_v) >= MANUAL_MIX_VOLTAGE_THRESHOLD_V else "main"
+        return self.stage if self.profile is not None else ("mix" if float(self.voltage_v) >= MANUAL_MIX_VOLTAGE_THRESHOLD_V else "main")
 
     @property
     def operation_mode_label(self) -> str:
@@ -128,6 +146,9 @@ class ManualSessionManager:
         self._delta_confirmations = 0
         self._last_delta_confirmation = 0.0
         self.finish_hold_started_at: Optional[float] = None
+        self.main_min_confirmations = 0
+        self.main_min_hold_started_at: Optional[float] = None
+        self._last_main_min_confirmation = 0.0
         self.main_tail_current_threshold_a = MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
         self._restore_as_interrupted()
 
@@ -199,6 +220,9 @@ class ManualSessionManager:
         if isinstance(request_raw, dict):
             stop_raw = request_raw.get("stop") or {}
             try:
+                profile = None
+                if isinstance(request_raw.get("profile"), dict):
+                    profile = load_manual_profile(Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml")
                 self.request = ManualChargeRequest(
                     voltage_v=float(request_raw["voltage_v"]),
                     current_a=float(request_raw["current_a"]),
@@ -206,6 +230,8 @@ class ManualSessionManager:
                     battery_id=str(request_raw.get("battery_id") or ""),
                     capacity_ah=request_raw.get("capacity_ah"),
                     notes=str(request_raw.get("notes") or ""),
+                    profile=profile,
+                    stage=str(request_raw.get("stage") or "main"),
                 )
             except (KeyError, TypeError, ValueError):
                 self.request = None
@@ -252,6 +278,9 @@ class ManualSessionManager:
         self.cooling_started_at = None
         self.stop_reason = ""
         self._reset_delta_tracking()
+        self.main_min_confirmations = 0
+        self.main_min_hold_started_at = None
+        self._last_main_min_confirmation = 0.0
         self.finish_hold_started_at = None
         self._persist()
 
@@ -350,6 +379,12 @@ class ManualSessionManager:
         if self.request.operation_mode != "mix":
             return None
         threshold = self.request.stop.delta
+        if self.request.profile is not None:
+            threshold = (
+                self.request.profile.mix.delta_current_a
+                if resolve_regulation(live) is RegulationMode.CV
+                else self.request.profile.mix.delta_voltage_v
+            )
         if threshold is None or now - self.started_at < MANUAL_DELTA_BLANKING_SEC:
             return None
 
@@ -390,9 +425,19 @@ class ManualSessionManager:
         if not candidate:
             self._delta_confirmations = 0
             return None
+        confirmation_interval = (
+            self.request.profile.mix.confirmation_interval_seconds
+            if self.request.profile is not None
+            else MANUAL_DELTA_CONFIRM_INTERVAL_SEC
+        )
+        confirmation_count = (
+            self.request.profile.mix.confirmation_count
+            if self.request.profile is not None
+            else MANUAL_DELTA_CONFIRM_COUNT
+        )
         if (
             self._last_delta_confirmation
-            and now - self._last_delta_confirmation < MANUAL_DELTA_CONFIRM_INTERVAL_SEC
+            and now - self._last_delta_confirmation < confirmation_interval
         ):
             return None
         self._last_delta_confirmation = now
@@ -405,7 +450,7 @@ class ManualSessionManager:
             threshold,
             now,
         )
-        if self._delta_confirmations >= MANUAL_DELTA_CONFIRM_COUNT:
+        if self._delta_confirmations >= confirmation_count:
             return "manual_delta_confirmed"
         return None
 
@@ -428,19 +473,63 @@ class ManualSessionManager:
                 current,
                 time.time(),
             )
-        if current <= float(self.main_tail_current_threshold_a):
-            return "manual_main_cv_imin"
+        threshold = (
+            self.request.profile.main.minimum_current_a
+            if self.request.profile is not None
+            else self.main_tail_current_threshold_a
+        )
+        if threshold is not None and current <= float(threshold):
+            if self.request.profile is None:
+                return "manual_main_cv_imin"
+            interval = self.request.profile.main.confirmation_interval_seconds
+            now = time.time()
+            if self._last_main_min_confirmation and now - self._last_main_min_confirmation < interval:
+                return None
+            self._last_main_min_confirmation = now
+            self.main_min_confirmations += 1
+            required = self.request.profile.main.confirmation_count
+            if self.main_min_confirmations >= required:
+                if self.main_min_hold_started_at is None:
+                    self.main_min_hold_started_at = time.time()
+                    return None
+                if time.time() - self.main_min_hold_started_at >= self.request.profile.main.hold_seconds:
+                    return "manual_main_to_mix"
         return None
+
+    async def _advance_profile_to_mix(self) -> None:
+        assert self.request is not None and self.request.profile is not None
+        stage = self.request.profile.mix
+        # Reuse the existing verified OFF -> fresh enable path.  The stage change
+        # never introduces a second actuator owner or a direct programming path.
+        if not await self.stop("manual_main_hold_complete"):
+            return
+        self.request = ManualChargeRequest(
+            voltage_v=stage.voltage_v,
+            current_a=stage.current_a,
+            battery_id=self.request.battery_id,
+            capacity_ah=self.request.capacity_ah,
+            notes=self.request.notes,
+            profile=self.request.profile,
+            stage="mix",
+        )
+        self._transition_state(ManualSessionState.COOLING, "manual_main_to_mix_prepare")
+        self.cooling_started_at = time.time()
+        await self._resume_after_cooling()
 
     def _mix_hold_reason(self, *, now: float) -> Optional[str]:
         if self.request is None or self.request.operation_mode != "mix":
             return None
         if self.finish_hold_started_at is None:
             return None
-        if now - float(self.finish_hold_started_at) >= MANUAL_MIX_FINISH_HOLD_SEC:
+        hold_seconds = (
+            self.request.profile.mix.hold_seconds
+            if self.request.profile is not None
+            else MANUAL_MIX_FINISH_HOLD_SEC
+        )
+        if now - float(self.finish_hold_started_at) >= hold_seconds:
             logger.info(
                 "MANUAL_EVIDENCE kind=delta event=hold_complete mode=mix hold_seconds=%.1f timestamp=%.3f",
-                MANUAL_MIX_FINISH_HOLD_SEC,
+                hold_seconds,
                 now,
             )
             return "manual_mix_delta_hold_complete"
@@ -473,6 +562,9 @@ class ManualSessionManager:
         reason = self._threshold_reason(voltage, current)
         if reason is None:
             reason = self._main_tail_reason(live)
+        if reason == "manual_main_to_mix":
+            await self._advance_profile_to_mix()
+            return
         if reason is None:
             reason = self._mix_hold_reason(now=now)
         if reason is None:
@@ -482,7 +574,7 @@ class ManualSessionManager:
                 self._persist()
                 logger.info(
                     "MANUAL_EVIDENCE kind=delta event=hold_start mode=mix hold_seconds=%.1f timestamp=%.3f",
-                    MANUAL_MIX_FINISH_HOLD_SEC,
+                    self.request.profile.mix.hold_seconds if self.request.profile is not None else MANUAL_MIX_FINISH_HOLD_SEC,
                     now,
                 )
                 reason = None

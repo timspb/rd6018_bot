@@ -273,7 +273,7 @@ def install_v2_ui(app: Any) -> None:
                     InlineKeyboardButton(text="➕ АКБ", callback_data="v2_battery_add"),
                 ],
                 [
-                    InlineKeyboardButton(text="🛠 Custom", callback_data="profile_custom"),
+                    InlineKeyboardButton(text="🛠 Ручной MAIN → MIX", callback_data="v2_manual"),
                 ],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
             ]
