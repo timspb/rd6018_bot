@@ -219,10 +219,6 @@ def build_operator_dashboard_keyboard(
         ],
         [InlineKeyboardButton(text="📋 События", callback_data="logs")],
     ]
-    if not active:
-        rows.append(
-            [InlineKeyboardButton(text="⏱ Условие OFF", callback_data="menu_off")]
-        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

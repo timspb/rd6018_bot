@@ -221,7 +221,7 @@ class V2UiPolishTests(unittest.TestCase):
         self.assertIn("📋 События", texts)
         self.assertNotIn("🎛 Контроллер", texts)
         self.assertNotIn("🩺 Диагностика", texts)
-        self.assertIn("⏱ Условие OFF", texts)
+        self.assertNotIn("⏱ Условие OFF", texts)
         self.assertTrue(any("📈 30м" in text for text in texts))
 
         controller.is_active = True

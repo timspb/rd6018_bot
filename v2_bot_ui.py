@@ -274,7 +274,6 @@ def install_v2_ui(app: Any) -> None:
                 ],
                 [
                     InlineKeyboardButton(text="🛠 Custom", callback_data="profile_custom"),
-                    InlineKeyboardButton(text="⏹ Off", callback_data="menu_off"),
                 ],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
             ]
