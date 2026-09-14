@@ -155,7 +155,7 @@ after their callers and source-contract tests are migrated.
 - `test_operator_hmi.py`: PASS for current semantic HMI tests;
 - `test_operator_actions.py`: PASS;
 - `compileall`: PASS;
-- full local suite: 1412 tests, one Windows-only AF_UNIX bench-control error and
-  one legacy compatibility-builder expectation remain; no new V3 transport failure
-  was observed;
+- full local suite after lifecycle extraction: 1417 tests, one Python 3.14
+  AF_UNIX bench-control compatibility error remains; no migration or V3 transport
+  failure was observed;
 - host 101 was not deployed or started during this migration work.
