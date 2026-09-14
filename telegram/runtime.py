@@ -13,6 +13,7 @@ from typing import Awaitable, Callable
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,20 @@ async def run_polling(
         session = getattr(runtime.bot, "session", None)
         if session is not None and not getattr(session, "closed", True):
             await session.close()
+
+
+async def configure_commands(runtime: TelegramRuntime) -> None:
+    """Register the stable operator command surface for the Telegram adapter."""
+    await runtime.bot.set_my_commands([
+        BotCommand(command="start", description="Открыть дашборд"),
+        BotCommand(command="modes", description="Выбрать режим заряда"),
+        BotCommand(command="off", description="Условие выключения (preset/команда)"),
+        BotCommand(command="logs", description="Последние события"),
+        BotCommand(command="ai", description="AI анализ телеметрии"),
+        BotCommand(command="stats", description="Где смотреть статистику"),
+        BotCommand(command="help", description="Справка по командам"),
+        BotCommand(command="entities", description="Статус сущностей HA (RD6018)"),
+    ])
 
 
 def create_telegram_runtime(token: str) -> TelegramRuntime:

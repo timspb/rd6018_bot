@@ -15,7 +15,6 @@ from typing import Dict, Optional, Union, Any
 
 from aiogram import F
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
@@ -25,7 +24,7 @@ from aiogram.types import (
     Message,
 )
 from aiogram.filters import Command
-from telegram.runtime import create_telegram_runtime, run_polling
+from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -4229,16 +4228,7 @@ async def main() -> None:
         logger.warning("Auto-resume check failed: %s", ex)
 
     dp.include_router(router)
-    await bot.set_my_commands([
-        BotCommand(command="start", description="Открыть дашборд"),
-        BotCommand(command="modes", description="Выбрать режим заряда"),
-        BotCommand(command="off", description="Условие выключения (preset/команда)"),
-        BotCommand(command="logs", description="Последние события"),
-        BotCommand(command="ai", description="AI анализ телеметрии"),
-        BotCommand(command="stats", description="Где смотреть статистику"),
-        BotCommand(command="help", description="Справка по командам"),
-        BotCommand(command="entities", description="Статус сущностей HA (RD6018)"),
-    ])
+    await configure_commands(_telegram_runtime)
     asyncio.create_task(data_logger())
     asyncio.create_task(charge_monitor())
     asyncio.create_task(soft_watchdog_loop())

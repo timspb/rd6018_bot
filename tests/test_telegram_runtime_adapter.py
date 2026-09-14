@@ -1,6 +1,6 @@
 import unittest
 
-from telegram.runtime import TelegramRuntime, create_telegram_runtime, run_polling
+from telegram.runtime import TelegramRuntime, configure_commands, create_telegram_runtime, run_polling
 
 
 class TelegramRuntimeAdapterTests(unittest.TestCase):
@@ -21,6 +21,21 @@ class TelegramRuntimeAdapterTests(unittest.TestCase):
         runtime = create_telegram_runtime("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
         self.assertTrue(callable(run_polling))
         self.assertIsNotNone(runtime.dispatcher.shutdown)
+
+    def test_command_registration_is_owned_by_transport_adapter(self):
+        runtime = create_telegram_runtime("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
+        calls = []
+
+        async def set_my_commands(commands):
+            calls.append(commands)
+
+        runtime.bot.set_my_commands = set_my_commands
+        import asyncio
+        asyncio.run(configure_commands(runtime))
+
+        self.assertEqual([command.command for command in calls[0]], [
+            "start", "modes", "off", "logs", "ai", "stats", "help", "entities",
+        ])
 
     def test_adapter_has_no_runtime_or_physical_imports(self):
         import ast
