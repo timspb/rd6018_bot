@@ -87,6 +87,7 @@ class ProductionStartRunner:
             trace_id=request.trace_id,
             intent=request.execution_metadata.get("intent") or ChargeIntent.NORMAL,
             condition=request.execution_metadata.get("condition") or BatteryCondition.UNKNOWN,
+            execution_metadata=request.execution_metadata,
         )
 
     def _denied(self, request: StartExecutionRequest, reason: str) -> StartExecutionResult:
@@ -95,6 +96,7 @@ class ProductionStartRunner:
             trace_id=request.trace_id,
             intent=request.execution_metadata.get("intent") or ChargeIntent.NORMAL,
             condition=request.execution_metadata.get("condition") or BatteryCondition.UNKNOWN,
+            execution_metadata=request.execution_metadata,
         )
         return StartExecutionResult(
             trace_id=request.trace_id,

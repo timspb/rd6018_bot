@@ -7,9 +7,24 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
 from .v2_start_transaction_adapter import V2StartTransactionInput
+from .v2_start_event_context import V2StartEventContext
 
 
 V2StartOwner = Callable[[Any, Any, Any], Awaitable[bool]]
+
+
+def build_v2_start_event_context(transaction: V2StartTransactionInput) -> V2StartEventContext:
+    """Build the data-only context from the already correlated transaction."""
+    return V2StartEventContext(
+        trace_id=transaction.trace_id,
+        actor=transaction.actor,
+        source=transaction.source,
+        intent_metadata=transaction.intent_metadata,
+        profile=transaction.profile,
+        capacity_ah=transaction.capacity_ah,
+        condition=transaction.condition,
+        correlation_metadata=transaction.correlation_metadata,
+    )
 
 
 @dataclass(frozen=True)
@@ -34,9 +49,7 @@ class V2StartRunnerAdapter:
             battery_id=transaction.battery_id,
             condition=transaction.condition,
         )
-        if self.event_factory is None:
-            raise RuntimeError("v2_start_event_context_not_configured")
-        event = self.event_factory(transaction)
+        event = (self.event_factory or build_v2_start_event_context)(transaction)
         started = await owner(self.app, event, pending)
         from .v2_start_transaction_adapter import V2TransactionOutcome
 

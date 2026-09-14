@@ -18,10 +18,16 @@ StartPreflightService
 ApprovedStartPlan
         |
         v
-ProductionStartExecutionPort(DRY_RUN)
+        ProductionStartExecutionPort(DRY_RUN)
         |
         v
 V2StartTransactionAdapter.prepare()
+        |
+        v
+ProductionStartRunner (constructed, ACTIVE-gated)
+        |
+        v
+V2StartRunnerAdapter -> V2 transaction owner (ACTIVE only)
 ```
 
 The production default is `DRY_RUN`. It performs telemetry, ownership, recipe,
@@ -29,6 +35,14 @@ target and safety preflight, creates a correlation trace and prepares the V2
 transaction input. It does not mutate session/FSM state, call
 `start_profile_transactional()`, program setpoints, enable Output, or write
 Home Assistant.
+
+Composition creates one shared `StartActivationPolicy`, transaction adapter,
+`ProductionStartRunner` and `V2StartRunnerAdapter`. The runner adapter creates
+an immutable `V2StartEventContext` containing `trace_id`, actor, source,
+intent/condition metadata, profile, capacity and correlation metadata. This
+context is data-only and does not contain controller, FSM, session, HA or
+physical objects. In the default DRY_RUN route it is not consumed by the V2
+owner.
 
 `v2_startup.start_profile_transactional()` remains the preserved V2 execution
 owner for the future explicitly gated ACTIVE handoff. The Telegram route no
@@ -49,6 +63,9 @@ longer calls it directly.
 2. Validate rollback and `OFF_UNCONFIRMED` containment on the target hardware.
 3. Prove physical gate, lease and readback parity.
 4. Enable ACTIVE only through a separately reviewed feature configuration.
+5. For ACTIVE, provide the real V2 event/message context required by the
+   preserved owner; the data-only context is intentionally insufficient for
+   physical execution and must not be treated as a bench approval.
 
 Until all gates pass, Telegram START is a non-actuating preflight/DRY_RUN
 operation and must not be reported as a started charge.
