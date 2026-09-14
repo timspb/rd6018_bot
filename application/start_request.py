@@ -48,6 +48,8 @@ class StartPreflightResult:
     target_preview: TargetPreview | None = None
     profile: str = ""
     chemistry: str = ""
+    battery_identity: BatteryIdentity | None = None
+    telemetry_evidence: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

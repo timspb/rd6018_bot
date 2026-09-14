@@ -74,8 +74,12 @@ telemetry, safety, recipe и target fields. Физический результ�
 
 ## Следующий этап
 
+Разрешённый результат preflight может быть преобразован в immutable
+`ApprovedStartPlan`. План передаёт только profile/chemistry, recipe identity,
+target/current preview, battery identity, ownership/safety result и telemetry
+evidence. В нём нет controller, session, HA или physical objects.
+
 Перед миграцией START нужно закрыть parity report по реальным V2 capture-векторам,
 затем отдельно перенести только orchestration через `StartCommandHandler`.
 До этого production callback, controller, FSM, safety wrappers и physical path
 остаются без изменений.
-

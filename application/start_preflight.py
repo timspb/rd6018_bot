@@ -127,6 +127,12 @@ class StartPreflightService:
             TargetPreview(target.voltage_v, current, target.stage, target.prep_skipped),
             request.profile,
             chemistry.value,
+            identity,
+            {
+                "battery_voltage_v": snapshot.battery_voltage_v,
+                "temperature_ext_c": snapshot.temp_ext_c,
+                "output_on": snapshot.output_on,
+            },
         )
 
     def _ownership_status(self) -> str:
