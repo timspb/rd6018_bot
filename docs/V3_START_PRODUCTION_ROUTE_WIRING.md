@@ -44,6 +44,11 @@ context is data-only and does not contain controller, FSM, session, HA or
 physical objects. In the default DRY_RUN route it is not consumed by the V2
 owner.
 
+Operator feedback is a separate `OperatorFeedbackPort`. The
+`LegacyOperatorFeedbackBridge` carries only status text, trace correlation and
+metadata to a future Telegram/UI adapter; no Telegram object is placed in
+`V2StartEventContext`, and the bridge has no runtime or physical authority.
+
 `v2_startup.start_profile_transactional()` remains the preserved V2 execution
 owner for the future explicitly gated ACTIVE handoff. The Telegram route no
 longer calls it directly.

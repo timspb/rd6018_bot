@@ -10,6 +10,10 @@ from application.production_start_execution_port import (
 from application.production_start_runner import ProductionStartRunner
 from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
 from application.v2_start_event_context import V2StartEventContext
+from application.operator_feedback import (
+    LegacyFeedbackStatus,
+    build_legacy_feedback_bridge,
+)
 from application.start_execution_contract import request_from_trace
 from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
@@ -205,6 +209,29 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(received[0][0].source, "telegram")
         self.assertEqual(received[0][0].correlation_metadata["trace_id"], "trace-propagated")
         self.assertEqual(received[0][1].profile, "AGM")
+
+    def test_feedback_bridge_propagates_trace_without_transport_in_context(self):
+        published = []
+
+        class FakeFeedbackPort:
+            async def publish(self, **event):
+                published.append(event)
+
+        context = V2StartEventContext(
+            trace_id="trace-feedback",
+            actor="operator-11",
+            source="telegram",
+            profile="AGM",
+            capacity_ah=70.0,
+            condition=BatteryCondition.UNKNOWN,
+            correlation_metadata={"trace_id": "trace-feedback"},
+        )
+        bridge = build_legacy_feedback_bridge(context, FakeFeedbackPort())
+        asyncio.run(bridge.publish_status(LegacyFeedbackStatus.DENIED, "blocked"))
+        self.assertEqual(published[0]["trace_id"], "trace-feedback")
+        self.assertEqual(published[0]["status"], "DENIED")
+        self.assertFalse(hasattr(context, "telegram"))
+        self.assertFalse(hasattr(context, "controller"))
 
 
 if __name__ == "__main__":
