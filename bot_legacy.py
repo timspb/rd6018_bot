@@ -623,11 +623,11 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
     rows = [
         chart_buttons,
         [
-            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+            InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
             InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
         ],
         [
-            InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
             InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
         ],
         [

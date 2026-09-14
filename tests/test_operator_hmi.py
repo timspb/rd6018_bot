@@ -12,6 +12,7 @@ from operator_hmi import (
     render_operator_panel,
 )
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
+from bot_legacy import _build_dashboard_keyboard
 
 
 class FakeObserver:
@@ -336,6 +337,37 @@ class OperatorHmiTests(unittest.TestCase):
         panel = render_operator_panel(state)
         self.assertIn("✅ Vmax: 17.20 V", panel)
         self.assertNotIn("Vmax не достигнут", panel)
+
+    def test_manual_main_panel_shows_confirmed_imin_value_and_hold_elapsed(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=7200.0,
+            main_min_confirmations=1,
+            main_min_hold_started_at=time.time() - 82 * 60,
+            _imin=0.10,
+            request=types.SimpleNamespace(
+                operation_mode="main",
+                capacity_ah=None,
+                stop=types.SimpleNamespace(max_active_seconds=None),
+                profile=types.SimpleNamespace(
+                    main=types.SimpleNamespace(confirmation_count=1, hold_hours=1.5),
+                ),
+            ),
+        )
+        values = live(output="on")
+        values["is_cv"] = "on"
+        values["is_cc"] = "off"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("Imin=0.10 A подтверждён", panel)
+        self.assertIn("hold 1ч 22м / 1.5ч", panel)
+
+    def test_dashboard_places_logs_before_refresh(self):
+        keyboard = _build_dashboard_keyboard(True, 1)
+        rows = [[button.callback_data for button in row] for row in keyboard.inline_keyboard]
+        self.assertEqual(rows[1], ["logs", "info_full"])
+        self.assertEqual(rows[2], ["refresh", "ai_analysis"])
 
     def test_manual_mix_panel_shows_reference_delta_and_bounded_hold(self):
         app = FakeApp(observer=None, hands_off=False)

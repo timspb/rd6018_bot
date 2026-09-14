@@ -111,7 +111,15 @@ def _manual_extrema_status(manual: Any, regulator: str) -> str:
         confirmed = int(getattr(manual, "main_min_confirmations", 0) or 0)
         if confirmed < required:
             return "⏳ Imin не подтверждён"
-        return "✅ Imin подтверждён"
+        minimum = _finite(getattr(manual, "_imin", None))
+        minimum_text = f"Imin={minimum:.2f} A" if minimum is not None else "Imin=—"
+        hold_started = getattr(manual, "main_min_hold_started_at", None)
+        if hold_started is None:
+            return f"✅ {minimum_text} подтверждён · hold не начат"
+        held_m = max(0, int(max(0.0, time.time() - float(hold_started)) // 60))
+        hold_hours = _finite(getattr(getattr(profile, "main", None), "hold_hours", None))
+        limit_text = f" / {hold_hours:g}ч" if hold_hours is not None else ""
+        return f"✅ {minimum_text} подтверждён · hold {held_m // 60}ч {held_m % 60:02d}м{limit_text}"
     if getattr(request, "operation_mode", "") == "mix":
         hold_started = getattr(manual, "finish_hold_started_at", None)
         if hold_started is not None:
@@ -700,13 +708,13 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
         label = labels.get(item.action)
         if label is not None:
             rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
-    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
     for item in actions.available_actions:
         if item.action not in secondary:
             continue
         label = labels.get(item.action)
         if label is not None:
             rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
+    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
