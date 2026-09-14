@@ -26,6 +26,7 @@ class RollbackState(str, Enum):
 
 @dataclass(frozen=True)
 class V2StartTransactionInput:
+    trace_id: str
     profile: str
     chemistry: str
     capacity_ah: float
@@ -39,6 +40,7 @@ class V2StartTransactionInput:
 
 @dataclass(frozen=True)
 class V2TransactionOutcome:
+    trace_id: str = ""
     started: bool = False
     denied: bool = False
     contained: bool = False
@@ -51,6 +53,7 @@ class V2TransactionOutcome:
 
 @dataclass(frozen=True)
 class StartExecutionResult:
+    trace_id: str
     status: StartExecutionStatus
     rollback: RollbackState
     reason: str
@@ -60,12 +63,13 @@ class StartExecutionResult:
 class V2StartTransactionAdapter:
     """Translate a V3 plan to V2 data without owning V2 execution."""
 
-    def prepare(self, plan: ApprovedStartPlan) -> V2StartTransactionInput:
+    def prepare(self, plan: ApprovedStartPlan, *, trace_id: str = "unbound") -> V2StartTransactionInput:
         if plan.ownership_result != "available":
             raise ValueError("cannot prepare V2 transaction without ownership")
         if plan.safety_result != "allowed":
             raise ValueError("cannot prepare V2 transaction without safety approval")
         return V2StartTransactionInput(
+            trace_id=trace_id,
             profile=plan.profile,
             chemistry=plan.chemistry,
             capacity_ah=float(plan.battery_identity.nominal_capacity_ah),
@@ -81,8 +85,11 @@ class V2StartTransactionAdapter:
         self,
         plan: ApprovedStartPlan,
         outcome: V2TransactionOutcome,
+        *,
+        trace_id: str | None = None,
     ) -> StartExecutionResult:
-        transaction_input = self.prepare(plan)
+        correlation_id = trace_id or outcome.trace_id or "unbound"
+        transaction_input = self.prepare(plan, trace_id=correlation_id)
         if outcome.contained or outcome.session_contained:
             status = StartExecutionStatus.CONTAINED
         elif outcome.denied:
@@ -103,7 +110,7 @@ class V2StartTransactionAdapter:
         else:
             rollback = RollbackState.NOT_REQUIRED if status is StartExecutionStatus.STARTED else RollbackState.NOT_REQUIRED
 
-        return StartExecutionResult(status, rollback, outcome.reason or status.value, transaction_input)
+        return StartExecutionResult(correlation_id, status, rollback, outcome.reason or status.value, transaction_input)
 
     def execute(
         self,
@@ -116,6 +123,7 @@ class V2StartTransactionAdapter:
         transaction_input = self.prepare(plan)
         if not active_enabled:
             return StartExecutionResult(
+                "unbound",
                 StartExecutionStatus.DENIED,
                 RollbackState.NOT_REQUIRED,
                 "active_execution_disabled",
@@ -123,6 +131,7 @@ class V2StartTransactionAdapter:
             )
         if transaction_runner is None:
             return StartExecutionResult(
+                "unbound",
                 StartExecutionStatus.DENIED,
                 RollbackState.NOT_REQUIRED,
                 "v2_transaction_runner_not_configured",
