@@ -221,13 +221,13 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
-        self.assertIn("v2_batteries", callbacks)
+        self.assertNotIn("v2_batteries", callbacks)
         self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("v2_status", callbacks)
         self.assertNotIn("entities_status", callbacks)
         self.assertNotIn("chart_30m", callbacks)
 
-    def test_more_menu_contains_service_actions_and_manual(self):
+    def test_hidden_more_menu_has_no_legacy_service_surfaces(self):
         app = FakeApp(observer=None, hands_off=False)
         state = build_operator_hmi_state(app, live(output="off"))
         callbacks = [
@@ -236,9 +236,9 @@ class OperatorHmiTests(unittest.TestCase):
             for button in row
         ]
         self.assertIn("ai_analysis", callbacks)
-        self.assertIn("v2_status", callbacks)
-        self.assertIn("entities_status", callbacks)
-        self.assertIn("operator_service_details", callbacks)
+        self.assertNotIn("v2_status", callbacks)
+        self.assertNotIn("entities_status", callbacks)
+        self.assertNotIn("operator_service_details", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
     def test_interrupted_manual_restore_actions_are_on_first_screen(self):

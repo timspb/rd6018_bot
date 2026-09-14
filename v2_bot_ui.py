@@ -247,13 +247,6 @@ def install_v2_ui(app: Any) -> None:
         markup = original_dashboard_keyboard(is_on, user_id, back_to_dashboard=back_to_dashboard)
         rows = list(markup.inline_keyboard)
         insert_at = max(0, len(rows) - (2 if back_to_dashboard else 1))
-        rows.insert(
-            insert_at,
-            [
-                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                InlineKeyboardButton(text="🧭 V2", callback_data="v2_status"),
-            ],
-        )
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     def charge_modes_text() -> str:

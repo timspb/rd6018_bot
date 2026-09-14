@@ -43,7 +43,9 @@ class OperatorActionsView:
     @classmethod
     def for_state(cls, state: str, *, safety_allowed: bool, pause_allowed: bool = False) -> "OperatorActionsView":
         if state == "IDLE" and safety_allowed:
-            available = (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
+            # Profile selection lives inside the single charge-modes workspace;
+            # do not duplicate an independent battery/profile entry on the panel.
+            available = (OperatorAction.START_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
             disabled = (OperatorAction.STOP_CHARGE, OperatorAction.PAUSE_CHARGE, OperatorAction.RESUME_CHARGE)
         elif state == "CHARGING":
             values = [OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH]

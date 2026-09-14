@@ -102,15 +102,14 @@ class V1UiCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(rows[0], ["🔄 Обновить", "📋 Полная инфо"])
         self.assertEqual(rows[1], ["📝 Логи", "🧠 AI анализ"])
-        self.assertEqual(rows[2], ["🚀 СТАРТ", "⚙️ Режимы"])
-        self.assertEqual(rows[3], ["🛠 Ещё"])
+        self.assertEqual(rows[2], ["⚙️ Режимы"])
         self.assertIn("operator_refresh", cb)
         self.assertIn("operator_details", cb)
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
-        self.assertIn("v2_batteries", cb)
+        self.assertNotIn("v2_batteries", cb)
         self.assertIn("charge_modes", cb)
-        self.assertIn("operator_more", cb)
+        self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
     def test_filtered_idle_does_not_reconstruct_start_or_more(self):
@@ -133,7 +132,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("v2_batteries", cb)
-        self.assertNotIn("charge_modes", cb)
+        self.assertIn("charge_modes", cb)
         self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
@@ -147,7 +146,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertEqual(rows[0], ["⏸ Пауза", "🛑 Стоп"])
         self.assertIn(["🔄 Обновить", "📋 Полная инфо"], rows)
         self.assertIn(["📝 Логи", "🧠 AI анализ"], rows)
-        self.assertIn(["🛠 Ещё"], rows)
+        self.assertNotIn(["🛠 Ещё"], rows)
         self.assertIn("operator_pause_toggle", cb)
         self.assertIn("operator_managed_stop", cb)
         self.assertNotIn("power_toggle", cb)
@@ -199,7 +198,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertNotIn("charge_modes", cb)
         self.assertNotIn("operator_more", cb)
 
-    def test_storage_remains_terminal_but_keeps_v1_information_and_v2_service(self):
+    def test_storage_remains_terminal_but_keeps_read_only_information(self):
         _app, markup = self.compose(
             state(hmi.HmiProcessState.STORAGE, hmi.HmiAuthority.AUTO, output_on=False)
         )
@@ -209,7 +208,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("operator_details", cb)
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
-        self.assertIn("operator_more", cb)
+        self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
         self.assertNotIn("charge_modes", cb)
         self.assertNotIn("v2_batteries", cb)

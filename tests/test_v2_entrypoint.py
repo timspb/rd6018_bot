@@ -80,7 +80,7 @@ class V2EntrypointTests(unittest.TestCase):
         dashboard = bot._build_dashboard_keyboard(False, 1)
         dashboard_callbacks = self._callbacks(dashboard)
         self.assertNotIn("power_toggle", dashboard_callbacks)
-        self.assertIn("v2_batteries", dashboard_callbacks)
+        self.assertNotIn("v2_batteries", dashboard_callbacks)
         self.assertIn("charge_modes", dashboard_callbacks)
         self.assertNotIn("operator_more", dashboard_callbacks)
 

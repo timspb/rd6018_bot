@@ -79,7 +79,7 @@ def compose_v1_operator_keyboard(
     authority = getattr(state, "authority", None)
     final_callbacks = _callbacks(base)
 
-    idle_authorized = {"charge_modes", "v2_batteries"}.issubset(final_callbacks)
+    idle_authorized = "charge_modes" in final_callbacks
     start_allowed = process_state is hmi.HmiProcessState.IDLE and idle_authorized
 
     shell_process_state = process_state
@@ -112,19 +112,7 @@ def compose_v1_operator_keyboard(
     if start_allowed:
         _append_row(
             rows,
-            InlineKeyboardButton(text="🚀 СТАРТ", callback_data="v2_batteries"),
             InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
-        )
-
-    if shell_process_state in {
-        hmi.HmiProcessState.IDLE,
-        hmi.HmiProcessState.RUNNING,
-        hmi.HmiProcessState.PAUSED,
-        hmi.HmiProcessState.STORAGE,
-    } and shell_authority is not hmi.HmiAuthority.CONTAINMENT:
-        _append_row(
-            rows,
-            InlineKeyboardButton(text="🛠 Ещё", callback_data="operator_more"),
         )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)

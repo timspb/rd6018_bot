@@ -134,7 +134,6 @@ def _install_hmi_composition(app: Any, coordinator: ManagedMixAdoptionCoordinato
                     ],
                     [
                         InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                        InlineKeyboardButton(text="⋯ Ещё", callback_data="operator_more"),
                     ],
                 ]
             )

@@ -712,11 +712,6 @@ def build_operator_keyboard(
 
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="⚡ Режимы заряда", callback_data="charge_modes")])
-        rows.append(
-            [
-                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-            ]
-        )
         return with_refresh(rows)
 
     if state.process_state is HmiProcessState.STORAGE:
@@ -969,17 +964,7 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
 
 
 def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
-            InlineKeyboardButton(text="🎛 V2 контроллер", callback_data="v2_status"),
-        ],
-        [
-            InlineKeyboardButton(text="🩺 Диагностика HA", callback_data="entities_status"),
-            InlineKeyboardButton(text="🛠 Сервис", callback_data="operator_service_details"),
-        ],
-        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
-    ]
+    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis")]]
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
         rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
