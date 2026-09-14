@@ -1,4 +1,10 @@
 .env
+# Local secret store: never commit, archive, or package these files.
+.secrets/
+config/secrets/
+*.secret
+*.secret.*
+node101.env
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
