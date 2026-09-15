@@ -202,6 +202,12 @@ safety/containment divergence.
 **Goal:** make telemetry, configuration, diagnostics and persistence adapters
 canonical without granting control authority.
 
+**Current status: shadow infrastructure normalization.** HA/ESP telemetry
+adapters, deterministic arbitration, provenance/freshness, readback
+observation, intent-only control and lease/failure taxonomy are documented and
+tested as non-authoritative contracts. V2 remains the control, lease and physical owner.
+See `docs/RD6018_INFRASTRUCTURE_MIGRATION_MODEL.md`.
+
 **Entry:** staged telemetry/config ownership and source provenance are stable.
 
 **Ready when:** arbitration, conflict detection, persistence candidate rules and
