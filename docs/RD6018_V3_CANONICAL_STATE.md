@@ -248,6 +248,13 @@ for the project as a whole.
 **Rollback:** immediate return to V2 owner under verified containment and
 operator reauthorization; never resume an ambiguous old session silently.
 
+### EPIC F — Dual runtime operation
+
+**Current status: dual-runtime shadow coexistence.** V2 remains the production
+execution owner. V3 may run only as an isolated shadow runtime with separate
+namespaces, lifecycle cancellation and health reporting. See
+`docs/RD6018_DUAL_RUNTIME_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
