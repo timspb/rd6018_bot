@@ -33,10 +33,12 @@ class ConfigurationParameter:
     default: Any
     validator: Validator
     description: str
+    source: str = "configuration_authority"
+    required: bool = False
 
     def __post_init__(self) -> None:
-        if not self.key.strip() or not self.owner.strip() or not self.description.strip():
-            raise ValueError("configuration key, owner and description are required")
+        if not self.key.strip() or not self.owner.strip() or not self.description.strip() or not self.source.strip():
+            raise ValueError("configuration key, owner, source and description are required")
         if not isinstance(self.section, ConfigurationSection):
             raise TypeError("section must be ConfigurationSection")
         if not isinstance(self.value_type, type) or not callable(self.validator):
