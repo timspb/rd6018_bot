@@ -220,6 +220,10 @@ diagnostic evidence are complete.
 **Goal:** prove V3 intent parity, rollback and verification at the execution
 boundary without physical activation.
 
+**Current status: contract/shadow execution preparation.** Typed intent
+validation, owner checks, rollback/verification requirements, parity
+classification and readiness gates are documented and tested. V2 remains the execution and physical owner. See `docs/RD6018_EXECUTION_MIGRATION_MODEL.md`.
+
 **Entry:** domain/infrastructure shadow acceptance and bench contracts pass.
 
 **Ready when:** explicit operator, safety, rollback and physical-gate approvals
