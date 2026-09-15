@@ -83,6 +83,11 @@ class Phase1CleanupContractTests(unittest.TestCase):
         violations = []
         for root in V3_BOUNDARY_DIRS:
             for path in _python_files(root):
+                # This is the explicit V2 execution boundary. Its contract is
+                # to call the already-owned setter; decision and UI modules
+                # remain covered by this scan.
+                if path.name == "manual_execution_boundary.py":
+                    continue
                 tree = _tree(path)
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
