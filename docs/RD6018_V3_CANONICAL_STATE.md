@@ -297,6 +297,14 @@ execution and physical owner. The V3 candidate flow, provenance, operator
 history and rollback observation are modeled without dispatch or takeover. See
 `docs/RD6018_DECISION_AUTHORITY_SHADOW_RUN_MODEL.md`.
 
+### EPIC L — Decision cutover operational readiness
+
+**Current status: operational preparation only.** Approval lifecycle,
+emergency rollback visibility, audit trail and Stage 1 health gates are modeled
+without enabling decision ownership. V2 remains the live decision, execution
+and physical owner. See
+`docs/RD6018_DECISION_CUTOVER_OPERATIONAL_READINESS_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
