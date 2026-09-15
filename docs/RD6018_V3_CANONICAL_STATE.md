@@ -182,6 +182,14 @@ consumers.
 **Goal:** prove V3 domain decisions against V2 over representative profiles,
 phases, pause/resume and failure scenarios.
 
+**Current status: shadow domain normalization.** The pure V3 FSM, profile,
+strategy, session and safety contracts are documented and covered by domain
+parity/comparison tests. V2 remains the decision, session, safety and execution owner. See `docs/RD6018_DOMAIN_MIGRATION_MODEL.md`.
+
+Known blockers remain explicitly unresolved: EFB Mix 20 h versus 24 h, CC
+Vmax/Delta-V versus current-drop, Custom profile schema, pause/resume
+semantics, watchdog values and readback timeout policy.
+
 **Entry:** parity model and unresolved decisions are explicitly classified.
 
 **Ready when:** approved shadow acceptance metrics pass with no unexplained
