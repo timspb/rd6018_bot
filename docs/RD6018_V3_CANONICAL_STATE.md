@@ -255,6 +255,13 @@ execution owner. V3 may run only as an isolated shadow runtime with separate
 namespaces, lifecycle cancellation and health reporting. See
 `docs/RD6018_DUAL_RUNTIME_MODEL.md`.
 
+### EPIC G — Decision ownership migration
+
+**Current status: decision ownership shadow preparation.** V2 remains the
+domain decision and execution owner. V3 compares and records shadow decisions
+with explicit provenance; no implicit takeover or execution path exists. See
+`docs/RD6018_DECISION_OWNERSHIP_MIGRATION_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
