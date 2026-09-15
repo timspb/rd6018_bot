@@ -7,8 +7,9 @@ from enum import Enum
 
 
 class ConfigurationDecisionStatus(str, Enum):
+    RESOLVED = "RESOLVED"
     UNRESOLVED = "UNRESOLVED"
-    READY_FOR_PARITY = "READY_FOR_PARITY"
+    MIGRATION_REQUIRED = "MIGRATION_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,8 @@ class ConfigurationDecision:
 
 
 UNRESOLVED_CONFIGURATION_DECISIONS = (
+    ConfigurationDecision("telemetry.cross_source_tolerance_v", "transport", ("config/runtime/runtime.yaml",), ("0.06 V",), "Telemetry Authority", ConfigurationDecisionStatus.RESOLVED),
+    ConfigurationDecision("charge.manual.main.voltage_v", "charge", ("config/charge/manual.yaml", "legacy manual path"), ("YAML candidate", "legacy runtime candidate"), "Profile Domain", ConfigurationDecisionStatus.MIGRATION_REQUIRED),
     ConfigurationDecision("strategy.mix.max_age", "strategy", ("charge_logic.py", "docs/assistant/CHARGE_STRATEGY.md"), ("EFB 20 h", "EFB 24 h"), "Strategy Domain"),
     ConfigurationDecision("safety.watchdog_timeout_s", "safety", ("runtime/v2_runtime.py", "charge_logic.py"), ("180 s", "300 s"), "Safety Decision Authority"),
     ConfigurationDecision("execution.readback_timeout_s", "execution", ("runtime/output/bridge/executor.py", "rd6018_telemetry.py", "runtime_safety_strict.py"), ("5 s", "10 s", "15 s"), "Execution Verification Boundary"),

@@ -63,6 +63,28 @@ def decide(signal: SafetySignal, *, trace_id: str, owner: str = "Safety Decision
     return SafetyDecision(owner, action, (signal,), signal.reason, trace_id)
 
 
+@dataclass(frozen=True)
+class SafetyOwnershipEntry:
+    trigger: str
+    detection_sources: tuple[str, ...]
+    decision_owner: str
+    containment_boundary: str
+    physical_write_allowed: bool = False
+
+
+SAFETY_DECISION_OWNER = "Safety Decision Authority"
+SAFETY_OWNERSHIP_INVENTORY = (
+    SafetyOwnershipEntry("watchdog", ("V2 watchdog",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("lease_loss", ("ESPHome/edge lease",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("telemetry_loss", ("HA/ESP telemetry",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("ha_loss", ("HA adapter",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("esp_loss", ("ESP Direct adapter",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("manual_stop", ("operator intent",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("emergency_stop", ("V2 emergency path",), SAFETY_DECISION_OWNER, "Execution Boundary"),
+    SafetyOwnershipEntry("containment", ("runtime safety", "SafeOutput", "edge dead-man"), SAFETY_DECISION_OWNER, "Execution Boundary"),
+)
+
+
 def containment_request(decision: SafetyDecision, *, requested_action: str = "verified_output_off") -> ContainmentRequest:
     if decision.action is not SafetyDecisionAction.CONTAIN:
         raise ValueError("containment requires a CONTAIN decision")
@@ -76,4 +98,4 @@ def containment_request(decision: SafetyDecision, *, requested_action: str = "ve
     )
 
 
-__all__ = ["SafetySignalKind", "SafetyDecisionAction", "SafetySignal", "SafetyDecision", "ContainmentRequest", "decide", "containment_request"]
+__all__ = ["SafetySignalKind", "SafetyDecisionAction", "SafetySignal", "SafetyDecision", "ContainmentRequest", "SafetyOwnershipEntry", "SAFETY_DECISION_OWNER", "SAFETY_OWNERSHIP_INVENTORY", "decide", "containment_request"]

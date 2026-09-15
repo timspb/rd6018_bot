@@ -12,11 +12,11 @@ execution change, HA/ESP write, lease change or physical command was performed.
 | Original blocker | Result | Evidence/change | Residual risk |
 |---|---|---|---|
 | UI / infrastructure coupling | `IMPROVED` | `application/operator_snapshot_provider.py` now depends on explicit read-only `LegacyUIReadAdapter`; direct HMI/telemetry/journal/diagnostics imports were removed | Adapter still wraps legacy V2 reads and must remain outside pure UI/domain |
-| Legacy domain imports | `OPEN` | inventory confirms `application/charge_orchestration.py` and `shadow_composition.py` still use `runtime.charge` | V3 domain is not fully independent of legacy package |
+| Legacy domain imports | `IMPROVED / ADAPTER REQUIRED` | `application/legacy_domain_adapter.py` is now the only explicit seam used by `charge_orchestration.py` and `shadow_composition.py` | V3 domain is not fully independent of legacy package |
 | Actuator bypasses | `OPEN / INVENTORIED` | `legacy_actuator_boundary.py` registers every known V2 operation as non-dispatching compatibility path | Production callers remain outside V3 `ExecutionDispatcher`; no path was silently removed |
-| Configuration drift | `OPEN / EXPLICIT` | `configuration_decision_registry.py` records unresolved watchdog, readback, transport, lease, profile and Mix decisions without selecting values | `ConfigurationAuthority` is not yet sole effective production source |
-| Safety owner consolidation | `OPEN / CONTRACTED` | `safety_boundary.py` separates detection → decision → containment request as data-only contracts | Existing V2/edge safety owners remain active and cannot be consolidated without runtime parity/bench work |
-| Import-time V2 coupling | `OPEN / PRESERVED` | no V2 import/startup behavior changed | `runtime/v2_runtime.py` still constructs Telegram/HA globals at import and owns legacy workers |
+| Configuration drift | `OPEN / EXPLICIT` | `configuration_decision_registry.py` records `RESOLVED`, `UNRESOLVED` and `MIGRATION_REQUIRED` decisions without selecting conflicts | `ConfigurationAuthority` is not yet sole effective production source |
+| Safety owner consolidation | `OPEN / CONTRACTED` | `safety_boundary.py` defines one logical Safety Decision Authority and data-only detection → decision → request flow | Existing V2/edge safety owners remain active and cannot be consolidated without runtime parity/bench work |
+| Import-time V2 coupling | `OPEN / CONTRACTED` | `composition_lifecycle.py` defines explicit injected lifecycle; no V2 import/startup behavior changed | `runtime/v2_runtime.py` still constructs Telegram/HA globals at import and owns legacy workers |
 
 ## 2. New boundaries
 

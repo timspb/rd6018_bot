@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from runtime.charge import (
+from .legacy_domain_adapter import (
     BatteryProfile,
     ChargeEngine,
     DomainDecision,
@@ -15,9 +15,8 @@ from runtime.charge import (
     SessionManager,
     SessionSnapshot,
     StrategyRuntimeState,
+    ChargeStrategy,
 )
-from runtime.charge.strategy import ChargeStrategy
-
 from .intents import OperatorIntent, OperatorIntentKind
 
 

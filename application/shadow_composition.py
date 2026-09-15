@@ -10,8 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from runtime.charge import ProfileRegistry, SessionManager
-
 from .charge_orchestration import ChargeApplicationService
 from .configuration_model import ConfigurationModel, YamlSourceAdapter, default_configuration_authority
 from .composition_contract import ApplicationComposition as LegacyCompositionContract
@@ -21,6 +19,7 @@ from .persistence_boundary import InMemoryPersistenceProvider
 from .telemetry_authority import ESPDirectTelemetryAdapter, HATelemetryAdapter, TelemetryArbitrator
 from .transport_adapters_shadow import ESPDirectExecutionAdapter, HAExecutionAdapter
 from .ui_adapter import OperatorUIAdapter
+from .legacy_domain_adapter import ProfileRegistry, SessionManager
 
 
 @dataclass(frozen=True)

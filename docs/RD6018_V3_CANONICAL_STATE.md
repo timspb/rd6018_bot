@@ -322,6 +322,15 @@ edge safety owners and import-time V2 construction remain open. Architecture
 PASS and Stage 1 are not approved. See
 `docs/RD6018_BOUNDARY_CLEANUP_REPORT.md`.
 
+### WORKSTREAM 2.1 — Legacy extraction and ownership cleanup
+
+**Current status: adapter extraction and inventory complete; architecture PASS
+still blocked.** V3-facing legacy domain imports now use an explicit adapter;
+actuator paths, configuration decisions, safety ownership and lifecycle
+contracts are inventoried without changing V2 behavior. Remaining B3/B4/B5/B6
+risks are documented. See
+`docs/RD6018_LEGACY_EXTRACTION_REPORT.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
