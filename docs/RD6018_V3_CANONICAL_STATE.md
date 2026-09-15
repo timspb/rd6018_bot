@@ -283,6 +283,13 @@ rollback, abort conditions and singular-owner invariants are defined as a
 candidate model only. Live ownership remains unchanged. See
 `docs/RD6018_STAGED_OWNERSHIP_CUTOVER_MODEL.md`.
 
+### EPIC J — Decision cutover readiness
+
+**Current status: Stage 1 readiness preparation.** Explicit approval,
+safety-gate validation, provenance, rollback audit and decision-authority
+observability are modeled without changing live ownership. See
+`docs/RD6018_DECISION_CUTOVER_READINESS_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
