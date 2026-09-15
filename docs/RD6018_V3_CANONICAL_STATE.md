@@ -290,6 +290,13 @@ safety-gate validation, provenance, rollback audit and decision-authority
 observability are modeled without changing live ownership. See
 `docs/RD6018_DECISION_CUTOVER_READINESS_MODEL.md`.
 
+### EPIC K — Decision authority shadow run
+
+**Current status: shadow rehearsal only.** V2 remains the live decision,
+execution and physical owner. The V3 candidate flow, provenance, operator
+history and rollback observation are modeled without dispatch or takeover. See
+`docs/RD6018_DECISION_AUTHORITY_SHADOW_RUN_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
