@@ -235,6 +235,10 @@ exist; no direct bypass remains.
 
 **Goal:** perform a separately authorized, staged ownership transition.
 
+**Current status: runtime composition shadow shell.** `V3RuntimeComposition`
+provides lifecycle, dependency validation, shadow workers, diagnostics and
+health reporting around the existing V3 shadow graph. V2 remains the runtime and physical owner. See `docs/RD6018_RUNTIME_MIGRATION_MODEL.md`.
+
 **Entry:** all prior EPIC gates, exact deployment evidence and approved bench
 procedure.
 
