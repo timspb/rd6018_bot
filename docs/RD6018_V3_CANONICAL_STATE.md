@@ -262,6 +262,13 @@ domain decision and execution owner. V3 compares and records shadow decisions
 with explicit provenance; no implicit takeover or execution path exists. See
 `docs/RD6018_DECISION_OWNERSHIP_MIGRATION_MODEL.md`.
 
+### EPIC H.0 — Execution shadow validation
+
+**Current status: execution shadow validation.** V3/V2 actuator parity,
+safety/readback readiness and failure classification are validated as pure
+data comparisons. No execution, transport write or ownership transfer is
+enabled. See `docs/RD6018_EXECUTION_SHADOW_VALIDATION_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
