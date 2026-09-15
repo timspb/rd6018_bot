@@ -305,6 +305,13 @@ without enabling decision ownership. V2 remains the live decision, execution
 and physical owner. See
 `docs/RD6018_DECISION_CUTOVER_OPERATIONAL_READINESS_MODEL.md`.
 
+### EPIC M — Decision canary controller
+
+**Current status: decision-only canary model.** Bounded V3 decision authority,
+expiry, blocker rollback, approval and audit state are modeled while V2 keeps
+execution and physical ownership. See
+`docs/RD6018_DECISION_CANARY_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
