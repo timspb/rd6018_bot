@@ -15,6 +15,10 @@ from charge_logic import MAX_STAGE_CURRENT, OCP_OFFSET, OVP_OFFSET
 from config import MAX_MANUAL_VOLTAGE
 from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
 from runtime.charge.profiles.manual import ManualChargeProfile, load_manual_profile
+from application.manual_identity_integration import ManualIdentityIntegrationAdapter
+from application.manual_execution_boundary import ManualExecutionBoundary
+from application.manual_phase_lifecycle import ManualPhaseLifecycle
+from v3_core.canonical_events import EventType
 
 
 MANUAL_SESSION_FILE = "manual_session_v2.json"
@@ -140,6 +144,7 @@ class ManualSessionManager:
         self.paused_total_s = 0.0
         self.cooling_started_at: Optional[float] = None
         self.stop_reason = ""
+        self.phase_transition_reason = ""
         self._task: Optional[asyncio.Task] = None
         self._vmax: Optional[float] = None
         self._imin: Optional[float] = None
@@ -150,6 +155,11 @@ class ManualSessionManager:
         self.main_min_hold_started_at: Optional[float] = None
         self._last_main_min_confirmation = 0.0
         self.main_tail_current_threshold_a = MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
+        self.identity_integration = ManualIdentityIntegrationAdapter()
+        self.phase_lifecycle = ManualPhaseLifecycle()
+        self.execution_boundary = ManualExecutionBoundary(self.app.hass)
+        self.identity_restore_resolution = "AMBIGUOUS"
+        self._manual_start_event_emitted = False
         self._restore_as_interrupted()
 
     def _transition_state(self, new_state: ManualSessionState, reason: str) -> None:
@@ -163,6 +173,13 @@ class ManualSessionManager:
                 reason,
                 time.time(),
             )
+            if self.identity_integration.identity is not None and self._manual_start_event_emitted:
+                self.identity_integration.emit(
+                    event_type=EventType.PHASE_TRANSITION,
+                    phase_before=old_state.value,
+                    phase_after=new_state.value,
+                    reason=reason,
+                )
 
     @property
     def is_active(self) -> bool:
@@ -171,6 +188,16 @@ class ManualSessionManager:
             ManualSessionState.ACTIVE,
             ManualSessionState.COOLING,
         }
+
+    @property
+    def session_identity(self):
+        """Read-only identity view for diagnostics/evidence consumers."""
+        return self.identity_integration.identity
+
+    @property
+    def canonical_events(self):
+        """In-memory canonical events; no writer or transport is invoked."""
+        return self.identity_integration.events
 
     @property
     def active_elapsed_s(self) -> float:
@@ -191,8 +218,10 @@ class ManualSessionManager:
             "paused_total_s": self.paused_total_s,
             "cooling_started_at": self.cooling_started_at,
             "stop_reason": self.stop_reason,
+            "phase_transition_reason": self.phase_transition_reason,
             "finish_hold_started_at": self.finish_hold_started_at,
             "saved_at": time.time(),
+            "session_identity": self.identity_integration.identity_payload(),
         }
 
     def _persist(self) -> None:
@@ -217,6 +246,8 @@ class ManualSessionManager:
         except (OSError, json.JSONDecodeError, TypeError):
             return
         request_raw = raw.get("request")
+        restore_decision = self.identity_integration.restore(raw.get("session_identity"), now=time.time())
+        self.identity_restore_resolution = restore_decision.resolution.value
         if isinstance(request_raw, dict):
             stop_raw = request_raw.get("stop") or {}
             try:
@@ -275,11 +306,19 @@ class ManualSessionManager:
             raise RuntimeError("automatic charge controller is active")
 
         self.request = request
+        self.identity_integration.create_for_start(
+            profile=request.battery_id or request.operation_mode,
+            source="manual",
+            created_at=time.time(),
+        )
+        self._manual_start_event_emitted = False
         self._transition_state(ManualSessionState.ARMING, "operator_start")
         self.started_at = time.time()
         self.paused_total_s = 0.0
         self.cooling_started_at = None
         self.stop_reason = ""
+        self.phase_transition_reason = ""
+        self.phase_lifecycle.reset()
         self._reset_delta_tracking()
         self.main_min_confirmations = 0
         self.main_min_hold_started_at = None
@@ -301,6 +340,13 @@ class ManualSessionManager:
             return False
 
         self._transition_state(ManualSessionState.ACTIVE, "safe_enable_confirmed")
+        self.identity_integration.emit(
+            event_type=EventType.SESSION_STARTED,
+            phase_before=ManualSessionState.ARMING.value,
+            phase_after=ManualSessionState.ACTIVE.value,
+            reason="safe_enable_confirmed",
+        )
+        self._manual_start_event_emitted = True
         self._persist()
         self._task = asyncio.create_task(self._run(), name="rd6018-manual-session")
         return True
@@ -317,6 +363,13 @@ class ManualSessionManager:
             )
             self.cooling_started_at = None
             self._persist()
+            if self.identity_integration.identity is not None:
+                self.identity_integration.emit(
+                    event_type=EventType.SESSION_STOPPED,
+                    phase_before=ManualSessionState.ACTIVE.value,
+                    phase_after=self.state.value,
+                    reason=self.stop_reason,
+                )
         return confirmed
 
     async def _enter_cooling(self) -> None:
@@ -469,43 +522,35 @@ class ManualSessionManager:
             return None
         if voltage < float(self.request.voltage_v) - 0.20:
             return None
-        if self._imin is None or current < self._imin:
-            self._imin = current
-            logger.info(
-                "MANUAL_EVIDENCE kind=minimum event=update mode=CV value=%.3f timestamp=%.3f",
-                current,
-                time.time(),
+        if self.request.profile is not None:
+            decision = self.phase_lifecycle.evaluate_main(
+                profile=self.request.profile,
+                voltage_v=voltage,
+                current_a=current,
+                is_cv=True,
             )
-        threshold = (
-            self.request.profile.main.minimum_current_a
-            if self.request.profile is not None
-            else self.main_tail_current_threshold_a
-        )
-        if threshold is not None and current <= float(threshold):
-            if self.request.profile is None:
-                return "manual_main_cv_imin"
-            interval = self.request.profile.main.confirmation_interval_seconds
-            now = time.time()
-            if self._last_main_min_confirmation and now - self._last_main_min_confirmation < interval:
-                return None
-            self._last_main_min_confirmation = now
-            self.main_min_confirmations += 1
-            required = self.request.profile.main.confirmation_count
-            if self.main_min_confirmations >= required:
-                if self.main_min_hold_started_at is None:
-                    self.main_min_hold_started_at = time.time()
-                    return None
-                if time.time() - self.main_min_hold_started_at >= self.request.profile.main.hold_hours * 3600.0:
-                    return "manual_main_to_mix"
+            self.main_min_confirmations = self.phase_lifecycle.confirmations
+            self.main_min_hold_started_at = self.phase_lifecycle.hold_started_at
+            if decision is not None:
+                return "manual_main_to_mix"
+        elif self._imin is None or current <= self.main_tail_current_threshold_a:
+            return "manual_main_cv_imin"
         return None
 
     async def _advance_profile_to_mix(self) -> None:
         assert self.request is not None and self.request.profile is not None
         stage = self.request.profile.mix
-        # Reuse the existing verified OFF -> fresh enable path.  The stage change
-        # never introduces a second actuator owner or a direct programming path.
-        if not await self.stop("manual_main_hold_complete"):
+        decision = self.phase_lifecycle.last_decision
+        if decision is None or self.identity_integration.identity is None:
+            logger.warning("MAIN -> MIX denied: V3 decision or lifecycle identity missing")
             return
+        if not await self.execution_boundary.apply(
+            decision,
+            identity=self.identity_integration.identity,
+        ):
+            await self.stop("manual_main_to_mix_update_failed")
+            return
+        previous_stage = self.request.stage
         self.request = ManualChargeRequest(
             voltage_v=stage.voltage_v,
             current_a=stage.current_a,
@@ -515,9 +560,16 @@ class ManualSessionManager:
             profile=self.request.profile,
             stage="mix",
         )
-        self._transition_state(ManualSessionState.COOLING, "manual_main_to_mix_prepare")
-        self.cooling_started_at = time.time()
-        await self._resume_after_cooling()
+        self.stop_reason = ""
+        self.phase_transition_reason = "manual_main_to_mix"
+        if self.identity_integration.identity is not None and self._manual_start_event_emitted:
+            self.identity_integration.emit(
+                event_type=EventType.PHASE_TRANSITION,
+                phase_before=previous_stage or "main",
+                phase_after="mix",
+                reason=self.phase_transition_reason,
+            )
+        self._persist()
 
     def _mix_hold_reason(self, *, now: float) -> Optional[str]:
         if self.request is None or self.request.operation_mode != "mix":
