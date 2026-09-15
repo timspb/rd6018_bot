@@ -6,7 +6,14 @@ import ast
 import unittest
 from pathlib import Path
 
-from application.actuator_intent import ActuatorIntent, ActuatorOperation
+from application.actuator_intent import (
+    ActuatorIntent,
+    ActuatorOperation,
+    ActuatorTrigger,
+    PhysicalVerificationExpectation,
+    RollbackPolicy,
+    SafetyContext,
+)
 from application.actuator_intent_adapter import ActuatorIntentAdapter
 
 
@@ -21,6 +28,7 @@ class Phase43ActuatorParityTests(unittest.TestCase):
             ActuatorOperation.SET_VOLTAGE: "V2 runtime safety surface",
             ActuatorOperation.SET_CURRENT: "V2 runtime safety surface",
         }
+        context = safety_context or SafetyContext("fresh", "armed", "none", "not_requested", "parity")
         return ActuatorIntent.new(
             trace_id="trace-parity",
             source="v2_transaction",
@@ -28,11 +36,10 @@ class Phase43ActuatorParityTests(unittest.TestCase):
             target=14.8 if operation is ActuatorOperation.SET_VOLTAGE else 5.0 if operation is ActuatorOperation.SET_CURRENT else "RD6018 Output",
             reason="parity analysis",
             owner=owner or owners[operation],
-            safety_context=safety_context or {
-                "ownership": "available",
-                "fresh_readback": True,
-                "rollback": "verified_off",
-            },
+            trigger=ActuatorTrigger.START_REQUEST,
+            rollback_policy=RollbackPolicy.SAFE_OFF,
+            safety_context=context,
+            verification_expectation=PhysicalVerificationExpectation("off", True, "v2_transaction"),
         )
 
     def test_request_equivalence_for_all_operations(self):
@@ -45,7 +52,10 @@ class Phase43ActuatorParityTests(unittest.TestCase):
             self.assertEqual(request.operation, intent.requested_operation)
             self.assertEqual(request.target, intent.target)
             self.assertEqual(request.reason, intent.reason)
-            self.assertEqual(dict(request.safety_context), dict(intent.safety_context))
+            self.assertEqual(request.safety_context, intent.safety_context)
+            self.assertEqual(request.trigger, intent.trigger)
+            self.assertEqual(request.rollback_policy, intent.rollback_policy)
+            self.assertEqual(request.verification_expectation, intent.verification_expectation)
 
     def test_unsafe_owner_and_source_are_rejected(self):
         adapter = ActuatorIntentAdapter()
@@ -62,7 +72,10 @@ class Phase43ActuatorParityTests(unittest.TestCase):
                     target=5.0,
                     reason="blocked",
                     owner="V2 runtime safety surface",
-                    safety_context={"blocked": True},
+                    trigger=ActuatorTrigger.SAFETY_CONTAINMENT,
+                    rollback_policy=RollbackPolicy.CONTAIN_AND_LATCH,
+                    safety_context=SafetyContext("fresh", "armed", "blocked", "not_requested", "parity"),
+                    verification_expectation=PhysicalVerificationExpectation("off", True, "containment"),
                 )
             )
 
@@ -75,7 +88,10 @@ class Phase43ActuatorParityTests(unittest.TestCase):
                 target="RD6018 Output",
                 reason="missing context",
                 owner="SafeOutputCoordinator",
+                trigger=ActuatorTrigger.STOP_REQUEST,
+                rollback_policy=RollbackPolicy.SAFE_OFF,
                 safety_context=None,  # type: ignore[arg-type]
+                verification_expectation=PhysicalVerificationExpectation("off", True, "stop"),
             )
 
     def test_adapter_has_no_physical_side_effects(self):

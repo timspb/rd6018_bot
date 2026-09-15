@@ -7,10 +7,16 @@ the V2 owner, SafeOutputCoordinator, HA, ESPHome, controller, or FSM.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
-from .actuator_intent import ActuatorIntent, ActuatorOperation
+from .actuator_intent import (
+    ActuatorIntent,
+    ActuatorOperation,
+    ActuatorTrigger,
+    PhysicalVerificationExpectation,
+    RollbackPolicy,
+    SafetyContext,
+)
 
 
 @dataclass(frozen=True)
@@ -23,16 +29,24 @@ class V2ActuatorExecutionRequest:
     target: Any
     reason: str
     owner: str
-    safety_context: Mapping[str, Any]
+    trigger: ActuatorTrigger
+    rollback_policy: RollbackPolicy
+    safety_context: SafetyContext
+    verification_expectation: PhysicalVerificationExpectation
 
     def __post_init__(self) -> None:
         if not self.trace_id.strip() or not self.source.strip() or not self.reason.strip() or not self.owner.strip():
             raise ValueError("V2 execution request identity fields are required")
         if not isinstance(self.operation, ActuatorOperation):
             raise ValueError("invalid actuator operation")
-        if not isinstance(self.safety_context, Mapping):
-            raise TypeError("safety_context must be a mapping")
-        object.__setattr__(self, "safety_context", MappingProxyType(dict(self.safety_context)))
+        if not isinstance(self.trigger, ActuatorTrigger):
+            raise ValueError("invalid actuator trigger")
+        if not isinstance(self.rollback_policy, RollbackPolicy):
+            raise ValueError("invalid rollback policy")
+        if not isinstance(self.safety_context, SafetyContext):
+            raise TypeError("typed SafetyContext is required")
+        if not isinstance(self.verification_expectation, PhysicalVerificationExpectation):
+            raise TypeError("typed PhysicalVerificationExpectation is required")
 
 
 class ActuatorIntentAdapter:
@@ -72,7 +86,7 @@ class ActuatorIntentAdapter:
             raise ValueError(
                 f"owner {intent.owner!r} is not allowed for {intent.requested_operation.value}"
             )
-        if intent.safety_context.get("blocked") is True:
+        if intent.safety_context.containment_state == "blocked":
             raise ValueError("actuator intent is blocked by safety context")
         return V2ActuatorExecutionRequest(
             trace_id=intent.trace_id,
@@ -81,6 +95,8 @@ class ActuatorIntentAdapter:
             target=intent.target,
             reason=intent.reason,
             owner=intent.owner,
+            trigger=intent.trigger,
+            rollback_policy=intent.rollback_policy,
             safety_context=intent.safety_context,
+            verification_expectation=intent.verification_expectation,
         )
-

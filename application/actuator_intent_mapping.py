@@ -7,12 +7,16 @@ FSM, safety guard, HA client, ESPHome client, or physical adapter.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from .actuator_intent import (
     ActuatorIntent,
     ActuatorOperation,
+    ActuatorTrigger,
     ExistingActuatorRequest,
+    PhysicalVerificationExpectation,
+    RollbackPolicy,
+    SafetyContext,
     map_existing_request,
 )
 
@@ -23,29 +27,35 @@ class ActuatorPathMapping:
     current_operation: ActuatorOperation
     caller: str
     owner: str
-    trigger: str
+    current_trigger: str
     reason: str
     target: Any
     classification: str
+    trigger: ActuatorTrigger = ActuatorTrigger.MANUAL_ACTION
+    rollback_policy: RollbackPolicy = RollbackPolicy.SAFE_OFF
+    safety_context: SafetyContext = SafetyContext("observed", "unchanged", "none", "not_requested", "phase4")
+    verification_expectation: PhysicalVerificationExpectation = PhysicalVerificationExpectation("unchanged", False, "none")
 
-    def to_request(self, *, safety_context: Mapping[str, Any] | None = None) -> ExistingActuatorRequest:
+    def to_request(self) -> ExistingActuatorRequest:
         return ExistingActuatorRequest(
             source=self.caller,
             operation=self.current_operation,
             target=self.target,
             reason=self.reason,
             owner=self.owner,
-            safety_context=safety_context or {"observation_only": True},
+            trigger=self.trigger,
+            rollback_policy=self.rollback_policy,
+            safety_context=self.safety_context,
+            verification_expectation=self.verification_expectation,
         )
 
     def to_intent(
         self,
         *,
         trace_id: str,
-        safety_context: Mapping[str, Any] | None = None,
     ) -> ActuatorIntent:
         return map_existing_request(
-            self.to_request(safety_context=safety_context),
+            self.to_request(),
             trace_id=trace_id,
         )
 
@@ -76,4 +86,3 @@ def observe_actuator_path(path_id: str, *, trace_id: str) -> ActuatorIntent:
         if path.path_id == path_id:
             return path.to_intent(trace_id=trace_id)
     raise KeyError(f"unknown actuator path: {path_id}")
-

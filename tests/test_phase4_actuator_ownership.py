@@ -10,7 +10,11 @@ from pathlib import Path
 from application.actuator_intent import (
     ActuatorIntent,
     ActuatorOperation,
+    ActuatorTrigger,
     ExistingActuatorRequest,
+    PhysicalVerificationExpectation,
+    RollbackPolicy,
+    SafetyContext,
     map_existing_request,
 )
 
@@ -27,13 +31,16 @@ class Phase4ActuatorOwnershipTests(unittest.TestCase):
             target=1.5,
             reason="phase transition",
             owner="v2_runtime_safety",
-            safety_context={"output": False, "nested": {"fresh": True}},
+            trigger=ActuatorTrigger.MANUAL_ACTION,
+            rollback_policy=RollbackPolicy.SAFE_OFF,
+            safety_context=SafetyContext("fresh", "armed", "none", "not_requested", "test"),
+            verification_expectation=PhysicalVerificationExpectation("unchanged", False, "none"),
         )
         with self.assertRaises(FrozenInstanceError):
             intent.owner = "other"  # type: ignore[misc]
-        with self.assertRaises(TypeError):
-            intent.safety_context["output"] = True  # type: ignore[index]
-        self.assertEqual(intent.safety_context["nested"]["fresh"], True)
+        with self.assertRaises(FrozenInstanceError):
+            intent.safety_context.telemetry_state = "stale"  # type: ignore[misc]
+        self.assertEqual(intent.safety_context.telemetry_state, "fresh")
 
     def test_all_operations_and_shadow_mapping(self):
         for operation in ActuatorOperation:
@@ -44,7 +51,10 @@ class Phase4ActuatorOwnershipTests(unittest.TestCase):
                     target=1.0,
                     reason="test",
                     owner="v2_owner",
-                    safety_context={"checked": True},
+                    trigger=ActuatorTrigger.MANUAL_ACTION,
+                    rollback_policy=RollbackPolicy.SAFE_OFF,
+                    safety_context=SafetyContext("fresh", "armed", "none", "not_requested", "test"),
+                    verification_expectation=PhysicalVerificationExpectation("unchanged", False, "none"),
                 ),
                 trace_id="trace-test",
             )

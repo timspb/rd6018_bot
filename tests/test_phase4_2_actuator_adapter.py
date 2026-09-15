@@ -6,7 +6,14 @@ import ast
 import unittest
 from pathlib import Path
 
-from application.actuator_intent import ActuatorIntent, ActuatorOperation
+from application.actuator_intent import (
+    ActuatorIntent,
+    ActuatorOperation,
+    ActuatorTrigger,
+    PhysicalVerificationExpectation,
+    RollbackPolicy,
+    SafetyContext,
+)
 from application.actuator_intent_adapter import (
     ActuatorIntentAdapter,
     V2ActuatorExecutionRequest,
@@ -21,7 +28,7 @@ def make_intent(
     *,
     owner: str = "V2 runtime safety surface",
     source: str = "runtime_v2",
-    safety_context: dict[str, object] | None = None,
+    safety_context: SafetyContext | None = None,
 ) -> ActuatorIntent:
     return ActuatorIntent.new(
         trace_id="trace-test",
@@ -30,7 +37,10 @@ def make_intent(
         target=1.5,
         reason="dry-run test",
         owner=owner,
-        safety_context=safety_context or {"checked": True},
+        trigger=ActuatorTrigger.MANUAL_ACTION,
+        rollback_policy=RollbackPolicy.SAFE_OFF,
+        safety_context=safety_context or SafetyContext("fresh", "armed", "none", "not_requested", "test"),
+        verification_expectation=PhysicalVerificationExpectation("unchanged", False, "none"),
     )
 
 
@@ -60,7 +70,9 @@ class Phase42ActuatorAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ActuatorIntentAdapter().adapt(make_intent(source="telegram"))
         with self.assertRaises(ValueError):
-            ActuatorIntentAdapter().adapt(make_intent(safety_context={"blocked": True}))
+            ActuatorIntentAdapter().adapt(
+                make_intent(safety_context=SafetyContext("fresh", "armed", "blocked", "not_requested", "test"))
+            )
 
     def test_adapter_has_no_physical_side_effects_or_safe_output_import(self):
         path = ROOT / "application" / "actuator_intent_adapter.py"
