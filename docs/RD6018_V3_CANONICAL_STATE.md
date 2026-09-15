@@ -276,6 +276,13 @@ into decision, execution, runtime, safety and configuration metrics with
 PASS/WARNING/BLOCKED thresholds. The collector is observational and cannot
 change ownership. See `docs/RD6018_LONG_RUNNING_SHADOW_ACCEPTANCE_MODEL.md`.
 
+### EPIC I — Staged ownership cutover
+
+**Current status: staged cutover model.** Stage 0–3 entry gates, health,
+rollback, abort conditions and singular-owner invariants are defined as a
+candidate model only. Live ownership remains unchanged. See
+`docs/RD6018_STAGED_OWNERSHIP_CUTOVER_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
