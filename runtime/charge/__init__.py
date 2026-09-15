@@ -3,6 +3,10 @@
 from .battery import BatteryProfile
 from .chemistry import ChemistryProfile, ProductionChemistry, map_production_chemistry
 from .engine import ChargeEngine
+from .decisions import ActuatorIntent, ContainmentResultRequest, DomainDecision
+from .profile_registry import ProfileDefinition, ProfileRegistry
+from .strategy_engine import StrategyEngine
+from .session import SessionManager, SessionSnapshot, SessionStatus
 from .intent import ChargeIntent
 from .limits import ChargeLimits
 from .measurements import Measurements
