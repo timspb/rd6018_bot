@@ -269,6 +269,13 @@ safety/readback readiness and failure classification are validated as pure
 data comparisons. No execution, transport write or ownership transfer is
 enabled. See `docs/RD6018_EXECUTION_SHADOW_VALIDATION_MODEL.md`.
 
+### EPIC H.1 — Long-running shadow acceptance
+
+**Current status: long-running shadow observation.** V3 evidence is aggregated
+into decision, execution, runtime, safety and configuration metrics with
+PASS/WARNING/BLOCKED thresholds. The collector is observational and cannot
+change ownership. See `docs/RD6018_LONG_RUNNING_SHADOW_ACCEPTANCE_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
