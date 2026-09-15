@@ -70,7 +70,7 @@ class ChargeEngine:
         state.completed = target in {"done", "stopped"}
         return state
 
-    def decision(self, state: ChargeState, measurements: Measurements) -> DomainDecision:
+    def decision(self, state: ChargeState | StrategyRuntimeState, measurements: Measurements) -> DomainDecision:
         """Return domain outputs; no output or containment owner is invoked."""
         charge_intent = self.evaluate(state, measurements)
         if charge_intent.target_voltage is None and charge_intent.target_current is None:
