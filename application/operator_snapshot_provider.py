@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import inspect
-import time
 from typing import Any, Mapping
 
-from operator_hmi import HmiProcessState, build_operator_hmi_state
-from rd6018_telemetry import telemetry_freshness
-from runtime.diagnostics import DiagnosticAuthority
-from runtime.journal import format_entry
 from runtime.ui.models import ChargeView, DiagnosticsView, RuntimeUISnapshot, SafetyView, TelemetryView
 
+from .legacy_ui_boundary import DiagnosticAuthority, HmiProcessState, LegacyUIReadAdapter
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
 from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
@@ -30,8 +26,7 @@ class OperatorSnapshotProvider:
     """
 
     def __init__(self, app: Any, *, journal: Any = None, intent_dispatcher: IntentDispatcher | None = None) -> None:
-        self.app = app
-        self.journal = journal
+        self._legacy = LegacyUIReadAdapter(app, journal=journal)
         if intent_dispatcher is None:
             pause_handler = PauseCommandHandler().route
             profile_handler = ProfileCommandHandler().route
@@ -46,26 +41,25 @@ class OperatorSnapshotProvider:
         self.intent_dispatcher = intent_dispatcher
 
     async def get_operator_snapshot(self) -> OperatorSnapshot:
-        live = await self.app.hass.get_all_live()
-        hmi = build_operator_hmi_state(self.app, live)
+        live = await self._legacy.read_live()
+        hmi = self._legacy.hmi_state(live)
         return self._build_snapshot(live, hmi)
 
     async def get_diagnostics(self) -> DiagnosticsView:
-        live = await self.app.hass.get_all_live()
+        live = await self._legacy.read_live()
         return self._diagnostics(live)
 
     async def get_operator_details(self) -> OperatorDetailsView:
-        live = await self.app.hass.get_all_live()
-        hmi = build_operator_hmi_state(self.app, live)
-        controller = getattr(self.app, "charge_controller", None)
+        live = await self._legacy.read_live()
+        hmi = self._legacy.hmi_state(live)
+        controller = self._legacy.controller()
         timers = {}
         if controller is not None and bool(getattr(controller, "is_active", False)):
             try:
                 timers = dict(controller.get_timers() or {})
             except Exception:
                 timers = {}
-        manual = getattr(self.app, "manual_session_manager", None)
-        request = getattr(manual, "request", None)
+        request = self._legacy.manual_request()
         return OperatorDetailsView(
             process_state=hmi.process_state.value,
             authority=hmi.authority.value,
@@ -81,7 +75,7 @@ class OperatorSnapshotProvider:
             safety=hmi.safety,
             progress=hmi.progress,
             observer_state=self._observer_state(),
-            observer_status=str(getattr(getattr(self.app, "rd_live_mix_observer", None), "last_status", "") or ""),
+            observer_status=str(getattr(self._legacy.observer(), "last_status", "") or ""),
             stage=str(getattr(controller, "current_stage", "") or ""),
             battery_type=str(getattr(controller, "battery_type", "") or ""),
             capacity_ah=self._number(getattr(controller, "ah_capacity", None)),
@@ -95,9 +89,9 @@ class OperatorSnapshotProvider:
         )
 
     async def get_service_details(self) -> ServiceDetailsView:
-        live = await self.app.hass.get_all_live()
-        hmi = build_operator_hmi_state(self.app, live)
-        controller = getattr(self.app, "charge_controller", None)
+        live = await self._legacy.read_live()
+        hmi = self._legacy.hmi_state(live)
+        controller = self._legacy.controller()
         snapshot = {}
         if controller is not None:
             try:
@@ -119,8 +113,8 @@ class OperatorSnapshotProvider:
         )
 
     async def get_operator_actions(self) -> OperatorActionsView:
-        live = await self.app.hass.get_all_live()
-        hmi = build_operator_hmi_state(self.app, live)
+        live = await self._legacy.read_live()
+        hmi = self._legacy.hmi_state(live)
         if hmi.process_state is HmiProcessState.ADOPTED_MIX:
             available = (OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
             return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "adopted_mix")
@@ -133,7 +127,7 @@ class OperatorSnapshotProvider:
         if hmi.process_state is HmiProcessState.STORAGE:
             return self._actions((OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS), (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "storage")
         if hmi.process_state in {HmiProcessState.RUNNING, HmiProcessState.PAUSED} and hmi.authority.value in {"auto", "manual"}:
-            paused = bool(getattr(self.app, "_operator_pause_active", lambda: False)())
+            paused = self._legacy.pause_active()
             available = (OperatorAction.RESUME_CHARGE if paused else OperatorAction.PAUSE_CHARGE, OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH, OperatorAction.SHOW_DIAGNOSTICS)
             return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "charging")
         snapshot = self._build_snapshot(live, hmi)
@@ -145,7 +139,7 @@ class OperatorSnapshotProvider:
         return OperatorActionsView(tuple(OperatorActionSpec(action) for action in available), tuple(disabled), reasons)
 
     def _observer_state(self) -> str:
-        observer = getattr(self.app, "rd_live_mix_observer", None)
+        observer = self._legacy.observer()
         raw = getattr(observer, "state", "") if observer is not None else ""
         return str(getattr(raw, "value", raw) or "")
 
@@ -159,15 +153,13 @@ class OperatorSnapshotProvider:
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]:
         if limit < 0:
             raise ValueError("limit must not be negative")
-        recorder = self.journal or getattr(self.app, "journal_recorder", None)
-        if recorder is None:
-            recorder = getattr(self.app, "journal", None)
+        recorder = self._legacy.journal()
         if recorder is None or not callable(getattr(recorder, "tail", None)):
             return ()
         entries = recorder.tail(limit)
         if inspect.isawaitable(entries):
             entries = await entries
-        return tuple(format_entry(entry) if hasattr(entry, "short_message") else str(entry) for entry in entries)
+        return tuple(self._legacy.format_journal_entry(entry) for entry in entries)
 
     async def submit_intent(self, intent: Any):
         """Route read-only intents; execution intents remain unmigrated."""
@@ -179,53 +171,17 @@ class OperatorSnapshotProvider:
 
     def legacy_hmi_state(self, live: Mapping[str, Any]):
         """Expose the source state for shadow comparison; still read-only."""
-        return build_operator_hmi_state(self.app, live)
+        return self._legacy.hmi_state(live)
 
     @staticmethod
     def hmi_state_from_snapshot(snapshot: OperatorSnapshot):
         """Adapt sanitized V3 data to the preserved renderer's data model."""
-        from operator_hmi import HmiAuthority, HmiProcessState, OperatorHmiState
-
-        process = {
-            "IDLE": HmiProcessState.IDLE,
-            "CHARGING": HmiProcessState.RUNNING,
-            "FAULT": HmiProcessState.CONTAINMENT,
-        }.get(snapshot.state, HmiProcessState.CONTAINMENT)
-        view = snapshot.snapshot
-        authority_value = str(view.charge.program or "").lower()
-        authority = HmiAuthority.MANUAL if authority_value == HmiAuthority.MANUAL.value else (
-            HmiAuthority.AUTO if snapshot.state == "CHARGING" else (
-                HmiAuthority.NONE if snapshot.state == "IDLE" else HmiAuthority.CONTAINMENT
-            )
-        )
-        return OperatorHmiState(
-            process_state=process,
-            authority=authority,
-            title=f"RD6018 · {view.charge.stage}",
-            output_on=bool(view.output.get("enabled")),
-            regulator=view.charge.phase or "—",
-            battery_label=str(view.battery.get("label", "") or ""),
-            battery_voltage_v=view.telemetry.voltage,
-            current_a=view.telemetry.current,
-            power_w=view.output.get("power_w"),
-            battery_temp_c=view.telemetry.temperature,
-            psu_temp_c=view.telemetry.psu_temperature,
-            target_voltage_v=view.charge.targets.get("voltage"),
-            current_limit_a=view.charge.targets.get("current"),
-            progress="" if authority_value == HmiAuthority.MANUAL.value else (view.charge.waiting_for or ""),
-            safety=view.safety.reason or ("Защита: норма" if view.safety.allowed else "⚠️ Safety blocked"),
-            attention="normal" if view.safety.allowed else "alarm",
-            stage_status=str(view.charge.evidence.get("stage_status", "") or ""),
-            stage_time=view.charge.timer_text,
-            delivered_ah=view.telemetry.accumulated_ah,
-        )
+        return LegacyUIReadAdapter.hmi_from_snapshot(snapshot)
 
     def _build_snapshot(self, live: Mapping[str, Any], hmi: Any) -> OperatorSnapshot:
-        fresh = telemetry_freshness(
-            live, ("switch", "battery_voltage", "current", "protection_code", "regulation_code")
-        ).valid
+        fresh = self._legacy.freshness(live, ("switch", "battery_voltage", "current", "protection_code", "regulation_code"))
         state = self._state(hmi, live, fresh)
-        stage = str(getattr(getattr(self.app, "charge_controller", None), "current_stage", "") or "")
+        stage = str(getattr(self._legacy.controller(), "current_stage", "") or "")
         if not stage:
             stage = str(getattr(hmi, "title", "IDLE") or "IDLE")
         faults = self._faults(live, hmi)
@@ -297,7 +253,7 @@ class OperatorSnapshotProvider:
         return tuple(dict.fromkeys(faults))
 
     def _diagnostics(self, live: Mapping[str, Any], *, faults: tuple[str, ...] = ()) -> DiagnosticsView:
-        report = next((getattr(self.app, name, None) for name in ("battery_diagnostic_report", "diagnostic_report") if getattr(self.app, name, None) is not None), None)
+        report = next((self._legacy.get(name) for name in ("battery_diagnostic_report", "diagnostic_report") if self._legacy.get(name) is not None), None)
         decision = getattr(report, "authority", report)
         authority = getattr(decision, "value", decision) or DiagnosticAuthority.ALLOW.value
         reasons = tuple(str(x) for x in (getattr(decision, "reasons", ()) or ()))

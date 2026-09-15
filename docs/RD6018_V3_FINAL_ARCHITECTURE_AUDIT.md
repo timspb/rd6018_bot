@@ -220,3 +220,10 @@ Workstream 1 exit status: **AUDIT COMPLETE, CUTOVER NOT APPROVED**.
 
 This audit did not change V2 runtime, START, ACTIVE, HA, ESPHome, lease
 ownership, physical ownership, configuration values or execution behavior.
+
+## WORKSTREAM 2 post-audit checkpoint
+
+The UI direct-import finding was reduced by `LegacyUIReadAdapter`, and explicit
+safety/configuration/actuator compatibility contracts were added. B2/B3/B4/B5
+and B6 remain open; see `docs/RD6018_BOUNDARY_CLEANUP_REPORT.md`. Therefore the
+architecture result remains `NOT READY FOR REAL OWNERSHIP TRANSITIONS`.

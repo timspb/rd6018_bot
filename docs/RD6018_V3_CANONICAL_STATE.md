@@ -312,6 +312,16 @@ expiry, blocker rollback, approval and audit state are modeled while V2 keeps
 execution and physical ownership. See
 `docs/RD6018_DECISION_CANARY_MODEL.md`.
 
+### WORKSTREAM 2 — Boundary cleanup and decoupling
+
+**Current status: partial cleanup; Stage 0 behavior preserved.** UI legacy
+reads now use an explicit compatibility adapter, and safety/configuration/
+actuator inventories are represented by non-executing contracts. Legacy domain
+imports, production actuator bypasses, configuration conflicts, multiple V2/
+edge safety owners and import-time V2 construction remain open. Architecture
+PASS and Stage 1 are not approved. See
+`docs/RD6018_BOUNDARY_CLEANUP_REPORT.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
