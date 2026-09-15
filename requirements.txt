@@ -1,9 +1,8 @@
 aiogram>=3.0
 aiohttp>=3.8
-# aioesphomeapi 46.x requires Python 3.11+; keep the supported Python 3.10
-# CI/deployment interpreter on the latest compatible release.
-aioesphomeapi==46.4.1; python_version >= "3.11"
-aioesphomeapi==36.0.1; python_version < "3.11"
+# Keep CI and the supported Python 3.10+ deployment interpreter on one
+# compatible API contract; 46.x is Python 3.11-only and creates matrix drift.
+aioesphomeapi==36.0.1
 aiosqlite>=0.19
 matplotlib>=3.7
 Pillow>=10.0
