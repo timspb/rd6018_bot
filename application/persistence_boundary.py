@@ -34,6 +34,7 @@ def _plain(value: Any) -> Any:
 class PersistenceKind(str, Enum):
     DOMAIN_STATE = "domain_state"
     HISTORICAL_DATA = "historical_data"
+    SHADOW_EVIDENCE = "shadow_evidence"
 
 
 class PersistenceError(ValueError):
@@ -146,7 +147,7 @@ class PersistenceProvider(Protocol):
 
 
 _DOMAIN_OWNERS = frozenset({"Session Domain", "Charge Domain", "Strategy Domain"})
-_HISTORY_OWNERS = frozenset({"Telemetry History", "Diagnostics Domain"})
+_HISTORY_OWNERS = frozenset({"Telemetry History", "Diagnostics Domain", "Shadow Evidence"})
 _FORBIDDEN_STATE_MARKERS = frozenset({"containment", "lease", "actuator", "output", "safety"})
 
 
@@ -161,7 +162,7 @@ class InMemoryPersistenceProvider:
             raise TypeError("PersistenceRecord is required")
         if record.kind is PersistenceKind.DOMAIN_STATE and record.snapshot.owner not in _DOMAIN_OWNERS:
             raise PersistenceError("domain state owner is not approved")
-        if record.kind is PersistenceKind.HISTORICAL_DATA and record.snapshot.owner not in _HISTORY_OWNERS:
+        if record.kind in {PersistenceKind.HISTORICAL_DATA, PersistenceKind.SHADOW_EVIDENCE} and record.snapshot.owner not in _HISTORY_OWNERS:
             raise PersistenceError("historical data owner is not approved")
         self._records[record.record_id] = record
 
