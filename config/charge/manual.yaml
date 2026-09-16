@@ -1,0 +1,20 @@
+# Настройки обязательного ручного маршрута MAIN -> MIX.
+# Configuration for the mandatory staged Manual route MAIN -> MIX.
+# Все значения изменяются здесь, а не в Python-коде.
+# All operator-tunable values belong here, not in Python code.
+manual:
+  main:
+    voltage_v: 14.7
+    current_a: 5.0
+    minimum_current_a: 0.30
+    hold_hours: 0
+    confirmation_count: 3
+    confirmation_interval_seconds: 60
+  mix:
+    voltage_v: 16.5
+    current_a: 1.5
+    delta_voltage_v: 0.03
+    delta_current_a: 0.03
+    hold_hours: 2
+    confirmation_count: 3
+    confirmation_interval_seconds: 60

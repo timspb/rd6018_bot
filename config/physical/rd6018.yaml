@@ -1,0 +1,9 @@
+# Максимальное выходное напряжение RD6018, вольты
+# RD6018 maximum output voltage, volts
+max_voltage_v: 60
+# Максимальный выходной ток RD6018, амперы
+# RD6018 maximum output current, amperes
+max_current_a: 18
+# Максимальная выходная мощность RD6018, ватты
+# RD6018 maximum output power, watts
+max_power_w: 1080

@@ -1,0 +1,14 @@
+# Короткий bench-профиль для проверки OFF -> ON -> OFF, не рецепт заряда
+# Short bench profile for OFF -> ON -> OFF verification, not a charge recipe
+# Выбор напряжения выполняется после чтения АКБ: Vset = Vbattery + запас
+# Voltage is selected after reading the battery: Vset = Vbattery + margin
+voltage_margin_v: 0.50
+current_a: 0.10
+# Защиты вычисляются от выбранных уставок; здесь только запас профиля
+# Protections are derived from selected setpoints; this is the profile margin
+ovp_margin_v: 0.50
+ocp_margin_a: 0.10
+max_on_seconds: 10
+# Выдержка выхода во включенном состоянии перед отключением, секунды
+# Output hold time before disable, seconds
+on_hold_seconds: 10

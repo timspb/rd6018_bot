@@ -199,6 +199,22 @@ def install_rd_autonomous_mode(
 
     manager.return_pb_control = guarded_return_pb_control
 
+    # The same stale-capability rule applies to the explicit HANDS_OFF Output-OFF
+    # control. It intentionally bypasses the public HassClient wrappers so an operator
+    # can contain a HANDS_OFF PSU, but that narrow capability must disappear once the
+    # edge owns explicit AUTONOMOUS authority. Production RdControlModeManager exposes
+    # this method; the callable check keeps reduced characterization harnesses compatible.
+    original_operator_output_off = getattr(manager, "operator_output_off", None)
+    if callable(original_operator_output_off):
+        async def guarded_operator_output_off(entity_id: Optional[str] = None) -> bool:
+            if manager.edge_autonomous:
+                raise RuntimeSafetyError(
+                    "RD AUTONOMOUS: bot Output OFF is disabled; use the physical RD6018 controls"
+                )
+            return bool(await original_operator_output_off(entity_id))
+
+        manager.operator_output_off = guarded_operator_output_off
+
     if not install_ui:
         return coordinator
 
@@ -306,8 +322,15 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
 
     original = hmi.build_operator_keyboard
 
-    def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
-        markup = original(app_arg, state)
+    def build_keyboard(
+        app_arg: Any,
+        state: Any,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        markup = original(app_arg, state, actions=actions) if actions is not None else original(app_arg, state)
+        if actions is not None:
+            return markup
         manager = coordinator.manager
 
         if manager.edge_autonomous:
@@ -318,6 +341,7 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
                 markup,
                 {
                     "rd_hands_off_disable",
+                    "rd_hands_off_output_off",
                     "rd_managed_adopt",
                     "rd_managed_mix",
                     "rd_live_mix",
@@ -325,6 +349,7 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
                     "rd_ownership_hands_off",
                     "rd_hands_off_release_confirm",
                     "charge_modes",
+                    "v2_batteries",
                     "power_toggle",
                     "menu_off",
                 },

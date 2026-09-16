@@ -63,8 +63,49 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         request = ManualChargeRequest(voltage_v=17.5, current_a=12.0)
         self.assertAlmostEqual(request.ovp_v, 17.6)
         self.assertAlmostEqual(request.ocp_a, 12.1)
+        self.assertEqual(request.operation_mode_label, "Ручной МИКС")
+        self.assertEqual(ManualChargeRequest(15.7, 2.0).operation_mode_label, "Ручной Основной")
         with self.assertRaises(ValueError):
             ManualChargeRequest(voltage_v=17.5001, current_a=1.0)
+
+    async def test_main_manual_stops_at_cv_tail_current(self):
+        request = ManualChargeRequest(voltage_v=14.8, current_a=5.0)
+        manager = ManualSessionManager(self.app, session_file=self.session_file)
+        self.app.manual_session_manager = manager
+        manager.request = request
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time() - 600.0
+        self.hass.live.update({"switch": "on", "battery_voltage": 14.75, "current": 0.30})
+
+        await manager.observe_once()
+
+        self.assertEqual(manager.stop_reason, "manual_main_cv_imin")
+        self.assertEqual(manager.state, ManualSessionState.STOPPED)
+
+    async def test_mix_manual_requires_delta_hold_before_stop(self):
+        request = ManualChargeRequest(
+            voltage_v=16.5,
+            current_a=1.5,
+            stop=ManualStopConditions(delta=0.03),
+        )
+        manager = ManualSessionManager(self.app, session_file=self.session_file)
+        self.app.manual_session_manager = manager
+        manager.request = request
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time() - 600.0
+        manager.finish_hold_started_at = time.time()
+        self.hass.live.update({"switch": "on", "battery_voltage": 16.5, "current": 0.40})
+
+        await manager.observe_once()
+
+        self.assertEqual(manager.state, ManualSessionState.ACTIVE)
+        self.assertEqual(self.hass.off_calls, 0)
+
+        manager.finish_hold_started_at = time.time() - 7201.0
+        await manager.observe_once()
+
+        self.assertEqual(manager.stop_reason, "manual_mix_delta_hold_complete")
+        self.assertEqual(manager.state, ManualSessionState.STOPPED)
 
     async def test_start_uses_safe_transaction_and_not_chemistry_controller(self):
         request = ManualChargeRequest(

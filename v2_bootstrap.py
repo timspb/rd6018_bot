@@ -21,6 +21,13 @@ from v2_battery_input import parse_battery_spec
 from v2_sg_ui import install_sg_ui, sg_menu_button
 from v2_startup import start_profile_transactional
 from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
+from application.intents import OperatorIntent, OperatorIntentKind
+from application.production_start_execution_port import ProductionStartExecutionPort
+from application.production_start_runner import ProductionStartRunner
+from application.production_start_route import ProductionStartRouteAdapter
+from application.start_activation_policy import StartActivationPolicy
+from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
+from application.v2_start_transaction_adapter import V2StartTransactionAdapter
 
 
 def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -180,6 +187,23 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui._safe_answer = _safe_answer_operator
     v2_bot_ui._intent_keyboard = _operator_intent_keyboard
     v2_bot_ui._preview_keyboard = _operator_preview_keyboard
+    # Composition only: keep Telegram START in DRY_RUN while constructing the
+    # future gated runner.  The V2 owner is reached only from ACTIVE, which is
+    # fail-closed by the default activation policy.
+    v3_transaction_adapter = V2StartTransactionAdapter()
+    v3_runner_adapter = V2StartRunnerAdapter(app, event_factory=build_v2_start_event_context)
+    v3_activation_policy = StartActivationPolicy()
+    v3_production_runner = ProductionStartRunner(
+        transaction_adapter=v3_transaction_adapter,
+        activation_policy=v3_activation_policy,
+        transaction_runner=v3_runner_adapter,
+    )
+    v3_start_port = ProductionStartExecutionPort(
+        transaction_adapter=v3_transaction_adapter,
+        activation_policy=v3_activation_policy,
+        production_runner=v3_production_runner,
+    )
+    app._v3_production_start_route = ProductionStartRouteAdapter(app, port=v3_start_port)
 
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _v2_battery_start_route(call: Any) -> None:
@@ -191,8 +215,29 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         if pending is None:
             await call.answer("Предпросмотр устарел — выберите АКБ заново", show_alert=True)
             return
-        if await start_profile_transactional(app, call, pending):
-            v2_bot_ui._pending_start.pop(user_id, None)
+        intent = OperatorIntent(
+            OperatorIntentKind.START_CHARGE,
+            "telegram",
+            str(user_id),
+            {
+                "profile": pending.profile,
+                "capacity_ah": pending.capacity_ah,
+                "battery_identity": None,
+                "battery_id": pending.battery_id,
+                "intent": pending.intent,
+                "condition": pending.condition,
+            },
+        )
+        result = await app._v3_production_start_route.submit(intent)
+        if not result.accepted:
+            await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            return
+        # DRY_RUN deliberately does not mutate the session or clear the pending
+        # preview. The V2 transaction owner remains the future ACTIVE handoff.
+        await call.answer(
+            f"START preflight PASS; DRY_RUN, заряд не запущен ({result.trace_id[:8]})",
+            show_alert=True,
+        )
 
     v2_bot_ui.install_v2_ui(app)
     install_sg_ui(app)

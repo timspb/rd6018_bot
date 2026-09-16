@@ -176,6 +176,20 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(manager.is_active)
         self.assertIn("output_off_unconfirmed", manager.stop_reason)
 
+    async def test_operator_stop_records_terminal_transition_after_verified_off(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time()
+        self.hass.live["switch"] = "on"
+
+        with self.assertLogs("rd6018.manual", level="INFO") as captured:
+            confirmed = await manager.stop("operator_stop")
+
+        self.assertTrue(confirmed)
+        self.assertEqual(manager.state, ManualSessionState.STOPPED)
+        self.assertTrue(any("old=active new=stopped reason=operator_stop" in line for line in captured.output))
+
     async def test_cooling_off_false_remains_managed_containment(self):
         manager = self._manager()
         manager.request = ManualChargeRequest(14.7, 2.0)

@@ -1,0 +1,16 @@
+# Независимые физические коннекторы к одному RD6018
+# Independent physical connectors to the same RD6018
+default_connector: esp_direct
+connectors:
+  # Путь через Home Assistant -> ESPHome -> RD6018
+  # Path through Home Assistant -> ESPHome -> RD6018
+  ha_esp:
+    enabled: true
+    priority: 20
+    profile: ha_esp
+  # Прямой путь ESPHome -> RD6018
+  # Direct ESPHome -> RD6018 path
+  esp_direct:
+    enabled: true
+    priority: 10
+    profile: esp_direct

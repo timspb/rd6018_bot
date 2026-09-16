@@ -1,0 +1,17 @@
+{
+  "success": {
+    "AGM": {"chemistry": "agm", "recipe_id": "agm:normal", "target_voltage_v": 14.4, "target_current_a": 7.0},
+    "EFB": {"chemistry": "efb", "recipe_id": "efb:normal", "target_voltage_v": 14.4, "target_current_a": 7.0},
+    "Ca/Ca": {"chemistry": "ca_ca", "recipe_id": "ca_ca:normal", "target_voltage_v": 14.4, "target_current_a": 7.0},
+    "Custom": {"chemistry": "custom", "recipe_id": "custom:normal", "target_voltage_v": 14.4, "target_current_a": 7.0}
+  },
+  "deny": {
+    "HANDS_OFF": ["hands_off"],
+    "active_session": ["active_charge_session"],
+    "stale_telemetry": ["invalid_or_stale_telemetry"],
+    "invalid_profile": ["invalid_profile"],
+    "unsafe_voltage": ["request_over_recipe_ceiling"],
+    "unsafe_temperature": ["battery_too_hot"],
+    "output_already_enabled": ["output_already_on"]
+  }
+}

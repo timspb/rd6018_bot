@@ -1,9 +1,11 @@
 import types
 import unittest
+from unittest.mock import patch
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import operator_hmi as hmi
+import bot_legacy
 from operator_managed_stop import _replace_legacy_power_toggle, _stop_exact_session
 
 
@@ -26,6 +28,13 @@ class FakeManual:
 
 
 class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
+    def test_stale_legacy_power_toggle_is_disabled_after_managed_stop_install(self):
+        with patch.object(bot_legacy, "_operator_managed_stop_installed", True, create=True):
+            self.assertTrue(bot_legacy._legacy_power_toggle_is_disabled())
+
+        with patch.object(bot_legacy, "_operator_managed_stop_installed", False, create=True):
+            self.assertFalse(bot_legacy._legacy_power_toggle_is_disabled())
+
     def _state(self, authority):
         return hmi.OperatorHmiState(
             process_state=hmi.HmiProcessState.RUNNING,

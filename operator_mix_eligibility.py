@@ -66,8 +66,19 @@ def install_mix_action_eligibility(app: Any) -> None:
 
     original_keyboard = operator_hmi.build_operator_keyboard
 
-    def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
-        markup = original_keyboard(app_arg, state)
+    def build_keyboard(
+        app_arg: Any,
+        state: Any,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        markup = (
+            original_keyboard(app_arg, state, actions=actions)
+            if actions is not None
+            else original_keyboard(app_arg, state)
+        )
+        if actions is not None:
+            return markup
         if (
             state.process_state is operator_hmi.HmiProcessState.HANDS_OFF
             and bool(state.output_on)

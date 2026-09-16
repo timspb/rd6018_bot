@@ -2,7 +2,8 @@ import unittest
 from types import SimpleNamespace
 
 import v2_sg_ui
-from manual_text_v2 import _another_dialog_owns_text, parse_manual_command
+from manual_mode import ManualChargeRequest
+from manual_text_v2 import _another_dialog_owns_text, _format_start, manual_help_text, parse_manual_command
 
 
 class ManualTextV2Tests(unittest.TestCase):
@@ -13,6 +14,15 @@ class ManualTextV2Tests(unittest.TestCase):
         self.assertAlmostEqual(parsed.request.current_a, 12.0)
         self.assertIsNone(parsed.reach_voltage_v)
         self.assertIsNone(parsed.reach_current_a)
+
+    def test_start_message_identifies_main_and_mix_exit_contract(self):
+        main = parse_manual_command("14.7 5.0")
+        mix = parse_manual_command("16.5 1.5 delta=0.03")
+        assert main is not None and mix is not None
+        self.assertIn("Ручной Основной запущен", _format_start(main, replaced=False))
+        self.assertIn("CV Imin", _format_start(main, replaced=False))
+        self.assertIn("Ручной МИКС запущен", _format_start(mix, replaced=False))
+        self.assertIn("после Delta выдержка 2ч", _format_start(mix, replaced=False))
 
     def test_above_absolute_manual_voltage_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -45,6 +55,44 @@ class ManualTextV2Tests(unittest.TestCase):
 
     def test_non_manual_text_falls_through(self):
         self.assertIsNone(parse_manual_command("покажи график за два часа"))
+
+    def test_manual_help_escapes_comparison_operators_for_telegram_html(self):
+        text = manual_help_text()
+        self.assertIn("MAIN → MIX", text)
+        self.assertIn("config/charge/manual.yaml", text)
+        self.assertIn("I&lt;=0.30 A", text)
+        self.assertIn("Старый формат одной строки отключён", text)
+        self.assertNotIn("I<=0.30", text)
+        self.assertNotIn("V>=16.40", text)
+        self.assertNotIn("<pre>", text)
+        self.assertIn("hold=2", text)
+
+    def test_staged_profile_parser_uses_hours(self):
+        from manual_text_v2 import parse_manual_profile_input
+
+        profile = parse_manual_profile_input(
+            "MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
+            "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=2"
+        )
+        self.assertEqual(profile.main.hold_hours, 0.5)
+        self.assertEqual(profile.mix.hold_hours, 2.0)
+
+    def test_staged_start_message_shows_both_accepted_modes(self):
+        from manual_text_v2 import parse_manual_profile_input
+
+        profile = parse_manual_profile_input(
+            "MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
+            "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=2"
+        )
+        parsed = parse_manual_command("MANUAL")
+        assert parsed is not None
+        parsed = type(parsed)(request=ManualChargeRequest.from_profile(profile, battery_id="Baic72"))
+        text = _format_start(parsed, replaced=False)
+        self.assertIn("Принятые параметры", text)
+        self.assertIn("MAIN:", text)
+        self.assertIn("MIX:", text)
+        self.assertIn("hold=2 ч", text)
+        self.assertNotIn("Автоматическая химическая FSM", text)
 
     def test_numeric_manual_prefix_with_unknown_condition_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "неизвестное условие"):

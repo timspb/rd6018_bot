@@ -47,6 +47,51 @@ Manual authority, and delegates to verified-OFF containment.
 Startup recovery remains owned by the normal `bot.py` startup sequence: an
 adopted session is contained and never resumed after restart.
 
+## AUTONOMOUS physical-validation operations
+
+The same local AF_UNIX plane exposes three parameter-free operations for the
+explicit generic-PSU AUTONOMOUS gate:
+
+```json
+{"op":"autonomous_status"}
+{"op":"enter_autonomous_verified_off"}
+{"op":"exit_autonomous_verified_off"}
+```
+
+The transport-only helper is:
+
+```bash
+python tools/physical_test_autonomous_client.py status
+python tools/physical_test_autonomous_client.py enter
+python tools/physical_test_autonomous_client.py exit
+```
+
+`autonomous_status` is read-only. It reports the effective software ownership,
+the edge AUTONOMOUS bit, canonical Output state, raw protection code,
+V/I/OVP/OCP readback, and lease/generation state.
+
+`enter_autonomous_verified_off` deliberately does **not** press the ESPHome
+button directly. It delegates to the already-installed production
+`RdAutonomousModeCoordinator.enter()` transaction so the physical test covers
+the same sequence as the operator path: canonical Output OFF -> software
+HANDS_OFF boundary -> managed-lease disarm -> edge AUTONOMOUS command ->
+positive mode/generation/readback ACK. The adapter additionally verifies
+Protection=0, fresh direct Modbus evidence, unchanged V/I/OVP/OCP, Output still
+OFF, clean/unarmed lease state, and an advanced edge generation.
+
+`exit_autonomous_verified_off` likewise delegates to the production
+`RdAutonomousModeCoordinator.exit()` transaction. It requires AUTONOMOUS to be
+present already and the edge to be clean/unarmed, then verifies the edge bit is
+cleared, software ownership returns to PB_MANAGED, generation advances,
+V/I/OVP/OCP remain unchanged, and Output remains OFF.
+
+These operations expose no Output-ON command, setpoint/protection value,
+entity ID, timeout, force flag, reboot command, Wi-Fi control, or arbitrary
+fault-injection input. They do not constitute physical PASS by themselves;
+they only provide a safe deterministic entry/exit/status path for a separate
+bench execution contour. Wi-Fi-loss, ESP-only reboot/power-cycle and actual
+front-panel/local PSU operation remain external bench actions.
+
 ## D061 deterministic fault operations
 
 These operations exist only for the remaining short physical validation gates.
