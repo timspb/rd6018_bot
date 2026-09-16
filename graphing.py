@@ -126,7 +126,7 @@ def generate_chart(
             fig, (ax1, ax2, ax3) = plt.subplots(
                 3,
                 1,
-                figsize=(8, 6),
+                figsize=(10, 6),
                 facecolor="#1e1e1e",
                 sharex=True,
                 gridspec_kw={"height_ratios": [2, 1.5, 1]},
@@ -175,7 +175,7 @@ def generate_chart(
             if len(times_parsed) > 1:
                 ax1.set_xlim(times_parsed[0], times_parsed[-1])
         else:
-            fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
+            fig, ax1 = plt.subplots(figsize=(10, 4), facecolor="#1e1e1e")
             ax1.set_facecolor("#1e1e1e")
             # Метки оси X — в пользовательском часовом поясе (по умолчанию matplotlib использует UTC)
             ax1.xaxis_date(tz=user_tz)

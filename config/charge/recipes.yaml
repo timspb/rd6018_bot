@@ -1,0 +1,24 @@
+# Рецепты содержат данные, а не код алгоритма.
+# Recipes contain data, not algorithm code.
+recipes:
+  AGM:
+    # Максимум заряда, вольты
+    # Maximum charge voltage, volts
+    max_voltage_v: 15.0
+    # Максимальный ток заряда, амперы
+    # Maximum charge current, amperes
+    max_current_a: 8.0
+  EFB:
+    # Максимум заряда, вольты
+    # Maximum charge voltage, volts
+    max_voltage_v: 14.8
+    # Максимальный ток заряда, амперы
+    # Maximum charge current, amperes
+    max_current_a: 7.0
+  CA_CA:
+    # Максимум заряда, вольты
+    # Maximum charge voltage, volts
+    max_voltage_v: 14.7
+    # Максимальный ток заряда, амперы
+    # Maximum charge current, amperes
+    max_current_a: 7.0

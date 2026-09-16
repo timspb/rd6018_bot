@@ -131,15 +131,16 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(controller._stuck_current_since or 0.0, 301.0)
 
         with patch("charge_logic.time.time", return_value=2701.0):
-            actions = await controller.tick(
-                voltage=14.8,
-                current=0.60,
-                temp_ext=23.0,
-                is_cv=True,
-                ah=0.6,
-                output_is_on=True,
-                is_cc=False,
-            )
+            with self.assertLogs("rd6018.recovery", level="INFO") as captured:
+                actions = await controller.tick(
+                    voltage=14.8,
+                    current=0.60,
+                    temp_ext=23.0,
+                    is_cv=True,
+                    ah=0.6,
+                    output_is_on=True,
+                    is_cc=False,
+                )
 
         self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
         audit = actions["recovery_shadow"]["transition_audit"]
@@ -148,6 +149,11 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(audit["first_stage_state"], "bulk_or_taper")
         self.assertEqual(audit["code"], "legacy_hv_escalation_while_tail_evolving")
         self.assertEqual(audit["severity"], "review")
+        transition_logs = "\n".join(captured.output)
+        self.assertIn("CHARGE_TRANSITION", transition_logs)
+        self.assertIn("old=Main Charge", transition_logs)
+        self.assertIn("new=Десульфатация", transition_logs)
+        self.assertIn("owner=legacy", transition_logs)
 
     async def test_shadow_exception_does_not_invalidate_legacy_actions(self):
         controller = self._shadow_controller()

@@ -1,8 +1,8 @@
 """Production entrypoint for the evidence-driven V2 UI/controller.
 
-The previous monolithic Telegram runtime is kept byte-for-byte as bot_legacy.py.
-Set V2_UI=0 to keep its UI, and V2_AUTHORITATIVE=0 as the independent actuator
-rollback. Running bot_legacy.py directly is also available for emergency diagnosis.
+The preserved V2 runtime is isolated in ``runtime.v2_runtime``.  The historical
+module name remains only as a rollback compatibility shim; production imports the
+named runtime directly and keeps the existing V2 ownership boundaries intact.
 """
 from __future__ import annotations
 
@@ -10,12 +10,10 @@ import asyncio
 import os
 import sys
 
-import bot_legacy as _legacy
+from runtime import v2_runtime as _legacy
+from application.operator_snapshot_provider import OperatorSnapshotProvider
 from auto_manual_off_v2 import install_auto_manual_off_contract
-from diagnostic_persistence import (
-    install_diagnostic_persistence,
-    recover_diagnostic_persistence,
-)
+from diagnostic_persistence import install_diagnostic_persistence
 from done_storage_restore import install_done_storage_restore
 from live_output_readback_v2 import install_output_state_readback
 from manual_context_v2 import (
@@ -47,11 +45,15 @@ from rd_live_adoption import install_rd_live_adoption
 from rd_managed_adoption import install_managed_live_adoption
 from rd_managed_mix_adoption import install_managed_mix_adoption
 from rd_ownership_recovery import install_rd_ownership_recovery
-from rd_startup_authority import install_rd_startup_authority_gate
+from rd_startup_authority import (
+    install_rd_startup_authority_gate,
+    reconcile_startup_authority,
+)
 from soft_watchdog_containment import install_soft_watchdog_containment
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
+from runtime.v2_startup_recovery import V2StartupRecovery
 
 
 def _env_enabled(name: str, default: bool = True) -> bool:
@@ -222,24 +224,18 @@ _rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_m
 # its dynamic predicate sees the final authority boundary; recovery_scope stays exempt.
 install_hands_off_background_isolation(_legacy, _rd_control_mode)
 
+# Read-only V3 application boundary for the operator panel. Existing callbacks
+# remain installed and retain their authority; only panel state acquisition uses
+# this provider in the current migration step.
+_legacy.operator_interface = OperatorSnapshotProvider(_legacy)
+
 _legacy_main = _legacy.main
-
-
-async def _recover_managed_startup_authority() -> bool:
-    # Neither managed live-adoption authority is resumable. D062 is recovered first
-    # because it owns a chemistry HV budget; if it was active/pending at crash, startup
-    # may only continue toward verified OFF before ordinary managed authority reopens.
-    if not await _rd_managed_mix_adoption.recover_startup():
-        return False
-    if not await _rd_managed_live_adoption.recover_startup():
-        return False
-    # A normal HANDS_OFF observer also never resumes. If it had already committed final
-    # OFF_PENDING, only that OFF containment is allowed to continue.
-    if _rd_live_mix_observer is not None:
-        if not await _rd_live_mix_observer.recover_startup():
-            return False
-    await recover_diagnostic_persistence(_legacy)
-    return True
+_v2_startup_recovery = V2StartupRecovery(
+    _legacy,
+    _rd_managed_mix_adoption,
+    _rd_managed_live_adoption,
+    _rd_live_mix_observer,
+)
 
 
 async def main() -> None:
@@ -247,11 +243,16 @@ async def main() -> None:
 
     # Reconciliation runs alongside the transport/UI runtime, but the outer startup
     # gate keeps every ordinary actuator and start/adoption path closed until this task
-    # returns managed. If the edge is AUTONOMOUS it returns without managed recovery;
-    # if edge authority is temporarily unavailable it retries read-only. A recovery
-    # failure remains blocked and is not looped into an OFF/alarm storm.
+    # returns MANAGED. Unknown edge authority retries read-only. Failed durable managed
+    # containment is retried at a throttled cadence while remaining fail-closed. If the
+    # legacy startup restore raced the gate, its intent is replayed once with fresh live
+    # telemetry after MANAGED recovery; AUTONOMOUS startup discards that intent.
     authority_task = asyncio.create_task(
-        _rd_startup_authority.reconcile(_recover_managed_startup_authority),
+        reconcile_startup_authority(
+            _rd_startup_authority,
+            _v2_startup_recovery.recover_managed_startup_authority,
+            _v2_startup_recovery.replay_deferred_startup_restore,
+        ),
         name="rd6018-startup-authority-reconciliation",
     )
 

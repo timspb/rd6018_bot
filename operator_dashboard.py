@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
+from application.operator_snapshot_provider import OperatorSnapshotProvider
+from presentation.dark_panel import render_dark_dashboard, render_dark_panel
 from rd6018_telemetry import (
     ProtectionStatus,
     RegulationMode,
@@ -19,12 +22,55 @@ _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
 
 
-def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int):
-    """Place chart ranges immediately below the graph on the main panel."""
-    panel = hmi.build_operator_keyboard(app, state)
+def _dark_panel_enabled() -> bool:
+    return os.getenv("OPERATOR_PANEL_STYLE", "text").strip().lower() in {"dark", "dark_card", "image"}
+
+
+def _panel_actions(actions, *, dark: bool):
+    """Apply presentation-only visibility rules to the immutable action view."""
+    if actions is None or not dark:
+        return actions
+    hidden = {hmi.OperatorAction.SHOW_DIAGNOSTICS}
+    return replace(
+        actions,
+        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
+    )
+
+
+def _toolbar_actions(actions):
+    """Keep graph ranges and the log in the dedicated top toolbar only."""
+    if actions is None:
+        return None
+    hidden = {hmi.OperatorAction.SHOW_LOG, hmi.OperatorAction.SHOW_GRAPH}
+    return replace(
+        actions,
+        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
+    )
+
+
+def _graph_toolbar(app: Any, user_id: int, actions=None):
     graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
+    top_row = list(graph_rows[0]) if graph_rows else []
+    if actions is not None and any(
+        item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
+    ):
+        top_row.append(app.InlineKeyboardButton(text="📋 Лог", callback_data="logs"))
+    return top_row
+
+
+def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
+    """Place chart ranges immediately below the graph on the main panel."""
+    # Older composition wrappers preserve the two-argument builder signature.
+    # The V3 path passes capabilities explicitly; compatibility callers retain
+    # the unchanged legacy fallback.
+    panel = (
+        hmi.build_operator_keyboard(app, state, actions=_toolbar_actions(actions))
+        if actions is not None
+        else hmi.build_operator_keyboard(app, state)
+    )
+    top_row = _graph_toolbar(app, user_id, actions)
     return app.InlineKeyboardMarkup(
-        inline_keyboard=(graph_rows[:1] if graph_rows else []) + list(panel.inline_keyboard)
+        inline_keyboard=([top_row] if top_row else []) + list(panel.inline_keyboard)
     )
 
 
@@ -362,14 +408,47 @@ def install_operator_graph_dashboard(app: Any) -> None:
     async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> None:
         """Refresh only the live panel; do not rebuild the chart on button press."""
         try:
-            live = await app.hass.get_all_live()
+            interface = getattr(app, "operator_interface", None)
+            if interface is None:
+                raise RuntimeError("operator interface is not installed")
+            snapshot = await interface.get_operator_snapshot()
+            actions = await interface.get_operator_actions()
         except Exception as exc:
-            app.logger.error("Failed to refresh HA data for operator panel: %s", exc)
+            app.logger.error("Failed to refresh V3 operator snapshot: %s", exc)
             return
 
-        state = truthful_builder(app, live)
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id)
+        panel_actions = _toolbar_actions(actions)
+        markup = (
+            app.InlineKeyboardMarkup(
+                inline_keyboard=[_graph_toolbar(app, user_id, actions)]
+                + list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
+            )
+            if _dark_panel_enabled()
+            else _main_graph_markup(app, state, user_id, actions)
+        )
+        if _dark_panel_enabled():
+            card = app.BufferedInputFile(render_dark_panel(caption), filename="rd6018-panel.png")
+            try:
+                await app.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=app.InputMediaPhoto(media=card, caption=""),
+                    reply_markup=markup,
+                )
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    return
+                try:
+                    await app.bot.delete_message(chat_id, message_id)
+                except Exception:
+                    pass
+                sent = await app.bot.send_photo(chat_id, photo=card, caption="", reply_markup=markup)
+                app.user_dashboard[user_id] = sent.message_id
+                app.chat_dashboard[chat_id] = sent.message_id
+            return
         try:
             await app.bot.edit_message_caption(
                 chat_id=chat_id,
@@ -402,15 +481,50 @@ def install_operator_graph_dashboard(app: Any) -> None:
         old_msg_id: Optional[int] = None,
         anchor_msg_id: Optional[int] = None,
     ) -> int:
+        actions = None
         try:
-            live = await app.hass.get_all_live()
+            interface = getattr(app, "operator_interface", None)
+            if interface is None:
+                raise RuntimeError("operator interface is not installed")
+            snapshot = await interface.get_operator_snapshot()
+            actions = await interface.get_operator_actions()
         except Exception as exc:
-            app.logger.error("Failed to get HA data for operator dashboard: %s", exc)
-            live = {}
+            app.logger.error("Failed to get V3 operator snapshot for dashboard: %s", exc)
+            snapshot = None
 
-        state = truthful_builder(app, live)
+        state = (
+            OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+            if snapshot is not None
+            else hmi.OperatorHmiState(
+                hmi.HmiProcessState.CONTAINMENT,
+                hmi.HmiAuthority.CONTAINMENT,
+                "RD6018 · Состояние неизвестно",
+                False,
+                "—",
+                "",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Телеметрия недоступна",
+                "⚠️ Состояние не подтверждено",
+                attention="output_unknown",
+            )
+        )
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id)
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
+        panel_actions = _toolbar_actions(actions)
+        markup = (
+            app.InlineKeyboardMarkup(
+                inline_keyboard=[_graph_toolbar(app, user_id, actions)]
+                + list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
+            )
+            if _dark_panel_enabled()
+            else _main_graph_markup(app, state, user_id, actions)
+        )
 
         photo = None
         try:
@@ -427,7 +541,12 @@ def install_operator_graph_dashboard(app: Any) -> None:
                 temps,
             )
             if buf:
-                photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
+                if _dark_panel_enabled():
+                    photo = app.BufferedInputFile(
+                        render_dark_dashboard(buf.getvalue(), caption), filename="rd6018-dashboard.png"
+                    )
+                else:
+                    photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
         except Exception as exc:
             # Losing history/graph rendering must never hide the live operator state.
             app.logger.warning("operator dashboard graph unavailable: %s", exc)
@@ -441,7 +560,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
                         message_id=target,
                         media=app.InputMediaPhoto(
                             media=photo,
-                            caption=caption,
+                            caption="" if _dark_panel_enabled() else caption,
                             parse_mode=app.ParseMode.HTML,
                         ),
                         reply_markup=markup,
@@ -471,7 +590,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             sent = await app.bot.send_photo(
                 chat_id,
                 photo=photo,
-                caption=caption,
+                caption="" if _dark_panel_enabled() else caption,
                 reply_markup=markup,
                 parse_mode=app.ParseMode.HTML,
             )

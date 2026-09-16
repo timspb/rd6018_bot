@@ -1,0 +1,30 @@
+# Автоматическая физическая активация всегда запрещена этим конфигом.
+# Automatic physical activation is always forbidden by this configuration.
+physical_execution_enabled: false
+# Для физического выполнения требуется ручная ARM-процедура.
+# Physical execution requires a manual ARM procedure.
+require_manual_arm: true
+# Интервал чтения телеметрии, секунды
+# Telemetry polling interval, seconds
+telemetry_interval_s: 5
+# Допуск сравнения напряжения между источниками, вольты
+# Cross-source voltage comparison tolerance, volts
+snapshot_voltage_tolerance_v: 0.06
+# Допуск сравнения тока между источниками, амперы
+# Cross-source current comparison tolerance, amperes
+snapshot_current_tolerance_a: 0.06
+# Допуск свежести снимков при сравнении, секунды
+# Snapshot timestamp freshness tolerance, seconds
+snapshot_timestamp_tolerance_s: 10
+# Допуск сверки уставки напряжения перед/после физического действия, вольты
+verification_voltage_tolerance_v: 0.01
+# Допуск сверки уставки тока перед/после физического действия, амперы
+verification_current_tolerance_a: 0.05
+# Допуск сверки OVP/OCP перед/после физического действия
+verification_protection_tolerance: 0.05
+# Максимальное ожидание подтверждения записи уставки, секунды
+# Maximum wait for setpoint write readback, seconds
+physical_readback_timeout_s: 15
+# Интервал опроса readback уставки, секунды
+# Setpoint readback polling interval, seconds
+physical_readback_poll_interval_s: 0.5

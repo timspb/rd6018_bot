@@ -1,0 +1,9 @@
+# Максимальное напряжение, разрешаемое safety domain, вольты
+# Maximum voltage permitted by the safety domain, volts
+max_voltage_v: 18
+# Максимальный ток, разрешаемый safety domain, амперы
+# Maximum current permitted by the safety domain, amperes
+max_current_a: 18
+# Максимальная температура RD, градусы Цельсия
+# Maximum RD temperature, degrees Celsius
+max_temperature_c: 55

@@ -4,16 +4,21 @@ import asyncio
 import json
 import math
 import os
+import sqlite3
 import time
 from typing import Any, Optional
 
 from manual_mode import (
+    MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A,
     MANUAL_POLL_SEC,
     ManualChargeRequest,
     ManualSessionManager,
     ManualSessionState,
 )
+from battery_registry import get_battery
+from first_stage_evidence import tail_current_threshold_a
 from rd6018_telemetry import as_bool, finite_float
+from application.execution_intent.models import ExecutionIntent, SafetyContext
 
 
 MANUAL_REACH_EPS = 0.02
@@ -109,10 +114,21 @@ class ProductionManualSessionManager(ManualSessionManager):
         self.cooling_started_at = None
         self._persist()
 
+    async def _disable_via_execution_port(self, reason: str) -> bool:
+        identity = self.identity_integration.identity
+        intent = ExecutionIntent(
+            requested_voltage_v=0.0,
+            requested_current_a=0.0,
+            requested_mode="MANUAL_DISABLE",
+            source_decision_id=f"manual_disable:{getattr(identity, 'trace_id', 'legacy')}",
+            safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+        )
+        return (await self.execution_port.disable(intent, identity=identity, reason=reason)).verified
+
     async def _contain_enable_exception(self, context: str, exc: Exception) -> bool:
         confirmed_off = False
         try:
-            confirmed_off = bool(await self.app.hass.turn_off())
+            confirmed_off = await self._disable_via_execution_port(context)
         except Exception:
             confirmed_off = False
         self.stop_reason = f"{context}:{type(exc).__name__}"
@@ -147,6 +163,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         )
         self.reach_voltage_v = reach_v
         self.reach_current_a = reach_i
+        self.main_tail_current_threshold_a = await self._resolve_main_tail_threshold(request)
         self._previous_voltage_v = None
         self._previous_current_a = None
         try:
@@ -156,6 +173,22 @@ class ProductionManualSessionManager(ManualSessionManager):
         if not enabled:
             self._preserve_containment_after_denied_enable("manual_start_denied")
         return enabled
+
+    async def _resolve_main_tail_threshold(self, request: ManualChargeRequest) -> float:
+        if not request.battery_id:
+            return MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
+        try:
+            record = await get_battery(request.battery_id)
+            if record is not None:
+                return float(
+                    tail_current_threshold_a(
+                        record.identity.chemistry,
+                        float(record.identity.nominal_capacity_ah),
+                    )
+                )
+        except (AttributeError, TypeError, ValueError, sqlite3.OperationalError):
+            pass
+        return MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
 
     async def _retire_runner(self) -> None:
         task = self._task
@@ -192,16 +225,16 @@ class ProductionManualSessionManager(ManualSessionManager):
         self.stop_reason = str(reason)
         confirmed = False
         try:
-            confirmed = bool(await self.app.hass.turn_off())
+            confirmed = await self._disable_via_execution_port(self.stop_reason)
         except Exception:
             confirmed = False
         if confirmed:
-            self.state = ManualSessionState.STOPPED
+            self._transition_state(ManualSessionState.STOPPED, self.stop_reason)
             self._previous_voltage_v = None
             self._previous_current_a = None
         else:
-            self.state = ManualSessionState.ARMING
             self.stop_reason = f"{reason}:output_off_unconfirmed"
+            self._transition_state(ManualSessionState.ARMING, self.stop_reason)
         self.cooling_started_at = None
         self._persist()
         return confirmed
@@ -336,7 +369,7 @@ class ProductionManualSessionManager(ManualSessionManager):
             self.stop_reason = f"manual_runtime_error:{type(exc).__name__}"
             confirmed_off = False
             try:
-                confirmed_off = bool(await self.app.hass.turn_off())
+                confirmed_off = await self._disable_via_execution_port(self.stop_reason)
             except Exception:
                 confirmed_off = False
             if confirmed_off:

@@ -11,7 +11,11 @@ from typing import Any, Mapping, Optional
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
+from application.operator_views import OperatorDetailsView, ServiceDetailsView
+from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+from application.intents import OperatorIntent, OperatorIntentKind
 
 
 class HmiProcessState(str, Enum):
@@ -54,6 +58,9 @@ class OperatorHmiState:
     attention: str = "normal"
     stage_status: str = ""
     finish_evidence: Optional[Mapping[str, Any]] = None
+    stage_time: str = ""
+    total_time: str = ""
+    delivered_ah: Optional[float] = None
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -86,6 +93,63 @@ def _temperature(value: Optional[float]) -> str:
 
 def _value(value: Optional[float], digits: int, suffix: str) -> str:
     return "—" if value is None else f"{value:.{digits}f} {suffix}"
+
+
+def _duration(seconds: Any) -> str:
+    value = _finite(seconds)
+    if value is None:
+        return "—"
+    total = max(0, int(value))
+    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
+
+
+def _manual_extrema_status(manual: Any, regulator: str) -> str:
+    request = getattr(manual, "request", None)
+    if getattr(request, "operation_mode", "") == "main" and regulator == "CV":
+        profile = getattr(request, "profile", None)
+        required = int(getattr(getattr(profile, "main", None), "confirmation_count", 1) or 1)
+        confirmed = int(getattr(manual, "main_min_confirmations", 0) or 0)
+        if confirmed < required:
+            return "⏳ Imin не подтверждён"
+        minimum = _finite(getattr(manual, "_imin", None))
+        minimum_text = f"Imin={minimum:.2f} A" if minimum is not None else "Imin=—"
+        hold_started = getattr(manual, "main_min_hold_started_at", None)
+        if hold_started is None:
+            return f"✅ {minimum_text} подтверждён · hold не начат"
+        held_m = max(0, int(max(0.0, time.time() - float(hold_started)) // 60))
+        hold_hours = _finite(getattr(getattr(profile, "main", None), "hold_hours", None))
+        limit_text = f" / {hold_hours:g}ч" if hold_hours is not None else ""
+        return f"✅ {minimum_text} подтверждён · hold {held_m // 60}ч {held_m % 60:02d}м{limit_text}"
+    if getattr(request, "operation_mode", "") == "mix":
+        hold_started = getattr(manual, "finish_hold_started_at", None)
+        if hold_started is not None:
+            held_s = min(
+                MANUAL_MIX_FINISH_HOLD_SEC,
+                max(0.0, time.time() - float(hold_started)),
+            )
+            held_m = int(held_s // 60)
+            delta = _finite(getattr(getattr(request, "stop", None), "delta", None))
+            if regulator == "CV":
+                minimum = _finite(getattr(manual, "_imin", None))
+                reference = f"Imin {minimum:.2f}A" if minimum is not None else "Imin —"
+                delta_text = f"ΔI {delta:.2f}A" if delta is not None else "ΔI —"
+            else:
+                maximum = _finite(getattr(manual, "_vmax", None))
+                reference = f"Vmax {maximum:.2f}V" if maximum is not None else "Vmax —"
+                delta_text = f"ΔV {delta:.2f}V" if delta is not None else "ΔV —"
+            return (
+                f"✅ {reference} · {delta_text} · "
+                f"выдержка {held_m // 60}ч {(held_m % 60):02d}м / 2ч"
+            )
+    if regulator == "CC":
+        maximum = _finite(getattr(manual, "_vmax", None))
+        if maximum is not None:
+            return f"✅ Vmax: {maximum:.2f} V"
+    if regulator == "CV":
+        minimum = _finite(getattr(manual, "_imin", None))
+        if minimum is not None:
+            return f"✅ Imin: {minimum:.2f} A"
+    return ""
 
 
 def _bold_value(value: Optional[float], digits: int, suffix: str) -> str:
@@ -143,8 +207,10 @@ def _compact_stage_label(state: OperatorHmiState) -> str:
     if state.process_state is HmiProcessState.STORAGE:
         return "FLOAT"
     title = html.unescape(re.sub(r"<[^>]*>", "", str(state.title or ""))).upper()
-    if "MIX" in title:
+    if "MIX" in title or "МИКС" in title:
         return "MIX"
+    if "MAIN" in title or "ОСНОВ" in title or "ОБЫЧН" in title or "РУЧНОЙ" in title:
+        return "MAIN"
     if "ВОССТАНОВЛЕНИ" in title:
         return "ВОССТАНОВЛЕНИЕ"
     if "КОНДИЦИ" in title:
@@ -215,6 +281,12 @@ def _observer_runtime(app: Any) -> tuple[Any, str]:
     return observer, state
 
 
+def _manual_is_interrupted(app: Any) -> bool:
+    manager = getattr(app, "manual_session_manager", None)
+    state = getattr(getattr(manager, "state", None), "value", getattr(manager, "state", ""))
+    return str(state or "").strip().lower() == "interrupted"
+
+
 def _observer_progress(observer: Any, state: str, regulator: str) -> str:
     if state == "off_pending":
         return "Финиш подтверждён · Output OFF ожидает подтверждения"
@@ -238,6 +310,20 @@ def _battery_label_from_observer(observer: Any) -> str:
     chemistry_text = str(getattr(chemistry, "value", chemistry) or "").strip()
     capacity = _finite(getattr(observer, "capacity_ah", None))
     pieces = [piece for piece in (battery_id, chemistry_text) if piece]
+    if capacity is not None and capacity > 0:
+        pieces.append(f"{capacity:g} Ah")
+    return " · ".join(pieces)
+
+
+def _battery_label_from_manual(manual: Any) -> str:
+    """Return the selected battery identity carried by the Manual request."""
+    request = getattr(manual, "request", None)
+    battery_id = str(
+        (getattr(request, "battery_id", "") if request is not None else "")
+        or getattr(manual, "battery_id", "")
+    ).strip()
+    capacity = _finite(getattr(request, "capacity_ah", None) if request is not None else None)
+    pieces = [battery_id] if battery_id else []
     if capacity is not None and capacity > 0:
         pieces.append(f"{capacity:g} Ah")
     return " · ".join(pieces)
@@ -276,6 +362,10 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
     temp_int = _finite(live.get("temp_int_v2"))
     if temp_int is None:
         temp_int = _finite(live.get("temp_int"))
+    if temp_int is None:
+        temp_int = _finite(live.get("psu_temperature"))
+    if temp_int is None:
+        temp_int = _finite(live.get("power_supply_temperature"))
     set_v = _finite(live.get("set_voltage"))
     set_i = _finite(live.get("set_current"))
     safety, attention = _normal_safety(live)
@@ -411,13 +501,14 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
 
     manual = getattr(app, "manual_session_manager", None)
     if manual is not None and bool(getattr(manual, "is_active", False)):
+        elapsed_s = getattr(manual, "active_elapsed_s", None)
         return OperatorHmiState(
             process_state=HmiProcessState.RUNNING,
             authority=HmiAuthority.MANUAL,
-            title="RD6018 · РУЧНОЙ РЕЖИМ",
+            title=f"RD6018 · {getattr(getattr(manual, 'request', None), 'operation_mode_label', 'Ручной режим')}",
             output_on=output_on,
             regulator=regulator,
-            battery_label=str(getattr(manual, "battery_id", "") or ""),
+            battery_label=_battery_label_from_manual(manual),
             battery_voltage_v=battery_v,
             current_a=current,
             power_w=power,
@@ -425,9 +516,35 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             psu_temp_c=temp_int,
             target_voltage_v=set_v,
             current_limit_a=set_i,
-            progress="Управляемая ручная сессия",
+            # This is an internal authority label, not an operator-facing
+            # transition. The panel shows the actual stage/evidence instead.
+            progress="",
             safety=safety,
             attention=attention,
+            stage_status=_manual_extrema_status(manual, regulator),
+            stage_time=_duration(elapsed_s),
+            total_time=_duration(elapsed_s),
+            delivered_ah=_finite(live.get("ah")),
+        )
+
+    if _manual_is_interrupted(app):
+        return OperatorHmiState(
+            process_state=HmiProcessState.IDLE,
+            authority=HmiAuthority.NONE,
+            title="RD6018 · ПРЕРВАННЫЙ ЗАРЯД",
+            output_on=output_on,
+            regulator=regulator,
+            battery_label=_battery_label_from_manual(manual),
+            battery_voltage_v=battery_v,
+            current_a=current,
+            power_w=power,
+            battery_temp_c=temp_ext,
+            psu_temp_c=temp_int,
+            target_voltage_v=set_v,
+            current_limit_a=set_i,
+            progress="Сохранённый заряд требует авторизации или отказа",
+            safety=safety,
+            attention="warning",
         )
 
     if hands_off:
@@ -508,12 +625,18 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if active_panel:
         stage = _compact_stage_label(state)
         battery = _compact_battery_label(state.battery_label)
-        first_line = f"🔋 {battery} · {stage}" if battery else f"RD6018 · {stage}"
-        if mode:
-            first_line += f" · {mode}"
+        battery_name = str(state.battery_label or "").split("·", 1)[0].strip() or "ЗАРЯД"
+        if authority_value == HmiAuthority.MANUAL.value or authority_value == HmiAuthority.MANUAL:
+            right_label = f"РУЧНОЙ · {stage or 'MAIN'}"
+        else:
+            right_label = f"AUTO · {stage or 'ЗАРЯД'}"
+        left_label = f"RD6018 · {battery_name} · {mode or stage or '—'}"
+        first_line = left_label + (" " * max(4, 42 - len(left_label) - len(right_label))) + right_label
     else:
         first_line = str(state.title or "RD6018")
     lines = [f"<b>{html.escape(first_line)}</b>"]
+    if active_panel and battery:
+        lines.append(f"🔋 {html.escape(battery)}")
     lines.append(
         f"⚡ {_bold_value(state.battery_voltage_v, 2, 'V')} · "
         f"{_bold_value(state.current_a, 2, 'A')} · 🌡 АКБ "
@@ -523,6 +646,15 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
         lines.append(f"🎯 {target} · {limit} 🌡 БП {_temperature(getattr(state, 'psu_temp_c', None))}")
+    stage_time = str(getattr(state, "stage_time", "") or "")
+    delivered_ah = _finite(getattr(state, "delivered_ah", None))
+    time_parts = []
+    if stage_time:
+        time_parts.append(f"⏱ {html.escape(stage_time)}")
+    if delivered_ah is not None:
+        time_parts.append(f"⚡ {_value(delivered_ah, 2, 'Ah')}")
+    if time_parts:
+        lines.append(" · ".join(time_parts))
     stage_status = _compact_stage_status(state)
     transition = _compact_transition(state)
     stage_status_warning = str(getattr(state, "stage_status", ""))
@@ -544,70 +676,139 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     return "\n".join(lines)
 
 
-def build_operator_keyboard(app: Any, state: OperatorHmiState) -> InlineKeyboardMarkup:
+def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup:
+    """Render logical capabilities without reading runtime objects."""
+    labels = {
+        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", "charge_modes"),
+        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", "v2_batteries"),
+        # Newly rendered panels must use the managed confirmation-based route.
+        OperatorAction.STOP_CHARGE: ("🛑 Стоп", "operator_managed_stop"),
+        OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),
+        OperatorAction.RESUME_CHARGE: ("▶️ Продолжить", "operator_pause_toggle"),
+        OperatorAction.SHOW_LOG: ("📋 События", "logs"),
+        OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", "operator_details"),
+        OperatorAction.ACK: ("✅ Подтвердить", "operator_details"),
+        OperatorAction.ADOPT_MIX: ("🧲 Подхватить Mix", "rd_live_mix"),
+        OperatorAction.STOP_MIX: ("⏹ Остановить Mix", "operator_adopted_stop"),
+        OperatorAction.DISABLE_OUTPUT: ("⏹ Output OFF", "rd_hands_off_output_off"),
+        OperatorAction.REAUTHORIZE_MANUAL: ("▶ Авторизовать", "v2_manual_reauthorize"),
+        OperatorAction.DISCARD_MANUAL: ("🗑 Отказаться", "v2_manual_discard"),
+        OperatorAction.RETURN_PB_CONTROL: ("🔒 Вернуть Pb-контроль", "rd_hands_off_disable"),
+    }
+    rows: list[list[InlineKeyboardButton]] = []
+    action_map = {item.action: item for item in actions.available_actions}
+    control_actions = [
+        action_map.get(OperatorAction.PAUSE_CHARGE),
+        action_map.get(OperatorAction.RESUME_CHARGE),
+        action_map.get(OperatorAction.STOP_CHARGE),
+    ]
+    control_buttons = []
+    for item in control_actions:
+        if item is None:
+            continue
+        label = labels.get(item.action)
+        if label is not None:
+            control_buttons.append(InlineKeyboardButton(text=label[0], callback_data=label[1]))
+    if control_buttons:
+        rows.append(control_buttons)
+    handled = {
+        OperatorAction.PAUSE_CHARGE,
+        OperatorAction.RESUME_CHARGE,
+        OperatorAction.STOP_CHARGE,
+        OperatorAction.SHOW_GRAPH,
+    }
+    secondary = {OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS}
+    for item in actions.available_actions:
+        if item.action in handled or item.action in secondary:
+            continue
+        label = labels.get(item.action)
+        if label is not None:
+            rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
+    # Keep the refresh control ahead of the read-only workspaces on every panel.
+    # It updates the live panel in place; logs/details are separate views.
+    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
+    for item in actions.available_actions:
+        if item.action not in secondary:
+            continue
+        label = labels.get(item.action)
+        if label is not None:
+            rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_operator_keyboard(
+    app: Any,
+    state: OperatorHmiState,
+    *,
+    actions: OperatorActionsView | None = None,
+) -> InlineKeyboardMarkup:
     """Authoritative L2 operator keyboard.
 
     Other builders remain compatibility surfaces for legacy handlers, but the
     installed production panel always routes through this builder.
     """
-    def with_refresh(rows: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
-        rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+    if actions is not None:
+        return _keyboard_from_actions(actions)
 
-    rows: list[list[InlineKeyboardButton]] = []
-    info_row = [
-        InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-        InlineKeyboardButton(text="📋 События", callback_data="logs"),
-    ]
-    if state.process_state is HmiProcessState.ADOPTED_MIX:
-        rows.append([InlineKeyboardButton(text="⏹ Остановить Mix", callback_data="operator_adopted_stop")])
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    if state.process_state is HmiProcessState.INTERRUPTED:
-        rows.append([InlineKeyboardButton(text="🧲 Подхватить заново", callback_data="rd_live_mix")])
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    if state.process_state is HmiProcessState.HANDS_OFF:
-        if state.output_on:
-            rows.append([InlineKeyboardButton(text="🧲 Подхватить текущий Mix", callback_data="rd_live_mix")])
-            rows.append([InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off")])
-        rows.append(info_row)
-        if not state.output_on:
-            rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
-        return with_refresh(rows)
-
+    # Compatibility callers may omit the application action view.  Derive a
+    # conservative, data-only view from the already-built HMI state instead of
+    # reading controller/session objects from the presentation layer.
     if state.process_state is HmiProcessState.IDLE:
-        rows.append([InlineKeyboardButton(text="⚡ Режимы заряда", callback_data="charge_modes")])
-        rows.append(
-            [
-                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-            ]
+        if "авторизац" in str(state.progress or "").lower():
+            return InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
+                    InlineKeyboardButton(text="🗑 Отказаться", callback_data="v2_manual_discard"),
+                ],
+                [InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")],
+            ])
+        else:
+            fallback = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+    elif state.process_state is HmiProcessState.STORAGE:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.SHOW_LOG,
+            OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    elif state.process_state is HmiProcessState.PAUSED:
+        fallback = OperatorActionsView(
+            tuple(OperatorActionSpec(action) for action in (
+                OperatorAction.RESUME_CHARGE,
+                OperatorAction.STOP_CHARGE,
+                OperatorAction.SHOW_LOG,
+                OperatorAction.SHOW_GRAPH,
+                OperatorAction.SHOW_DIAGNOSTICS,
+            )),
         )
-        return with_refresh(rows)
-
-    if state.process_state is HmiProcessState.STORAGE:
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    if state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
-        operator_paused = bool(getattr(app, "_operator_pause_active", lambda: False)())
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="▶️ Продолжить" if operator_paused else "⏸ Пауза",
-                    callback_data="operator_pause_toggle",
-                ),
-                InlineKeyboardButton(text="🛑 Стоп", callback_data="power_toggle"),
-            ]
+    elif state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
+        fallback = OperatorActionsView(
+            tuple(OperatorActionSpec(action) for action in (
+                OperatorAction.PAUSE_CHARGE,
+                OperatorAction.STOP_CHARGE,
+                OperatorAction.SHOW_LOG,
+                OperatorAction.SHOW_GRAPH,
+                OperatorAction.SHOW_DIAGNOSTICS,
+            )),
         )
-        rows.append(info_row)
-        return with_refresh(rows)
-
-    rows.append(info_row)
-    rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
-    return with_refresh(rows)
+    elif state.process_state is HmiProcessState.HANDS_OFF:
+        actions = (
+            (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT)
+            if state.output_on
+            else (OperatorAction.SELECT_PROFILE, OperatorAction.SHOW_DIAGNOSTICS)
+        )
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in actions))
+    elif state.process_state is HmiProcessState.ADOPTED_MIX:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    elif state.process_state is HmiProcessState.INTERRUPTED:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    else:
+        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+        )))
+    return _keyboard_from_actions(fallback)
 
 
 def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
@@ -670,6 +871,27 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
             if state.progress:
                 progress = html.unescape(re.sub(r"<[^>]*>", "", " ".join(str(state.progress).split())))
                 lines.append(f"🎯 Финиш: {html.escape(progress)}")
+        else:
+            manual = getattr(app, "manual_session_manager", None)
+            if manual is not None and bool(getattr(manual, "is_active", False)):
+                request = getattr(manual, "request", None)
+                elapsed = _duration(getattr(manual, "active_elapsed_s", None))
+                limit = getattr(getattr(request, "stop", None), "max_active_seconds", None)
+                remaining = "—"
+                if _finite(limit) is not None and _finite(getattr(manual, "active_elapsed_s", None)) is not None:
+                    remaining = _duration(max(0.0, float(limit) - float(manual.active_elapsed_s)))
+                capacity = _finite(getattr(request, "capacity_ah", None)) if request is not None else None
+                lines.extend(
+                    [
+                        "",
+                        "🧠 <b>Статистика ручного заряда</b>",
+                        f"📍 Этап: <b>Ручной режим</b>",
+                        f"⏱ Этап: {elapsed} · всего {elapsed}",
+                        f"⌛ Лимит: {remaining}",
+                        f"📦 Отдано: {_value(ah, 2, 'Ah')}",
+                        f"🔋 Заданная ёмкость: {_value(capacity, 2, 'Ah')}",
+                    ]
+                )
         lines.extend(
             [
                 f"🎯 Уставки: {_value(state.target_voltage_v, 2, 'V')} · лимит {_value(state.current_limit_a, 2, 'A')}",
@@ -677,6 +899,45 @@ def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str
             ]
         )
     lines.append(f"🛡 Защита: {html.escape(state.safety)}")
+    return "\n".join(lines)
+
+
+def render_operator_details_view(view: OperatorDetailsView) -> str:
+    """Render a read-only DTO without accessing runtime objects."""
+    lines = ["<b>📋 Информация для оператора</b>", ""]
+    if view.observer_state in {"active", "off_pending", "interrupted"}:
+        lines.extend([
+            f"Сессия: <b>{'Mix подхвачен' if view.observer_state != 'interrupted' else 'подхват прерван'}</b>",
+            f"АКБ: {html.escape(view.battery_label or '—')}",
+            f"Output: {'ON' if view.output_on else 'OFF'} · {html.escape(view.regulator)}",
+            f"Уставки прибора: {_value(view.target_voltage_v, 2, 'V')} / {_value(view.current_limit_a, 2, 'A')}",
+            f"Состояние наблюдателя: <code>{html.escape(view.observer_state or '—')}</code>",
+        ])
+        if view.observer_status:
+            lines.append(f"\nПоследнее: <code>{html.escape(view.observer_status)}</code>")
+    else:
+        lines.extend([
+            f"Состояние: <b>{html.escape(view.process_state)}</b> · Authority: <code>{html.escape(view.authority)}</code>",
+            f"Output: <b>{'ON' if view.output_on else 'OFF'}</b> · режим {html.escape(view.regulator)}",
+            f"⚡ {_value(view.battery_voltage_v, 3, 'V')} · {_value(view.current_a, 3, 'A')}",
+            f"🌡 АКБ: {_temperature(view.battery_temp_c)} · БП: {_temperature(view.psu_temp_c)}",
+        ])
+        if view.stage or view.battery_type:
+            lines.extend([
+                "", "🧠 <b>Статистика по этапу</b>",
+                f"📍 Этап: <b>{html.escape(view.stage or '—')}</b>",
+                f"🔋 АКБ: {html.escape(view.battery_type or view.battery_label or '—')}" + (f" · {view.capacity_ah:g} Ah" if view.capacity_ah else ""),
+                f"⏱ Этап: {html.escape(view.stage_time)} · всего {html.escape(view.total_time)}",
+                f"⌛ Лимит: {html.escape(view.remaining_time)}",
+                f"📦 Набрано: {_value(view.delivered_ah, 2, 'Ah')}",
+            ])
+        elif view.manual_capacity_ah is not None:
+            lines.extend(["", "🧠 <b>Статистика ручного заряда</b>", f"🔋 Заданная ёмкость: {_value(view.manual_capacity_ah, 2, 'Ah')}"])
+        lines.extend([
+            f"🎯 Уставки: {_value(view.target_voltage_v, 2, 'V')} · лимит {_value(view.current_limit_a, 2, 'A')}",
+            f"🔌 Вход: {_value(view.input_voltage_v, 1, 'V')} · ⏱ Работа: {html.escape(view.uptime)}",
+        ])
+    lines.append(f"🛡 Защита: {html.escape(view.safety)}")
     return "\n".join(lines)
 
 
@@ -707,6 +968,23 @@ def render_operator_service_details(app: Any, state: OperatorHmiState, live: Map
             "Lease/Modbus details доступны в диагностическом экране.",
         ]
     )
+    return "\n".join(lines)
+
+
+def render_operator_service_details_view(view: ServiceDetailsView) -> str:
+    lines = ["<b>🛠 Сервисная информация</b>", ""]
+    lines.extend([
+        f"Authority: <code>{html.escape(view.authority)}</code>",
+        f"Output: <code>{'ON' if view.output_on else 'OFF'}</code>",
+        f"Режим: <code>{html.escape(view.regulator or '—')}</code>",
+        f"Этап: <code>{html.escape(view.stage)}</code>",
+        f"V2 analysis: <code>{view.v2_analysis}</code>",
+        f"Decision: <code>{html.escape(view.decision)}</code>",
+        f"OVP/OCP: <code>{_value(view.ovp_v, 2, 'V')} / {_value(view.ocp_a, 2, 'A')}</code>",
+        f"Protection/Regulation: <code>{html.escape(view.protection)} / {html.escape(view.regulation)}</code>",
+        f"Heartbeat: <code>{html.escape(view.heartbeat)}</code>",
+        "Lease/Modbus details доступны в диагностическом экране.",
+    ])
     return "\n".join(lines)
 
 
@@ -760,17 +1038,7 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
 
 
 def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
-            InlineKeyboardButton(text="🎛 V2 контроллер", callback_data="v2_status"),
-        ],
-        [
-            InlineKeyboardButton(text="🩺 Диагностика HA", callback_data="entities_status"),
-            InlineKeyboardButton(text="🛠 Сервис", callback_data="operator_service_details"),
-        ],
-        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
-    ]
+    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis")]]
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
         rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
@@ -792,16 +1060,33 @@ def install_operator_hmi(app: Any) -> None:
     if bool(getattr(app, "_operator_hmi_installed", False)):
         return
 
+    async def route_read_intent(call: Any, kind: OperatorIntentKind) -> bool:
+        interface = getattr(app, "operator_interface", None)
+        submit = getattr(interface, "submit_intent", None)
+        if not callable(submit):
+            return True
+        user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+        result = await submit(OperatorIntent(kind=kind, source="telegram", user=user))
+        if getattr(result, "status", None) == "rejected":
+            await call.answer("Действие пока не маршрутизировано", show_alert=True)
+            return False
+        return True
+
     async def build_and_send_dashboard(
         chat_id: int,
         user_id: int,
         old_msg_id: Optional[int] = None,
         anchor_msg_id: Optional[int] = None,
     ) -> int:
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            raise RuntimeError("operator interface is not installed")
+        snapshot = await interface.get_operator_snapshot()
+        actions = await interface.get_operator_actions()
+        from application.operator_snapshot_provider import OperatorSnapshotProvider
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         text = render_operator_panel(state)
-        markup = build_operator_keyboard(app, state)
+        markup = build_operator_keyboard(app, state, actions=actions)
         target = old_msg_id or anchor_msg_id
         if target:
             try:
@@ -883,11 +1168,16 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_details(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
+            return
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            await call.answer("Интерфейс чтения недоступен", show_alert=True)
+            return
+        details = await interface.get_operator_details()
         await call.answer()
         await call.message.answer(
-            render_operator_details(app, state, live),
+            render_operator_details_view(details),
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
@@ -896,11 +1186,16 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_service_details(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
+            return
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            await call.answer("Интерфейс чтения недоступен", show_alert=True)
+            return
+        details = await interface.get_service_details()
         await call.answer()
         await call.message.answer(
-            render_operator_service_details(app, state, live),
+            render_operator_service_details_view(details),
             parse_mode=app.ParseMode.HTML,
             reply_markup=_back_keyboard(),
         )
@@ -909,16 +1204,33 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_pause_toggle_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        interface = getattr(app, "operator_interface", None)
+        submit = getattr(interface, "submit_intent", None)
+        if callable(submit):
+            user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+            kind = (
+                OperatorIntentKind.RESUME_CHARGE
+                if bool(getattr(app, "_operator_pause_active", lambda: False)())
+                else OperatorIntentKind.PAUSE_CHARGE
+            )
+            result = await submit(OperatorIntent(kind=kind, source="telegram", user=user))
+            if getattr(result, "status", None) == "rejected":
+                await call.answer("Пауза пока недоступна", show_alert=True)
+                return
         handler = getattr(app, "_operator_pause_toggle", None)
         if handler is None:
             await call.answer("Пауза недоступна", show_alert=True)
             return
+        # A managed pause may outlive Telegram's callback-query answer window.
+        # A late acknowledgement must not be reported as a failed pause.
         try:
-            message = await handler(call)
-            await call.answer(message or "Готово")
+            await call.answer()
+        except Exception:
+            pass
+        try:
+            await handler(call)
         except Exception as exc:
             app.logger.exception("operator pause failed: %s", exc)
-            await call.answer("Не удалось изменить паузу", show_alert=True)
             return
         user_id = call.from_user.id if call.from_user else 0
         refresh = getattr(app, "_refresh_operator_panel", None)
@@ -929,6 +1241,8 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_graph(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_GRAPH):
+            return
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
         await _render_graph_workspace(app, call, user_id)
@@ -936,6 +1250,8 @@ def install_operator_hmi(app: Any) -> None:
     @app.router.callback_query(F.data == "operator_refresh")
     async def _operator_refresh(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
+            return
+        if not await route_read_intent(call, OperatorIntentKind.REFRESH_PANEL):
             return
         await call.answer("Обновляю")
         user_id = call.from_user.id if call.from_user else 0
@@ -966,8 +1282,15 @@ def install_operator_hmi(app: Any) -> None:
     async def _operator_more(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        live = await app.hass.get_all_live()
-        state = build_operator_hmi_state(app, live)
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
+            return
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            await call.answer("Интерфейс чтения недоступен", show_alert=True)
+            return
+        snapshot = await interface.get_operator_snapshot()
+        from application.operator_snapshot_provider import OperatorSnapshotProvider
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         await call.answer()
         await call.message.answer(
             "<b>Ещё</b>\n\nСервисные и диагностические экраны.",
@@ -1013,11 +1336,5 @@ def install_operator_hmi(app: Any) -> None:
             await call.answer(str(exc), show_alert=True)
             return
         await call.message.answer("⏹ Mix остановлен. Output подтверждён OFF.")
-
-    @app.router.callback_query(F.data == "operator_done")
-    async def _operator_done(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        await call.answer()
 
     app._operator_hmi_installed = True

@@ -269,7 +269,7 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
         callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
         self.assertIn("rd_hands_off_disable", callbacks)
 
-    def test_active_managed_session_exposes_session_bound_release(self):
+    def test_active_managed_session_hides_rd_release_button(self):
         app, manager = self._app()
         app.charge_controller.is_active = True
         install_rd_ownership_recovery(app, manager)
@@ -280,7 +280,7 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
         )
 
         callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
-        self.assertIn("rd_hands_off_release_confirm", callbacks)
+        self.assertNotIn("rd_hands_off_release_confirm", callbacks)
 
 
 if __name__ == "__main__":

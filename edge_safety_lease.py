@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import os
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
+
+
+logger = logging.getLogger("rd6018.edge_lease")
 
 
 def _env(name: str, default: str) -> str:
@@ -330,6 +334,31 @@ class EdgeSafetyLease:
                 self._last_ack_monotonic = self._monotonic()
                 return latest
 
+        logger.warning(
+            "edge lease renewal ACK failed: attempts=%d "
+            "before={armed:%s,tripped:%s,boot_quarantine:%s,generation:%d,modbus_age_s:%.3f,remaining_s:%s} "
+            "latest={armed:%s,tripped:%s,boot_quarantine:%s,generation:%d,modbus_age_s:%.3f,remaining_s:%s} "
+            "checks={armed:%s,tripped_clear:%s,boot_quarantine_clear:%s,generation_changed:%s,modbus_fresh:%s,remaining_full:%s}",
+            attempts,
+            before.armed,
+            before.tripped,
+            before.boot_quarantine,
+            before.generation,
+            before.modbus_age_s,
+            before.remaining_s,
+            latest.armed,
+            latest.tripped,
+            latest.boot_quarantine,
+            latest.generation,
+            latest.modbus_age_s,
+            latest.remaining_s,
+            latest.armed,
+            not latest.tripped,
+            not latest.boot_quarantine,
+            latest.generation != before.generation,
+            self._fresh_modbus(latest),
+            self._full_lease_ack(latest),
+        )
         raise EdgeSafetyLeaseError(
             "edge lease renewal was not positively acknowledged by generation/readback"
         )

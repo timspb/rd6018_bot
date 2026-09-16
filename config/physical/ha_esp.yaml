@@ -1,0 +1,3 @@
+# Профиль connector: HA -> ESPHome -> RD6018
+# Connector profile: HA -> ESPHome -> RD6018
+transport_profile: ha102

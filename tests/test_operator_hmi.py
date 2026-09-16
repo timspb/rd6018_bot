@@ -1,5 +1,6 @@
 import types
 import unittest
+import time
 from html.parser import HTMLParser
 
 from operator_hmi import (
@@ -10,6 +11,9 @@ from operator_hmi import (
     render_operator_details,
     render_operator_panel,
 )
+from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
+from bot_legacy import _build_dashboard_keyboard
+from application.operator_actions import OperatorAction, OperatorActionsView
 
 
 class FakeObserver:
@@ -85,7 +89,9 @@ class OperatorHmiTests(unittest.TestCase):
         )
         text = render_operator_panel(state)
 
-        self.assertIn("<b>🔋 Ca/Ca 72Ah · ВОССТАНОВЛЕНИЕ · CV</b>", text)
+        self.assertIn("<b>RD6018 · Ca/Ca · CV", text)
+        self.assertIn("AUTO · ВОССТАНОВЛЕНИЕ</b>", text)
+        self.assertIn("🔋 Ca/Ca 72Ah", text)
         self.assertIn("<b>13.86 V</b>", text)
         self.assertIn("<b>0.00 A</b>", text)
         self.assertIn("<b>24.0 °C</b>", text)
@@ -94,7 +100,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("<b>7.20 A</b>", text)
         self.assertNotIn("Режим регулятора определяется", text)
         self.assertNotIn("&lt;b&gt;", text)
-        self.assertEqual(len(text.splitlines()), 4)
+        self.assertEqual(len(text.splitlines()), 5)
 
         class _Tags(HTMLParser):
             pass
@@ -151,9 +157,9 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
-        self.assertIn("Ca/Ca 72Ah · MIX · CV", text)
-        self.assertIn("Baic72 Ca/Ca 72Ah · MIX · CV", text)
-        self.assertIn("MIX · CV", text)
+        self.assertIn("RD6018 · Baic72 · CV", text)
+        self.assertIn("AUTO · MIX</b>", text)
+        self.assertIn("🔋 Baic72 Ca/Ca 72Ah", text)
         self.assertIn("16.55 V", text)
         self.assertIn("0.90 A", text)
         self.assertIn("🎯 16.54 V · 1.01 A 🌡 БП 40.0°C", text)
@@ -219,13 +225,13 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
-        self.assertIn("v2_batteries", callbacks)
+        self.assertNotIn("v2_batteries", callbacks)
         self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("v2_status", callbacks)
         self.assertNotIn("entities_status", callbacks)
         self.assertNotIn("chart_30m", callbacks)
 
-    def test_more_menu_contains_service_actions_and_manual(self):
+    def test_hidden_more_menu_has_no_legacy_service_surfaces(self):
         app = FakeApp(observer=None, hands_off=False)
         state = build_operator_hmi_state(app, live(output="off"))
         callbacks = [
@@ -234,10 +240,26 @@ class OperatorHmiTests(unittest.TestCase):
             for button in row
         ]
         self.assertIn("ai_analysis", callbacks)
-        self.assertIn("v2_status", callbacks)
-        self.assertIn("entities_status", callbacks)
-        self.assertIn("operator_service_details", callbacks)
+        self.assertNotIn("v2_status", callbacks)
+        self.assertNotIn("entities_status", callbacks)
+        self.assertNotIn("operator_service_details", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
+
+    def test_interrupted_manual_restore_actions_are_on_first_screen(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=False,
+            state=types.SimpleNamespace(value="interrupted"),
+            battery_id="China",
+        )
+        state = build_operator_hmi_state(app, live(output="off"))
+        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+        self.assertIn("требует авторизации", state.progress)
+        keyboard = build_operator_keyboard(app, state)
+        self.assertEqual(
+            [button.callback_data for button in keyboard.inline_keyboard[0]],
+            ["v2_manual_reauthorize", "v2_manual_discard"],
+        )
 
     def test_adopted_details_are_truthful_about_low_level_authority(self):
         app = FakeApp(observer=FakeObserver())
@@ -274,6 +296,110 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Уставки: 16.54 V · лимит 1.01 A", text)
         self.assertIn("Защита:", text)
 
+    def test_details_contains_stage_time_and_delivered_capacity_for_manual_charge(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            battery_id="Baic72",
+            active_elapsed_s=3661.0,
+            request=types.SimpleNamespace(
+                capacity_ah=72.0,
+                stop=types.SimpleNamespace(max_active_seconds=7200.0),
+            ),
+        )
+        live_data = {**live(), "ah": 7.26}
+        state = build_operator_hmi_state(app, live_data)
+        text = render_operator_details(app, state, {**live(), "ah": 7.26})
+        self.assertIn("Статистика ручного заряда", text)
+        self.assertIn("Этап: <b>Ручной режим</b>", text)
+        self.assertIn("Этап: 01:01 · всего 01:01", text)
+        self.assertIn("Лимит: 00:58", text)
+        self.assertIn("Отдано: 7.26 Ah", text)
+        self.assertIn("Заданная ёмкость: 72.00 Ah", text)
+        panel = render_operator_panel(state)
+        self.assertIn("<b>RD6018 · Baic72 · CV", panel)
+        self.assertIn("РУЧНОЙ · MAIN</b>", panel)
+        self.assertIn("⏱ 01:01", panel)
+        self.assertIn("⚡ 7.26 Ah", panel)
+        self.assertNotIn("всего:", panel)
+
+    def test_manual_cc_panel_shows_confirmed_voltage_maximum(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=120.0,
+            request=types.SimpleNamespace(capacity_ah=None, stop=types.SimpleNamespace(max_active_seconds=None)),
+            _vmax=17.20,
+            _imin=None,
+        )
+        values = live(output="on")
+        values["is_cv"] = "off"
+        values["is_cc"] = "on"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("✅ Vmax: 17.20 V", panel)
+        self.assertNotIn("Vmax не достигнут", panel)
+
+    def test_manual_main_panel_shows_confirmed_imin_value_and_hold_elapsed(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=7200.0,
+            main_min_confirmations=1,
+            main_min_hold_started_at=time.time() - 82 * 60,
+            _imin=0.10,
+            request=types.SimpleNamespace(
+                operation_mode="main",
+                capacity_ah=None,
+                stop=types.SimpleNamespace(max_active_seconds=None),
+                profile=types.SimpleNamespace(
+                    main=types.SimpleNamespace(confirmation_count=1, hold_hours=1.5),
+                ),
+            ),
+        )
+        values = live(output="on")
+        values["is_cv"] = "on"
+        values["is_cc"] = "off"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("Imin=0.10 A подтверждён", panel)
+        self.assertIn("hold 1ч 22м / 1.5ч", panel)
+
+    def test_dashboard_places_refresh_before_read_only_actions(self):
+        keyboard = _build_dashboard_keyboard(True, 1)
+        rows = [[button.callback_data for button in row] for row in keyboard.inline_keyboard]
+        if ["operator_refresh"] in rows:
+            refresh_index = rows.index(["operator_refresh"])
+            self.assertEqual(rows[refresh_index + 1], ["logs"])
+            self.assertEqual(rows[refresh_index + 2], ["operator_details"])
+        else:
+            # Isolated compatibility imports retain the historical builder.
+            self.assertEqual(rows[1], ["logs", "info_full"])
+            self.assertEqual(rows[2], ["refresh", "ai_analysis"])
+
+    def test_manual_mix_panel_shows_reference_delta_and_bounded_hold(self):
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=True,
+            active_elapsed_s=15000.0,
+            finish_hold_started_at=time.time() - (MANUAL_MIX_FINISH_HOLD_SEC + 3600),
+            request=types.SimpleNamespace(
+                operation_mode="mix",
+                operation_mode_label="Ручной МИКС",
+                capacity_ah=None,
+                stop=types.SimpleNamespace(max_active_seconds=None, delta=0.06),
+            ),
+            _vmax=None,
+            _imin=0.42,
+        )
+        values = live(output="on")
+        values["is_cv"] = "on"
+        values["is_cc"] = "off"
+        state = build_operator_hmi_state(app, values)
+        panel = render_operator_panel(state)
+        self.assertIn("✅ Imin 0.42A · ΔI 0.06A · выдержка 2ч 00м / 2ч", panel)
+        self.assertNotIn("3ч", panel)
+
     def test_interrupted_adoption_is_not_misrepresented_as_active(self):
         app = FakeApp(observer=FakeObserver("interrupted"))
         state = build_operator_hmi_state(app, live())
@@ -282,7 +408,8 @@ class OperatorHmiTests(unittest.TestCase):
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
         self.assertEqual(state.process_state, HmiProcessState.INTERRUPTED)
-        self.assertIn("MIX · CV", text)
+        self.assertIn("RD6018 · Baic72 · CV", text)
+        self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("Подхват прерван", text)
         self.assertIn("rd_live_mix", callbacks)
         self.assertNotIn("operator_adopted_stop", callbacks)
@@ -438,12 +565,26 @@ class OperatorHmiTests(unittest.TestCase):
         keyboard = build_operator_keyboard(app, state)
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
-        self.assertEqual(len(rows[1]), 2)  # details, events
-        self.assertIn("logs", {button.callback_data for button in rows[1]})
+        self.assertEqual(len(rows[1]), 1)  # refresh before read-only menus
+        self.assertEqual(len(rows[2]), 1)  # events/details are separate read-only rows
+        read_only_callbacks = {
+            button.callback_data
+            for row in rows[2:]
+            for button in row
+        }
+        self.assertIn("logs", read_only_callbacks)
+        self.assertIn("operator_details", read_only_callbacks)
         self.assertNotIn("operator_graph", {button.callback_data for row in rows for button in row})
         self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})
-        self.assertEqual(len(rows[-1]), 1)  # refresh
+        self.assertEqual(rows[1][0].callback_data, "operator_refresh")
+
+    def test_idle_action_view_has_no_session_details_or_events(self):
+        actions = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+        available = {item.action for item in actions.available_actions}
+        self.assertEqual(available, {OperatorAction.START_CHARGE})
+        self.assertIn(OperatorAction.SHOW_LOG, actions.disabled_actions)
+        self.assertIn(OperatorAction.SHOW_DIAGNOSTICS, actions.disabled_actions)
 
     def test_paused_charge_has_resume_and_terminal_stop_side_by_side(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)
@@ -454,7 +595,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual([button.text for button in first_row], ["▶️ Продолжить", "🛑 Стоп"])
         self.assertEqual(first_row[0].callback_data, "operator_pause_toggle")
         self.assertEqual(first_row[1].text, "🛑 Стоп")
-        self.assertIn(first_row[1].callback_data, {"power_toggle", "operator_managed_stop"})
+        self.assertEqual(first_row[1].callback_data, "operator_managed_stop")
 
     def test_fault_panel_keeps_protection_reason(self):
         values = live(output="off")

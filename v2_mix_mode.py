@@ -317,14 +317,7 @@ def install_mix_only_mode(app: Any) -> None:
     def modes_keyboard() -> InlineKeyboardMarkup:
         markup = original_modes_keyboard()
         rows = [list(row) for row in markup.inline_keyboard]
-        insert_at = next(
-            (
-                idx
-                for idx, row in enumerate(rows)
-                if any(button.callback_data == "v2_manual" for button in row)
-            ),
-            max(0, len(rows) - 1),
-        )
+        insert_at = max(0, len(rows) - 1)
         rows.insert(
             insert_at,
             [InlineKeyboardButton(text="⚗ Авто Mix", callback_data="v2_mix")],
@@ -386,7 +379,8 @@ def install_mix_only_mode(app: Any) -> None:
             call,
             "<b>⚗ Автоматический Mix</b>\n\n"
             "Старт сразу с Mix без PREP/Main/Recovery. "
-            "Выберите сохранённую АКБ или химию для разового запуска.",
+            "Выберите сохранённую АКБ или химию для разового запуска.\n"
+            "Для ручных V/I и редактируемого Δ используйте Manual.",
             reply_markup=_mix_menu_keyboard(records),
         )
 

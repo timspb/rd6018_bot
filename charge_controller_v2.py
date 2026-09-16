@@ -564,6 +564,27 @@ class ChargeControllerV2(ChargeController):
             record.decision.reason,
         )
 
+    def _log_stage_transition(
+        self,
+        *,
+        old_stage: str,
+        new_stage: str,
+        timestamp_s: float,
+        reason: str,
+    ) -> None:
+        """Emit one structured transition record without changing FSM behavior."""
+        if old_stage == new_stage:
+            return
+        owner = "v2" if self._v2_authoritative else "legacy"
+        logger.info(
+            "CHARGE_TRANSITION old=%s new=%s reason=%s owner=%s timestamp=%.3f",
+            old_stage,
+            new_stage,
+            reason or "unspecified",
+            owner,
+            float(timestamp_s),
+        )
+
     @staticmethod
     def _log_transition_audit(audit: Optional[LegacyTransitionAudit]) -> None:
         if audit is None:
@@ -601,6 +622,7 @@ class ChargeControllerV2(ChargeController):
         output_is_on: Optional[Any],
         manual_off_active: bool,
         is_cc: Optional[bool],
+        manual_active: bool,
     ) -> Dict[str, Any]:
         """Run legacy common safety while masking its Main/Mix transition triggers."""
         if not self._is_authoritative_stage(stage_before):
@@ -613,6 +635,7 @@ class ChargeControllerV2(ChargeController):
                 output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
 
         saved_blanking = self._blanking_until
@@ -640,6 +663,7 @@ class ChargeControllerV2(ChargeController):
                 output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
+                manual_active=manual_active,
             )
         finally:
             # A safety transition (Cooling/Done/Idle) owns its new timestamps/state.
@@ -962,7 +986,20 @@ class ChargeControllerV2(ChargeController):
                 f"{evidence}\nSticky finish-hold: 2ч."
             )
             actions["log_event"] = f"V2_FINISH_HOLD_START | {evidence}"
+            logger.info(
+                "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
+                self._delta_trigger_mode or "unknown",
+                MIX_DONE_TIMER,
+                timestamp_s,
+            )
         elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
+            if self.finish_timer_start is not None:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=delta event=hold_complete mode=%s hold_seconds=%.1f timestamp=%.3f",
+                    self._delta_trigger_mode or "unknown",
+                    max(0.0, timestamp_s - float(self.finish_timer_start)),
+                    timestamp_s,
+                )
             self._enter_safe_wait_done(
                 actions=actions,
                 now=timestamp_s,
@@ -973,6 +1010,11 @@ class ChargeControllerV2(ChargeController):
                 reason=decision.reason,
             )
         elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
+            logger.info(
+                "CHARGE_EVIDENCE kind=stop event=diagnose reason=%s owner=v2 timestamp=%.3f",
+                decision.reason,
+                timestamp_s,
+            )
             self._stop_and_diagnose(
                 actions=actions,
                 now=timestamp_s,
@@ -994,6 +1036,7 @@ class ChargeControllerV2(ChargeController):
         output_is_on: Optional[Any] = None,
         manual_off_active: bool = False,
         is_cc: Optional[bool] = None,
+        manual_active: bool = False,
     ) -> Dict[str, Any]:
         stage_before = self.current_stage
         target_before = self._v2_target_voltage_v
@@ -1013,6 +1056,7 @@ class ChargeControllerV2(ChargeController):
             output_is_on=output_is_on,
             manual_off_active=manual_off_active,
             is_cc=is_cc,
+            manual_active=manual_active,
         )
 
         timestamp_s = self.last_update_time or time.time()
@@ -1051,6 +1095,26 @@ class ChargeControllerV2(ChargeController):
                     metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
                     stage_before,
                     self._v2_trace_session_id or "-",
+                )
+            if SignalEvent.VOLTAGE_MAXIMUM_UPDATED in record.analysis.events:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=maximum event=update mode=CC Vmax=%.3f timestamp=%.3f",
+                    metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
+                    timestamp_s,
+                )
+            if SignalEvent.CURRENT_REVERSAL_CONFIRMED in record.analysis.events:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=delta event=confirmation mode=CV Imin=%.3f delta=%.3f timestamp=%.3f",
+                    metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
+                    metrics.delta_current_from_min_a if metrics.delta_current_from_min_a is not None else float("nan"),
+                    timestamp_s,
+                )
+            if SignalEvent.VOLTAGE_REVERSAL_CONFIRMED in record.analysis.events:
+                logger.info(
+                    "CHARGE_EVIDENCE kind=delta event=confirmation mode=CC Vmax=%.3f delta=%.3f timestamp=%.3f",
+                    metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
+                    metrics.delta_voltage_from_max_v if metrics.delta_voltage_from_max_v is not None else float("nan"),
+                    timestamp_s,
                 )
             analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
             mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)
@@ -1229,6 +1293,18 @@ class ChargeControllerV2(ChargeController):
             except Exception:
                 self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
+
+        transition_reason = ""
+        if authority_decision is not None:
+            transition_reason = str(authority_decision.reason or "")
+        if not transition_reason:
+            transition_reason = str(actions.get("log_event") or actions.get("log_event_end") or "")
+        self._log_stage_transition(
+            old_stage=stage_before,
+            new_stage=self.current_stage,
+            timestamp_s=timestamp_s,
+            reason=transition_reason,
+        )
 
         # Mix scaffold temporarily hid the true stage clock from legacy persistence.
         # Rewrite the durable session after restoring/applying the authoritative state.
