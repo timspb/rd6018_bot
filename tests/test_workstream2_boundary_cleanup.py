@@ -24,7 +24,7 @@ UI_PROVIDER = ROOT / "application" / "operator_snapshot_provider.py"
 
 
 class Workstream2BoundaryCleanupTests(unittest.TestCase):
-    def test_ui_provider_has_only_explicit_compatibility_import(self):
+    def test_ui_provider_has_only_explicit_observation_import(self):
         tree = ast.parse(UI_PROVIDER.read_text(encoding="utf-8"), filename=str(UI_PROVIDER))
         imports = []
         for node in ast.walk(tree):
@@ -36,7 +36,8 @@ class Workstream2BoundaryCleanupTests(unittest.TestCase):
         self.assertNotIn("rd6018_telemetry", imports)
         self.assertNotIn("runtime.diagnostics", imports)
         self.assertNotIn("runtime.journal", imports)
-        self.assertIn("legacy_ui_boundary", imports)
+        self.assertIn("operator_observation_source", imports)
+        self.assertNotIn("legacy_ui_boundary", imports)
 
     def test_all_legacy_actuator_paths_are_inventory_only(self):
         paths = legacy_actuator_compatibility_paths()

@@ -1,7 +1,7 @@
 import unittest
 
 from runtime.ui import ChargeView, DiagnosticsView, RuntimeUISnapshot, SafetyView, TelemetryView
-from runtime.ui.legacy_shadow import LegacyUISnapshotAdapter, UIParityComparator
+from ui_parity_fixtures import LegacyUISnapshotAdapter, UIParityComparator
 
 
 class V3UILegacyParityTests(unittest.TestCase):

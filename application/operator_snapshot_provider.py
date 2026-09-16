@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from runtime.ui.models import ChargeView, DiagnosticsView, RuntimeUISnapshot, SafetyView, TelemetryView
 
-from .legacy_ui_boundary import DiagnosticAuthority, HmiProcessState, LegacyUIReadAdapter
+from .operator_observation_source import DiagnosticAuthority, HmiProcessState, OperatorObservationSource
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
 from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
@@ -26,7 +26,7 @@ class OperatorSnapshotProvider:
     """
 
     def __init__(self, app: Any, *, journal: Any = None, intent_dispatcher: IntentDispatcher | None = None) -> None:
-        self._legacy = LegacyUIReadAdapter(app, journal=journal)
+        self._observation = OperatorObservationSource(app, journal=journal)
         if intent_dispatcher is None:
             pause_handler = PauseCommandHandler().route
             profile_handler = ProfileCommandHandler().route
@@ -41,25 +41,25 @@ class OperatorSnapshotProvider:
         self.intent_dispatcher = intent_dispatcher
 
     async def get_operator_snapshot(self) -> OperatorSnapshot:
-        live = await self._legacy.read_live()
-        hmi = self._legacy.hmi_state(live)
+        live = await self._observation.read_live()
+        hmi = self._observation.hmi_state(live)
         return self._build_snapshot(live, hmi)
 
     async def get_diagnostics(self) -> DiagnosticsView:
-        live = await self._legacy.read_live()
+        live = await self._observation.read_live()
         return self._diagnostics(live)
 
     async def get_operator_details(self) -> OperatorDetailsView:
-        live = await self._legacy.read_live()
-        hmi = self._legacy.hmi_state(live)
-        controller = self._legacy.controller()
+        live = await self._observation.read_live()
+        hmi = self._observation.hmi_state(live)
+        controller = self._observation.controller()
         timers = {}
         if controller is not None and bool(getattr(controller, "is_active", False)):
             try:
                 timers = dict(controller.get_timers() or {})
             except Exception:
                 timers = {}
-        request = self._legacy.manual_request()
+        request = self._observation.manual_request()
         return OperatorDetailsView(
             process_state=hmi.process_state.value,
             authority=hmi.authority.value,
@@ -75,7 +75,7 @@ class OperatorSnapshotProvider:
             safety=hmi.safety,
             progress=hmi.progress,
             observer_state=self._observer_state(),
-            observer_status=str(getattr(self._legacy.observer(), "last_status", "") or ""),
+            observer_status=str(getattr(self._observation.observer(), "last_status", "") or ""),
             stage=str(getattr(controller, "current_stage", "") or ""),
             battery_type=str(getattr(controller, "battery_type", "") or ""),
             capacity_ah=self._number(getattr(controller, "ah_capacity", None)),
@@ -89,9 +89,9 @@ class OperatorSnapshotProvider:
         )
 
     async def get_service_details(self) -> ServiceDetailsView:
-        live = await self._legacy.read_live()
-        hmi = self._legacy.hmi_state(live)
-        controller = self._legacy.controller()
+        live = await self._observation.read_live()
+        hmi = self._observation.hmi_state(live)
+        controller = self._observation.controller()
         snapshot = {}
         if controller is not None:
             try:
@@ -113,8 +113,8 @@ class OperatorSnapshotProvider:
         )
 
     async def get_operator_actions(self) -> OperatorActionsView:
-        live = await self._legacy.read_live()
-        hmi = self._legacy.hmi_state(live)
+        live = await self._observation.read_live()
+        hmi = self._observation.hmi_state(live)
         if hmi.process_state is HmiProcessState.ADOPTED_MIX:
             available = (OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
             return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "adopted_mix")
@@ -127,7 +127,7 @@ class OperatorSnapshotProvider:
         if hmi.process_state is HmiProcessState.STORAGE:
             return self._actions((OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS), (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "storage")
         if hmi.process_state in {HmiProcessState.RUNNING, HmiProcessState.PAUSED} and hmi.authority.value in {"auto", "manual"}:
-            paused = self._legacy.pause_active()
+            paused = self._observation.pause_active()
             available = (OperatorAction.RESUME_CHARGE if paused else OperatorAction.PAUSE_CHARGE, OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH, OperatorAction.SHOW_DIAGNOSTICS)
             return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "charging")
         snapshot = self._build_snapshot(live, hmi)
@@ -139,7 +139,7 @@ class OperatorSnapshotProvider:
         return OperatorActionsView(tuple(OperatorActionSpec(action) for action in available), tuple(disabled), reasons)
 
     def _observer_state(self) -> str:
-        observer = self._legacy.observer()
+        observer = self._observation.observer()
         raw = getattr(observer, "state", "") if observer is not None else ""
         return str(getattr(raw, "value", raw) or "")
 
@@ -153,13 +153,13 @@ class OperatorSnapshotProvider:
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]:
         if limit < 0:
             raise ValueError("limit must not be negative")
-        recorder = self._legacy.journal()
+        recorder = self._observation.journal()
         if recorder is None or not callable(getattr(recorder, "tail", None)):
             return ()
         entries = recorder.tail(limit)
         if inspect.isawaitable(entries):
             entries = await entries
-        return tuple(self._legacy.format_journal_entry(entry) for entry in entries)
+        return tuple(self._observation.format_journal_entry(entry) for entry in entries)
 
     async def submit_intent(self, intent: Any):
         """Route read-only intents; execution intents remain unmigrated."""
@@ -171,17 +171,17 @@ class OperatorSnapshotProvider:
 
     def legacy_hmi_state(self, live: Mapping[str, Any]):
         """Expose the source state for shadow comparison; still read-only."""
-        return self._legacy.hmi_state(live)
+        return self._observation.hmi_state(live)
 
     @staticmethod
     def hmi_state_from_snapshot(snapshot: OperatorSnapshot):
         """Adapt sanitized V3 data to the preserved renderer's data model."""
-        return LegacyUIReadAdapter.hmi_from_snapshot(snapshot)
+        return OperatorObservationSource.hmi_from_snapshot(snapshot)
 
     def _build_snapshot(self, live: Mapping[str, Any], hmi: Any) -> OperatorSnapshot:
-        fresh = self._legacy.freshness(live, ("switch", "battery_voltage", "current", "protection_code", "regulation_code"))
+        fresh = self._observation.freshness(live, ("switch", "battery_voltage", "current", "protection_code", "regulation_code"))
         state = self._state(hmi, live, fresh)
-        stage = str(getattr(self._legacy.controller(), "current_stage", "") or "")
+        stage = str(getattr(self._observation.controller(), "current_stage", "") or "")
         if not stage:
             stage = str(getattr(hmi, "title", "IDLE") or "IDLE")
         faults = self._faults(live, hmi)
@@ -253,7 +253,7 @@ class OperatorSnapshotProvider:
         return tuple(dict.fromkeys(faults))
 
     def _diagnostics(self, live: Mapping[str, Any], *, faults: tuple[str, ...] = ()) -> DiagnosticsView:
-        report = next((self._legacy.get(name) for name in ("battery_diagnostic_report", "diagnostic_report") if self._legacy.get(name) is not None), None)
+        report = next((self._observation.get(name) for name in ("battery_diagnostic_report", "diagnostic_report") if self._observation.get(name) is not None), None)
         decision = getattr(report, "authority", report)
         authority = getattr(decision, "value", decision) or DiagnosticAuthority.ALLOW.value
         reasons = tuple(str(x) for x in (getattr(decision, "reasons", ()) or ()))
