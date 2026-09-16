@@ -7,7 +7,7 @@ dependencies.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from math import isfinite
@@ -70,7 +70,7 @@ class DiagnosticEvent:
     severity: DiagnosticSeverity
     correlation: TraceCorrelation
     source: str
-    payload: Mapping[str, Any] = MappingProxyType({})
+    payload: Mapping[str, Any] = field(default_factory=dict)
     error_code: str | None = None
     warning_code: str | None = None
     audit_action: str | None = None
