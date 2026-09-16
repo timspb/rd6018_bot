@@ -53,14 +53,6 @@ ENABLE_CALLS = frozenset(
         ("runtime/v2_runtime.py", "start_custom_charge", "hass.turn_on"),
         ("diagnostic_persistence.py", "recover_diagnostic_persistence", "app.hass.turn_off"),
         ("diagnostic_probe.py", "_restore_or_off", "self.hass.turn_off"),
-        ("manual_mode.py", "_enter_cooling", "self.app.hass.turn_off"),
-        ("manual_mode.py", "_resume_after_cooling", "self.app.hass.safe_enable_output"),
-        ("manual_mode.py", "_run", "self.app.hass.turn_off"),
-        ("manual_mode.py", "start", "self.app.hass.safe_enable_output"),
-        ("manual_mode.py", "stop", "self.app.hass.turn_off"),
-        ("manual_runtime_v2.py", "_contain_enable_exception", "self.app.hass.turn_off"),
-        ("manual_runtime_v2.py", "_run", "self.app.hass.turn_off"),
-        ("manual_runtime_v2.py", "stop", "self.app.hass.turn_off"),
         ("rd_managed_adoption.py", "_verified_off", "self.app.hass.turn_off"),
         ("rd_managed_mix.py", "force_verified_off", "self.app.hass.turn_off"),
         ("recipe_output.py", "enable_authorized_recipe_target", "adapter.safe_enable_output"),
@@ -76,6 +68,10 @@ ENABLE_CALLS = frozenset(
         ("v2_mix_mode.py", "start_mix_transactional", "app.hass.safe_enable_output"),
         ("v2_startup.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
         ("v2_startup.py", "start_profile_transactional", "app.hass.safe_enable_output"),
+        # Canonical WS124 V2 execution port. These are the only new actuator
+        # calls introduced by the consolidated boundary.
+        ("application/execution_port.py", "enable", "self.v2_owner.safe_enable_output"),
+        ("application/execution_port.py", "disable", "self.v2_owner.turn_off"),
     }
 )
 

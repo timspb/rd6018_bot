@@ -86,7 +86,7 @@ class Phase1CleanupContractTests(unittest.TestCase):
                 # This is the explicit V2 execution boundary. Its contract is
                 # to call the already-owned setter; decision and UI modules
                 # remain covered by this scan.
-                if path.name == "manual_execution_boundary.py":
+                if path.name in {"manual_execution_boundary.py", "execution_port.py"}:
                     continue
                 tree = _tree(path)
                 for node in ast.walk(tree):

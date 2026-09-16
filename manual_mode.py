@@ -17,6 +17,8 @@ from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
 from runtime.charge.profiles.manual import ManualChargeProfile, load_manual_profile
 from application.manual_identity_integration import ManualIdentityIntegrationAdapter
 from application.manual_execution_boundary import ManualExecutionBoundary
+from application.execution_intent.models import ExecutionIntent, SafetyContext
+from application.execution_port import ExecutionPort
 from application.manual_phase_lifecycle import ManualPhaseLifecycle
 from v3_core.canonical_events import EventType
 
@@ -157,7 +159,11 @@ class ManualSessionManager:
         self.main_tail_current_threshold_a = MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
         self.identity_integration = ManualIdentityIntegrationAdapter()
         self.phase_lifecycle = ManualPhaseLifecycle()
-        self.execution_boundary = ManualExecutionBoundary(self.app.hass)
+        # Construction must remain compatible with persistence-only restore
+        # callers that provide no live app/Hass object. Actual execution still
+        # fails closed when the V2 owner is unavailable.
+        self.execution_port = ExecutionPort(getattr(self.app, "hass", None))
+        self.execution_boundary = ManualExecutionBoundary(self.execution_port)
         self.identity_restore_resolution = "AMBIGUOUS"
         self._manual_start_event_emitted = False
         self._restore_as_interrupted()
@@ -326,15 +332,27 @@ class ManualSessionManager:
         self.finish_hold_started_at = None
         self._persist()
 
-        result = await self.app.hass.safe_enable_output(
-            voltage_v=request.voltage_v,
-            current_a=request.current_a,
+        start_intent = ExecutionIntent(
+            requested_voltage_v=request.voltage_v,
+            requested_current_a=request.current_a,
+            requested_mode="MANUAL_START",
+            source_decision_id=f"manual_start:{self.identity_integration.identity.trace_id}",
+            safety_context=SafetyContext(
+                telemetry_state="FRESH",
+                lease_state="V2_PHYSICAL_OWNER",
+                verification_state="REQUIRED",
+                limits_reference="existing V2 guarded setter policy",
+            ),
+        )
+        result = await self.execution_port.enable(
+            start_intent,
+            identity=self.identity_integration.identity,
             ovp_v=request.ovp_v,
             ocp_a=request.ocp_a,
             recipe_voltage_ceiling_v=float(MAX_MANUAL_VOLTAGE),
         )
-        if not result.enabled:
-            self.stop_reason = result.detail or "safe_enable_failed"
+        if not result.verified:
+            self.stop_reason = result.reason or "safe_enable_failed"
             self._transition_state(ManualSessionState.FAILED, self.stop_reason)
             self._persist()
             return False
@@ -355,7 +373,18 @@ class ManualSessionManager:
         self.stop_reason = str(reason)
         confirmed = False
         try:
-            confirmed = bool(await self.app.hass.turn_off())
+            stop_intent = ExecutionIntent(
+                requested_voltage_v=0.0,
+                requested_current_a=0.0,
+                requested_mode="MANUAL_STOP",
+                source_decision_id=f"manual_stop:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+                safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+            )
+            confirmed = (await self.execution_port.disable(
+                stop_intent,
+                identity=self.identity_integration.identity,
+                reason=self.stop_reason,
+            )).verified
         finally:
             self._transition_state(
                 ManualSessionState.STOPPED if confirmed else ManualSessionState.FAILED,
@@ -375,7 +404,14 @@ class ManualSessionManager:
     async def _enter_cooling(self) -> None:
         if self.state is ManualSessionState.COOLING:
             return
-        if not await self.app.hass.turn_off():
+        stop_intent = ExecutionIntent(
+            requested_voltage_v=0.0,
+            requested_current_a=0.0,
+            requested_mode="MANUAL_COOLING_STOP",
+            source_decision_id=f"manual_cooling:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+            safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+        )
+        if not (await self.execution_port.disable(stop_intent, identity=self.identity_integration.identity, reason="thermal_pause")).verified:
             self.stop_reason = "cooling_output_off_unconfirmed"
             self._transition_state(ManualSessionState.FAILED, self.stop_reason)
             self._persist()
@@ -396,15 +432,27 @@ class ManualSessionManager:
         self.cooling_started_at = None
         self._transition_state(ManualSessionState.ARMING, "cooling_resume_prepare")
         self._persist()
-        result = await self.app.hass.safe_enable_output(
-            voltage_v=self.request.voltage_v,
-            current_a=self.request.current_a,
+        resume_intent = ExecutionIntent(
+            requested_voltage_v=self.request.voltage_v,
+            requested_current_a=self.request.current_a,
+            requested_mode="MANUAL_RESUME",
+            source_decision_id=f"manual_resume:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+            safety_context=SafetyContext(
+                telemetry_state="FRESH",
+                lease_state="V2_PHYSICAL_OWNER",
+                verification_state="REQUIRED",
+                limits_reference="existing V2 guarded setter policy",
+            ),
+        )
+        result = await self.execution_port.enable(
+            resume_intent,
+            identity=self.identity_integration.identity,
             ovp_v=self.request.ovp_v,
             ocp_a=self.request.ocp_a,
             recipe_voltage_ceiling_v=float(MAX_MANUAL_VOLTAGE),
         )
-        if not result.enabled:
-            self.stop_reason = result.detail or "cooling_resume_failed"
+        if not result.verified:
+            self.stop_reason = result.reason or "cooling_resume_failed"
             self._transition_state(ManualSessionState.FAILED, self.stop_reason)
             self._persist()
             return
@@ -648,7 +696,14 @@ class ManualSessionManager:
         except Exception as exc:
             self.stop_reason = f"manual_runtime_error:{type(exc).__name__}"
             try:
-                await self.app.hass.turn_off()
+                stop_intent = ExecutionIntent(
+                    requested_voltage_v=0.0,
+                    requested_current_a=0.0,
+                    requested_mode="MANUAL_ERROR_STOP",
+                    source_decision_id=f"manual_error:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+                    safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+                )
+                await self.execution_port.disable(stop_intent, identity=self.identity_integration.identity, reason=self.stop_reason)
             finally:
                 self._transition_state(ManualSessionState.FAILED, self.stop_reason)
                 self._persist()
