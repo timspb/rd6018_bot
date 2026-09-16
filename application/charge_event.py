@@ -6,7 +6,7 @@ dependencies. Production writers are not connected by this contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import isfinite
 from types import MappingProxyType
@@ -45,9 +45,9 @@ class ChargeEvent:
     severity: str
     profile: str | None = None
     phase: str | None = None
-    measurements: Mapping[str, Any] = MappingProxyType({})
-    decision: Mapping[str, Any] = MappingProxyType({})
-    actuator_effect: Mapping[str, Any] = MappingProxyType({})
+    measurements: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    decision: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    actuator_effect: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     failure_state: str | None = None
 
     def __post_init__(self) -> None:
@@ -114,4 +114,3 @@ class ChargeEvent:
         if missing:
             raise ValueError("missing ChargeEvent fields: " + ", ".join(missing))
         return cls(**{field: payload.get(field) for field in cls.__dataclass_fields__})
-
