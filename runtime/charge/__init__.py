@@ -14,7 +14,6 @@ from .post import FinishIntent
 from .profiles import RecipeDTO, ValidatedChargeRecipe, RecipeRegistry, ChargeRecipeValidator
 from .program import ChargeProgram
 from .state import ChargeState, DeltaRuntimeState
-from .adapters import LegacyChargeProgramAdapter
 from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 from .programs import ManualProgram, ManualTargets
 from .programs import MinimumConfig, MinimumProgram
@@ -49,7 +48,6 @@ __all__ = [
     "ProductionChemistry",
     "map_production_chemistry",
     "DeltaRuntimeState",
-    "LegacyChargeProgramAdapter",
     "Measurements",
     "FinishIntent",
     "RecipeDTO", "ValidatedChargeRecipe", "RecipeRegistry", "ChargeRecipeValidator",

@@ -14,6 +14,7 @@ from runtime.charge import (
     ManualTargets,
     Measurements,
 )
+from charge_parity_fixtures import legacy_mapping_to_intent
 
 
 class V3ManualProgramTests(unittest.TestCase):
@@ -42,7 +43,7 @@ class V3ManualProgramTests(unittest.TestCase):
     def test_legacy_manual_comparison_detects_mismatch(self):
         engine = ChargeEngine(self.battery, ManualProgram(self.battery, ManualTargets(14.7, 5.0, "manual", "MANUAL_START")))
         comparison = ChargeDecisionShadow(self.battery, engine).compare(
-            {"set_voltage": 14.6, "set_current": 5.0, "next_stage": "manual", "completed": False, "log_event": "MANUAL_START"},
+            legacy_mapping_to_intent({"set_voltage": 14.6, "set_current": 5.0, "next_stage": "manual", "completed": False, "log_event": "MANUAL_START"}),
             self.state,
             self.measurements,
         )

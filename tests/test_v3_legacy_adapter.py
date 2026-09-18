@@ -8,12 +8,12 @@ from runtime.charge import (
     ChargeIntent,
     ChargeState,
     ChemistryProfile,
-    LegacyChargeProgramAdapter,
     Measurements,
 )
+from charge_parity_fixtures import legacy_mapping_to_intent
 
 
-class V3LegacyAdapterTests(unittest.TestCase):
+class V3LegacyParityFixtureTests(unittest.TestCase):
     def test_legacy_decision_maps_to_intent_through_engine(self):
         battery = BatteryProfile(ChemistryProfile.EFB, 72.0)
 
@@ -29,8 +29,8 @@ class V3LegacyAdapterTests(unittest.TestCase):
                 "log_event": "MINIMUM_HOLD",
             }
 
-        adapter = LegacyChargeProgramAdapter(battery, legacy_behavior)
-        result = ChargeEngine(battery, adapter).evaluate(
+        legacy_intent = legacy_mapping_to_intent(legacy_behavior(battery, ChargeState(program="minimum"), Measurements(voltage=14.4, current=2.0, temperature=25.0, time=10.0)))
+        result = ChargeEngine(battery, _FixtureProgram(legacy_intent)).evaluate(
             ChargeState(program="minimum", stage="main"),
             Measurements(voltage=14.4, current=2.0, temperature=25.0, time=10.0),
         )
@@ -42,24 +42,27 @@ class V3LegacyAdapterTests(unittest.TestCase):
 
     def test_legacy_actuator_result_is_rejected_at_boundary(self):
         battery = BatteryProfile(ChemistryProfile.AGM, 80.0)
-        adapter = LegacyChargeProgramAdapter(
-            battery,
-            lambda *_: {"set_voltage": 14.4, "turn_on": True},
-        )
-
         with self.assertRaises(ValueError):
-            adapter.evaluate(ChargeState(), Measurements())
+            legacy_mapping_to_intent({"set_voltage": 14.4, "turn_on": True})
 
     def test_adapter_has_no_external_integration_imports(self):
-        root = pathlib.Path(__file__).parents[1] / "runtime" / "charge" / "adapters"
-        forbidden = {"bot_legacy", "hass_api", "aiogram", "rd_control_mode", "safe_output"}
-        for path in root.glob("*.py"):
+        root = pathlib.Path(__file__).parents[1] / "runtime" / "charge"
+        forbidden = {"bot_legacy", "hass_api", "aiogram", "rd_control_mode", "safe_output", "LegacyChargeProgramAdapter"}
+        for path in root.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     self.assertTrue(forbidden.isdisjoint({a.name.split(".")[0] for a in node.names}))
                 elif isinstance(node, ast.ImportFrom):
                     self.assertNotIn((node.module or "").split(".")[0], forbidden)
+
+
+class _FixtureProgram:
+    def __init__(self, intent):
+        self.intent = intent
+
+    def evaluate(self, state, measurements):
+        return self.intent
 
 
 if __name__ == "__main__":

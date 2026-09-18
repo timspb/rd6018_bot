@@ -13,6 +13,7 @@ from runtime.charge import (
     ChargeDecisionShadow,
     Measurements,
 )
+from charge_parity_fixtures import legacy_mapping_to_intent
 
 
 class MatchingProgram(ChargeProgram):
@@ -41,7 +42,7 @@ class V3ShadowComparisonTests(unittest.TestCase):
     def test_identical_legacy_and_new_decision_matches(self):
         shadow = ChargeDecisionShadow(self.battery, ChargeEngine(self.battery, MatchingProgram()))
 
-        comparison = shadow.compare(self.legacy, self.state, self.measurements)
+        comparison = shadow.compare(legacy_mapping_to_intent(self.legacy), self.state, self.measurements)
 
         self.assertIs(ComparisonResult.MATCH, comparison.result)
         self.assertEqual((), comparison.mismatches)
@@ -49,7 +50,7 @@ class V3ShadowComparisonTests(unittest.TestCase):
     def test_mismatch_is_reported_by_field(self):
         shadow = ChargeDecisionShadow(self.battery, ChargeEngine(self.battery, MismatchingProgram()))
 
-        comparison = shadow.compare(self.legacy, self.state, self.measurements)
+        comparison = shadow.compare(legacy_mapping_to_intent(self.legacy), self.state, self.measurements)
 
         self.assertIs(ComparisonResult.MISMATCH, comparison.result)
         self.assertEqual(("target_voltage", "reason"), comparison.mismatches)

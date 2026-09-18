@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Mapping
-
-from ..adapters.legacy import LegacyChargeProgramAdapter
 from ..battery import BatteryProfile
 from ..engine import ChargeEngine
 from ..intent import ChargeIntent
@@ -40,12 +37,10 @@ class ChargeDecisionShadow:
 
     def compare(
         self,
-        legacy_result: Mapping[str, Any],
+        legacy_intent: ChargeIntent,
         state: ChargeState,
         measurements: Measurements,
     ) -> DecisionComparison:
-        legacy = LegacyChargeProgramAdapter(self.battery, lambda *_: legacy_result)
-        legacy_intent = legacy.evaluate(state, measurements)
         v3_intent = self.engine.evaluate(state, measurements)
         result = ComparisonResult.MATCH if legacy_intent == v3_intent else ComparisonResult.MISMATCH
         return DecisionComparison(legacy_intent, v3_intent, result)

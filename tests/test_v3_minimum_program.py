@@ -14,6 +14,7 @@ from runtime.charge import (
     MinimumConfig,
     MinimumProgram,
 )
+from charge_parity_fixtures import legacy_mapping_to_intent
 
 
 class V3MinimumProgramTests(unittest.TestCase):
@@ -44,13 +45,13 @@ class V3MinimumProgramTests(unittest.TestCase):
         measurements = Measurements(14.3, 0.2, 25.0, 2.0)
 
         comparison = shadow.compare(
-            {
+            legacy_mapping_to_intent({
                 "set_voltage": 14.4,
                 "set_current": 5.0,
                 "next_stage": "delta",
                 "completed": True,
                 "log_event": "MINIMUM_COMPLETE",
-            },
+            }),
             self.state,
             measurements,
         )
@@ -63,7 +64,7 @@ class V3MinimumProgramTests(unittest.TestCase):
         shadow = ChargeDecisionShadow(self.battery, ChargeEngine(self.battery, program))
 
         comparison = shadow.compare(
-            {"set_voltage": 14.3, "set_current": 5.0, "next_stage": "delta", "completed": True, "log_event": "MINIMUM_COMPLETE"},
+            legacy_mapping_to_intent({"set_voltage": 14.3, "set_current": 5.0, "next_stage": "delta", "completed": True, "log_event": "MINIMUM_COMPLETE"}),
             self.state,
             Measurements(14.3, 0.2, 25.0, 2.0),
         )
