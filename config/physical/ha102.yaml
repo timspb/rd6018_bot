@@ -2,12 +2,8 @@
 # Transport type
 type: home_assistant
 connection:
-  # Адрес Home Assistant
-  # Home Assistant server address
-  host: 192.168.1.102
-  # Порт API Home Assistant, TCP
-  # Home Assistant API port, TCP
-  port: 8123
+  # Runtime env variable containing the Home Assistant URL.
+  url_env: HA_URL
   # Имя переменной окружения с API-токеном
   # Environment variable containing the API token
   token_env: HA_TOKEN

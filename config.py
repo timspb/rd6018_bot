@@ -20,7 +20,7 @@ TG_TOKEN = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").stri
 
 # Home Assistant
 HA_URL = (os.getenv("HA_URL") or "").rstrip("/")
-HA_LOCAL_URL = (os.getenv("HA_LOCAL_URL") or "https://192.168.1.102:8123").rstrip("/")
+HA_LOCAL_URL = (os.getenv("HA_LOCAL_URL") or "").rstrip("/")
 HA_PREFER_LOCAL = _as_bool(os.getenv("HA_PREFER_LOCAL"), default=True)
 HA_INSECURE_LOCAL = _as_bool(os.getenv("HA_INSECURE_LOCAL"), default=True)
 

@@ -33,10 +33,21 @@ def validate_rd(data: Mapping[str, Any]) -> dict[str, float]:
 def validate_connection(data: Mapping[str, Any], label: str) -> None:
     host = data.get("host")
     port = data.get("port")
-    if not isinstance(host, str) or not host.strip():
-        raise ValueError(f"Invalid {label} configuration: connection.host is required.")
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+    url_env = data.get("url_env")
+    host_env = data.get("host_env")
+    port_env = data.get("port_env")
+    direct_endpoint = isinstance(host, str) and bool(host.strip()) and isinstance(port, int) and not isinstance(port, bool)
+    url_endpoint = isinstance(url_env, str) and bool(url_env.strip())
+    split_endpoint = isinstance(host_env, str) and bool(host_env.strip()) and isinstance(port_env, str) and bool(port_env.strip())
+    if not (direct_endpoint or url_endpoint or split_endpoint):
+        raise ValueError(f"Invalid {label} configuration: connection must use runtime endpoint environment variables.")
+    if direct_endpoint and not 1 <= port <= 65535:
         raise ValueError(f"Invalid {label} configuration: connection.port must be 1..65535.")
+    for key in ("url_env", "host_env", "port_env"):
+        if key in data and (not isinstance(data[key], str) or not data[key].strip()):
+            raise ValueError(f"Invalid {label} configuration: {key} must name an environment variable.")
+    if split_endpoint and isinstance(port_env, str) and not port_env.strip():
+        raise ValueError(f"Invalid {label} configuration: port_env must name an environment variable.")
     for key in ("token_env", "key_env"):
         if key in data and (not isinstance(data[key], str) or not data[key].strip()):
             raise ValueError(f"Invalid {label} configuration: {key} must name an environment variable.")

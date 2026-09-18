@@ -2,12 +2,9 @@
 # Transport type
 type: esphome
 connection:
-  # Адрес ESPHome API
-  # ESPHome API address
-  host: 192.168.1.28
-  # Порт ESPHome native API, TCP
-  # ESPHome native API port, TCP
-  port: 6053
+  # Runtime env variables containing the ESPHome endpoint.
+  host_env: ESPHOME_API_HOST
+  port_env: ESPHOME_API_PORT
   # API использует Noise-шифрование
   # API uses Noise encryption
   encrypted: true

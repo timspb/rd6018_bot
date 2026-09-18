@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -35,9 +37,32 @@ class ConfigBundle:
 def _connection(data: dict[str, Any], label: str) -> ConnectionConfig:
     connection = dict(require_mapping(data.get("connection"), label))
     validate_connection(connection, label)
+    host = str(connection.get("host", "") or "")
+    port = int(connection.get("port", 0) or 0)
+    tls = bool(connection.get("tls", False))
+    url_env = connection.get("url_env")
+    if url_env:
+        raw_url = os.getenv(str(url_env), "").strip()
+        if raw_url:
+            parsed = urlparse(raw_url)
+            host = parsed.hostname or ""
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            tls = parsed.scheme == "https"
+    else:
+        host_env = connection.get("host_env")
+        port_env = connection.get("port_env")
+        if host_env:
+            host = os.getenv(str(host_env), "").strip()
+        if port_env:
+            raw_port = os.getenv(str(port_env), "").strip()
+            try:
+                port = int(raw_port) if raw_port else 0
+            except ValueError:
+                port = 0
     return ConnectionConfig(
-        connection["host"], connection["port"], connection.get("token_env"),
-        connection.get("key_env"), bool(connection.get("tls", False)), bool(connection.get("encrypted", False)),
+        host, port, connection.get("token_env"), connection.get("key_env"), tls,
+        bool(connection.get("encrypted", False)), connection.get("url_env"),
+        connection.get("host_env"), connection.get("port_env"),
     )
 
 

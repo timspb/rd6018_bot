@@ -5,12 +5,15 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ConnectionConfig:
-    host: str
-    port: int
+    host: str = ""
+    port: int = 0
     token_env: str | None = None
     key_env: str | None = None
     tls: bool = False
     encrypted: bool = False
+    url_env: str | None = None
+    host_env: str | None = None
+    port_env: str | None = None
 
 
 @dataclass(frozen=True)
