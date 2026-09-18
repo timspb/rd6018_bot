@@ -66,11 +66,11 @@ class Workstream2BoundaryCleanupTests(unittest.TestCase):
         self.assertTrue(any(item.key == "lease.renewal_interval" for item in decisions))
         self.assertEqual({"RESOLVED", "UNRESOLVED", "MIGRATION_REQUIRED"}, {item.status.value for item in decisions})
 
-    def test_domain_imports_use_explicit_legacy_adapter(self):
+    def test_domain_consumers_use_canonical_charge_domain(self):
         for name in ("charge_orchestration.py", "shadow_composition.py"):
             text = (ROOT / "application" / name).read_text(encoding="utf-8")
-            self.assertNotIn("from runtime.charge", text)
-            self.assertIn("legacy_domain_adapter", text)
+            self.assertIn("from runtime.charge", text)
+            self.assertNotIn("legacy_domain_adapter", text)
 
     def test_application_has_no_implicit_runtime_start(self):
         for path in (ROOT / "application").glob("*.py"):

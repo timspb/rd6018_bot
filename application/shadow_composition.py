@@ -19,7 +19,7 @@ from .persistence_boundary import InMemoryPersistenceProvider
 from .telemetry_authority import ESPDirectTelemetryAdapter, HATelemetryAdapter, TelemetryArbitrator
 from .transport_adapters_shadow import ESPDirectExecutionAdapter, HAExecutionAdapter
 from .ui_adapter import OperatorUIAdapter
-from .legacy_domain_adapter import ProfileRegistry, SessionManager
+from runtime.charge import ProfileRegistry, SessionManager
 
 
 @dataclass(frozen=True)

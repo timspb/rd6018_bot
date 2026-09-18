@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from .legacy_domain_adapter import (
+from runtime.charge import (
     BatteryProfile,
     ChargeEngine,
     DomainDecision,
