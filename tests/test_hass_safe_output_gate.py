@@ -111,6 +111,28 @@ class DelayedOutputV2HassClient(FakeHassClient):
         return True
 
 
+class DelayedOffHassClient(FakeHassClient):
+    def __init__(self, confirmation_reads=None):
+        super().__init__()
+        self.live["switch"] = "on"
+        self.confirmation_reads = confirmation_reads
+        self.off_reads = 0
+        self.pending_off = False
+
+    async def get_all_live(self):
+        if self.pending_off:
+            self.off_reads += 1
+            if self.confirmation_reads is not None and self.off_reads >= self.confirmation_reads:
+                self.live["switch"] = "off"
+        return dict(self.live)
+
+    async def _switch_service(self, service, entity_id=None):
+        self.service_calls.append(service)
+        if service == "turn_off":
+            self.pending_off = True
+        return True
+
+
 class DelayedProgrammedReadbackHassClient(FakeHassClient):
     """Model protection/setpoint registers converging after HA accepts writes."""
 
@@ -172,6 +194,22 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
         client = FakeHassClient()
         self.assertFalse(await client.turn_on())
         self.assertEqual(client.service_calls, [])
+
+    async def test_turn_off_waits_for_delayed_readback_without_repeating_stop(self):
+        client = DelayedOffHassClient(confirmation_reads=3)
+
+        self.assertTrue(
+            await client.turn_off(),
+        )
+        self.assertEqual(client.service_calls, ["turn_off"])
+        self.assertGreaterEqual(client.off_reads, 3)
+
+    async def test_turn_off_timeout_fails_closed_without_repeating_stop(self):
+        client = DelayedOffHassClient(confirmation_reads=None)
+
+        self.assertTrue(await client._switch_service("turn_off"))
+        self.assertFalse(await client.wait_for_output_off(timeout_s=0.02, poll_interval_s=0.005))
+        self.assertEqual(client.service_calls, ["turn_off"])
 
     async def test_complete_programming_is_read_back_before_enable(self):
         client = FakeHassClient()

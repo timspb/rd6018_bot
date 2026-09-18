@@ -19,6 +19,7 @@ class StartExecutionRequest:
     safety_decision: str
     telemetry_evidence: Mapping[str, Any] = field(default_factory=dict)
     execution_metadata: Mapping[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
 
     def __post_init__(self) -> None:
         if not str(self.trace_id).strip():
@@ -68,9 +69,12 @@ def request_from_trace(
     *,
     trace_id: str,
     execution_metadata: Mapping[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StartExecutionRequest:
     if not trace.allowed:
         raise ValueError("cannot create execution request from denied trace")
+    metadata = execution_metadata or {}
+    effective_session_id = session_id or metadata.get("session_id")
     return StartExecutionRequest(
         plan=plan,
         trace_id=trace_id,
@@ -78,5 +82,6 @@ def request_from_trace(
         session_decision=trace.session_decision,
         safety_decision=trace.safety_decision,
         telemetry_evidence=trace.telemetry_evidence,
-        execution_metadata=execution_metadata or {},
+        execution_metadata=metadata,
+        session_id=str(effective_session_id) if effective_session_id else None,
     )

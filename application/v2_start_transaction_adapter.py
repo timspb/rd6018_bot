@@ -45,6 +45,7 @@ class V2StartTransactionInput:
     source: str = ""
     intent_metadata: Mapping[str, Any] = field(default_factory=dict)
     correlation_metadata: Mapping[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "intent_metadata", MappingProxyType(dict(self.intent_metadata)))
@@ -71,6 +72,7 @@ class StartExecutionResult:
     rollback: RollbackState
     reason: str
     transaction_input: V2StartTransactionInput
+    session_id: str | None = None
 
 
 class V2StartTransactionAdapter:
@@ -84,6 +86,7 @@ class V2StartTransactionAdapter:
         intent: ChargeIntent = ChargeIntent.NORMAL,
         condition: BatteryCondition = BatteryCondition.UNKNOWN,
         execution_metadata: Mapping[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> V2StartTransactionInput:
         if plan.ownership_result != "available":
             raise ValueError("cannot prepare V2 transaction without ownership")
@@ -92,6 +95,9 @@ class V2StartTransactionAdapter:
         metadata = dict(execution_metadata or {})
         correlation_metadata = dict(metadata.get("correlation_metadata") or {})
         correlation_metadata.setdefault("trace_id", trace_id)
+        effective_session_id = session_id or metadata.get("session_id")
+        if effective_session_id:
+            correlation_metadata.setdefault("session_id", str(effective_session_id))
         intent_metadata = dict(metadata.get("intent_metadata") or {})
         intent_metadata.setdefault("intent", intent.value)
         intent_metadata.setdefault("condition", condition.value)
@@ -112,6 +118,7 @@ class V2StartTransactionAdapter:
             source=str(metadata.get("source") or ""),
             intent_metadata=intent_metadata,
             correlation_metadata=correlation_metadata,
+            session_id=str(effective_session_id) if effective_session_id else None,
         )
 
     def normalize(
@@ -120,9 +127,14 @@ class V2StartTransactionAdapter:
         outcome: V2TransactionOutcome,
         *,
         trace_id: str | None = None,
+        session_id: str | None = None,
     ) -> StartExecutionResult:
         correlation_id = trace_id or outcome.trace_id or "unbound"
-        transaction_input = self.prepare(plan, trace_id=correlation_id)
+        transaction_input = self.prepare(
+            plan,
+            trace_id=correlation_id,
+            execution_metadata={"session_id": session_id} if session_id else None,
+        )
         if outcome.contained or outcome.session_contained:
             status = StartExecutionStatus.CONTAINED
         elif outcome.denied:
@@ -143,7 +155,14 @@ class V2StartTransactionAdapter:
         else:
             rollback = RollbackState.NOT_REQUIRED if status is StartExecutionStatus.STARTED else RollbackState.NOT_REQUIRED
 
-        return StartExecutionResult(correlation_id, status, rollback, outcome.reason or status.value, transaction_input)
+        return StartExecutionResult(
+            correlation_id,
+            status,
+            rollback,
+            outcome.reason or status.value,
+            transaction_input,
+            session_id=session_id or transaction_input.session_id,
+        )
 
     def execute(
         self,

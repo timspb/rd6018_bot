@@ -50,6 +50,7 @@ class _HaState:
             ENTITY_MAP["autonomous_mode"]: "off",
             ENTITY_MAP["take_ok"]: "on",
             ENTITY_MAP["take_out"]: "off",
+            ENTITY_MAP["safety_modbus_age"]: "0.0",
             ENTITY_MAP["boot_power"]: "off",
         }
         self.readback_for_number = {

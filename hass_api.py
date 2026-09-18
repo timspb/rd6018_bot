@@ -31,6 +31,8 @@ PROGRAMMING_TRANSACTION_TTL_SEC = 30.0
 OUTPUT_VERIFY_TIMEOUT_SEC = 10.0
 OUTPUT_VERIFY_DELAY_SEC = 0.20
 OUTPUT_VERIFY_RETRIES = int(OUTPUT_VERIFY_TIMEOUT_SEC / OUTPUT_VERIFY_DELAY_SEC) + 1
+OUTPUT_OFF_VERIFY_TIMEOUT_SEC = 10.0
+OUTPUT_OFF_VERIFY_DELAY_SEC = 0.20
 
 
 class HassClient:
@@ -282,7 +284,41 @@ class HassClient:
 
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
         self._clear_programming_state()
-        return await self._switch_service("turn_off", entity_id)
+        requested = await self._switch_service("turn_off", entity_id)
+        if not requested:
+            return False
+        return await self.wait_for_output_off()
+
+    async def wait_for_output_off(
+        self,
+        *,
+        timeout_s: float = OUTPUT_OFF_VERIFY_TIMEOUT_SEC,
+        poll_interval_s: float = OUTPUT_OFF_VERIFY_DELAY_SEC,
+    ) -> bool:
+        """Poll one authoritative OFF readback after a single STOP write."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, float(timeout_s))
+        interval = max(0.01, float(poll_interval_s))
+        while True:
+            try:
+                live = await self.get_all_live()
+                code = live.get("output_state_code_v2")
+                if code not in (None, "", "unknown", "unavailable"):
+                    try:
+                        if float(code) == 0.0:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                elif str(live.get("switch", "")).strip().lower() == "off":
+                    # Compatibility for older fixtures without the V2 register.
+                    return True
+            except Exception as exc:
+                logger.warning("Output OFF readback failed: %s", exc)
+
+            now = loop.time()
+            if now >= deadline:
+                return False
+            await asyncio.sleep(min(interval, max(0.0, deadline - now)))
 
     async def safe_enable_output(
         self,

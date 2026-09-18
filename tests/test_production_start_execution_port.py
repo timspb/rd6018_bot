@@ -67,10 +67,13 @@ def make_plan():
 
 class ProductionStartPortTests(unittest.TestCase):
     def test_shadow_path_propagates_trace_id(self):
-        result = ProductionStartExecutionPort().submit(make_plan(), trace_id="trace-shadow", mode=ProductionStartMode.SHADOW)
+        result = ProductionStartExecutionPort().submit(
+            make_plan(), trace_id="trace-shadow", session_id="session-shadow", mode=ProductionStartMode.SHADOW
+        )
         self.assertTrue(result.accepted)
         self.assertEqual(result.trace_id, "trace-shadow")
         self.assertEqual(result.request.trace_id, "trace-shadow")
+        self.assertEqual(result.request.session_id, "session-shadow")
 
     def test_dry_run_routes_through_v2_adapter_without_runner(self):
         result = ProductionStartExecutionPort().submit(make_plan(), trace_id="trace-dry", mode=ProductionStartMode.DRY_RUN)

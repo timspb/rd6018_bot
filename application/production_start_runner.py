@@ -59,6 +59,7 @@ class ProductionStartRunner:
             request.plan,
             outcome,
             trace_id=request.trace_id,
+            session_id=request.session_id,
         )
 
     async def execute_async(self, request: StartExecutionRequest) -> StartExecutionResult:
@@ -86,6 +87,7 @@ class ProductionStartRunner:
             request.plan,
             outcome,
             trace_id=request.trace_id,
+            session_id=request.session_id,
         )
 
     def _prepare(self, request: StartExecutionRequest):
@@ -95,6 +97,7 @@ class ProductionStartRunner:
             intent=request.execution_metadata.get("intent") or ChargeIntent.NORMAL,
             condition=request.execution_metadata.get("condition") or BatteryCondition.UNKNOWN,
             execution_metadata=request.execution_metadata,
+            session_id=request.session_id,
         )
 
     def _denied(self, request: StartExecutionRequest, reason: str) -> StartExecutionResult:
@@ -104,6 +107,7 @@ class ProductionStartRunner:
             intent=request.execution_metadata.get("intent") or ChargeIntent.NORMAL,
             condition=request.execution_metadata.get("condition") or BatteryCondition.UNKNOWN,
             execution_metadata=request.execution_metadata,
+            session_id=request.session_id,
         )
         return StartExecutionResult(
             trace_id=request.trace_id,
@@ -111,4 +115,5 @@ class ProductionStartRunner:
             rollback=RollbackState.NOT_REQUIRED,
             reason=reason or "active_execution_disabled",
             transaction_input=transaction_input,
+            session_id=request.session_id,
         )

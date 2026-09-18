@@ -77,6 +77,15 @@ class V2StartTransactionAdapterTests(unittest.TestCase):
         self.assertNotIn("controller", transaction.__dict__)
         self.assertNotIn("hass", transaction.__dict__)
 
+    def test_prepare_preserves_session_identity_in_transaction_metadata(self):
+        transaction = V2StartTransactionAdapter().prepare(
+            make_plan(),
+            trace_id="trace-identity",
+            session_id="session-identity",
+        )
+        self.assertEqual(transaction.session_id, "session-identity")
+        self.assertEqual(transaction.correlation_metadata["session_id"], "session-identity")
+
     def test_denied_plan_cannot_be_prepared(self):
         plan = make_plan()
         denied = plan.__class__(

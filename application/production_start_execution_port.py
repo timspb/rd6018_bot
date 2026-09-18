@@ -34,6 +34,7 @@ class ProductionStartPortResult:
     trace: StartExecutionTrace | None = None
     request: StartExecutionRequest | None = None
     execution_result: StartExecutionResult | None = None
+    session_id: str | None = None
 
 
 class ProductionStartExecutionPort:
@@ -58,6 +59,7 @@ class ProductionStartExecutionPort:
         trace_id: str,
         mode: ProductionStartMode = ProductionStartMode.SHADOW,
         execution_metadata: Mapping[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> ProductionStartPortResult:
         trace = self.runtime_start_service.build_trace(plan)
         if not trace.allowed:
@@ -72,6 +74,7 @@ class ProductionStartExecutionPort:
                 trace,
                 trace_id=trace_id,
                 execution_metadata=execution_metadata,
+                session_id=session_id,
             )
             if self.production_runner is None:
                 return ProductionStartPortResult(
@@ -96,6 +99,7 @@ class ProductionStartExecutionPort:
             trace,
             trace_id=trace_id,
             execution_metadata=execution_metadata,
+            session_id=session_id,
         )
         if mode is ProductionStartMode.SHADOW:
             return ProductionStartPortResult(True, mode, trace_id, "shadow_trace_created", trace=trace, request=request)
@@ -115,6 +119,7 @@ class ProductionStartExecutionPort:
             request.plan,
             outcome,
             trace_id=request.trace_id,
+            session_id=request.session_id,
         )
 
     async def submit_active(
@@ -123,6 +128,7 @@ class ProductionStartExecutionPort:
         *,
         trace_id: str,
         execution_metadata: Mapping[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> ProductionStartPortResult:
         """Async ACTIVE boundary for the preserved async V2 transaction owner."""
         trace = self.runtime_start_service.build_trace(plan)
@@ -136,6 +142,7 @@ class ProductionStartExecutionPort:
             trace,
             trace_id=trace_id,
             execution_metadata=execution_metadata,
+            session_id=session_id,
         )
         if self.production_runner is None:
             return ProductionStartPortResult(
@@ -155,4 +162,5 @@ class ProductionStartExecutionPort:
             trace=trace,
             request=request,
             execution_result=result,
+            session_id=result.session_id,
         )
