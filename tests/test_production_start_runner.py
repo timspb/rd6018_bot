@@ -12,10 +12,11 @@ from application.v2_start_transaction_adapter import V2StartTransactionExecutor,
 from application.v2_start_event_context import V2StartEventContext
 from application.operator_feedback import (
     LegacyFeedbackStatus,
+    LegacyOperatorEventFacade,
     build_legacy_feedback_bridge,
+    build_legacy_operator_event,
 )
 from application.telegram_operator_feedback import TelegramOperatorFeedbackAdapter
-from application.active_start_bridge import ActiveStartExecutionBridge, LegacyOperatorEventFacade
 from application.start_execution_contract import request_from_trace
 from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
@@ -267,27 +268,24 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertNotIn("ProductionStartRunner", source)
         self.assertNotIn("Physical", source)
 
-    def test_active_bridge_is_gated_and_does_not_call_owner_by_default(self):
+    def test_canonical_active_handoff_is_gated_and_does_not_call_owner_by_default(self):
         calls = []
 
         async def owner(*_args):
             calls.append("owner")
             return True
 
-        class Feedback:
-            async def publish(self, **_kwargs):
-                pass
-
-            async def update(self, **_kwargs):
-                pass
-
         result = asyncio.run(
-            ActiveStartExecutionBridge(_App(), transaction_owner=owner).execute(_request(), Feedback())
+            ProductionStartRunner(
+                V2StartTransactionAdapter(),
+                StartActivationPolicy(),
+                V2StartTransactionExecutor(_App(), transaction_owner=owner),
+            ).execute_async(_request())
         )
         self.assertEqual(result.status, StartExecutionStatus.DENIED)
         self.assertEqual(calls, [])
 
-    def test_active_bridge_propagates_context_to_feedback_and_v2_owner(self):
+    def test_canonical_active_handoff_propagates_context_to_feedback_and_v2_owner(self):
         received = []
 
         async def owner(_app, event, pending):
@@ -308,9 +306,17 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         feedback = Feedback()
         result = asyncio.run(
-            ActiveStartExecutionBridge(
-                _App(), activation_policy=_active_policy(), transaction_owner=owner
-            ).execute(_request(), feedback)
+            ProductionStartRunner(
+                V2StartTransactionAdapter(),
+                _active_policy(),
+                V2StartTransactionExecutor(
+                    _App(),
+                    event_factory=lambda transaction: build_legacy_operator_event(
+                        build_v2_start_event_context(transaction), feedback
+                    ),
+                    transaction_owner=owner,
+                ),
+            ).execute_async(_request())
         )
         self.assertEqual(result.status, StartExecutionStatus.STARTED)
         self.assertEqual(result.trace_id, "trace-runner")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from enum import Enum
 from typing import Any, Mapping, Protocol
 
@@ -56,6 +57,25 @@ class LegacyOperatorFeedbackBridge:
             message=str(message),
             metadata=dict(self.context.correlation_metadata),
         )
+
+
+@dataclass(frozen=True)
+class LegacyOperatorEventFacade:
+    """Data-only legacy callback event built by the presentation boundary."""
+
+    message: LegacyOperatorFeedbackBridge
+    from_user: Any
+
+
+def build_legacy_operator_event(
+    context: V2StartEventContext,
+    port: OperatorFeedbackPort,
+) -> LegacyOperatorEventFacade:
+    """Build callback-shaped data without owning START or execution."""
+    return LegacyOperatorEventFacade(
+        message=build_legacy_feedback_bridge(context, port),
+        from_user=SimpleNamespace(id=context.actor),
+    )
 
 
 def build_legacy_feedback_bridge(

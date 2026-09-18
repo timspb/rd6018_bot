@@ -61,7 +61,7 @@ UserIntent
 `ProductionStartRunner` является отдельным gated handoff boundary для будущего
 ACTIVE режима. Он принимает только `StartExecutionRequest`, вызывает только
 инъецированный V2 transaction owner и нормализует результат с тем же
-`trace_id`. `V2StartRunnerAdapter` адаптирует только существующий async
+`trace_id`. `V2StartTransactionExecutor` адаптирует только существующий async
 `start_profile_transactional()` и не владеет FSM, session или safety. Без всех
 ACTIVE gate flags runner не вызывается.
 

@@ -27,7 +27,7 @@ V2StartTransactionAdapter.prepare()
 ProductionStartRunner (constructed, ACTIVE-gated)
         |
         v
-V2StartRunnerAdapter -> V2 transaction owner (ACTIVE only)
+V2StartTransactionExecutor -> V2 transaction owner (ACTIVE only)
 ```
 
 The production default is `DRY_RUN`. It performs telemetry, ownership, recipe,
@@ -37,7 +37,8 @@ transaction input. It does not mutate session/FSM state, call
 Home Assistant.
 
 Composition creates one shared `StartActivationPolicy`, transaction adapter,
-`ProductionStartRunner` and `V2StartRunnerAdapter`. The runner adapter creates
+`ProductionStartRunner` and `V2StartTransactionExecutor`. The transaction
+executor creates
 an immutable `V2StartEventContext` containing `trace_id`, actor, source,
 intent/condition metadata, profile, capacity and correlation metadata. This
 context is data-only and does not contain controller, FSM, session, HA or
@@ -51,11 +52,9 @@ metadata to a future Telegram/UI adapter; no Telegram object is placed in
 `TelegramOperatorFeedbackAdapter` is the transport implementation for sending
 or editing that feedback; it does not create intents or invoke execution.
 
-`ActiveStartExecutionBridge` is the explicit composition point for a future
-ACTIVE call. It accepts only an already validated `StartExecutionRequest`,
-creates the data-only event context, attaches an `OperatorFeedbackPort`, and
-delegates to `ProductionStartRunner`. The default policy still denies ACTIVE;
-the bridge is not wired to Telegram START or physical execution.
+ACTIVE calls use the canonical `ProductionStartRunner` with
+`StartActivationPolicy`; the default policy still denies ACTIVE. Legacy callback
+feedback is a pure presentation event factory and is not an execution boundary.
 
 `v2_startup.start_profile_transactional()` remains the preserved V2 execution
 owner for the future explicitly gated ACTIVE handoff. The Telegram route no
