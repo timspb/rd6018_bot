@@ -8,7 +8,7 @@ from application.production_start_execution_port import (
     ProductionStartMode,
 )
 from application.production_start_runner import ProductionStartRunner
-from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
+from application.v2_start_transaction_adapter import V2StartTransactionExecutor, build_v2_start_event_context
 from application.v2_start_event_context import V2StartEventContext
 from application.operator_feedback import (
     LegacyFeedbackStatus,
@@ -154,7 +154,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             _request().plan,
             trace_id="trace-owner",
         )
-        adapter = V2StartRunnerAdapter(
+        adapter = V2StartTransactionExecutor(
             app="v2-app",
             event_factory=lambda item: ("event", item.trace_id),
             transaction_owner=fake_owner,
@@ -203,7 +203,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             execution_metadata={"operator": "operator-9", "source": "telegram"},
         )
         outcome = asyncio.run(
-            V2StartRunnerAdapter(app="v2-app", transaction_owner=fake_owner)(transaction)
+            V2StartTransactionExecutor(app="v2-app", transaction_owner=fake_owner)(transaction)
         )
         self.assertTrue(outcome.started)
         self.assertEqual(outcome.trace_id, "trace-propagated")

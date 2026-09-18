@@ -26,7 +26,7 @@ EXECUTION_TYPES = {
     "ProductionStartExecutionPort",
     "ProductionStartRunner",
     "V2StartTransactionAdapter",
-    "V2StartRunnerAdapter",
+    "V2StartTransactionExecutor",
 }
 
 

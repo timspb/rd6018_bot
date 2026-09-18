@@ -11,10 +11,12 @@ from .production_start_runner import ProductionStartRunner
 from .start_activation_policy import StartActivationPolicy
 from .start_execution_contract import StartExecutionRequest
 from .v2_start_event_context import V2StartEventContext
-from .v2_start_runner_adapter import V2StartOwner, V2StartRunnerAdapter, build_v2_start_event_context
 from .v2_start_transaction_adapter import (
     StartExecutionResult,
+    V2StartOwner,
     V2StartTransactionAdapter,
+    V2StartTransactionExecutor,
+    build_v2_start_event_context,
 )
 
 
@@ -53,7 +55,7 @@ class ActiveStartExecutionBridge:
             user = SimpleNamespace(id=context.actor)
             return LegacyOperatorEventFacade(message=feedback, from_user=user)
 
-        runner_adapter = V2StartRunnerAdapter(
+        runner_adapter = V2StartTransactionExecutor(
             self.app,
             event_factory=event_factory,
             transaction_owner=self.transaction_owner,

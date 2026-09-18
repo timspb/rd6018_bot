@@ -26,7 +26,7 @@ from application.production_start_execution_port import ProductionStartExecution
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
 from application.start_activation_policy import StartActivationPolicy
-from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
+from application.v2_start_transaction_adapter import V2StartTransactionExecutor, build_v2_start_event_context
 from application.v2_start_transaction_adapter import V2StartTransactionAdapter
 
 
@@ -191,7 +191,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     # future gated runner.  The V2 owner is reached only from ACTIVE, which is
     # fail-closed by the default activation policy.
     v3_transaction_adapter = V2StartTransactionAdapter()
-    v3_runner_adapter = V2StartRunnerAdapter(app, event_factory=build_v2_start_event_context)
+    v3_runner_adapter = V2StartTransactionExecutor(app, event_factory=build_v2_start_event_context)
     v3_activation_policy = StartActivationPolicy()
     v3_production_runner = ProductionStartRunner(
         transaction_adapter=v3_transaction_adapter,

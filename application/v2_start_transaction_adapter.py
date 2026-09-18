@@ -5,11 +5,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Mapping
 
 from pb_domain import BatteryCondition, ChargeIntent
 
 from .start_plan import ApprovedStartPlan
+from .v2_start_event_context import V2StartEventContext
+
+
+V2StartOwner = Callable[[Any, Any, Any], Awaitable[bool]]
+
+
+def build_v2_start_event_context(transaction: "V2StartTransactionInput") -> V2StartEventContext:
+    """Build the data-only event context for the preserved V2 owner."""
+    return V2StartEventContext(
+        trace_id=transaction.trace_id,
+        actor=transaction.actor,
+        source=transaction.source,
+        intent_metadata=transaction.intent_metadata,
+        profile=transaction.profile,
+        capacity_ah=transaction.capacity_ah,
+        condition=transaction.condition,
+        correlation_metadata=transaction.correlation_metadata,
+    )
 
 
 class StartExecutionStatus(str, Enum):
@@ -171,3 +190,34 @@ class V2StartTransactionAdapter:
                 transaction_input,
             )
         raise RuntimeError("ACTIVE V2 START transaction requires separate production approval")
+
+
+@dataclass(frozen=True)
+class V2StartTransactionExecutor:
+    """Adapt the canonical V3 transaction DTO to the preserved V2 START owner."""
+
+    app: Any
+    event_factory: Callable[[V2StartTransactionInput], Any] | None = None
+    transaction_owner: V2StartOwner | None = None
+
+    async def __call__(self, transaction: V2StartTransactionInput) -> V2TransactionOutcome:
+        if self.transaction_owner is None:
+            from v2_startup import start_profile_transactional
+
+            owner = start_profile_transactional
+        else:
+            owner = self.transaction_owner
+        pending = SimpleNamespace(
+            profile=transaction.profile,
+            capacity_ah=transaction.capacity_ah,
+            intent=transaction.intent,
+            battery_id=transaction.battery_id,
+            condition=transaction.condition,
+        )
+        event = (self.event_factory or build_v2_start_event_context)(transaction)
+        started = await owner(self.app, event, pending)
+        return V2TransactionOutcome(
+            trace_id=transaction.trace_id,
+            started=bool(started),
+            reason="started" if started else "v2_transaction_denied_or_failed",
+        )
