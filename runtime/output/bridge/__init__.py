@@ -8,16 +8,13 @@ from .snapshot import HardwareSnapshot, ReadbackValidation, validate_readback
 from .adapter import LegacyHardwareAdapter, PhysicalBridgeAdapter
 from .audit import PhysicalExecutionAudit, PhysicalExecutionRecord
 from .configuration import PhysicalExecutionConfig
-from .executor import (
-    GateValidation, PhysicalBridgeExecutor, PhysicalBridgeTransport,
-    PhysicalExecutionError, PhysicalExecutionGate, PhysicalGateState,
-)
+from .executor import GateValidation, PhysicalBridgeTransport, PhysicalExecutionError, PhysicalExecutionGate, PhysicalGateState
 
 __all__ = [
     "LegacyActuatorCommand", "ShadowExecutionRecord", "map_safe_output_intent", "ShadowOutputBridge",
     "HardwareCapability", "HardwareSnapshot", "ReadbackValidation", "validate_readback",
     "LegacyHardwareAdapter", "PhysicalBridgeAdapter",
     "PhysicalExecutionAudit", "PhysicalExecutionRecord", "PhysicalExecutionConfig",
-    "GateValidation", "PhysicalBridgeExecutor", "PhysicalBridgeTransport",
+    "GateValidation", "PhysicalBridgeTransport",
     "PhysicalExecutionError", "PhysicalExecutionGate", "PhysicalGateState",
 ]

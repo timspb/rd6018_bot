@@ -33,7 +33,7 @@ phases, or lifecycle state.
 | `runtime/v2_runtime.py` + V2 lifecycle/recovery | production execution owner | keep | sole write authority |
 | `hass_api.py` / V2 safety guards | owner-controlled adapter/guard | keep | writes only under V2 |
 | `runtime/output/**` | contracts, policy, simulation, verification | keep/quarantine | no hardware writes |
-| `runtime/output/bridge/PhysicalBridgeExecutor` | former independent executor | quarantine | rejects all write entrypoints |
+| `runtime/output/bridge/executor.py` | gate/readback contracts only | keep | no independent executor or hardware writes |
 | `runtime/physical/connectors/**` | read/discovery adapters | keep | read-only in migration tree |
 | `runtime/physical/transports/**` | read/health/readback transports | keep | no service/ESPHome writes |
 | `physical_test_control*.py` | opt-in validation surface | leave, separately gated | not a V3 production path; delegates to installed V2 managers |
@@ -51,10 +51,9 @@ lease behavior. They must not be moved or duplicated as part of V3 migration.
 
 ### Former bridge executor — quarantine
 
-`PhysicalBridgeExecutor` was an old write-capable entrypoint. After WS133 it
-is import-compatible only: `execute`, verified-disable, controlled-transition,
-and rollback reject before transport access. `verify` remains readback-only.
-It must not be reactivated or instantiated as an owner.
+The former `PhysicalBridgeExecutor` compatibility surface was removed in
+WS143. The remaining module contains only gate/readback contracts and is not
+an execution owner. It must not be extended into an executor.
 
 ### Physical connectors/transports — leave as read-only adapters
 

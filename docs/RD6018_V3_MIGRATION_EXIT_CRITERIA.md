@@ -44,7 +44,7 @@ rollback на V2.
 | `runtime/ui/legacy_shadow/**` | UI parity/shadow mapping | Выполнено в WS141: production surface удалён, parity fixtures сохранены в tests | UI parity report, fixture replay, no-runtime-read tests | Operator UI owner |
 | `runtime/charge/adapters/legacy.py` | Legacy charge behavior adapter для shadow comparison | V3 parity accepted для поддерживаемых programs/phases; no production decision consumer | behavioral parity, shadow coverage, divergence review | Charge domain owner |
 | `runtime/charge/shadow/**` и `application/*shadow*` | Read-only V2/V3 parity and replay | Утверждены retention policy и replacement audit trail; no execution imports | live/shadow parity, replay, import isolation, evidence retention | V3 observability owner |
-| `runtime/output/bridge/PhysicalBridgeExecutor` | Quarantined former executor; write entrypoints fail closed, verify read-only | Все imports удалены или направлены на `ExecutionPort`; no external consumer; quarantine behavior no longer needed | ownership scan, no-write tests, import inventory, diff review | V2 physical owner + safety owner |
+| `runtime/output/bridge/PhysicalBridgeExecutor` | Obsolete compatibility executor | Выполнено в WS143: class/export удалены; gate/readback contracts остаются без execution authority | ownership scan, no-write tests, import inventory, diff review | V2 physical owner + safety owner |
 | `runtime/output/**` contracts/policy/simulation/verification | Non-owning contracts, simulation and verification surfaces | Для каждого файла доказано отсутствие active consumer или наличие canonical replacement; no write capability | static write scan, simulation tests, compile/import tests | Execution boundary owner |
 | `runtime/physical/connectors/**` и `transports/**` | Read/discovery/readback adapters; write-shaped surfaces fail closed | Readback/verification consumers migrated; any write-capable API either removed or explicitly V2-owned adapter contract | connector/readback tests, no-write proof, physical ownership assertion | V2 physical owner |
 | `physical_test_control*.py` | Explicit opt-in controlled validation surface, not V3 production path | Отдельный controlled-test review, replacement/retention decision, operator runbook and rollback | exact node/package bench evidence, gated import tests, no default activation proof | Hardware test owner + V2 physical owner |
@@ -74,10 +74,10 @@ V3 models. Исторические данные могут оставаться
 
 ### Physical validation surfaces
 
-`PhysicalBridgeExecutor` и physical test surfaces нельзя считать безопасными
-к удалению только по отсутствию вызовов в обычном запуске. Нужны статический
-ownership proof, отсутствие write capability в production composition и,
-для hardware validation, отдельная подтверждённая процедура.
+Physical test surfaces нельзя считать безопасными к удалению только по
+отсутствию вызовов в обычном запуске. Для них нужны статический ownership
+proof, отсутствие write capability в production composition и отдельная
+подтверждённая процедура hardware validation.
 
 ### Rollback surface
 
@@ -99,7 +99,6 @@ domain import seam после
 
 - legacy charge adapter после закрытия parity review;
 - legacy charge/UI shadow mappings после закрытия parity review;
-- бывшего `PhysicalBridgeExecutor` после подтверждения отсутствия imports;
 - transitional START adapters после стабилизации единого START authority.
 
 Это не означает разрешение удалить их в текущем change set.
