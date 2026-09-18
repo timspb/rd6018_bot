@@ -2,8 +2,9 @@ import unittest
 
 from runtime.charge import ChargeIntent, Measurements
 from runtime.charge.shadow import (
-    DecisionParityComparator, LegacyDecisionAdapter, ParityStatus, V3DecisionSnapshot,
+    DecisionParityComparator, ParityStatus, V3DecisionSnapshot,
 )
+from decision_parity_fixtures import from_mapping
 from runtime.output import OutputIntentFactory
 from runtime.safety import SafetyContext, SafetyEngine, SafetyLimits
 
@@ -21,7 +22,7 @@ class V3V2DecisionParityTests(unittest.TestCase):
 
     def test_main_representative_case_matches(self):
         intent = ChargeIntent(14.4, 2.0, "main", False, "MAIN_ACTIVE")
-        v2 = LegacyDecisionAdapter().from_mapping({
+        v2 = from_mapping({
             "phase": "main", "stage": "main", "transition": "MAIN_ACTIVE",
             "completed": False, "enable": True, "target_voltage": 14.4,
             "target_current": 2.0, "safety_allowed": True,
@@ -41,7 +42,7 @@ class V3V2DecisionParityTests(unittest.TestCase):
             self.assertTrue(snapshot.safety_allowed)
 
     def test_intentional_mismatch_is_explicit(self):
-        v2 = LegacyDecisionAdapter().from_mapping({"stage": "main", "target_voltage": 14.4, "target_current": 2.0})
+        v2 = from_mapping({"stage": "main", "target_voltage": 14.4, "target_current": 2.0})
         v3 = self._v3(ChargeIntent(14.5, 2.0, "main", False, "different"))
         result = DecisionParityComparator().compare(v2, v3)
         self.assertEqual(ParityStatus.MISMATCH, result.status)
@@ -51,7 +52,7 @@ class V3V2DecisionParityTests(unittest.TestCase):
     def test_safety_denial_is_compared_without_output_path(self):
         decision = self.safety.evaluate(ChargeIntent(18.0, 2.0, "main"), self.measurements, self.context)
         v3 = V3DecisionSnapshot.from_decisions(ChargeIntent(18.0, 2.0, "main"), decision)
-        v2 = LegacyDecisionAdapter().from_mapping({"phase": "main", "stage": "main", "transition": "VOLTAGE",
+        v2 = from_mapping({"phase": "main", "stage": "main", "transition": "VOLTAGE",
                                                     "safety_allowed": False, "violations": ["voltage"]})
         result = DecisionParityComparator().compare(v2, v3)
         self.assertEqual(ParityStatus.MATCH, result.status)

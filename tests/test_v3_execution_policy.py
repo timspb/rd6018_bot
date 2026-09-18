@@ -2,8 +2,9 @@ import unittest
 
 from runtime.charge.intent import ChargeIntent
 from runtime.output.intent import OutputAction, SafeOutputIntent
-from runtime.output.execution_policy import ExecutionPolicy, ExecutionPolicyContext, LegacyExecutionPolicyAdapter
+from runtime.output.execution_policy import ExecutionPolicy, ExecutionPolicyContext
 from runtime.safety import SafetyDecision, SafetyEngine, SafetyLimits
+from execution_policy_parity_fixtures import compare_requirements, legacy_requirements
 
 
 class V3ExecutionPolicyTests(unittest.TestCase):
@@ -35,8 +36,8 @@ class V3ExecutionPolicyTests(unittest.TestCase):
 
     def test_legacy_requirements_are_comparable(self):
         intent = SafeOutputIntent(OutputAction.ENABLE, 14.4, 2.0)
-        v2 = LegacyExecutionPolicyAdapter.requirements(intent)
-        result = LegacyExecutionPolicyAdapter.compare(v2, dict(v2))
+        v2 = legacy_requirements(intent)
+        result = compare_requirements(v2, dict(v2))
         self.assertEqual(result.status, "MATCH")
 
 

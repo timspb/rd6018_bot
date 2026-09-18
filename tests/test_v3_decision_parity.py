@@ -1,7 +1,8 @@
 import unittest
 
 from runtime.charge import ChargeIntent, Measurements
-from runtime.charge.shadow import DecisionParityComparator, LegacyDecisionAdapter, ParityStatus, V3DecisionSnapshot
+from runtime.charge.shadow import DecisionParityComparator, ParityStatus, V3DecisionSnapshot
+from decision_parity_fixtures import from_mapping
 from runtime.output import OutputIntentFactory
 from runtime.safety import SafetyContext, SafetyEngine, SafetyLimits
 
@@ -15,7 +16,7 @@ class V3DecisionParityRepresentativeTests(unittest.TestCase):
         safety = self.safety.evaluate(intent, self.measurements, SafetyContext())
         output = OutputIntentFactory().create(safety) if safety.allowed else None
         return DecisionParityComparator().compare(
-            LegacyDecisionAdapter().from_mapping(legacy),
+            from_mapping(legacy),
             V3DecisionSnapshot.from_decisions(intent, safety, output),
         )
 

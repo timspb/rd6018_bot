@@ -30,16 +30,3 @@ class UserCommandAdapter:
         else:
             intent = DomainIntent("user_command", dict(command.parameters))
         return type(result)(result.status, result.reason, intent)
-
-
-class LegacyActionAdapter:
-    """Mapping of V1 action names for parity review only."""
-
-    _MAPPING = {"START": "start_charge", "STOP": "stop_charge", "PROFILE_CHANGE": "select_profile"}
-
-    @classmethod
-    def map_action(cls, action: str) -> str:
-        try:
-            return cls._MAPPING[action.strip().upper()]
-        except KeyError as exc:
-            raise ValueError(f"unsupported legacy action: {action}") from exc

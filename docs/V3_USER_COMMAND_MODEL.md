@@ -12,6 +12,6 @@ Any UI -> UserCommand -> CommandValidator -> DomainIntent -> Runtime/Policy
 
 `CommandValidator` проверяет профиль, telemetry, активность runtime,
 confirmation и diagnostic authority. При `HARD_STOP` команда блокируется.
-`LegacyActionAdapter` содержит только shadow mapping V1 action names.
+Test-only `tests/legacy_action_fixtures.py` содержит shadow mapping V1 action names.
 
 Telegram/HA consumers и V1 UI остаются отдельными слоями миграции.

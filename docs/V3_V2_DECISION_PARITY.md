@@ -3,11 +3,12 @@
 ## Назначение
 
 Этот слой сравнивает decision snapshots, а не исполнение. V2 входом является
-только mapping, преобразованный `LegacyDecisionAdapter`; adapter не запускает
+только mapping, преобразованный test-only `tests/decision_parity_fixtures.py`;
+helper не запускает
 legacy controller и не вызывает его tick.
 
 ```text
-V2 decision mapping → LegacyDecisionSnapshot ┐
+V2 decision mapping → V2DecisionSnapshot ┐
                                              ├→ DecisionParityComparator
 V3 intent → SafetyDecision → SafeOutputIntent → V3DecisionSnapshot ┘
 ```
@@ -26,7 +27,7 @@ readback, HA state и RD response в parity не входят.
 
 ## Ownership и ограничения
 
-- LegacyDecisionAdapter владеет только преобразованием входных данных.
+- test-only parity fixture владеет только преобразованием входных данных.
 - ChargeStrategy формирует V3 `ChargeIntent`.
 - SafetyEngine формирует `SafetyDecision`.
 - OutputIntentFactory формирует `SafeOutputIntent` только для allowed decision.

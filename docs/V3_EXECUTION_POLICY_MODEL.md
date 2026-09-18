@@ -14,5 +14,6 @@ fresh telemetry. `RESET_PROTECTION` требует reason/source и безопа
 `DISABLE_OUTPUT` разрешён даже при safety deny, чтобы не блокировать аварийный
 fail-closed путь.
 
-`LegacyExecutionPolicyAdapter` только формирует сравнимые требования V2 wrapper;
+Parity requirements are represented by the test-only
+`tests/execution_policy_parity_fixtures.py` helper;
 ни V2 actuator, ни RD/HA не вызываются. V1 UI остаётся отдельным потоком.

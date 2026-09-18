@@ -1,7 +1,7 @@
 # V3/V2 decision parity shadow
 
 This is a non-executing comparison model. It converts an already supplied V2
-decision mapping with `LegacyDecisionAdapter`, converts V3
+decision mapping with the test-only `tests/decision_parity_fixtures.py` helper, converts V3
 `ChargeIntent -> SafetyDecision -> SafeOutputIntent` with
 `V3DecisionSnapshot`, and compares the resulting decision fields.
 

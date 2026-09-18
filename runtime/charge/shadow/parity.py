@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Mapping
-
 from runtime.output.intent import SafeOutputIntent
 from runtime.safety.engine import SafetyDecision
 
@@ -18,7 +16,7 @@ class ParityStatus(str, Enum):
 
 
 @dataclass(frozen=True)
-class LegacyDecisionSnapshot:
+class V2DecisionSnapshot:
     phase: str | None
     stage: str | None
     transition: str | None
@@ -28,26 +26,6 @@ class LegacyDecisionSnapshot:
     target_current: float | None
     safety_allowed: bool | None = None
     violations: tuple[str, ...] = ()
-
-
-class LegacyDecisionAdapter:
-    """Adapt a V2 decision mapping only; never invoke its producer."""
-
-    def from_mapping(self, decision: Mapping[str, Any]) -> LegacyDecisionSnapshot:
-        target_voltage = decision.get("target_voltage", decision.get("set_voltage"))
-        target_current = decision.get("target_current", decision.get("set_current"))
-        violations = decision.get("violations", ())
-        return LegacyDecisionSnapshot(
-            phase=decision.get("phase", decision.get("mode")),
-            stage=decision.get("stage", decision.get("next_stage")),
-            transition=decision.get("transition", decision.get("reason")),
-            completed=bool(decision.get("completed", decision.get("complete", False))),
-            enable=decision.get("enable", decision.get("output_enabled")),
-            target_voltage=target_voltage,
-            target_current=target_current,
-            safety_allowed=decision.get("safety_allowed", decision.get("allowed")),
-            violations=tuple(str(item) for item in violations),
-        )
 
 
 @dataclass(frozen=True)
@@ -81,12 +59,12 @@ class V3DecisionSnapshot:
 class DecisionParityResult:
     status: ParityStatus
     fields: tuple[str, ...]
-    v2_decision: LegacyDecisionSnapshot
+    v2_decision: V2DecisionSnapshot
     v3_decision: V3DecisionSnapshot
     reason: str | None = None
 
     @property
-    def v2_snapshot(self) -> LegacyDecisionSnapshot:
+    def v2_snapshot(self) -> V2DecisionSnapshot:
         return self.v2_decision
 
     @property
@@ -97,7 +75,7 @@ class DecisionParityResult:
 class DecisionParityComparator:
     FIELDS = ("phase", "stage", "transition", "completed", "enable", "target_voltage", "target_current", "safety_allowed", "violations")
 
-    def compare(self, v2: LegacyDecisionSnapshot, v3: V3DecisionSnapshot) -> DecisionParityResult:
+    def compare(self, v2: V2DecisionSnapshot, v3: V3DecisionSnapshot) -> DecisionParityResult:
         mismatches = tuple(field for field in self.FIELDS if getattr(v2, field) != getattr(v3, field))
         return DecisionParityResult(
             ParityStatus.MATCH if not mismatches else ParityStatus.MISMATCH,

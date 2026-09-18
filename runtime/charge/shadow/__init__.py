@@ -2,12 +2,10 @@
 
 from .comparison import ChargeDecisionShadow, ComparisonResult, DecisionComparison
 from .parity import (
-    DecisionParityComparator, DecisionParityResult, LegacyDecisionAdapter,
-    LegacyDecisionSnapshot, ParityStatus, V3DecisionSnapshot,
+    DecisionParityComparator, DecisionParityResult, ParityStatus, V2DecisionSnapshot, V3DecisionSnapshot,
 )
 
 __all__ = [
     "ChargeDecisionShadow", "ComparisonResult", "DecisionComparison",
-    "DecisionParityComparator", "DecisionParityResult", "LegacyDecisionAdapter",
-    "LegacyDecisionSnapshot", "ParityStatus", "V3DecisionSnapshot",
+    "DecisionParityComparator", "DecisionParityResult", "V2DecisionSnapshot", "ParityStatus", "V3DecisionSnapshot",
 ]

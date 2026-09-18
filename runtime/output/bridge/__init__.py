@@ -5,7 +5,7 @@ from .mapping import map_safe_output_intent
 from .shadow import ShadowOutputBridge
 from .capabilities import HardwareCapability
 from .snapshot import HardwareSnapshot, ReadbackValidation, validate_readback
-from .adapter import LegacyHardwareAdapter, PhysicalBridgeAdapter
+from .adapter import PhysicalBridgeAdapter
 from .audit import PhysicalExecutionAudit, PhysicalExecutionRecord
 from .configuration import PhysicalExecutionConfig
 from .executor import GateValidation, PhysicalBridgeTransport, PhysicalExecutionError, PhysicalExecutionGate, PhysicalGateState
@@ -13,7 +13,7 @@ from .executor import GateValidation, PhysicalBridgeTransport, PhysicalExecution
 __all__ = [
     "LegacyActuatorCommand", "ShadowExecutionRecord", "map_safe_output_intent", "ShadowOutputBridge",
     "HardwareCapability", "HardwareSnapshot", "ReadbackValidation", "validate_readback",
-    "LegacyHardwareAdapter", "PhysicalBridgeAdapter",
+    "PhysicalBridgeAdapter",
     "PhysicalExecutionAudit", "PhysicalExecutionRecord", "PhysicalExecutionConfig",
     "GateValidation", "PhysicalBridgeTransport",
     "PhysicalExecutionError", "PhysicalExecutionGate", "PhysicalGateState",

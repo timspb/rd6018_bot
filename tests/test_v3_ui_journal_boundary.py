@@ -1,7 +1,8 @@
 import unittest
 
 from runtime.journal import InMemoryJournalRecorder, JournalEventFactory, JournalEventType, format_entry
-from runtime.ui import ChargeView, LegacyUIAdapter, RuntimeUISnapshot, SafetyView, TelemetryView, TransitionView
+from runtime.ui import ChargeView, RuntimeUISnapshot, SafetyView, TelemetryView, TransitionView
+from ui_mapping_fixtures import snapshot_from_mapping
 
 
 class V3UIJournalBoundaryTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class V3UIJournalBoundaryTests(unittest.TestCase):
         self.assertTrue(snapshot.charge.conditions[0].confirmed)
 
     def test_legacy_adapter_is_mapping_only(self):
-        snapshot = LegacyUIAdapter.snapshot_from_mapping({"charge": {"stage": "MAIN", "program": "normal"}})
+        snapshot = snapshot_from_mapping({"charge": {"stage": "MAIN", "program": "normal"}})
         self.assertEqual(snapshot.charge.stage, "MAIN")
 
     def test_invalid_journal_entry_rejected(self):

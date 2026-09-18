@@ -14,6 +14,6 @@ transport-independent recorder пока имеет только in-memory реа
 импортируют FSM, controller, RD, Output или legacy globals и не могут создавать
 ChargeIntent.
 
-`LegacyUIAdapter` принимает только заранее подготовленный display mapping для
-будущего shadow-сравнения с V1. Telegram handlers, callbacks и каноническое
+Test-only `tests/ui_mapping_fixtures.py` принимает заранее подготовленный
+display mapping для shadow-сравнения с V1. Telegram handlers, callbacks и каноническое
 V1-оформление не переносились и будут разобраны отдельным этапом.
