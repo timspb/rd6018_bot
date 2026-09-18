@@ -116,6 +116,48 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0].trace_id, "trace-runner")
 
+    def test_sync_runner_reproduces_original_async_coroutine_defect_without_side_effect(self):
+        calls = []
+
+        async def async_owner(transaction_input):
+            calls.append(transaction_input.trace_id)
+            return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+
+        result = ProductionStartRunner(
+            V2StartTransactionAdapter(), _active_policy(), async_owner
+        ).execute(_request())
+        self.assertEqual(result.status, StartExecutionStatus.FAILED)
+        self.assertEqual(result.reason, "runner_returned_invalid_outcome")
+        self.assertEqual(calls, [])
+
+    def test_async_runner_awaits_owner_exactly_once_and_accepts_result(self):
+        calls = []
+
+        async def async_owner(transaction_input):
+            calls.append(transaction_input.trace_id)
+            return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+
+        result = asyncio.run(
+            ProductionStartRunner(
+                V2StartTransactionAdapter(), _active_policy(), async_owner
+            ).execute_async(_request())
+        )
+        self.assertEqual(result.status, StartExecutionStatus.STARTED)
+        self.assertEqual(result.reason, "started")
+        self.assertEqual(calls, ["trace-runner"])
+
+    def test_async_runner_normalizes_executor_exception_fail_closed(self):
+        async def async_owner(_transaction_input):
+            raise RuntimeError("owner failed")
+
+        result = asyncio.run(
+            ProductionStartRunner(
+                V2StartTransactionAdapter(), _active_policy(), async_owner
+            ).execute_async(_request())
+        )
+        self.assertEqual(result.status, StartExecutionStatus.FAILED)
+        self.assertEqual(result.reason, "runner_failed:RuntimeError")
+
     def test_runner_normalizes_rollback_mapping(self):
         result = ProductionStartRunner(
             V2StartTransactionAdapter(), _active_policy(),

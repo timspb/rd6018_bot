@@ -38,6 +38,13 @@ class ProductionStartRunner:
         transaction_input = self._prepare(request)
         try:
             outcome = self.transaction_runner(transaction_input)
+            if inspect.isawaitable(outcome):
+                # The synchronous API cannot execute an async owner.  Close a
+                # returned coroutine without running it so this path remains
+                # fail-closed and does not leak an un-awaited coroutine.
+                close = getattr(outcome, "close", None)
+                if close is not None:
+                    close()
         except Exception as exc:  # runner failures are normalized, not leaked
             outcome = V2TransactionOutcome(
                 trace_id=request.trace_id,

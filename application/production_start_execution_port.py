@@ -82,15 +82,13 @@ class ProductionStartExecutionPort:
                     trace=trace,
                     request=request,
                 )
-            result = self.production_runner.execute(request)
             return ProductionStartPortResult(
-                result.status is StartExecutionStatus.STARTED,
+                False,
                 mode,
                 trace_id,
-                result.reason,
+                "active_requires_async_handoff",
                 trace=trace,
                 request=request,
-                execution_result=result,
             )
 
         request = request_from_trace(
