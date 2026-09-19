@@ -56,6 +56,7 @@ from config import (
     TG_TOKEN,
 )
 from protection_utils import should_delay_current_ramp, should_use_startup_settle
+from runtime.telemetry.ha_loss_recovery import HALossState
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from graphing import generate_chart
 from hass_api import HassClient
@@ -858,6 +859,28 @@ async def _hard_stop_charge(clear_session: bool = True) -> None:
     await _apply_idle_protection()
     charge_controller.stop(clear_session=clear_session)
     _clear_operator_pause()
+
+
+def _ha_recovery_window():
+    return globals().get("ha_loss_recovery")
+
+
+def _ha_recovery_is_deferred() -> bool:
+    recovery = _ha_recovery_window()
+    return bool(recovery is not None and recovery.should_defer_containment())
+
+
+def _ha_recovery_shadow_line() -> str:
+    recovery = _ha_recovery_window()
+    if recovery is None or recovery.status.state == HALossState.HA_CONNECTED:
+        return ""
+    status = recovery.status
+    now = time.time()
+    duration = now - (status.ha_loss_started_at or now)
+    source = status.direct_snapshot.source.value if status.direct_snapshot else "UNKNOWN"
+    age = status.direct_snapshot.age if status.direct_snapshot else None
+    age_text = "—" if age is None else f"{age:.1f}s"
+    return f"⚠ Телеметрия: {status.state.value} · источник {source} · возраст {age_text} · сбой {duration:.0f}с"
 
 
 def _parse_uptime_to_elapsed_sec(uptime_raw) -> Optional[float]:
@@ -1842,6 +1865,9 @@ def _compact_dashboard_caption(
         lines.append(f"📈 {_chart_label(chart_mode)}")
     else:
         lines.append(f"✅ Норма · 📈 {_chart_label(chart_mode)}")
+    shadow_line = _ha_recovery_shadow_line()
+    if shadow_line:
+        lines.append(shadow_line)
     return "\n".join(line for line in lines if line)
 
 
@@ -1982,7 +2008,7 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
 
 async def soft_watchdog_loop() -> None:
-    """Мягкий Watchdog: при потере связи с HA более 3 мин — Output OFF."""
+    """Legacy soft watchdog, deferred during the HA recovery window."""
     global last_ha_ok_time
     while True:
         await asyncio.sleep(10)
@@ -1990,6 +2016,8 @@ async def soft_watchdog_loop() -> None:
             if last_ha_ok_time <= 0:
                 continue
             if time.time() - last_ha_ok_time >= SOFT_WATCHDOG_TIMEOUT:
+                if _ha_recovery_is_deferred():
+                    continue
                 logger.critical("CRITICAL: Soft Watchdog timeout (HA connection lost 3min). Emergency Output OFF.")
                 try:
                     live = await hass.get_all_live()
@@ -2032,6 +2060,8 @@ async def watchdog_loop() -> None:
                 continue
 
             if delta >= WATCHDOG_TIMEOUT:
+                if _ha_recovery_is_deferred():
+                    continue
                 logger.critical("CRITICAL: Watchdog timeout. Emergency shutdown.")
                 i = _safe_float(live.get("current"))
                 ah = _safe_float(live.get("ah"))
@@ -2048,6 +2078,8 @@ async def watchdog_loop() -> None:
                 continue
 
             if v > HIGH_V_THRESHOLD and delta >= HIGH_V_FAST_TIMEOUT:
+                if _ha_recovery_is_deferred():
+                    continue
                 logger.critical("CRITICAL: Watchdog timeout (high voltage >15V, 60s). Emergency shutdown.")
                 i = _safe_float(live.get("current"))
                 ah = _safe_float(live.get("ah"))
@@ -2126,6 +2158,9 @@ async def data_logger() -> None:
             live = await hass.get_all_live()
             last_ha_ok_time = time.time()
             link_lost_alert_sent = False  # сброс флага при успешном подключении
+            recovery = _ha_recovery_window()
+            if recovery is not None:
+                recovery.observe_ha_success()
             
             battery_v = _safe_float(live.get("battery_voltage"))
             output_v = _safe_float(live.get("voltage"))
@@ -2472,8 +2507,22 @@ async def data_logger() -> None:
             else:
                 logger.error("data_logger: %s", ex)
             
+            recovery = _ha_recovery_window()
+            if recovery is not None:
+                recovery_status = await recovery.observe_ha_loss()
+                if recovery_status.state != HALossState.CONTAINMENT_REQUIRED:
+                    logger.warning(
+                        "HA degraded; existing containment deferred until %.3f",
+                        recovery_status.recovery_deadline,
+                    )
+                    await asyncio.sleep(30)
+                    continue
+
             # v2.5 Умный watchdog: поведение зависит от последнего состояния выхода
             output_was_on = charge_controller._last_known_output_on
+            if recovery is not None and output_was_on and not recovery.claim_containment():
+                await asyncio.sleep(30)
+                continue
             charge_controller._was_unavailable = True
             charge_controller._link_lost_at = time.time()
 

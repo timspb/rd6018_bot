@@ -331,6 +331,86 @@ contracts are inventoried without changing V2 behavior. Remaining B3/B4/B5/B6
 risks are documented. See
 `docs/RD6018_LEGACY_EXTRACTION_REPORT.md`.
 
+### WORKSTREAM 2.2 — Execution safety runtime decoupling
+
+**Current status: contract/inventory preparation only; Architecture PASS not
+granted.** Actuator reachability, configuration completeness, safety decision
+ownership and lifecycle/import risks are now represented by read-only contracts
+and tests. B3 remains open because preserved V2 writers have not been routed
+through the V3 dispatcher; B4 remains open because conflicting configuration
+values are unresolved; B5 remains open because independent V2/edge safety
+owners remain active; B6 remains open because V2 import-time construction was
+not changed. Stage 1 and ownership transfer remain prohibited. See
+`docs/RD6018_EXECUTION_SAFETY_RUNTIME_DECOUPLING_REPORT.md`.
+
+### WORKSTREAM 3 — Legacy ownership separation
+
+**Current status: inventory and adapter separation complete; Architecture PASS
+not granted.** The named legacy domain adapter is now protected by forbidden
+import tests; actuator ownership, configuration provenance, safety writers and
+lifecycle are represented by canonical read-only maps. B3/B4/B5/B6 remain open
+at the production level because V2 physical paths, unresolved values,
+independent safety writers and V2 import-time construction were intentionally
+not changed. Stage 0 remains PASS; Stage 1 remains disabled. See
+`docs/RD6018_LEGACY_OWNERSHIP_SEPARATION_REPORT.md`.
+
+### WORKSTREAM 4 — Controlled migration and legacy elimination
+
+**Current status: standalone V3 core created; production migration blocked.**
+The new `v3_core` package is independent of V2/legacy/infrastructure imports and
+provides pure domain, safety, configuration, intent, shadow execution and one
+standalone composition root. It is not connected to production and performs no
+physical commands. V2 remains behavior/parity reference only for this slice;
+legacy physical paths were not removed because exact actuator/readback/rollback
+and ESPHome bench validation is still required. See
+`docs/RD6018_CONTROLLED_MIGRATION_REPORT.md`.
+
+### WORKSTREAM 5 — V3 physical boundary validation
+
+**Current status: validation models PASS; physical boundary NOT VALIDATED.**
+Capability, readback, lease-parity and safety-to-physical contracts are now
+covered by non-actuating tests. No real adapter, hardware transport, lease
+operation or physical command was connected. V2 and ESPHome ownership remain
+unchanged; production readiness is blocked pending exact adapter/readback/
+rollback parity and supervised bench evidence. See
+`docs/RD6018_V3_PHYSICAL_BOUNDARY_VALIDATION_REPORT.md`.
+
+### WORKSTREAM 6 — V3 physical adapter implementation and bench isolation
+
+**Current status: `PHYSICAL_ADAPTER_READY` for isolated bench contract only.**
+`v3_core.V3PhysicalAdapter` implements translation, injected in-memory transport,
+readback verification, containment/rollback intent and dispatcher routing. It
+has no HA/ESPHome/real hardware implementation and is not wired into
+production. Production readiness, cutover and physical ownership remain
+blocked pending exact adapter/lease parity and supervised bench authorization.
+See `docs/RD6018_V3_PHYSICAL_ADAPTER_MODEL.md`.
+
+### WORKSTREAM 7 — Lease, safety and real-transport parity validation
+
+**Current status: parity models implemented; production parity `BLOCKED`.**
+V3 safety trigger ownership, lease scenarios, transport failure states,
+telemetry failure decisions, restart recovery and bench matrix are covered by
+non-physical tests. The exact ESPHome/RD target contract has not been exercised;
+V2/HA/ESPHome/lease ownership and physical output remain unchanged. See
+`docs/RD6018_SAFETY_TRANSPORT_PARITY_VALIDATION_REPORT.md`.
+
+### WORKSTREAM 8 — V3 UI session timeline and visualization normalization
+
+**Current status: `UI_SESSION_MODEL_READY` for the pure V3 presentation
+contract.** Session-scoped view models, timeline events, graph buffers,
+operator filtering and explicit empty/fault states are implemented without
+domain/runtime/execution imports. V2 UI and runtime are unchanged; no physical
+or ownership path is involved. See
+`docs/RD6018_UI_SESSION_TIMELINE_MODEL.md`.
+
+### WORKSTREAM 9 — V3 operator observability and diagnostics
+
+**Current status: `OPERATOR_OBSERVABILITY_READY` for the pure V3 contract.**
+`DiagnosticsDomain`, `TraceContext`, health snapshots, dashboard read models,
+operator alerts and history queries are implemented without UI callbacks,
+runtime side effects or physical access. V2 runtime and all ownership paths are
+unchanged. See `docs/RD6018_OPERATOR_OBSERVABILITY_MODEL.md`.
+
 ## 9. Future change rules
 
 - do not create hidden owners;
@@ -348,3 +428,308 @@ risks are documented. See
 
 This document does not change V2 runtime, V3 execution, START, ACTIVE, HA
 control, ESP control or physical ownership.
+
+## WORKSTREAM 10 — External integration parity validation
+
+**Current status: BLOCKED for external parity acceptance.**
+
+V3 now contains non-connecting parity models for ESPHome, HA, lease scenarios,
+telemetry arbitration, external readback, failure classification, and operator
+diagnostics. These models are comparison/shadow contracts only. The target
+external contour was not contacted; V2 runtime, HA/ESPHome/lease ownership and
+physical output remain unchanged. See
+`docs/RD6018_EXTERNAL_INTEGRATION_PARITY_REPORT.md`.
+
+## WORKSTREAM 11 — Hardware validation and controlled integration readiness
+
+**Current status: BLOCKED.**
+
+Read-only real-contour validation models and no-write tests are prepared for
+telemetry, readback, ESPHome, HA, lease observation and V2/V3 shadow comparison.
+No external contour was contacted and no physical or lease command was issued.
+V2 remains production/physical owner. See
+`docs/RD6018_REAL_HARDWARE_VALIDATION_REPORT.md`.
+
+## WORKSTREAM 12 — Live shadow evidence collection
+
+**Current status: BLOCKED.**
+
+The in-memory, read-only shadow evidence collector is prepared for timestamped
+telemetry/readback/session/lease observations, trace correlation, divergence
+classification and operator dashboard counts. No live installation was
+contacted; no evidence is represented as collected, and V2 remains the
+production/physical owner. See
+`docs/RD6018_LIVE_SHADOW_EVIDENCE_REPORT.md`.
+
+## WORKSTREAM 13 — Live shadow observation run
+
+**Current status: BLOCKED.**
+
+The controlled observation lifecycle and evidence bundle are implemented for
+real timestamped source snapshots, session timelines, V2/V3 comparisons, UI
+checks and diagnostics. No live installation was contacted in this run, so no
+runtime evidence is claimed as collected. V2 remains production/physical owner.
+See `docs/RD6018_LIVE_SHADOW_OBSERVATION_RUN_REPORT.md`.
+
+## WORKSTREAM 14 — Controlled live observation execution
+
+**Current status: BLOCKED.**
+
+The first authenticated HA read-only snapshot was collected using the existing
+V2 token from node 101. No write, control, lease or physical action was
+executed. The run remains blocked for full parity because direct ESPHome
+observation, V3 trace correlation and a coherent current session timeline are
+missing. See
+`docs/RD6018_CONTROLLED_LIVE_OBSERVATION_REPORT.md`.
+
+## WORKSTREAM 14.1 — Live state consistency investigation
+
+**Current status: STATE_CONSISTENCY_VALIDATED with observability warning.**
+
+The apparent STOP/active contradiction was resolved: `stop_reason` is historical
+Main-to-Mix metadata, while the persisted lifecycle is `active`; systemd
+journal confirms `stopped -> cooling -> arming -> active`. Physical Output ON
+and CC therefore match the current Mix state. Manual lifecycle evidence is
+split between journal and coarse charging history, and `EMERGENCY_UNAVAILABLE`
+has insufficient source context to infer an active safety condition. See
+`docs/RD6018_LIVE_STATE_CONSISTENCY_REPORT.md`.
+
+## WORKSTREAM 14.2 — Canonical event timeline normalization
+
+**Current status: CANONICAL_EVENT_TIMELINE_READY.**
+
+V3 now has a pure canonical event taxonomy, typed reason model, source/activity
+classification, normalizer and UI timeline snapshot contract. Journal, legacy
+history and persisted data remain unchanged; no runtime or ownership path was
+modified. See `docs/RD6018_CANONICAL_EVENT_TIMELINE_MODEL.md`.
+
+## WORKSTREAM 15 — V3 shadow runtime evidence aggregation
+
+**Current status: SHADOW_EVIDENCE_AGGREGATION_READY.**
+
+V3 has a pure evidence bundle, correlation validator, replay view and isolated
+analytical namespace. Replay cannot execute commands or restore runtime state;
+the dashboard shadow status is optional and backward-compatible. No ownership or
+physical path changed. See
+`docs/RD6018_SHADOW_RUNTIME_EVIDENCE_AGGREGATION_MODEL.md`.
+
+## WORKSTREAM 17 — Canary preflight validation
+
+**Current status: CANARY_PREFLIGHT_READY as a gate; activation remains BLOCKED.**
+
+The read-only `CanaryPreflightValidator` evaluates readiness, health, shadow
+evidence freshness, diagnostics, approval, rollback and blocker registry. It
+does not activate Canary or transfer authority. See
+`docs/RD6018_CANARY_PREFLIGHT_VALIDATION_MODEL.md`.
+
+## WORKSTREAM 16 — V3 canary readiness and migration gate
+
+**Current status: CANARY_READINESS_DEFINED; activation BLOCKED.**
+
+The formal readiness matrix, entry criteria, modes, rollback triggers, approval
+gate and blocker taxonomy are defined. This is a non-activating gate: no canary,
+authority transfer, lease takeover or physical execution occurred. See
+`docs/RD6018_V3_CANARY_READINESS_MODEL.md`.
+## WORKSTREAM 18 — Canary preflight live evaluation
+
+**Current status: `CANARY_PREFLIGHT_LIVE_EVALUATED — CANARY_BLOCKED`.**
+
+15 September 2026 проведена read-only оценка фактического состояния через HA на 102. V2 остался production owner; V3 не получил authority и не выполнял commands, writes, lease operations или physical execution. Свежая HA/RD telemetry наблюдалась, но Canary gate заблокирован отсутствующим approval, устаревшими lease safety indicators, неполной ESPHome/RD direct parity и отсутствующей полной свежей V3 shadow evidence chain. Подробности: `docs/RD6018_CANARY_PREFLIGHT_LIVE_EVALUATION_REPORT.md`.
+## WORKSTREAM 19 — Canary blocker resolution planning
+
+**Current status: `CANARY_BLOCKERS_CLASSIFIED`; Canary remains `CANARY_BLOCKED`.**
+
+Активные blockers из live preflight классифицированы по категориям Approval, Safety, External, Operational и Execution. Созданы read-only registry, resolution plan и operator snapshot contract. Approval не создавался, lease/ownership/physical execution не изменялись. См. `docs/RD6018_CANARY_BLOCKER_RESOLUTION_PLAN.md`.
+## WORKSTREAM 20 — Shadow evidence chain completion
+
+**Current status: `BLOCKED`; `CB-EVIDENCE-001` remains OPEN.**
+
+Minimum chain validator and replay-only tests готовы, но свежая complete V3 shadow chain не подтверждена. Synthetic chain используется только для тестов; доступный HA-only пакет не доказывает START-to-STOP canonical events, full telemetry correlation и прямую ESPHome parity. См. `docs/RD6018_SHADOW_EVIDENCE_CHAIN_COMPLETION_REPORT.md`.
+## WORKSTREAM 21 — Direct evidence source enablement
+
+**Current status: `BLOCKED`; `CB-EVIDENCE-001` remains OPEN.**
+
+Подготовлены read-only ESPHome evidence contract, trace correlation validator, runtime event source inventory и raw-to-canonical reassembly. Live direct ESPHome/API evidence и полная V3 trace/session chain не подтверждены; ownership и physical execution не изменялись. См. `docs/RD6018_DIRECT_EVIDENCE_SOURCE_ENABLEMENT_REPORT.md`.
+## WORKSTREAM 21 live source result
+
+Read-only live check подтвердил оба внешних источника: HA `192.168.1.102` и ESPHome `192.168.1.28:6053`; основные RD telemetry/readback values согласованы, lease direct state наблюдается. Source enablement: `DIRECT_EVIDENCE_SOURCES_READY`. Полная V3 event chain и trace/session correlation ещё не доказаны, поэтому `CB-EVIDENCE-001` остаётся OPEN/BLOCKED. Ownership и physical execution не изменялись.
+## WORKSTREAM 22 — Live charge cycle evidence capture
+
+**Current status: `BLOCKED`; `CB-EVIDENCE-001` remains OPEN.**
+
+Текущая V2-owned сессия `Baic72/MIX` и согласованная HA/ESPHome telemetry обнаружены read-only, но persisted session не содержит `session_id`, а полная START-to-STOP canonical event chain отсутствует. Добавлены observer/replay contracts; physical/control/lease paths не затрагивались. См. `docs/RD6018_LIVE_CHARGE_CYCLE_EVIDENCE_REPORT.md`.
+## WORKSTREAM 23 — Session identity & event correlation
+
+**Current status: `SESSION_CORRELATION_READY`; `CB-EVIDENCE-001` remains OPEN/BLOCKED.**
+
+Добавлены observer-only identity/resolver/reconstruction contracts с запретом угадывать ambiguous events и смешивать historical/current timeline. V2 runtime, FSM, ownership и physical paths не изменялись. См. `docs/RD6018_SESSION_IDENTITY_CORRELATION_MODEL.md`.
+## WORKSTREAM 24 — Session birth observation
+
+**Current status: `BLOCKED`; `SESSION_BIRTH_CAPTURED` не подтверждён.**
+
+Добавлен read-only observer для idle→active boundary и identity validation. Текущая V2-сессия уже была active/MIX, поэтому START не инициировался и не был приписан задним числом. См. `docs/RD6018_SESSION_BIRTH_OBSERVATION_REPORT.md`.
+## WORKSTREAM 25 — Active session identity gap
+
+**Current status: `SESSION_IDENTITY_GAP_IDENTIFIED`; `CB-EVIDENCE-001` remains OPEN/BLOCKED.**
+
+Аудит подтвердил разрыв между automatic V2 trace identity и managed Manual path: `manual_session_v2.json` не содержит `session_id/trace_id`, а Manual restore их не создаёт. Runtime/FSM/persistence/physical paths не изменялись. См. `docs/RD6018_ACTIVE_SESSION_IDENTITY_GAP_REPORT.md`.
+## WORKSTREAM 26 — Manual session identity boundary
+
+**Current status: `MANUAL_IDENTITY_BOUNDARY_DEFINED`; `CB-EVIDENCE-001` remains OPEN/BLOCKED.**
+
+Созданы design-only contracts для Manual identity и event bridge. Restore без полной identity не угадывается и получает `AMBIGUOUS`; V2 runtime/FSM/physical paths не подключались. См. `docs/RD6018_MANUAL_SESSION_IDENTITY_BOUNDARY_MODEL.md`.
+
+## WORKSTREAM 27 — Manual identity runtime observation
+
+**Current status: `BLOCKED`; `MANUAL_IDENTITY_RUNTIME_VALIDATED` не подтверждён.**
+
+Observer-only contract подготовлен, но `ProductionManualSessionManager` не подключает identity boundary и не выдаёт identity-bearing canonical events. V2 остаётся production owner; V3 не получил control/lease/physical authority. См. `docs/RD6018_MANUAL_IDENTITY_RUNTIME_OBSERVATION_REPORT.md`.
+
+## WORKSTREAM 28 — Manual identity boundary integration
+
+**Current status: `MANUAL_IDENTITY_INTEGRATION_READY`; `CB-EVIDENCE-001` remains OPEN pending live capture.**
+
+`ProductionManualSessionManager` получил минимальный identity adapter: новые Manual starts создают lifecycle identity, complete persisted identity восстанавливается, legacy state без identity остаётся `AMBIGUOUS`, а canonical events доступны downstream evidence consumers. Charge/FSM/physical/lease behavior и V2 ownership не менялись. См. `docs/RD6018_MANUAL_IDENTITY_INTEGRATION_REPORT.md`.
+
+## WORKSTREAM 29 — First real Manual identity evidence capture
+
+**Current status: `BLOCKED`; `CB-EVIDENCE-001` remains OPEN.**
+
+Replay-only collector готов, но новая V2-owned Manual сессия и полная correlated chain в observation window не получены. Старая session и synthetic events не засчитывались; control, lease и physical ownership не менялись. См. `docs/RD6018_FIRST_MANUAL_IDENTITY_EVIDENCE_REPORT.md`.
+
+## WORKSTREAM 30 — Active session V3 runtime parity
+
+**Current status: `ACTIVE_SESSION_PARITY_READY`; `CB-EVIDENCE-001` remains OPEN for full lifecycle evidence.**
+
+V3 shadow теперь может принимать уже активную Manual-сессию без искусственного START/STOP. Отсутствующая legacy identity классифицируется `LEGACY_NO_IDENTITY`; профиль, MIX phase, state и telemetry сравниваются с V2 current view. Control, lease и physical ownership не менялись. См. `docs/RD6018_ACTIVE_SESSION_V3_PARITY_REPORT.md`.
+
+## WORKSTREAM 31 — V3 operator runtime integration
+
+**Current status: `OPERATOR_RUNTIME_READY`; V2 remains production owner.**
+
+Read-only operator composition объединяет telemetry, active-session parity,
+current-session timeline, diagnostics и shadow evidence. Control surface явно
+disabled; чужая timeline или legacy identity не получают fake START. См.
+`docs/RD6018_OPERATOR_RUNTIME_INTEGRATION_MODEL.md`.
+
+## WORKSTREAM 32 — V3 operator diagnostics and decision explanation
+
+**Current status: `OPERATOR_EXPLANATION_READY`; V2 remains production owner.**
+
+Добавлен read-only explanation layer для decision/phase/safety facts. Missing
+evidence получает `UNKNOWN`, historical faults отделены от active safety, а
+V2/V3 comparison сохраняет `MATCH/EXPECTED_DIFFERENCE/UNKNOWN`. См.
+`docs/RD6018_OPERATOR_DECISION_EXPLANATION_MODEL.md`.
+
+## WORKSTREAM 33 — V3 operator dashboard composition
+
+**Current status: `OPERATOR_DASHBOARD_READY`; V2 remains production owner.**
+
+Единый immutable dashboard snapshot объединяет current session, timeline,
+telemetry, explanation, safety, diagnostics, parity и Canary readiness. Панели
+не читают источники независимо; degraded/unknown данные не угадываются.
+Dashboard остаётся observe-only. См.
+`docs/RD6018_OPERATOR_DASHBOARD_COMPOSITION_MODEL.md`.
+
+## WORKSTREAM 34 — Telegram operator view adapter
+
+**Current status: `TELEGRAM_OPERATOR_VIEW_READY`; V2 remains production owner.**
+
+Telegram formatter принимает только `OperatorDashboardState`, показывает
+current-session observations, explanations, safety/diagnostics и parity. Direct
+HA/ESP/history/runtime reads и command handlers отсутствуют; control явно
+недоступен. См. `docs/RD6018_TELEGRAM_OPERATOR_ADAPTER_MODEL.md`.
+
+## WORKSTREAM 35 — V3 observer composition integration
+
+**Current status: `V3_OBSERVER_COMPOSITION_READY`; V2 remains production owner.**
+
+Единый observer composition root соединяет read-only sources, telemetry,
+active-session parity, explanation, dashboard и Telegram formatter. Lifecycle
+идемпотентен, degraded readers дают `UNKNOWN`; command/lease/physical
+dependencies отсутствуют. См. `docs/RD6018_V3_OBSERVER_COMPOSITION_MODEL.md`.
+
+## WORKSTREAM 36 — V3 observer live run validation
+
+**Current status: `BLOCKED`; fresh live observer validation не подтверждена.**
+
+Composition-to-Telegram pipeline и degraded behavior проверены локально, но в
+текущем workspace отсутствуют штатные `HA_TOKEN`/`ESPHOME_API_KEY`; свежий HA
+HTTP/API и ESPHome Native API snapshot не получен. Старые snapshots не выданы
+за live evidence. См. `docs/RD6018_V3_OBSERVER_LIVE_RUN_VALIDATION_REPORT.md`.
+
+## WORKSTREAM 37 — Live observer secret boundary verification
+
+**Current status: `BLOCKED`; deployment secret presence is not available in the workspace.**
+
+Создан presence-only configuration check для штатного service environment на
+deployment host. Он не выводит значения секретов, требует оба reader secret и
+фиксирует `read-only/writes_allowed=false`. См.
+`docs/RD6018_LIVE_OBSERVER_CONFIGURATION_BOUNDARY_REPORT.md`.
+
+## WORKSTREAM 38 — Deployment live observer validation
+
+**Current status: `BLOCKED`; deployment live snapshot не получен.**
+
+Проверка node 101 остановилась на SSH authentication boundary: в текущем
+окружении нет SSH executable и Paramiko не нашёл ключ/agent. Service restart,
+Telegram polling, commands, lease и physical execution не выполнялись. См.
+`docs/RD6018_DEPLOYMENT_LIVE_OBSERVER_VALIDATION_REPORT.md`.
+
+## WORKSTREAM 39 — Deployment access recovery
+
+**Current status: `ACCESS_READY`; read-only access to the штатные deployment
+sources is restored.**
+
+Сохранённая WinSCP-сессия дала read-only доступ к node 101 и HA node 102.
+На 101 сервис `rd6018-bot.service` активен, `.env` содержит `HA_TOKEN`.
+На 102 найден ESPHome secret `rd6018_api_encryption_key`; Native API
+`192.168.1.28:6053` подтвердил подключение и 66 entities. Команды, записи,
+перезапуск, lease operations и ownership changes не выполнялись. Повтор
+Workstream 38 теперь разблокирован, но отдельная V3 observer validation ещё
+не считается выполненной. См.
+`docs/RD6018_DEPLOYMENT_ACCESS_RECOVERY_REPORT.md`.
+
+## WORKSTREAM 36 R2 — V3 observer live run validation (deployment environment)
+
+**Current status: `BLOCKED`; live sources are healthy, but V3 observer
+composition is not present on deployed HEAD `10af870`.**
+
+Read-only HA/ESPHome/RD checks passed and a local observer contract rendered
+the current `Baic72 / mix / active` state. The deployed node lacks the V3
+observer modules, so this is not yet a deployment-runtime validation. No
+restart, write, command, lease operation or ownership change was made. См.
+`docs/RD6018_V3_OBSERVER_LIVE_RUN_VALIDATION_R2_REPORT.md`.
+
+## WORKSTREAM 42 — V2 functional audit before control migration
+
+**Current status: `FUNCTIONAL_PARITY_AUDIT_COMPLETE`; control migration remains
+blocked by documented V2 parity/configuration gaps.**
+
+Read-only inventory completed for V2 safety, FSM/charge algorithms, logs and
+event loss, restart/restore behavior, and battery/profile binding. Key open
+findings are EFB Mix `20 h` code versus accepted `24 h` documentation, watchdog
+`180 s` versus `300 s` constants, distributed voltage limits, and incomplete
+universal event identity. No runtime or physical behavior changed. См.
+`docs/RD6018_V2_FUNCTIONAL_AUDIT_REPORT.md`.
+
+## WORKSTREAM 41 — V3 UI timeline quality pass
+
+**Current status: `UI_TIMELINE_QUALITY_READY`.**
+
+В development tree добавлены явные timeline display entries для event time,
+phase, reason и condition, session filtering, graph reset validation и
+`UNKNOWN`-семантика для отсутствующих событий/evidence. Новые и регрессионные
+UI-тесты прошли. Deployment, production runtime, FSM, START/STOP, lease и
+physical execution не менялись. См.
+`docs/RD6018_UI_TIMELINE_QUALITY_REPORT.md`.
+
+## WORKSTREAM 49 — V3 legacy contamination cleanup
+
+**Current status: `V3_CONTAMINATION_CLEAN`.**
+
+Resolver selection is separated from the program catalog, the V3 charge engine
+has one generic implementation, chemistry aliases are isolated to an input
+mapping, and the pure core import guardrails pass. V2 runtime, production
+composition, deployment and physical execution were not connected. См.
+`docs/RD6018_V3_LEGACY_CONTAMINATION_CLEANUP_REPORT.md`.

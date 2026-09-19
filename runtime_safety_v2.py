@@ -33,7 +33,9 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     # fresh evidence still positively says ON we may retry OFF at a bounded cadence;
     # unknown/stale Output evidence never causes command spam.
     OFF_UNCONFIRMED_RETRY_S = 60.0
-    TELEMETRY_UNAVAILABLE_GRACE_S = 180.0
+    # Match the connection-exception recovery window coordinated by data_logger;
+    # the independent ESPHome lease remains 900 seconds.
+    TELEMETRY_UNAVAILABLE_GRACE_S = 14.0 * 60.0
 
     @staticmethod
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:

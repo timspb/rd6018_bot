@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 from runtime import v2_runtime as _legacy
 from application.operator_snapshot_provider import OperatorSnapshotProvider
@@ -50,6 +51,8 @@ from rd_startup_authority import (
     reconcile_startup_authority,
 )
 from soft_watchdog_containment import install_soft_watchdog_containment
+from runtime.telemetry.esp_direct_probe import LazyESPDirectTelemetryReader
+from runtime.telemetry.ha_loss_recovery import HALossRecoveryWindow
 from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
@@ -73,6 +76,13 @@ install_manual_context_preprocessor(_legacy)
 # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
 _v2_ui_enabled = _env_enabled("V2_UI", True)
 install_v2(_legacy, install_ui=_v2_ui_enabled)
+
+
+# Shadow-only recovery evidence. It has no writer methods and is not consulted by
+# START, ACTIVE policy, runtime safety decisions, or the physical execution path.
+_legacy.ha_loss_recovery = HALossRecoveryWindow(
+    direct_reader=LazyESPDirectTelemetryReader(Path(__file__).resolve().parent / "config"),
+)
 # ``Done`` historically overloaded managed Storage (Output ON) and terminal stop
 # (Output OFF). Persist the physical intent explicitly and replace the legacy blanket
 # restore guard before any startup recovery path can evaluate a saved Done session.
