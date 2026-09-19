@@ -26,9 +26,15 @@ entities:
   voltage: sensor.rd_6018_output_voltage
   current: sensor.rd_6018_output_current
   temperature: sensor.rd6018_rd_6018_temperature_internal_v2
+  temp_int: sensor.rd6018_rd_6018_temperature_internal_v2
+  temp_ext: sensor.rd6018_rd_6018_temperature_external_v2
   battery_voltage: sensor.rd_6018_battery_voltage
+  input_voltage: sensor.rd_6018_input_voltage
   output_state: sensor.rd6018_rd_6018_output_state_code_v2
   configured_voltage: sensor.rd6018_rd_6018_set_voltage_readback_v2
   configured_current: sensor.rd6018_rd_6018_set_current_readback_v2
   ovp: sensor.rd6018_rd_6018_ovp_readback_v2
   ocp: sensor.rd6018_rd_6018_ocp_readback_v2
+  protection_code: sensor.rd6018_rd_6018_protection_status_code
+  regulation_code: sensor.rd6018_rd_6018_regulation_mode_code
+  autonomous_mode: binary_sensor.rd6018_rd_6018_safety_autonomous_mode

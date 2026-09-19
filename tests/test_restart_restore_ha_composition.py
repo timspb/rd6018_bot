@@ -123,6 +123,13 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/api/states":
             self._json(200, self.state.states_payload())
             return
+        if self.path.startswith("/api/states/"):
+            entity_id = self.path.removeprefix("/api/states/")
+            with self.state.lock:
+                state = self.state.values.get(entity_id)
+            if state is not None:
+                self._json(200, {"entity_id": entity_id, "state": state, "attributes": {}})
+                return
         self._json(404, {})
 
     def do_POST(self):
@@ -203,7 +210,6 @@ async def run():
     assert ok is False and message is None
     assert gate.deferred_restore_requested
     assert controller.current_stage == controller.STAGE_IDLE
-
     async def recover():
         return True
 
@@ -236,6 +242,7 @@ asyncio.run(run())
                 # This integration proves the HA/runtime composition boundary. The
                 # physical edge lease has its own dedicated contract/physical tests.
                 "RD6018_EDGE_LEASE_REQUIRED": "0",
+                "RD6018_CONNECTOR": "ha_esp",
                 "PYTHONPATH": str(repo_root),
             }
         )

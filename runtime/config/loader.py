@@ -12,6 +12,16 @@ from .models import ConnectionConfig, PhysicalTransportConfig, RDConfig
 from .validation import require_mapping, validate_connection, validate_rd
 
 
+def _application_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _resolve_config_root(root: str | Path | None) -> Path:
+    configured = os.getenv("RD6018_CONFIG_DIR", "").strip()
+    raw = Path(configured or root or "config")
+    return raw if raw.is_absolute() else _application_root() / raw
+
+
 def load_yaml(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     try:
@@ -63,10 +73,13 @@ def _connection(data: dict[str, Any], label: str, *, required: bool = True) -> C
     )
 
 
-def load_config(root: str | Path) -> ConfigBundle:
-    base = Path(root)
+def load_config(root: str | Path | None = None) -> ConfigBundle:
+    base = _resolve_config_root(root)
     connector_data = load_yaml(base / "physical" / "connectors.yaml")
-    selected_connector = str(connector_data.get("default_connector", ""))
+    selected_connector = str(
+        os.getenv("RD6018_CONNECTOR", "").strip()
+        or connector_data.get("default_connector", "")
+    )
     selected_transport = ""
     selected_definition = dict((connector_data.get("connectors") or {}).get(selected_connector, {}))
     selected_profile = str(selected_definition.get("profile", ""))
@@ -86,5 +99,5 @@ def load_config(root: str | Path) -> ConfigBundle:
         dict(connector_data.get("connectors", {})),
         load_yaml(base / "physical" / "bench.yaml"),
         load_yaml(base / "charge" / "manual.yaml"),
-        str(connector_data.get("default_connector", "")),
+        selected_connector,
     )

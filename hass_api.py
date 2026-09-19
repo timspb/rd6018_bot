@@ -49,7 +49,7 @@ class HassClient:
         self._physical_backend = backend
 
     @classmethod
-    def from_physical_config(cls, root: str = "config") -> "HassClient":
+    def from_physical_config(cls, root: str | None = None) -> "HassClient":
         """Keep one V2 owner while selecting an existing physical connector by config."""
         from runtime.config import load_config
         from runtime.physical.connectors import PhysicalConnectorFactory
