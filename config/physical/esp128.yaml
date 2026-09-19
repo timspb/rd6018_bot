@@ -4,10 +4,10 @@ type: esphome
 connection:
   # Адрес ESPHome API
   # ESPHome API address
-  host: 192.168.1.28
+  host: ""
   # Порт ESPHome native API, TCP
   # ESPHome native API port, TCP
-  port: 6053
+  port: 0
   # API использует Noise-шифрование
   # API uses Noise encryption
   encrypted: true
@@ -26,6 +26,15 @@ entities:
   voltage: output_voltage
   current: output_current
   temperature: temperature
+  temp_int: temperature_internal_v2
+  temp_ext: temperature_external_v2
+  power: output_power_v2
+  protection_code: protection_status_code
+  regulation_code: regulation_mode_code
+  switch: output
+  take_ok: take_ok_v2
+  take_out: take_out_v2
+  boot_power: boot_power_v2
   battery_voltage: battery_voltage
   output_state: output_state_code_v2
   configured_voltage: set_voltage_readback_v2

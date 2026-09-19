@@ -27,6 +27,9 @@ class ESPDirectConnector(IndependentPhysicalConnector):
     async def read_snapshot(self) -> HardwareSnapshot:
         return await self.transport.get_snapshot()
 
+    async def get_all_live(self) -> dict[str, Any]:
+        return await self.transport.get_live_values()
+
     async def disable_output(self) -> None:
         await self.transport.disable_output()
 

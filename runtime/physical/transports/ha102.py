@@ -52,6 +52,19 @@ class HA102Transport(ReadOnlyTransport):
                     state = normalized not in {"off", "false", "no"}
         return HardwareSnapshot(time.time(), "connected", output_state=state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
 
+    async def get_live_values(self) -> dict[str, Any]:
+        values = {key: await self._get(entity) for key, entity in self.config.entities.items()}
+        result = {key: value.get("state") for key, value in values.items()}
+        result["output_state_code_v2"] = result.get("output_state")
+        result["switch"] = "on" if result.get("output_state") not in (None, 0, 0.0, "0") else "off"
+        result["set_voltage_readback_v2"] = result.get("configured_voltage")
+        result["set_current_readback_v2"] = result.get("configured_current")
+        result["ovp_readback_v2"] = result.get("ovp")
+        result["ocp_readback_v2"] = result.get("ocp")
+        now = time.time()
+        result["_meta"] = {key: {"status": "ok" if item is not None else "unknown", "age_s": 0.0, "fetched_at": now} for key, item in result.items() if key != "_meta"}
+        return result
+
     async def disable_output(self) -> None:
         """The only physical write exposed in the first verified-off phase."""
         entity_id = self.config.entities.get("control_output")

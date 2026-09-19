@@ -33,6 +33,9 @@ class IndependentPhysicalConnector(ABC):
     async def read_snapshot(self) -> HardwareSnapshot: ...
 
     @abstractmethod
+    async def get_all_live(self) -> dict[str, Any]: ...
+
+    @abstractmethod
     async def set_voltage(self, value: float) -> None: ...
 
     @abstractmethod

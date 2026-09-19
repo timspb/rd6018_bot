@@ -48,8 +48,6 @@ from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     ENTITY_MAP,
-    HA_URL,
-    HA_TOKEN,
     MAX_VOLTAGE,
     MIN_INPUT_VOLTAGE,
     TEMP_INT_PRECRITICAL,
@@ -81,7 +79,7 @@ bot = _telegram_runtime.bot
 dp = _telegram_runtime.dispatcher
 router = _telegram_runtime.router
 
-hass = HassClient(HA_URL, HA_TOKEN)
+hass = HassClient.from_physical_config()
 
 # Executor для блокирующих операций (DeepSeek API)
 def _charge_notify(msg: str, critical: bool = True) -> None:

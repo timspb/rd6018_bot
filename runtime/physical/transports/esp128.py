@@ -25,7 +25,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         key = os.getenv(self.config.connection.key_env or "", "")
         if not key:
             raise RuntimeError("ESPHome encryption key environment variable is not set")
-        self.client = APIClient(self.config.connection.host, self.config.connection.port, noise_psk=key)
+        self.client = APIClient(self.config.connection.host, self.config.connection.port, None, noise_psk=key)
         await self.client.connect(login=True)
         self.entities, self.services = await self.client.list_entities_services()
         self._entities_by_key = {}
@@ -37,6 +37,15 @@ class ESPHomeTransport(ReadOnlyTransport):
         return self.entities
 
     async def get_snapshot(self):
+        live = await self.get_live_values()
+        def number(name):
+            try: return float(live.get(name))
+            except (TypeError, ValueError): return None
+        output = live.get("output_state_code_v2")
+        output_state = None if output is None else bool(float(output))
+        return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
+
+    async def get_live_values(self) -> dict[str, Any]:
         if self.client is None: await self._connect()
         states: dict[str, list[tuple[str, Any]]] = {}
         def on_state(state):
@@ -57,12 +66,19 @@ class ESPHomeTransport(ReadOnlyTransport):
             if values:
                 return values[-1][1]
             return None
-        def number(name):
-            try: return float(value(name))
-            except (TypeError, ValueError): return None
-        output = value("output_state")
-        output_state = None if output is None else bool(output) if isinstance(output, bool) else bool(float(output))
-        return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
+        result = {key: value(key) for key in self.config.entities}
+        result["output_state_code_v2"] = result.get("output_state")
+        result["switch"] = "on" if result.get("output_state") not in (None, 0, 0.0, "0") else "off"
+        result["set_voltage_readback_v2"] = result.get("configured_voltage")
+        result["set_current_readback_v2"] = result.get("configured_current")
+        result["ovp_readback_v2"] = result.get("ovp")
+        result["ocp_readback_v2"] = result.get("ocp")
+        result["temp_int_v2"] = result.get("temp_int")
+        result["temp_ext_v2"] = result.get("temp_ext")
+        result["power_v2"] = result.get("power")
+        now = time.time()
+        result["_meta"] = {key: {"status": "ok" if item is not None else "unknown", "age_s": 0.0, "fetched_at": now} for key, item in result.items() if key != "_meta"}
+        return result
 
     async def disable_output(self) -> None:
         """The only physical write exposed in the first verified-off phase."""
