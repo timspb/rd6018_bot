@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.charge_engine.models import ChargeDecision
+from typing import Any
 
 from .models import ExecutionIntent, IntentValidationResult, SafetyContext, SafetyOutcome
 from .policy import SafetyPolicy
@@ -11,7 +11,7 @@ from .policy import SafetyPolicy
 class DecisionIntentMapper:
     @staticmethod
     def from_decision(
-        decision: ChargeDecision,
+        decision: Any,
         safety_context: SafetyContext,
         safety_policy: SafetyPolicy,
     ) -> IntentValidationResult:

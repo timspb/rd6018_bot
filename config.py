@@ -118,6 +118,7 @@ ENTITY_MAP = {
     "boot_power": "binary_sensor.rd6018_rd_6018_boot_power_v2",
     # Read-only edge authority; the bot never infers or writes this state.
     "autonomous_mode": "binary_sensor.rd6018_rd_6018_safety_autonomous_mode",
+    "safety_modbus_age": "sensor.rd6018_rd_6018_safety_modbus_age",
     # Calibration entities are disabled_by_default in ESPHome, so HA may not
     # expose them until explicitly enabled. Their deterministic IDs are still
     # pinned here so enabling them cannot resurrect the legacy wrong namespace.
