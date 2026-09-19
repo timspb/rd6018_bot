@@ -104,6 +104,15 @@ precedence. The registry intentionally does not choose between:
 open. This is intentional: changing them now would violate the Workstream 2
 prohibition on V2 execution/physical behavior and ownership transfer.
 
+## Workstream 2.2 follow-up
+
+The follow-up added read-only actuator reachability and bypass inventory,
+configuration completeness checks, a logical safety ownership coordinator, and a
+static lifecycle/import inventory. These close the observability/contract gap,
+not the production migration gap. B3/B4/B5/B6 therefore remain open at the
+production level until separately approved parity, safety and bench gates are
+met. See `docs/RD6018_EXECUTION_SAFETY_RUNTIME_DECOUPLING_REPORT.md`.
+
 ## Restrictions confirmed
 
 V2 runtime, START, ACTIVE, HA, ESP, lease ownership, physical ownership,

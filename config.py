@@ -115,6 +115,10 @@ ENTITY_MAP = {
     "active_preset": "sensor.rd6018_rd_6018_active_preset_v2",
     "take_ok": "binary_sensor.rd6018_rd_6018_take_ok_v2",
     "take_out": "binary_sensor.rd6018_rd_6018_take_out_v2",
+    # Fresh Modbus/readback age from the ESPHome safety package.  This is the
+    # authoritative data-freshness signal; the public switch last_changed is
+    # only a state-transition timestamp and must not gate output control.
+    "safety_modbus_age": "sensor.rd6018_rd_6018_safety_modbus_age",
     "boot_power": "binary_sensor.rd6018_rd_6018_boot_power_v2",
     # Read-only edge authority; the bot never infers or writes this state.
     "autonomous_mode": "binary_sensor.rd6018_rd_6018_safety_autonomous_mode",

@@ -111,6 +111,64 @@ class TelemetrySnapshot:
 
 
 @dataclass(frozen=True)
+class OutputStateConfidence:
+    """Confidence in the physical output state readback.
+
+    ``last_changed`` describes a state transition, not whether the source is
+    currently reporting.  Output authority therefore comes from the V2 output
+    register plus the ESPHome Modbus-age and protection/safety signals.
+    """
+
+    allowed: bool
+    output_on: Optional[bool]
+    modbus_age_s: Optional[float]
+    reason: str = ""
+
+
+def output_state_confidence(
+    live: Dict[str, Any],
+    *,
+    max_modbus_age_s: float = 20.0,
+) -> OutputStateConfidence:
+    """Evaluate authoritative output-state evidence without using ``last_changed``."""
+
+    code = finite_float(live.get("output_state_code_v2"))
+    if code is None or code not in (0.0, 1.0):
+        return OutputStateConfidence(False, None, None, "output_state_code_v2 missing or invalid")
+
+    take_out = as_bool(live.get("take_out"))
+    if take_out is None:
+        return OutputStateConfidence(False, None, None, "take_out missing or invalid")
+    if take_out:
+        return OutputStateConfidence(False, code == 1.0, None, "take_out indicates unsafe hardware state")
+
+    modbus_age = finite_float(live.get("safety_modbus_age"))
+    if modbus_age is None:
+        modbus_age = finite_float(live.get("modbus_age"))
+    if modbus_age is None:
+        return OutputStateConfidence(False, code == 1.0, None, "Modbus age missing")
+    if modbus_age < 0 or modbus_age > max_modbus_age_s:
+        return OutputStateConfidence(
+            False,
+            code == 1.0,
+            modbus_age,
+            f"Modbus stale age={modbus_age:.1f}s>{max_modbus_age_s:.1f}s",
+        )
+
+    safety_state = live.get("safety_state")
+    if safety_state is not None:
+        normalized = str(safety_state).strip().lower()
+        if normalized not in {"ok", "normal", "allow", "allowed", "healthy"}:
+            return OutputStateConfidence(False, code == 1.0, modbus_age, f"safety state={safety_state}")
+
+    protection = resolve_protection(live)
+    if protection.unknown or protection.status is not ProtectionStatus.NORMAL:
+        return OutputStateConfidence(False, code == 1.0, modbus_age, f"protection={protection.status.value}")
+
+    return OutputStateConfidence(True, code == 1.0, modbus_age, "authoritative output state is fresh and safe")
+
+
+@dataclass(frozen=True)
 class SafetyDecision:
     allowed: bool
     violations: FrozenSet[SafetyViolation] = field(default_factory=frozenset)
@@ -159,7 +217,21 @@ def snapshot_from_live(
     temp_ext = finite_float(live.get("temp_ext"))
     temp_int = finite_float(live.get("temp_int"))
     input_voltage = finite_float(live.get("input_voltage"))
-    output_on = as_bool(live.get("switch"))
+    # The new strict contract is selected once the Modbus-age channel is part
+    # of the live payload.  Older development fixtures may contain only the
+    # V2 output register and retain the pre-WS102 compatibility path; a
+    # deployment payload with the configured age entity is always fail-closed.
+    authoritative_output = "safety_modbus_age" in live or "modbus_age" in live
+    if authoritative_output:
+        confidence = output_state_confidence(live)
+        if not confidence.allowed:
+            logger.warning("Rejecting low-confidence authoritative output state: %s", confidence.reason)
+            return None
+        output_on = confidence.output_on
+    else:
+        # Compatibility path for older test/development fixtures.  Deployed
+        # V2 data must take the authoritative path above.
+        output_on = as_bool(live.get("switch"))
     protection = resolve_protection(live)
 
     # BAT_MODE is deliberately not a permission to start charging. It is RD6018
@@ -174,7 +246,14 @@ def snapshot_from_live(
     if any(value is None for value in required):
         return None
 
-    freshness_keys = ["battery_voltage", "current", "temp_ext", "temp_int", "switch"]
+    freshness_keys = ["battery_voltage", "current", "temp_ext", "temp_int"]
+    if authoritative_output:
+        freshness_keys.append("output_state_code_v2")
+        # Take Out V2 is a Modbus register state.  Its HA last_reported value
+        # may remain old while the ESPHome Safety Modbus Age is fresh; the
+        # latter is the source heartbeat for this register family.
+    else:
+        freshness_keys.append("switch")
     # Measured V_OUT becomes part of the live hard envelope only when Output is ON.
     # A long-idle 0V sensor must not block a new preflight merely because its value has
     # not changed/reported recently; post-enable verification requires it explicitly.

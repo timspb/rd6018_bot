@@ -228,13 +228,13 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
 
-    async def test_complete_readback_outage_gets_180_second_grace(self):
+    async def test_complete_readback_outage_gets_14_minute_grace(self):
         live = self._with_freshness(self._live())
         for key in ("battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch"):
             live[key] = None
         app = self._app(live)
         guard = self._guard(app)
-        with patch("runtime_safety_v2.time.monotonic", side_effect=[100.0, 279.0, 281.0] + [281.0] * 20):
+        with patch("runtime_safety_v2.time.monotonic", side_effect=[100.0, 939.0, 941.0] + [941.0] * 20):
             await guard.get_all_live()
             self.assertEqual(app.hass.turn_off_calls, 0)
             await guard.get_all_live()
