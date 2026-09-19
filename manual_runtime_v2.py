@@ -18,6 +18,7 @@ from manual_mode import (
 from battery_registry import get_battery
 from first_stage_evidence import tail_current_threshold_a
 from rd6018_telemetry import as_bool, finite_float
+from application.execution_intent.models import ExecutionIntent, SafetyContext
 
 
 MANUAL_REACH_EPS = 0.02
@@ -113,10 +114,21 @@ class ProductionManualSessionManager(ManualSessionManager):
         self.cooling_started_at = None
         self._persist()
 
+    async def _disable_via_execution_port(self, reason: str) -> bool:
+        identity = self.identity_integration.identity
+        intent = ExecutionIntent(
+            requested_voltage_v=0.0,
+            requested_current_a=0.0,
+            requested_mode="MANUAL_DISABLE",
+            source_decision_id=f"manual_disable:{getattr(identity, 'trace_id', 'legacy')}",
+            safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+        )
+        return (await self.execution_port.disable(intent, identity=identity, reason=reason)).verified
+
     async def _contain_enable_exception(self, context: str, exc: Exception) -> bool:
         confirmed_off = False
         try:
-            confirmed_off = bool(await self.app.hass.turn_off())
+            confirmed_off = await self._disable_via_execution_port(context)
         except Exception:
             confirmed_off = False
         self.stop_reason = f"{context}:{type(exc).__name__}"
@@ -213,7 +225,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         self.stop_reason = str(reason)
         confirmed = False
         try:
-            confirmed = bool(await self.app.hass.turn_off())
+            confirmed = await self._disable_via_execution_port(self.stop_reason)
         except Exception:
             confirmed = False
         if confirmed:
@@ -357,7 +369,7 @@ class ProductionManualSessionManager(ManualSessionManager):
             self.stop_reason = f"manual_runtime_error:{type(exc).__name__}"
             confirmed_off = False
             try:
-                confirmed_off = bool(await self.app.hass.turn_off())
+                confirmed_off = await self._disable_via_execution_port(self.stop_reason)
             except Exception:
                 confirmed_off = False
             if confirmed_off:
