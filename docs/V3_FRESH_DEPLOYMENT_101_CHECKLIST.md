@@ -61,7 +61,7 @@ command -v python3
 Требования:
 
 - поддерживаемая ОС и архитектура;
-- Python 3.10+;
+- Python 3.11+;
 - отдельный validated venv;
 - доступ к DNS/HA/Telegram только после read-only preflight;
 - service user и права на каталог определены явно;
@@ -200,7 +200,7 @@ WantedBy=multi-user.target
 До deployment должны быть закрыты:
 
 - подтверждён exact target SHA;
-- validated Python 3.10+ environment;
+- validated Python 3.11+ environment;
 - dependency installation and full tests PASS;
 - secure `.env` transfer verified by hash, without printing values;
 - edge failsafe/lease contract compiled and bench-validated for exact target;
