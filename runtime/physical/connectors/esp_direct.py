@@ -28,14 +28,10 @@ class ESPDirectConnector(IndependentPhysicalConnector):
         return await self.transport.get_snapshot()
 
     async def disable_output(self) -> None:
-        await self.transport.disable_output()
+        raise RuntimeError("ESPDirectConnector is read-only; use the V2 physical owner")
 
     async def _set_number(self, key: str, value: float) -> None:
-        wanted = self.transport.config.entities.get(key)
-        entity = next((item for item in self.transport.entities if item.object_id == wanted), None)
-        if entity is None or self.transport.client is None:
-            raise RuntimeError(f"ESPHome numeric control entity is not available: {key}")
-        self.transport.client.number_command(int(entity.key), float(value), int(entity.device_id))
+        raise RuntimeError("ESPDirectConnector is read-only; use the V2 physical owner")
 
     async def set_voltage(self, value: float) -> None:
         await self._set_number("control_voltage", value)
@@ -50,11 +46,7 @@ class ESPDirectConnector(IndependentPhysicalConnector):
         await self._set_number("control_ocp", value)
 
     async def enable_output(self) -> None:
-        wanted = self.transport.config.entities.get("control_output")
-        entity = next((item for item in self.transport.entities if item.object_id == wanted), None)
-        if entity is None or self.transport.client is None:
-            raise RuntimeError("ESPHome output control entity is not available")
-        self.transport.client.switch_command(int(entity.key), True, int(entity.device_id))
+        raise RuntimeError("ESPDirectConnector is read-only; use the V2 physical owner")
 
     async def get_capabilities(self) -> HardwareCapability:
         return await self.transport.get_capabilities()

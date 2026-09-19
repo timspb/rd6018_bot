@@ -53,20 +53,7 @@ class HA102Transport(ReadOnlyTransport):
         return HardwareSnapshot(time.time(), "connected", output_state=state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
 
     async def disable_output(self) -> None:
-        """The only physical write exposed in the first verified-off phase."""
-        entity_id = self.config.entities.get("control_output")
-        if not entity_id:
-            raise RuntimeError("HA output control entity is not configured")
-        if self._session is None or self._session.closed:
-            token = os.getenv(self.config.connection.token_env or "", "")
-            if not token:
-                raise RuntimeError("HA transport token environment variable is not set")
-            self._session = aiohttp.ClientSession(headers={"Authorization": f"Bearer {token}"})
-        scheme = "https" if self.config.connection.tls else "http"
-        url = f"{scheme}://{self.config.connection.host}:{self.config.connection.port}/api/services/switch/turn_off"
-        async with self._session.post(url, json={"entity_id": entity_id}, ssl=False) as response:
-            if response.status not in {200, 201}:
-                raise RuntimeError(f"HA disable failed: HTTP {response.status}")
+        raise RuntimeError("HA102Transport is read-only; use the V2 physical owner")
 
     async def get_capabilities(self):
         return HardwareCapability(True, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, True, True, False, True, True, True)
