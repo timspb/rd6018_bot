@@ -24,8 +24,12 @@ from safe_output import (
 logger = logging.getLogger("rd6018")
 
 PROGRAMMING_TRANSACTION_TTL_SEC = 30.0
-OUTPUT_VERIFY_RETRIES = 5
-OUTPUT_VERIFY_DELAY_SEC = 0.20
+# ESPHome's authoritative register-18 Output-State V2 heartbeat is periodic.  The
+# previous sub-second window could expire after a successful HA turn_on but before
+# that read-only heartbeat reported the new physical state, causing a false
+# post-enable failure and an unnecessary fail-safe OFF.
+OUTPUT_VERIFY_RETRIES = 8
+OUTPUT_VERIFY_DELAY_SEC = 1.0
 
 
 class HassClient:
