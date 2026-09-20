@@ -25,6 +25,7 @@ from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
+from application.production_start_execution_resolver import ProductionStartExecutionResolver
 from application.start_authority_provider import StartAuthorityProvider
 from application.start_authority_runtime import StartAuthorityRuntime
 from application.start_activation_policy import StartActivationPolicy
@@ -211,7 +212,12 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         production_runner=v3_production_runner,
         activation_policy_provider=v3_authority_provider.current_policy,
     )
-    app._v3_production_start_route = ProductionStartRouteAdapter(app, port=v3_start_port)
+    v3_execution_resolver = ProductionStartExecutionResolver(v3_start_port, v3_authority_provider)
+    app._v3_production_start_route = ProductionStartRouteAdapter(
+        app,
+        port=v3_start_port,
+        execution_resolver=v3_execution_resolver,
+    )
 
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _v2_battery_start_route(call: Any) -> None:

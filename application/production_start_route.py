@@ -12,6 +12,7 @@ from .production_start_execution_port import (
     ProductionStartMode,
     ProductionStartPortResult,
 )
+from .production_start_execution_resolver import ProductionStartExecutionResolver
 from .start_plan import ApprovedStartPlan, approved_plan_from_preflight
 from .start_preflight import StartPreflightService
 from .start_request import StartIntentValidator, StartRequest
@@ -35,6 +36,7 @@ class ProductionStartRouteAdapter:
         *,
         mode: ProductionStartMode = ProductionStartMode.DRY_RUN,
         port: ProductionStartExecutionPort | None = None,
+        execution_resolver: ProductionStartExecutionResolver | None = None,
     ) -> None:
         if mode is ProductionStartMode.ACTIVE:
             raise ValueError("production Telegram START ACTIVE mode is disabled")
@@ -42,6 +44,7 @@ class ProductionStartRouteAdapter:
         self.mode = mode
         self.preflight = StartPreflightService(app)
         self.port = port or ProductionStartExecutionPort()
+        self.execution_resolver = execution_resolver
 
     async def submit(self, intent: OperatorIntent) -> ProductionStartRouteResult:
         trace_id = uuid4().hex
@@ -66,17 +69,25 @@ class ProductionStartRouteAdapter:
 
         try:
             plan = approved_plan_from_preflight(preflight)
-            port_result = self.port.submit(
-                plan,
-                trace_id=trace_id,
-                mode=self.mode,
-                execution_metadata={
-                    "source": intent.source,
-                    "operator": intent.user,
-                    "intent": request.intent,
-                    "condition": request.condition,
-                },
-            )
+            execution_metadata = {
+                "source": intent.source,
+                "operator": intent.user,
+                "intent": request.intent,
+                "condition": request.condition,
+            }
+            if self.execution_resolver is not None:
+                port_result = await self.execution_resolver.resolve(
+                    plan,
+                    trace_id=trace_id,
+                    execution_metadata=execution_metadata,
+                )
+            else:
+                port_result = self.port.submit(
+                    plan,
+                    trace_id=trace_id,
+                    mode=self.mode,
+                    execution_metadata=execution_metadata,
+                )
         except (TypeError, ValueError) as exc:
             return ProductionStartRouteResult(False, trace_id, f"route_rejected:{exc}")
 
