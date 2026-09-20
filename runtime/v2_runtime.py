@@ -3,6 +3,7 @@ bot.py — RD6018 Ultimate Telegram Controller (Async Edition).
 Дашборд: один автообновляемый message с графиком, метриками и кнопками.
 """
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -69,6 +70,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger("rd6018")
 
+
+class _DeferredHassClient:
+    """A non-connecting handle used while the application module is imported.
+
+    The production client is bound explicitly by ``initialize_runtime``.  Keeping
+    this small handle preserves the existing composed V2 module surface without
+    constructing a connector, loading physical configuration, or touching the
+    network during import.
+    """
+
+    _VALUE_ATTRIBUTES = frozenset(
+        {
+            "base_url",
+            "token",
+            "_disable_tls_verify",
+            "_session",
+            "_physical_backend",
+        }
+    )
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "_client", None)
+        object.__setattr__(self, "_initializer", None)
+
+    @property
+    def is_bound(self) -> bool:
+        return object.__getattribute__(self, "_client") is not None
+
+    def bind(self, client: HassClient) -> None:
+        if self.is_bound and object.__getattribute__(self, "_client") is not client:
+            raise RuntimeError("HassClient is already bound to another runtime client")
+        object.__setattr__(self, "_client", client)
+
+    def set_initializer(self, initializer: Any) -> None:
+        object.__setattr__(self, "_initializer", initializer)
+
+    def _ensure_bound(self) -> HassClient:
+        client = object.__getattribute__(self, "_client")
+        if client is None:
+            initializer = object.__getattribute__(self, "_initializer")
+            if callable(initializer):
+                initializer()
+                client = object.__getattribute__(self, "_client")
+        if client is None:
+            raise RuntimeError("HassClient runtime is not initialized")
+        return client
+
+    def __getattr__(self, name: str) -> Any:
+        client = object.__getattribute__(self, "_client")
+        if client is not None:
+            return getattr(client, name)
+        if name in self._VALUE_ATTRIBUTES:
+            return None
+        # Private composition markers are intentionally local to this deferred
+        # handle.  They must not turn an import into a runtime initialization.
+        if name.startswith("_"):
+            return None
+
+        async def deferred_call(*args: Any, **kwargs: Any) -> Any:
+            bound = self._ensure_bound()
+            result = getattr(bound, name)(*args, **kwargs)
+            return await result if inspect.isawaitable(result) else result
+
+        return deferred_call
+
+
+
 if not TG_TOKEN:
     raise ValueError(
         "TG_TOKEN не задан. Укажите TG_TOKEN или TELEGRAM_BOT_TOKEN в .env"
@@ -79,7 +147,7 @@ bot = _telegram_runtime.bot
 dp = _telegram_runtime.dispatcher
 router = _telegram_runtime.router
 
-hass = HassClient.from_physical_config()
+hass = _DeferredHassClient()
 
 # Executor для блокирующих операций (DeepSeek API)
 def _charge_notify(msg: str, critical: bool = True) -> None:
@@ -170,6 +238,16 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
 
 
 charge_controller = ChargeControllerV2(hass, notify_cb=_charge_notify)
+
+
+def initialize_runtime() -> None:
+    """Bind the physical client at application startup, never at import time."""
+    if hass.is_bound:
+        return
+    hass.bind(HassClient.from_physical_config())
+
+
+hass.set_initializer(initialize_runtime)
 
 
 def _restore_allows_auto_enable(controller: Any) -> bool:

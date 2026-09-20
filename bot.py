@@ -239,6 +239,11 @@ _v2_startup_recovery = V2StartupRecovery(
 
 
 async def main() -> None:
+    # Physical configuration and connector construction are startup concerns.
+    # Importing the composed V2 module must remain safe for tests and tooling.
+    initializer = getattr(_legacy, "initialize_runtime", None)
+    if callable(initializer):
+        initializer()
     await init_v2_storage()
 
     # Reconciliation runs alongside the transport/UI runtime, but the outer startup
