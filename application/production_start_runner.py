@@ -29,9 +29,10 @@ class ProductionStartRunner:
     transaction_adapter: V2StartTransactionAdapter
     activation_policy: StartActivationPolicy
     transaction_runner: V2TransactionRunner
+    activation_policy_provider: Callable[[], StartActivationPolicy] | None = None
 
     def execute(self, request: StartExecutionRequest) -> StartExecutionResult:
-        decision = self.activation_policy.evaluate(StartExecutionMode.ACTIVE)
+        decision = self._activation_policy().evaluate(StartExecutionMode.ACTIVE)
         if not decision.allowed:
             return self._denied(request, ",".join(decision.reasons))
 
@@ -64,7 +65,7 @@ class ProductionStartRunner:
 
     async def execute_async(self, request: StartExecutionRequest) -> StartExecutionResult:
         """Async variant for the existing async V2 transaction owner."""
-        decision = self.activation_policy.evaluate(StartExecutionMode.ACTIVE)
+        decision = self._activation_policy().evaluate(StartExecutionMode.ACTIVE)
         if not decision.allowed:
             return self._denied(request, ",".join(decision.reasons))
 
@@ -99,6 +100,11 @@ class ProductionStartRunner:
             execution_metadata=request.execution_metadata,
             session_id=request.session_id,
         )
+
+    def _activation_policy(self) -> StartActivationPolicy:
+        if self.activation_policy_provider is not None:
+            return self.activation_policy_provider()
+        return self.activation_policy
 
     def _denied(self, request: StartExecutionRequest, reason: str) -> StartExecutionResult:
         transaction_input = self.transaction_adapter.prepare(

@@ -26,6 +26,7 @@ from application.production_start_execution_port import ProductionStartExecution
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
 from application.start_authority_provider import StartAuthorityProvider
+from application.start_authority_runtime import StartAuthorityRuntime
 from application.start_activation_policy import StartActivationPolicy
 from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
 from application.v2_start_transaction_adapter import V2StartTransactionAdapter
@@ -195,17 +196,20 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v3_runner_adapter = V2StartRunnerAdapter(app, event_factory=build_v2_start_event_context)
     # Production remains fail-closed until an existing operational approval
     # snapshot and all independent evidence are supplied by the authority.
-    v3_authority_provider = StartAuthorityProvider()
-    v3_activation_policy = v3_authority_provider.policy_from_snapshot(None)
+    v3_authority_runtime = StartAuthorityRuntime()
+    v3_authority_provider = StartAuthorityProvider(v3_authority_runtime)
+    v3_activation_policy = v3_authority_provider.current_policy()
     v3_production_runner = ProductionStartRunner(
         transaction_adapter=v3_transaction_adapter,
         activation_policy=v3_activation_policy,
         transaction_runner=v3_runner_adapter,
+        activation_policy_provider=v3_authority_provider.current_policy,
     )
     v3_start_port = ProductionStartExecutionPort(
         transaction_adapter=v3_transaction_adapter,
         activation_policy=v3_activation_policy,
         production_runner=v3_production_runner,
+        activation_policy_provider=v3_authority_provider.current_policy,
     )
     app._v3_production_start_route = ProductionStartRouteAdapter(app, port=v3_start_port)
 

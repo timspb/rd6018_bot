@@ -7,6 +7,8 @@ from application.decision_cutover_operational_readiness import (
 from application.decision_cutover_readiness import Stage1SafetyGates
 from application.start_activation_policy import StartExecutionMode
 from application.start_authority_provider import StartAuthorityProvider
+from application.start_authority_runtime import StartAuthorityRuntime
+from application.production_start_execution_port import ProductionStartExecutionPort
 
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -77,6 +79,44 @@ class StartAuthorityProviderTests(unittest.TestCase):
                                                     rollback_validation_passed=True,
                                                     physical_gate_passed=True)
         self.assertNotEqual(StartExecutionMode.ACTIVE, policy.execution_mode)
+
+    def test_runtime_approval_produces_current_policy(self):
+        runtime = StartAuthorityRuntime()
+        runtime.update_evidence(
+            Stage1SafetyGates(True, True, True, True, True),
+            bench_validation_passed=True,
+            rollback_validation_passed=True,
+            physical_gate_passed=True,
+            timestamp=NOW,
+        )
+        runtime.approve(
+            operator="operator", source="bench", scope="one-run",
+            correlation_id="corr-1", rollback_authority="V2",
+            expires_at=NOW + timedelta(hours=1), timestamp=NOW,
+        )
+        policy = StartAuthorityProvider(runtime, now=lambda: NOW).current_policy()
+        self.assertEqual(StartExecutionMode.ACTIVE, policy.execution_mode)
+
+    def test_runtime_restart_without_persistence_denies_active(self):
+        self.assertNotEqual(StartExecutionMode.ACTIVE, StartAuthorityProvider(StartAuthorityRuntime()).current_policy().execution_mode)
+
+    def test_execution_port_reads_generated_runtime_policy(self):
+        runtime = StartAuthorityRuntime()
+        runtime.update_evidence(
+            Stage1SafetyGates(True, True, True, True, True),
+            bench_validation_passed=True,
+            rollback_validation_passed=True,
+            physical_gate_passed=True,
+            timestamp=NOW,
+        )
+        runtime.approve(
+            operator="operator", source="bench", scope="one-run",
+            correlation_id="corr-port", rollback_authority="V2",
+            expires_at=NOW + timedelta(hours=1), timestamp=NOW,
+        )
+        provider = StartAuthorityProvider(runtime, now=lambda: NOW)
+        port = ProductionStartExecutionPort(activation_policy_provider=provider.current_policy)
+        self.assertEqual(StartExecutionMode.ACTIVE, port._activation_policy().execution_mode)
 
 
 if __name__ == "__main__":

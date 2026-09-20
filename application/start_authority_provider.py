@@ -10,6 +10,7 @@ from .decision_cutover_operational_readiness import (
     OperationalReadinessState,
 )
 from .start_activation_policy import StartActivationPolicy, StartExecutionMode
+from .start_authority_runtime import StartAuthorityRuntime
 
 
 class StartAuthorityProvider:
@@ -20,7 +21,8 @@ class StartAuthorityProvider:
     policy used by the production composition.
     """
 
-    def __init__(self, *, now=None, expected_rollback_authority: str = "V2") -> None:
+    def __init__(self, runtime: StartAuthorityRuntime | None = None, *, now=None, expected_rollback_authority: str = "V2") -> None:
+        self._runtime = runtime
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._expected_rollback_authority = expected_rollback_authority
 
@@ -50,6 +52,17 @@ class StartAuthorityProvider:
             bench_validation_passed=True,
             rollback_validation_passed=True,
             physical_gate_passed=True,
+        )
+
+    def current_policy(self) -> StartActivationPolicy:
+        """Build policy from the current runtime-owned authority window."""
+        if self._runtime is None:
+            return StartActivationPolicy()
+        return self.policy_from_snapshot(
+            self._runtime.snapshot(),
+            bench_validation_passed=self._runtime.bench_validation_passed,
+            rollback_validation_passed=self._runtime.rollback_validation_passed,
+            physical_gate_passed=self._runtime.gate_physical_passed,
         )
 
     def _approval_is_valid(self, snapshot: DecisionCutoverOperationalSnapshot) -> bool:
