@@ -26,11 +26,6 @@ from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
-from application.production_start_execution_resolver import ProductionStartExecutionResolver
-from application.start_authority_provider import StartAuthorityProvider
-from application.start_authority_runtime import StartAuthorityRuntime
-from application.operator_authority_interface import OperatorAuthorityInterface
-from application.start_activation_policy import StartActivationPolicy
 from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
 from application.v2_start_transaction_adapter import V2StartTransactionAdapter
 
@@ -192,79 +187,22 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui._safe_answer = _safe_answer_operator
     v2_bot_ui._intent_keyboard = _operator_intent_keyboard
     v2_bot_ui._preview_keyboard = _operator_preview_keyboard
-    # Composition only: keep Telegram START in DRY_RUN while constructing the
-    # future gated runner.  The V2 owner is reached only from ACTIVE, which is
-    # fail-closed by the default activation policy.
+    # Telegram START reaches the existing V2 owner only after StartPreflightService
+    # and the transactional ExecutionPort checks have passed.
     v3_transaction_adapter = V2StartTransactionAdapter()
     v3_runner_adapter = V2StartRunnerAdapter(app, event_factory=build_v2_start_event_context)
-    # Production remains fail-closed until an existing operational approval
-    # snapshot and all independent evidence are supplied by the authority.
-    v3_authority_runtime = StartAuthorityRuntime()
-    v3_operator_authority = OperatorAuthorityInterface(v3_authority_runtime)
-    app._v3_start_authority_runtime = v3_authority_runtime
-    app._v3_operator_authority = v3_operator_authority
-    v3_authority_provider = StartAuthorityProvider(v3_authority_runtime)
-    v3_activation_policy = v3_authority_provider.current_policy()
     v3_production_runner = ProductionStartRunner(
         transaction_adapter=v3_transaction_adapter,
-        activation_policy=v3_activation_policy,
         transaction_runner=v3_runner_adapter,
-        activation_policy_provider=v3_authority_provider.current_policy,
     )
     v3_start_port = ProductionStartExecutionPort(
         transaction_adapter=v3_transaction_adapter,
-        activation_policy=v3_activation_policy,
         production_runner=v3_production_runner,
-        activation_policy_provider=v3_authority_provider.current_policy,
     )
-    v3_execution_resolver = ProductionStartExecutionResolver(v3_start_port, v3_authority_provider)
     app._v3_production_start_route = ProductionStartRouteAdapter(
         app,
         port=v3_start_port,
-        execution_resolver=v3_execution_resolver,
     )
-
-    @app.router.message(Command("v3_approve"))
-    async def _v3_approve_authority(message: Any) -> None:
-        if not await app._check_chat_and_respond(message):
-            return
-        args = (message.text or "").split()[1:]
-        if len(args) != 2:
-            await message.answer("Формат: /v3_approve <scope> <seconds>")
-            return
-        scope, raw_seconds = args
-        try:
-            seconds = int(raw_seconds)
-        except ValueError:
-            await message.answer("Срок должен быть целым числом секунд.")
-            return
-        if not 1 <= seconds <= 3600:
-            await message.answer("Срок должен быть от 1 до 3600 секунд.")
-            return
-        operator = str(message.from_user.id if message.from_user else message.chat.id)
-        result = v3_operator_authority.approve(
-            operator=operator,
-            source="telegram",
-            scope=scope,
-            expires_in=timedelta(seconds=seconds),
-        )
-        if not result.accepted:
-            await message.answer(f"V3 ACTIVE отклонён: {result.reason}")
-            return
-        window = result.window
-        assert window is not None
-        await message.answer(f"V3 ACTIVE разрешён до {window.expires_at.isoformat()} для scope={window.scope}.")
-
-    @app.router.message(Command("v3_revoke"))
-    async def _v3_revoke_authority(message: Any) -> None:
-        if not await app._check_chat_and_respond(message):
-            return
-        try:
-            v3_operator_authority.revoke(source="telegram", reason="operator_revoke")
-        except PermissionError:
-            await message.answer("V3 ACTIVE уже не разрешён.")
-            return
-        await message.answer("V3 ACTIVE отозван.")
 
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _v2_battery_start_route(call: Any) -> None:

@@ -37,15 +37,12 @@ physical execution as `dry_run_physical_execution_disabled`.
 
 ## Current status
 
-Successful and denied dry-run paths are tested, including a simulated failed
-handoff and Output-ON fail-closed behavior. ACTIVE remains disabled and is not
-wired into `bot.py`.
+Successful and denied dry-run paths remain available for preview/tests,
+including simulated failed handoff and Output-ON fail-closed behavior. The
+production Telegram path uses the same preflight and port with the existing V2
+transaction owner.
 
-## Blockers before ACTIVE
+## Runtime boundary
 
-1. approve the production controller/session handoff owner;
-2. prove rollback and verified-OFF on failed physical start;
-3. preserve V2 transaction/readback ordering on a bench;
-4. complete physical START bench validation;
-5. explicitly authorize ACTIVE and wire it only after those gates pass.
-
+The dry-run gate remains non-actuating. Physical execution is still limited to
+the canonical preflight → ExecutionPort → V2 owner path.

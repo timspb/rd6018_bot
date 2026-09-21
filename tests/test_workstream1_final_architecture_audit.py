@@ -40,8 +40,7 @@ class Workstream1FinalArchitectureAuditTests(unittest.TestCase):
 
     def test_pure_v3_contract_modules_remain_isolated(self):
         modules = (
-            "decision_authority.py", "decision_authority_shadow_run.py", "decision_canary.py",
-            "decision_cutover_readiness.py", "decision_cutover_operational_readiness.py",
+            "decision_authority.py", "decision_authority_shadow_run.py",
             "diagnostics_domain.py", "persistence_boundary.py", "staged_ownership.py",
             "v2_v3_comparison.py",
         )

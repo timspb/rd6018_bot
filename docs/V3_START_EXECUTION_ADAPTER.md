@@ -13,7 +13,7 @@ StartExecutionAdapter
         |
         +-- SHADOW: trace only
         +-- DRY_RUN: handoff plan only
-        +-- ACTIVE: feature-gated, disabled
+        +-- ACTIVE: existing V2 transaction handoff
         |
         v
 existing V2 START path (not connected)
@@ -36,15 +36,11 @@ Runs the same ownership/session/safety/output-off checks and returns an immutabl
 
 ### ACTIVE
 
-Disabled by default. It is not wired into `bot.py` or the production callback
-path. Enabling it requires a separate approval after session ownership, FSM
-ownership, rollback and verified-OFF semantics have been bench-validated.
+The production route reaches the existing V2 transaction owner only after
+`StartPreflightService` passes. The adapter still does not own controller,
+session, safety or physical execution.
 
-## Remaining blockers
+## Runtime boundary
 
-- define the single production owner of controller/session handoff;
-- prove rollback and failed-start verified-OFF behavior;
-- preserve V2 transactional ordering and readback semantics;
-- add a dedicated dry-run integration gate;
-- perform physical bench validation before any ACTIVE enablement.
-
+V2 remains the single controller and physical owner; rollback and verified-OFF
+semantics remain in the existing V2 path.

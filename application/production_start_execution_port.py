@@ -1,14 +1,13 @@
-"""Feature-gated V3 -> V2 START port; production wiring remains disabled."""
+"""V3 START port to the preserved V2 transaction owner."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 from .runtime_start_service import RuntimeStartService, StartExecutionTrace
 from .production_start_runner import ProductionStartRunner
-from .start_activation_policy import StartActivationPolicy, StartExecutionMode as PolicyExecutionMode
 from .start_execution_contract import StartExecutionRequest, request_from_trace
 from .start_plan import ApprovedStartPlan
 from .v2_start_transaction_adapter import (
@@ -44,14 +43,10 @@ class ProductionStartExecutionPort:
         self,
         runtime_start_service: RuntimeStartService | None = None,
         transaction_adapter: V2StartTransactionAdapter | None = None,
-        activation_policy: StartActivationPolicy | None = None,
-        activation_policy_provider: Callable[[], StartActivationPolicy] | None = None,
         production_runner: ProductionStartRunner | None = None,
     ) -> None:
         self.runtime_start_service = runtime_start_service or RuntimeStartService()
         self.transaction_adapter = transaction_adapter or V2StartTransactionAdapter()
-        self.activation_policy = activation_policy or StartActivationPolicy()
-        self.activation_policy_provider = activation_policy_provider
         self.production_runner = production_runner
 
     def submit(
@@ -68,9 +63,6 @@ class ProductionStartExecutionPort:
             return ProductionStartPortResult(False, mode, trace_id, ", ".join(trace.reasons), trace=trace)
 
         if mode is ProductionStartMode.ACTIVE:
-            activation = self._activation_policy().evaluate(PolicyExecutionMode.ACTIVE)
-            if not activation.allowed:
-                return ProductionStartPortResult(False, mode, trace_id, "active_execution_disabled", trace=trace)
             request = request_from_trace(
                 plan,
                 trace,
@@ -136,9 +128,6 @@ class ProductionStartExecutionPort:
         trace = self.runtime_start_service.build_trace(plan)
         if not trace.allowed:
             return ProductionStartPortResult(False, ProductionStartMode.ACTIVE, trace_id, ", ".join(trace.reasons), trace=trace)
-        activation = self._activation_policy().evaluate(PolicyExecutionMode.ACTIVE)
-        if not activation.allowed:
-            return ProductionStartPortResult(False, ProductionStartMode.ACTIVE, trace_id, "active_execution_disabled", trace=trace)
         request = request_from_trace(
             plan,
             trace,
@@ -166,8 +155,3 @@ class ProductionStartExecutionPort:
             execution_result=result,
             session_id=result.session_id,
         )
-
-    def _activation_policy(self) -> StartActivationPolicy:
-        if self.activation_policy_provider is not None:
-            return self.activation_policy_provider()
-        return self.activation_policy

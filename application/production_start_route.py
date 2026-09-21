@@ -1,4 +1,4 @@
-"""Non-actuating production Telegram START route through the V3 boundary."""
+"""Production Telegram START route through preflight and the V2 boundary."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from .production_start_execution_port import (
     ProductionStartMode,
     ProductionStartPortResult,
 )
-from .production_start_execution_resolver import ProductionStartExecutionResolver
 from .start_plan import ApprovedStartPlan, approved_plan_from_preflight
 from .start_preflight import StartPreflightService
 from .start_request import StartIntentValidator, StartRequest
@@ -28,23 +27,19 @@ class ProductionStartRouteResult:
 
 
 class ProductionStartRouteAdapter:
-    """Convert one Telegram START intent into a gated, read-only V3 route."""
+    """Convert one Telegram START intent into preflighted V2 execution."""
 
     def __init__(
         self,
         app: Any,
         *,
-        mode: ProductionStartMode = ProductionStartMode.DRY_RUN,
+        mode: ProductionStartMode = ProductionStartMode.ACTIVE,
         port: ProductionStartExecutionPort | None = None,
-        execution_resolver: ProductionStartExecutionResolver | None = None,
     ) -> None:
-        if mode is ProductionStartMode.ACTIVE:
-            raise ValueError("production Telegram START ACTIVE mode is disabled")
         self.app = app
         self.mode = mode
         self.preflight = StartPreflightService(app)
         self.port = port or ProductionStartExecutionPort()
-        self.execution_resolver = execution_resolver
 
     async def submit(self, intent: OperatorIntent) -> ProductionStartRouteResult:
         trace_id = uuid4().hex
@@ -75,8 +70,8 @@ class ProductionStartRouteAdapter:
                 "intent": request.intent,
                 "condition": request.condition,
             }
-            if self.execution_resolver is not None:
-                port_result = await self.execution_resolver.resolve(
+            if self.mode is ProductionStartMode.ACTIVE:
+                port_result = await self.port.submit_active(
                     plan,
                     trace_id=trace_id,
                     execution_metadata=execution_metadata,

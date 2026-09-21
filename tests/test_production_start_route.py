@@ -72,9 +72,9 @@ def _intent():
 
 
 class ProductionStartRouteTests(unittest.TestCase):
-    def test_production_composition_installs_one_dry_run_route(self):
+    def test_production_composition_installs_one_active_route(self):
         self.assertIsInstance(bot._v3_production_start_route, ProductionStartRouteAdapter)
-        self.assertEqual(bot._v3_production_start_route.mode, ProductionStartMode.DRY_RUN)
+        self.assertEqual(bot._v3_production_start_route.mode, ProductionStartMode.ACTIVE)
         port = bot._v3_production_start_route.port
         self.assertIsInstance(port.production_runner, ProductionStartRunner)
         self.assertIsInstance(port.production_runner.transaction_runner, V2StartRunnerAdapter)
@@ -85,22 +85,23 @@ class ProductionStartRouteTests(unittest.TestCase):
 
     def test_composed_dry_run_keeps_runner_boundary_non_actuating(self):
         composed_port = bot._v3_production_start_route.port
-        result = asyncio.run(ProductionStartRouteAdapter(_App(), port=composed_port).submit(_intent()))
+        result = asyncio.run(ProductionStartRouteAdapter(_App(), port=composed_port, mode=ProductionStartMode.DRY_RUN).submit(_intent()))
         self.assertTrue(result.accepted)
         self.assertEqual(result.reason, "dry_run_routed_no_mutation")
         self.assertIsNotNone(composed_port.production_runner)
 
-    def test_default_route_is_dry_run_and_preserves_trace(self):
-        adapter = ProductionStartRouteAdapter(_App())
+    def test_explicit_dry_run_preserves_trace(self):
+        _App.rd_control_mode_manager.hands_off = False
+        adapter = ProductionStartRouteAdapter(_App(), mode=ProductionStartMode.DRY_RUN)
         result = asyncio.run(adapter.submit(_intent()))
         self.assertTrue(result.accepted)
         self.assertEqual(adapter.mode, ProductionStartMode.DRY_RUN)
         self.assertEqual(result.port_result.reason, "dry_run_routed_no_mutation")
         self.assertEqual(result.port_result.request.trace_id, result.trace_id)
 
-    def test_active_route_is_rejected_at_construction(self):
-        with self.assertRaises(ValueError):
-            ProductionStartRouteAdapter(_App(), mode=ProductionStartMode.ACTIVE)
+    def test_active_route_is_available_after_preflight(self):
+        adapter = ProductionStartRouteAdapter(_App(), mode=ProductionStartMode.ACTIVE)
+        self.assertEqual(adapter.mode, ProductionStartMode.ACTIVE)
 
     def test_denied_preflight_does_not_create_plan(self):
         app = _App()

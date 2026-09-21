@@ -1,6 +1,6 @@
 # V3 ProductionStartExecutionPort
 
-## Current gated wiring
+## Current wiring
 
 ```text
 RuntimeStartService
@@ -12,16 +12,16 @@ V2StartTransactionAdapter
 start_profile_transactional()
 ```
 
-The port currently performs shadow/dry-run routing only. It is not wired into
-the Telegram START callback, so the existing V2 callback remains the single
-authoritative production START route.
+The Telegram START route performs `StartPreflightService` checks and then uses
+this port to reach the preserved V2 transaction owner. The port does not own
+chemistry, session state, safety policy or hardware.
 
 ## Modes
 
 - `SHADOW`: creates trace and immutable request;
 - `DRY_RUN`: performs full data routing and adapter preparation, without calling
   the V2 transaction owner;
-- `ACTIVE`: unconditionally rejected as `active_execution_disabled`.
+- `ACTIVE`: executes the existing async V2 transaction after preflight.
 
 `trace_id` is carried through `StartExecutionRequest`, V2 transaction input and
 normalized `StartExecutionResult`.
@@ -31,11 +31,8 @@ normalized `StartExecutionResult`.
 No controller, FSM, session, HA, setpoint or physical operation is performed by
 the port. Existing V2 remains the execution owner.
 
-## Blockers before bench ACTIVE
+## Runtime requirements
 
-1. approve the production callback handoff without creating a second START route;
-2. validate real V2 transaction outcome mapping and rollback states;
-3. bench-validate verified OFF and containment for failed enable;
-4. retain feature-gate and production import isolation;
-5. explicitly authorize ACTIVE after all gates pass.
-
+The existing V2 transaction owner remains responsible for verified readback,
+rollback, lease and physical safety. DRY_RUN remains available explicitly for
+preview and tests; it is not the production Telegram default.

@@ -549,9 +549,8 @@ def install_v2_ui(app: Any) -> None:
         if not result.accepted:
             await call.answer(f"START отклонён: {result.reason}", show_alert=True)
             return
-        # DRY_RUN deliberately leaves the preview/session untouched.  The V2
-        # transaction owner is reached only after a separately authorized ACTIVE
-        # gate, so this callback cannot mutate controller/FSM/HA state.
+        # The route owns preflight and transactional safety; the callback only
+        # submits the operator intent and never touches hardware directly.
         await call.answer(
             f"START preflight PASS; DRY_RUN, заряд не запущен ({result.trace_id[:8]})",
             show_alert=True,

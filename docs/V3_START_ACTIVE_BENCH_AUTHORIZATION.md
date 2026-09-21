@@ -1,6 +1,7 @@
-# V3 START ACTIVE Bench Authorization Package
+# V3 START ACTIVE Bench Authorization Package (Historical)
 
-Статус документа: readiness package, не разрешение на ACTIVE.
+Статус документа: historical migration package; approval windows are no longer
+part of the production START path.
 
 Физическое исполнение и запуск заряда этим документом не выполняются и не
 разрешаются автоматически.

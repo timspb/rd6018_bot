@@ -1,4 +1,4 @@
-"""Explicitly gated ACTIVE bridge composition for the preserved V2 owner."""
+"""Compatibility bridge for feedback around the preserved V2 owner."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from typing import Any
 
 from .operator_feedback import OperatorFeedbackPort, build_legacy_feedback_bridge
 from .production_start_runner import ProductionStartRunner
-from .start_activation_policy import StartActivationPolicy
 from .start_execution_contract import StartExecutionRequest
 from .v2_start_event_context import V2StartEventContext
 from .v2_start_runner_adapter import V2StartOwner, V2StartRunnerAdapter, build_v2_start_event_context
@@ -27,18 +26,16 @@ class LegacyOperatorEventFacade:
 
 
 class ActiveStartExecutionBridge:
-    """Compose feedback and the gated runner without owning START decisions."""
+    """Compose feedback and the runner without owning START decisions."""
 
     def __init__(
         self,
         app: Any,
         *,
-        activation_policy: StartActivationPolicy | None = None,
         transaction_adapter: V2StartTransactionAdapter | None = None,
         transaction_owner: V2StartOwner | None = None,
     ) -> None:
         self.app = app
-        self.activation_policy = activation_policy or StartActivationPolicy()
         self.transaction_adapter = transaction_adapter or V2StartTransactionAdapter()
         self.transaction_owner = transaction_owner
 
@@ -60,7 +57,6 @@ class ActiveStartExecutionBridge:
         )
         runner = ProductionStartRunner(
             transaction_adapter=self.transaction_adapter,
-            activation_policy=self.activation_policy,
             transaction_runner=runner_adapter,
         )
         return await runner.execute_async(request)

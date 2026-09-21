@@ -35,7 +35,6 @@ class TelegramRuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual([command.command for command in calls[0]], [
             "start", "modes", "off", "logs", "ai", "stats", "help", "entities",
-            "v3_approve", "v3_revoke",
         ])
 
     def test_adapter_has_no_runtime_or_physical_imports(self):

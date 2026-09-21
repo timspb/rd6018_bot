@@ -17,7 +17,6 @@ from application.operator_feedback import (
 from application.telegram_operator_feedback import TelegramOperatorFeedbackAdapter
 from application.active_start_bridge import ActiveStartExecutionBridge, LegacyOperatorEventFacade
 from application.start_execution_contract import request_from_trace
-from application.start_activation_policy import StartActivationPolicy, StartExecutionMode
 from application.start_plan import approved_plan_from_preflight
 from application.start_preflight import StartPreflightService
 from application.start_request import StartRequest
@@ -78,30 +77,8 @@ def _request():
     return request_from_trace(plan, trace, trace_id="trace-runner")
 
 
-def _active_policy():
-    return StartActivationPolicy(
-        execution_mode=StartExecutionMode.ACTIVE,
-        explicit_active_enable=True,
-        bench_validation_passed=True,
-        rollback_validation_passed=True,
-        physical_gate_passed=True,
-    )
-
-
 class ProductionStartRunnerTests(unittest.TestCase):
-    def test_active_denied_without_gates_and_runner_not_called(self):
-        calls = []
-        runner = ProductionStartRunner(
-            V2StartTransactionAdapter(), StartActivationPolicy(),
-            lambda _input: calls.append("called"),
-        )
-        result = runner.execute(_request())
-        self.assertEqual(result.status, StartExecutionStatus.DENIED)
-        self.assertIn("explicit_active_enable_missing", result.reason)
-        self.assertEqual(result.trace_id, "trace-runner")
-        self.assertEqual(calls, [])
-
-    def test_active_accepts_fake_runner_with_all_gates(self):
+    def test_start_accepts_after_preflight(self):
         calls = []
 
         def fake_runner(transaction_input):
@@ -109,7 +86,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
 
         result = ProductionStartRunner(
-            V2StartTransactionAdapter(), _active_policy(), fake_runner
+            V2StartTransactionAdapter(), fake_runner
         ).execute(_request())
         self.assertEqual(result.status, StartExecutionStatus.STARTED)
         self.assertEqual(result.trace_id, "trace-runner")
@@ -124,7 +101,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
 
         result = ProductionStartRunner(
-            V2StartTransactionAdapter(), _active_policy(), async_owner
+            V2StartTransactionAdapter(), async_owner
         ).execute(_request())
         self.assertEqual(result.status, StartExecutionStatus.FAILED)
         self.assertEqual(result.reason, "runner_returned_invalid_outcome")
@@ -139,7 +116,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         result = asyncio.run(
             ProductionStartRunner(
-                V2StartTransactionAdapter(), _active_policy(), async_owner
+                V2StartTransactionAdapter(), async_owner
             ).execute_async(_request())
         )
         self.assertEqual(result.status, StartExecutionStatus.STARTED)
@@ -152,7 +129,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         result = asyncio.run(
             ProductionStartRunner(
-                V2StartTransactionAdapter(), _active_policy(), async_owner
+                V2StartTransactionAdapter(), async_owner
             ).execute_async(_request())
         )
         self.assertEqual(result.status, StartExecutionStatus.FAILED)
@@ -160,7 +137,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
     def test_runner_normalizes_rollback_mapping(self):
         result = ProductionStartRunner(
-            V2StartTransactionAdapter(), _active_policy(),
+            V2StartTransactionAdapter(),
             lambda item: V2TransactionOutcome(
                 trace_id=item.trace_id, contained=True,
                 output_off_unconfirmed=True, session_contained=True,
@@ -171,10 +148,9 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(result.rollback, RollbackState.SESSION_CONTAINED)
         self.assertEqual(result.trace_id, "trace-runner")
 
-    def test_port_requires_runner_even_when_activation_gates_pass(self):
+    def test_port_requires_runner(self):
         request = _request()
         result = ProductionStartExecutionPort(
-            activation_policy=_active_policy(),
         ).submit(request.plan, trace_id=request.trace_id, mode=ProductionStartMode.ACTIVE)
         self.assertFalse(result.accepted)
         self.assertEqual(result.reason, "active_runner_not_configured")
@@ -309,7 +285,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertNotIn("ProductionStartRunner", source)
         self.assertNotIn("Physical", source)
 
-    def test_active_bridge_is_gated_and_does_not_call_owner_by_default(self):
+    def test_active_bridge_uses_the_same_preflighted_runner(self):
         calls = []
 
         async def owner(*_args):
@@ -326,8 +302,8 @@ class ProductionStartRunnerTests(unittest.TestCase):
         result = asyncio.run(
             ActiveStartExecutionBridge(_App(), transaction_owner=owner).execute(_request(), Feedback())
         )
-        self.assertEqual(result.status, StartExecutionStatus.DENIED)
-        self.assertEqual(calls, [])
+        self.assertEqual(result.status, StartExecutionStatus.STARTED)
+        self.assertEqual(calls, ["owner"])
 
     def test_active_bridge_propagates_context_to_feedback_and_v2_owner(self):
         received = []
@@ -351,7 +327,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
         feedback = Feedback()
         result = asyncio.run(
             ActiveStartExecutionBridge(
-                _App(), activation_policy=_active_policy(), transaction_owner=owner
+            _App(), transaction_owner=owner
             ).execute(_request(), feedback)
         )
         self.assertEqual(result.status, StartExecutionStatus.STARTED)

@@ -54,8 +54,6 @@ async def configure_commands(runtime: TelegramRuntime) -> None:
         BotCommand(command="stats", description="Где смотреть статистику"),
         BotCommand(command="help", description="Справка по командам"),
         BotCommand(command="entities", description="Статус сущностей HA (RD6018)"),
-        BotCommand(command="v3_approve", description="Разрешить bounded V3 ACTIVE"),
-        BotCommand(command="v3_revoke", description="Отозвать V3 ACTIVE"),
     ])
 
 
