@@ -30,7 +30,7 @@ class V2RuntimeLifecycle:
             except Exception as ex:
                 self.app.logger.error("Periodic DB cleanup failed: %s", ex)
 
-    async def on_shutdown(self, _dispatcher: Any) -> None:
+    async def on_shutdown(self, dispatcher: Any) -> None:
         """Preserve the V2 shutdown order without owning domain semantics."""
         app = self.app
         app.logger.info("Shutting down gracefully...")
