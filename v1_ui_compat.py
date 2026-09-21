@@ -73,10 +73,10 @@ def compose_v1_operator_keyboard(
     keyboard still advertises both safe IDLE entry callbacks. Read-only V1 navigation
     may be reintroduced in containment/ownership states.
     """
-    del app
-
     process_state = getattr(state, "process_state", None)
     authority = getattr(state, "authority", None)
+    manager = getattr(app, "rd_control_mode_manager", None)
+    edge_autonomous = bool(getattr(manager, "edge_autonomous", False))
     final_callbacks = _callbacks(base)
 
     idle_authorized = "charge_modes" in final_callbacks
@@ -113,7 +113,25 @@ def compose_v1_operator_keyboard(
         _append_row(
             rows,
             InlineKeyboardButton(text="⚡ Управление зарядом", callback_data="charge_modes"),
+            InlineKeyboardButton(text="🔌 Автономный БП", callback_data="rd_autonomous_confirm"),
         )
+
+    if process_state is hmi.HmiProcessState.HANDS_OFF and edge_autonomous:
+        _append_row(
+            rows,
+            InlineKeyboardButton(text="🤖 Вернуть управление боту", callback_data="rd_autonomous_exit"),
+        )
+    elif process_state is hmi.HmiProcessState.HANDS_OFF:
+        if bool(getattr(state, "output_on", False)):
+            _append_row(
+                rows,
+                InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off"),
+            )
+        else:
+            _append_row(
+                rows,
+                InlineKeyboardButton(text="🔒 Вернуть контроль заряда", callback_data="rd_hands_off_disable"),
+            )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

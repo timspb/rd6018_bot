@@ -102,13 +102,14 @@ class V1UiCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(rows[0], ["🔄 Обновить", "📋 Полная инфо"])
         self.assertEqual(rows[1], ["📝 Логи", "🧠 AI анализ"])
-        self.assertEqual(rows[2], ["⚡ Управление зарядом"])
+        self.assertEqual(rows[2], ["⚡ Управление зарядом", "🔌 Автономный БП"])
         self.assertIn("operator_refresh", cb)
         self.assertIn("operator_details", cb)
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("v2_batteries", cb)
         self.assertIn("charge_modes", cb)
+        self.assertIn("rd_autonomous_confirm", cb)
         self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
