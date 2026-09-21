@@ -334,6 +334,62 @@ class PanelLastMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
+        if isinstance(event, CallbackQuery):
+            started_at = asyncio.get_running_loop().time()
+            update = data.get("event_update") or data.get("update")
+            update_id = getattr(update, "update_id", None)
+            message = event.message
+            user_id = getattr(getattr(event, "from_user", None), "id", None)
+            chat_id = getattr(getattr(message, "chat", None), "id", None)
+            callback_data = str(event.data or "")
+            handler_name = getattr(handler, "__name__", type(handler).__name__)
+            logger.info(
+                "CALLBACK_TRACE enter update_id=%s user_id=%s chat_id=%s "
+                "callback_data=%s handler=%s",
+                update_id,
+                user_id,
+                chat_id,
+                callback_data,
+                handler_name,
+            )
+            if callback_data == "v2_battery_start":
+                logger.info(
+                    "START_CALLBACK_TRACE enter update_id=%s handler=%s",
+                    update_id,
+                    handler_name,
+                )
+            try:
+                result = await self._handle_callback(handler, event, data)
+            except Exception as exc:
+                logger.info(
+                    "CALLBACK_TRACE exception update_id=%s callback_data=%s "
+                    "handler=%s duration_ms=%.1f exception=%s",
+                    update_id,
+                    callback_data,
+                    handler_name,
+                    (asyncio.get_running_loop().time() - started_at) * 1000,
+                    type(exc).__name__,
+                )
+                raise
+            logger.info(
+                "CALLBACK_TRACE exit update_id=%s callback_data=%s handler=%s "
+                "duration_ms=%.1f result=%s",
+                update_id,
+                callback_data,
+                handler_name,
+                (asyncio.get_running_loop().time() - started_at) * 1000,
+                type(result).__name__ if result is not None else "None",
+            )
+            return result
+
+        return await self._handle_callback(handler, event, data)
+
+    async def _handle_callback(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
         try:
             result = await handler(event, data)
         except Exception as exc:
