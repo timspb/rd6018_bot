@@ -481,6 +481,13 @@ def install_operator_graph_dashboard(app: Any) -> None:
         old_msg_id: Optional[int] = None,
         anchor_msg_id: Optional[int] = None,
     ) -> int:
+        """Publish the ordinary dashboard without entering the charting stack.
+
+        Graph rendering is intentionally limited to ``render_graph_workspace`` above,
+        which is reached only by an explicit operator graph request.  The terminal
+        panel middleware calls this builder for routine Telegram events, so keeping
+        this path text-only prevents repeated native Matplotlib/NumPy allocations.
+        """
         actions = None
         try:
             interface = getattr(app, "operator_interface", None)
@@ -526,53 +533,16 @@ def install_operator_graph_dashboard(app: Any) -> None:
             else _main_graph_markup(app, state, user_id, actions)
         )
 
-        photo = None
-        try:
-            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
-            times, voltages, currents, temps = await app.get_graph_data_with_temp(
-                limit=limit_pts,
-                since_timestamp=graph_since,
-            )
-            buf = await app.asyncio.to_thread(
-                app.generate_chart,
-                times,
-                voltages,
-                currents,
-                temps,
-            )
-            if buf:
-                if _dark_panel_enabled():
-                    photo = app.BufferedInputFile(
-                        render_dark_dashboard(buf.getvalue(), caption), filename="rd6018-dashboard.png"
-                    )
-                else:
-                    photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
-        except Exception as exc:
-            # Losing history/graph rendering must never hide the live operator state.
-            app.logger.warning("operator dashboard graph unavailable: %s", exc)
-
         target = old_msg_id or anchor_msg_id
         if target:
             try:
-                if photo:
-                    await app.bot.edit_message_media(
-                        chat_id=chat_id,
-                        message_id=target,
-                        media=app.InputMediaPhoto(
-                            media=photo,
-                            caption="" if _dark_panel_enabled() else caption,
-                            parse_mode=app.ParseMode.HTML,
-                        ),
-                        reply_markup=markup,
-                    )
-                else:
-                    await app.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=target,
-                        text=caption,
-                        reply_markup=markup,
-                        parse_mode=app.ParseMode.HTML,
-                    )
+                await app.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=target,
+                    text=caption,
+                    reply_markup=markup,
+                    parse_mode=app.ParseMode.HTML,
+                )
                 app.user_dashboard[user_id] = target
                 app.chat_dashboard[chat_id] = target
                 return int(target)
@@ -586,21 +556,12 @@ def install_operator_graph_dashboard(app: Any) -> None:
                 except Exception:
                     pass
 
-        if photo:
-            sent = await app.bot.send_photo(
-                chat_id,
-                photo=photo,
-                caption="" if _dark_panel_enabled() else caption,
-                reply_markup=markup,
-                parse_mode=app.ParseMode.HTML,
-            )
-        else:
-            sent = await app.bot.send_message(
-                chat_id,
-                caption,
-                reply_markup=markup,
-                parse_mode=app.ParseMode.HTML,
-            )
+        sent = await app.bot.send_message(
+            chat_id,
+            caption,
+            reply_markup=markup,
+            parse_mode=app.ParseMode.HTML,
+        )
         app.user_dashboard[user_id] = sent.message_id
         app.chat_dashboard[chat_id] = sent.message_id
         return int(sent.message_id)

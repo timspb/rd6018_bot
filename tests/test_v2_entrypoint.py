@@ -66,8 +66,8 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("v2_mix", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
-        # The semantic layer owns caption/button meaning, while production deliberately
-        # keeps the graph/photo transport rather than switching L2 to a text-only card.
+        # The semantic layer owns caption/button meaning; routine L2 updates remain
+        # text-only and the explicit graph workspace owns photo rendering.
         self.assertEqual(
             bot._build_and_send_dashboard.__name__,
             "build_and_send_graph_dashboard",
