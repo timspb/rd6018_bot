@@ -102,7 +102,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(rows[0], ["🔄 Обновить", "📋 Полная инфо"])
         self.assertEqual(rows[1], ["📝 Логи", "🧠 AI анализ"])
-        self.assertEqual(rows[2], ["⚙️ Режимы"])
+        self.assertEqual(rows[2], ["⚡ Управление зарядом"])
         self.assertIn("operator_refresh", cb)
         self.assertIn("operator_details", cb)
         self.assertIn("logs", cb)

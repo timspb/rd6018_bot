@@ -112,7 +112,7 @@ def compose_v1_operator_keyboard(
     if start_allowed:
         _append_row(
             rows,
-            InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
+            InlineKeyboardButton(text="⚡ Управление зарядом", callback_data="charge_modes"),
         )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)

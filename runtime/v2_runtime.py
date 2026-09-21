@@ -717,7 +717,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
         ],
         [
             InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
-            InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
+            InlineKeyboardButton(text="⚡ Управление зарядом", callback_data="charge_modes"),
         ],
     ]
     if back_to_dashboard:
