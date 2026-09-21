@@ -26,6 +26,7 @@ class _FakeClient:
     remove_calls = 0
     fail_subscribe = False
     emit_initial = True
+    return_remover = True
 
     def __init__(self, *args, **kwargs):
         self.callbacks = set()
@@ -60,7 +61,7 @@ class _FakeClient:
             type(self).remove_calls += 1
             self.callbacks.discard(callback)
 
-        return remove
+        return remove if type(self).return_remover else None
 
     async def disconnect(self):
         self.disconnected = True
@@ -92,6 +93,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         _FakeClient.remove_calls = 0
         _FakeClient.fail_subscribe = False
         _FakeClient.emit_initial = True
+        _FakeClient.return_remover = True
 
     async def asyncSetUp(self):
         async def no_sleep(_seconds):
@@ -162,6 +164,16 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(transport._state_subscription_remover)
         self.assertEqual(transport._state_cache, {})
         await transport.close()
+
+    async def test_api_without_remover_is_bounded_by_connection_lifecycle(self):
+        _FakeClient.return_remover = False
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        for _ in range(100):
+            await transport.get_live_values()
+        self.assertEqual(_FakeClient.subscribe_calls, 1)
+        self.assertEqual(_FakeClient.instances[0].handler_count(), 1)
+        await transport.close()
+        self.assertTrue(_FakeClient.instances[0].disconnected)
 
     async def test_missing_initial_state_remains_unknown(self):
         _FakeClient.emit_initial = False
