@@ -13,6 +13,16 @@ from .v2_start_event_context import V2StartEventContext
 V2StartOwner = Callable[[Any, Any, Any], Awaitable[bool]]
 
 
+class _ProductionMessage:
+    """Minimal message surface for the preserved transaction owner."""
+
+    def __init__(self, chat_id: str) -> None:
+        self.chat = SimpleNamespace(id=int(chat_id) if str(chat_id).isdigit() else 0)
+
+    async def answer(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
 def build_v2_start_event_context(transaction: V2StartTransactionInput) -> V2StartEventContext:
     """Build the data-only context from the already correlated transaction."""
     return V2StartEventContext(
@@ -50,6 +60,12 @@ class V2StartRunnerAdapter:
             condition=transaction.condition,
         )
         event = (self.event_factory or build_v2_start_event_context)(transaction)
+        if self.transaction_owner is None:
+            event = SimpleNamespace(
+                message=_ProductionMessage(transaction.actor),
+                from_user=SimpleNamespace(id=_ProductionMessage(transaction.actor).chat.id),
+                context=event,
+            )
         started = await owner(self.app, event, pending)
         from .v2_start_transaction_adapter import V2TransactionOutcome
 
