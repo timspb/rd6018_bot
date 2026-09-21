@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from aioesphomeapi import APIClient
@@ -20,6 +21,9 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.entities: tuple[Any, ...] = ()
         self.services: tuple[Any, ...] = ()
         self._entities_by_key: dict[int, list[Any]] = {}
+        self._state_cache: dict[str, dict[str, Any]] = {}
+        self._state_subscription_remover: Callable[[], None] | None = None
+        self._state_subscription_lock = asyncio.Lock()
 
     async def _connect(self):
         key = os.getenv(self.config.connection.key_env or "", "")
@@ -31,6 +35,31 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._entities_by_key = {}
         for entity in self.entities:
             self._entities_by_key.setdefault(int(entity.key), []).append(entity)
+
+    def _on_state(self, state: Any) -> None:
+        """Retain only the latest primitive value for each entity."""
+        key = getattr(state, "key", None)
+        if key is None:
+            return
+        state_type = type(state).__name__
+        value = getattr(state, "state", None)
+        for entity in self._entities_by_key.get(int(key), ()):
+            object_id = str(entity.object_id)
+            self._state_cache.setdefault(object_id, {})[state_type] = value
+
+    async def _ensure_state_subscription(self) -> None:
+        """Connect and install at most one state subscription per connection."""
+        async with self._state_subscription_lock:
+            if self.client is None:
+                await self._connect()
+            if self._state_subscription_remover is not None:
+                return
+
+            self._state_cache.clear()
+            remover = self.client.subscribe_states(self._on_state)
+            if not callable(remover):
+                raise RuntimeError("ESPHome state subscription did not return a remover")
+            self._state_subscription_remover = remover
 
     async def discover(self):
         if self.client is None: await self._connect()
@@ -46,25 +75,16 @@ class ESPHomeTransport(ReadOnlyTransport):
         return HardwareSnapshot(time.time(), "connected", output_state=output_state, measured_voltage=number("voltage"), measured_current=number("current"), configured_voltage=number("configured_voltage"), configured_current=number("configured_current"), ovp=number("ovp"), ocp=number("ocp"), temperature=number("temperature"), battery_voltage=number("battery_voltage"))
 
     async def get_live_values(self) -> dict[str, Any]:
-        if self.client is None: await self._connect()
-        states: dict[str, list[tuple[str, Any]]] = {}
-        def on_state(state):
-            key = getattr(state, "key", None)
-            if key is None:
-                return
-            for entity in self._entities_by_key.get(int(key), ()):
-                states.setdefault(str(entity.object_id), []).append((type(state).__name__, getattr(state, "state", None)))
-        self.client.subscribe_states(on_state)
+        await self._ensure_state_subscription()
         await asyncio.sleep(0.5)
         def value(name):
             wanted = self.config.entities.get(name)
-            values = states.get(str(wanted), ())
+            values = self._state_cache.get(str(wanted), {})
             preferred = "SensorState" if name in {"voltage", "current", "temperature", "output_state"} else "NumberState"
-            for state_type, state in values:
-                if state_type == preferred:
-                    return state
+            if preferred in values:
+                return values[preferred]
             if values:
-                return values[-1][1]
+                return next(reversed(values.values()))
             return None
         result = {key: value(key) for key in self.config.entities}
         result["output_state_code_v2"] = result.get("output_state")
@@ -96,5 +116,15 @@ class ESPHomeTransport(ReadOnlyTransport):
         return {"connected": True, "transport": self.config.name, "read_only": True, "entities": len(self.entities)}
 
     async def close(self):
-        if self.client is not None:
-            await self.client.disconnect()
+        remover = self._state_subscription_remover
+        self._state_subscription_remover = None
+        self._state_cache.clear()
+        self.entities = ()
+        self.services = ()
+        self._entities_by_key.clear()
+        client = self.client
+        self.client = None
+        if remover is not None:
+            remover()
+        if client is not None:
+            await client.disconnect()
