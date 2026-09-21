@@ -54,6 +54,21 @@ def selected_battery_for_user(user_id: int) -> Optional[BatteryRecord]:
     return _selected_battery.get(int(user_id))
 
 
+def selected_program_for_user(user_id: int) -> Optional[str]:
+    """Return the process-local pending selection for operator presentation."""
+    user_id = int(user_id)
+    pending = _pending_start.get(user_id)
+    if pending is not None:
+        return f"{pending.profile} {pending.capacity_ah:g} Ah · {intent_label(pending.intent)}"
+    profile = _pending_profile.get(user_id)
+    if profile:
+        return f"{profile} · ожидается ёмкость АКБ"
+    record = _selected_battery.get(user_id)
+    if record is not None:
+        return f"{record.identity.chemistry.value} {record.identity.nominal_capacity_ah:g} Ah · выбрана АКБ"
+    return None
+
+
 def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -154,6 +169,16 @@ async def _route_profile_intent(app: Any, call: Any, profile: str) -> bool:
         await call.answer("Профиль недоступен", show_alert=True)
         return False
     return True
+
+
+async def _refresh_dashboard_after_selection(app: Any, call: Any, user_id: int) -> None:
+    sender = getattr(app, "send_dashboard", None)
+    if not callable(sender):
+        return
+    try:
+        await sender(call, old_msg_id=getattr(app, "user_dashboard", {}).get(user_id))
+    except Exception as exc:
+        app.logger.debug("dashboard refresh after mode selection failed: %s", exc)
 
 
 async def _start_profile(app: Any, event: Any, pending: PendingStart) -> bool:
@@ -479,6 +504,7 @@ def install_v2_ui(app: Any) -> None:
                 inline_keyboard=manual_button + _intent_keyboard("v2_bat_intent").inline_keyboard
             ),
         )
+        await _refresh_dashboard_after_selection(app, call, user_id)
     @app.router.callback_query(F.data.startswith("v2_profile_"))
     async def quick_profile_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -496,6 +522,7 @@ def install_v2_ui(app: Any) -> None:
             f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям V2.",
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
+        await _refresh_dashboard_after_selection(app, call, user_id)
 
     @app.router.callback_query(F.data.startswith("v2_quick_intent_"))
     async def quick_intent_handler(call: Any) -> None:
@@ -591,4 +618,5 @@ def install_v2_ui(app: Any) -> None:
             f"{format_battery_card(record)}\n\n{preview.text}",
             reply_markup=_preview_keyboard("v2_battery_start"),
         )
+        await _refresh_dashboard_after_selection(app, call, user_id)
 

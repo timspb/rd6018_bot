@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import html
 import os
 from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
+import v2_bot_ui
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from presentation.dark_panel import render_dark_dashboard, render_dark_panel
 from rd6018_telemetry import (
@@ -420,6 +422,13 @@ def install_operator_graph_dashboard(app: Any) -> None:
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
+        selected_program = v2_bot_ui.selected_program_for_user(user_id)
+        if selected_program:
+            caption += (
+                "\n\n<b>Выбрана программа:</b> "
+                f"{html.escape(selected_program)}"
+                "\n<i>V/I ниже — фактический readback RD6018.</i>"
+            )
         panel_actions = _toolbar_actions(actions)
         markup = (
             app.InlineKeyboardMarkup(
