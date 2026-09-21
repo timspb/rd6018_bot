@@ -41,3 +41,4 @@ entities:
   configured_current: set_current_readback_v2
   ovp: ovp_readback_v2
   ocp: ocp_readback_v2
+  autonomous_mode: safety_autonomous_mode
