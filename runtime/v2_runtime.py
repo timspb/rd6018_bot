@@ -1974,6 +1974,8 @@ async def _build_and_send_dashboard(
         mode=mode,
         idle_warning=idle_warning,
     )
+
+
     selected_program = globals().get("_selected_program_for_user")
     if callable(selected_program):
         try:
@@ -2031,6 +2033,50 @@ async def _build_and_send_dashboard(
     user_dashboard[user_id] = sent.message_id
     chat_dashboard[chat_id] = sent.message_id
     return sent.message_id
+
+
+async def _edit_or_send_charge_workspace(
+    call: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> int:
+    """Render the charge workspace without trusting a stale Telegram message."""
+    message = call.message
+    chat_id = message.chat.id
+    user_id = call.from_user.id if call.from_user else 0
+    message_id = getattr(message, "message_id", None)
+
+    try:
+        await message.edit_caption(caption=text, reply_markup=reply_markup)
+    except Exception as caption_error:
+        try:
+            await message.edit_text(text, reply_markup=reply_markup)
+        except Exception as text_error:
+            logger.info(
+                "Charge workspace message is stale; sending replacement: %s / %s",
+                caption_error,
+                text_error,
+            )
+            if message_id is not None:
+                try:
+                    await bot.delete_message(chat_id, message_id)
+                except Exception:
+                    pass
+            sent = await bot.send_message(
+                chat_id,
+                text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+            )
+            replacement_id = sent.message_id
+            user_dashboard[user_id] = replacement_id
+            chat_dashboard[chat_id] = replacement_id
+            return replacement_id
+
+    if message_id is not None:
+        user_dashboard[user_id] = message_id
+        chat_dashboard[chat_id] = message_id
+    return message_id or 0
 
 
 async def send_dashboard_to_chat(chat_id: int, user_id: int = 0) -> int:
@@ -3637,16 +3683,7 @@ async def charge_modes_handler(call: CallbackQuery) -> None:
     last_user_id = call.from_user.id if call.from_user else 0
     text = _charge_modes_text()
     ikb = _build_charge_modes_keyboard()
-    try:
-        await call.message.edit_caption(
-            caption=text,
-            reply_markup=ikb,
-        )
-    except Exception:
-        await call.message.edit_text(
-            text,
-            reply_markup=ikb,
-        )
+    await _edit_or_send_charge_workspace(call, text, ikb)
 
 
 @router.callback_query(F.data == "custom_cancel")

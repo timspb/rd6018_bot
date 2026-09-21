@@ -142,6 +142,95 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SendMessage", calls)
         self.assertEqual(manager.panel_id(1), 77)
 
+    async def test_charge_workspace_replaces_stale_message_and_updates_reference(self):
+        class StaleMessage:
+            message_id = 77
+            chat = SimpleNamespace(id=1)
+
+            async def edit_caption(self, **kwargs):
+                raise RuntimeError("message to edit not found")
+
+            async def edit_text(self, *args, **kwargs):
+                raise RuntimeError("message to edit not found")
+
+        class ReplacementBot:
+            def __init__(self):
+                self.deleted = []
+                self.sent = []
+
+            async def delete_message(self, chat_id, message_id):
+                self.deleted.append((chat_id, message_id))
+
+            async def send_message(self, chat_id, text, **kwargs):
+                self.sent.append((chat_id, text, kwargs))
+                return SimpleNamespace(message_id=88)
+
+        old_bot = app.bot
+        old_user_dashboard = dict(app.user_dashboard)
+        old_chat_dashboard = dict(app.chat_dashboard)
+        replacement_bot = ReplacementBot()
+        app.bot = replacement_bot
+        app.user_dashboard.clear()
+        app.chat_dashboard.clear()
+        try:
+            call = SimpleNamespace(
+                message=StaleMessage(),
+                from_user=SimpleNamespace(id=9),
+            )
+            result = await app._edit_or_send_charge_workspace(
+                call,
+                "<b>Режимы</b>",
+                SimpleNamespace(),
+            )
+            replacement_user_dashboard = dict(app.user_dashboard)
+            replacement_chat_dashboard = dict(app.chat_dashboard)
+        finally:
+            app.bot = old_bot
+            app.user_dashboard.clear()
+            app.user_dashboard.update(old_user_dashboard)
+            app.chat_dashboard.clear()
+            app.chat_dashboard.update(old_chat_dashboard)
+
+        self.assertEqual(result, 88)
+        self.assertEqual(replacement_bot.deleted, [(1, 77)])
+        self.assertEqual(len(replacement_bot.sent), 1)
+        self.assertEqual(replacement_user_dashboard, {9: 88})
+        self.assertEqual(replacement_chat_dashboard, {1: 88})
+
+    async def test_charge_workspace_preserves_edit_failure_as_send_failure(self):
+        class StaleMessage:
+            message_id = 77
+            chat = SimpleNamespace(id=1)
+
+            async def edit_caption(self, **kwargs):
+                raise RuntimeError("message to edit not found")
+
+            async def edit_text(self, *args, **kwargs):
+                raise RuntimeError("message to edit not found")
+
+        class FailingBot:
+            async def delete_message(self, chat_id, message_id):
+                return None
+
+            async def send_message(self, *args, **kwargs):
+                raise RuntimeError("Telegram unavailable")
+
+        old_bot = app.bot
+        app.bot = FailingBot()
+        try:
+            call = SimpleNamespace(
+                message=StaleMessage(),
+                from_user=SimpleNamespace(id=9),
+            )
+            with self.assertRaisesRegex(RuntimeError, "Telegram unavailable"):
+                await app._edit_or_send_charge_workspace(
+                    call,
+                    "<b>Режимы</b>",
+                    SimpleNamespace(),
+                )
+        finally:
+            app.bot = old_bot
+
 
 if __name__ == "__main__":
     unittest.main()
