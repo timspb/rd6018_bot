@@ -74,25 +74,16 @@ def compose_v1_operator_keyboard(
     may be reintroduced in containment/ownership states.
     """
     process_state = getattr(state, "process_state", None)
-    authority = getattr(state, "authority", None)
-    manager = getattr(app, "rd_control_mode_manager", None)
-    edge_autonomous = bool(getattr(manager, "edge_autonomous", False))
     final_callbacks = _callbacks(base)
 
     idle_authorized = "charge_modes" in final_callbacks
-    start_allowed = process_state is hmi.HmiProcessState.IDLE and idle_authorized
 
     shell_process_state = process_state
-    shell_authority = authority
     if process_state is hmi.HmiProcessState.IDLE and not idle_authorized:
         shell_process_state = hmi.HmiProcessState.CONTAINMENT
-        shell_authority = hmi.HmiAuthority.CONTAINMENT
 
     blocked = set(_SHELL_CALLBACKS)
-    if shell_process_state in {
-        hmi.HmiProcessState.IDLE,
-        hmi.HmiProcessState.CONTAINMENT,
-    }:
+    if shell_process_state is hmi.HmiProcessState.CONTAINMENT:
         blocked.update({"charge_modes", "v2_batteries"})
 
     stripped = _filter_callbacks(base, blocked)
@@ -108,30 +99,6 @@ def compose_v1_operator_keyboard(
         InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
         InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
     )
-
-    if start_allowed:
-        _append_row(
-            rows,
-            InlineKeyboardButton(text="⚡ Управление зарядом", callback_data="charge_modes"),
-            InlineKeyboardButton(text="🔌 Автономный БП", callback_data="rd_autonomous_confirm"),
-        )
-
-    if process_state is hmi.HmiProcessState.HANDS_OFF and edge_autonomous:
-        _append_row(
-            rows,
-            InlineKeyboardButton(text="🤖 Вернуть управление боту", callback_data="rd_autonomous_exit"),
-        )
-    elif process_state is hmi.HmiProcessState.HANDS_OFF:
-        if bool(getattr(state, "output_on", False)):
-            _append_row(
-                rows,
-                InlineKeyboardButton(text="⏹ Output OFF", callback_data="rd_hands_off_output_off"),
-            )
-        else:
-            _append_row(
-                rows,
-                InlineKeyboardButton(text="🔒 Вернуть контроль заряда", callback_data="rd_hands_off_disable"),
-            )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

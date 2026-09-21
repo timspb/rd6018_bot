@@ -65,11 +65,10 @@ def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, acti
     # Older composition wrappers preserve the two-argument builder signature.
     # The V3 path passes capabilities explicitly; compatibility callers retain
     # the unchanged legacy fallback.
-    panel = (
-        hmi.build_operator_keyboard(app, state, actions=_toolbar_actions(actions))
-        if actions is not None
-        else hmi.build_operator_keyboard(app, state)
-    )
+    # The root dashboard uses the existing state-driven RD control screen.  The
+    # capability view remains available to callers, but must not replace the
+    # ownership/autonomous composition on the root screen.
+    panel = hmi.build_operator_keyboard(app, state)
     top_row = _graph_toolbar(app, user_id, actions)
     return app.InlineKeyboardMarkup(
         inline_keyboard=([top_row] if top_row else []) + list(panel.inline_keyboard)

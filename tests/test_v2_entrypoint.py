@@ -102,11 +102,29 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("operator_refresh", callbacks)
         self.assertIn("operator_details", callbacks)
         self.assertIn("logs", callbacks)
-        self.assertIn("ai_analysis", callbacks)
+        self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
         self.assertNotIn("charge_modes", callbacks)
         self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("power_toggle", callbacks)
+
+    def test_root_uses_existing_rd_control_screen_composition(self):
+        state = self._state(
+            hmi.HmiProcessState.IDLE,
+            hmi.HmiAuthority.NONE,
+            output_on=False,
+        )
+
+        markup = operator_dashboard._main_graph_markup(bot, state, 1)
+        callbacks = self._callbacks(markup)
+
+        self.assertIn("charge_modes", callbacks)
+        self.assertIn("rd_ownership_hands_off", callbacks)
+        self.assertIn("rd_autonomous_confirm", callbacks)
+        self.assertIn("operator_refresh", callbacks)
+        self.assertNotIn("operator_details", callbacks)
+        self.assertNotIn("rd_hands_off_output_off", callbacks)
+        self.assertNotIn("rd_hands_off_disable", callbacks)
 
     def test_composed_graph_autonomous_never_restores_pb_start(self):
         manager = bot.rd_control_mode_manager
@@ -132,8 +150,8 @@ class V2EntrypointTests(unittest.TestCase):
             self.assertIn("rd_autonomous_exit", callbacks)
             self.assertIn("operator_refresh", callbacks)
             self.assertIn("operator_details", callbacks)
-            self.assertIn("logs", callbacks)
-            self.assertIn("ai_analysis", callbacks)
+            self.assertNotIn("logs", callbacks)
+            self.assertNotIn("ai_analysis", callbacks)
             self.assertNotIn("rd_hands_off_disable", callbacks)
             self.assertNotIn("rd_hands_off_output_off", callbacks)
             self.assertNotIn("rd_live_mix", callbacks)

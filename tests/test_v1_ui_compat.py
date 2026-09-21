@@ -100,16 +100,15 @@ class V1UiCompatibilityTests(unittest.TestCase):
         rows = [[button.text for button in row] for row in markup.inline_keyboard]
         cb = callbacks(markup)
 
-        self.assertEqual(rows[0], ["🔄 Обновить", "📋 Полная инфо"])
-        self.assertEqual(rows[1], ["📝 Логи", "🧠 AI анализ"])
-        self.assertEqual(rows[2], ["⚡ Управление зарядом", "🔌 Автономный БП"])
+        self.assertIn(["🔄 Обновить", "📋 Полная инфо"], rows)
+        self.assertIn(["📝 Логи", "🧠 AI анализ"], rows)
+        self.assertIn(["⚡ Режимы заряда"], rows)
         self.assertIn("operator_refresh", cb)
         self.assertIn("operator_details", cb)
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
-        self.assertNotIn("v2_batteries", cb)
+        self.assertIn("v2_batteries", cb)
         self.assertIn("charge_modes", cb)
-        self.assertIn("rd_autonomous_confirm", cb)
         self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
@@ -227,13 +226,10 @@ class V1UiCompatibilityTests(unittest.TestCase):
             ["operator_graph_30m", "operator_graph_2h", "operator_graph_session"],
         )
 
-    def test_production_composes_v1_shell_before_truth_and_autonomous_filters(self):
+    def test_production_does_not_install_v1_shell_on_root(self):
         truth = Path("operator_output_truth.py").read_text(encoding="utf-8")
-        self.assertIn("install_v1_ui_compat(app)", truth)
-        self.assertLess(
-            truth.index("install_v1_ui_compat(app)"),
-            truth.index("original_keyboard_builder = hmi.build_operator_keyboard"),
-        )
+        self.assertNotIn("install_v1_ui_compat(app)", truth)
+        self.assertNotIn("from v1_ui_compat import", truth)
 
         bot = Path("bot.py").read_text(encoding="utf-8")
         self.assertLess(
