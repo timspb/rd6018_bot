@@ -241,6 +241,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui.install_v2_ui(app)
     install_sg_ui(app)
     install_dashboard_polish(app, v2_bot_ui)
+    app._selected_program_for_user = v2_bot_ui.selected_program_for_user
     app._charge_modes_text = _operator_modes_text
     app._build_charge_modes_keyboard = _operator_modes_keyboard
 

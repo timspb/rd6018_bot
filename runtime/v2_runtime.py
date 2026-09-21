@@ -1974,6 +1974,17 @@ async def _build_and_send_dashboard(
         mode=mode,
         idle_warning=idle_warning,
     )
+    selected_program = globals().get("_selected_program_for_user")
+    if callable(selected_program):
+        try:
+            selected_label = selected_program(user_id)
+        except Exception:
+            selected_label = None
+        if selected_label:
+            clean_caption += (
+                f"\n<b>Выбрана программа:</b> {html.escape(str(selected_label))}"
+                "\n<i>V/I выше — фактический readback RD6018.</i>"
+            )
 
     target_msg_id = old_msg_id or anchor_msg_id
     if target_msg_id:
