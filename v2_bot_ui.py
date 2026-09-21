@@ -69,6 +69,25 @@ def selected_program_for_user(user_id: int) -> Optional[str]:
     return None
 
 
+def format_start_feedback(result: Any) -> str:
+    """Describe the route result without confusing ACTIVE with DRY_RUN."""
+    trace = str(getattr(result, "trace_id", ""))[:8]
+    if not bool(getattr(result, "accepted", False)):
+        return f"START отклонён: {getattr(result, 'reason', 'unknown')}"
+
+    port_result = getattr(result, "port_result", None)
+    mode = getattr(getattr(port_result, "mode", None), "value", "")
+    if mode == "active":
+        execution = getattr(port_result, "execution_result", None)
+        status = getattr(getattr(execution, "status", None), "value", "accepted")
+        return f"✅ ACTIVE START {status}: {getattr(result, 'reason', 'accepted')} ({trace})"
+    if mode == "dry_run":
+        return f"✅ START preflight PASS; DRY_RUN, заряд не запускался ({trace})"
+    if mode:
+        return f"✅ START {mode.upper()}: {getattr(result, 'reason', 'accepted')} ({trace})"
+    return f"✅ START принят: {getattr(result, 'reason', 'accepted')} ({trace})"
+
+
 def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -580,7 +599,7 @@ def install_v2_ui(app: Any) -> None:
         # The route owns preflight and transactional safety; the callback only
         # submits the operator intent and never touches hardware directly.
         await call.answer(
-            f"START выполнен через V2 owner ({result.trace_id[:8]})",
+            format_start_feedback(result),
             show_alert=True,
         )
 

@@ -3207,10 +3207,9 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         if not result.accepted:
             await message.answer(f"START отклонён: {result.reason}", parse_mode=ParseMode.HTML)
             return
-        await message.answer(
-            f"✅ START preflight PASS; DRY_RUN, заряд не запущен ({result.trace_id[:8]})",
-            parse_mode=ParseMode.HTML,
-        )
+        from v2_bot_ui import format_start_feedback
+
+        await message.answer(format_start_feedback(result), parse_mode=ParseMode.HTML)
         return
 
     del awaiting_ah[user_id]

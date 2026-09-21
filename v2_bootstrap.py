@@ -231,10 +231,8 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         if not result.accepted:
             await call.answer(f"START отклонён: {result.reason}", show_alert=True)
             return
-        # DRY_RUN deliberately does not mutate the session or clear the pending
-        # preview. The V2 transaction owner remains the future ACTIVE handoff.
         await call.answer(
-            f"START preflight PASS; DRY_RUN, заряд не запущен ({result.trace_id[:8]})",
+            v2_bot_ui.format_start_feedback(result),
             show_alert=True,
         )
 

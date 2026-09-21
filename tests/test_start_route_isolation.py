@@ -5,6 +5,7 @@ import bot
 import bot_legacy
 import v2_bot_ui
 import v2_startup
+from types import SimpleNamespace
 
 
 def _callbacks(markup):
@@ -17,6 +18,34 @@ def _callbacks(markup):
 
 
 class StartRouteIsolationTests(unittest.TestCase):
+    def test_start_feedback_reports_active_execution_result(self):
+        result = SimpleNamespace(
+            accepted=True,
+            trace_id="trace-active-1234",
+            reason="started",
+            port_result=SimpleNamespace(
+                mode=SimpleNamespace(value="active"),
+                execution_result=SimpleNamespace(status=SimpleNamespace(value="STARTED")),
+            ),
+        )
+        feedback = v2_bot_ui.format_start_feedback(result)
+        self.assertIn("ACTIVE START STARTED", feedback)
+        self.assertNotIn("DRY_RUN", feedback)
+
+    def test_start_feedback_preserves_explicit_dry_run(self):
+        result = SimpleNamespace(
+            accepted=True,
+            trace_id="trace-dry-1234",
+            reason="dry_run_routed_no_mutation",
+            port_result=SimpleNamespace(
+                mode=SimpleNamespace(value="dry_run"),
+                execution_result=None,
+            ),
+        )
+        feedback = v2_bot_ui.format_start_feedback(result)
+        self.assertIn("DRY_RUN", feedback)
+        self.assertIn("не запускался", feedback)
+
     def test_production_profile_start_has_one_transactional_owner(self):
         self.assertIs(v2_bot_ui._start_profile, v2_startup.start_profile_transactional)
 
