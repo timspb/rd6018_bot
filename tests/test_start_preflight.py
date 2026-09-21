@@ -11,7 +11,7 @@ from application.start_plan import (
     compare_approved_start_plan,
 )
 from application.runtime_start_service import RuntimeStartService, compare_start_execution_trace
-from pb_domain import BatteryChemistry, BatteryIdentity
+from pb_domain import BatteryChemistry, BatteryIdentity, ChargeIntent
 
 
 def live(**overrides):
@@ -79,7 +79,35 @@ def request(profile="AGM"):
     )
 
 
+def capacity_request(capacity_ah):
+    return StartRequest(
+        profile="AGM",
+        capacity_ah=capacity_ah,
+        battery_identity=BatteryIdentity("bat-capacity", BatteryChemistry.AGM, capacity_ah),
+        intent=ChargeIntent.RECOVERY,
+        operator="operator-1",
+    )
+
+
 class StartPreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preflight_uses_request_capacity_not_stale_controller_capacity(self):
+        app = _App()
+        app.charge_controller.ah_capacity = 60
+        result = await StartPreflightService(app).evaluate(capacity_request(50))
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.target_preview.voltage_v, 14.4)
+        self.assertEqual(result.target_preview.current_a, 5.0)
+        self.assertEqual(result.recipe_preview.main_current_limit_a, 5.0)
+        self.assertEqual(result.recipe_preview.hv_current_limit_a, 1.5)
+
+    async def test_preflight_capacity_changes_are_isolated_between_requests(self):
+        app = _App()
+        app.charge_controller.ah_capacity = 60
+        first = await StartPreflightService(app).evaluate(capacity_request(50))
+        second = await StartPreflightService(app).evaluate(capacity_request(60))
+        self.assertEqual(first.target_preview.current_a, 5.0)
+        self.assertEqual(second.target_preview.current_a, 6.0)
+
     async def test_valid_agm_preview_is_allowed_without_writes(self):
         app = _App()
         result = await StartPreflightService(app).evaluate(request())

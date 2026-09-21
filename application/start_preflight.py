@@ -90,7 +90,14 @@ class StartPreflightService:
                 chemistry=chemistry.value,
             )
 
-        target = self._target_preview(controller, snapshot.battery_voltage_v, snapshot.temp_ext_c, request.profile)
+        target = self._target_preview(
+            controller,
+            snapshot.battery_voltage_v,
+            snapshot.temp_ext_c,
+            request.profile,
+            request.capacity_ah,
+            recipe,
+        )
         if target is None:
             reasons.append("target_preview_unavailable")
             return StartPreflightResult(
@@ -147,14 +154,35 @@ class StartPreflightService:
         return float(cap(value)) if callable(cap) else float(value)
 
     @staticmethod
-    def _target_preview(controller: Any, battery_v: float, temp_ext: float, profile: str):
+    def _target_preview(
+        controller: Any,
+        battery_v: float,
+        temp_ext: float,
+        profile: str,
+        capacity_ah: float,
+        recipe: Any,
+    ):
         if controller is None:
             return None
         method = getattr(controller, "_prep_target" if battery_v < INITIAL_MAIN_THRESHOLD_V else "_main_target", None)
         if not callable(method):
             return None
-        voltage, current = method(temp_ext)
-        return TargetPreview(float(voltage), float(current), "PREP" if battery_v < INITIAL_MAIN_THRESHOLD_V else "MAIN", battery_v >= INITIAL_MAIN_THRESHOLD_V)
+        voltage, _controller_current = method(temp_ext)
+        is_main = battery_v >= INITIAL_MAIN_THRESHOLD_V
+        if is_main:
+            # The request is authoritative for preflight.  The controller may still
+            # contain the previous session's capacity until the real START handoff.
+            current = float(recipe.main_current_limit_a)
+        else:
+            # Keep the existing PREP rule (~0.01C), but derive it from this request,
+            # not from stale controller state.
+            current = min(12.0, max(0.1, float(capacity_ah) * 0.01))
+        return TargetPreview(
+            float(voltage),
+            current,
+            "MAIN" if is_main else "PREP",
+            is_main,
+        )
 
 
 class StartCommandHandler:
