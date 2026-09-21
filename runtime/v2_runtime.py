@@ -56,7 +56,6 @@ from config import (
 )
 from protection_utils import should_delay_current_ramp, should_use_startup_settle
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
-from graphing import generate_chart
 from hass_api import HassClient
 from time_utils import format_time_user_tz
 import html
@@ -69,6 +68,13 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("rd6018")
+
+
+def generate_chart(*args: Any, **kwargs: Any) -> Any:
+    """Load the charting stack only when a chart is actually requested."""
+    from graphing import generate_chart as _generate_chart
+
+    return _generate_chart(*args, **kwargs)
 
 
 class _DeferredHassClient:
