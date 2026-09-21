@@ -563,15 +563,37 @@ def install_v2_ui(app: Any) -> None:
 
     @app.router.callback_query(F.data == "v2_quick_start")
     async def quick_start_handler(call: Any) -> None:
+        trace = getattr(app, "logger", None)
+        if trace is not None:
+            trace.info("QUICK_START_TRACE enter")
         if not await app._check_chat_and_respond(call):
+            if trace is not None:
+                trace.info("QUICK_START_TRACE chat_guard=DENY")
             return
+        if trace is not None:
+            trace.info("QUICK_START_TRACE chat_guard=PASS")
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
+        if trace is not None:
+            trace.info("QUICK_START_TRACE user_state user_id=%s", user_id)
         pending = _pending_start.get(user_id)
+        if trace is not None:
+            if pending is None:
+                trace.info("QUICK_START_TRACE pending=MISS")
+            else:
+                trace.info(
+                    "QUICK_START_TRACE pending=FOUND profile=%s intent=%s capacity_ah=%s battery_id=%s",
+                    pending.profile,
+                    pending.intent.value,
+                    pending.capacity_ah,
+                    pending.battery_id,
+                )
         if pending is None:
             await call.answer("Preview устарел — выберите режим заново", show_alert=True)
             return
         route = getattr(app, "_v3_production_start_route", None)
+        if trace is not None:
+            trace.info("QUICK_START_TRACE route=%s", "FOUND" if route is not None else "MISSING")
         if route is None:
             # Compatibility/rollback compositions without V3 retain the old
             # owner; production bot.py always installs the route above.
@@ -591,17 +613,42 @@ def install_v2_ui(app: Any) -> None:
                 "condition": pending.condition,
             },
         )
-        result = await route.submit(intent)
+        if trace is not None:
+            trace.info(
+                "QUICK_START_TRACE request profile=%s intent=%s capacity_ah=%s",
+                pending.profile,
+                pending.intent.value,
+                pending.capacity_ah,
+            )
+        try:
+            result = await route.submit(intent)
+        except Exception as exc:
+            if trace is not None:
+                trace.info("QUICK_START_TRACE route=EXCEPTION type=%s", type(exc).__name__)
+            raise
+        if trace is not None:
+            trace.info(
+                "QUICK_START_TRACE result accepted=%s reason=%s mode=%s",
+                result.accepted,
+                result.reason,
+                getattr(getattr(result.port_result, "mode", None), "value", None),
+            )
         if not result.accepted:
             await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            if trace is not None:
+                trace.info("QUICK_START_TRACE response=REJECTED")
             return
         _pending_start.pop(user_id, None)
+        if trace is not None:
+            trace.info("QUICK_START_TRACE pending=CLEARED after_route=PASS")
         # The route owns preflight and transactional safety; the callback only
         # submits the operator intent and never touches hardware directly.
         await call.answer(
             format_start_feedback(result),
             show_alert=True,
         )
+        if trace is not None:
+            trace.info("QUICK_START_TRACE response=ACCEPTED")
 
     @app.router.callback_query(F.data.startswith("v2_bat_intent_"))
     async def battery_intent_handler(call: Any) -> None:
