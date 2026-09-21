@@ -203,6 +203,33 @@ def install_rd_ownership_recovery(
             else original_keyboard(app_arg, state)
         )
         if actions is not None:
+            # The production snapshot path supplies the capability view explicitly.
+            # Keep ownership controls on that path as well; otherwise the final
+            # dashboard silently loses the HANDS_OFF boundary.
+            if state is not None and state.process_state is hmi.HmiProcessState.IDLE and manager.pb_managed:
+                return _prepend_unique(
+                    markup,
+                    [[InlineKeyboardButton(
+                        text="🔓 Режим РД — не лезь",
+                        callback_data="rd_ownership_hands_off",
+                    )]],
+                )
+            if manager.pb_managed and _managed_active(app_arg):
+                return _prepend_unique(
+                    markup,
+                    [[InlineKeyboardButton(
+                        text="🔓 Отпустить РД",
+                        callback_data="rd_hands_off_release_confirm",
+                    )]],
+                )
+            if state is not None and state.process_state is hmi.HmiProcessState.HANDS_OFF and not state.output_on:
+                return _prepend_unique(
+                    markup,
+                    [[InlineKeyboardButton(
+                        text="🔒 Вернуть контроль заряда",
+                        callback_data="rd_hands_off_disable",
+                    )]],
+                )
             return markup
 
         if state.process_state is hmi.HmiProcessState.IDLE and manager.pb_managed:
