@@ -57,6 +57,7 @@ from config import (
 from protection_utils import should_delay_current_ramp, should_use_startup_settle
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
+from rd6018_telemetry import as_bool
 from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -68,6 +69,11 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("rd6018")
+
+
+def _canonical_bool(live: Dict[str, Any], key: str) -> bool:
+    """Consume a canonical telemetry boolean without string reinterpretation."""
+    return as_bool(live.get(key)) is True
 
 
 def generate_chart(*args: Any, **kwargs: Any) -> Any:
@@ -1472,8 +1478,8 @@ async def _operator_pause_toggle(call: Any) -> str:
             return "Продолжение заблокировано: Output не подтверждён OFF"
         live = after
 
-    ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
-    ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+    ovp_triggered = _canonical_bool(live, "ovp_triggered")
+    ocp_triggered = _canonical_bool(live, "ocp_triggered")
     temp_ext = _safe_float(live.get("temp_ext"))
     input_voltage = _safe_float(live.get("input_voltage"), 0.0)
     if ovp_triggered or ocp_triggered:
@@ -1489,8 +1495,8 @@ async def _operator_pause_toggle(call: Any) -> str:
             _safe_float(live.get("current")),
             _safe_float(live.get("ah")),
             output_is_on=output_on,
-            is_cv=str(live.get("is_cv", "")).lower() == "on",
-            is_cc=str(live.get("is_cc", "")).lower() == "on",
+            is_cv=_canonical_bool(live, "is_cv"),
+            is_cc=_canonical_bool(live, "is_cc"),
         )
         if not ok:
             return "Продолжение заблокировано: сессия не восстановлена"
@@ -1529,8 +1535,8 @@ async def _build_ai_analysis_text() -> str:
         times, voltages, currents = await get_raw_history(limit=50)
         trend_summary = _build_trend_summary(times, voltages, currents)
         live = await hass.get_all_live()
-        is_cv = str(live.get("is_cv", "")).lower() == "on"
-        is_cc = str(live.get("is_cc", "")).lower() == "on"
+        is_cv = _canonical_bool(live, "is_cv")
+        is_cc = _canonical_bool(live, "is_cc")
         mode_flags = "CV" if is_cv else ("CC" if is_cc else "-")
         capacity_ah = int(getattr(charge_controller, "ah_capacity", 0) or 0)
         capacity_known = bool(charge_controller.is_active and capacity_ah > 0)
@@ -1587,8 +1593,8 @@ def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     temp_ext = _safe_float(live.get("temp_ext"))
     temp_int = _safe_float(live.get("temp_int"))
     ah = _safe_float(live.get("ah"))
-    is_cv = str(live.get("is_cv", "")).lower() == "on"
-    is_cc = str(live.get("is_cc", "")).lower() == "on"
+    is_cv = _canonical_bool(live, "is_cv")
+    is_cc = _canonical_bool(live, "is_cc")
     mode = "CV" if is_cv else ("CC" if is_cc else "-")
     output_v = _safe_float(live.get("voltage"))
 
@@ -1735,8 +1741,8 @@ def _format_stage_progress_line(live: Dict[str, Any]) -> str:
     snapshot = _safe_stage_snapshot(temp_ext)
     timers = snapshot.get("timers") or {}
     hold = snapshot.get("hold") or {}
-    is_cv = str(live.get("is_cv", "")).lower() == "on"
-    is_cc = str(live.get("is_cc", "")).lower() == "on"
+    is_cv = _canonical_bool(live, "is_cv")
+    is_cc = _canonical_bool(live, "is_cc")
     stage = charge_controller.current_stage
     remaining = _format_eta_compact(timers.get("remaining_time", "—"))
 
@@ -1884,8 +1890,8 @@ def _compact_dashboard_caption(
     temp_ext = _safe_float(live.get("temp_ext"))
     temp_int = _safe_float(live.get("temp_int"))
     is_on = str(live.get("switch", "")).lower() == "on"
-    ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
-    ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
+    ovp_tr = _canonical_bool(live, "ovp_triggered")
+    ocp_tr = _canonical_bool(live, "ocp_triggered")
 
     lines = []
     if charge_controller.is_active:
@@ -1947,8 +1953,8 @@ async def _build_and_send_dashboard(
         temp_ext = _safe_float(live.get("temp_ext"))
         set_v = _safe_float(live.get("set_voltage"))
         set_i = _safe_float(live.get("set_current"))
-        is_cv = str(live.get("is_cv", "")).lower() == "on"
-        is_cc = str(live.get("is_cc", "")).lower() == "on"
+        is_cv = _canonical_bool(live, "is_cv")
+        is_cc = _canonical_bool(live, "is_cc")
         mode = "CV" if is_cv else ("CC" if is_cc else "-")
     except Exception as ex:
         logger.error("Failed to get HA data for dashboard: %s", ex)
@@ -2273,12 +2279,12 @@ async def data_logger() -> None:
             temp_ext = live.get("temp_ext")
             t = _safe_float(temp_ext)
             ah = _safe_float(live.get("ah"))
-            is_cv = str(live.get("is_cv", "")).lower() == "on"
-            is_cc = str(live.get("is_cc", "")).lower() == "on"
+            is_cv = _canonical_bool(live, "is_cv")
+            is_cc = _canonical_bool(live, "is_cc")
             output_switch = live.get("switch")
             output_on = str(output_switch or "").lower() == "on"
-            ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
-            ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+            ovp_triggered = _canonical_bool(live, "ovp_triggered")
+            ocp_triggered = _canonical_bool(live, "ocp_triggered")
             battery_mode = str(live.get("battery_mode", "")).lower() == "on"
             input_voltage = _safe_float(live.get("input_voltage"), 0.0)
             temp_int = _safe_float(live.get("temp_int"), 0.0)
@@ -2848,8 +2854,8 @@ async def get_ai_context() -> str:
         
         # Статусы
         output_on = str(live.get("switch", "")).lower() == "on"
-        cv_mode = str(live.get("is_cv", "")).lower() == "on"
-        cc_mode = str(live.get("is_cc", "")).lower() == "on"
+        cv_mode = _canonical_bool(live, "is_cv")
+        cc_mode = _canonical_bool(live, "is_cc")
         battery_mode = not output_on  # Режим батареи = выход выключен
         
         # Температуры
@@ -3877,8 +3883,8 @@ async def info_full_handler(call: CallbackQuery) -> None:
         if off_line:
             full_text += f"\n{off_line}"
         full_text += f"\n⏱ Время работы: {_format_uptime_display(live.get('uptime'))}"
-        ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
-        ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
+        ovp_tr = _canonical_bool(live, "ovp_triggered")
+        ocp_tr = _canonical_bool(live, "ocp_triggered")
         full_text += f"\n🛡 Защиты: OVP {'сработала' if ovp_tr else 'норма'}, OCP {'сработала' if ocp_tr else 'норма'}"
 
         battery_v = _safe_float(live.get("battery_voltage"))
@@ -4069,13 +4075,13 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
         i = _safe_float(live.get("current"))
         ah = _safe_float(live.get("ah"))
         temp_ext = _safe_float(live.get("temp_ext"))
-        ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
-        ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+        ovp_triggered = _canonical_bool(live, "ovp_triggered")
+        ocp_triggered = _canonical_bool(live, "ocp_triggered")
         input_voltage = _safe_float(live.get("input_voltage"), 0.0)
         ok, msg = charge_controller.try_restore_session(
             battery_v, i, ah, output_is_on=is_on,
-            is_cv=str(live.get("is_cv", "")).lower() == "on",
-            is_cc=str(live.get("is_cc", "")).lower() == "on",
+            is_cv=_canonical_bool(live, "is_cv"),
+            is_cc=_canonical_bool(live, "is_cc"),
         )
         if not ok and _operator_pause_active():
             logger.warning("Clearing operator pause: no charge session to restore")

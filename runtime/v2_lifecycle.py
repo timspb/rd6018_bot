@@ -11,6 +11,7 @@ import asyncio
 from typing import Any
 
 from runtime.background import start_background_tasks
+from rd6018_telemetry import as_bool
 
 
 class V2RuntimeLifecycle:
@@ -73,8 +74,8 @@ class V2RuntimeLifecycle:
             battery_v = app._safe_float(live.get("battery_voltage"))
             current = app._safe_float(live.get("current"))
             ah = app._safe_float(live.get("ah"))
-            ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
-            ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
+            ovp_triggered = as_bool(live.get("ovp_triggered")) is True
+            ocp_triggered = as_bool(live.get("ocp_triggered")) is True
             input_voltage = app._safe_float(live.get("input_voltage"), 0.0)
             controller = app.charge_controller
             ok, msg = controller.try_restore_session(
@@ -82,8 +83,8 @@ class V2RuntimeLifecycle:
                 current,
                 ah,
                 output_is_on=(str(live.get("switch", "")).lower() == "on"),
-                is_cv=str(live.get("is_cv", "")).lower() == "on",
-                is_cc=str(live.get("is_cc", "")).lower() == "on",
+                is_cv=as_bool(live.get("is_cv")) is True,
+                is_cc=as_bool(live.get("is_cc")) is True,
             )
             if ok and msg:
                 app._apply_restore_time_corrections(controller, live)
