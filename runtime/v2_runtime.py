@@ -1968,10 +1968,11 @@ async def _build_and_send_dashboard(
     except Exception as ex:
         logger.warning("dashboard blocks fallback: %s", ex)
         idle_warning = "🟡 Данные дашборда частично недоступны"
-    chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
-    times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
-    buf = await asyncio.to_thread(generate_chart, times, voltages, currents, temps)
-    photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
+    # The ordinary dashboard is a control/readback surface.  Chart rendering
+    # is deliberately reserved for the explicit chart callbacks below; doing
+    # it here made every refresh wait on database/history work and matplotlib.
+    chart_mode = _chart_range_for_user(user_id)
+    photo = None
 
     ikb = _build_dashboard_keyboard(is_on, user_id)
     clean_caption = _compact_dashboard_caption(
