@@ -539,6 +539,7 @@ class ChargeControllerV2(ChargeController):
             dtemp_c_per_min=metrics.d_temp_c_per_min,
             dcurrent_a_per_min=metrics.d_current_a_per_min,
             dvoltage_v_per_min=metrics.d_voltage_v_per_min,
+            temperature_c=getattr(getattr(record.analysis, "sample", None), "temp_c", None),
         )
 
     def _log_shadow_disagreement(self, record: Any, *, stage: str) -> None:

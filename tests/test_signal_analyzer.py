@@ -67,12 +67,12 @@ class SignalAnalyzerTests(unittest.TestCase):
         analyzer.reset_stage("mix", target_voltage_v=16.3)
 
         samples = [
-            SignalSample(0, 16.30, 0.50, 25.0, True),
-            SignalSample(60, 16.30, 0.50, 25.1, True),
-            SignalSample(120, 16.30, 0.50, 25.2, True),
-            SignalSample(180, 16.30, 0.66, 25.8, True),
-            SignalSample(240, 16.30, 0.68, 26.5, True),
-            SignalSample(300, 16.30, 0.72, 27.3, True),
+            SignalSample(0, 16.30, 0.50, 30.0, True),
+            SignalSample(60, 16.30, 0.50, 30.1, True),
+            SignalSample(120, 16.30, 0.50, 30.2, True),
+            SignalSample(180, 16.30, 0.66, 30.8, True),
+            SignalSample(240, 16.30, 0.68, 31.5, True),
+            SignalSample(300, 16.30, 0.72, 32.3, True),
         ]
 
         result = None
@@ -88,11 +88,11 @@ class SignalAnalyzerTests(unittest.TestCase):
         analyzer = SignalAnalyzer()
         analyzer.reset_stage("mix", target_voltage_v=16.5)
         samples = [
-            SignalSample(0, 16.30, 1.50, 25.0, is_cc=True),
-            SignalSample(60, 16.29, 1.50, 25.2, is_cc=True),
-            SignalSample(120, 16.26, 1.50, 25.6, is_cc=True),
-            SignalSample(180, 16.25, 1.50, 26.1, is_cc=True),
-            SignalSample(240, 16.24, 1.50, 26.7, is_cc=True),
+            SignalSample(0, 16.30, 1.50, 30.0, is_cc=True),
+            SignalSample(60, 16.29, 1.50, 30.2, is_cc=True),
+            SignalSample(120, 16.26, 1.50, 30.6, is_cc=True),
+            SignalSample(180, 16.25, 1.50, 31.1, is_cc=True),
+            SignalSample(240, 16.24, 1.50, 31.7, is_cc=True),
         ]
         result = None
         for sample in samples:
