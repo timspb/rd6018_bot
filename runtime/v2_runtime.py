@@ -92,6 +92,15 @@ def _is_physical_transport_error(exc: BaseException) -> bool:
     )
 
 
+def _is_recoverable_link_boundary_error(exc: BaseException) -> bool:
+    """Preserve an active session when an accepted edge command loses readback."""
+    text = str(exc).lower()
+    return _is_physical_transport_error(exc) or (
+        "off command accepted" in text
+        and "switch state was not confirmed" in text
+    )
+
+
 def generate_chart(*args: Any, **kwargs: Any) -> Any:
     """Load the charting stack only when a chart is actually requested."""
     from graphing import generate_chart as _generate_chart
@@ -2415,9 +2424,45 @@ async def data_logger() -> None:
                 await asyncio.sleep(30)
                 continue
 
-            # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В (battery_mode не требуем — после потери связи мы сами выключили выход)
+            # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В
+            # (battery_mode не требуем — после потери связи мы сами выключили
+            # выход).  An active in-memory session is resumed in place; only an
+            # IDLE session goes through persisted-session reconstruction.
             if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
-                if charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
+                if (
+                    charge_controller._was_unavailable
+                    and charge_controller.current_stage not in {
+                        charge_controller.STAGE_IDLE,
+                        charge_controller.STAGE_DONE,
+                        getattr(charge_controller, "STAGE_COOLING", "__no_cooling__"),
+                    }
+                    and not output_on
+                    and not ovp_triggered
+                    and not ocp_triggered
+                    and input_voltage >= MIN_INPUT_VOLTAGE
+                ):
+                    uv, ui = charge_controller._get_target_v_i(t)
+                    await _apply_phase_protection(uv, ui)
+                    await hass.set_voltage(uv)
+                    await hass.set_current(_cap_current(ui))
+                    enabled = await hass.turn_on(ENTITY_MAP["switch"])
+                    if enabled:
+                        output_on = True
+                        charge_controller._last_known_output_on = True
+                        _apply_restore_time_corrections(charge_controller, live)
+                        last_checkpoint_time = time.time()
+                        log_event(charge_controller.current_stage, battery_v, i, t, ah, "RESTORE")
+                        _charge_notify(
+                            "✅ Связь восстановлена, заряд продолжен с текущего этапа.",
+                            critical=False,
+                        )
+                        logger.info(
+                            "Active session resumed after link recovery: %s",
+                            charge_controller.current_stage,
+                        )
+                    else:
+                        logger.warning("Active session restore blocked: Output ON was not confirmed")
+                elif charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
                     ok, msg = charge_controller.try_restore_session(
                         battery_v, i, ah, output_is_on=output_on,
                         is_cv=is_cv, is_cc=is_cc,
@@ -2631,7 +2676,7 @@ async def data_logger() -> None:
 
         except Exception as ex:
             err_str = str(ex).lower()
-            if _is_physical_transport_error(ex):
+            if _is_recoverable_link_boundary_error(ex):
                 charge_controller._was_unavailable = True
                 charge_controller._link_lost_at = time.time()
                 if charge_controller._last_known_output_on and not link_lost_alert_sent:

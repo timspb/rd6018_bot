@@ -1,6 +1,9 @@
 import unittest
 
-from runtime.v2_runtime import _is_physical_transport_error
+from runtime.v2_runtime import (
+    _is_physical_transport_error,
+    _is_recoverable_link_boundary_error,
+)
 
 
 class TransportOutagePolicyTests(unittest.TestCase):
@@ -18,6 +21,20 @@ class TransportOutagePolicyTests(unittest.TestCase):
         self.assertFalse(
             _is_physical_transport_error(
                 RuntimeError("OFF command accepted but switch state was not confirmed")
+            )
+        )
+
+    def test_accepted_off_without_confirmation_preserves_session_for_recovery(self):
+        self.assertTrue(
+            _is_recoverable_link_boundary_error(
+                RuntimeError("requested output shutdown: OFF command accepted but switch state was not confirmed")
+            )
+        )
+
+    def test_unrelated_safety_failure_does_not_preserve_session(self):
+        self.assertFalse(
+            _is_recoverable_link_boundary_error(
+                RuntimeError("temperature safety verification failed")
             )
         )
 
