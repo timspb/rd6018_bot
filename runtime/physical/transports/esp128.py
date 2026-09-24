@@ -23,6 +23,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._entities_by_key: dict[int, list[Any]] = {}
         self._state_cache: dict[str, dict[str, Any]] = {}
         self._state_subscription_remover: Callable[[], None] | None = None
+        self._connection_closed_remover: Callable[[], None] | None = None
         self._state_subscription_lock = asyncio.Lock()
 
     async def _connect(self):
@@ -31,10 +32,26 @@ class ESPHomeTransport(ReadOnlyTransport):
             raise RuntimeError("ESPHome encryption key environment variable is not set")
         self.client = APIClient(self.config.connection.host, self.config.connection.port, None, noise_psk=key)
         await self.client.connect(login=True)
+        add_closed_callback = getattr(self.client, "add_connection_closed_callback", None)
+        if callable(add_closed_callback):
+            self._connection_closed_remover = add_closed_callback(self._on_connection_closed)
         self.entities, self.services = await self.client.list_entities_services()
         self._entities_by_key = {}
         for entity in self.entities:
             self._entities_by_key.setdefault(int(entity.key), []).append(entity)
+
+    def _on_connection_closed(self, _event: Any) -> None:
+        """Invalidate the cached subscription when aioesphomeapi loses the link."""
+        self._state_subscription_remover = None
+        self._state_cache.clear()
+
+    async def _ensure_connected(self) -> None:
+        client = self.client
+        if client is not None and bool(getattr(client, "is_connected", True)):
+            return
+        if client is not None:
+            await self.close()
+        await self._connect()
 
     def _on_state(self, state: Any) -> None:
         """Retain only the latest primitive value for each entity."""
@@ -50,8 +67,7 @@ class ESPHomeTransport(ReadOnlyTransport):
     async def _ensure_state_subscription(self) -> None:
         """Connect and install at most one state subscription per connection."""
         async with self._state_subscription_lock:
-            if self.client is None:
-                await self._connect()
+            await self._ensure_connected()
             if self._state_subscription_remover is not None:
                 return
 
@@ -64,7 +80,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             self._state_subscription_remover = remover if callable(remover) else (lambda: None)
 
     async def discover(self):
-        if self.client is None: await self._connect()
+        await self._ensure_connected()
         return self.entities
 
     async def get_snapshot(self):
@@ -126,7 +142,11 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._entities_by_key.clear()
         client = self.client
         self.client = None
+        closed_remover = self._connection_closed_remover
+        self._connection_closed_remover = None
         if remover is not None:
             remover()
+        if closed_remover is not None:
+            closed_remover()
         if client is not None:
             await client.disconnect()

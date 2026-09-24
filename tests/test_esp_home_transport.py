@@ -27,15 +27,29 @@ class _FakeClient:
     fail_subscribe = False
     emit_initial = True
     return_remover = True
+    connected_state = True
 
     def __init__(self, *args, **kwargs):
         self.callbacks = set()
         self.connected = False
         self.disconnected = False
+        self.closed_callbacks = set()
         type(self).instances.append(self)
 
     async def connect(self, login=True):
         self.connected = True
+
+    @property
+    def is_connected(self):
+        return type(self).connected_state and self.connected and not self.disconnected
+
+    def add_connection_closed_callback(self, callback):
+        self.closed_callbacks.add(callback)
+
+        def remove():
+            self.closed_callbacks.discard(callback)
+
+        return remove
 
     async def list_entities_services(self):
         entities = [
@@ -94,6 +108,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         _FakeClient.fail_subscribe = False
         _FakeClient.emit_initial = True
         _FakeClient.return_remover = True
+        _FakeClient.connected_state = True
 
     async def asyncSetUp(self):
         async def no_sleep(_seconds):
@@ -181,6 +196,16 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         live = await transport.get_live_values()
         self.assertIsNone(live["voltage"])
         self.assertEqual(live["_meta"]["voltage"]["status"], "unknown")
+        await transport.close()
+
+    async def test_reconnects_when_cached_client_reports_disconnected(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        first = _FakeClient.instances[0]
+        type(first).connected_state = False
+        await transport.get_live_values()
+        self.assertEqual(len(_FakeClient.instances), 2)
+        self.assertTrue(first.disconnected)
         await transport.close()
 
 
