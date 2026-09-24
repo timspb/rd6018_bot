@@ -78,6 +78,11 @@ def _canonical_bool(live: Dict[str, Any], key: str) -> bool:
 
 def _is_physical_transport_error(exc: BaseException) -> bool:
     """Identify an edge-link failure without classifying safety faults as network loss."""
+    # A bare TimeoutError is ambiguous: it can be a local safety verification
+    # timeout rather than an ESPHome transport failure. Only transport-specific
+    # exception classes are classified here.
+    if isinstance(exc, (ConnectionError, aiohttp.ClientError)):
+        return True
     text = str(exc).lower()
     return any(
         marker in text
@@ -88,6 +93,9 @@ def _is_physical_transport_error(exc: BaseException) -> bool:
             "connection closed",
             "cannot connect",
             "clientconnector",
+            "connection timeout",
+            "request timeout",
+            "transport outage",
         )
     )
 
@@ -345,6 +353,8 @@ custom_mode_data: Dict[int, Dict[str, float]] = {}  # накопленные д�
 custom_mode_confirm: Dict[int, Dict[str, Any]] = {}  # данные для подтверждения опасных значений
 last_ha_ok_time: float = 0.0
 link_lost_alert_sent: bool = False  # флаг-блокировка однократного уведомления о потере связи
+link_failure_streak: int = 0
+LINK_FAILURE_NOTIFY_THRESHOLD = 3
 soft_watchdog_outage_reported: bool = False
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
@@ -2277,7 +2287,7 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent, last_live_context, soft_watchdog_outage_reported
+    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent, link_failure_streak, last_live_context, soft_watchdog_outage_reported
     last_cleanup_time = 0.0
     
     while True:
@@ -2287,16 +2297,30 @@ async def data_logger() -> None:
         try:
             live = await hass.get_all_live()
         except Exception as ex:
-            charge_controller._was_unavailable = True
-            charge_controller._link_lost_at = time.time()
-            if charge_controller._last_known_output_on and not link_lost_alert_sent:
-                _charge_notify("🚨 Связь с RD6018 потеряна. Команды приостановлены; ожидаю восстановление канала.")
-                link_lost_alert_sent = True
-            logger.critical("ESPHome transport outage; no host STOP sent: %s", ex)
+            if _is_physical_transport_error(ex):
+                link_failure_streak += 1
+                charge_controller._was_unavailable = True
+                charge_controller._link_lost_at = time.time()
+                if (
+                    charge_controller._last_known_output_on
+                    and link_failure_streak >= LINK_FAILURE_NOTIFY_THRESHOLD
+                    and not link_lost_alert_sent
+                ):
+                    _charge_notify("🚨 Связь с RD6018 не восстановилась после "
+                                   f"{link_failure_streak} попыток. Аппаратный lease остаётся последним рубежом.")
+                    link_lost_alert_sent = True
+                logger.warning(
+                    "ESPHome transport outage #%d; no host STOP sent: %s",
+                    link_failure_streak,
+                    ex,
+                )
+            else:
+                logger.error("data_logger read failed: %s", ex)
             await asyncio.sleep(30)
             continue
 
         last_ha_ok_time = time.time()
+        link_failure_streak = 0
         link_lost_alert_sent = False
         soft_watchdog_outage_reported = False
         try:
@@ -2677,12 +2701,22 @@ async def data_logger() -> None:
         except Exception as ex:
             err_str = str(ex).lower()
             if _is_recoverable_link_boundary_error(ex):
+                link_failure_streak += 1
                 charge_controller._was_unavailable = True
                 charge_controller._link_lost_at = time.time()
-                if charge_controller._last_known_output_on and not link_lost_alert_sent:
-                    _charge_notify("🚨 Связь с RD6018 потеряна. Команды приостановлены; ожидаю восстановление канала.")
+                if (
+                    charge_controller._last_known_output_on
+                    and link_failure_streak >= LINK_FAILURE_NOTIFY_THRESHOLD
+                    and not link_lost_alert_sent
+                ):
+                    _charge_notify("🚨 Связь с RD6018 не восстановилась после "
+                                   f"{link_failure_streak} попыток. Аппаратный lease остаётся последним рубежом.")
                     link_lost_alert_sent = True
-                logger.critical("ESPHome transport outage during cycle; no host STOP sent: %s", ex)
+                logger.warning(
+                    "ESPHome transport outage during cycle #%d; no host STOP sent: %s",
+                    link_failure_streak,
+                    ex,
+                )
                 await asyncio.sleep(30)
                 continue
             if "name resolution" in err_str or "dns" in err_str or "nodename" in err_str:

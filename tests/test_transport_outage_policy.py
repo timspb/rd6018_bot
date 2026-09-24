@@ -17,6 +17,9 @@ class TransportOutagePolicyTests(unittest.TestCase):
     def test_connection_reset_is_transport_outage(self):
         self.assertTrue(_is_physical_transport_error(ConnectionResetError("connection reset by peer")))
 
+    def test_request_timeout_is_transport_outage(self):
+        self.assertTrue(_is_physical_transport_error(RuntimeError("request timeout error")))
+
     def test_output_off_confirmation_is_not_transport_outage(self):
         self.assertFalse(
             _is_physical_transport_error(
