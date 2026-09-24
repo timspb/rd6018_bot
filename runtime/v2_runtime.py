@@ -76,6 +76,22 @@ def _canonical_bool(live: Dict[str, Any], key: str) -> bool:
     return as_bool(live.get(key)) is True
 
 
+def _is_physical_transport_error(exc: BaseException) -> bool:
+    """Identify an edge-link failure without classifying safety faults as network loss."""
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "not connected to rd6018-controller",
+            "connection refused",
+            "connection reset",
+            "connection closed",
+            "cannot connect",
+            "clientconnector",
+        )
+    )
+
+
 def generate_chart(*args: Any, **kwargs: Any) -> Any:
     """Load the charting stack only when a chart is actually requested."""
     from graphing import generate_chart as _generate_chart
@@ -320,6 +336,7 @@ custom_mode_data: Dict[int, Dict[str, float]] = {}  # накопленные д�
 custom_mode_confirm: Dict[int, Dict[str, Any]] = {}  # данные для подтверждения опасных значений
 last_ha_ok_time: float = 0.0
 link_lost_alert_sent: bool = False  # флаг-блокировка однократного уведомления о потере связи
+soft_watchdog_outage_reported: bool = False
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
@@ -2128,32 +2145,19 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
 
 async def soft_watchdog_loop() -> None:
-    """Мягкий Watchdog: при потере связи с HA более 3 мин — Output OFF."""
-    global last_ha_ok_time
+    """Report prolonged outage; the independently proven edge lease is the actuator backstop."""
+    global last_ha_ok_time, soft_watchdog_outage_reported
     while True:
         await asyncio.sleep(10)
         try:
             if last_ha_ok_time <= 0:
                 continue
-            if time.time() - last_ha_ok_time >= SOFT_WATCHDOG_TIMEOUT:
-                logger.critical("CRITICAL: Soft Watchdog timeout (HA connection lost 3min). Emergency Output OFF.")
-                try:
-                    live = await hass.get_all_live()
-                    v = _safe_float(live.get("battery_voltage"))
-                    i = _safe_float(live.get("current"))
-                    t = _safe_float(live.get("temp_ext"))
-                    ah = _safe_float(live.get("ah"))
-                    log_event(
-                        charge_controller.current_stage,
-                        v,
-                        i,
-                        t,
-                        ah,
-                        "SOFT_WATCHDOG_HA_LOST",
-                    )
-                except Exception:
-                    pass
-                await _hard_stop_charge()
+            if time.time() - last_ha_ok_time >= SOFT_WATCHDOG_TIMEOUT and not soft_watchdog_outage_reported:
+                logger.critical(
+                    "CRITICAL: Soft Watchdog timeout (HA/ESPHome connection lost 3min); "
+                    "host STOP suppressed, edge safety lease remains the backstop"
+                )
+                soft_watchdog_outage_reported = True
         except Exception as ex:
             logger.error("soft_watchdog_loop: %s", ex)
 
@@ -2264,15 +2268,29 @@ async def charge_monitor() -> None:
 
 async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
-    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent, last_live_context
+    global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent, last_live_context, soft_watchdog_outage_reported
     last_cleanup_time = 0.0
     
     while True:
+        # A dead command path cannot be made safer by sending the same STOP
+        # repeatedly. Keep the charge session intact and let the independent
+        # edge lease remain the blind-operation backstop until readback returns.
         try:
             live = await hass.get_all_live()
-            last_ha_ok_time = time.time()
-            link_lost_alert_sent = False  # сброс флага при успешном подключении
-            
+        except Exception as ex:
+            charge_controller._was_unavailable = True
+            charge_controller._link_lost_at = time.time()
+            if charge_controller._last_known_output_on and not link_lost_alert_sent:
+                _charge_notify("🚨 Связь с RD6018 потеряна. Команды приостановлены; ожидаю восстановление канала.")
+                link_lost_alert_sent = True
+            logger.critical("ESPHome transport outage; no host STOP sent: %s", ex)
+            await asyncio.sleep(30)
+            continue
+
+        last_ha_ok_time = time.time()
+        link_lost_alert_sent = False
+        soft_watchdog_outage_reported = False
+        try:
             battery_v = _safe_float(live.get("battery_voltage"))
             output_v = _safe_float(live.get("voltage"))
             i = _safe_float(live.get("current"))
@@ -2613,6 +2631,15 @@ async def data_logger() -> None:
 
         except Exception as ex:
             err_str = str(ex).lower()
+            if _is_physical_transport_error(ex):
+                charge_controller._was_unavailable = True
+                charge_controller._link_lost_at = time.time()
+                if charge_controller._last_known_output_on and not link_lost_alert_sent:
+                    _charge_notify("🚨 Связь с RD6018 потеряна. Команды приостановлены; ожидаю восстановление канала.")
+                    link_lost_alert_sent = True
+                logger.critical("ESPHome transport outage during cycle; no host STOP sent: %s", ex)
+                await asyncio.sleep(30)
+                continue
             if "name resolution" in err_str or "dns" in err_str or "nodename" in err_str:
                 logger.warning("data_logger (DNS/сеть): %s", ex)
             else:
