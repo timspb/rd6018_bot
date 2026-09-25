@@ -390,13 +390,6 @@ def install_operator_graph_dashboard(app: Any) -> None:
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
-        selected_program = v2_bot_ui.selected_program_for_user(user_id)
-        if selected_program:
-            caption += (
-                "\n\n<b>Выбрана программа:</b> "
-                f"{html.escape(selected_program)}"
-                "\n<i>V/I ниже — фактический readback RD6018.</i>"
-            )
         panel_actions = _toolbar_actions(actions)
         markup = _active_graph_panel_markup(app, state, user_id, panel_actions)
         return caption, markup
@@ -618,13 +611,6 @@ def install_operator_graph_dashboard(app: Any) -> None:
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
-        selected_program = v2_bot_ui.selected_program_for_user(user_id)
-        if selected_program:
-            caption += (
-                "\n\n<b>Выбрана программа:</b> "
-                f"{html.escape(selected_program)}"
-                "\n<i>V/I ниже — фактический readback RD6018.</i>"
-            )
         panel_actions = _toolbar_actions(actions)
         # A successful start can leave the callback's preview/text message as
         # the tracked dashboard while the graph workspace has not been created

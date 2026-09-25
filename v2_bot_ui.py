@@ -652,6 +652,19 @@ def install_v2_ui(app: Any) -> None:
         _clear_pending_program_state(app, user_id)
         if trace is not None:
             trace.info("QUICK_START_TRACE pending=CLEARED after_route=PASS")
+        dashboard_builder = getattr(app, "_build_and_send_dashboard", None)
+        message = getattr(call, "message", None)
+        if callable(dashboard_builder) and message is not None:
+            try:
+                await dashboard_builder(
+                    chat_id=message.chat.id,
+                    user_id=user_id,
+                    old_msg_id=message.message_id,
+                    anchor_msg_id=None,
+                )
+            except Exception as exc:
+                if trace is not None:
+                    trace.warning("QUICK_START_TRACE dashboard_refresh_failed type=%s", type(exc).__name__)
         # The route owns preflight and transactional safety; the callback only
         # submits the operator intent and never touches hardware directly.
         await call.answer(
