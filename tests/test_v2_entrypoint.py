@@ -100,8 +100,8 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("operator_graph_session", callbacks)
         self.assertIn("rd_ownership_output_off", callbacks)
         self.assertIn("operator_refresh", callbacks)
-        self.assertIn("operator_details", callbacks)
-        self.assertIn("logs", callbacks)
+        self.assertNotIn("operator_details", callbacks)
+        self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
         self.assertNotIn("charge_modes", callbacks)
@@ -149,7 +149,7 @@ class V2EntrypointTests(unittest.TestCase):
             self.assertIn("operator_graph_session", callbacks)
             self.assertIn("rd_autonomous_exit", callbacks)
             self.assertIn("operator_refresh", callbacks)
-            self.assertIn("operator_details", callbacks)
+            self.assertNotIn("operator_details", callbacks)
             self.assertNotIn("logs", callbacks)
             self.assertNotIn("ai_analysis", callbacks)
             self.assertNotIn("rd_hands_off_disable", callbacks)
@@ -194,7 +194,7 @@ class V2EntrypointTests(unittest.TestCase):
             }
             self.assertIn("operator_managed_stop", callbacks)
             self.assertNotIn("power_toggle", callbacks)
-            self.assertIn("operator_details", callbacks)
+            self.assertNotIn("operator_details", callbacks)
             self.assertNotIn("operator_graph", callbacks)
         finally:
             manager.mode = old_mode

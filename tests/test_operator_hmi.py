@@ -182,8 +182,8 @@ class OperatorHmiTests(unittest.TestCase):
 
         self.assertEqual(texts[0], "⏹ Остановить Mix")
         self.assertIn("operator_adopted_stop", callbacks)
-        self.assertIn("operator_details", callbacks)
-        self.assertIn("logs", callbacks)
+        self.assertNotIn("operator_details", callbacks)
+        self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("operator_graph", callbacks)
         self.assertIn("operator_refresh", callbacks)
@@ -370,8 +370,8 @@ class OperatorHmiTests(unittest.TestCase):
         rows = [[button.callback_data for button in row] for row in keyboard.inline_keyboard]
         if ["operator_refresh"] in rows:
             refresh_index = rows.index(["operator_refresh"])
-            self.assertEqual(rows[refresh_index + 1], ["logs"])
-            self.assertEqual(rows[refresh_index + 2], ["operator_details"])
+            self.assertNotIn("logs", [callback for row in rows for callback in row])
+            self.assertNotIn("operator_details", [callback for row in rows for callback in row])
         else:
             # Isolated compatibility imports retain the historical builder.
             self.assertEqual(rows[1], ["logs", "info_full"])
@@ -566,14 +566,13 @@ class OperatorHmiTests(unittest.TestCase):
         rows = keyboard.inline_keyboard
         self.assertEqual(len(rows[0]), 2)  # pause + stop
         self.assertEqual(len(rows[1]), 1)  # refresh before read-only menus
-        self.assertEqual(len(rows[2]), 1)  # events/details are separate read-only rows
-        read_only_callbacks = {
+        all_callbacks = {
             button.callback_data
-            for row in rows[2:]
+            for row in rows
             for button in row
         }
-        self.assertIn("logs", read_only_callbacks)
-        self.assertIn("operator_details", read_only_callbacks)
+        self.assertNotIn("logs", all_callbacks)
+        self.assertNotIn("operator_details", all_callbacks)
         self.assertNotIn("operator_graph", {button.callback_data for row in rows for button in row})
         self.assertNotIn("operator_more", {button.callback_data for row in rows for button in row})
         self.assertNotIn("ai_analysis", {button.callback_data for row in rows for button in row})

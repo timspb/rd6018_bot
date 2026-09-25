@@ -717,6 +717,9 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
         OperatorAction.STOP_CHARGE,
         OperatorAction.SHOW_GRAPH,
     }
+    # Logs and diagnostics remain available to their dedicated handlers, but
+    # are intentionally not rendered on the charge workspace.  Keep this
+    # screen focused on charge control and the live readback.
     secondary = {OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS}
     for item in actions.available_actions:
         if item.action in handled or item.action in secondary:
@@ -724,15 +727,8 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
         label = labels.get(item.action)
         if label is not None:
             rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
-    # Keep the refresh control ahead of the read-only workspaces on every panel.
-    # It updates the live panel in place; logs/details are separate views.
+    # Keep refresh as the only read-only action on the charge workspace.
     rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")])
-    for item in actions.available_actions:
-        if item.action not in secondary:
-            continue
-        label = labels.get(item.action)
-        if label is not None:
-            rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
