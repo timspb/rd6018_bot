@@ -2,6 +2,7 @@ import types
 import unittest
 import time
 from html.parser import HTMLParser
+from unittest.mock import patch
 
 from operator_hmi import (
     HmiProcessState,
@@ -500,6 +501,28 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
         self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
         self.assertIn("🎯 16.54 V · 1.01 A", text)
+
+    def test_imin_timer_uses_current_minimum_start_time_for_fresh_display(self):
+        controller = types.SimpleNamespace(
+            is_active=True,
+            current_stage="Mix Mode",
+            battery_type="Ca/Ca",
+            ah_capacity=72,
+            v2_ui_snapshot=lambda: {
+                "metrics": {
+                    "current_min_a": 0.22,
+                    "seconds_since_current_min": 10,
+                    "current_min_started_at": 2680,
+                },
+                "finish_hold_started_at": None,
+                "runtime_evidence_available": True,
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        with patch("operator_hmi.time.time", return_value=10000):
+            text = render_operator_panel(build_operator_hmi_state(app, live()))
+        self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
 
     def test_cv_missing_minimum_with_valid_runtime_evidence_is_not_yet_reached(self):
         controller = types.SimpleNamespace(

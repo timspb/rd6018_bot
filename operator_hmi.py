@@ -449,6 +449,10 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                     elapsed = max(0, int(float(age or 0)))
                     if hold_started is not None:
                         elapsed = max(0, int(time.time() - float(hold_started)))
+                    else:
+                        minimum_started_at = metrics.get("current_min_started_at")
+                        if minimum_started_at is not None:
+                            elapsed = max(0, int(time.time() - float(minimum_started_at)))
                     stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
             elif regulator == "CC":
                 maximum = _finite(metrics.get("voltage_max_v"))

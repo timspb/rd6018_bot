@@ -1333,6 +1333,11 @@ class ChargeControllerV2(ChargeController):
         if self._v2_runtime is not None and self._v2_runtime.records:
             last = self._v2_runtime.records[-1]
             m = last.analysis.metrics
+            current_min_started_at = None
+            sample_timestamp = getattr(last.analysis.sample, "timestamp_s", None)
+            seconds_since_current_min = m.seconds_since_current_min
+            if sample_timestamp is not None and seconds_since_current_min is not None:
+                current_min_started_at = float(sample_timestamp) - float(seconds_since_current_min)
             decision = last.decision.decision.value
             reason = last.decision.reason
             events = sorted(event.value for event in last.analysis.events)
@@ -1341,7 +1346,8 @@ class ChargeControllerV2(ChargeController):
                 "d_current_a_per_min": m.d_current_a_per_min,
                 "d_temp_c_per_min": m.d_temp_c_per_min,
                 "current_min_a": m.current_min_a,
-                "seconds_since_current_min": m.seconds_since_current_min,
+                "seconds_since_current_min": seconds_since_current_min,
+                "current_min_started_at": current_min_started_at,
                 "delta_current_from_min_a": m.delta_current_from_min_a,
                 "reversal_threshold_a": m.reversal_threshold_a,
                 "voltage_max_v": m.voltage_max_v,
