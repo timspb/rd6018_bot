@@ -70,7 +70,7 @@ class FakeApp:
         self.rd_control_mode_manager = types.SimpleNamespace(hands_off=False)
         self.rd_live_mix_observer = None
         self.charge_controller = types.SimpleNamespace(
-            is_active=False,
+            is_active=True,
             current_stage="Idle",
             battery_type="",
             ah_capacity=0,
@@ -152,6 +152,16 @@ class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(app.bot.deleted, [(10, 77)])
         self.assertEqual(len(call.message.photo_answers), 1)
+
+    async def test_graph_workspace_is_not_rendered_when_charge_is_inactive(self):
+        app = FakeApp(graph=True)
+        app.charge_controller.is_active = False
+        call = await self._run(app, source_photo=True)
+
+        self.assertEqual(app.bot.media_edits, [])
+        self.assertEqual(app.bot.deleted, [])
+        self.assertEqual(call.message.photo_answers, [])
+        self.assertEqual(call.message.text_answers, [])
 
 
 if __name__ == "__main__":

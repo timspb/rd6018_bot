@@ -225,6 +225,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
             graph_callbacks[:3],
             ["operator_graph_30m", "operator_graph_2h", "operator_graph_session"],
         )
+        self.assertEqual(len(graph.inline_keyboard), 1)
 
     def test_production_does_not_install_v1_shell_on_root(self):
         truth = Path("operator_output_truth.py").read_text(encoding="utf-8")

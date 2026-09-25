@@ -1004,7 +1004,6 @@ def _graph_keyboard(app: Any, user_id: int) -> InlineKeyboardMarkup:
                 button(app.CHART_RANGE_2H, "2ч"),
                 button(app.CHART_RANGE_SESSION, "Сессия"),
             ],
-            [InlineKeyboardButton(text="⬅ К панели", callback_data="operator_done")],
         ]
     )
 

@@ -224,6 +224,7 @@ class FakeGraphMessage:
 class FakeGraphApp(FakeApp):
     def __init__(self):
         super().__init__()
+        self.charge_controller.is_active = True
         self.bot = FakeGraphBot()
         self.asyncio = asyncio
         self.ParseMode = types.SimpleNamespace(HTML="HTML")

@@ -165,7 +165,21 @@ class TerminalPanelManager:
         chat_id = int(chat_id)
         user_id = int(user_id or 0)
         async with self._locks[chat_id]:
-            previous = self._panel_by_chat.get(chat_id)
+            previous = (
+                self._panel_by_chat.get(chat_id)
+                or (self.app.user_dashboard.get(user_id) if user_id else None)
+                or self.app.chat_dashboard.get(chat_id)
+            )
+            refresh = getattr(self.app, "_refresh_operator_panel", None)
+            if previous is not None and refresh is not None:
+                refreshed_id = await refresh(chat_id, user_id, int(previous))
+                if refreshed_id is not None:
+                    panel_id = int(refreshed_id)
+                    self._panel_by_chat[chat_id] = panel_id
+                    self.app.chat_dashboard[chat_id] = panel_id
+                    if user_id:
+                        self.app.user_dashboard[user_id] = panel_id
+                    return panel_id
             new_id = await self.app._build_and_send_dashboard(
                 chat_id=chat_id,
                 user_id=user_id,

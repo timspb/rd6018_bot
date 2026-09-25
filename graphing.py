@@ -128,12 +128,12 @@ def generate_chart(
             plt.style.use("dark_background")
             has_temps = temps is not None
             if _FIGURE is None:
-                _FIGURE = plt.figure(figsize=(10, 6 if has_temps else 4), facecolor="#1e1e1e")
+                _FIGURE = plt.figure(figsize=(7.5, 4.5 if has_temps else 3.0), facecolor="#1e1e1e")
             fig = _FIGURE
             fig.clear()
             fig.set_facecolor("#1e1e1e")
             if has_temps:
-                fig.set_size_inches(10, 6)
+                fig.set_size_inches(7.5, 4.5)
                 ax1, ax2, ax3 = fig.subplots(
                     3,
                     1,
@@ -174,7 +174,7 @@ def generate_chart(
                     max_t + 1.0 if max_t > 0 else 60,
                 )
             else:
-                fig.set_size_inches(10, 4)
+                fig.set_size_inches(7.5, 3.0)
                 ax1 = fig.add_subplot(111)
                 ax1.set_facecolor("#1e1e1e")
                 ax1.xaxis_date(tz=user_tz)
