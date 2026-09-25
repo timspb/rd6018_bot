@@ -149,6 +149,18 @@ def install_operator_managed_stop(app: Any) -> None:
         {STOP_EXECUTE_CALLBACK, STOP_CANCEL_CALLBACK}
     )
 
+    async def _restore_text_panel_after_failed_stop(call: Any) -> None:
+        """Leave the graph workspace after an unconfirmed stop without lying."""
+        user_id = call.from_user.id if call.from_user else 0
+        chat_id = call.message.chat.id
+        retire = getattr(app, "_retire_graph_workspace_for_user", None)
+        if callable(retire):
+            await retire(chat_id, user_id)
+        manager = getattr(app, "terminal_panel_manager", None)
+        restore = getattr(manager, "ensure_text_last", None)
+        if callable(restore):
+            await restore(chat_id, user_id)
+
     @app.router.callback_query(F.data == STOP_CONFIRM_CALLBACK)
     async def _managed_stop_confirm(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -233,5 +245,6 @@ def install_operator_managed_stop(app: Any) -> None:
                 f"⚠️ <b>Остановка не подтверждена.</b> {html.escape(detail)}",
                 parse_mode=app.ParseMode.HTML,
             )
+            await _restore_text_panel_after_failed_stop(call)
 
     app._operator_managed_stop_installed = True

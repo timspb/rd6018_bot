@@ -57,7 +57,7 @@ def _toolbar_actions(actions):
     """Keep graph ranges and the log in the dedicated top toolbar only."""
     if actions is None:
         return None
-    hidden = {hmi.OperatorAction.SHOW_LOG, hmi.OperatorAction.SHOW_GRAPH}
+    hidden = {hmi.OperatorAction.SHOW_GRAPH}
     return replace(
         actions,
         available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
@@ -79,7 +79,7 @@ def _graph_toolbar(app: Any, user_id: int, actions=None):
     if actions is not None and any(
         item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
     ):
-        top_row.append(app.InlineKeyboardButton(text="📋 Лог", callback_data="logs"))
+        top_row.append(hmi.InlineKeyboardButton(text="📋 Лог", callback_data="logs"))
     return top_row
 
 
@@ -102,7 +102,7 @@ def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, acti
 
 def _active_graph_panel_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
     """Keep graph ranges and active-charge controls on the same photo message."""
-    graph_rows = list(hmi._graph_keyboard(app, user_id).inline_keyboard)
+    graph_rows = [_graph_toolbar(app, user_id, actions)]
     panel_markup = hmi.build_operator_keyboard(app, state, actions=actions)
     panel_rows = list(panel_markup.inline_keyboard)
     panel_rows = [
@@ -601,6 +601,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
 
     app._refresh_graph_message = refresh_graph_message
     app._ensure_graph_refresh_loop = ensure_graph_refresh_loop
+    app._retire_graph_workspace_for_user = retire_graph_workspace_for_user
 
     async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> Optional[int]:
         """Replace the one live panel message without rebuilding the graph."""
