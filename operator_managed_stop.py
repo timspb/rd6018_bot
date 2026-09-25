@@ -106,9 +106,9 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
             await hard_stop()
         except OutputOffNotConfirmed as exc:
             if await _retire_auto_after_unconfirmed_off(app):
-                return False, (
-                    "Output OFF не подтверждён edge-readback; ток 0 A и readback OFF, "
-                    "software AUTO-сессия сброшена в containment: "
+                return True, (
+                    "AUTO-сессия завершена программно: ток 0 A и readback OFF; "
+                    "edge-readback confirmation unavailable, сохранён containment: "
                     f"{type(exc).__name__}: {exc}"
                 )
             return False, f"AUTO stop не завершён: {type(exc).__name__}: {exc}"
@@ -196,10 +196,14 @@ def install_operator_managed_stop(app: Any) -> None:
         {STOP_EXECUTE_CALLBACK, STOP_CANCEL_CALLBACK}
     )
 
-    async def _restore_text_panel_after_failed_stop(call: Any) -> None:
-        """Leave the graph workspace after an unconfirmed stop without lying."""
+    async def _restore_text_panel_after_stop(call: Any) -> None:
+        """Close the stop prompt and leave one current text panel."""
         user_id = call.from_user.id if call.from_user else 0
         chat_id = call.message.chat.id
+        try:
+            await app.bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
         retire = getattr(app, "_retire_graph_workspace_for_user", None)
         if callable(retire):
             await retire(chat_id, user_id)
@@ -282,6 +286,7 @@ def install_operator_managed_stop(app: Any) -> None:
 
         await call.answer()
         ok, detail = await _stop_exact_session(app, expected)
+        await _restore_text_panel_after_stop(call)
         if ok:
             await call.message.answer(
                 f"<b>🛑 Заряд остановлен.</b> {html.escape(detail)}",
@@ -292,6 +297,5 @@ def install_operator_managed_stop(app: Any) -> None:
                 f"⚠️ <b>Остановка не подтверждена.</b> {html.escape(detail)}",
                 parse_mode=app.ParseMode.HTML,
             )
-            await _restore_text_panel_after_failed_stop(call)
 
     app._operator_managed_stop_installed = True

@@ -153,8 +153,9 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
         )
         ok, detail = await _stop_exact_session(app, "auto:auto-1")
 
-        self.assertFalse(ok)
-        self.assertIn("software AUTO-сессия сброшена", detail)
+        self.assertTrue(ok)
+        self.assertIn("AUTO-сессия завершена программно", detail)
+        self.assertIn("readback OFF", detail)
         self.assertEqual(controller.stop_calls, [True])
 
     async def test_unconfirmed_off_with_nonzero_current_keeps_auto_session(self):
