@@ -1347,7 +1347,7 @@ def format_log_event(event_line: str) -> str:
         current = parts[3].strip()
         temp = parts[4].strip()
         ah = parts[5].strip()
-        event = parts[6].strip() if len(parts) > 6 else ""
+        event = " | ".join(parts[6:]).strip() if len(parts) > 6 else ""
 
         time_only = timestamp.split(' ')[1][:5] if ' ' in timestamp else timestamp[-8:-3]
         stage_short = stage.replace("Main Charge", "Main").replace("Десульфатация", "Desulf").replace("Безопасное ожидание", "Wait")
@@ -1459,6 +1459,33 @@ def _build_logs_text(limit: int = 50, shown: int = 25) -> str:
     except Exception as ex:
         logger.error("Failed to get recent events: %s", ex)
         return "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
+
+
+def _retire_graph_tracking_for_message(chat_id: int, user_id: int, message_id: int) -> None:
+    """Forget a graph workspace before replacing its Telegram message.
+
+    The log view is text-only.  When it is opened from the photo-based active
+    workspace, Telegram cannot edit that photo into text, so the handler sends a
+    replacement and deletes the photo.  Leaving the graph IDs cached after that
+    deletion makes ``К панели`` treat a non-existent message as the live graph
+    workspace and prevents graph recreation.
+    """
+    graph_by_user = globals().get("user_graph_dashboard")
+    graph_by_chat = globals().get("chat_graph_dashboard")
+    if not isinstance(graph_by_user, dict) and not isinstance(graph_by_chat, dict):
+        return
+    graph_message_id = (
+        graph_by_user.get(user_id) if isinstance(graph_by_user, dict) else None
+    )
+    chat_graph_message_id = (
+        graph_by_chat.get(chat_id) if isinstance(graph_by_chat, dict) else None
+    )
+    if graph_message_id != message_id and chat_graph_message_id != message_id:
+        return
+    if isinstance(graph_by_user, dict) and graph_by_user.get(user_id) == message_id:
+        graph_by_user.pop(user_id, None)
+    if isinstance(graph_by_chat, dict) and graph_by_chat.get(chat_id) == message_id:
+        graph_by_chat.pop(chat_id, None)
 
 
 async def _safe_output_on() -> bool:
@@ -4317,6 +4344,11 @@ async def logs_handler(call: CallbackQuery) -> None:
         pass
     text = _build_logs_text()
     user_id = call.from_user.id if call.from_user else 0
+    _retire_graph_tracking_for_message(
+        call.message.chat.id,
+        user_id,
+        call.message.message_id,
+    )
     is_on = await _safe_output_on()
     ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
     try:

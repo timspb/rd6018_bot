@@ -39,7 +39,7 @@ _LOG_LINE_DATE_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]")
 
 def _event_from_log_line(line: str) -> str:
     parts = line.strip().split(" | ")
-    return parts[6].strip() if len(parts) > 6 else ""
+    return " | ".join(parts[6:]).strip() if len(parts) > 6 else ""
 
 
 def _compact_value(value: Any) -> str:
@@ -67,12 +67,22 @@ def _append_meta(event: str, meta: Optional[dict[str, Any]] = None) -> str:
 
 
 def _find_current_session_start_idx(lines: list[str]) -> int:
-    """Session starts from last START, fallback to last RESTORE."""
+    """Find the last real session start, not an internal V2 stage marker.
+
+    V2 uses ``START | V2_*`` for internal stage entries such as authoritative
+    handoff, desulfation and Mix.  Those are events inside the same charge
+    session and must not hide the preceding AGM stages from the operator log.
+    """
     last_start_idx = -1
     last_restore_idx = -1
     for idx, line in enumerate(lines):
         event = _event_from_log_line(line)
-        if event.startswith("SESSION_START") or event.startswith("START"):
+        if event.startswith("SESSION_START") or event.startswith("V2_START"):
+            last_start_idx = idx
+        elif event == "START" or (
+            event.startswith("START | Емкость:")
+            and "auto-restore" not in event.casefold()
+        ):
             last_start_idx = idx
         elif event.startswith("SESSION_RESTORE") or event.startswith("RESTORE"):
             last_restore_idx = idx

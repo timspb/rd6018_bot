@@ -219,11 +219,11 @@ class RuntimeSafetyGuard:
         self,
         *,
         before: Optional[_OutputEvidence],
-        command_start_monotonic: float,
+        confirmation_started_monotonic: float,
         command_start_epoch: float,
         entity_id: Optional[str],
     ) -> bool:
-        deadline = command_start_monotonic + max(0.0, float(self.OFF_CONFIRMATION_WINDOW_S))
+        deadline = confirmation_started_monotonic + max(0.0, float(self.OFF_CONFIRMATION_WINDOW_S))
         retries = 0
         while True:
             try:
@@ -277,7 +277,6 @@ class RuntimeSafetyGuard:
             except Exception as exc:
                 logger.warning("Output OFF pre-command read failed: %s", exc)
 
-            command_start_monotonic = time.monotonic()
             command_start_epoch = time.time()
             command_ok = False
             try:
@@ -289,10 +288,15 @@ class RuntimeSafetyGuard:
                 reason,
                 command_ok,
             )
+            # The service call can itself take several seconds. Keep the
+            # confirmation window available for the ESPHome register heartbeat
+            # after the OFF request has returned; freshness is still measured
+            # from the pre-write command epoch above.
+            confirmation_started_monotonic = time.monotonic()
 
             if await self._verify_switch_off(
                 before=before,
-                command_start_monotonic=command_start_monotonic,
+                confirmation_started_monotonic=confirmation_started_monotonic,
                 command_start_epoch=command_start_epoch,
                 entity_id=entity_id,
             ):
