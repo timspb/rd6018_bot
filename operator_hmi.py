@@ -636,16 +636,19 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     else:
         first_line = str(state.title or "RD6018")
     lines = [f"<b>{html.escape(first_line)}</b>"]
-    lines.append(
+    current_mode = html.escape(str(state.regulator or "—"))
+    actual_line = (
         f"⚡ {_bold_value(state.battery_voltage_v, 2, 'V')} · "
-        f"{_bold_value(state.current_a, 2, 'A')} · 🌡 АКБ "
-        f"{_bold_value(state.battery_temp_c, 1, '°C')}"
+        f"{_bold_value(state.current_a, 2, 'A')} · <b>{current_mode}</b>"
     )
     if state.target_voltage_v is not None or state.current_limit_a is not None:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
-        current_mode = html.escape(str(state.regulator or "—"))
-        lines.append(f"🎯 {target} · {limit} · <b>{current_mode}</b>")
+        battery_temp = _bold_value(state.battery_temp_c, 1, "°C")
+        lines.append(actual_line)
+        lines.append(f"🎯 {target} · {limit} · 🌡 АКБ {battery_temp}")
+    else:
+        lines.append(f"{actual_line} · 🌡 АКБ {_bold_value(state.battery_temp_c, 1, '°C')}")
     stage_time = str(getattr(state, "stage_time", "") or "")
     delivered_ah = _finite(getattr(state, "delivered_ah", None))
     time_parts = []
@@ -662,7 +665,7 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         lines.append(stage_status_warning)
     else:
         next_line = stage_status if active_panel else transition or stage_status
-        if transition and stage_status:
+        if not active_panel and transition and stage_status:
             next_line = f"{transition} · {stage_status.removeprefix('➡️ ')}"
         if active_panel and not next_line:
             next_line = "➡️ Ожидание условия перехода"
