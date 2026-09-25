@@ -81,6 +81,56 @@ class ChargingLogTests(unittest.TestCase):
 
         self.assertTrue(any("(x3)" in event for event in events))
 
+    def test_internal_v2_start_markers_do_not_hide_prior_stages(self):
+        charging_log.log_session_header(
+            "start",
+            "Main Charge",
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            "AGM",
+            90,
+            "Main 14.4V -> 15.0V",
+        )
+        charging_log.log_event("Main Charge", 14.6, 0.2, 25.0, 1.0, "V2_AGM_STEP_2")
+        charging_log.log_event("Main Charge", 14.8, 0.1, 25.0, 1.2, "START | V2_AUTHORITATIVE")
+        charging_log.log_event("Main Charge", 14.8, 0.1, 25.0, 1.3, "V2_AGM_STEP_3")
+
+        events = charging_log.get_recent_events(10)
+
+        self.assertEqual(len(events), 4)
+        self.assertIn("V2_AGM_STEP_2", "\n".join(events))
+        self.assertIn("V2_AUTHORITATIVE", "\n".join(events))
+        self.assertIn("V2_AGM_STEP_3", "\n".join(events))
+
+    def test_repeated_auto_restore_start_marker_does_not_hide_prior_stages(self):
+        charging_log.log_session_header(
+            "start",
+            "Main Charge",
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            "AGM",
+            90,
+            "Main 14.4V -> 15.0V",
+        )
+        charging_log.log_event("Main Charge", 14.8, 0.2, 25.0, 1.0, "V2_AGM_STEP_3")
+        charging_log.log_event(
+            "Main Charge", 14.8, 0.2, 25.0, 1.0,
+            "START | Емкость: 90Ah | profile=AGM | Auto-restore",
+        )
+        charging_log.log_event(
+            "Main Charge", 14.8, 0.2, 25.0, 1.0,
+            "START | Емкость: 90Ah | profile=AGM | Auto-restore",
+        )
+
+        events = charging_log.get_recent_events(10)
+
+        self.assertEqual(len(events), 3)
+        self.assertIn("V2_AGM_STEP_3", "\n".join(events))
+
 
 if __name__ == "__main__":
     unittest.main()

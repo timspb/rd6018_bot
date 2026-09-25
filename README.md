@@ -274,7 +274,7 @@ V2 persists longitudinal battery/recovery evidence including physical battery id
 
 Requirements:
 
-- Python 3.10+;
+- Python 3.11+;
 - Home Assistant with RD6018 entities configured in `config.py`;
 - Telegram bot token;
 - external battery-temperature telemetry for managed Pb charging;
@@ -329,7 +329,7 @@ python -m compileall -q .
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-CI runs the suite on Python 3.10, 3.11 and 3.12.
+CI runs the suite on Python 3.11 and 3.12.
 
 Passing CI proves only covered software contracts. It does **not** prove physical RD6018/Home Assistant/ESPHome/battery behavior. PR #2 remains Draft until the required BENCH/BAT gates in [`docs/assistant/V2_VALIDATION_PLAN.md`](docs/assistant/V2_VALIDATION_PLAN.md) are satisfied.
 

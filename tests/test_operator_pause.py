@@ -57,6 +57,7 @@ class OperatorPauseTests(unittest.IsolatedAsyncioTestCase):
         self.old_last_action = dict(bot._action_debounce_until)
         self.tempdir = tempfile.TemporaryDirectory()
         bot.OPERATOR_PAUSE_FILE = f"{self.tempdir.name}/operator_pause.json"
+        bot.operator_pause_started_at = None
         bot._action_debounce_until.clear()
 
     def tearDown(self):

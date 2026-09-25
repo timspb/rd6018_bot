@@ -14,12 +14,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12']
     env:
       TG_TOKEN: '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
       HA_URL: 'http://127.0.0.1:8123'
       HA_TOKEN: 'ci-test-token'
       HA_PREFER_LOCAL: '0'
+      ESPHOME_API_HOST: '127.0.0.1'
+      ESPHOME_API_PORT: '6053'
+      ESPHOME_API_KEY: 'ci-test-key'
       ALLOWED_CHAT_IDS: '1'
     steps:
       - uses: actions/checkout@v4

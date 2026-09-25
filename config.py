@@ -20,11 +20,11 @@ TG_TOKEN = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").stri
 
 # Home Assistant
 HA_URL = (os.getenv("HA_URL") or "").rstrip("/")
-HA_LOCAL_URL = (os.getenv("HA_LOCAL_URL") or "https://192.168.1.102:8123").rstrip("/")
-HA_PREFER_LOCAL = _as_bool(os.getenv("HA_PREFER_LOCAL"), default=True)
+HA_LOCAL_URL = (os.getenv("HA_LOCAL_URL") or "").rstrip("/")
+HA_PREFER_LOCAL = _as_bool(os.getenv("HA_PREFER_LOCAL"), default=False)
 HA_INSECURE_LOCAL = _as_bool(os.getenv("HA_INSECURE_LOCAL"), default=True)
 
-if HA_PREFER_LOCAL and ("rd.timspb.ru" in HA_URL or not HA_URL):
+if HA_PREFER_LOCAL and HA_LOCAL_URL and ("rd.timspb.ru" in HA_URL or not HA_URL):
     HA_URL = HA_LOCAL_URL
 
 HA_TOKEN = os.getenv("HA_TOKEN", "")
@@ -118,6 +118,7 @@ ENTITY_MAP = {
     "boot_power": "binary_sensor.rd6018_rd_6018_boot_power_v2",
     # Read-only edge authority; the bot never infers or writes this state.
     "autonomous_mode": "binary_sensor.rd6018_rd_6018_safety_autonomous_mode",
+    "safety_modbus_age": "sensor.rd6018_rd_6018_safety_modbus_age",
     # Calibration entities are disabled_by_default in ESPHome, so HA may not
     # expose them until explicitly enabled. Their deterministic IDs are still
     # pinned here so enabling them cannot resurrect the legacy wrong namespace.

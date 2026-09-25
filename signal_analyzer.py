@@ -64,6 +64,7 @@ class SignalAnalyzerConfig:
     target_voltage_tolerance_v: float = 0.20
     voltage_sag_v: float = 0.15
     thermal_warn_c_per_min: float = 0.12
+    thermal_anomaly_min_temp_c: float = 30.0
     # Measurement-rate floors, not battery-size chemistry thresholds.
     min_current_rise_for_thermal_a_per_min: float = 0.005
     min_voltage_fall_for_thermal_v_per_min: float = 0.005
@@ -399,6 +400,7 @@ class SignalAnalyzer:
 
         cv_thermal_acceleration = (
             sample.is_cv
+            and sample.temp_c >= self.config.thermal_anomaly_min_temp_c
             and dt is not None
             and di is not None
             and dt >= self.config.thermal_warn_c_per_min
@@ -406,6 +408,7 @@ class SignalAnalyzer:
         )
         cc_thermal_acceleration = (
             sample.is_cc
+            and sample.temp_c >= self.config.thermal_anomaly_min_temp_c
             and dt is not None
             and du is not None
             and dt >= self.config.thermal_warn_c_per_min

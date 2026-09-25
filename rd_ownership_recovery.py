@@ -191,8 +191,46 @@ def install_rd_ownership_recovery(
 
     original_keyboard = hmi.build_operator_keyboard
 
-    def build_operator_keyboard(app_arg: Any, state: hmi.OperatorHmiState) -> InlineKeyboardMarkup:
-        markup = original_keyboard(app_arg, state)
+    def build_operator_keyboard(
+        app_arg: Any,
+        state: hmi.OperatorHmiState,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        markup = (
+            original_keyboard(app_arg, state, actions=actions)
+            if actions is not None
+            else original_keyboard(app_arg, state)
+        )
+        if actions is not None:
+            # The production snapshot path supplies the capability view explicitly.
+            # Keep ownership controls on that path as well; otherwise the final
+            # dashboard silently loses the HANDS_OFF boundary.
+            if state is not None and state.process_state is hmi.HmiProcessState.IDLE and manager.pb_managed:
+                return _prepend_unique(
+                    markup,
+                    [[InlineKeyboardButton(
+                        text="🔓 Режим РД — не лезь",
+                        callback_data="rd_ownership_hands_off",
+                    )]],
+                )
+            if manager.pb_managed and _managed_active(app_arg):
+                return _prepend_unique(
+                    markup,
+                    [[InlineKeyboardButton(
+                        text="🔓 Отпустить РД",
+                        callback_data="rd_hands_off_release_confirm",
+                    )]],
+                )
+            if state is not None and state.process_state is hmi.HmiProcessState.HANDS_OFF and not state.output_on:
+                return _prepend_unique(
+                    markup,
+                    [[InlineKeyboardButton(
+                        text="🔒 Вернуть контроль заряда",
+                        callback_data="rd_hands_off_disable",
+                    )]],
+                )
+            return markup
 
         if state.process_state is hmi.HmiProcessState.IDLE and manager.pb_managed:
             return _append_unique(
@@ -242,15 +280,6 @@ def install_rd_ownership_recovery(
                 [[InlineKeyboardButton(
                     text="🔒 Вернуть контроль заряда",
                     callback_data="rd_hands_off_disable",
-                )]],
-            )
-
-        if state.authority in {hmi.HmiAuthority.AUTO, hmi.HmiAuthority.MANUAL}:
-            return _append_unique(
-                markup,
-                [[InlineKeyboardButton(
-                    text="🔓 Отпустить РД — не лезь",
-                    callback_data="rd_hands_off_release_confirm",
                 )]],
             )
 

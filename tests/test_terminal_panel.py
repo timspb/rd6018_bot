@@ -42,6 +42,7 @@ class FakeApp:
         self.last_user_id = 20
         self.next_panel = 100
         self.render_calls = []
+        self.refresh_calls = []
         self.notifications = []
         self.scheduled = []
 
@@ -59,6 +60,10 @@ class FakeApp:
         self.chat_dashboard[chat_id] = panel_id
         return panel_id
 
+    async def _refresh_operator_panel(self, chat_id, user_id, message_id):
+        self.refresh_calls.append((chat_id, user_id, message_id))
+        return message_id
+
     def schedule_dashboard_after_60(self, chat_id, user_id=0):
         self.scheduled.append((chat_id, user_id))
 
@@ -75,19 +80,20 @@ class FakeEventManager:
 
 
 class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
-    async def test_ensure_last_publishes_fresh_panel_and_removes_previous_owned_panel(self):
+    async def test_ensure_last_replaces_previous_owned_panel_in_place(self):
         app = FakeApp()
         manager = TerminalPanelManager(app)
         manager.adopt(10, 20, 77)
 
         new_id = await manager.ensure_last(10, 20)
 
-        self.assertEqual(new_id, 101)
-        self.assertEqual(manager.panel_id(10), 101)
-        self.assertEqual(app.user_dashboard[20], 101)
-        self.assertEqual(app.chat_dashboard[10], 101)
-        self.assertEqual(app.render_calls, [(10, 20, None, None)])
-        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(new_id, 77)
+        self.assertEqual(manager.panel_id(10), 77)
+        self.assertEqual(app.user_dashboard[20], 77)
+        self.assertEqual(app.chat_dashboard[10], 77)
+        self.assertEqual(app.refresh_calls, [(10, 20, 77)])
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(app.bot.deleted, [])
 
     async def test_workspace_source_can_be_preserved_above_fresh_terminal_panel(self):
         app = FakeApp()
@@ -96,9 +102,9 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
 
         new_id = await manager.ensure_last(10, 20, preserve_message_id=77)
 
-        self.assertEqual(new_id, 101)
+        self.assertEqual(new_id, 77)
         self.assertEqual(app.bot.deleted, [])
-        self.assertEqual(manager.panel_id(10), 101)
+        self.assertEqual(manager.panel_id(10), 77)
 
     def test_program_live_mix_and_operator_submenus_are_workspace(self):
         for callback in (

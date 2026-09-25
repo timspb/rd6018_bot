@@ -86,6 +86,13 @@ def _is_workspace_callback(data: str) -> bool:
     return data in _WORKSPACE_CALLBACKS or data.startswith(_WORKSPACE_CALLBACK_PREFIXES)
 
 
+def _is_start_message(event: TelegramObject) -> bool:
+    if not isinstance(event, Message):
+        return False
+    text = str(event.text or "").strip().lower()
+    return text == "/start" or text.startswith("/start@")
+
+
 class TerminalPanelManager:
     """Keep one authoritative L2 panel without stealing focus from L3/L4 work.
 
@@ -158,7 +165,21 @@ class TerminalPanelManager:
         chat_id = int(chat_id)
         user_id = int(user_id or 0)
         async with self._locks[chat_id]:
-            previous = self._panel_by_chat.get(chat_id)
+            previous = (
+                self._panel_by_chat.get(chat_id)
+                or (self.app.user_dashboard.get(user_id) if user_id else None)
+                or self.app.chat_dashboard.get(chat_id)
+            )
+            refresh = getattr(self.app, "_refresh_operator_panel", None)
+            if previous is not None and refresh is not None:
+                refreshed_id = await refresh(chat_id, user_id, int(previous))
+                if refreshed_id is not None:
+                    panel_id = int(refreshed_id)
+                    self._panel_by_chat[chat_id] = panel_id
+                    self.app.chat_dashboard[chat_id] = panel_id
+                    if user_id:
+                        self.app.user_dashboard[user_id] = panel_id
+                    return panel_id
             new_id = await self.app._build_and_send_dashboard(
                 chat_id=chat_id,
                 user_id=user_id,
@@ -166,6 +187,55 @@ class TerminalPanelManager:
                 anchor_msg_id=None,
             )
             new_id = int(new_id)
+            self._panel_by_chat[chat_id] = new_id
+            self.app.chat_dashboard[chat_id] = new_id
+            if user_id:
+                self.app.user_dashboard[user_id] = new_id
+            await self._delete_previous_panel(
+                chat_id,
+                previous,
+                new_id,
+                preserve_message_id,
+            )
+            return new_id
+
+    async def ensure_text_last(
+        self,
+        chat_id: int,
+        user_id: int = 0,
+        *,
+        preserve_message_id: Optional[int] = None,
+    ) -> int:
+        """Publish the final semantic panel without graph/media dependencies.
+
+        This is a narrow recovery path for a failed ``/start`` render. It performs no
+        actuator action and resolves the same final HMI state/keyboard functions that
+        production composition installed; only the optional graph transport is skipped.
+        """
+        chat_id = int(chat_id)
+        user_id = int(user_id or 0)
+        async with self._locks[chat_id]:
+            previous = self._panel_by_chat.get(chat_id)
+            try:
+                live = await self.app.hass.get_all_live()
+            except Exception as exc:
+                logger.warning("/start text fallback HA read failed; rendering degraded panel: %s", exc)
+                live = {}
+
+            # Import at recovery time so late production HMI wrappers (output truth,
+            # AUTONOMOUS, ownership) remain authoritative for the fallback panel.
+            import operator_hmi as hmi
+
+            state = hmi.build_operator_hmi_state(self.app, live)
+            text = hmi.render_operator_panel(state)
+            markup = hmi.build_operator_keyboard(self.app, state)
+            sent = await self.app.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=self.app.ParseMode.HTML,
+                reply_markup=markup,
+            )
+            new_id = int(sent.message_id)
             self._panel_by_chat[chat_id] = new_id
             self.app.chat_dashboard[chat_id] = new_id
             if user_id:
@@ -218,7 +288,8 @@ class TerminalPanelManager:
             lower = text.lower()
 
             # /start already creates its dashboard. Adopt that one instead of sending
-            # a second copy.
+            # a second copy. Handler failures are recovered by PanelLastMiddleware via
+            # ensure_text_last(), so this success path never duplicates a panel.
             if lower == "/start" or lower.startswith("/start@"):
                 self.leave_workspace(chat_id)
                 self.adopt(chat_id, user_id)
@@ -248,7 +319,86 @@ class PanelLastMiddleware(BaseMiddleware):
             # handler outcome or turn a successful actuator command into a UI error.
             logger.warning("terminal panel refresh failed: %s", exc)
 
+    async def _recover_failed_start(self, event: TelegramObject, primary_exc: Exception) -> bool:
+        if not _is_start_message(event):
+            return False
+        assert isinstance(event, Message)
+        chat_id = int(event.chat.id)
+        user_id = event.from_user.id if event.from_user else 0
+        self.manager.leave_workspace(chat_id)
+        try:
+            new_id = await self.manager.ensure_text_last(chat_id, user_id)
+        except Exception as fallback_exc:
+            logger.warning(
+                "/start fallback failed after primary dashboard error: primary=%s fallback=%s",
+                primary_exc,
+                fallback_exc,
+            )
+            return False
+        logger.warning(
+            "/start primary dashboard failed; recovered with text panel message_id=%s: %s",
+            new_id,
+            primary_exc,
+        )
+        return True
+
     async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        if isinstance(event, CallbackQuery):
+            started_at = asyncio.get_running_loop().time()
+            update = data.get("event_update") or data.get("update")
+            update_id = getattr(update, "update_id", None)
+            message = event.message
+            user_id = getattr(getattr(event, "from_user", None), "id", None)
+            chat_id = getattr(getattr(message, "chat", None), "id", None)
+            callback_data = str(event.data or "")
+            handler_name = getattr(handler, "__name__", type(handler).__name__)
+            logger.info(
+                "CALLBACK_TRACE enter update_id=%s user_id=%s chat_id=%s "
+                "callback_data=%s handler=%s",
+                update_id,
+                user_id,
+                chat_id,
+                callback_data,
+                handler_name,
+            )
+            if callback_data == "v2_battery_start":
+                logger.info(
+                    "START_CALLBACK_TRACE enter update_id=%s handler=%s",
+                    update_id,
+                    handler_name,
+                )
+            try:
+                result = await self._handle_callback(handler, event, data)
+            except Exception as exc:
+                logger.info(
+                    "CALLBACK_TRACE exception update_id=%s callback_data=%s "
+                    "handler=%s duration_ms=%.1f exception=%s",
+                    update_id,
+                    callback_data,
+                    handler_name,
+                    (asyncio.get_running_loop().time() - started_at) * 1000,
+                    type(exc).__name__,
+                )
+                raise
+            logger.info(
+                "CALLBACK_TRACE exit update_id=%s callback_data=%s handler=%s "
+                "duration_ms=%.1f result=%s",
+                update_id,
+                callback_data,
+                handler_name,
+                (asyncio.get_running_loop().time() - started_at) * 1000,
+                type(result).__name__ if result is not None else "None",
+            )
+            return result
+
+        return await self._handle_callback(handler, event, data)
+
+    async def _handle_callback(
         self,
         handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
@@ -256,7 +406,15 @@ class PanelLastMiddleware(BaseMiddleware):
     ) -> Any:
         try:
             result = await handler(event, data)
-        except Exception:
+        except Exception as exc:
+            # /start is a pure presentation entrypoint. Its legacy handler retires the
+            # previous panel before rendering the graph-backed replacement, so a media
+            # transport/render failure used to leave the operator with no response.
+            # Recover only this command through a graph-free truthful L2 panel. If the
+            # fallback also fails (for example total Telegram outage), preserve normal
+            # exception semantics instead of claiming success.
+            if await self._recover_failed_start(event, exc):
+                return None
             await self._restore_panel(event)
             raise
         await self._restore_panel(event)

@@ -5,7 +5,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import operator_hmi as hmi
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from operator_dashboard import (
+    _active_graph_panel_markup,
     build_truthful_hmi_state,
     install_operator_graph_dashboard,
     render_truthful_panel,
@@ -224,6 +226,7 @@ class FakeGraphMessage:
 class FakeGraphApp(FakeApp):
     def __init__(self):
         super().__init__()
+        self.charge_controller.is_active = True
         self.bot = FakeGraphBot()
         self.asyncio = asyncio
         self.ParseMode = types.SimpleNamespace(HTML="HTML")
@@ -249,6 +252,30 @@ class FakeGraphApp(FakeApp):
 
 
 class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
+    def test_active_graph_panel_hides_rd_release_control(self):
+        app = FakeGraphApp()
+        app.InlineKeyboardMarkup = InlineKeyboardMarkup
+        original_builder = hmi.build_operator_keyboard
+        try:
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="release", callback_data="rd_hands_off_release_confirm")],
+                    [InlineKeyboardButton(text="pause", callback_data="operator_pause")],
+                ]
+            )
+            markup = _active_graph_panel_markup(app, types.SimpleNamespace(), 1)
+        finally:
+            hmi.build_operator_keyboard = original_builder
+
+        callbacks = {
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        }
+        self.assertNotIn("rd_hands_off_release_confirm", callbacks)
+        self.assertIn("operator_pause", callbacks)
+
     async def test_range_change_edits_existing_graph_workspace(self):
         app = FakeGraphApp()
         call = types.SimpleNamespace(message=FakeGraphMessage())
@@ -267,6 +294,7 @@ class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(app.bot.media_edits), 1)
         self.assertEqual(app.bot.media_edits[0]["message_id"], 77)
+        self.assertEqual(app.bot.media_edits[0]["media"]["caption"], "")
         self.assertEqual(call.message.answers, [])
 
 

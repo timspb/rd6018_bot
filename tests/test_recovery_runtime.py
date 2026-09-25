@@ -106,10 +106,10 @@ class RecoveryRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
 
         points = [
-            (0, 16.20, 0.20, 25.0),
-            (120, 16.28, 0.20, 25.1),
-            (240, 16.30, 0.28, 26.0),
-            (360, 16.31, 0.30, 27.2),
+            (0, 16.20, 0.20, 30.0),
+            (120, 16.28, 0.20, 30.1),
+            (240, 16.30, 0.28, 31.0),
+            (360, 16.31, 0.30, 32.2),
         ]
         result = None
         for ts, voltage, current, temp in points:

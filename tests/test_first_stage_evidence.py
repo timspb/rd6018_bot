@@ -68,8 +68,23 @@ class FirstStageEvidenceTests(unittest.TestCase):
             is_cv=True,
             dtemp_c_per_min=0.15,
             dcurrent_a_per_min=0.02,
+            temperature_c=30.0,
         )
         self.assertEqual(result.state, FirstStageState.THERMALLY_UNSTABLE)
+
+    def test_thermal_acceleration_below_30c_is_not_anomaly(self):
+        result = assess_first_stage(
+            chemistry=BatteryChemistry.AGM,
+            capacity_ah=70,
+            voltage_v=14.75,
+            current_a=0.18,
+            target_voltage_v=14.8,
+            is_cv=True,
+            dtemp_c_per_min=0.50,
+            dcurrent_a_per_min=0.02,
+            temperature_c=25.0,
+        )
+        self.assertNotEqual(result.state, FirstStageState.THERMALLY_UNSTABLE)
 
     def test_bulk_heating_does_not_create_false_thermal_instability(self):
         result = assess_first_stage(

@@ -31,12 +31,14 @@ PROGRAMMING_TRANSACTION_TTL_SEC = 30.0
 OUTPUT_VERIFY_TIMEOUT_SEC = 10.0
 OUTPUT_VERIFY_DELAY_SEC = 0.20
 OUTPUT_VERIFY_RETRIES = int(OUTPUT_VERIFY_TIMEOUT_SEC / OUTPUT_VERIFY_DELAY_SEC) + 1
+OUTPUT_OFF_VERIFY_TIMEOUT_SEC = 10.0
+OUTPUT_OFF_VERIFY_DELAY_SEC = 0.20
 
 
 class HassClient:
     """Асинхронный клиент для Home Assistant REST API."""
 
-    def __init__(self, base_url: str = HA_URL, token: str = HA_TOKEN) -> None:
+    def __init__(self, base_url: str = HA_URL, token: str = HA_TOKEN, *, backend: Any = None) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.token = token or ""
         self._session: Optional[aiohttp.ClientSession] = None
@@ -44,6 +46,24 @@ class HassClient:
         self._disable_tls_verify = self._looks_like_local_url(self.base_url) and HA_INSECURE_LOCAL
         self._programming_state: Dict[str, Tuple[float, float]] = {}
         self._safety_supervisor = SafetySupervisor()
+        self._physical_backend = backend
+
+    @classmethod
+    def from_physical_config(cls, root: str | None = None) -> "HassClient":
+        """Keep one V2 owner while selecting an existing physical connector by config."""
+        from runtime.config import load_config
+        from runtime.physical.connectors import PhysicalConnectorFactory
+
+        config = load_config(root)
+        connector_name = str(config.default_connector or "")
+        if not connector_name:
+            raise RuntimeError("physical connector selection is not configured")
+        connector = PhysicalConnectorFactory(config).create(connector_name)
+        return cls("", "", backend=connector)
+
+    @property
+    def _uses_physical_backend(self) -> bool:
+        return self._physical_backend is not None
 
     @staticmethod
     def _looks_like_local_url(base_url: str) -> bool:
@@ -69,6 +89,9 @@ class HassClient:
         return self._session
 
     async def close(self) -> None:
+        if self._physical_backend is not None:
+            await self._physical_backend.close()
+            return
         if self._session and not self._session.closed:
             await self._session.close()
 
@@ -134,6 +157,15 @@ class HassClient:
         return {eid: state for eid, state in results}
 
     async def set_value(self, entity_id: str, value: Any) -> bool:
+        if self._uses_physical_backend:
+            mapping = {
+                ENTITY_MAP.get("set_voltage"): self.set_voltage,
+                ENTITY_MAP.get("set_current"): self.set_current,
+                ENTITY_MAP.get("ovp"): self.set_ovp,
+                ENTITY_MAP.get("ocp"): self.set_ocp,
+            }
+            handler = mapping.get(entity_id)
+            return bool(await handler(value)) if handler else False
         if not self.base_url or not self.token:
             return False
         try:
@@ -167,15 +199,31 @@ class HassClient:
         return ok
 
     async def set_voltage(self, value: float) -> bool:
+        if self._uses_physical_backend:
+            await self._physical_backend.set_voltage(float(value))
+            self._record_programming("voltage", value, True)
+            return True
         return await self._tracked_set("voltage", ENTITY_MAP["set_voltage"], value)
 
     async def set_current(self, value: float) -> bool:
+        if self._uses_physical_backend:
+            await self._physical_backend.set_current(float(value))
+            self._record_programming("current", value, True)
+            return True
         return await self._tracked_set("current", ENTITY_MAP["set_current"], value)
 
     async def set_ovp(self, value: float) -> bool:
+        if self._uses_physical_backend:
+            await self._physical_backend.set_ovp(float(value))
+            self._record_programming("ovp", value, True)
+            return True
         return await self._tracked_set("ovp", ENTITY_MAP["ovp"], value)
 
     async def set_ocp(self, value: float) -> bool:
+        if self._uses_physical_backend:
+            await self._physical_backend.set_ocp(float(value))
+            self._record_programming("ocp", value, True)
+            return True
         return await self._tracked_set("ocp", ENTITY_MAP["ocp"], value)
 
     def _recent_programming_request(self) -> Optional[OutputRequest]:
@@ -206,6 +254,18 @@ class HassClient:
         self._programming_state.clear()
 
     async def _switch_service(self, service: str, entity_id: Optional[str] = None) -> bool:
+        if self._uses_physical_backend:
+            try:
+                if service == "turn_on":
+                    await self._physical_backend.enable_output()
+                elif service == "turn_off":
+                    await self._physical_backend.disable_output()
+                else:
+                    return False
+                return True
+            except Exception as ex:
+                logger.error("physical connector %s failed: %s", service, ex)
+                return False
         if not self.base_url or not self.token:
             return False
         eid = entity_id or ENTITY_MAP["switch"]
@@ -282,7 +342,41 @@ class HassClient:
 
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
         self._clear_programming_state()
-        return await self._switch_service("turn_off", entity_id)
+        requested = await self._switch_service("turn_off", entity_id)
+        if not requested:
+            return False
+        return await self.wait_for_output_off()
+
+    async def wait_for_output_off(
+        self,
+        *,
+        timeout_s: float = OUTPUT_OFF_VERIFY_TIMEOUT_SEC,
+        poll_interval_s: float = OUTPUT_OFF_VERIFY_DELAY_SEC,
+    ) -> bool:
+        """Poll one authoritative OFF readback after a single STOP write."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, float(timeout_s))
+        interval = max(0.01, float(poll_interval_s))
+        while True:
+            try:
+                live = await self.get_all_live()
+                code = live.get("output_state_code_v2")
+                if code not in (None, "", "unknown", "unavailable"):
+                    try:
+                        if float(code) == 0.0:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                elif str(live.get("switch", "")).strip().lower() == "off":
+                    # Compatibility for older fixtures without the V2 register.
+                    return True
+            except Exception as exc:
+                logger.warning("Output OFF readback failed: %s", exc)
+
+            now = loop.time()
+            if now >= deadline:
+                return False
+            await asyncio.sleep(min(interval, max(0.0, deadline - now)))
 
     async def safe_enable_output(
         self,
@@ -308,6 +402,8 @@ class HassClient:
         )
 
     async def _fetch_all_states_bulk(self) -> Optional[Dict[str, Any]]:
+        if self._uses_physical_backend:
+            return None
         if not self.base_url or not self.token:
             return None
         try:
@@ -340,6 +436,8 @@ class HassClient:
 
     async def get_all_live(self) -> Dict[str, Any]:
         """Return values plus source freshness metadata; prefer corrected V2 sensors."""
+        if self._uses_physical_backend:
+            return dict(canonicalize_live(await self._physical_backend.get_all_live()))
         keys = self._live_keys()
         result: Dict[str, Any] = {}
         meta: Dict[str, Any] = {}
@@ -397,6 +495,9 @@ class HassClient:
         return dict(canonicalize_live(result))
 
     async def get_entities_status(self) -> List[Dict[str, Any]]:
+        if self._uses_physical_backend:
+            live = await self.get_all_live()
+            return [{"key": key, "entity_id": key, "state": value, "status": "ok" if value is not None else "unknown", "unit": "", "friendly_name": key} for key, value in live.items() if key != "_meta"]
         if not self.base_url or not self.token:
             return []
         bulk = await self._fetch_all_states_bulk()

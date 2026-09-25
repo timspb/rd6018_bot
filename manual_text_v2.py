@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import html
 import math
-from dataclasses import dataclass
+from pathlib import Path
+from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiogram import BaseMiddleware, F
@@ -13,6 +14,9 @@ from charge_logic import MAX_STAGE_CURRENT
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
 from manual_runtime_v2 import ProductionManualSessionManager
+from runtime.charge.profiles.manual import ManualChargeProfile, ManualStageProfile, load_manual_profile, save_manual_profile
+
+MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,60 @@ def _duration_seconds(text: str) -> float:
     return float(total)
 
 
+def _duration_hours(text: str) -> float:
+    if ":" not in str(text):
+        value = _float(text)
+        if value <= 0:
+            raise ValueError("выдержка должна быть больше нуля")
+        return value
+    return _duration_seconds(text) / 3600.0
+
+
+def _profile_number(value: str, *, duration: bool = False) -> float:
+    return _duration_hours(value) if duration else _float(value.rstrip("АAaAvV"))
+
+
+def _parse_profile_stage(line: str, *, main: bool, base: ManualStageProfile) -> ManualStageProfile:
+    body = line.split(":", 1)[1] if ":" in line else line.split(None, 1)[1]
+    values: dict[str, str] = {}
+    for token in body.replace(",", ".").split():
+        if "=" not in token:
+            raise ValueError("поля режима задаются как ключ=значение")
+        key, value = token.split("=", 1)
+        values[key.strip().lower()] = value.strip()
+
+    def take(*names: str, duration: bool = False) -> float:
+        for name in names:
+            if name in values:
+                return _profile_number(values[name], duration=duration)
+        raise ValueError(f"не заполнено поле {names[0]}")
+
+    common = {
+        "voltage_v": take("u", "v", "voltage", "voltage_v"),
+        "current_a": take("i", "current", "current_a"),
+        "hold_hours": take("hold", "hold_h", "hold_hours", duration=True),
+    }
+    if main:
+        return replace(base, **common, minimum_current_a=take("imin", "minimum", "minimum_current_a"))
+    return replace(
+        base,
+        **common,
+        delta_voltage_v=take("dv", "deltav", "delta_voltage_v"),
+        delta_current_a=take("di", "deltai", "delta_current_a"),
+    )
+
+
+def parse_manual_profile_input(text: str, *, battery_id: str | None = None) -> ManualChargeProfile:
+    """Parse the two-line operator form and return a validated profile."""
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if len(lines) != 2 or not lines[0].lower().startswith("main") or not lines[1].lower().startswith("mix"):
+        raise ValueError("нужны две строки: MAIN ... и MIX ...")
+    base = load_manual_profile(MANUAL_PROFILE_PATH, battery_id=battery_id)
+    main = _parse_profile_stage(lines[0], main=True, base=base.main)
+    mix = _parse_profile_stage(lines[1], main=False, base=base.mix)
+    return ManualChargeProfile(main=main, mix=mix, profile_id=base.profile_id)
+
+
 def _validate_stop_voltage(value: float) -> float:
     if value < 0 or value > float(MAX_MANUAL_VOLTAGE):
         raise ValueError(f"порог напряжения должен быть 0..{MAX_MANUAL_VOLTAGE:.1f} V")
@@ -65,7 +123,7 @@ def _validate_stop_current(value: float) -> float:
     return value
 
 
-def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
+def parse_manual_command(text: str, *, battery_id: str | None = None) -> Optional[ParsedManualCommand]:
     """Parse the production Manual one-line DSL.
 
     The first two numeric tokens preserve the historic quick command. Additional tokens
@@ -76,6 +134,13 @@ def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
     raw = str(text or "").strip()
     if not raw or raw.startswith("/"):
         return None
+    if raw.lower() in {"manual", "ручной", "manual_main_mix"}:
+        profile = load_manual_profile(MANUAL_PROFILE_PATH, battery_id=battery_id)
+        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile, battery_id=battery_id or ""))
+    if "\n" in raw and raw.lower().lstrip().startswith("main"):
+        profile = parse_manual_profile_input(raw, battery_id=battery_id)
+        save_manual_profile(profile, MANUAL_PROFILE_PATH, battery_id=battery_id)
+        return ParsedManualCommand(request=ManualChargeRequest.from_profile(profile, battery_id=battery_id or ""))
     tokens = raw.replace("≥", ">=").replace("≤", "<=").split()
     if len(tokens) < 2:
         return None
@@ -170,25 +235,49 @@ def parse_manual_command(text: str) -> Optional[ParsedManualCommand]:
 
 def manual_help_text() -> str:
     return (
-        "<b>Ручной режим V2</b>\n\n"
-        "Укажите рабочие U и I одной строкой. Выход включается только через полный "
-        "safety/readback transaction; химическая FSM в Manual не выполняется.\n\n"
-        "<code>14.70 5.0</code>\n"
-        "<code>14.70 5.0 2:00</code> — остановить через 2 ч активного времени\n"
-        "<code>16.50 1.5 I<=0.30</code>\n"
-        "<code>16.50 1.5 V>=16.40</code>\n"
-        "<code>16.50 1.5 1.00A</code> — остановить при достижении 1.00 A\n"
-        "<code>16.50 1.5 16.20V</code> — остановить при достижении 16.20 V\n"
-        "<code>16.50 1.5 delta=0.03</code> — mode-aware CV/CC delta stop\n\n"
-        "Условия можно комбинировать. Доступны V>=, V<=, V=, I>=, I<=, I=, "
-        "таймер H:MM[:SS], delta=.\n"
-        f"Жёсткий envelope: U <= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, "
-        f"I <= <b>{MAX_STAGE_CURRENT:.1f} A</b>. OVP/OCP рассчитываются автоматически."
+        "<b>Ручной режим MAIN → MIX</b>\n"
+        "Параметры задаются отдельно в <code>config/charge/manual.yaml</code>.\n"
+        "MAIN: ток, напряжение, подтверждённый нижний порог, выдержка.\n"
+        "Нижний порог MAIN: <code>I&lt;=0.30 A</code> подтверждается перед выдержкой.\n"
+        "После подтверждения минимума и выдержки запускается MIX.\n"
+        "MIX: ток, напряжение, ΔV, ΔI, выдержка.\n"
+        "Скопируйте блок, при необходимости измените значения и отправьте его целиком:\n"
+        "<code>MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
+        "MIX: U=16.5 I=1.5 dV=0.03 dI=0.03 hold=2</code>\n"
+        "После записи профиль запускается командой <code>MANUAL</code>.\n"
+        "Старый формат одной строки отключён.\n"
+        f"Envelope: U &lt;= <b>{MAX_MANUAL_VOLTAGE:.1f} V</b>, I &lt;= <b>{MAX_STAGE_CURRENT:.1f} A</b>."
     )
+
+
+def _legacy_numeric_manual(text: str) -> bool:
+    parts = str(text or "").replace(",", ".").split()
+    if len(parts) < 2:
+        return False
+    try:
+        float(parts[0])
+        float(parts[1])
+    except ValueError:
+        return False
+    return True
 
 
 def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
     request = parsed.request
+    if request.profile is not None:
+        profile = request.profile
+        verb = "перенастроен" if replaced else "запущен"
+        battery = f"\nАКБ: <code>{html.escape(request.battery_id)}</code>" if request.battery_id else ""
+        return (
+            f"<b>🛠 Ручной MAIN → MIX {verb}</b>\n"
+            "Принятые параметры:\n"
+            f"MAIN: U={profile.main.voltage_v:.2f} V · I={profile.main.current_a:.2f} A · "
+            f"Imin={profile.main.minimum_current_a:.2f} A · hold={profile.main.hold_hours:g} ч\n"
+            f"MIX: U={profile.mix.voltage_v:.2f} V · I={profile.mix.current_a:.2f} A · "
+            f"ΔV={profile.mix.delta_voltage_v:.3f} V · ΔI={profile.mix.delta_current_a:.3f} A · "
+            f"hold={profile.mix.hold_hours:g} ч"
+            f"{battery}"
+        )
     stop = request.stop
     conditions: list[str] = []
     if stop.max_active_seconds is not None:
@@ -205,12 +294,16 @@ def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
         conditions.append(f"I<={stop.current_le_a:.2f}")
     if parsed.reach_current_a is not None:
         conditions.append(f"I={parsed.reach_current_a:.2f} reach")
-    if stop.delta is not None:
+    if request.operation_mode == "mix" and stop.delta is not None:
         conditions.append(f"delta={stop.delta:.3f}")
+    if request.operation_mode == "main":
+        conditions.insert(0, "CV Imin по штатному порогу")
+    elif stop.delta is not None:
+        conditions.append("после Delta выдержка 2ч")
     suffix = ", ".join(conditions) if conditions else "только operator stop / hard safety"
     verb = "перенастроен" if replaced else "запущен"
     return (
-        f"<b>🛠 Manual {verb}</b>\n"
+        f"<b>🛠 {request.operation_mode_label} {verb.lower()}</b>\n"
         f"U={request.voltage_v:.2f} V · I={request.current_a:.2f} A\n"
         f"OVP={request.ovp_v:.2f} V · OCP={request.ocp_a:.2f} A\n"
         f"Stop: <code>{html.escape(suffix)}</code>\n"
@@ -253,6 +346,14 @@ class ManualTextMiddleware(BaseMiddleware):
         # quick-command parser. The native Manual prompt itself needs no dialog FSM.
         if _another_dialog_owns_text(self.app, user_id):
             return await handler(event, data)
+
+        if _legacy_numeric_manual(text):
+            self.pending_users.discard(user_id)
+            await event.answer(
+                "❌ Старый формат Manual отключён. Используйте значения из конфигурации и отправьте "
+                "<code>MANUAL</code>.\n" + manual_help_text()
+            )
+            return None
 
         try:
             parsed = parse_manual_command(text)
@@ -341,6 +442,9 @@ class ManualTextMiddleware(BaseMiddleware):
         self.app.last_chat_id = event.chat.id
         self.app.last_user_id = user_id
         await event.answer(_format_start(parsed, replaced=replaced))
+        show_now = getattr(self.app, "_build_and_send_dashboard", None)
+        if callable(show_now):
+            await show_now(event.chat.id, user_id)
         schedule = getattr(self.app, "schedule_dashboard_after_60", None)
         if callable(schedule):
             schedule(event.chat.id, user_id)

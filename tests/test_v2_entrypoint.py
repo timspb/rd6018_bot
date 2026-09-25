@@ -4,13 +4,45 @@ import unittest
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+import operator_dashboard
+import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
+from operator_output_truth import OUTPUT_TRUTH_ATTR
 from production_controller import ProductionChargeControllerV2
 
 
 class V2EntrypointTests(unittest.TestCase):
+    @staticmethod
+    def _callbacks(markup):
+        return {
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        }
+
+    @staticmethod
+    def _state(process_state, authority, *, output_on=False):
+        return hmi.OperatorHmiState(
+            process_state=process_state,
+            authority=authority,
+            title="",
+            output_on=output_on,
+            regulator="—",
+            battery_label="",
+            battery_voltage_v=None,
+            current_a=None,
+            power_w=None,
+            battery_temp_c=None,
+            psu_temp_c=None,
+            target_voltage_v=None,
+            current_limit_a=None,
+            progress="",
+            safety="",
+        )
+
     def test_import_bot_exposes_preserved_runtime_with_production_controller(self):
-        self.assertEqual(bot.__name__, "bot_legacy")
+        self.assertEqual(bot.__name__, "runtime.v2_runtime")
         self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
 
     def test_production_guardrails_are_installed_after_controller_composition(self):
@@ -34,32 +66,102 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("v2_mix", callbacks)
         self.assertIn("v2_manual_choose", callbacks)
 
-        # The semantic layer owns caption/button meaning, while production deliberately
-        # keeps the graph/photo transport rather than switching L2 to a text-only card.
+        # The semantic layer owns caption/button meaning; routine L2 updates remain
+        # text-only and the explicit graph workspace owns photo rendering.
         self.assertEqual(
             bot._build_and_send_dashboard.__name__,
             "build_and_send_graph_dashboard",
         )
         self.assertEqual(bot._compact_dashboard_caption.__name__, "compact_dashboard_caption")
 
-        # Production import has no live hardware state. Its durable ownership state is
-        # allowed to affect the exact main-panel branch, but the final renderer must no
-        # longer expose the old graph-range/developer button carpet. The graph itself
-        # remains in the dashboard media and ranges live in the graph workspace.
+        # The legacy boolean keyboard helper remains a semantic compatibility surface.
+        # The V1 visual shell is composed only on the live graph/dashboard path where
+        # Output freshness and ownership state have already been resolved.
         dashboard = bot._build_dashboard_keyboard(False, 1)
-        dashboard_callbacks = {
-            button.callback_data
-            for row in dashboard.inline_keyboard
-            for button in row
-            if button.callback_data
-        }
-        self.assertNotIn("chart_30m", dashboard_callbacks)
-        self.assertNotIn("chart_2h", dashboard_callbacks)
-        self.assertNotIn("chart_session", dashboard_callbacks)
-        self.assertNotIn("v2_status", dashboard_callbacks)
-        self.assertNotIn("entities_status", dashboard_callbacks)
-        self.assertNotIn("operator_graph", dashboard_callbacks)
+        dashboard_callbacks = self._callbacks(dashboard)
+        self.assertNotIn("power_toggle", dashboard_callbacks)
+        self.assertNotIn("v2_batteries", dashboard_callbacks)
+        self.assertIn("charge_modes", dashboard_callbacks)
         self.assertNotIn("operator_more", dashboard_callbacks)
+
+    def test_composed_graph_unknown_output_never_restores_v1_start(self):
+        state = self._state(
+            hmi.HmiProcessState.CONTAINMENT,
+            hmi.HmiAuthority.CONTAINMENT,
+            output_on=False,
+        )
+        object.__setattr__(state, OUTPUT_TRUTH_ATTR, False)
+
+        markup = operator_dashboard._main_graph_markup(bot, state, 1)
+        callbacks = self._callbacks(markup)
+
+        self.assertNotIn("operator_graph_30m", callbacks)
+        self.assertNotIn("operator_graph_2h", callbacks)
+        self.assertNotIn("operator_graph_session", callbacks)
+        self.assertIn("rd_ownership_output_off", callbacks)
+        self.assertIn("operator_refresh", callbacks)
+        self.assertNotIn("operator_details", callbacks)
+        self.assertNotIn("logs", callbacks)
+        self.assertNotIn("ai_analysis", callbacks)
+        self.assertNotIn("v2_batteries", callbacks)
+        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn("operator_more", callbacks)
+        self.assertNotIn("power_toggle", callbacks)
+
+    def test_root_uses_existing_rd_control_screen_composition(self):
+        state = self._state(
+            hmi.HmiProcessState.IDLE,
+            hmi.HmiAuthority.NONE,
+            output_on=False,
+        )
+
+        markup = operator_dashboard._main_graph_markup(bot, state, 1)
+        callbacks = self._callbacks(markup)
+
+        self.assertIn("charge_modes", callbacks)
+        self.assertIn("rd_ownership_hands_off", callbacks)
+        self.assertIn("rd_autonomous_confirm", callbacks)
+        self.assertIn("operator_refresh", callbacks)
+        self.assertNotIn("operator_details", callbacks)
+        self.assertNotIn("rd_hands_off_output_off", callbacks)
+        self.assertNotIn("rd_hands_off_disable", callbacks)
+
+    def test_composed_graph_autonomous_never_restores_pb_start(self):
+        manager = bot.rd_control_mode_manager
+        old_mode = manager.mode
+        old_edge_autonomous = manager._edge_autonomous
+        try:
+            from rd_control_mode import RdControlMode
+
+            manager.mode = RdControlMode.HANDS_OFF
+            manager._edge_autonomous = True
+            state = self._state(
+                hmi.HmiProcessState.HANDS_OFF,
+                hmi.HmiAuthority.EXTERNAL,
+                output_on=False,
+            )
+
+            markup = operator_dashboard._main_graph_markup(bot, state, 1)
+            callbacks = self._callbacks(markup)
+
+            self.assertNotIn("operator_graph_30m", callbacks)
+            self.assertNotIn("operator_graph_2h", callbacks)
+            self.assertNotIn("operator_graph_session", callbacks)
+            self.assertIn("rd_autonomous_exit", callbacks)
+            self.assertIn("operator_refresh", callbacks)
+            self.assertNotIn("operator_details", callbacks)
+            self.assertNotIn("logs", callbacks)
+            self.assertNotIn("ai_analysis", callbacks)
+            self.assertNotIn("rd_hands_off_disable", callbacks)
+            self.assertNotIn("rd_hands_off_output_off", callbacks)
+            self.assertNotIn("rd_live_mix", callbacks)
+            self.assertNotIn("v2_batteries", callbacks)
+            self.assertNotIn("charge_modes", callbacks)
+            self.assertNotIn("operator_more", callbacks)
+            self.assertNotIn("power_toggle", callbacks)
+        finally:
+            manager.mode = old_mode
+            manager._edge_autonomous = old_edge_autonomous
 
     def test_charge_mode_copy_matches_normal_full_auto_contract(self):
         text = bot._charge_modes_text()
@@ -92,7 +194,7 @@ class V2EntrypointTests(unittest.TestCase):
             }
             self.assertIn("operator_managed_stop", callbacks)
             self.assertNotIn("power_toggle", callbacks)
-            self.assertIn("operator_details", callbacks)
+            self.assertNotIn("operator_details", callbacks)
             self.assertNotIn("operator_graph", callbacks)
         finally:
             manager.mode = old_mode

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import time
 from typing import Any, Optional
@@ -14,6 +15,8 @@ from rd6018_telemetry import (
 )
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
 from runtime_safety_strict import StrictRuntimeSafetyGuard
+
+logger = logging.getLogger("rd6018")
 
 
 class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
@@ -30,6 +33,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     # fresh evidence still positively says ON we may retry OFF at a bounded cadence;
     # unknown/stale Output evidence never causes command spam.
     OFF_UNCONFIRMED_RETRY_S = 60.0
+    TELEMETRY_UNAVAILABLE_GRACE_S = 180.0
 
     @staticmethod
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:
@@ -44,6 +48,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         self._install_last_reported_metadata_bridge()
         self._off_unconfirmed_notice_active = False
         self._off_unconfirmed_last_retry_at = 0.0
+        self._telemetry_unavailable_since: Optional[float] = None
         configured_policy = getattr(app, "external_temp_integrity_policy", None)
         policy = (
             configured_policy
@@ -83,6 +88,49 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return bool(telemetry_freshness(live, ("switch",)).valid)
         except Exception:
             return False
+
+    @staticmethod
+    def _is_transient_telemetry_error(reason: str) -> bool:
+        lowered = str(reason or "").lower()
+        return (
+            lowered.startswith("required telemetry ")
+            or "freshness" in lowered
+            or "stale" in lowered
+        )
+
+    def _telemetry_grace_active(self, live: dict[str, Any], reason: str) -> bool:
+        if not self._is_transient_telemetry_error(reason):
+            self._telemetry_unavailable_since = None
+            return False
+        # A single invalid channel is not a control-plane outage: keep the
+        # immediate fail-closed behavior for that case. Grace is only for a
+        # complete loss of the live/readback snapshot.
+        if any(
+            _finite(live.get(key)) is not None
+            for key in ("battery_voltage", "current", "temp_ext", "temp_int")
+        ) or _binary(live.get("switch")) is not None:
+            self._telemetry_unavailable_since = None
+            return False
+        now = time.monotonic()
+        if self._telemetry_unavailable_since is None:
+            self._telemetry_unavailable_since = now
+            logger.warning(
+                "Transient HA/readback outage; Output OFF deferred for %.0fs: %s",
+                self.TELEMETRY_UNAVAILABLE_GRACE_S,
+                reason,
+            )
+            return True
+        if now - self._telemetry_unavailable_since < self.TELEMETRY_UNAVAILABLE_GRACE_S:
+            return True
+        logger.error(
+            "HA/readback outage exceeded %.0fs: %s",
+            self.TELEMETRY_UNAVAILABLE_GRACE_S,
+            reason,
+        )
+        return False
+
+    def _clear_telemetry_grace(self) -> None:
+        self._telemetry_unavailable_since = None
 
     async def _recover_off_unconfirmed(self, live: dict[str, Any]) -> dict[str, Any]:
         """Contain one failed OFF without turning background polling into an OFF storm.
@@ -557,6 +605,8 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             require_programming=output_state is True,
         )
         if error is not None:
+            if self._telemetry_grace_active(live, error):
+                return live
             await self._fail_closed("telemetry_invalid", error, output_state=output_state)
 
         freshness_error = self._runtime_freshness_error(
@@ -564,6 +614,8 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             output_state=output_state,
         )
         if freshness_error is not None:
+            if self._telemetry_grace_active(live, freshness_error):
+                return live
             await self._fail_closed(
                 "telemetry_stale",
                 freshness_error,
@@ -613,6 +665,7 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
 
             await self._renew_edge_lease_or_fail(output_state=True)
 
+        self._clear_telemetry_grace()
         return live
 
 

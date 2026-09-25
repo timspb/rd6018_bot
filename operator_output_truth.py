@@ -214,10 +214,14 @@ def _render_unknown_output(text: str, state: Any) -> str:
 def install_operator_output_truth(app: Any) -> None:
     """Make the final production HMI preserve Output ON/OFF/UNKNOWN evidence.
 
-    This installer must run after every keyboard composition layer.  It changes no
-    actuator authority: callbacks continue to use their existing fresh-readback and
-    verified-OFF transactions.  It only prevents stale/unknown Output telemetry from
+    This installer must run after every semantic keyboard composition layer. It changes
+    no actuator authority: callbacks continue to use their existing fresh-readback and
+    verified-OFF transactions. It only prevents stale/unknown Output telemetry from
     being presented as OFF or from exposing actions whose precondition is proven OFF.
+
+    The legacy V1 compatibility shell is intentionally not installed here. The root
+    dashboard must use the canonical state-driven HMI keyboard directly; charge
+    preparation remains a separate workspace.
     """
     if bool(getattr(app, "_operator_output_truth_installed", False)):
         return
@@ -234,8 +238,19 @@ def install_operator_output_truth(app: Any) -> None:
         state = original_state_builder(app_arg, live)
         return normalize_operator_state(app_arg, state, live, hmi)
 
-    def build_keyboard(app_arg: Any, state: Any) -> InlineKeyboardMarkup:
-        markup = original_keyboard_builder(app_arg, state)
+    def build_keyboard(
+        app_arg: Any,
+        state: Any,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        markup = (
+            original_keyboard_builder(app_arg, state, actions=actions)
+            if actions is not None
+            else original_keyboard_builder(app_arg, state)
+        )
+        if actions is not None:
+            return markup
         return filter_keyboard_for_output_truth(app_arg, state, markup, hmi)
 
     def more_keyboard(state: Any) -> InlineKeyboardMarkup:

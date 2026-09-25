@@ -177,6 +177,10 @@ class PhysicalTestControlTests(unittest.IsolatedAsyncioTestCase):
             await control.stop()
             self.assertFalse(os.path.exists(path))
 
+    @unittest.skipUnless(
+        callable(getattr(asyncio, "start_unix_server", None)),
+        "asyncio.start_unix_server is unavailable in this Python runtime",
+    )
     async def test_separate_client_is_transport_only_and_cannot_resume_or_mutate(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "control.sock")

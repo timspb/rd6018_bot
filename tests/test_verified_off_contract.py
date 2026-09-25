@@ -168,6 +168,35 @@ class VerifiedOffContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self._run_with_fake_clock(guard, guard.turn_off))
         self.assertEqual(app.hass.turn_off_calls, 2)
 
+    async def test_slow_off_command_does_not_consume_readback_confirmation_window(self):
+        clock = _Clock()
+        app, guard = self._guard(
+            [_v2_live(1, 0), _v2_live(1, 5), _v2_live(1, 10), _v2_live(0, 15)]
+        )
+        guard.OFF_CONFIRMATION_WINDOW_S = 12.0
+        guard.OFF_CONFIRMATION_POLL_S = 5.0
+        original_turn_off = app.hass.turn_off
+
+        async def slow_first_off(entity_id=None):
+            if app.hass.turn_off_calls == 0:
+                clock.monotonic += 8.0
+                clock.epoch += 8.0
+            return await original_turn_off(entity_id)
+
+        app.hass.turn_off = slow_first_off
+
+        async def fake_sleep(delay):
+            clock.monotonic += float(delay)
+            clock.epoch += float(delay)
+
+        with patch.object(runtime_safety.time, "monotonic", lambda: clock.monotonic), patch.object(
+            runtime_safety.time, "time", lambda: clock.epoch
+        ), patch.object(runtime_safety.asyncio, "sleep", fake_sleep):
+            self.assertTrue(await guard.turn_off())
+
+        self.assertEqual(app.hass.turn_off_calls, 2)
+        self.assertFalse(guard._off_unconfirmed)
+
     async def test_never_off_retries_once_and_keeps_unconfirmed(self):
         app, guard = self._guard(
             [_v2_live(1, 0), _v2_live(1, 5), _v2_live(1, 10), _v2_live(1, 15)]

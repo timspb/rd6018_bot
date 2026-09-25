@@ -1,0 +1,8 @@
+# Разрешённые химические профили; значения являются идентификаторами
+# Allowed chemistry profiles; values are identifiers
+profiles:
+  - AGM
+  - EFB
+  - CA_CA
+  - FLOODED
+  - CUSTOM

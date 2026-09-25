@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from aiogram import F
@@ -25,6 +26,10 @@ from v2_ui import (
     intent_label,
     profile_for_chemistry,
 )
+from application.intents import OperatorIntent, OperatorIntentKind
+from runtime.charge.profiles.manual import has_manual_profile
+
+MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,55 @@ _battery_pages: Dict[int, list[BatteryRecord]] = {}
 _selected_battery: Dict[int, BatteryRecord] = {}
 _new_battery_input: set[int] = set()
 _installed = False
+
+
+def selected_battery_for_user(user_id: int) -> Optional[BatteryRecord]:
+    return _selected_battery.get(int(user_id))
+
+
+def selected_program_for_user(user_id: int) -> Optional[str]:
+    """Return the process-local pending selection for operator presentation."""
+    user_id = int(user_id)
+    pending = _pending_start.get(user_id)
+    if pending is not None:
+        return f"{pending.profile} {pending.capacity_ah:g} Ah · {intent_label(pending.intent)}"
+    profile = _pending_profile.get(user_id)
+    if profile:
+        return f"{profile} · ожидается ёмкость АКБ"
+    record = _selected_battery.get(user_id)
+    if record is not None:
+        return f"{record.identity.chemistry.value} {record.identity.nominal_capacity_ah:g} Ah · выбрана АКБ"
+    return None
+
+
+def _clear_pending_program_state(app: Any, user_id: int) -> None:
+    """Drop only the selection wizard state after START was accepted."""
+    user_id = int(user_id)
+    _pending_start.pop(user_id, None)
+    _pending_profile.pop(user_id, None)
+    _pending_intent.pop(user_id, None)
+    awaiting = getattr(app, "awaiting_ah", None)
+    if isinstance(awaiting, dict):
+        awaiting.pop(user_id, None)
+
+
+def format_start_feedback(result: Any) -> str:
+    """Describe the route result without confusing ACTIVE with DRY_RUN."""
+    trace = str(getattr(result, "trace_id", ""))[:8]
+    if not bool(getattr(result, "accepted", False)):
+        return f"START отклонён: {getattr(result, 'reason', 'unknown')}"
+
+    port_result = getattr(result, "port_result", None)
+    mode = getattr(getattr(port_result, "mode", None), "value", "")
+    if mode == "active":
+        execution = getattr(port_result, "execution_result", None)
+        status = getattr(getattr(execution, "status", None), "value", "accepted")
+        return f"✅ ACTIVE START {status}: {getattr(result, 'reason', 'accepted')} ({trace})"
+    if mode == "dry_run":
+        return f"✅ START preflight PASS; DRY_RUN, заряд не запускался ({trace})"
+    if mode:
+        return f"✅ START {mode.upper()}: {getattr(result, 'reason', 'accepted')} ({trace})"
+    return f"✅ START принят: {getattr(result, 'reason', 'accepted')} ({trace})"
 
 
 def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -130,6 +184,31 @@ def _profile_from_callback(data: str) -> Optional[str]:
 async def _safe_answer(event: Any, text: str, *, reply_markup=None) -> None:
     message = event.message if hasattr(event, "message") and event.message is not None else event
     await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+
+
+async def _route_profile_intent(app: Any, call: Any, profile: str) -> bool:
+    interface = getattr(app, "operator_interface", None)
+    submit = getattr(interface, "submit_intent", None)
+    if not callable(submit):
+        return True
+    user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+    result = await submit(
+        OperatorIntent(OperatorIntentKind.SELECT_CHARGE_PROFILE, "telegram", user, {"profile": profile})
+    )
+    if getattr(result, "status", None) == "rejected":
+        await call.answer("Профиль недоступен", show_alert=True)
+        return False
+    return True
+
+
+async def _refresh_dashboard_after_selection(app: Any, call: Any, user_id: int) -> None:
+    sender = getattr(app, "send_dashboard", None)
+    if not callable(sender):
+        return
+    try:
+        await sender(call, old_msg_id=getattr(app, "user_dashboard", {}).get(user_id))
+    except Exception as exc:
+        app.logger.debug("dashboard refresh after mode selection failed: %s", exc)
 
 
 async def _start_profile(app: Any, event: Any, pending: PendingStart) -> bool:
@@ -231,13 +310,6 @@ def install_v2_ui(app: Any) -> None:
         markup = original_dashboard_keyboard(is_on, user_id, back_to_dashboard=back_to_dashboard)
         rows = list(markup.inline_keyboard)
         insert_at = max(0, len(rows) - (2 if back_to_dashboard else 1))
-        rows.insert(
-            insert_at,
-            [
-                InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                InlineKeyboardButton(text="🧭 V2", callback_data="v2_status"),
-            ],
-        )
         return InlineKeyboardMarkup(inline_keyboard=rows)
 
     def charge_modes_text() -> str:
@@ -264,8 +336,7 @@ def install_v2_ui(app: Any) -> None:
                     InlineKeyboardButton(text="➕ АКБ", callback_data="v2_battery_add"),
                 ],
                 [
-                    InlineKeyboardButton(text="🛠 Custom", callback_data="profile_custom"),
-                    InlineKeyboardButton(text="⏹ Off", callback_data="menu_off"),
+                    InlineKeyboardButton(text="🛠 Ручной MAIN → MIX", callback_data="v2_manual"),
                 ],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
             ]
@@ -339,8 +410,24 @@ def install_v2_ui(app: Any) -> None:
         _new_battery_input.discard(user_id)
         records = await list_batteries(limit=50)
         created = next((item for item in records if item.identity.battery_id == identity.battery_id), None)
-        text = format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена."
-        await message.answer(text, parse_mode=ParseMode.HTML)
+        visible_records = [
+            item for item in records if profile_for_chemistry(item.identity.chemistry)
+        ]
+        rows = [
+            [InlineKeyboardButton(text=battery_button_label(item), callback_data=f"v2_battery_{idx}")]
+            for idx, item in enumerate(visible_records)
+        ]
+        rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
+        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")])
+        text = (
+            (format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена.")
+            + "\n\n<b>Выберите сохранённую АКБ:</b>"
+        )
+        await message.answer(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
 
     app._build_dashboard_keyboard = build_dashboard_keyboard
     app._charge_modes_text = charge_modes_text
@@ -434,12 +521,20 @@ def install_v2_ui(app: Any) -> None:
             return
         record = records[idx]
         _selected_battery[user_id] = record
+        manual_button = []
+        if has_manual_profile(MANUAL_PROFILE_PATH, record.identity.battery_id):
+            manual_button = [[InlineKeyboardButton(
+                text="▶️ Запустить сохранённый Manual",
+                callback_data="v2_battery_manual",
+            )]]
         await _safe_answer(
             call,
             f"{format_battery_card(record)}\n\n<b>Что делаем?</b>",
-            reply_markup=_intent_keyboard("v2_bat_intent"),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=manual_button + _intent_keyboard("v2_bat_intent").inline_keyboard
+            ),
         )
-
+        await _refresh_dashboard_after_selection(app, call, user_id)
     @app.router.callback_query(F.data.startswith("v2_profile_"))
     async def quick_profile_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -448,6 +543,8 @@ def install_v2_ui(app: Any) -> None:
         profile = _profile_from_callback(call.data or "")
         if not profile:
             return
+        if not await _route_profile_intent(app, call, profile):
+            return
         user_id = call.from_user.id if call.from_user else 0
         _pending_profile[user_id] = profile
         await _safe_answer(
@@ -455,6 +552,7 @@ def install_v2_ui(app: Any) -> None:
             f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям V2.",
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
+        await _refresh_dashboard_after_selection(app, call, user_id)
 
     @app.router.callback_query(F.data.startswith("v2_quick_intent_"))
     async def quick_intent_handler(call: Any) -> None:
@@ -476,16 +574,105 @@ def install_v2_ui(app: Any) -> None:
 
     @app.router.callback_query(F.data == "v2_quick_start")
     async def quick_start_handler(call: Any) -> None:
+        trace = getattr(app, "logger", None)
+        if trace is not None:
+            trace.info("QUICK_START_TRACE enter")
         if not await app._check_chat_and_respond(call):
+            if trace is not None:
+                trace.info("QUICK_START_TRACE chat_guard=DENY")
             return
+        if trace is not None:
+            trace.info("QUICK_START_TRACE chat_guard=PASS")
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
+        if trace is not None:
+            trace.info("QUICK_START_TRACE user_state user_id=%s", user_id)
         pending = _pending_start.get(user_id)
+        if trace is not None:
+            if pending is None:
+                trace.info("QUICK_START_TRACE pending=MISS")
+            else:
+                trace.info(
+                    "QUICK_START_TRACE pending=FOUND profile=%s intent=%s capacity_ah=%s battery_id=%s",
+                    pending.profile,
+                    pending.intent.value,
+                    pending.capacity_ah,
+                    pending.battery_id,
+                )
         if pending is None:
             await call.answer("Preview устарел — выберите режим заново", show_alert=True)
             return
-        if await _start_profile(app, call, pending):
-            _pending_start.pop(user_id, None)
+        route = getattr(app, "_v3_production_start_route", None)
+        if trace is not None:
+            trace.info("QUICK_START_TRACE route=%s", "FOUND" if route is not None else "MISSING")
+        if route is None:
+            # Compatibility/rollback compositions without V3 retain the old
+            # owner; production bot.py always installs the route above.
+            if await _start_profile(app, call, pending):
+                _clear_pending_program_state(app, user_id)
+            return
+        intent = OperatorIntent(
+            OperatorIntentKind.START_CHARGE,
+            "telegram",
+            str(user_id),
+            {
+                "profile": pending.profile,
+                "capacity_ah": pending.capacity_ah,
+                "battery_identity": None,
+                "battery_id": pending.battery_id,
+                "intent": pending.intent,
+                "condition": pending.condition,
+            },
+        )
+        if trace is not None:
+            trace.info(
+                "QUICK_START_TRACE request profile=%s intent=%s capacity_ah=%s",
+                pending.profile,
+                pending.intent.value,
+                pending.capacity_ah,
+            )
+        try:
+            result = await route.submit(intent)
+        except Exception as exc:
+            if trace is not None:
+                trace.info("QUICK_START_TRACE route=EXCEPTION type=%s", type(exc).__name__)
+            raise
+        if trace is not None:
+            trace.info(
+                "QUICK_START_TRACE result accepted=%s reason=%s mode=%s",
+                result.accepted,
+                result.reason,
+                getattr(getattr(result.port_result, "mode", None), "value", None),
+            )
+        if not result.accepted:
+            await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            if trace is not None:
+                trace.info("QUICK_START_TRACE response=REJECTED")
+            return
+        _clear_pending_program_state(app, user_id)
+        if trace is not None:
+            trace.info("QUICK_START_TRACE pending=CLEARED after_route=PASS")
+        dashboard_builder = getattr(app, "_build_and_send_dashboard", None)
+        message = getattr(call, "message", None)
+        if callable(dashboard_builder) and message is not None:
+            try:
+                await dashboard_builder(
+                    chat_id=message.chat.id,
+                    user_id=user_id,
+                    old_msg_id=message.message_id,
+                    anchor_msg_id=None,
+                )
+            except Exception as exc:
+                if trace is not None:
+                    trace.warning("QUICK_START_TRACE dashboard_refresh_failed type=%s", type(exc).__name__)
+        # The route owns preflight and transactional safety; the callback only
+        # submits the operator intent and never touches hardware directly.
+        await call.answer(
+            format_start_feedback(result),
+            show_alert=True,
+        )
+        if trace is not None:
+            trace.info("QUICK_START_TRACE response=ACCEPTED")
 
     @app.router.callback_query(F.data.startswith("v2_bat_intent_"))
     async def battery_intent_handler(call: Any) -> None:
@@ -522,16 +709,5 @@ def install_v2_ui(app: Any) -> None:
             f"{format_battery_card(record)}\n\n{preview.text}",
             reply_markup=_preview_keyboard("v2_battery_start"),
         )
+        await _refresh_dashboard_after_selection(app, call, user_id)
 
-    @app.router.callback_query(F.data == "v2_battery_start")
-    async def battery_start_handler(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        await call.answer()
-        user_id = call.from_user.id if call.from_user else 0
-        pending = _pending_start.get(user_id)
-        if pending is None:
-            await call.answer("Preview устарел — выберите АКБ заново", show_alert=True)
-            return
-        if await _start_profile(app, call, pending):
-            _pending_start.pop(user_id, None)

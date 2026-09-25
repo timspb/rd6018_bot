@@ -217,19 +217,8 @@ def build_operator_dashboard_keyboard(
             chart_button(app.CHART_RANGE_2H, "2ч"),
             chart_button(app.CHART_RANGE_SESSION, "Сессия"),
         ],
-        [
-            InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-            InlineKeyboardButton(text="📋 События", callback_data="logs"),
-        ],
-        [
-            InlineKeyboardButton(text="🎛 Контроллер", callback_data="v2_status"),
-            InlineKeyboardButton(text="🩺 Диагностика", callback_data="entities_status"),
-        ],
+        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
     ]
-    if not active:
-        rows.append(
-            [InlineKeyboardButton(text="⏱ Условие OFF", callback_data="menu_off")]
-        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

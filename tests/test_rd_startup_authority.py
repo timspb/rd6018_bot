@@ -1,8 +1,12 @@
 import types
 import unittest
+from unittest.mock import patch
 
 import v2_mix_mode
-from rd_startup_authority import RdStartupAuthorityGate
+from rd_startup_authority import (
+    RdStartupAuthorityGate,
+    reconcile_startup_authority,
+)
 from runtime_safety import RuntimeSafetyError
 
 
@@ -35,6 +39,23 @@ class DummyHass:
 
     async def set_ocp(self, value):
         return True
+
+
+class DummyController:
+    def __init__(self):
+        self.restore_calls = []
+        self.start_calls = []
+        self.is_active = False
+
+    def start(self, *args, **kwargs):
+        self.start_calls.append((args, kwargs))
+        self.is_active = True
+        return True
+
+    def try_restore_session(self, *args, **kwargs):
+        self.restore_calls.append((args, kwargs))
+        self.is_active = True
+        return True, "restored"
 
 
 class DummyGuard:
@@ -90,7 +111,8 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         hass = DummyHass()
         guard = DummyGuard()
         manager = DummyManager(guard)
-        app = types.SimpleNamespace(hass=hass)
+        controller = DummyController()
+        app = types.SimpleNamespace(hass=hass, charge_controller=controller)
         gate = RdStartupAuthorityGate(app, manager)
         return app, manager, guard, gate
 
@@ -169,23 +191,159 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(gate.managed_actuation_ready)
         self.assertIsNone(gate.candidate_autonomous)
 
-    async def test_failed_managed_recovery_stays_blocked_without_retry_loop(self):
+    async def test_failed_managed_recovery_is_throttled_and_eventually_reopens_control(self):
         app, _manager, _guard, gate = self.make()
         recovery_calls = 0
+        sleeps = []
 
         async def recover():
             nonlocal recovery_calls
             recovery_calls += 1
-            return False
+            self.assertFalse(gate.managed_actuation_ready)
+            return recovery_calls >= 2
 
-        result = await gate.reconcile(recover)
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+            self.assertFalse(gate.managed_actuation_ready)
 
-        self.assertEqual(result, "blocked")
-        self.assertEqual(recovery_calls, 1)
-        self.assertFalse(gate.reconciliation_complete)
+        with patch("rd_startup_authority.asyncio.sleep", side_effect=fake_sleep):
+            result = await gate.reconcile(recover, recovery_retry_s=30.0)
+
+        self.assertEqual(result, "managed")
+        self.assertEqual(recovery_calls, 2)
+        self.assertEqual(sleeps, [30.0])
+        self.assertTrue(gate.managed_actuation_ready)
+        self.assertTrue(await app.hass.turn_on("switch.test"))
+
+    async def test_recovery_exception_is_throttled_and_retried_fail_closed(self):
+        _app, _manager, _guard, gate = self.make()
+        recovery_calls = 0
+        sleeps = []
+
+        async def recover():
+            nonlocal recovery_calls
+            recovery_calls += 1
+            if recovery_calls == 1:
+                raise OSError("transient HA failure")
+            return True
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+            self.assertFalse(gate.managed_actuation_ready)
+
+        with patch("rd_startup_authority.asyncio.sleep", side_effect=fake_sleep):
+            result = await gate.reconcile(recover, recovery_retry_s=30.0)
+
+        self.assertEqual(result, "managed")
+        self.assertEqual(recovery_calls, 2)
+        self.assertEqual(sleeps, [30.0])
+        self.assertTrue(gate.managed_actuation_ready)
+
+    async def test_early_legacy_restore_is_replayed_once_after_managed_recovery(self):
+        app, _manager, _guard, gate = self.make()
+        replay_calls = 0
+
+        ok, message = app.charge_controller.try_restore_session(12.4, 0.0, 3.0)
+        self.assertFalse(ok)
+        self.assertIsNone(message)
+        self.assertTrue(gate.deferred_restore_requested)
+        self.assertEqual(app.charge_controller.restore_calls, [])
+
+        async def recover():
+            return True
+
+        async def replay():
+            nonlocal replay_calls
+            replay_calls += 1
+            app.charge_controller.try_restore_session(12.5, 0.0, 3.1)
+
+        result = await reconcile_startup_authority(gate, recover, replay)
+
+        self.assertEqual(result, "managed")
+        self.assertEqual(replay_calls, 1)
+        self.assertEqual(len(app.charge_controller.restore_calls), 1)
+        self.assertEqual(app.charge_controller.restore_calls[0][0], (12.5, 0.0, 3.1))
+        self.assertFalse(gate.deferred_restore_requested)
+
+    async def test_managed_reconciliation_before_legacy_restore_does_not_double_restore(self):
+        app, _manager, _guard, gate = self.make()
+        replay_calls = 0
+
+        async def recover():
+            return True
+
+        async def replay():
+            nonlocal replay_calls
+            replay_calls += 1
+
+        self.assertEqual(
+            await reconcile_startup_authority(gate, recover, replay),
+            "managed",
+        )
+        self.assertEqual(replay_calls, 0)
+
+        ok, message = app.charge_controller.try_restore_session(12.6, 0.1, 3.2)
+        self.assertTrue(ok)
+        self.assertEqual(message, "restored")
+        self.assertEqual(len(app.charge_controller.restore_calls), 1)
+        self.assertFalse(gate.deferred_restore_requested)
+
+    async def test_autonomous_startup_discards_deferred_managed_restore(self):
+        app, _manager, guard, gate = self.make()
+        guard.raw["autonomous_mode"] = "on"
+        replay_calls = 0
+
+        app.charge_controller.try_restore_session(12.4, 0.0, 3.0)
+        self.assertTrue(gate.deferred_restore_requested)
+
+        async def recover():
+            self.fail("managed recovery must not run in AUTONOMOUS")
+
+        async def replay():
+            nonlocal replay_calls
+            replay_calls += 1
+
+        result = await reconcile_startup_authority(gate, recover, replay)
+
+        self.assertEqual(result, "autonomous")
+        self.assertEqual(replay_calls, 0)
+        self.assertEqual(app.charge_controller.restore_calls, [])
+        self.assertFalse(gate.deferred_restore_requested)
         self.assertFalse(gate.managed_actuation_ready)
-        with self.assertRaisesRegex(RuntimeSafetyError, "recovery incomplete"):
-            await app.hass.turn_on("switch.test")
+
+    async def test_transient_deferred_restore_read_failure_retries_without_duplicate_restore(self):
+        app, _manager, _guard, gate = self.make()
+        app.charge_controller.try_restore_session(12.4, 0.0, 3.0)
+        replay_calls = 0
+        sleeps = []
+
+        async def recover():
+            return True
+
+        async def replay():
+            nonlocal replay_calls
+            replay_calls += 1
+            if replay_calls == 1:
+                raise OSError("transient live read")
+            app.charge_controller.try_restore_session(12.7, 0.0, 3.3)
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+            self.assertTrue(gate.managed_actuation_ready)
+
+        with patch("rd_startup_authority.asyncio.sleep", side_effect=fake_sleep):
+            result = await reconcile_startup_authority(
+                gate,
+                recover,
+                replay,
+                retry_s=5.0,
+            )
+
+        self.assertEqual(result, "managed")
+        self.assertEqual(replay_calls, 2)
+        self.assertEqual(sleeps, [5.0])
+        self.assertEqual(len(app.charge_controller.restore_calls), 1)
+        self.assertFalse(gate.deferred_restore_requested)
 
     async def test_unreconciled_get_all_live_is_raw_not_managed_pipeline(self):
         app, _manager, guard, gate = self.make()

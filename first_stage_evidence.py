@@ -42,6 +42,7 @@ MIN_MEASURABLE_TAIL_A = 0.05
 MAX_TAIL_A = 1.50
 NEAR_TARGET_MARGIN_V = 0.20
 THERMAL_ACCEL_C_PER_MIN = 0.12
+THERMAL_ANOMALY_MIN_TEMP_C = 30.0
 CURRENT_NOT_FALLING_A_PER_MIN = -0.01
 VOLTAGE_SAG_V_PER_MIN = -0.01
 
@@ -70,6 +71,7 @@ def assess_first_stage(
     dtemp_c_per_min: Optional[float] = None,
     dcurrent_a_per_min: Optional[float] = None,
     dvoltage_v_per_min: Optional[float] = None,
+    temperature_c: Optional[float] = None,
 ) -> FirstStageAssessment:
     capacity = float(capacity_ah)
     voltage = float(voltage_v)
@@ -100,6 +102,8 @@ def assess_first_stage(
     # falling (or reversing) + temperature acceleration.
     if (
         is_cv
+        and temperature_c is not None
+        and float(temperature_c) >= THERMAL_ANOMALY_MIN_TEMP_C
         and near_target
         and current_not_falling
         and dtemp_c_per_min is not None

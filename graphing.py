@@ -4,6 +4,7 @@ graphing.py — построение графика U/I во времени (dar
 """
 import io
 import logging
+import threading
 from datetime import datetime, time, timezone
 from typing import List, Optional, Union
 
@@ -13,6 +14,8 @@ import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 
 logger = logging.getLogger("rd6018")
+_FIGURE = None
+_RENDER_LOCK = threading.Lock()
 
 
 def _to_float_list(data: List) -> List[float]:
@@ -116,113 +119,102 @@ def generate_chart(
 
     # График от начала до конца сессии — без обрезки по времени (полный диапазон данных)
 
-    try:
-        from time_utils import get_user_timezone
-        user_tz = get_user_timezone()
+    global _FIGURE
+    with _RENDER_LOCK:
+        try:
+            from time_utils import get_user_timezone
+            user_tz = get_user_timezone()
 
-        plt.style.use("dark_background")
-        has_temps = temps is not None
-        if has_temps:
-            fig, (ax1, ax2, ax3) = plt.subplots(
-                3,
-                1,
-                figsize=(8, 6),
-                facecolor="#1e1e1e",
-                sharex=True,
-                gridspec_kw={"height_ratios": [2, 1.5, 1]},
-            )
-            for ax in (ax1, ax2, ax3):
-                ax.set_facecolor("#1e1e1e")
-                ax.grid(True, alpha=0.12)
-                ax.xaxis_date(tz=user_tz)
+            plt.style.use("dark_background")
+            has_temps = temps is not None
+            if _FIGURE is None:
+                _FIGURE = plt.figure(figsize=(7.5, 4.5 if has_temps else 3.0), facecolor="#1e1e1e")
+            fig = _FIGURE
+            fig.clear()
+            fig.set_facecolor("#1e1e1e")
+            if has_temps:
+                fig.set_size_inches(7.5, 4.5)
+                ax1, ax2, ax3 = fig.subplots(
+                    3,
+                    1,
+                    sharex=True,
+                    gridspec_kw={"height_ratios": [2, 1.5, 1]},
+                )
+                for ax in (ax1, ax2, ax3):
+                    ax.set_facecolor("#1e1e1e")
+                    ax.grid(True, alpha=0.12)
+                    ax.xaxis_date(tz=user_tz)
 
-            ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
-            ax1.set_ylabel("Voltage (V)", color="#00ffff")
-            ax1.tick_params(axis="y", colors="#00ffff")
+                ax1.plot(times_parsed, v_list, color="#00ffff", linewidth=1.5)
+                ax1.set_ylabel("Voltage (V)", color="#00ffff")
+                ax1.tick_params(axis="y", colors="#00ffff")
+                ax2.plot(times_parsed, i_list, color="#ffff00", linewidth=1.5)
+                ax2.set_ylabel("Current (A)", color="#ffff00")
+                ax2.tick_params(axis="y", colors="#ffff00")
+                ax3.plot(times_parsed, t_list, color="#ff9f43", linewidth=1.5)
+                ax3.set_ylabel("Temp (°C)", color="#ff9f43")
+                ax3.set_xlabel("Время", color="#fff")
+                ax3.tick_params(axis="x", colors="#fff", labelsize=8)
+                ax3.tick_params(axis="y", colors="#ff9f43")
+                ax3.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
 
-            ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
-            ax2.set_ylabel("Current (A)", color="#ffff00")
-            ax2.tick_params(axis="y", colors="#ffff00")
-
-            ax3.plot(times_parsed, t_list, color="#ff9f43", label="Temp (°C)", linewidth=1.5)
-            ax3.set_ylabel("Temp (°C)", color="#ff9f43")
-            ax3.set_xlabel("Время", color="#fff")
-            ax3.tick_params(axis="x", colors="#fff", labelsize=8)
-            ax3.tick_params(axis="y", colors="#ff9f43")
-            ax3.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
-
-            min_v = min(v_list)
-            max_v = max(v_list)
-            if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0):
-                ax1.set_ylim(0, 20)
+                min_v, max_v = min(v_list), max(v_list)
+                ax1.set_ylim(
+                    0 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max(0, min_v * 0.95),
+                    20 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max_v * 1.05,
+                )
+                min_i, max_i = min(i_list), max(i_list)
+                ax2.set_ylim(
+                    0 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max(0, min_i * 0.95),
+                    20 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max_i * 1.05,
+                )
+                min_t, max_t = min(t_list), max(t_list)
+                ax3.set_ylim(
+                    max(0, min_t - 1.0),
+                    max_t + 1.0 if max_t > 0 else 60,
+                )
             else:
-                ax1.set_ylim(max(0, min_v * 0.95), max_v * 1.05)
-
-            min_i = min(i_list)
-            max_i = max(i_list)
-            if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0):
-                ax2.set_ylim(0, 20)
-            else:
-                ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
-
-            min_t = min(t_list)
-            max_t = max(t_list)
-            if max_t - min_t < 0.5 or (min_t == 0 and max_t == 0):
-                ax3.set_ylim(max(0, min_t - 1.0), max_t + 1.0 if max_t > 0 else 60)
-            else:
-                ax3.set_ylim(min_t - 0.5, max_t + 0.5)
+                fig.set_size_inches(7.5, 3.0)
+                ax1 = fig.add_subplot(111)
+                ax1.set_facecolor("#1e1e1e")
+                ax1.xaxis_date(tz=user_tz)
+                ax1.plot(times_parsed, v_list, color="#00ffff", linewidth=1.5)
+                ax1.set_xlabel("Время", color="#fff")
+                ax1.set_ylabel("Voltage (V)", color="#00ffff")
+                ax1.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
+                ax1.tick_params(axis="x", colors="#fff", labelsize=8)
+                ax1.tick_params(axis="y", colors="#00ffff")
+                min_v, max_v = min(v_list), max(v_list)
+                ax1.set_ylim(
+                    0 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max(0, min_v * 0.95),
+                    20 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max_v * 1.05,
+                )
+                ax2 = ax1.twinx()
+                ax2.plot(times_parsed, i_list, color="#ffff00", linewidth=1.5)
+                ax2.set_ylabel("Current (A)", color="#ffff00")
+                ax2.tick_params(axis="y", colors="#ffff00")
+                min_i, max_i = min(i_list), max(i_list)
+                ax2.set_ylim(
+                    0 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max(0, min_i * 0.95),
+                    20 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max_i * 1.05,
+                )
+                fig.legend(loc="upper right", fontsize=8)
 
             if len(times_parsed) > 1:
                 ax1.set_xlim(times_parsed[0], times_parsed[-1])
-        else:
-            fig, ax1 = plt.subplots(figsize=(8, 4), facecolor="#1e1e1e")
-            ax1.set_facecolor("#1e1e1e")
-            # Метки оси X — в пользовательском часовом поясе (по умолчанию matplotlib использует UTC)
-            ax1.xaxis_date(tz=user_tz)
+            fig.autofmt_xdate()
+            fig.tight_layout()
 
-            ax1.plot(times_parsed, v_list, color="#00ffff", label="Voltage (V)", linewidth=1.5)
-            ax1.set_xlabel("Время", color="#fff")
-            ax1.set_ylabel("Voltage (V)", color="#00ffff")
-            ax1.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
-            ax1.tick_params(axis="x", colors="#fff", labelsize=8)
-            ax1.tick_params(axis="y", colors="#00ffff")
-
-            min_v = min(v_list)
-            max_v = max(v_list)
-            if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0):
-                ax1.set_ylim(0, 20)
-            else:
-                ax1.set_ylim(max(0, min_v * 0.95), max_v * 1.05)
-
-            ax2 = ax1.twinx()
-            ax2.plot(times_parsed, i_list, color="#ffff00", label="Current (A)", linewidth=1.5)
-            ax2.set_ylabel("Current (A)", color="#ffff00")
-            ax2.tick_params(axis="y", colors="#ffff00")
-
-            min_i = min(i_list)
-            max_i = max(i_list)
-            if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0):
-                ax2.set_ylim(0, 20)
-            else:
-                ax2.set_ylim(max(0, min_i * 0.95), max_i * 1.05)
-
-            # v2.5: Растягиваем ось X от первого до последнего замера (убираем пустую "дыру")
-            if len(times_parsed) > 1:
-                ax1.set_xlim(times_parsed[0], times_parsed[-1])
-
-            fig.legend(loc="upper right", fontsize=8)
-        fig.autofmt_xdate()
-        fig.tight_layout()
-
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight")
-        plt.close(fig)
-        buf.seek(0)
-        return buf
-    except Exception as ex:
-        logger.error("generate_chart failed: %s", ex)
-        plt.close("all")
-        return None
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight")
+            buf.seek(0)
+            return buf
+        except Exception as ex:
+            logger.error("generate_chart failed: %s", ex)
+            if _FIGURE is not None:
+                plt.close(_FIGURE)
+                _FIGURE = None
+            return None
 
 
 def create_chart(

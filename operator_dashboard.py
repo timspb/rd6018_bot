@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import html
+import os
 from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
+import v2_bot_ui
+from application.operator_snapshot_provider import OperatorSnapshotProvider
+from presentation.dark_panel import render_dark_dashboard, render_dark_panel
 from rd6018_telemetry import (
     ProtectionStatus,
     RegulationMode,
@@ -17,15 +23,93 @@ _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
 _BASE_BUILD_OPERATOR_HMI_STATE = hmi.build_operator_hmi_state
 _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
+GRAPH_REFRESH_SEC = 60.0
+_GRAPH_CAPTION = ""
 
 
-def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int):
-    """Place chart ranges immediately below the graph on the main panel."""
-    panel = hmi.build_operator_keyboard(app, state)
-    graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
-    return app.InlineKeyboardMarkup(
-        inline_keyboard=(graph_rows[:1] if graph_rows else []) + list(panel.inline_keyboard)
+def _dark_panel_enabled() -> bool:
+    return os.getenv("OPERATOR_PANEL_STYLE", "text").strip().lower() in {"dark", "dark_card", "image"}
+
+
+def _charge_session_active(app: Any) -> bool:
+    controller = getattr(app, "charge_controller", None)
+    if controller is not None and bool(getattr(controller, "is_active", False)):
+        return True
+    manual = getattr(app, "manual_session_manager", None)
+    if manual is not None and bool(getattr(manual, "is_active", False)):
+        return True
+    observer = getattr(app, "rd_live_mix_observer", None)
+    return observer is not None and str(getattr(observer, "state", "")) in {"active", "off_pending"}
+
+
+def _panel_actions(actions, *, dark: bool):
+    """Apply presentation-only visibility rules to the immutable action view."""
+    if actions is None or not dark:
+        return actions
+    hidden = {hmi.OperatorAction.SHOW_DIAGNOSTICS}
+    return replace(
+        actions,
+        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
     )
+
+
+def _toolbar_actions(actions):
+    """Keep graph ranges and the log in the dedicated top toolbar only."""
+    if actions is None:
+        return None
+    hidden = {hmi.OperatorAction.SHOW_GRAPH}
+    return replace(
+        actions,
+        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
+    )
+
+
+def _hide_active_release_button(markup: Any) -> Any:
+    """Do not expose RD ownership transfer from the active charge workspace."""
+    rows = [
+        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
+        for row in markup.inline_keyboard
+    ]
+    return type(markup)(inline_keyboard=[row for row in rows if row])
+
+
+def _graph_toolbar(app: Any, user_id: int, actions=None):
+    graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
+    top_row = list(graph_rows[0]) if graph_rows else []
+    if actions is not None and any(
+        item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
+    ):
+        top_row.append(hmi.InlineKeyboardButton(text="📋 Лог", callback_data="logs"))
+    return top_row
+
+
+def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
+    """Render the charge panel without graph controls or graph work."""
+    # Older composition wrappers preserve the two-argument builder signature.
+    # The V3 path passes capabilities explicitly; compatibility callers retain
+    # the unchanged legacy fallback.
+    # The root dashboard uses the existing state-driven RD control screen.  The
+    # capability view remains available to callers, but must not replace the
+    # ownership/autonomous composition on the root screen.
+    panel = hmi.build_operator_keyboard(app, state)
+    markup = app.InlineKeyboardMarkup(
+        inline_keyboard=list(panel.inline_keyboard)
+    )
+    if _charge_session_active(app):
+        return _hide_active_release_button(markup)
+    return markup
+
+
+def _active_graph_panel_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
+    """Keep graph ranges and active-charge controls on the same photo message."""
+    graph_rows = [_graph_toolbar(app, user_id, actions)]
+    panel_markup = hmi.build_operator_keyboard(app, state, actions=actions)
+    panel_rows = list(panel_markup.inline_keyboard)
+    panel_rows = [
+        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
+        for row in panel_rows
+    ]
+    return app.InlineKeyboardMarkup(inline_keyboard=graph_rows + panel_rows)
 
 
 def _binary(value: Any) -> Optional[bool]:
@@ -253,6 +337,11 @@ def install_operator_graph_dashboard(app: Any) -> None:
     if bool(getattr(app, "_operator_graph_dashboard_installed", False)):
         return
 
+    app.user_graph_dashboard = getattr(app, "user_graph_dashboard", {})
+    app.chat_graph_dashboard = getattr(app, "chat_graph_dashboard", {})
+    app._graph_cache_keys = getattr(app, "_graph_cache_keys", {})
+    app._graph_update_lock = getattr(app, "_graph_update_lock", asyncio.Lock())
+
     base_builder = hmi.build_operator_hmi_state
     base_panel_renderer = hmi.render_operator_panel
     base_details_renderer = hmi.render_operator_details
@@ -281,8 +370,34 @@ def install_operator_graph_dashboard(app: Any) -> None:
         except Exception:
             pass
 
+    async def retire_graph_workspace_for_user(chat_id: int, user_id: int) -> None:
+        message_id = app.user_graph_dashboard.pop(user_id, None)
+        if message_id is None:
+            return
+        if app.chat_graph_dashboard.get(chat_id) == message_id:
+            app.chat_graph_dashboard.pop(chat_id, None)
+        try:
+            await app.bot.delete_message(chat_id, message_id)
+        except Exception:
+            pass
+
+    async def active_panel_content(user_id: int):
+        interface = getattr(app, "operator_interface", None)
+        if interface is None:
+            return None
+        snapshot = await interface.get_operator_snapshot()
+        actions = await interface.get_operator_actions()
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
+        caption = truthful_panel(state)
+        panel_actions = _toolbar_actions(actions)
+        markup = _active_graph_panel_markup(app, state, user_id, panel_actions)
+        return caption, markup
+
     async def render_graph_workspace(app_arg: Any, call: Any, user_id: int) -> None:
         """Keep graph range changes to one logical workspace message."""
+        if not _charge_session_active(app_arg):
+            return
         _chart_mode, graph_since, limit_pts = app_arg._chart_query_params(user_id)
         times, voltages, currents, temps = await app_arg.get_graph_data_with_temp(
             limit=limit_pts,
@@ -295,9 +410,13 @@ def install_operator_graph_dashboard(app: Any) -> None:
             currents,
             temps,
         )
-        markup = hmi._graph_keyboard(app_arg, user_id)
+        panel_content = await active_panel_content(user_id)
+        markup = panel_content[1] if panel_content is not None else hmi._graph_keyboard(app_arg, user_id)
+        caption = panel_content[0] if panel_content is not None else _GRAPH_CAPTION
+        app_arg.user_graph_dashboard[user_id] = call.message.message_id
+        app_arg.chat_graph_dashboard[call.message.chat.id] = call.message.message_id
         if not buf:
-            text = "<b>График RD6018</b>\n\nНедостаточно данных."
+            text = "Недостаточно данных."
             # A photo message cannot truthfully become an empty text workspace by
             # editing only its caption: the old graph would remain visible. Replace
             # the workspace instead of leaving stale plotted data on screen.
@@ -331,7 +450,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         photo = app_arg.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
         media = app_arg.InputMediaPhoto(
             media=photo,
-            caption="<b>График RD6018</b>",
+            caption=caption,
             parse_mode=app_arg.ParseMode.HTML,
         )
         try:
@@ -347,7 +466,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             await retire_graph_workspace_message(app_arg, call)
             await call.message.answer_photo(
                 photo,
-                caption="<b>График RD6018</b>",
+                caption=caption,
                 parse_mode=app_arg.ParseMode.HTML,
                 reply_markup=markup,
             )
@@ -359,17 +478,199 @@ def install_operator_graph_dashboard(app: Any) -> None:
     hmi.render_operator_details = truthful_details
     hmi._render_graph_workspace = render_graph_workspace
 
-    async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> None:
-        """Refresh only the live panel; do not rebuild the chart on button press."""
-        try:
-            live = await app.hass.get_all_live()
-        except Exception as exc:
-            app.logger.error("Failed to refresh HA data for operator panel: %s", exc)
-            return
+    async def publish_graph_workspace(
+        chat_id: int,
+        user_id: int,
+        caption: str,
+        reply_markup: Any,
+    ) -> Optional[int]:
+        """Publish one photo message containing both graph and charge panel."""
+        if not _charge_session_active(app):
+            return None
+        _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+        times, voltages, currents, temps = await app.get_graph_data_with_temp(
+            limit=limit_pts,
+            since_timestamp=graph_since,
+        )
+        buf = await app.asyncio.to_thread(
+            app.generate_chart,
+            times,
+            voltages,
+            currents,
+            temps,
+        )
+        if not buf:
+            return None
+        photo = app.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
+        sent = await app.bot.send_photo(
+            chat_id,
+            photo=photo,
+            caption=caption,
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=reply_markup,
+        )
+        app.user_graph_dashboard[user_id] = sent.message_id
+        app.chat_graph_dashboard[chat_id] = sent.message_id
+        app.user_dashboard[user_id] = sent.message_id
+        app.chat_dashboard[chat_id] = sent.message_id
+        app._graph_cache_keys[user_id] = (
+            _chart_mode,
+            times[-1] if times else None,
+            len(times),
+        )
+        ensure_graph_refresh_loop()
+        return int(sent.message_id)
 
-        state = truthful_builder(app, live)
+    async def refresh_graph_message(chat_id: int, user_id: int, *, force: bool = False) -> None:
+        """Refresh only the graph message when the recorder has a new point."""
+        graph_message_id = app.user_graph_dashboard.get(user_id)
+        if not graph_message_id:
+            return
+        if not _charge_session_active(app):
+            await retire_graph_workspace_for_user(chat_id, user_id)
+            return
+        async with app._graph_update_lock:
+            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+            times, voltages, currents, temps = await app.get_graph_data_with_temp(
+                limit=limit_pts,
+                since_timestamp=graph_since,
+            )
+            cache_key = (
+                _chart_mode,
+                times[-1] if times else None,
+                len(times),
+            )
+            if not force and app._graph_cache_keys.get(user_id) == cache_key:
+                return
+            buf = await app.asyncio.to_thread(
+                app.generate_chart,
+                times,
+                voltages,
+                currents,
+                temps,
+            )
+            if not buf:
+                return
+            photo = app.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
+            panel_content = await active_panel_content(user_id)
+            markup = panel_content[1] if panel_content is not None else hmi._graph_keyboard(app, user_id)
+            caption = panel_content[0] if panel_content is not None else _GRAPH_CAPTION
+            try:
+                await app.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=graph_message_id,
+                    media=app.InputMediaPhoto(
+                        media=photo,
+                        caption=caption,
+                        parse_mode=app.ParseMode.HTML,
+                    ),
+                    reply_markup=markup,
+                )
+            except Exception as exc:
+                if "message is not modified" not in str(exc).lower():
+                    app.logger.debug("graph refresh failed: %s", exc)
+                    return
+            app._graph_cache_keys[user_id] = cache_key
+
+    async def graph_refresh_loop() -> None:
+        while True:
+            await asyncio.sleep(GRAPH_REFRESH_SEC)
+            for user_id, message_id in list(app.user_graph_dashboard.items()):
+                chat_id = next(
+                    (chat for chat, current in app.chat_graph_dashboard.items() if current == message_id),
+                    None,
+                )
+                if chat_id is None:
+                    continue
+                try:
+                    await refresh_graph_message(chat_id, user_id)
+                except Exception as exc:
+                    app.logger.debug("periodic graph refresh failed: %s", exc)
+
+    def ensure_graph_refresh_loop() -> None:
+        task = getattr(app, "_graph_refresh_task", None)
+        if task is None or task.done():
+            app._graph_refresh_task = asyncio.create_task(graph_refresh_loop())
+
+    app._refresh_graph_message = refresh_graph_message
+    app._ensure_graph_refresh_loop = ensure_graph_refresh_loop
+    app._retire_graph_workspace_for_user = retire_graph_workspace_for_user
+
+    async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> Optional[int]:
+        """Replace the one live panel message without rebuilding the graph."""
+        try:
+            interface = getattr(app, "operator_interface", None)
+            if interface is None:
+                raise RuntimeError("operator interface is not installed")
+            snapshot = await interface.get_operator_snapshot()
+            actions = await interface.get_operator_actions()
+        except Exception as exc:
+            app.logger.error("Failed to refresh V3 operator snapshot: %s", exc)
+            return None
+
+        state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id)
+        panel_actions = _toolbar_actions(actions)
+        # A successful start can leave the callback's preview/text message as
+        # the tracked dashboard while the graph workspace has not been created
+        # yet.  Promote that same message to the single graph+panel workspace;
+        # do not leave a second text panel behind.
+        if _charge_session_active(app) and not app.user_graph_dashboard.get(user_id):
+            builder = getattr(app, "_build_and_send_dashboard", None)
+            if callable(builder):
+                return await builder(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    old_msg_id=message_id,
+                    anchor_msg_id=None,
+                )
+        markup = (
+            app.InlineKeyboardMarkup(
+                inline_keyboard=list(
+                    hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard
+                )
+            )
+            if _dark_panel_enabled()
+            else _main_graph_markup(app, state, user_id, actions)
+        )
+        is_graph_message = app.user_graph_dashboard.get(user_id) == message_id
+        if is_graph_message and _charge_session_active(app):
+            markup = _active_graph_panel_markup(app, state, user_id, panel_actions)
+        elif is_graph_message:
+            await retire_graph_workspace_for_user(chat_id, user_id)
+            sent = await app.bot.send_message(
+                chat_id,
+                caption,
+                reply_markup=markup,
+                parse_mode=app.ParseMode.HTML,
+            )
+            app.user_dashboard[user_id] = sent.message_id
+            app.chat_dashboard[chat_id] = sent.message_id
+            return int(sent.message_id)
+
+        if _dark_panel_enabled():
+            card = app.BufferedInputFile(render_dark_panel(caption), filename="rd6018-panel.png")
+            try:
+                await app.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=app.InputMediaPhoto(media=card, caption=""),
+                    reply_markup=markup,
+                )
+                return int(message_id)
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    return int(message_id)
+                try:
+                    await app.bot.delete_message(chat_id, message_id)
+                except Exception:
+                    pass
+                sent = await app.bot.send_photo(chat_id, photo=card, caption="", reply_markup=markup)
+                app.user_dashboard[user_id] = sent.message_id
+                app.chat_dashboard[chat_id] = sent.message_id
+                return int(sent.message_id)
+
         try:
             await app.bot.edit_message_caption(
                 chat_id=chat_id,
@@ -378,21 +679,37 @@ def install_operator_graph_dashboard(app: Any) -> None:
                 reply_markup=markup,
                 parse_mode=app.ParseMode.HTML,
             )
+            return int(message_id)
         except Exception as exc:
             if "message is not modified" in str(exc).lower():
-                return
-            # A text dashboard can still exist from an older runtime; update it
-            # without falling back to the expensive chart-producing path.
+                return int(message_id)
+
+        # A text dashboard can still exist from an older runtime; update it without
+        # falling back to the expensive chart-producing path.
+        try:
+            await app.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=caption,
+                reply_markup=markup,
+                parse_mode=app.ParseMode.HTML,
+            )
+            return int(message_id)
+        except Exception as text_exc:
+            app.logger.warning("operator panel refresh failed: %s", text_exc)
             try:
-                await app.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=caption,
-                    reply_markup=markup,
-                    parse_mode=app.ParseMode.HTML,
-                )
-            except Exception as text_exc:
-                app.logger.warning("operator panel refresh failed: %s", text_exc)
+                await app.bot.delete_message(chat_id, message_id)
+            except Exception:
+                pass
+            sent = await app.bot.send_message(
+                chat_id,
+                caption,
+                reply_markup=markup,
+                parse_mode=app.ParseMode.HTML,
+            )
+            app.user_dashboard[user_id] = sent.message_id
+            app.chat_dashboard[chat_id] = sent.message_id
+            return int(sent.message_id)
 
     app._refresh_operator_panel = refresh_operator_panel
 
@@ -402,58 +719,120 @@ def install_operator_graph_dashboard(app: Any) -> None:
         old_msg_id: Optional[int] = None,
         anchor_msg_id: Optional[int] = None,
     ) -> int:
-        try:
-            live = await app.hass.get_all_live()
-        except Exception as exc:
-            app.logger.error("Failed to get HA data for operator dashboard: %s", exc)
-            live = {}
+        """Publish the ordinary dashboard without entering the charting stack.
 
-        state = truthful_builder(app, live)
+        Graph rendering is intentionally limited to ``render_graph_workspace`` above,
+        which is reached only by an explicit operator graph request.  The terminal
+        panel middleware calls this builder for routine Telegram events, so keeping
+        this path text-only prevents repeated native Matplotlib/NumPy allocations.
+        """
+        actions = None
+        try:
+            interface = getattr(app, "operator_interface", None)
+            if interface is None:
+                raise RuntimeError("operator interface is not installed")
+            snapshot = await interface.get_operator_snapshot()
+            actions = await interface.get_operator_actions()
+        except Exception as exc:
+            app.logger.error("Failed to get V3 operator snapshot for dashboard: %s", exc)
+            snapshot = None
+
+        state = (
+            OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+            if snapshot is not None
+            else hmi.OperatorHmiState(
+                hmi.HmiProcessState.CONTAINMENT,
+                hmi.HmiAuthority.CONTAINMENT,
+                "RD6018 · Состояние неизвестно",
+                False,
+                "—",
+                "",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Телеметрия недоступна",
+                "⚠️ Состояние не подтверждено",
+                attention="output_unknown",
+            )
+        )
         caption = truthful_panel(state)
-        markup = _main_graph_markup(app, state, user_id)
-
-        photo = None
-        try:
-            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
-            times, voltages, currents, temps = await app.get_graph_data_with_temp(
-                limit=limit_pts,
-                since_timestamp=graph_since,
+        actions = _panel_actions(actions, dark=_dark_panel_enabled())
+        panel_actions = _toolbar_actions(actions)
+        markup = (
+            app.InlineKeyboardMarkup(
+            inline_keyboard=list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
             )
-            buf = await app.asyncio.to_thread(
-                app.generate_chart,
-                times,
-                voltages,
-                currents,
-                temps,
-            )
-            if buf:
-                photo = app.BufferedInputFile(buf.getvalue(), filename="chart.png")
-        except Exception as exc:
-            # Losing history/graph rendering must never hide the live operator state.
-            app.logger.warning("operator dashboard graph unavailable: %s", exc)
+            if _dark_panel_enabled()
+            else _main_graph_markup(app, state, user_id, actions)
+        )
 
+        # Only the first dashboard path without a graph workspace publishes the
+        # graph. Callback-driven charge-panel refreshes never enter the charting
+        # stack. If a restart left an old charge message tracked but no graph
+        # workspace, retire that
+        # message first so the new graph is immediately followed by the new
+        # charge panel in Telegram's append-only message order.
+        graph_allowed = _charge_session_active(app)
         target = old_msg_id or anchor_msg_id
+        tracked_panel = app.user_dashboard.get(user_id) or app.chat_dashboard.get(chat_id)
+        if target is None:
+            target = tracked_panel
+        graph_message_id = app.user_graph_dashboard.get(user_id)
+        if graph_allowed and graph_message_id:
+            # The graph photo is the authoritative active-charge workspace.
+            # A legacy/ delayed refresh may still point user_dashboard at an
+            # older text panel; retire that message and refresh the photo only.
+            if target is not None and target != graph_message_id:
+                try:
+                    await app.bot.delete_message(chat_id, target)
+                except Exception:
+                    pass
+            refreshed = await refresh_operator_panel(
+                chat_id,
+                user_id,
+                int(graph_message_id),
+            )
+            if refreshed is not None:
+                return int(refreshed)
+            app.user_dashboard[user_id] = graph_message_id
+            app.chat_dashboard[chat_id] = graph_message_id
+            return int(graph_message_id)
+        if not graph_allowed:
+            await retire_graph_workspace_for_user(chat_id, user_id)
+        initial_graph = graph_allowed and not app.user_graph_dashboard.get(user_id)
+        if initial_graph and target:
+            try:
+                await app.bot.delete_message(chat_id, target)
+            except Exception:
+                pass
+            target = None
+        if initial_graph:
+            try:
+                graph_markup = _active_graph_panel_markup(app, state, user_id, panel_actions)
+                graph_message_id = await publish_graph_workspace(
+                    chat_id,
+                    user_id,
+                    caption,
+                    graph_markup,
+                )
+                if graph_message_id is not None:
+                    return graph_message_id
+            except Exception as exc:
+                app.logger.debug("initial graph workspace publish failed: %s", exc)
+
         if target:
             try:
-                if photo:
-                    await app.bot.edit_message_media(
-                        chat_id=chat_id,
-                        message_id=target,
-                        media=app.InputMediaPhoto(
-                            media=photo,
-                            caption=caption,
-                            parse_mode=app.ParseMode.HTML,
-                        ),
-                        reply_markup=markup,
-                    )
-                else:
-                    await app.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=target,
-                        text=caption,
-                        reply_markup=markup,
-                        parse_mode=app.ParseMode.HTML,
-                    )
+                await app.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=target,
+                    text=caption,
+                    reply_markup=markup,
+                    parse_mode=app.ParseMode.HTML,
+                )
                 app.user_dashboard[user_id] = target
                 app.chat_dashboard[chat_id] = target
                 return int(target)
@@ -467,21 +846,12 @@ def install_operator_graph_dashboard(app: Any) -> None:
                 except Exception:
                     pass
 
-        if photo:
-            sent = await app.bot.send_photo(
-                chat_id,
-                photo=photo,
-                caption=caption,
-                reply_markup=markup,
-                parse_mode=app.ParseMode.HTML,
-            )
-        else:
-            sent = await app.bot.send_message(
-                chat_id,
-                caption,
-                reply_markup=markup,
-                parse_mode=app.ParseMode.HTML,
-            )
+        sent = await app.bot.send_message(
+            chat_id,
+            caption,
+            reply_markup=markup,
+            parse_mode=app.ParseMode.HTML,
+        )
         app.user_dashboard[user_id] = sent.message_id
         app.chat_dashboard[chat_id] = sent.message_id
         return int(sent.message_id)

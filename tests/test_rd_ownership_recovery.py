@@ -173,7 +173,7 @@ class OwnershipRecoveryTransactionTests(unittest.IsolatedAsyncioTestCase):
 class OwnershipRecoveryHmiTests(unittest.TestCase):
     def setUp(self):
         self.original_keyboard = hmi.build_operator_keyboard
-        hmi.build_operator_keyboard = lambda app, state: InlineKeyboardMarkup(
+        hmi.build_operator_keyboard = lambda app, state, **kwargs: InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="info", callback_data="operator_details")],
                 [InlineKeyboardButton(text="refresh", callback_data="operator_refresh")],
@@ -269,7 +269,7 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
         callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
         self.assertIn("rd_hands_off_disable", callbacks)
 
-    def test_active_managed_session_exposes_session_bound_release(self):
+    def test_active_managed_session_hides_rd_release_button(self):
         app, manager = self._app()
         app.charge_controller.is_active = True
         install_rd_ownership_recovery(app, manager)
@@ -280,6 +280,31 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
         )
 
         callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
+        self.assertNotIn("rd_hands_off_release_confirm", callbacks)
+
+    def test_snapshot_actions_path_exposes_hands_off(self):
+        from application.operator_actions import OperatorActionsView
+
+        app, manager = self._app()
+        install_rd_ownership_recovery(app, manager)
+        state = self._state(hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE, output_on=False)
+        actions = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+
+        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state, actions=actions))
+
+        self.assertIn("rd_ownership_hands_off", callbacks)
+
+    def test_snapshot_actions_path_exposes_active_release(self):
+        from application.operator_actions import OperatorActionsView
+
+        app, manager = self._app()
+        app.charge_controller.is_active = True
+        install_rd_ownership_recovery(app, manager)
+        state = self._state(hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, output_on=True)
+        actions = OperatorActionsView.for_state("CHARGING", safety_allowed=True)
+
+        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state, actions=actions))
+
         self.assertIn("rd_hands_off_release_confirm", callbacks)
 
 

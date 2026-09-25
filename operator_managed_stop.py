@@ -10,11 +10,27 @@ import operator_hmi as hmi
 import telegram_panel
 from operator_confirmation import ConfirmationStore
 from rd_hands_off_release import _active_session_token, _auto_active, _manual_active
+from application.intents import OperatorIntent, OperatorIntentKind
+from runtime_safety import OutputOffNotConfirmed
 
 
 STOP_CONFIRM_CALLBACK = "operator_managed_stop"
 STOP_EXECUTE_CALLBACK = "operator_managed_stop_execute"
 STOP_CANCEL_CALLBACK = "operator_managed_stop_cancel"
+
+
+async def _route_stop_intent(app: Any, call: Any) -> bool:
+    """Pass STOP through the application boundary before old confirmation logic."""
+    interface = getattr(app, "operator_interface", None)
+    submit = getattr(interface, "submit_intent", None)
+    if not callable(submit):
+        return True
+    user = str(getattr(getattr(call, "from_user", None), "id", "0"))
+    result = await submit(OperatorIntent(OperatorIntentKind.STOP_CHARGE, "telegram", user))
+    if getattr(result, "status", None) == "rejected":
+        await call.answer("Остановка пока недоступна", show_alert=True)
+        return False
+    return True
 
 
 def _replace_legacy_power_toggle(
@@ -88,6 +104,14 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
             return False, "AUTO stop недоступен: verified hard-stop path не установлен."
         try:
             await hard_stop()
+        except OutputOffNotConfirmed as exc:
+            if await _retire_auto_after_unconfirmed_off(app):
+                return True, (
+                    "AUTO-сессия завершена программно: ток 0 A и readback OFF; "
+                    "edge-readback confirmation unavailable, сохранён containment: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            return False, f"AUTO stop не завершён: {type(exc).__name__}: {exc}"
         except Exception as exc:
             return False, f"AUTO stop не завершён: {type(exc).__name__}: {exc}"
         if _auto_active(app):
@@ -100,6 +124,44 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
     return False, "Неизвестный managed owner; команда не выполнена."
 
 
+async def _retire_auto_after_unconfirmed_off(app: Any) -> bool:
+    """Retire software AUTO only when a read-only OFF/zero-current snapshot agrees."""
+    hass = getattr(app, "hass", None)
+    get_live = getattr(hass, "get_all_live", None)
+    if not callable(get_live):
+        return False
+    try:
+        live = await get_live()
+    except Exception:
+        return False
+
+    raw_code = live.get("output_state_code_v2")
+    try:
+        output_code = float(raw_code) if raw_code not in (None, "") else None
+    except (TypeError, ValueError):
+        output_code = None
+    if output_code is not None:
+        output_off = output_code == 0.0
+    else:
+        output_off = str(live.get("switch", "")).strip().lower() in {"off", "false", "0"}
+    try:
+        current = float(live.get("current"))
+    except (TypeError, ValueError):
+        current = None
+    if not output_off or current is None or current > 0.05:
+        return False
+
+    controller = getattr(app, "charge_controller", None)
+    stop = getattr(controller, "stop", None)
+    if not callable(stop):
+        return False
+    stop(clear_session=True)
+    clear = getattr(app, "_clear_manual_off", None)
+    if callable(clear):
+        clear()
+    return True
+
+
 def install_operator_managed_stop(app: Any) -> None:
     """Replace the legacy dual-purpose power toggle with exact-session L4 Stop."""
     if bool(getattr(app, "_operator_managed_stop_installed", False)):
@@ -110,8 +172,20 @@ def install_operator_managed_stop(app: Any) -> None:
 
     base_keyboard = hmi.build_operator_keyboard
 
-    def stop_only_keyboard(app_arg: Any, state: hmi.OperatorHmiState) -> InlineKeyboardMarkup:
-        return _replace_legacy_power_toggle(base_keyboard(app_arg, state), state)
+    def stop_only_keyboard(
+        app_arg: Any,
+        state: hmi.OperatorHmiState,
+        *,
+        actions: Any = None,
+    ) -> InlineKeyboardMarkup:
+        base = (
+            base_keyboard(app_arg, state, actions=actions)
+            if actions is not None
+            else base_keyboard(app_arg, state)
+        )
+        if actions is not None:
+            return base
+        return _replace_legacy_power_toggle(base, state)
 
     hmi.build_operator_keyboard = stop_only_keyboard
 
@@ -122,9 +196,27 @@ def install_operator_managed_stop(app: Any) -> None:
         {STOP_EXECUTE_CALLBACK, STOP_CANCEL_CALLBACK}
     )
 
+    async def _restore_text_panel_after_stop(call: Any) -> None:
+        """Close the stop prompt and leave one current text panel."""
+        user_id = call.from_user.id if call.from_user else 0
+        chat_id = call.message.chat.id
+        try:
+            await app.bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
+        retire = getattr(app, "_retire_graph_workspace_for_user", None)
+        if callable(retire):
+            await retire(chat_id, user_id)
+        manager = getattr(app, "terminal_panel_manager", None)
+        restore = getattr(manager, "ensure_text_last", None)
+        if callable(restore):
+            await restore(chat_id, user_id)
+
     @app.router.callback_query(F.data == STOP_CONFIRM_CALLBACK)
     async def _managed_stop_confirm(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
+            return
+        if not await _route_stop_intent(app, call):
             return
         token = _active_session_token(app)
         if token is None:
@@ -194,6 +286,7 @@ def install_operator_managed_stop(app: Any) -> None:
 
         await call.answer()
         ok, detail = await _stop_exact_session(app, expected)
+        await _restore_text_panel_after_stop(call)
         if ok:
             await call.message.answer(
                 f"<b>🛑 Заряд остановлен.</b> {html.escape(detail)}",

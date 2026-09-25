@@ -251,7 +251,11 @@ def install_done_storage_restore(app: Any) -> None:
             controller._done_transition_source_stage = None
 
     async def operator_pause_toggle_with_done_guard(call: Any) -> Any:
-        if not _paused_done_resume_is_authorized(app, controller):
+        # Resolve the controller at call time.  The composition wrapper must not
+        # retain a stale controller object after runtime re-composition or a
+        # controlled test substitution; the pause callback owns the live one.
+        current_controller = getattr(app, "charge_controller", controller)
+        if not _paused_done_resume_is_authorized(app, current_controller):
             return (
                 "Продолжение заблокировано: сохранённый Done не имеет "
                 "подтверждённого Storage Output ON intent"

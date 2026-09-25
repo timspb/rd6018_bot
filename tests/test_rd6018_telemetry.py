@@ -13,6 +13,7 @@ from rd6018_telemetry import (
     resolve_protection,
     telemetry_freshness,
 )
+from runtime.v2_runtime import _canonical_bool
 
 
 class RD6018TelemetryTests(unittest.TestCase):
@@ -35,6 +36,18 @@ class RD6018TelemetryTests(unittest.TestCase):
         self.assertEqual(decode_regulation_code(0), RegulationMode.CV)
         self.assertEqual(decode_regulation_code(1), RegulationMode.CC)
         self.assertEqual(decode_regulation_code(2), RegulationMode.UNKNOWN)
+
+    def test_runtime_consumes_canonical_regulation_booleans(self):
+        self.assertTrue(_canonical_bool({"is_cv": True}, "is_cv"))
+        self.assertFalse(_canonical_bool({"is_cv": False}, "is_cv"))
+        self.assertTrue(_canonical_bool({"is_cc": True}, "is_cc"))
+        self.assertFalse(_canonical_bool({"is_cc": False}, "is_cc"))
+        self.assertFalse(_canonical_bool({}, "is_cv"))
+
+    def test_runtime_consumes_canonical_protection_booleans(self):
+        self.assertTrue(_canonical_bool({"ovp_triggered": True}, "ovp_triggered"))
+        self.assertFalse(_canonical_bool({"ocp_triggered": False}, "ocp_triggered"))
+        self.assertFalse(_canonical_bool({"ovp_triggered": None}, "ovp_triggered"))
 
     def test_corrected_v2_channels_replace_legacy_canonical_values(self):
         live = {

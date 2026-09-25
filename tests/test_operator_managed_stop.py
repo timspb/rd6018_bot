@@ -1,10 +1,21 @@
 import types
 import unittest
+from unittest.mock import patch
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import operator_hmi as hmi
+import bot_legacy
 from operator_managed_stop import _replace_legacy_power_toggle, _stop_exact_session
+from runtime_safety import OutputOffNotConfirmed
+
+
+def _off_live():
+    return {"switch": "off", "current": 0.0}
+
+
+async def _off_live_async():
+    return _off_live()
 
 
 class FakeManual:
@@ -26,6 +37,13 @@ class FakeManual:
 
 
 class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
+    def test_stale_legacy_power_toggle_is_disabled_after_managed_stop_install(self):
+        with patch.object(bot_legacy, "_operator_managed_stop_installed", True, create=True):
+            self.assertTrue(bot_legacy._legacy_power_toggle_is_disabled())
+
+        with patch.object(bot_legacy, "_operator_managed_stop_installed", False, create=True):
+            self.assertFalse(bot_legacy._legacy_power_toggle_is_disabled())
+
     def _state(self, authority):
         return hmi.OperatorHmiState(
             process_state=hmi.HmiProcessState.RUNNING,
@@ -107,6 +125,63 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertIn("изменилась", detail)
         self.assertEqual(calls, [])
+
+    async def test_unconfirmed_off_with_readonly_off_zero_current_retires_auto_session(self):
+        controller = types.SimpleNamespace(
+            is_active=True,
+            recovery_trace_context={"session_id": "auto-1"},
+            total_start_time=1.0,
+            stop_calls=[],
+        )
+
+        def stop(*, clear_session):
+            controller.stop_calls.append(clear_session)
+            controller.is_active = False
+
+        controller.stop = stop
+
+        async def hard_stop():
+            raise OutputOffNotConfirmed("OFF command accepted but switch state was not confirmed")
+
+        app = types.SimpleNamespace(
+            charge_controller=controller,
+            manual_session_manager=types.SimpleNamespace(is_active=False),
+            _hard_stop_charge=hard_stop,
+            hass=types.SimpleNamespace(
+                get_all_live=_off_live_async,
+            ),
+        )
+        ok, detail = await _stop_exact_session(app, "auto:auto-1")
+
+        self.assertTrue(ok)
+        self.assertIn("AUTO-сессия завершена программно", detail)
+        self.assertIn("readback OFF", detail)
+        self.assertEqual(controller.stop_calls, [True])
+
+    async def test_unconfirmed_off_with_nonzero_current_keeps_auto_session(self):
+        controller = types.SimpleNamespace(
+            is_active=True,
+            recovery_trace_context={"session_id": "auto-1"},
+            total_start_time=1.0,
+        )
+
+        async def hard_stop():
+            raise OutputOffNotConfirmed("unconfirmed")
+
+        async def live():
+            return {"switch": "off", "current": 0.20}
+
+        app = types.SimpleNamespace(
+            charge_controller=controller,
+            manual_session_manager=types.SimpleNamespace(is_active=False),
+            _hard_stop_charge=hard_stop,
+            hass=types.SimpleNamespace(get_all_live=live),
+        )
+        ok, detail = await _stop_exact_session(app, "auto:auto-1")
+
+        self.assertFalse(ok)
+        self.assertIn("OutputOffNotConfirmed", detail)
+        self.assertTrue(controller.is_active)
 
     async def test_manual_stop_retires_manual_owner_not_auto_controller(self):
         manual = FakeManual(confirmed=True)

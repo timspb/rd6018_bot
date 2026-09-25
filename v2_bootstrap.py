@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from aiogram import F
+from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import v2_bot_ui
@@ -21,6 +22,12 @@ from v2_battery_input import parse_battery_spec
 from v2_sg_ui import install_sg_ui, sg_menu_button
 from v2_startup import start_profile_transactional
 from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
+from application.intents import OperatorIntent, OperatorIntentKind
+from application.production_start_execution_port import ProductionStartExecutionPort
+from application.production_start_runner import ProductionStartRunner
+from application.production_start_route import ProductionStartRouteAdapter
+from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
+from application.v2_start_transaction_adapter import V2StartTransactionAdapter
 
 
 def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -180,6 +187,22 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     v2_bot_ui._safe_answer = _safe_answer_operator
     v2_bot_ui._intent_keyboard = _operator_intent_keyboard
     v2_bot_ui._preview_keyboard = _operator_preview_keyboard
+    # Telegram START reaches the existing V2 owner only after StartPreflightService
+    # and the transactional ExecutionPort checks have passed.
+    v3_transaction_adapter = V2StartTransactionAdapter()
+    v3_runner_adapter = V2StartRunnerAdapter(app, event_factory=build_v2_start_event_context)
+    v3_production_runner = ProductionStartRunner(
+        transaction_adapter=v3_transaction_adapter,
+        transaction_runner=v3_runner_adapter,
+    )
+    v3_start_port = ProductionStartExecutionPort(
+        transaction_adapter=v3_transaction_adapter,
+        production_runner=v3_production_runner,
+    )
+    app._v3_production_start_route = ProductionStartRouteAdapter(
+        app,
+        port=v3_start_port,
+    )
 
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _v2_battery_start_route(call: Any) -> None:
@@ -191,12 +214,32 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         if pending is None:
             await call.answer("Предпросмотр устарел — выберите АКБ заново", show_alert=True)
             return
-        if await start_profile_transactional(app, call, pending):
-            v2_bot_ui._pending_start.pop(user_id, None)
+        intent = OperatorIntent(
+            OperatorIntentKind.START_CHARGE,
+            "telegram",
+            str(user_id),
+            {
+                "profile": pending.profile,
+                "capacity_ah": pending.capacity_ah,
+                "battery_identity": None,
+                "battery_id": pending.battery_id,
+                "intent": pending.intent,
+                "condition": pending.condition,
+            },
+        )
+        result = await app._v3_production_start_route.submit(intent)
+        if not result.accepted:
+            await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            return
+        await call.answer(
+            v2_bot_ui.format_start_feedback(result),
+            show_alert=True,
+        )
 
     v2_bot_ui.install_v2_ui(app)
     install_sg_ui(app)
     install_dashboard_polish(app, v2_bot_ui)
+    app._selected_program_for_user = v2_bot_ui.selected_program_for_user
     app._charge_modes_text = _operator_modes_text
     app._build_charge_modes_keyboard = _operator_modes_keyboard
 
