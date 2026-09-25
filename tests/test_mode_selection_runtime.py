@@ -35,6 +35,23 @@ class ModeSelectionRuntimeTests(unittest.TestCase):
     def test_no_selection_does_not_relabel_readback(self):
         self.assertIsNone(v2_bot_ui.selected_program_for_user(42))
 
+    def test_accepted_start_clears_all_selection_wizard_state(self):
+        app = type("App", (), {"awaiting_ah": {42: "AGM"}})()
+        v2_bot_ui._pending_profile[42] = "AGM"
+        v2_bot_ui._pending_intent[42] = ChargeIntent.RECOVERY
+        v2_bot_ui._pending_start[42] = PendingStart(
+            profile="AGM",
+            capacity_ah=90,
+            intent=ChargeIntent.RECOVERY,
+            battery_id="adhoc:AGM:90:42",
+            condition=BatteryCondition.UNKNOWN,
+        )
+
+        v2_bot_ui._clear_pending_program_state(app, 42)
+
+        self.assertIsNone(v2_bot_ui.selected_program_for_user(42))
+        self.assertNotIn(42, app.awaiting_ah)
+
 
 if __name__ == "__main__":
     unittest.main()

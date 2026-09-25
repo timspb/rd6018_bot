@@ -69,6 +69,17 @@ def selected_program_for_user(user_id: int) -> Optional[str]:
     return None
 
 
+def _clear_pending_program_state(app: Any, user_id: int) -> None:
+    """Drop only the selection wizard state after START was accepted."""
+    user_id = int(user_id)
+    _pending_start.pop(user_id, None)
+    _pending_profile.pop(user_id, None)
+    _pending_intent.pop(user_id, None)
+    awaiting = getattr(app, "awaiting_ah", None)
+    if isinstance(awaiting, dict):
+        awaiting.pop(user_id, None)
+
+
 def format_start_feedback(result: Any) -> str:
     """Describe the route result without confusing ACTIVE with DRY_RUN."""
     trace = str(getattr(result, "trace_id", ""))[:8]
@@ -598,7 +609,7 @@ def install_v2_ui(app: Any) -> None:
             # Compatibility/rollback compositions without V3 retain the old
             # owner; production bot.py always installs the route above.
             if await _start_profile(app, call, pending):
-                _pending_start.pop(user_id, None)
+                _clear_pending_program_state(app, user_id)
             return
         intent = OperatorIntent(
             OperatorIntentKind.START_CHARGE,
@@ -638,7 +649,7 @@ def install_v2_ui(app: Any) -> None:
             if trace is not None:
                 trace.info("QUICK_START_TRACE response=REJECTED")
             return
-        _pending_start.pop(user_id, None)
+        _clear_pending_program_state(app, user_id)
         if trace is not None:
             trace.info("QUICK_START_TRACE pending=CLEARED after_route=PASS")
         # The route owns preflight and transactional safety; the callback only
