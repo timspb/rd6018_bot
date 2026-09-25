@@ -24,6 +24,7 @@ _BASE_BUILD_OPERATOR_HMI_STATE = hmi.build_operator_hmi_state
 _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
 GRAPH_REFRESH_SEC = 60.0
+_GRAPH_CAPTION = ""
 
 
 def _dark_panel_enabled() -> bool:
@@ -352,7 +353,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         app_arg.user_graph_dashboard[user_id] = call.message.message_id
         app_arg.chat_graph_dashboard[call.message.chat.id] = call.message.message_id
         if not buf:
-            text = "<b>График RD6018</b>\n\nНедостаточно данных."
+            text = "Недостаточно данных."
             # A photo message cannot truthfully become an empty text workspace by
             # editing only its caption: the old graph would remain visible. Replace
             # the workspace instead of leaving stale plotted data on screen.
@@ -386,7 +387,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         photo = app_arg.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
         media = app_arg.InputMediaPhoto(
             media=photo,
-            caption="<b>График RD6018</b>",
+            caption=_GRAPH_CAPTION,
             parse_mode=app_arg.ParseMode.HTML,
         )
         try:
@@ -402,7 +403,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             await retire_graph_workspace_message(app_arg, call)
             await call.message.answer_photo(
                 photo,
-                caption="<b>График RD6018</b>",
+                caption=_GRAPH_CAPTION,
                 parse_mode=app_arg.ParseMode.HTML,
                 reply_markup=markup,
             )
@@ -434,7 +435,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         sent = await app.bot.send_photo(
             chat_id,
             photo=photo,
-            caption="<b>График RD6018</b>",
+            caption=_GRAPH_CAPTION,
             parse_mode=app.ParseMode.HTML,
             reply_markup=hmi._graph_keyboard(app, user_id),
         )
@@ -482,7 +483,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
                     message_id=graph_message_id,
                     media=app.InputMediaPhoto(
                         media=photo,
-                        caption="<b>График RD6018</b>",
+                        caption=_GRAPH_CAPTION,
                         parse_mode=app.ParseMode.HTML,
                     ),
                     reply_markup=markup,
@@ -649,19 +650,26 @@ def install_operator_graph_dashboard(app: Any) -> None:
             else _main_graph_markup(app, state, user_id, actions)
         )
 
-        # Only the initial dashboard path publishes the graph.  Callback-driven
-        # charge-panel refreshes never enter the charting stack.
-        if (
-            old_msg_id is None
-            and anchor_msg_id is None
-            and not app.user_graph_dashboard.get(user_id)
-        ):
+        # Only the first dashboard path without a graph workspace publishes the
+        # graph. Callback-driven charge-panel refreshes never enter the charting
+        # stack. If a restart left an old charge message tracked but no graph
+        # workspace, retire that
+        # message first so the new graph is immediately followed by the new
+        # charge panel in Telegram's append-only message order.
+        target = old_msg_id or anchor_msg_id
+        initial_graph = not app.user_graph_dashboard.get(user_id)
+        if initial_graph and target:
+            try:
+                await app.bot.delete_message(chat_id, target)
+            except Exception:
+                pass
+            target = None
+        if initial_graph:
             try:
                 await publish_graph_workspace(chat_id, user_id)
             except Exception as exc:
                 app.logger.debug("initial graph workspace publish failed: %s", exc)
 
-        target = old_msg_id or anchor_msg_id
         if target:
             try:
                 await app.bot.edit_message_text(

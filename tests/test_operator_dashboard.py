@@ -267,6 +267,7 @@ class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(app.bot.media_edits), 1)
         self.assertEqual(app.bot.media_edits[0]["message_id"], 77)
+        self.assertEqual(app.bot.media_edits[0]["media"]["caption"], "")
         self.assertEqual(call.message.answers, [])
 
 
