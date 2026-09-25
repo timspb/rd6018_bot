@@ -94,7 +94,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("<b>13.86 V</b>", text)
         self.assertIn("<b>0.00 A</b>", text)
         self.assertIn("<b>24.0 °C</b>", text)
-        self.assertIn("🎯 14.72 V · 7.20 A · текущий CV", text)
+        self.assertIn("🎯 14.72 V · 7.20 A · <b>CV</b>", text)
         self.assertNotIn("🌡 БП", text)
         self.assertNotIn("<b>14.72 V</b>", text)
         self.assertNotIn("<b>7.20 A</b>", text)
@@ -127,7 +127,7 @@ class OperatorHmiTests(unittest.TestCase):
             attention="normal",
         )
         text = render_operator_panel(state)
-        self.assertIn("➡️ <b>Восстановление</b>", text)
+        self.assertIn("<b>➡️ Восстановление · 🔋 ЗАРЯД", text)
         self.assertNotIn("&lt;b&gt;Восстановление", text)
 
     def test_preformatted_ordinary_transition_is_not_double_escaped(self):
@@ -148,7 +148,7 @@ class OperatorHmiTests(unittest.TestCase):
             attention="normal",
         )
         text = render_operator_panel(state)
-        self.assertIn("➡️ <b>Обычный заряд</b>", text)
+        self.assertIn("<b>➡️ Обычный заряд · 🔋 ЗАРЯД", text)
         self.assertNotIn("&lt;b&gt;Обычный заряд", text)
 
     def test_active_external_mix_is_presented_as_adopted_not_hands_off(self):
@@ -157,11 +157,11 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
-        self.assertIn("🔋 Baic72 Ca/Ca 72Ah", text)
+        self.assertIn("➡️ FLOAT · Причина: I&lt;0.50A · 🔋 Baic72 Ca/Ca 72Ah", text)
         self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("16.55 V", text)
         self.assertIn("0.90 A", text)
-        self.assertIn("🎯 16.54 V · 1.01 A · текущий CV", text)
+        self.assertIn("🎯 16.54 V · 1.01 A · <b>CV</b>", text)
         self.assertIn("FLOAT", text)
         self.assertNotIn("РЕЖИМ РД", text)
         self.assertNotIn("НЕ ЛЕЗЬ", text)

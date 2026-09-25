@@ -624,11 +624,14 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if active_panel:
         stage = _compact_stage_label(state)
         battery = _compact_battery_label(state.battery_label)
+        transition = _compact_transition(state)
+        transition_label = html.unescape(re.sub(r"<[^>]*>", "", transition)).strip()
         if authority_value == HmiAuthority.MANUAL.value or authority_value == HmiAuthority.MANUAL:
             right_label = f"РУЧНОЙ · {stage or 'MAIN'}"
         else:
             right_label = f"AUTO · {stage or 'ЗАРЯД'}"
-        left_label = f"🔋 {battery or 'ЗАРЯД'}"
+        prefix = f"{transition_label} · " if transition_label else ""
+        left_label = f"{prefix}🔋 {battery or 'ЗАРЯД'}"
         first_line = left_label + (" " * max(4, 42 - len(left_label) - len(right_label))) + right_label
     else:
         first_line = str(state.title or "RD6018")
@@ -642,7 +645,7 @@ def render_operator_panel(state: OperatorHmiState) -> str:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
         current_mode = html.escape(str(state.regulator or "—"))
-        lines.append(f"🎯 {target} · {limit} · текущий {current_mode}")
+        lines.append(f"🎯 {target} · {limit} · <b>{current_mode}</b>")
     stage_time = str(getattr(state, "stage_time", "") or "")
     delivered_ah = _finite(getattr(state, "delivered_ah", None))
     time_parts = []
@@ -658,7 +661,7 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if stage_status_warning.startswith("⚠️ Телеметрия устарела"):
         lines.append(stage_status_warning)
     else:
-        next_line = transition or stage_status
+        next_line = stage_status if active_panel else transition or stage_status
         if transition and stage_status:
             next_line = f"{transition} · {stage_status.removeprefix('➡️ ')}"
         if active_panel and not next_line:
