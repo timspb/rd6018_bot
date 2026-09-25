@@ -51,6 +51,11 @@ APP_ATTRS_WRITTEN = frozenset(
         "_mix_action_eligibility_installed",
         "_operator_destructive_guard",
         "_operator_graph_dashboard_installed",
+        "_ensure_graph_refresh_loop",
+        "_graph_cache_keys",
+        "_graph_refresh_task",
+        "_graph_update_lock",
+        "_refresh_graph_message",
         "_operator_hmi_installed",
         "_operator_home_handler",
         "_operator_managed_stop_confirmations",
@@ -75,6 +80,7 @@ APP_ATTRS_WRITTEN = frozenset(
         "_v2_vin_psu_health_only",
         "_v3_production_start_route",
         "charge_controller",
+        "chat_graph_dashboard",
         "charge_monitor",
         "controlled_diagnostic_probe",
         "diagnostic_action_journal",
@@ -106,6 +112,7 @@ APP_ATTRS_WRITTEN = frozenset(
         "soft_watchdog_loop",
         "start_custom_charge",
         "terminal_panel_manager",
+        "user_graph_dashboard",
         "zero_current_since",
     }
 )
@@ -128,6 +135,10 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "_mix_action_eligibility_installed",
         "_operator_destructive_guard",
         "_operator_graph_dashboard_installed",
+        "_ensure_graph_refresh_loop",
+        "_graph_cache_keys",
+        "_graph_update_lock",
+        "_refresh_graph_message",
         "_operator_hmi_installed",
         "_operator_home_handler",
         "_operator_managed_stop_confirmations",
@@ -151,6 +162,7 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "_v2_vin_psu_health_only",
         "_v3_production_start_route",
         "charge_controller",
+        "chat_graph_dashboard",
         "controlled_diagnostic_probe",
         "diagnostic_action_journal",
         "handle_ah_input",
@@ -175,6 +187,7 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "soft_watchdog_loop",
         "start_custom_charge",
         "terminal_panel_manager",
+        "user_graph_dashboard",
     }
 )
 

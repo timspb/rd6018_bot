@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import os
 from dataclasses import replace
@@ -22,6 +23,7 @@ _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
 _BASE_BUILD_OPERATOR_HMI_STATE = hmi.build_operator_hmi_state
 _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
+GRAPH_REFRESH_SEC = 60.0
 
 
 def _dark_panel_enabled() -> bool:
@@ -61,7 +63,7 @@ def _graph_toolbar(app: Any, user_id: int, actions=None):
 
 
 def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
-    """Place chart ranges immediately below the graph on the main panel."""
+    """Render the charge panel without graph controls or graph work."""
     # Older composition wrappers preserve the two-argument builder signature.
     # The V3 path passes capabilities explicitly; compatibility callers retain
     # the unchanged legacy fallback.
@@ -69,9 +71,8 @@ def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, acti
     # capability view remains available to callers, but must not replace the
     # ownership/autonomous composition on the root screen.
     panel = hmi.build_operator_keyboard(app, state)
-    top_row = _graph_toolbar(app, user_id, actions)
     return app.InlineKeyboardMarkup(
-        inline_keyboard=([top_row] if top_row else []) + list(panel.inline_keyboard)
+        inline_keyboard=list(panel.inline_keyboard)
     )
 
 
@@ -300,6 +301,11 @@ def install_operator_graph_dashboard(app: Any) -> None:
     if bool(getattr(app, "_operator_graph_dashboard_installed", False)):
         return
 
+    app.user_graph_dashboard = getattr(app, "user_graph_dashboard", {})
+    app.chat_graph_dashboard = getattr(app, "chat_graph_dashboard", {})
+    app._graph_cache_keys = getattr(app, "_graph_cache_keys", {})
+    app._graph_update_lock = getattr(app, "_graph_update_lock", asyncio.Lock())
+
     base_builder = hmi.build_operator_hmi_state
     base_panel_renderer = hmi.render_operator_panel
     base_details_renderer = hmi.render_operator_details
@@ -343,6 +349,8 @@ def install_operator_graph_dashboard(app: Any) -> None:
             temps,
         )
         markup = hmi._graph_keyboard(app_arg, user_id)
+        app_arg.user_graph_dashboard[user_id] = call.message.message_id
+        app_arg.chat_graph_dashboard[call.message.chat.id] = call.message.message_id
         if not buf:
             text = "<b>График RD6018</b>\n\nНедостаточно данных."
             # A photo message cannot truthfully become an empty text workspace by
@@ -406,6 +414,108 @@ def install_operator_graph_dashboard(app: Any) -> None:
     hmi.render_operator_details = truthful_details
     hmi._render_graph_workspace = render_graph_workspace
 
+    async def publish_graph_workspace(chat_id: int, user_id: int) -> None:
+        """Publish the initial graph before the text charge workspace."""
+        _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+        times, voltages, currents, temps = await app.get_graph_data_with_temp(
+            limit=limit_pts,
+            since_timestamp=graph_since,
+        )
+        buf = await app.asyncio.to_thread(
+            app.generate_chart,
+            times,
+            voltages,
+            currents,
+            temps,
+        )
+        if not buf:
+            return
+        photo = app.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
+        sent = await app.bot.send_photo(
+            chat_id,
+            photo=photo,
+            caption="<b>График RD6018</b>",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=hmi._graph_keyboard(app, user_id),
+        )
+        app.user_graph_dashboard[user_id] = sent.message_id
+        app.chat_graph_dashboard[chat_id] = sent.message_id
+        app._graph_cache_keys[user_id] = (
+            _chart_mode,
+            times[-1] if times else None,
+            len(times),
+        )
+        ensure_graph_refresh_loop()
+
+    async def refresh_graph_message(chat_id: int, user_id: int, *, force: bool = False) -> None:
+        """Refresh only the graph message when the recorder has a new point."""
+        graph_message_id = app.user_graph_dashboard.get(user_id)
+        if not graph_message_id:
+            return
+        async with app._graph_update_lock:
+            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+            times, voltages, currents, temps = await app.get_graph_data_with_temp(
+                limit=limit_pts,
+                since_timestamp=graph_since,
+            )
+            cache_key = (
+                _chart_mode,
+                times[-1] if times else None,
+                len(times),
+            )
+            if not force and app._graph_cache_keys.get(user_id) == cache_key:
+                return
+            buf = await app.asyncio.to_thread(
+                app.generate_chart,
+                times,
+                voltages,
+                currents,
+                temps,
+            )
+            if not buf:
+                return
+            photo = app.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
+            markup = hmi._graph_keyboard(app, user_id)
+            try:
+                await app.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=graph_message_id,
+                    media=app.InputMediaPhoto(
+                        media=photo,
+                        caption="<b>График RD6018</b>",
+                        parse_mode=app.ParseMode.HTML,
+                    ),
+                    reply_markup=markup,
+                )
+            except Exception as exc:
+                if "message is not modified" not in str(exc).lower():
+                    app.logger.debug("graph refresh failed: %s", exc)
+                    return
+            app._graph_cache_keys[user_id] = cache_key
+
+    async def graph_refresh_loop() -> None:
+        while True:
+            await asyncio.sleep(GRAPH_REFRESH_SEC)
+            for user_id, message_id in list(app.user_graph_dashboard.items()):
+                chat_id = next(
+                    (chat for chat, current in app.chat_graph_dashboard.items() if current == message_id),
+                    None,
+                )
+                if chat_id is None:
+                    continue
+                try:
+                    await refresh_graph_message(chat_id, user_id)
+                except Exception as exc:
+                    app.logger.debug("periodic graph refresh failed: %s", exc)
+
+    def ensure_graph_refresh_loop() -> None:
+        task = getattr(app, "_graph_refresh_task", None)
+        if task is None or task.done():
+            app._graph_refresh_task = asyncio.create_task(graph_refresh_loop())
+
+    app._refresh_graph_message = refresh_graph_message
+    app._ensure_graph_refresh_loop = ensure_graph_refresh_loop
+
     async def refresh_operator_panel(chat_id: int, user_id: int, message_id: int) -> None:
         """Refresh only the live panel; do not rebuild the chart on button press."""
         try:
@@ -431,8 +541,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         panel_actions = _toolbar_actions(actions)
         markup = (
             app.InlineKeyboardMarkup(
-                inline_keyboard=[_graph_toolbar(app, user_id, actions)]
-                + list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
+            inline_keyboard=list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
             )
             if _dark_panel_enabled()
             else _main_graph_markup(app, state, user_id, actions)
@@ -534,12 +643,23 @@ def install_operator_graph_dashboard(app: Any) -> None:
         panel_actions = _toolbar_actions(actions)
         markup = (
             app.InlineKeyboardMarkup(
-                inline_keyboard=[_graph_toolbar(app, user_id, actions)]
-                + list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
+            inline_keyboard=list(hmi.build_operator_keyboard(app, state, actions=panel_actions).inline_keyboard)
             )
             if _dark_panel_enabled()
             else _main_graph_markup(app, state, user_id, actions)
         )
+
+        # Only the initial dashboard path publishes the graph.  Callback-driven
+        # charge-panel refreshes never enter the charting stack.
+        if (
+            old_msg_id is None
+            and anchor_msg_id is None
+            and not app.user_graph_dashboard.get(user_id)
+        ):
+            try:
+                await publish_graph_workspace(chat_id, user_id)
+            except Exception as exc:
+                app.logger.debug("initial graph workspace publish failed: %s", exc)
 
         target = old_msg_id or anchor_msg_id
         if target:
