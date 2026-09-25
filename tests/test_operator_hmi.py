@@ -89,18 +89,18 @@ class OperatorHmiTests(unittest.TestCase):
         )
         text = render_operator_panel(state)
 
-        self.assertIn("<b>RD6018 · Ca/Ca · CV", text)
+        self.assertIn("<b>🔋 Ca/Ca 72Ah", text)
         self.assertIn("AUTO · ВОССТАНОВЛЕНИЕ</b>", text)
-        self.assertIn("🔋 Ca/Ca 72Ah", text)
         self.assertIn("<b>13.86 V</b>", text)
         self.assertIn("<b>0.00 A</b>", text)
         self.assertIn("<b>24.0 °C</b>", text)
-        self.assertIn("🎯 14.72 V · 7.20 A 🌡 БП —", text)
+        self.assertIn("🎯 14.72 V · 7.20 A · текущий CV", text)
+        self.assertNotIn("🌡 БП", text)
         self.assertNotIn("<b>14.72 V</b>", text)
         self.assertNotIn("<b>7.20 A</b>", text)
         self.assertNotIn("Режим регулятора определяется", text)
         self.assertNotIn("&lt;b&gt;", text)
-        self.assertEqual(len(text.splitlines()), 5)
+        self.assertEqual(len(text.splitlines()), 4)
 
         class _Tags(HTMLParser):
             pass
@@ -157,12 +157,11 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.ADOPTED_MIX)
-        self.assertIn("RD6018 · Baic72 · CV", text)
-        self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("🔋 Baic72 Ca/Ca 72Ah", text)
+        self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("16.55 V", text)
         self.assertIn("0.90 A", text)
-        self.assertIn("🎯 16.54 V · 1.01 A 🌡 БП 40.0°C", text)
+        self.assertIn("🎯 16.54 V · 1.01 A · текущий CV", text)
         self.assertIn("FLOAT", text)
         self.assertNotIn("РЕЖИМ РД", text)
         self.assertNotIn("НЕ ЛЕЗЬ", text)
@@ -317,7 +316,7 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("Отдано: 7.26 Ah", text)
         self.assertIn("Заданная ёмкость: 72.00 Ah", text)
         panel = render_operator_panel(state)
-        self.assertIn("<b>RD6018 · Baic72 · CV", panel)
+        self.assertIn("<b>🔋 Baic72 72Ah", panel)
         self.assertIn("РУЧНОЙ · MAIN</b>", panel)
         self.assertIn("⏱ 01:01", panel)
         self.assertIn("⚡ 7.26 Ah", panel)
@@ -408,7 +407,7 @@ class OperatorHmiTests(unittest.TestCase):
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
         self.assertEqual(state.process_state, HmiProcessState.INTERRUPTED)
-        self.assertIn("RD6018 · Baic72 · CV", text)
+        self.assertIn("🔋 Baic72 Ca/Ca 72Ah", text)
         self.assertIn("AUTO · MIX</b>", text)
         self.assertIn("Подхват прерван", text)
         self.assertIn("rd_live_mix", callbacks)
@@ -419,7 +418,7 @@ class OperatorHmiTests(unittest.TestCase):
         text = render_operator_panel(state)
 
         self.assertNotIn("W", text)
-        self.assertIn("БП", text)
+        self.assertNotIn("БП", text)
 
     def test_cc_panel_exposes_regulator_and_transition(self):
         values = live()

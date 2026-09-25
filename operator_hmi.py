@@ -612,7 +612,6 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
 
 
 def render_operator_panel(state: OperatorHmiState) -> str:
-    mode = _main_mode(state)
     authority_value = getattr(state.authority, "value", state.authority)
     active_panel = authority_value in {
         HmiAuthority.AUTO.value,
@@ -625,18 +624,15 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if active_panel:
         stage = _compact_stage_label(state)
         battery = _compact_battery_label(state.battery_label)
-        battery_name = str(state.battery_label or "").split("·", 1)[0].strip() or "ЗАРЯД"
         if authority_value == HmiAuthority.MANUAL.value or authority_value == HmiAuthority.MANUAL:
             right_label = f"РУЧНОЙ · {stage or 'MAIN'}"
         else:
             right_label = f"AUTO · {stage or 'ЗАРЯД'}"
-        left_label = f"RD6018 · {battery_name} · {mode or stage or '—'}"
+        left_label = f"🔋 {battery or 'ЗАРЯД'}"
         first_line = left_label + (" " * max(4, 42 - len(left_label) - len(right_label))) + right_label
     else:
         first_line = str(state.title or "RD6018")
     lines = [f"<b>{html.escape(first_line)}</b>"]
-    if active_panel and battery:
-        lines.append(f"🔋 {html.escape(battery)}")
     lines.append(
         f"⚡ {_bold_value(state.battery_voltage_v, 2, 'V')} · "
         f"{_bold_value(state.current_a, 2, 'A')} · 🌡 АКБ "
@@ -645,7 +641,8 @@ def render_operator_panel(state: OperatorHmiState) -> str:
     if state.target_voltage_v is not None or state.current_limit_a is not None:
         target = _value(state.target_voltage_v, 2, "V")
         limit = _value(state.current_limit_a, 2, "A")
-        lines.append(f"🎯 {target} · {limit} 🌡 БП {_temperature(getattr(state, 'psu_temp_c', None))}")
+        current_mode = html.escape(str(state.regulator or "—"))
+        lines.append(f"🎯 {target} · {limit} · текущий {current_mode}")
     stage_time = str(getattr(state, "stage_time", "") or "")
     delivered_ah = _finite(getattr(state, "delivered_ah", None))
     time_parts = []
