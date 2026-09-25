@@ -608,6 +608,19 @@ def install_operator_graph_dashboard(app: Any) -> None:
                 "\n<i>V/I ниже — фактический readback RD6018.</i>"
             )
         panel_actions = _toolbar_actions(actions)
+        # A successful start can leave the callback's preview/text message as
+        # the tracked dashboard while the graph workspace has not been created
+        # yet.  Promote that same message to the single graph+panel workspace;
+        # do not leave a second text panel behind.
+        if _charge_session_active(app) and not app.user_graph_dashboard.get(user_id):
+            builder = getattr(app, "_build_and_send_dashboard", None)
+            if callable(builder):
+                return await builder(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    old_msg_id=message_id,
+                    anchor_msg_id=None,
+                )
         markup = (
             app.InlineKeyboardMarkup(
                 inline_keyboard=list(
@@ -759,8 +772,31 @@ def install_operator_graph_dashboard(app: Any) -> None:
         # workspace, retire that
         # message first so the new graph is immediately followed by the new
         # charge panel in Telegram's append-only message order.
-        target = old_msg_id or anchor_msg_id
         graph_allowed = _charge_session_active(app)
+        target = old_msg_id or anchor_msg_id
+        tracked_panel = app.user_dashboard.get(user_id) or app.chat_dashboard.get(chat_id)
+        if target is None:
+            target = tracked_panel
+        graph_message_id = app.user_graph_dashboard.get(user_id)
+        if graph_allowed and graph_message_id:
+            # The graph photo is the authoritative active-charge workspace.
+            # A legacy/ delayed refresh may still point user_dashboard at an
+            # older text panel; retire that message and refresh the photo only.
+            if target is not None and target != graph_message_id:
+                try:
+                    await app.bot.delete_message(chat_id, target)
+                except Exception:
+                    pass
+            refreshed = await refresh_operator_panel(
+                chat_id,
+                user_id,
+                int(graph_message_id),
+            )
+            if refreshed is not None:
+                return int(refreshed)
+            app.user_dashboard[user_id] = graph_message_id
+            app.chat_dashboard[chat_id] = graph_message_id
+            return int(graph_message_id)
         if not graph_allowed:
             await retire_graph_workspace_for_user(chat_id, user_id)
         initial_graph = graph_allowed and not app.user_graph_dashboard.get(user_id)
