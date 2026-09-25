@@ -64,6 +64,15 @@ def _toolbar_actions(actions):
     )
 
 
+def _hide_active_release_button(markup: Any) -> Any:
+    """Do not expose RD ownership transfer from the active charge workspace."""
+    rows = [
+        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
+        for row in markup.inline_keyboard
+    ]
+    return type(markup)(inline_keyboard=[row for row in rows if row])
+
+
 def _graph_toolbar(app: Any, user_id: int, actions=None):
     graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
     top_row = list(graph_rows[0]) if graph_rows else []
@@ -83,15 +92,23 @@ def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, acti
     # capability view remains available to callers, but must not replace the
     # ownership/autonomous composition on the root screen.
     panel = hmi.build_operator_keyboard(app, state)
-    return app.InlineKeyboardMarkup(
+    markup = app.InlineKeyboardMarkup(
         inline_keyboard=list(panel.inline_keyboard)
     )
+    if _charge_session_active(app):
+        return _hide_active_release_button(markup)
+    return markup
 
 
 def _active_graph_panel_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
     """Keep graph ranges and active-charge controls on the same photo message."""
     graph_rows = list(hmi._graph_keyboard(app, user_id).inline_keyboard)
-    panel_rows = list(hmi.build_operator_keyboard(app, state, actions=actions).inline_keyboard)
+    panel_markup = hmi.build_operator_keyboard(app, state, actions=actions)
+    panel_rows = list(panel_markup.inline_keyboard)
+    panel_rows = [
+        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
+        for row in panel_rows
+    ]
     return app.InlineKeyboardMarkup(inline_keyboard=graph_rows + panel_rows)
 
 
