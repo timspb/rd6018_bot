@@ -97,6 +97,30 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     temp_ext = snapshot.temp_ext_c
     ah_now = app._safe_float(live.get("ah"))
 
+    # Operator pause belongs to the session it paused.  If that old session was
+    # not restored (the controller is inactive above), an explicit, fresh START
+    # from confirmed Output OFF retires the orphaned pause before enabling the
+    # new session.  Otherwise the background loop would switch this new charge
+    # off immediately after safe_enable_output succeeds.
+    pause_active = getattr(app, "_operator_pause_active", None)
+    if callable(pause_active) and pause_active():
+        clear_pause = getattr(app, "_clear_operator_pause", None)
+        if not callable(clear_pause):
+            await message.answer(
+                "❌ Запуск запрещён: сохранена пауза предыдущей сессии, "
+                "её состояние нельзя безопасно сбросить."
+            )
+            return False
+        clear_pause()
+        app.log_event(
+            app.charge_controller.current_stage,
+            battery_v,
+            current,
+            temp_ext,
+            ah_now,
+            "OPERATOR_PAUSE_RETIRED_FOR_NEW_SESSION",
+        )
+
     app.charge_controller.configure_recovery_context(
         battery_id=pending.battery_id,
         intent=pending.intent,

@@ -585,6 +585,7 @@ def install_v2_ui(app: Any) -> None:
             trace.info("QUICK_START_TRACE chat_guard=PASS")
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
+        message = getattr(call, "message", None)
         if trace is not None:
             trace.info("QUICK_START_TRACE user_state user_id=%s", user_id)
         pending = _pending_start.get(user_id)
@@ -645,7 +646,8 @@ def install_v2_ui(app: Any) -> None:
                 getattr(getattr(result.port_result, "mode", None), "value", None),
             )
         if not result.accepted:
-            await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            if message is not None:
+                await message.answer(format_start_feedback(result), parse_mode=None)
             if trace is not None:
                 trace.info("QUICK_START_TRACE response=REJECTED")
             return
@@ -653,7 +655,6 @@ def install_v2_ui(app: Any) -> None:
         if trace is not None:
             trace.info("QUICK_START_TRACE pending=CLEARED after_route=PASS")
         dashboard_builder = getattr(app, "_build_and_send_dashboard", None)
-        message = getattr(call, "message", None)
         if callable(dashboard_builder) and message is not None:
             try:
                 await dashboard_builder(
@@ -667,10 +668,11 @@ def install_v2_ui(app: Any) -> None:
                     trace.warning("QUICK_START_TRACE dashboard_refresh_failed type=%s", type(exc).__name__)
         # The route owns preflight and transactional safety; the callback only
         # submits the operator intent and never touches hardware directly.
-        await call.answer(
-            format_start_feedback(result),
-            show_alert=True,
-        )
+        # The callback was acknowledged before the transactional START.  That
+        # transaction can outlive Telegram's callback-query window; send its
+        # result as a chat message instead of answering an expired query.
+        if message is not None:
+            await message.answer(format_start_feedback(result), parse_mode=None)
         if trace is not None:
             trace.info("QUICK_START_TRACE response=ACCEPTED")
 

@@ -245,6 +245,12 @@ Host-side evidence during that bounded window is intentionally ownership-neutral
 
 Once a managed software session exists, the orphan timer is cleared and the ordinary D055/full runtime telemetry, Pb envelope, protection/readback and lease-renewal rules apply unchanged. D061 live adoption also remains unchanged and still runs its full managed preflight/TOCTOU contract before acquiring authority; the D068 decision window cannot satisfy that preflight by itself. Operational guidance is part of `../INCIDENT_RUNBOOK.md` INC-001.
 
+## D069 — operator pause is scoped to its charge session
+**ACCEPTED / IMPLEMENTED IN SOFTWARE / TESTED.** A persisted operator pause continues to hold Output OFF while its managed charge session is active. If that session is not restored and the controller is inactive, a new explicit START may retire the orphaned pause only after complete fresh start telemetry and positive Output OFF preflight; the retirement is logged before the new transactional safe-enable. Missing pause-clear capability fails closed. An active paused session still blocks a second START, and no automatic resume or safety-gate bypass is introduced.
+
+## D070 — long START results do not reuse an acknowledged Telegram callback
+**ACCEPTED / IMPLEMENTED IN SOFTWARE / TESTED.** A START callback is acknowledged before the transactional hardware operation. Its eventual accepted/rejected result is delivered as a normal chat message, never by answering the already-acknowledged or expired callback query; Telegram response latency cannot turn a completed START into a handler exception.
+
 ## Current implementation checkpoints
 
 - `1bd67cb...`: corrected RD telemetry, freshness/readback, 17.5V absolute envelope.

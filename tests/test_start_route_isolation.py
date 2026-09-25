@@ -80,6 +80,9 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertIn("await route.submit(intent)", callback)
         self.assertNotIn("app.charge_controller.start(", callback)
         self.assertNotIn("app.hass.turn_on(", callback)
+        submitted = callback.index("await route.submit(intent)")
+        self.assertNotIn("await call.answer(", callback[submitted:])
+        self.assertIn("message.answer(format_start_feedback(result), parse_mode=None)", callback)
 
     def test_legacy_capacity_input_uses_v3_route_when_composed(self):
         source = (pathlib.Path(__file__).parents[1] / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")

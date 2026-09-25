@@ -113,6 +113,7 @@ class FakeApp:
         self.last_user_id = None
         self.time = types.SimpleNamespace(time=lambda: 1000.0)
         self.events = []
+        self.pause_active = False
 
     @staticmethod
     def _safe_float(value, default=0.0):
@@ -127,6 +128,12 @@ class FakeApp:
 
     def log_event(self, *args):
         self.events.append(args)
+
+    def _operator_pause_active(self):
+        return self.pause_active
+
+    def _clear_operator_pause(self):
+        self.pause_active = False
 
     async def send_dashboard(self, *args, **kwargs):
         return 1
@@ -173,6 +180,45 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(app.charge_controller.stopped)
         self.assertAlmostEqual(app.hass.enable_kwargs["recipe_voltage_ceiling_v"], 16.5)
         self.assertIn("Заряд запущен", message.answers[-1][0])
+
+    async def test_fresh_start_retires_orphaned_pause_before_enabling_output(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.pause_active = True
+        message = FakeMessage()
+
+        ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertTrue(ok)
+        self.assertFalse(app.pause_active)
+        self.assertTrue(app.charge_controller.started)
+        self.assertEqual(app.events[0][-1], "OPERATOR_PAUSE_RETIRED_FOR_NEW_SESSION")
+        self.assertIn("PREP_SKIPPED_INITIAL_VOLTAGE", app.events[-1][-1])
+
+    async def test_orphaned_pause_without_clear_capability_fails_closed(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.pause_active = True
+        app._clear_operator_pause = None
+        message = FakeMessage()
+
+        ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertFalse(ok)
+        self.assertFalse(app.charge_controller.started)
+        self.assertIsNone(app.hass.enable_kwargs)
+        self.assertIn("сохранена пауза предыдущей сессии", message.answers[-1][0])
+
+    async def test_active_paused_session_is_not_retired_by_second_start(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.pause_active = True
+        app.charge_controller.is_active = True
+        message = FakeMessage()
+
+        ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertFalse(ok)
+        self.assertTrue(app.pause_active)
+        self.assertFalse(app.charge_controller.started)
+        self.assertIsNone(app.hass.enable_kwargs)
 
     async def test_failed_enable_rolls_controller_back_only_after_confirmed_off(self):
         app = FakeApp(
