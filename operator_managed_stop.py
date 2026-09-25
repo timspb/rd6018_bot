@@ -11,6 +11,7 @@ import telegram_panel
 from operator_confirmation import ConfirmationStore
 from rd_hands_off_release import _active_session_token, _auto_active, _manual_active
 from application.intents import OperatorIntent, OperatorIntentKind
+from runtime_safety import OutputOffNotConfirmed
 
 
 STOP_CONFIRM_CALLBACK = "operator_managed_stop"
@@ -103,6 +104,14 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
             return False, "AUTO stop недоступен: verified hard-stop path не установлен."
         try:
             await hard_stop()
+        except OutputOffNotConfirmed as exc:
+            if await _retire_auto_after_unconfirmed_off(app):
+                return False, (
+                    "Output OFF не подтверждён edge-readback; ток 0 A и readback OFF, "
+                    "software AUTO-сессия сброшена в containment: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            return False, f"AUTO stop не завершён: {type(exc).__name__}: {exc}"
         except Exception as exc:
             return False, f"AUTO stop не завершён: {type(exc).__name__}: {exc}"
         if _auto_active(app):
@@ -113,6 +122,44 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
         return True, "AUTO остановлен; Output OFF подтверждён."
 
     return False, "Неизвестный managed owner; команда не выполнена."
+
+
+async def _retire_auto_after_unconfirmed_off(app: Any) -> bool:
+    """Retire software AUTO only when a read-only OFF/zero-current snapshot agrees."""
+    hass = getattr(app, "hass", None)
+    get_live = getattr(hass, "get_all_live", None)
+    if not callable(get_live):
+        return False
+    try:
+        live = await get_live()
+    except Exception:
+        return False
+
+    raw_code = live.get("output_state_code_v2")
+    try:
+        output_code = float(raw_code) if raw_code not in (None, "") else None
+    except (TypeError, ValueError):
+        output_code = None
+    if output_code is not None:
+        output_off = output_code == 0.0
+    else:
+        output_off = str(live.get("switch", "")).strip().lower() in {"off", "false", "0"}
+    try:
+        current = float(live.get("current"))
+    except (TypeError, ValueError):
+        current = None
+    if not output_off or current is None or current > 0.05:
+        return False
+
+    controller = getattr(app, "charge_controller", None)
+    stop = getattr(controller, "stop", None)
+    if not callable(stop):
+        return False
+    stop(clear_session=True)
+    clear = getattr(app, "_clear_manual_off", None)
+    if callable(clear):
+        clear()
+    return True
 
 
 def install_operator_managed_stop(app: Any) -> None:
