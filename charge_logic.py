@@ -1129,7 +1129,7 @@ class ChargeController:
 
     @property
     def is_active(self) -> bool:
-        return self.current_stage != self.STAGE_IDLE
+        return self.current_stage not in (self.STAGE_IDLE, self.STAGE_DONE)
 
     def _temp_trend(self) -> str:
         """Тренд температуры из temp_history или _analytics_history."""

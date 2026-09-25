@@ -90,6 +90,12 @@ class DoneStorageRestoreTests(unittest.TestCase):
             self.assertEqual(document["output_intent"], DONE_OUTPUT_OFF)
             self.assertFalse(app._restore_allows_auto_enable(controller))
 
+    def test_terminal_done_session_is_not_active_for_operator_ui(self):
+        _app, controller = self._installed_controller()
+        controller.current_stage = controller.STAGE_DONE
+
+        self.assertFalse(controller.is_active)
+
     def test_explicit_storage_done_restore_reenables_only_existing_safe_enable_path(self):
         with tempfile.TemporaryDirectory() as tempdir:
             path = os.path.join(tempdir, "charge_session.json")
