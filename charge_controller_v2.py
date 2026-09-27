@@ -913,6 +913,31 @@ class ChargeControllerV2(ChargeController):
             "notify": "<b>?? ??????? ? Main Charge ???????????.</b> Output ??????? ? ??????? ?????????.",
         }
 
+    def _handle_mix_stage_override(
+        self,
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+        output_is_on: Optional[Any],
+        is_cv: bool,
+        is_cc: Optional[bool],
+    ) -> bool:
+        """Suppress the historical MIX FSM when V2 owns MIX decisions.
+
+        Safety/temperature/link checks still run in the common scaffold before the
+        stage branch.  Only the legacy MIX evidence/timer/timeout transitions are
+        bypassed; authoritative evidence is evaluated after the scaffold returns.
+        """
+        return bool(
+            self._v2_authoritative
+            and self.battery_type != self.PROFILE_CUSTOM
+            and self.current_stage == self.STAGE_MIX
+        )
+
     def _is_authoritative_stage(self, stage: str) -> bool:
         return (
             self._v2_authoritative
@@ -937,7 +962,12 @@ class ChargeControllerV2(ChargeController):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        """Run legacy common safety while masking its Main/Mix transition triggers."""
+        """Run common safety while legacy stage transitions are explicitly bypassed.
+
+        MAIN still needs the historical blanking mask until its remaining scaffold is
+        extracted. DESULFATION, recovery SAFE_WAIT and MIX now use explicit stage
+        override hooks and therefore require no timestamp falsification.
+        """
         if not self._is_authoritative_stage(stage_before):
             return await super().tick(
                 voltage,
@@ -952,22 +982,12 @@ class ChargeControllerV2(ChargeController):
             )
 
         saved_blanking = self._blanking_until
-        saved_delta_after = self._delta_monitor_after
-        saved_stage_start = self.stage_start_time
-        saved_finish_timer = self.finish_timer_start
-        far_future = time.time() + 365 * 24 * 3600
-
-        # In Main all Pb transition checks are guarded by blanking, while the hard
-        # 72h safety timeout remains active. In Mix we additionally hide elapsed and
-        # finish timer so profile/delta completion cannot fire in the legacy layer.
-        self._blanking_until = far_future
-        if stage_before == self.STAGE_MIX:
-            self._delta_monitor_after = far_future
-            self.stage_start_time = time.time()
-            self.finish_timer_start = None
+        mask_main = stage_before == self.STAGE_MAIN
+        if mask_main:
+            self._blanking_until = time.time() + 365 * 24 * 3600
 
         try:
-            actions = await super().tick(
+            return await super().tick(
                 voltage,
                 current,
                 temp_ext,
@@ -979,15 +999,8 @@ class ChargeControllerV2(ChargeController):
                 manual_active=manual_active,
             )
         finally:
-            # A safety transition (Cooling/Done/Idle) owns its new timestamps/state.
-            # Restore only if the scaffold left us in the stage it was asked to mask.
-            if self.current_stage == stage_before:
+            if mask_main and self.current_stage == stage_before:
                 self._blanking_until = saved_blanking
-                if stage_before == self.STAGE_MIX:
-                    self._delta_monitor_after = saved_delta_after
-                    self.stage_start_time = saved_stage_start
-                    self.finish_timer_start = saved_finish_timer
-        return actions
 
     def _mix_limit_seconds(self) -> float:
         if self.battery_type == self.PROFILE_AGM:

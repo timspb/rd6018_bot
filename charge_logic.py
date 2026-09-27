@@ -2410,6 +2410,22 @@ class ChargeController:
         """Return True when a subclass owns the DESULFATION lifecycle."""
         return False
 
+    def _handle_mix_stage_override(
+        self,
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+        output_is_on: Optional[Any],
+        is_cv: bool,
+        is_cc: Optional[bool],
+    ) -> bool:
+        """Return True when a subclass owns the entire MIX transition branch."""
+        return False
+
     async def tick(
         self,
         voltage: float,
@@ -3082,6 +3098,19 @@ class ChargeController:
                     actions["log_event"] = "START"
 
             # --- MIX MODE ---
+        elif self.current_stage == self.STAGE_MIX and self._handle_mix_stage_override(
+            now=now,
+            voltage=voltage,
+            current=current,
+            temp=temp,
+            ah=ah,
+            actions=actions,
+            output_is_on=output_is_on,
+            is_cv=is_cv,
+            is_cc=is_cc,
+        ):
+            pass
+
         elif self.current_stage == self.STAGE_MIX:
             # v2.0: мониторинг dV/dI только через 120 сек после смены уставок (исключаем переходные процессы)
             if now < self._blanking_until or now < self._delta_monitor_after:
