@@ -116,6 +116,17 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                 is_cc=False,
             )
 
+    def _commit_verified_resume(self, controller, actions, *, now, voltage=14.3, current=0.0, ah=12.0):
+        transition = actions.get("verified_enable_transition")
+        self.assertIsInstance(transition, dict)
+        return controller.commit_verified_enable_transition(
+            transition,
+            now=now,
+            voltage=voltage,
+            current=current,
+            ah=ah,
+        )
+
     async def test_desulfation_waits_until_exact_bounded_duration_and_turns_off_once(self):
         start = 10_000.0
         controller = self._controller(now=start)
@@ -208,12 +219,21 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
             current=0.0,
             output=False,
         )
-        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
+        self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
         self.assertTrue(actions.get("turn_on"))
         self.assertAlmostEqual(actions["set_voltage"], 14.8)
         self.assertAlmostEqual(actions["set_current"], 9.0)
         self.assertEqual(controller.antisulfate_count, attempt)
         self.assertEqual(controller._agm_stage_idx, agm_step)
+        self.assertIsNotNone(controller._recovery_safe_wait)
+        committed = self._commit_verified_resume(
+            controller,
+            actions,
+            now=start + INTERMEDIATE_RECOVERY_DURATION_SEC + 301.0,
+            voltage=continuation.target_voltage_v - 0.5,
+        )
+        self.assertIsInstance(committed, dict)
+        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
         self.assertIsNone(controller._recovery_safe_wait)
 
     async def test_recovery_safe_wait_requires_confirmed_output_off_before_return(self):
@@ -250,9 +270,44 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
             current=0.0,
             output=False,
         )
-        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
+        self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
         self.assertTrue(actions.get("turn_on"))
-        self.assertIn("TIMEOUT", actions.get("log_event", ""))
+        self.assertIn("RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT", actions.get("log_event", ""))
+        self.assertEqual(actions["verified_enable_transition"]["reason"], "timeout")
+        committed = self._commit_verified_resume(
+            controller,
+            actions,
+            now=now + 1.0,
+            voltage=continuation.target_voltage_v,
+        )
+        self.assertIsInstance(committed, dict)
+        self.assertIn("TIMEOUT", committed.get("log_event", ""))
+        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
+
+    async def test_recovery_safe_wait_does_not_commit_without_matching_verified_token(self):
+        start = 45_000.0
+        controller = self._controller(now=start)
+        await self._tick(controller, now=start + INTERMEDIATE_RECOVERY_DURATION_SEC)
+        continuation = controller._recovery_safe_wait
+        actions = await self._tick(
+            controller,
+            now=continuation.started_at + 300.0,
+            voltage=continuation.target_voltage_v - 0.6,
+            current=0.0,
+            output=False,
+        )
+        bad = dict(actions["verified_enable_transition"])
+        bad["session_id"] = "stale-session"
+        committed = controller.commit_verified_enable_transition(
+            bad,
+            now=continuation.started_at + 301.0,
+            voltage=continuation.target_voltage_v - 0.6,
+            current=0.0,
+            ah=12.0,
+        )
+        self.assertIsNone(committed)
+        self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
+        self.assertIsNotNone(controller._recovery_safe_wait)
 
     async def test_recovery_cutover_uses_profile_main_target_for_all_pb_chemistries(self):
         cases = (

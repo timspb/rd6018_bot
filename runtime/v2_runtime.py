@@ -976,6 +976,107 @@ async def _apply_idle_protection() -> None:
         await hass.set_ocp(IDLE_SAFE_OCP)
 
 
+async def _apply_controller_output_actions(
+    actions: Dict[str, Any],
+    live: Dict[str, Any],
+    *,
+    battery_v: float,
+    current: float,
+    temp: float,
+    ah: float,
+) -> Optional[bool]:
+    """Apply one controller actuator batch and acknowledge verified stage enables.
+
+    Output ON is a transaction boundary: a controller stage that declares
+    ``verified_enable_transition`` is committed only after ``HassClient.turn_on``
+    confirms Output ON.  When startup OCP settling uses a temporary wide OCP, the
+    final tightened OCP plus V/I/OVP readback are re-verified before the commit.
+    """
+    if actions.get("turn_off"):
+        await hass.turn_off(ENTITY_MAP["switch"])
+
+    if actions.get("set_ovp") is not None and ENTITY_MAP.get("ovp"):
+        await hass.set_ovp(float(actions["set_ovp"]))
+    if actions.get("set_voltage") is not None:
+        await hass.set_voltage(float(actions["set_voltage"]))
+
+    target_i_raw = actions.get("set_current")
+    target_ocp_raw = actions.get("set_ocp")
+    target_i: Optional[float] = None
+    pending_ocp_restore: Optional[float] = None
+    if target_i_raw is not None:
+        target_i = _cap_current(float(target_i_raw))
+        current_set_i = _safe_float(live.get("set_current"), target_i)
+        pending_ocp_restore = await _apply_current_with_startup_settle(
+            target_i,
+            current_set_i,
+            target_ocp_raw if ENTITY_MAP.get("ocp") else None,
+            bool(actions.get("turn_on")),
+        )
+    elif target_ocp_raw is not None and ENTITY_MAP.get("ocp"):
+        target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
+        await hass.set_ocp(target_ocp)
+
+    enabled: Optional[bool] = None
+    if actions.get("turn_on"):
+        enabled = bool(await hass.turn_on(ENTITY_MAP["switch"]))
+        if not enabled:
+            logger.warning("Controller Output ON request was not verified; stage commit withheld")
+
+    if pending_ocp_restore is not None:
+        await asyncio.sleep(OCP_STABILIZE_DELAY_SEC)
+        await hass.set_ocp(pending_ocp_restore)
+        if enabled:
+            target_v_raw = actions.get("set_voltage")
+            target_ovp_raw = actions.get("set_ovp")
+            if target_v_raw is None or target_i is None or target_ovp_raw is None:
+                logger.error("Final startup protection verification lacks V/I/OVP target")
+                await hass.turn_off(ENTITY_MAP["switch"])
+                enabled = False
+            else:
+                final_ok = await hass.verify_live_programming(
+                    voltage_v=float(target_v_raw),
+                    current_a=float(target_i),
+                    ovp_v=float(target_ovp_raw),
+                    ocp_a=float(pending_ocp_restore),
+                    recipe_voltage_ceiling_v=float(MAX_VOLTAGE),
+                )
+                if not final_ok:
+                    logger.error("Final OVP/OCP/V/I verification failed after startup settle; forcing OFF")
+                    await hass.turn_off(ENTITY_MAP["switch"])
+                    enabled = False
+
+    transition = actions.get("verified_enable_transition")
+    if isinstance(transition, dict):
+        commit = None
+        if enabled:
+            commit_fn = getattr(charge_controller, "commit_verified_enable_transition", None)
+            if callable(commit_fn):
+                commit = commit_fn(
+                    transition,
+                    now=time.time(),
+                    voltage=float(battery_v),
+                    current=float(current),
+                    ah=float(ah),
+                )
+        if not enabled or not isinstance(commit, dict):
+            if enabled:
+                logger.error("Verified Output ON could not be bound to controller transition; forcing OFF")
+                await hass.turn_off(ENTITY_MAP["switch"])
+                enabled = False
+            logger.warning("Verified-enable stage transition remains pending in SAFE_WAIT")
+        else:
+            charge_controller._last_known_output_on = True
+            event_name = str(commit.get("log_event") or "").strip()
+            if event_name:
+                log_event(charge_controller.current_stage, battery_v, current, temp, ah, event_name)
+            notify = str(commit.get("notify") or "").strip()
+            if notify:
+                _charge_notify(notify, critical=False)
+
+    return enabled
+
+
 async def _hard_stop_charge(clear_session: bool = True) -> None:
     """Output OFF + safe protection reset + controller stop."""
     await hass.turn_off(ENTITY_MAP["switch"])
@@ -2694,36 +2795,14 @@ async def data_logger() -> None:
                     charge_controller.full_reset()
                 # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
             elif charge_controller.is_active:
-                if actions.get("turn_off"):
-                    await hass.turn_off(ENTITY_MAP["switch"])
-                # Apply voltage target first (OVP is always a margin above target V).
-                if actions.get("set_ovp") is not None and ENTITY_MAP.get("ovp"):
-                    await hass.set_ovp(float(actions["set_ovp"]))
-                if actions.get("set_voltage") is not None:
-                    await hass.set_voltage(float(actions["set_voltage"]))
-
-                # Avoid false OCP trip when lowering current:
-                # if target current is lower than current setpoint, lower current first, then OCP.
-                target_i_raw = actions.get("set_current")
-                target_ocp_raw = actions.get("set_ocp")
-                pending_ocp_restore = None
-                if target_i_raw is not None:
-                    target_i = _cap_current(float(target_i_raw))
-                    current_set_i = _safe_float(live.get("set_current"), target_i)
-                    pending_ocp_restore = await _apply_current_with_startup_settle(
-                        target_i,
-                        current_set_i,
-                        target_ocp_raw if ENTITY_MAP.get("ocp") else None,
-                        bool(actions.get("turn_on")),
-                    )
-                elif target_ocp_raw is not None and ENTITY_MAP.get("ocp"):
-                    target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
-                    await hass.set_ocp(target_ocp)
-                if actions.get("turn_on"):
-                    await hass.turn_on(ENTITY_MAP["switch"])
-                if pending_ocp_restore is not None:
-                    await asyncio.sleep(OCP_STABILIZE_DELAY_SEC)
-                    await hass.set_ocp(pending_ocp_restore)
+                await _apply_controller_output_actions(
+                    actions,
+                    live,
+                    battery_v=battery_v,
+                    current=i,
+                    temp=t,
+                    ah=ah,
+                )
 
         except Exception as ex:
             err_str = str(ex).lower()

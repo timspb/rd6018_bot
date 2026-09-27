@@ -43,6 +43,12 @@ ENABLE_CALLS = frozenset(
         ("runtime/v2_runtime.py", "_hard_stop_charge", "hass.turn_off"),
         ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_off"),
         ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_on"),
+        # Controller action execution is centralized in one reviewed helper so a
+        # verified-enable stage commit can be withheld when Output ON fails.
+        ("runtime/v2_runtime.py", "_apply_controller_output_actions", "hass.turn_off"),
+        ("runtime/v2_runtime.py", "_apply_controller_output_actions", "hass.turn_on"),
+        # data_logger still contains separate restore/containment call sites pending
+        # runtime-root retirement; they remain explicitly inventoried.
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_on"),
         ("runtime/v2_runtime.py", "handle_ah_input", "hass.turn_on"),

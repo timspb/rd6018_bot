@@ -809,22 +809,7 @@ class ChargeControllerV2(ChargeController):
         if not threshold_met and not timeout_met:
             return True
 
-        actions["log_event_end"] = self._make_log_event_end(
-            now,
-            ah,
-            voltage,
-            current,
-            temp,
-            (
-                f"V?{threshold:.1f}? ({voltage:.2f}?)"
-                if threshold_met
-                else "SAFE_WAIT bounded timeout 2h"
-            ),
-        )
-        self.current_stage = continuation.next_stage
-        self._clear_restored_targets()
-        self.stage_start_time = now
-        self._stage_start_ah = ah
+        reason = "threshold" if threshold_met else "timeout"
         actions["set_voltage"] = continuation.target_voltage_v
         actions["set_current"] = continuation.target_current_a
         self._add_phase_limits(
@@ -833,7 +818,65 @@ class ChargeControllerV2(ChargeController):
             continuation.target_current_a,
         )
         actions["turn_on"] = True
-        self._blanking_until = now + BLANKING_SEC
+        # Do not commit SAFE_WAIT -> MAIN before the physical transaction is proven.
+        # The runtime acknowledges this token only after Output ON plus final OVP/OCP
+        # programmed readback have both been verified.  A rejected/failed enable leaves
+        # the controller in SAFE_WAIT with the continuation intact for a later retry.
+        actions["verified_enable_transition"] = {
+            "kind": "recovery_safe_wait_to_main",
+            "session_id": continuation.session_id,
+            "started_at": continuation.started_at,
+            "reason": reason,
+        }
+        actions["log_event"] = "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
+        logger.info(
+            "V2 recovery SAFE_WAIT enable attempt reason=%s elapsed=%.1fs attempt=%d agm_step=%d",
+            reason,
+            wait_elapsed,
+            continuation.recovery_attempt,
+            continuation.agm_stage_idx,
+        )
+        return True
+
+    def commit_verified_enable_transition(
+        self,
+        transition: Dict[str, Any],
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        ah: float,
+    ) -> Optional[Dict[str, str]]:
+        """Commit a stage edge only after the runtime proves physical Output ON.
+
+        This is deliberately narrow: only the intermediate-recovery SAFE_WAIT return
+        currently uses two-phase stage commit.  Unknown/stale tokens fail closed by
+        returning ``None``; the runtime must switch Output back OFF in that case.
+        """
+        if str(transition.get("kind") or "") != "recovery_safe_wait_to_main":
+            return None
+        continuation = self._recovery_safe_wait
+        if continuation is None or self.current_stage != self.STAGE_SAFE_WAIT:
+            logger.error("verified recovery resume rejected: no matching SAFE_WAIT continuation")
+            return None
+        token_session = str(transition.get("session_id") or "") or None
+        if token_session != continuation.session_id:
+            logger.error("verified recovery resume rejected: session token mismatch")
+            return None
+        try:
+            token_started_at = float(transition.get("started_at"))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(token_started_at) or abs(token_started_at - continuation.started_at) > 1e-6:
+            logger.error("verified recovery resume rejected: continuation generation mismatch")
+            return None
+
+        prev = self.current_stage
+        self.current_stage = continuation.next_stage
+        self._clear_restored_targets()
+        self.stage_start_time = float(now)
+        self._stage_start_ah = float(ah)
+        self._blanking_until = float(now) + BLANKING_SEC
         self.v_max_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
@@ -843,24 +886,32 @@ class ChargeControllerV2(ChargeController):
         self._safe_wait_target_i = 0.0
         self._safe_wait_start = 0.0
         self._recovery_safe_wait = None
-        if timeout_met and not threshold_met:
-            actions["notify"] = (
-                "?? ?????????? ?????? ??????? ???????? ????? ?????????? ?????. "
-                f"????? ????????????? ???????? ??????? ? Main ({continuation.target_voltage_v:.1f}?)."
-            )
-            actions["log_event"] = "START | RECOVERY_SAFE_WAIT_TIMEOUT_TO_MAIN"
-        else:
-            actions["notify"] = "<b>?? ??????? ? Main Charge.</b> ?????????? ?????."
-            actions["log_event"] = "START | RECOVERY_SAFE_WAIT_TO_MAIN"
-        logger.info(
-            "V2 recovery SAFE_WAIT -> %s reason=%s elapsed=%.1fs attempt=%d agm_step=%d",
-            continuation.next_stage,
-            "threshold" if threshold_met else "timeout",
-            wait_elapsed,
-            continuation.recovery_attempt,
-            continuation.agm_stage_idx,
+        reason = str(transition.get("reason") or "verified_enable")
+        self._log_stage_transition(
+            old_stage=prev,
+            new_stage=self.current_stage,
+            timestamp_s=float(now),
+            reason=f"recovery_safe_wait_verified_enable:{reason}",
         )
-        return True
+        self._save_session(float(voltage), float(current), float(ah))
+        logger.info(
+            "V2 recovery SAFE_WAIT -> %s committed after verified Output ON reason=%s",
+            self.current_stage,
+            reason,
+        )
+        if reason == "timeout":
+            return {
+                "log_event": "START | RECOVERY_SAFE_WAIT_TIMEOUT_TO_MAIN",
+                "notify": (
+                    "?? ?????????? ?????? ???????? ????? ?????????? ?????. "
+                    f"????? ????????????? ???????? ??????????? ??????? ? Main "
+                    f"({continuation.target_voltage_v:.1f}?)."
+                ),
+            }
+        return {
+            "log_event": "START | RECOVERY_SAFE_WAIT_TO_MAIN",
+            "notify": "<b>?? ??????? ? Main Charge ???????????.</b> Output ??????? ? ??????? ?????????.",
+        }
 
     def _is_authoritative_stage(self, stage: str) -> bool:
         return (

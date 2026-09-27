@@ -340,6 +340,40 @@ class HassClient:
         self._clear_programming_state()
         return True
 
+    async def verify_live_programming(
+        self,
+        *,
+        voltage_v: float,
+        current_a: float,
+        ovp_v: float,
+        ocp_a: float,
+        recipe_voltage_ceiling_v: float,
+    ) -> bool:
+        """Verify final programmed protection/readback while Output is ON.
+
+        Stage-start OCP settling may intentionally arm with a wider temporary OCP
+        and tighten it after Output ON.  This confirmation closes that transaction:
+        exact canonical V/I/OVP/OCP readback, Output ON and normal live protection
+        must all agree before the caller may commit a software stage transition.
+        """
+        request = OutputRequest(
+            voltage_v=float(voltage_v),
+            current_a=float(current_a),
+            ovp_v=float(ovp_v),
+            ocp_a=float(ocp_a),
+            recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+        )
+        coordinator = SafeOutputCoordinator(self, self._safety_supervisor)
+        programmed, readback = await coordinator.confirm_programmed_readback(request)
+        if not readback.allowed or programmed is None:
+            logger.error("Final programmed readback rejected: %s", readback.detail)
+            return False
+        live_decision = self._safety_supervisor.verify_live_output(request, programmed)
+        if not live_decision.allowed:
+            logger.error("Final live output verification rejected: %s", live_decision.detail)
+            return False
+        return True
+
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
         self._clear_programming_state()
         requested = await self._switch_service("turn_off", entity_id)
