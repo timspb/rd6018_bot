@@ -2376,6 +2376,40 @@ class ChargeController:
             "trigger": trigger,
         }
 
+    def _handle_safe_wait_stage_override(
+        self,
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+        output_is_on: Optional[Any],
+    ) -> bool:
+        """Return True when a subclass owns this SAFE_WAIT transition.
+
+        The base controller retains the historical SAFE_WAIT implementation for
+        rollback/custom/final-storage flows. Production subclasses can take
+        explicit ownership of a particular continuation without masking clocks or
+        falsifying telemetry passed through the common safety scaffold.
+        """
+        return False
+
+    def _handle_desulfation_stage_override(
+        self,
+        *,
+        now: float,
+        elapsed: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+    ) -> bool:
+        """Return True when a subclass owns the DESULFATION lifecycle."""
+        return False
+
     async def tick(
         self,
         voltage: float,
@@ -2895,75 +2929,86 @@ class ChargeController:
 
         # --- БЕЗОПАСНОЕ ОЖИДАНИЕ (Output OFF, ждём падения V) ---
         elif self.current_stage == self.STAGE_SAFE_WAIT:
-            self._record_safe_wait_sample(now, voltage, current, temp)
-            threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
-            wait_elapsed = now - self._safe_wait_start
-            if voltage <= threshold:
-                actions["log_event_end"] = self._make_log_event_end(
-                    now, ah, voltage, current, temp, f"V≤{threshold:.1f}В ({voltage:.2f}В)"
-                )
-                prev = self.STAGE_SAFE_WAIT
-                next_stage = self._safe_wait_next_stage or self.STAGE_MAIN
-                self.current_stage = next_stage
-                self._clear_restored_targets()
-                self.stage_start_time = now
-                self._stage_start_ah = ah
-                uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
-                self._safe_wait_next_stage = None
-                _log_trigger(prev, self.current_stage, "V_drop_threshold", f"Факт: {voltage:.2f}В <= {threshold:.1f}В")
-                actions["set_voltage"] = uv
-                actions["set_current"] = ui
-                self._add_phase_limits(actions, uv, ui)
-                actions["turn_on"] = True
-                self._blanking_until = now + BLANKING_SEC  # после включения выхода — 5 мин тишины по триггерам
-                if self.current_stage == self.STAGE_DONE:
+            if self._handle_safe_wait_stage_override(
+                now=now,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                actions=actions,
+                output_is_on=output_is_on,
+            ):
+                pass
+            else:
+                self._record_safe_wait_sample(now, voltage, current, temp)
+                threshold = self._safe_wait_target_v - SAFE_WAIT_V_MARGIN
+                wait_elapsed = now - self._safe_wait_start
+                if voltage <= threshold:
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, f"V≤{threshold:.1f}В ({voltage:.2f}В)"
+                    )
+                    prev = self.STAGE_SAFE_WAIT
+                    next_stage = self._safe_wait_next_stage or self.STAGE_MAIN
+                    self.current_stage = next_stage
+                    self._clear_restored_targets()
+                    self.stage_start_time = now
+                    self._stage_start_ah = ah
+                    uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
+                    self._safe_wait_next_stage = None
+                    _log_trigger(prev, self.current_stage, "V_drop_threshold", f"Факт: {voltage:.2f}В <= {threshold:.1f}В")
+                    actions["set_voltage"] = uv
+                    actions["set_current"] = ui
+                    self._add_phase_limits(actions, uv, ui)
+                    actions["turn_on"] = True
+                    self._blanking_until = now + BLANKING_SEC  # после включения выхода — 5 мин тишины по триггерам
+                    if self.current_stage == self.STAGE_DONE:
+                        actions["notify"] = (
+                            f"<b>✅ Заряд завершён.</b> Storage {uv:.1f}V/{ui:.1f}А. "
+                            f"V_max={self.v_max_recorded:.2f}В." if self.v_max_recorded else f"Storage {uv:.1f}V."
+                        )
+                        actions["log_event"] = "START"
+                        self._save_session(voltage, current, ah)
+                    else:
+                        self.v_max_recorded = None
+                        self.i_min_recorded = None
+                        self._blanking_until = now + BLANKING_SEC
+                        self._delta_trigger_count = 0
+                        actions["notify"] = "<b>🚀 Возврат к Main Charge.</b> Напряжение упало."
+                        actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
+                elif wait_elapsed >= SAFE_WAIT_MAX_SEC:
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, f"Таймаут 2ч (V не упало)"
+                    )
+                    prev = self.STAGE_SAFE_WAIT
+                    next_stage = self._safe_wait_next_stage or self.STAGE_MAIN
+                    self.current_stage = next_stage
+                    self._clear_restored_targets()
+                    self.stage_start_time = now
+                    self._stage_start_ah = ah
+                    uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
+                    self._safe_wait_next_stage = None
+                    _log_trigger(prev, self.current_stage, "Safe_wait_timeout", f"Таймер: {wait_elapsed/3600:.1f}ч >= 2ч")
+                    actions["set_voltage"] = uv
+                    actions["set_current"] = ui
+                    self._add_phase_limits(actions, uv, ui)
+                    actions["turn_on"] = True
+                    self._blanking_until = now + BLANKING_SEC
                     actions["notify"] = (
-                        f"<b>✅ Заряд завершён.</b> Storage {uv:.1f}V/{ui:.1f}А. "
-                        f"V_max={self.v_max_recorded:.2f}В." if self.v_max_recorded else f"Storage {uv:.1f}V."
+                        "⚠️ Напряжение падает слишком медленно, возможен сильный нагрев или дефект АКБ. "
+                        f"Принудительный переход к следующему этапу ({uv:.1f}В)."
                     )
                     actions["log_event"] = "START"
-                    self._save_session(voltage, current, ah)
+                    if self.current_stage == self.STAGE_DONE:
+                        self._save_session(voltage, current, ah)
+                    else:
+                        self.v_max_recorded = None
+                        self.i_min_recorded = None
+                        self._blanking_until = now + BLANKING_SEC
+                        self._delta_trigger_count = 0
                 else:
-                    self.v_max_recorded = None
-                    self.i_min_recorded = None
-                    self._blanking_until = now + BLANKING_SEC
-                    self._delta_trigger_count = 0
-                    actions["notify"] = "<b>🚀 Возврат к Main Charge.</b> Напряжение упало."
-                    actions["log_event"] = f"START | Емкость: {self.ah_capacity}Ah"
-            elif wait_elapsed >= SAFE_WAIT_MAX_SEC:
-                actions["log_event_end"] = self._make_log_event_end(
-                    now, ah, voltage, current, temp, f"Таймаут 2ч (V не упало)"
-                )
-                prev = self.STAGE_SAFE_WAIT
-                next_stage = self._safe_wait_next_stage or self.STAGE_MAIN
-                self.current_stage = next_stage
-                self._clear_restored_targets()
-                self.stage_start_time = now
-                self._stage_start_ah = ah
-                uv, ui = self._safe_wait_target_v, self._safe_wait_target_i
-                self._safe_wait_next_stage = None
-                _log_trigger(prev, self.current_stage, "Safe_wait_timeout", f"Таймер: {wait_elapsed/3600:.1f}ч >= 2ч")
-                actions["set_voltage"] = uv
-                actions["set_current"] = ui
-                self._add_phase_limits(actions, uv, ui)
-                actions["turn_on"] = True
-                self._blanking_until = now + BLANKING_SEC
-                actions["notify"] = (
-                    "⚠️ Напряжение падает слишком медленно, возможен сильный нагрев или дефект АКБ. "
-                    f"Принудительный переход к следующему этапу ({uv:.1f}В)."
-                )
-                actions["log_event"] = "START"
-                if self.current_stage == self.STAGE_DONE:
-                    self._save_session(voltage, current, ah)
-                else:
-                    self.v_max_recorded = None
-                    self.i_min_recorded = None
-                    self._blanking_until = now + BLANKING_SEC
-                    self._delta_trigger_count = 0
-            else:
-                pass  # продолжаем ждать
+                    pass  # продолжаем ждать
 
-        # --- ОХЛАЖДЕНИЕ ---
+            # --- ОХЛАЖДЕНИЕ ---
         elif self.current_stage == self.STAGE_COOLING:
             # Проверяем, остыла ли АКБ до безопасной температуры
             if temp <= TEMP_WARNING:
@@ -3002,30 +3047,41 @@ class ChargeController:
 
         # --- ДЕСУЛЬФАТАЦИЯ ---
         elif self.current_stage == self.STAGE_DESULFATION:
-            if elapsed >= 2 * 3600:
-                actions["log_event_end"] = self._make_log_event_end(
-                    now, ah, voltage, current, temp, "Таймер 2ч"
-                )
-                prev = self.current_stage
-                uv, ui = self._main_target(temp)
-                threshold = uv - SAFE_WAIT_V_MARGIN  # 14.2В при цели 14.7В
-                self.current_stage = self.STAGE_SAFE_WAIT
-                self._clear_restored_targets()
-                self.stage_start_time = now
-                self._stage_start_ah = ah
-                self._safe_wait_next_stage = self.STAGE_MAIN
-                self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
-                self._safe_wait_start = now
-                self._record_safe_wait_sample(now, voltage, current, temp)
-                _log_trigger(prev, self.STAGE_SAFE_WAIT, "Desulf_timer_2h", f"Время: {elapsed/3600:.1f}ч >= 2ч")
-                actions["turn_off"] = True
-                actions["notify"] = (
-                    f"<b>⏸ Десульфатация завершена.</b> Ожидание падения до {threshold:.1f}В. "
-                    "Выход выключен."
-                )
-                actions["log_event"] = "START"
+            if self._handle_desulfation_stage_override(
+                now=now,
+                elapsed=elapsed,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                actions=actions,
+            ):
+                pass
+            else:
+                if elapsed >= 2 * 3600:
+                    actions["log_event_end"] = self._make_log_event_end(
+                        now, ah, voltage, current, temp, "Таймер 2ч"
+                    )
+                    prev = self.current_stage
+                    uv, ui = self._main_target(temp)
+                    threshold = uv - SAFE_WAIT_V_MARGIN  # 14.2В при цели 14.7В
+                    self.current_stage = self.STAGE_SAFE_WAIT
+                    self._clear_restored_targets()
+                    self.stage_start_time = now
+                    self._stage_start_ah = ah
+                    self._safe_wait_next_stage = self.STAGE_MAIN
+                    self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
+                    self._safe_wait_start = now
+                    self._record_safe_wait_sample(now, voltage, current, temp)
+                    _log_trigger(prev, self.STAGE_SAFE_WAIT, "Desulf_timer_2h", f"Время: {elapsed/3600:.1f}ч >= 2ч")
+                    actions["turn_off"] = True
+                    actions["notify"] = (
+                        f"<b>⏸ Десульфатация завершена.</b> Ожидание падения до {threshold:.1f}В. "
+                        "Выход выключен."
+                    )
+                    actions["log_event"] = "START"
 
-        # --- MIX MODE ---
+            # --- MIX MODE ---
         elif self.current_stage == self.STAGE_MIX:
             # v2.0: мониторинг dV/dI только через 120 сек после смены уставок (исключаем переходные процессы)
             if now < self._blanking_until or now < self._delta_monitor_after:
