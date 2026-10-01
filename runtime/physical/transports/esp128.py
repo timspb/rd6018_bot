@@ -73,10 +73,10 @@ class ESPHomeTransport(ReadOnlyTransport):
 
             self._state_cache.clear()
             remover = self.client.subscribe_states(self._on_state)
-            # aioesphomeapi releases before 47 return a remover here, while
-            # 46.x owns the callback until APIConnection.disconnect(). The
-            # connection lifecycle is still bounded by close(), so retain a
-            # no-op marker for the latter without registering twice.
+            # Some aioesphomeapi versions return an unsubscribe callable and
+            # others keep this subscription until APIConnection.disconnect().
+            # close() bounds the connection lifetime; retain a no-op marker
+            # when no remover is provided, avoiding duplicate subscriptions.
             self._state_subscription_remover = remover if callable(remover) else (lambda: None)
 
     async def discover(self):
