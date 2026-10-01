@@ -78,6 +78,31 @@ class RecoverySafeWaitContinuation:
         }
 
 
+@dataclass(frozen=True)
+class FinalSafeWaitContinuation:
+    """Typed successful-charge continuation from SAFE_WAIT to Storage/DONE."""
+
+    source_stage: str
+    next_stage: str
+    target_voltage_v: float
+    target_current_a: float
+    started_at: float
+    session_id: Optional[str]
+    completion_reason: str
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "version": 1,
+            "source_stage": self.source_stage,
+            "next_stage": self.next_stage,
+            "target_voltage_v": self.target_voltage_v,
+            "target_current_a": self.target_current_a,
+            "started_at": self.started_at,
+            "session_id": self.session_id,
+            "completion_reason": self.completion_reason,
+        }
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -125,6 +150,7 @@ class ChargeControllerV2(ChargeController):
         self._v2_trace_started_at: float = 0.0
         self._v2_main_plateau_since: Optional[float] = None
         self._recovery_safe_wait: Optional[RecoverySafeWaitContinuation] = None
+        self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
         # Captured by the V2 tick and serialized by the production controller.
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
         self._v2_authoritative = (
@@ -159,6 +185,7 @@ class ChargeControllerV2(ChargeController):
         self._v2_disagreement_repeat_count = 0
         self._v2_main_plateau_since = None
         self._recovery_safe_wait = None
+        self._final_safe_wait = None
 
     def _new_runtime(self, *, started_at: float) -> ShadowRecoveryRuntime:
         battery_id = self._v2_battery_id or (
@@ -230,6 +257,10 @@ class ChargeControllerV2(ChargeController):
             document["v2_recovery_safe_wait"] = self._recovery_safe_wait.as_dict()
         else:
             document.pop("v2_recovery_safe_wait", None)
+        if self._final_safe_wait is not None:
+            document["v2_final_safe_wait"] = self._final_safe_wait.as_dict()
+        else:
+            document.pop("v2_final_safe_wait", None)
         if self.current_stage == self.STAGE_DONE:
             document["terminal_session_id"] = self._v2_trace_session_id
 
@@ -338,8 +369,61 @@ class ChargeControllerV2(ChargeController):
                 agm_stage_idx=int(self._agm_stage_idx),
             )
 
+    def _restore_final_safe_wait(self, document: Dict[str, Any]) -> None:
+        self._final_safe_wait = None
+        raw = document.get("v2_final_safe_wait")
+        if isinstance(raw, dict):
+            try:
+                candidate = FinalSafeWaitContinuation(
+                    source_stage=str(raw.get("source_stage") or ""),
+                    next_stage=str(raw.get("next_stage") or ""),
+                    target_voltage_v=float(raw.get("target_voltage_v")),
+                    target_current_a=float(raw.get("target_current_a")),
+                    started_at=float(raw.get("started_at")),
+                    session_id=str(raw.get("session_id") or "") or None,
+                    completion_reason=str(raw.get("completion_reason") or ""),
+                )
+            except (TypeError, ValueError, OverflowError):
+                candidate = None
+            if (
+                candidate is not None
+                and candidate.source_stage in {self.STAGE_MAIN, self.STAGE_MIX}
+                and candidate.next_stage == self.STAGE_DONE
+                and math.isfinite(candidate.target_voltage_v)
+                and math.isfinite(candidate.target_current_a)
+                and math.isfinite(candidate.started_at)
+                and candidate.target_voltage_v > 0.0
+                and candidate.target_current_a > 0.0
+                and (candidate.session_id is None or candidate.session_id == self._v2_trace_session_id)
+            ):
+                self._final_safe_wait = candidate
+                return
+
+        # One-way migration for a successful pre-cutover final SAFE_WAIT. Recovery
+        # SAFE_WAIT is distinguished by next=MAIN and was reconstructed above.
+        if (
+            self.current_stage == self.STAGE_SAFE_WAIT
+            and self._safe_wait_next_stage == self.STAGE_DONE
+            and self._safe_wait_target_v > 0.0
+            and self._safe_wait_target_i > 0.0
+            and self._safe_wait_start > 0.0
+        ):
+            source_stage = str(self.previous_stage or self.STAGE_MIX)
+            if source_stage not in {self.STAGE_MAIN, self.STAGE_MIX}:
+                return
+            self._final_safe_wait = FinalSafeWaitContinuation(
+                source_stage=source_stage,
+                next_stage=self.STAGE_DONE,
+                target_voltage_v=float(self._safe_wait_target_v),
+                target_current_a=float(self._safe_wait_target_i),
+                started_at=float(self._safe_wait_start),
+                session_id=self._v2_trace_session_id,
+                completion_reason=str(self._last_transition_reason or "restored_successful_completion"),
+            )
+
     def start(self, battery_type: str, ah_capacity: int) -> None:
         self._recovery_safe_wait = None
+        self._final_safe_wait = None
         super().start(battery_type, ah_capacity)
         self._begin_trace_identity()
         self._initialize_shadow_session(started_at=self._v2_trace_started_at)
@@ -353,6 +437,7 @@ class ChargeControllerV2(ChargeController):
         ah_capacity: int,
     ) -> None:
         self._recovery_safe_wait = None
+        self._final_safe_wait = None
         super().start_custom(
             main_voltage=main_voltage,
             main_current=main_current,
@@ -378,6 +463,7 @@ class ChargeControllerV2(ChargeController):
         if ok:
             self._restore_trace_identity(trace_document)
             self._restore_recovery_safe_wait(trace_document)
+            self._restore_final_safe_wait(trace_document)
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
             self._write_trace_identity_to_session_file()
         return ok, message
@@ -775,7 +861,7 @@ class ChargeControllerV2(ChargeController):
         actions: Dict[str, Any],
         output_is_on: Optional[Any],
     ) -> bool:
-        continuation = self._recovery_safe_wait
+        continuation = self._recovery_safe_wait or self._final_safe_wait
         if (
             not self._v2_authoritative
             or self.battery_type == self.PROFILE_CUSTOM
@@ -783,7 +869,12 @@ class ChargeControllerV2(ChargeController):
             or self.current_stage != self.STAGE_SAFE_WAIT
         ):
             return False
-        if continuation.session_id and continuation.session_id != self._v2_trace_session_id:
+        is_recovery = isinstance(continuation, RecoverySafeWaitContinuation)
+        expected_source = self.STAGE_DESULFATION if is_recovery else continuation.source_stage
+        if (
+            continuation.session_id
+            and continuation.session_id != self._v2_trace_session_id
+        ) or expected_source not in {self.STAGE_DESULFATION, self.STAGE_MAIN, self.STAGE_MIX}:
             self._stop_and_diagnose(
                 actions=actions,
                 now=now,
@@ -791,9 +882,10 @@ class ChargeControllerV2(ChargeController):
                 current=current,
                 temp=temp,
                 ah=ah,
-                reason="recovery_safe_wait_session_mismatch",
+                reason="safe_wait_session_or_source_mismatch",
             )
             self._recovery_safe_wait = None
+            self._final_safe_wait = None
             return True
 
         # Relaxation authority can only re-enable after a fresh physical OFF proof.
@@ -822,19 +914,27 @@ class ChargeControllerV2(ChargeController):
         # The runtime acknowledges this token only after Output ON plus final OVP/OCP
         # programmed readback have both been verified.  A rejected/failed enable leaves
         # the controller in SAFE_WAIT with the continuation intact for a later retry.
+        transition_kind = (
+            "recovery_safe_wait_to_main"
+            if is_recovery
+            else "final_safe_wait_to_done"
+        )
         actions["verified_enable_transition"] = {
-            "kind": "recovery_safe_wait_to_main",
+            "kind": transition_kind,
             "session_id": continuation.session_id,
             "started_at": continuation.started_at,
             "reason": reason,
         }
-        actions["log_event"] = "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
+        actions["log_event"] = (
+            "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
+            if is_recovery
+            else "FINAL_SAFE_WAIT_STORAGE_ENABLE_ATTEMPT"
+        )
         logger.info(
-            "V2 recovery SAFE_WAIT enable attempt reason=%s elapsed=%.1fs attempt=%d agm_step=%d",
+            "V2 %s SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
+            "recovery" if is_recovery else "final",
             reason,
             wait_elapsed,
-            continuation.recovery_attempt,
-            continuation.agm_stage_idx,
         )
         return True
 
@@ -849,11 +949,49 @@ class ChargeControllerV2(ChargeController):
     ) -> Optional[Dict[str, str]]:
         """Commit a stage edge only after the runtime proves physical Output ON.
 
-        This is deliberately narrow: only the intermediate-recovery SAFE_WAIT return
-        currently uses two-phase stage commit.  Unknown/stale tokens fail closed by
-        returning ``None``; the runtime must switch Output back OFF in that case.
+        Recovery-to-Main and final Storage completion use separate session-bound
+        continuations. Unknown/stale tokens fail closed; the runtime must switch
+        Output back OFF rather than committing an unverified controller transition.
         """
-        if str(transition.get("kind") or "") != "recovery_safe_wait_to_main":
+        kind = str(transition.get("kind") or "")
+        if kind == "final_safe_wait_to_done":
+            continuation = self._final_safe_wait
+            if continuation is None or self.current_stage != self.STAGE_SAFE_WAIT:
+                logger.error("verified final completion rejected: no matching SAFE_WAIT continuation")
+                return None
+            token_session = str(transition.get("session_id") or "") or None
+            try:
+                token_started_at = float(transition.get("started_at"))
+            except (TypeError, ValueError):
+                return None
+            if (
+                token_session != continuation.session_id
+                or not math.isfinite(token_started_at)
+                or abs(token_started_at - continuation.started_at) > 1e-6
+            ):
+                logger.error("verified final completion rejected: continuation token mismatch")
+                return None
+
+            self.current_stage = self.STAGE_DONE
+            self._clear_restored_targets()
+            self.stage_start_time = float(now)
+            self._stage_start_ah = float(ah)
+            self._safe_wait_next_stage = None
+            self._safe_wait_target_v = 0.0
+            self._safe_wait_target_i = 0.0
+            self._safe_wait_start = 0.0
+            self._final_safe_wait = None
+            self._recovery_safe_wait = None
+            self._done_transition_source_stage = self.STAGE_SAFE_WAIT
+            try:
+                self._save_session(float(voltage), float(current), float(ah))
+            finally:
+                self._done_transition_source_stage = None
+            return {
+                "log_event": "START | V2_STORAGE_OUTPUT_VERIFIED",
+                "notify": "<b>✅ Заряд завершён.</b> Storage включён и подтверждён.",
+            }
+        if kind != "recovery_safe_wait_to_main":
             return None
         continuation = self._recovery_safe_wait
         if continuation is None or self.current_stage != self.STAGE_SAFE_WAIT:
@@ -944,7 +1082,10 @@ class ChargeControllerV2(ChargeController):
             and self.battery_type != self.PROFILE_CUSTOM
             and (
                 stage in {self.STAGE_MAIN, self.STAGE_DESULFATION, self.STAGE_MIX}
-                or (stage == self.STAGE_SAFE_WAIT and self._recovery_safe_wait is not None)
+                or (
+                    stage == self.STAGE_SAFE_WAIT
+                    and (self._recovery_safe_wait is not None or self._final_safe_wait is not None)
+                )
             )
         )
 
@@ -1033,6 +1174,16 @@ class ChargeControllerV2(ChargeController):
         self._safe_wait_next_stage = self.STAGE_DONE
         self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
         self._safe_wait_start = now
+        self._final_safe_wait = FinalSafeWaitContinuation(
+            source_stage=prev,
+            next_stage=self.STAGE_DONE,
+            target_voltage_v=float(uv),
+            target_current_a=float(ui),
+            started_at=float(now),
+            session_id=self._v2_trace_session_id,
+            completion_reason=str(reason),
+        )
+        self._recovery_safe_wait = None
         self._record_safe_wait_sample(now, voltage, current, temp)
         self.finish_timer_start = None
         self._v2_main_plateau_since = None
@@ -1056,6 +1207,8 @@ class ChargeControllerV2(ChargeController):
         reason: str,
     ) -> None:
         prev = self.current_stage
+        self._recovery_safe_wait = None
+        self._final_safe_wait = None
         actions["log_event_end"] = self._make_log_event_end(
             now, ah, voltage, current, temp, reason
         )
@@ -1184,6 +1337,11 @@ class ChargeControllerV2(ChargeController):
         actions: Dict[str, Any],
     ) -> Optional[AuthorityDecision]:
         if not self._is_authoritative_stage(stage_before) or self.current_stage != stage_before:
+            return None
+
+        if stage_before != self.STAGE_MAIN and stage_before != self.STAGE_MIX:
+            # SAFE_WAIT has its own continuation and must never be interpreted as
+            # Mix merely because it shares the authoritative lifecycle scaffold.
             return None
 
         if stage_before == self.STAGE_MAIN:
