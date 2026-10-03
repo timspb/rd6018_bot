@@ -304,7 +304,7 @@ production route; tests prove removed fallback cannot return.
 Gate: golden traces, restart and failure paths match accepted behavior and the
 production MAIN path has no historical FSM transition call.
 
-#### ERADICATION-02a — MAIN decision/config extraction (implemented, pending CI)
+#### ERADICATION-02a — MAIN decision/config extraction (implemented; exact-head CI PASS)
 
 - canonical MAIN decision owner: `runtime/charge/strategy/main_authority.py`;
 - canonical MAIN variables: `runtime/charge/strategy/main_variables.py`;
@@ -317,11 +317,12 @@ production MAIN path has no historical FSM transition call.
 - evidence thresholds live in `runtime/charge/evidence/first_stage_variables.py` with metadata;
 - root `first_stage_evidence.py` reduced to a compatibility re-export.
 
-ERADICATION-02 MAIN cutover is now implemented locally: authoritative MAIN uses
+ERADICATION-02 MAIN cutover is implemented: authoritative MAIN uses
 `runtime/charge/runtime/main_scaffold.py` for accepted common runtime mechanics
 and does not enter historical `ChargeController.tick()`. The MAIN blanking mask
-and stage-clock falsification are removed. CI remains the gate before declaring
-this boundary merged.
+and stage-clock falsification are removed. Handoff exact-head CI run `#1510`
+(`37141127400`) passed on Python 3.10, 3.11 and 3.12 at
+`396b364b79816366380ee89d452256d1e0bacf08`.
 
 #### ERADICATION-03 — recovery lifecycle
 
@@ -484,3 +485,89 @@ UI remains an independent mandatory workstream. New/future screens and buttons m
 4. If CI is green, update ledger statuses for ERADICATION-01 and MAIN ERADICATION-02 accordingly.
 5. Start ERADICATION-03 from the exact green head; do not re-audit or redesign MAIN.
 6. Do not deploy VM104 until a separate production-validation instruction is given.
+
+
+## 14.9 ERADICATION-03 checkpoint — 2026-10-04
+
+This checkpoint supersedes the execution plan in section 14.8.
+
+Authority before the boundary:
+
+- migration branch: `refactor/v3-modular-legacy-eradication`;
+- pre-boundary HEAD: `396b364b79816366380ee89d452256d1e0bacf08`;
+- PR: `#29 Begin modular V3 legacy eradication`;
+- exact-head GitHub Actions run `#1510` / `37141127400`: PASS on Python
+  3.10, 3.11 and 3.12;
+- isolated worktree was clean and local HEAD matched origin before mutation;
+- dirty primary worktree `E:\CODEX\rd6018_bot` was not touched;
+- production VM104 was not touched.
+
+Functional recovery cutover commit:
+
+`0f161a85a847d010ea6b7b860c065295145adf7a` — Migrate recovery chain to modular V3 authority
+
+Canonical recovery owners:
+
+- `runtime/charge/strategy/desulfation.py`;
+- `runtime/charge/strategy/desulfation_variables.py`;
+- `runtime/charge/strategy/recovery_safe_wait.py`;
+- `runtime/charge/strategy/safe_wait_variables.py`;
+- `runtime/charge/runtime/recovery_scaffold.py`.
+
+The authoritative recovery chain is now:
+
+`MAIN -> DESULFATION -> recovery SAFE_WAIT -> verified MAIN`.
+
+For this chain, historical `ChargeController.tick()` is no longer the
+execution/decision scaffold. Static regression tests patch the historical tick
+to fail if either authoritative DESULFATION or recovery SAFE_WAIT reaches it.
+
+DESULFATION owns its duration, base voltage, 0.02C current rule, minimum target
+current and stage-specific OCP margin through module-local `VariableSpec`
+declarations. SAFE_WAIT owns the relaxation margin and bounded timeout.
+
+Recovery SAFE_WAIT continuation now persists and validates:
+
+- exact source and next stage;
+- target V/I;
+- start time;
+- session identity;
+- session generation;
+- recovery attempt;
+- AGM stage index.
+
+Persisted continuation state is not sufficient to enable Output. A fresh
+physical Output OFF observation is required before the strategy may request a
+re-enable transaction. The software stage remains SAFE_WAIT while the request
+is pending. The existing execution transaction still owns the physical
+program/readback/enable/readback sequence, and only its successful verified
+acknowledgement may commit SAFE_WAIT -> MAIN.
+
+A restart defect was found while adding the required regression: historical
+restore reconstructed DESULFATION `stage_start_time` from Ah and could corrupt
+the bounded two-hour active-stage budget. The migrated controller now restores
+the exact persisted DESULFATION stage clock after the legacy compatibility
+restore. Recovery attempt and AGM step also survive restart.
+
+Validation after the functional cutover:
+
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- focused recovery/runtime/architecture regressions: PASS, including restart,
+  stale continuation, fresh-OFF gating, failed enable/readback, and
+  no-duplicate-enable coverage;
+- final full local suite: 1793 tests PASS, 2 skipped.
+
+ERADICATION-03 is locally complete. The remaining final gate is exact-head
+GitHub CI after this documentation checkpoint is pushed. After that, the next
+exact boundary is ERADICATION-04:
+
+`MIX -> finish evidence/hold -> final SAFE_WAIT -> verified Storage/DONE`.
+
+Do not fold Manual/Custom, full safety/execution convergence, UI cutover or
+composition cleanup into ERADICATION-04 unless a newly proven generic repository
+defect makes a minimal fix unavoidable.
+
+Production changed: NO.
+
+Hardware commands sent: NO.
