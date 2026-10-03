@@ -190,20 +190,6 @@ STANDARD_PLATEAU_REQUIRED_MINUTES = VariableSpec(
     maximum=1440.0,
 )
 
-NEAR_TARGET_MARGIN_V = VariableSpec(
-    key="charge.main.near_target_margin_v",
-    default=0.20,
-    value_type=float,
-    unit="V",
-    description="Voltage margin below the MAIN target considered near-target for plateau evidence.",
-    owner="runtime.charge.strategy.main",
-    provenance="accepted first-stage evidence rule",
-    override_policy=OverridePolicy.CONFIG_FILE,
-    change_effect=ChangeEffect.RESTART_REQUIRED,
-    minimum=0.0,
-    maximum=2.0,
-)
-
 PLATEAU_EVIDENCE_WINDOW_MINUTES = VariableSpec(
     key="charge.main.plateau_evidence_window_minutes",
     default=15.0,
@@ -242,7 +228,6 @@ __all__ = [
     "AGM_TAIL_HOLD_HOURS",
     "AGM_TIMEOUT_TAIL_CURRENT_A",
     "MAIN_FALLBACK_HOURS",
-    "NEAR_TARGET_MARGIN_V",
     "PLATEAU_EVIDENCE_WINDOW_MINUTES",
     "STANDARD_MAX_RECOVERY_ATTEMPTS",
     "STANDARD_PLATEAU_REQUIRED_MINUTES",

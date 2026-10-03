@@ -20,12 +20,13 @@ from charge_logic import (
     SAFE_WAIT_V_MARGIN,
     SESSION_FILE,
 )
-from first_stage_evidence import (
+from runtime.charge.evidence.first_stage import (
     FirstStageAssessment,
     FirstStageState,
     assess_first_stage,
     tail_current_threshold_a,
 )
+from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from legacy_transition_audit import LegacyTransitionAudit, TransitionAuditSeverity, audit_legacy_transition
 from pb_domain import BatteryCondition, ChargeIntent
@@ -39,7 +40,6 @@ from runtime.charge.strategy.main_variables import (
     AGM_MAX_RECOVERY_ATTEMPTS,
     AGM_PLATEAU_REQUIRED_MINUTES,
     AGM_STAGE_VOLTAGES_V,
-    NEAR_TARGET_MARGIN_V,
     PLATEAU_EVIDENCE_WINDOW_MINUTES,
     STANDARD_MAX_RECOVERY_ATTEMPTS,
     STANDARD_PLATEAU_REQUIRED_MINUTES,

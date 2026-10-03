@@ -13,7 +13,7 @@ from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standa
 from runtime.charge.strategy.main_targets import select_main_target
 from charge_controller_v2 import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
-from first_stage_evidence import FirstStageAssessment, FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope

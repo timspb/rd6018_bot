@@ -313,6 +313,9 @@ production MAIN path has no historical FSM transition call.
 - compatibility `v2_authority.py` re-exports the new MAIN owner;
 - transitional production controllers consume these modular owners;
 - accepted 72h / 2h / 3h / 3/4 recovery budgets / AGM 14.4→15.0V semantics are regression-tested.
+- first-stage tail/plateau/thermal/sag evidence moved to `runtime/charge/evidence/first_stage.py`;
+- evidence thresholds live in `runtime/charge/evidence/first_stage_variables.py` with metadata;
+- root `first_stage_evidence.py` reduced to a compatibility re-export.
 
 This is not ERADICATION-02 PASS yet. MAIN still uses the historical common tick
 scaffold. PASS requires deleting the MAIN `super().tick()` dependency and its

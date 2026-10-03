@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from first_stage_evidence import FirstStageAssessment, FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 
 
 class TransitionAuditSeverity(str, Enum):

@@ -46,6 +46,11 @@ The canonical MAIN transition decision, MAIN strategy variables, base MAIN targe
 selection and the 12 A stage-current ceiling have been moved to modular owners.
 `v2_authority.py` now re-exports the canonical MAIN decision for compatibility.
 
+The first-stage evidence owner has also moved to
+`runtime/charge/evidence/first_stage.py` with all evidence thresholds declared in
+`runtime/charge/evidence/first_stage_variables.py`. The root-level
+`first_stage_evidence.py` is now import compatibility only.
+
 Remaining blocker for ERADICATION-02 PASS: authoritative MAIN still enters the
 historical `super().tick()` scaffold with timing/blanking masks. The next change
 must extract the common non-transition mechanics needed by MAIN and remove that

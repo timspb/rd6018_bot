@@ -13,7 +13,7 @@ from runtime.charge.strategy.main_variables import (
     main_fallback_seconds,
     standard_tail_hold_seconds,
 )
-from first_stage_evidence import FirstStageAssessment
+from runtime.charge.evidence.first_stage import FirstStageAssessment
 from production_controller import ProductionChargeControllerV2
 
 

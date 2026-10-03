@@ -12,7 +12,7 @@ from battery_fault_engine import (
     DiagnosticAuthority,
     assess_battery_fault,
 )
-from first_stage_evidence import FirstStageAssessment
+from runtime.charge.evidence.first_stage import FirstStageAssessment
 from mix_active_authority import MixActiveAuthorityMixin
 from v2_authority import AuthorityAction, AuthorityDecision
 

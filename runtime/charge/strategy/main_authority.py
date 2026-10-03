@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from first_stage_evidence import FirstStageAssessment, FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from recovery_policy import RecoveryDecision
 
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
