@@ -256,6 +256,37 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("turn_on", actions)
         self.assertIsNotNone(controller._recovery_safe_wait)
 
+    async def test_pending_verified_resume_does_not_request_duplicate_enable_when_output_is_on(self):
+        start = 37_000.0
+        controller = self._controller(now=start)
+        await self._tick(controller, now=start + INTERMEDIATE_RECOVERY_DURATION_SEC)
+        continuation = controller._recovery_safe_wait
+        self.assertIsNotNone(continuation)
+
+        first = await self._tick(
+            controller,
+            now=continuation.started_at + 300.0,
+            voltage=continuation.target_voltage_v - 0.6,
+            current=0.0,
+            output=False,
+        )
+        self.assertTrue(first.get("turn_on"))
+        self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
+
+        # Before the verified transaction is committed, a fresh physical ON
+        # observation suppresses another enable request. The stage remains pending.
+        second = await self._tick(
+            controller,
+            now=continuation.started_at + 301.0,
+            voltage=continuation.target_voltage_v - 0.6,
+            current=0.0,
+            output=True,
+        )
+        self.assertNotIn("turn_on", second)
+        self.assertNotIn("verified_enable_transition", second)
+        self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
+        self.assertIsNotNone(controller._recovery_safe_wait)
+
     async def test_recovery_safe_wait_bounded_timeout_returns_main(self):
         start = 40_000.0
         controller = self._controller(now=start)
@@ -404,6 +435,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                 session_id=controller._v2_trace_session_id,
                 recovery_attempt=controller.antisulfate_count,
                 agm_stage_idx=controller._agm_stage_idx,
+                session_generation=controller._v2_trace_started_at,
             )
             with patch("charge_logic.SESSION_FILE", session_file), patch(
                 "charge_controller_v2.SESSION_FILE", session_file
@@ -431,6 +463,10 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(restored.current_stage, restored.STAGE_SAFE_WAIT)
             self.assertIsInstance(restored._recovery_safe_wait, RecoverySafeWaitContinuation)
             self.assertEqual(restored._recovery_safe_wait.session_id, restored._v2_trace_session_id)
+            self.assertAlmostEqual(
+                restored._recovery_safe_wait.session_generation,
+                restored._v2_trace_started_at,
+            )
             self.assertEqual(restored._recovery_safe_wait.recovery_attempt, 2)
             self.assertEqual(restored._recovery_safe_wait.agm_stage_idx, 2)
             self.assertAlmostEqual(restored._recovery_safe_wait.started_at, now - 600.0)

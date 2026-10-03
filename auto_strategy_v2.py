@@ -221,6 +221,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         is_cv: bool,
         is_cc: bool,
         actions: Dict[str, Any],
+        output_is_on: Optional[Any] = None,
     ) -> Optional[AuthorityDecision]:
         if stage_before == self.STAGE_MAIN and self._is_authoritative_stage(stage_before):
             if self.current_stage != stage_before:
@@ -253,6 +254,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
             is_cv=is_cv,
             is_cc=is_cc,
             actions=actions,
+            output_is_on=output_is_on,
         )
 
     def _get_stage_max_hours(self) -> Optional[float]:

@@ -138,6 +138,7 @@ class DiagnosticProductionChargeControllerV2(
         is_cv: bool,
         is_cc: bool,
         actions: Dict[str, Any],
+        output_is_on: Optional[Any] = None,
     ) -> Optional[AuthorityDecision]:
         self._update_live_diagnostic_evidence(
             timestamp_s=timestamp_s,
@@ -196,6 +197,7 @@ class DiagnosticProductionChargeControllerV2(
             is_cv=is_cv,
             is_cc=is_cc,
             actions=actions,
+            output_is_on=output_is_on,
         )
         actions["battery_diagnostics"] = self.diagnostic_snapshot()
         return decision
