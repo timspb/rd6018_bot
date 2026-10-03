@@ -68,7 +68,6 @@ ENABLE_CALLS = frozenset(
         ("runtime_safety_v2.py", "turn_on", "super().turn_on"),
         ("safe_output.py", "_force_off", "self.adapter.turn_off"),
         ("safe_output.py", "enable", "self.adapter.turn_on"),
-        ("v2_bot_ui.py", "_start_profile", "app.hass.turn_on"),
         ("v2_mix_mode.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
         ("v2_mix_mode.py", "start_mix_transactional", "app.hass.safe_enable_output"),
         ("v2_startup.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
