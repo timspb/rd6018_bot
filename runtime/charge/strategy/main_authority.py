@@ -6,19 +6,16 @@ no controller mutation, persistence, UI or physical execution.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from first_stage_evidence import FirstStageAssessment, FirstStageState
-from pb_domain import ChargeIntent
 from recovery_policy import RecoveryDecision
 
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from .main_variables import AGM_TIMEOUT_TAIL_CURRENT_A
 
 
-AUTOMATIC_HV_INTENTS = frozenset(
-    {ChargeIntent.NORMAL, ChargeIntent.RECOVERY, ChargeIntent.CONDITIONING}
-)
+AUTOMATIC_HV_INTENTS = frozenset({"normal", "recovery", "conditioning"})
 RECOVERY_INTENTS = AUTOMATIC_HV_INTENTS
 
 
@@ -33,7 +30,7 @@ def _unsafe_policy_decision(decision: RecoveryDecision) -> bool:
 def decide_main_transition(
     *,
     profile: str,
-    intent: ChargeIntent,
+    intent: Any,
     first_stage: Optional[FirstStageAssessment],
     policy_decision: RecoveryDecision,
     seconds_since_current_min: Optional[float],
@@ -63,7 +60,8 @@ def decide_main_transition(
         )
 
     profile_upper = str(profile).strip().upper()
-    hv_allowed = intent in AUTOMATIC_HV_INTENTS
+    intent_key = str(getattr(intent, "value", intent)).strip().lower()
+    hv_allowed = intent_key in AUTOMATIC_HV_INTENTS
 
     if (
         main_elapsed_s is not None

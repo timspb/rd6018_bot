@@ -33,6 +33,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class V3MainAuthorityMigrationTests(unittest.TestCase):
+    def test_main_authority_has_no_pb_domain_dependency(self) -> None:
+        source = (ROOT / "runtime" / "charge" / "strategy" / "main_authority.py").read_text(encoding="utf-8")
+        self.assertNotIn("pb_domain", source)
+
     def test_compatibility_surface_reexports_canonical_main_owner(self) -> None:
         self.assertIs(v2_authority.decide_main_transition, decide_main_transition)
         self.assertIs(v2_authority.AuthorityAction, AuthorityAction)
