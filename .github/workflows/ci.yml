@@ -6,7 +6,6 @@ on:
       - main
       - 'refactor/**'
       - 'fix/**'
-      - v3-execution-plane-consolidation
   pull_request:
 
 jobs:
