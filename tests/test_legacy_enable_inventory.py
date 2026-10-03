@@ -51,7 +51,6 @@ ENABLE_CALLS = frozenset(
         # runtime-root retirement; they remain explicitly inventoried.
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_on"),
-        ("runtime/v2_runtime.py", "handle_ah_input", "hass.turn_on"),
         ("runtime/v2_lifecycle.py", "run", "app.hass.turn_off"),
         ("runtime/v2_lifecycle.py", "run", "app.hass.turn_on"),
         ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_off"),

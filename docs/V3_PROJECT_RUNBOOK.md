@@ -204,3 +204,189 @@ runtime. Он читает live state, `OperatorHmiState`, diagnostics и journa
 - hardcoded voltage/current/time/limits;
 - synthetic authorization или автоматический fallback между коннекторами;
 - изменение ESPHome/firmware/node 101 без отдельного разрешения.
+
+
+## 14. 2026-10-04 — Modular V3 and legacy eradication
+
+Repository authority at the start of this migration:
+
+- canonical remote branch: `main`;
+- baseline: `6eb6980d1e4a4aeeb804ae25a59af8e292a3d324`;
+- deployed VM104 remains on `c1298ea2df67bba1e4888de6e830b002b5db2fce`;
+- deployment/restart/hardware mutation is outside this migration unless separately approved.
+
+### 14.1 Decision
+
+The transitional model where V3 wraps V1/V2 is no longer an acceptable target.
+The migration must end with a genuinely modular production V3. Historical code
+can be a bounded oracle during parity work, but a migrated capability must not
+delegate its ownership back into the monolith.
+
+Authoritative contracts:
+
+- `docs/V3_MODULAR_ARCHITECTURE.md`;
+- `docs/V3_UI_MODULAR_ARCHITECTURE.md`;
+- `docs/V3_LEGACY_ERADICATION_LEDGER.md`.
+
+### 14.2 Mandatory module boundaries
+
+Production V3 is decomposed into:
+
+1. composition/lifecycle;
+2. application intents/use cases;
+3. charge programs/stages;
+4. signal/evidence;
+5. safety concerns;
+6. execution transaction;
+7. telemetry;
+8. ownership/session;
+9. persistence;
+10. infrastructure adapters;
+11. UI/presentation/Telegram transport.
+
+No module may recover a removed dependency by monkey-patching the historical
+runtime.
+
+### 14.3 Configuration rule
+
+Every configurable number, duration, threshold, enum or policy value has one
+semantic owner and one declaration location in that owner's `variables.py` or
+`config.py`.
+
+Every declaration documents:
+
+- key and type;
+- unit;
+- description;
+- owner;
+- default;
+- range/allowed values;
+- provenance;
+- override policy;
+- change effect (runtime/restart/deploy).
+
+Consumers receive typed configuration. Copying the literal into another module
+is prohibited.
+
+### 14.4 UI is a first-class migration workstream
+
+UI parity is not left until the end. Screens, buttons, navigation, components,
+graphs and future operator actions are modular.
+
+A new V3 button is a `ButtonSpec` with a stable `UIAction`; it does not contain
+a hardware callback. Telegram callback data is a transport concern, not the
+application API.
+
+A future screen/button must not require editing `runtime/v2_runtime.py`,
+`charge_logic.py`, controller classes, safety or execution modules.
+
+### 14.5 Legacy eradication sequence
+
+#### ERADICATION-01 — prevent legacy resurrection
+
+- retire environment-controlled legacy decision authority;
+- hard-deny START when the production START route is absent;
+- remove the hidden direct V/I/OVP/OCP/Output START fallback;
+- disable direct `bot_legacy.py` execution;
+- add architecture/static regression contracts;
+- establish module variable metadata and declarative UI primitives.
+
+Gate: no software behavior or hardware values change in the canonical
+production route; tests prove removed fallback cannot return.
+
+#### ERADICATION-02 — extract MAIN
+
+- characterize accepted MAIN semantics;
+- extract MAIN state/clock/tail/recovery decisions into modular charge code;
+- reuse explicit safety/evidence services, not `super().tick()`;
+- remove MAIN blanking/time masking of the historical FSM.
+
+Gate: golden traces, restart and failure paths match accepted behavior and the
+production MAIN path has no historical FSM transition call.
+
+#### ERADICATION-03 — recovery lifecycle
+
+- DESULFATION;
+- recovery SAFE_WAIT;
+- verified return to MAIN;
+- continuation persistence and restart.
+
+Gate: the complete `MAIN -> DESULFATION -> SAFE_WAIT -> MAIN` path is modular
+and the old transition path is unreachable.
+
+#### ERADICATION-04 — MIX and final Storage
+
+- CV Imin/Delta-I;
+- CC Vmax/Delta-V;
+- confirmation spacing;
+- sticky active-time hold;
+- MIX limit;
+- final SAFE_WAIT;
+- verified Storage/DONE commit.
+
+Gate: one evidence owner and one FSM path; no legacy Mix timer/Delta branch.
+
+#### ERADICATION-05 — Manual/Custom
+
+Manual is a separate program family sharing safety/execution only. It is not a
+special-case escape hatch inside AUTO.
+
+#### ERADICATION-06 — safety and execution convergence
+
+Move all remaining setters/output calls behind the single execution owner.
+Safety is split into concern modules and emits typed decisions.
+
+Gate: static production scan finds no direct physical writes outside the
+approved physical implementation.
+
+#### ERADICATION-07 — UI cutover
+
+Migrate screens one at a time to canonical ViewModels, `ScreenSpec`,
+`ButtonSpec`, `UIAction` and application intents. Remove each old callback
+after parity.
+
+Gate: canonical UI imports no historical runtime/controller/HA/ESP modules.
+
+#### ERADICATION-08 — runtime/composition cutover
+
+Replace `_legacy`, `sys.modules` aliasing and top-level installer mutation
+with one explicit composition object and lifecycle.
+
+#### ERADICATION-09 — remove historical production graph
+
+When all prior gates pass:
+
+- no `runtime.v2_runtime` production import;
+- no historical FSM production import;
+- no `bot_legacy` production execution;
+- remove remaining compatibility files only after archive/reference capture.
+
+### 14.6 Per-boundary workflow
+
+Every migration increment follows:
+
+```text
+characterize
+-> modular implementation
+-> parity tests
+-> restart/failure tests
+-> switch one route
+-> prove new owner
+-> remove old route
+-> static no-regression guard
+-> exact-head CI
+```
+
+Do not keep a fallback mutating path after a successful cutover.
+
+### 14.7 Stop conditions
+
+Stop before mutation/cutover if:
+
+- ownership is ambiguous;
+- a safety semantic would change without explicit decision;
+- a configuration value has conflicting provenance;
+- a second execution owner appears;
+- UI needs direct hardware/controller access;
+- restart could authorize Output ON from persisted state alone;
+- parity evidence is missing.

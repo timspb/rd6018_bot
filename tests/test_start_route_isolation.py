@@ -92,6 +92,16 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertIn("_v3_production_start_route", callback)
         self.assertIn("await route.submit(intent)", callback)
         self.assertIn("BatteryCondition.UNKNOWN", callback)
+        self.assertIn("direct legacy START is retired", callback)
+        for forbidden in (
+            "charge_controller.start(",
+            "hass.set_ovp(",
+            "hass.set_ocp(",
+            "hass.set_voltage(",
+            "hass.set_current(",
+            "hass.turn_on(",
+        ):
+            self.assertNotIn(forbidden, callback)
 
 
 if __name__ == "__main__":

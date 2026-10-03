@@ -3477,70 +3477,15 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         await message.answer(format_start_feedback(result), parse_mode=ParseMode.HTML)
         return
 
-    del awaiting_ah[user_id]
-    last_chat_id = message.chat.id
-    last_user_id = message.from_user.id if message.from_user else 0
-    live = await hass.get_all_live()
-    battery_v = _safe_float(live.get("battery_voltage"))
-    i = _safe_float(live.get("current"))
-    t = _safe_float(live.get("temp_ext"))
-    ah_val = _safe_float(live.get("ah"))
-    input_v = _safe_float(live.get("input_voltage"), 0.0)
-    if t < MIN_START_TEMP:
-        await message.answer(
-            f"❌ Заряд не запущен: температура внешнего датчика {t:.1f}°C ниже {MIN_START_TEMP:.0f}°C. "
-            "Прогрейте АКБ или помещение.",
-            parse_mode=ParseMode.HTML,
-        )
-        schedule_dashboard_after_60(message.chat.id, user_id)
-        return
-    if input_v > 0 and input_v < MIN_INPUT_VOLTAGE:
-        log_event("Idle", battery_v, i, t, ah_val, f"START_REFUSED_INPUT_VOLTAGE_{input_v:.0f}V")
-        await message.answer(
-            f"❌ Заряд не запущен: входное напряжение {input_v:.0f} В ниже {MIN_INPUT_VOLTAGE:.0f} В. "
-            "Проверьте питание БП.",
-            parse_mode=ParseMode.HTML,
-        )
-        schedule_dashboard_after_60(message.chat.id, user_id)
-        return
-    charge_controller.start(profile, ah)
-    # Сначала OVP/OCP, затем уставки — иначе прибор может не дать включить выход
-    if battery_v < 12.0:
-        uv, ui = charge_controller._prep_target(t)
-    else:
-        uv, ui = charge_controller._main_target(t)
-    if ENTITY_MAP.get("ovp"):
-        await hass.set_ovp(uv + OVP_OFFSET)
-    if ENTITY_MAP.get("ocp"):
-        await hass.set_ocp(_cap_current(ui) + OCP_OFFSET)
-    await hass.set_voltage(uv)
-    await hass.set_current(_cap_current(ui))
-    await hass.turn_on(ENTITY_MAP["switch"])
-    last_checkpoint_time = time.time()
-    # Лог "Подготовка: START" пишется при первом tick()
+    logger.error(
+        "START denied: production start route is not composed; direct legacy START is retired"
+    )
     await message.answer(
-        f"<b>✅ Заряд запущен:</b> {profile} {ah}Ач\n"
-        f"Текущая фаза: <b>{charge_controller.current_stage}</b>",
+        "❌ START недоступен: production-маршрут запуска не собран. "
+        "Старый прямой запуск отключён.",
         parse_mode=ParseMode.HTML,
     )
-    old_id = user_dashboard.get(user_id)
-    msg_id = await send_dashboard(message, old_msg_id=old_id)
-    if user_id:
-        user_dashboard[user_id] = msg_id
-    schedule_dashboard_after_60(message.chat.id, user_id)
-
-    # Через 2 секунды после включения выхода — автообновление дашборда
-    async def _delayed_dashboard_refresh() -> None:
-        try:
-            await asyncio.sleep(2)
-            old = user_dashboard.get(user_id)
-            new_id = await send_dashboard(message, old_msg_id=old)
-            if user_id:
-                user_dashboard[user_id] = new_id
-        except Exception as ex:
-            logger.warning("Delayed dashboard refresh failed: %s", ex)
-
-    asyncio.create_task(_delayed_dashboard_refresh())
+    return
 
 
 async def handle_dialog_mode(message: Message) -> None:

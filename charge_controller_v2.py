@@ -103,13 +103,6 @@ class FinalSafeWaitContinuation:
         }
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return bool(default)
-    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
-
-
 class ChargeControllerV2(ChargeController):
     """Production V2 controller with a legacy safety/mechanics fallback.
 
@@ -121,10 +114,10 @@ class ChargeControllerV2(ChargeController):
     DESULFATION and its recovery SAFE_WAIT use explicit stage override hooks so the
     legacy timer/return branches are unreachable in production authority mode.
 
-    Set ``V2_AUTHORITATIVE=0`` (or pass ``authoritative=False``) for an emergency
-    rollback to the previous legacy-authoritative + V2-shadow behaviour.  Custom mode
-    deliberately remains legacy-authoritative because its operator-defined delta and
-    time contract is separate from the Pb recovery recipes.
+    Production no longer accepts an environment switch back to legacy transition
+    authority. ``authoritative=False`` is retained only for isolated characterization
+    and compatibility tests while the historical scaffold is being removed. Custom mode
+    remains a separately migrated program family and is not a production rollback path.
     """
 
     def __init__(
@@ -153,11 +146,10 @@ class ChargeControllerV2(ChargeController):
         self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
         # Captured by the V2 tick and serialized by the production controller.
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
-        self._v2_authoritative = (
-            _env_bool("V2_AUTHORITATIVE", True)
-            if authoritative is None
-            else bool(authoritative)
-        )
+        # Production authority is fixed on the V2-authoritative path while the
+        # remaining historical scaffold is extracted. Environment configuration may
+        # not silently re-enable legacy transition ownership.
+        self._v2_authoritative = True if authoritative is None else bool(authoritative)
 
     @property
     def v2_authoritative(self) -> bool:

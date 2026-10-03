@@ -5,8 +5,9 @@ This repository controls a physical RD6018 power supply and lead-acid batteries.
 ## Production entrypoint
 
 - Production: `python bot.py`
-- `bot.py` is intentionally a small V2 entrypoint.
-- The preserved previous Telegram/HA runtime is `bot_legacy.py`.
+- `bot.py` is the transitional production entrypoint while the modular V3 composition is extracted.
+- `runtime/v2_runtime.py` and `charge_logic.py` are historical/reference implementations: do not add new production behavior to them.
+- `bot_legacy.py` direct execution is retired; import compatibility exists only for characterization while it is removed.
 - Production controller: `DiagnosticProductionChargeControllerV2` from `diagnostic_controller.py`.
 - `ProductionManualSessionManager` is the managed Manual authority.
 - `RdControlModeManager` is the outer RD6018 ownership boundary (`PB_MANAGED` / `HANDS_OFF`).
@@ -16,14 +17,12 @@ Do not replace the production entrypoint with `bot_legacy.py` during a normal de
 
 ## Rollback controls
 
-These environment flags are supported independently:
+- `V2_UI=0` remains a presentation compatibility switch while UI migration is incomplete.
+- `V2_AUTHORITATIVE=0` is retired as a production rollback mechanism. Do not restore legacy transition authority through environment configuration.
+- `bot_legacy.py` is not a production rollback entrypoint.
+- After a modular boundary is cut over, rollback is performed by reverting/deploying the previous known-good commit, not by enabling an in-process legacy owner.
 
-- `V2_UI=0` — old Telegram presentation, current actuator authority unchanged.
-- `V2_AUTHORITATIVE=0` — legacy Main/Mix authority, V2 UI may remain enabled.
-- Full rollback: `V2_UI=0 V2_AUTHORITATIVE=0 python bot.py`.
-- Emergency preserved runtime: `V2_AUTHORITATIVE=0 python bot_legacy.py`.
-
-Do not add either rollback flag during a normal V2 deployment unless explicitly requested.
+Do not add new environment flags that resurrect superseded owners.
 
 ## Source of truth
 
