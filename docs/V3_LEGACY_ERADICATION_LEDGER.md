@@ -51,8 +51,12 @@ Local validation for the functional cutover:
 - restart/session-generation/fresh-OFF/failed-enable/no-duplicate-enable/
   historical-tick-unreachable regressions: PASS.
 
-Next boundary after final exact-head CI is ERADICATION-04: MIX -> final
-SAFE_WAIT -> verified Storage/DONE.
+Exact-head GitHub CI for
+`39f8ab2ef143ce1092aab267d511114c58395ff0`, run `#1512`
+(`37147682685`), passed on Python 3.10, 3.11 and 3.12.
+
+ERADICATION-03 is therefore remote-verified and complete. The next exact
+boundary is ERADICATION-04: MIX -> final SAFE_WAIT -> verified Storage/DONE.
 
 ## ERADICATION-02 progress
 

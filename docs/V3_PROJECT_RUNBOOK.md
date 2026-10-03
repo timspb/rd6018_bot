@@ -571,3 +571,26 @@ defect makes a minimal fix unavoidable.
 Production changed: NO.
 
 Hardware commands sent: NO.
+
+
+### 2026-10-04 ERADICATION-03 remote verification
+
+Exact functional/documentation HEAD:
+`39f8ab2ef143ce1092aab267d511114c58395ff0`.
+
+GitHub Actions exact-head run `#1512` / `37147682685` completed PASS:
+
+- Python 3.10: PASS;
+- Python 3.11: PASS;
+- Python 3.12: PASS.
+
+PR #29 points to the exact verified branch head. ERADICATION-03 is closed as
+remote-verified. Production VM104 was not touched and no hardware commands were
+sent.
+
+Next exact boundary:
+
+`ERADICATION-04: MIX -> finish evidence/hold -> final SAFE_WAIT -> verified Storage/DONE`.
+
+Do not fold Manual/Custom, UI migration, composition cleanup or unrelated
+safety/execution convergence into this boundary.
