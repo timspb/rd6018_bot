@@ -10,16 +10,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from charge_logic import (
-    AGM_FIRST_STAGE_HOLD_SEC,
     AGM_MIX_MAX_HOURS,
-    AGM_STAGES,
-    ANTISULFATE_MAX_AGM,
-    ANTISULFATE_MAX_CA_EFB,
     BLANKING_SEC,
     CA_MIX_MAX_HOURS,
     ChargeController,
     EFB_MIX_MAX_HOURS,
-    FIRST_STAGE_HOLD_SEC,
     MIX_DONE_TIMER,
     SAFE_WAIT_MAX_SEC,
     SAFE_WAIT_V_MARGIN,
@@ -38,12 +33,20 @@ from recovery_policy import RecoveryDecision
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
-from v2_authority import (
-    AuthorityAction,
-    AuthorityDecision,
-    decide_main_transition,
-    decide_mix_transition,
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.strategy.main_authority import decide_main_transition
+from runtime.charge.strategy.main_variables import (
+    AGM_MAX_RECOVERY_ATTEMPTS,
+    AGM_PLATEAU_REQUIRED_MINUTES,
+    AGM_STAGE_VOLTAGES_V,
+    NEAR_TARGET_MARGIN_V,
+    PLATEAU_EVIDENCE_WINDOW_MINUTES,
+    STANDARD_MAX_RECOVERY_ATTEMPTS,
+    STANDARD_PLATEAU_REQUIRED_MINUTES,
+    agm_tail_hold_seconds,
+    standard_tail_hold_seconds,
 )
+from v2_authority import decide_mix_transition
 
 logger = logging.getLogger("rd6018.recovery")
 
@@ -653,7 +656,7 @@ class ChargeControllerV2(ChargeController):
                 chemistry_for_legacy_profile(self.battery_type),
                 float(self.ah_capacity),
             )
-            near_target = float(voltage) >= float(target_before) - 0.20
+            near_target = float(voltage) >= float(target_before) - float(NEAR_TARGET_MARGIN_V.default)
         except (TypeError, ValueError):
             self._v2_main_plateau_since = None
             return None
@@ -674,7 +677,7 @@ class ChargeControllerV2(ChargeController):
             # CURRENT_PLATEAU itself is based on a 15-minute window.  Backdate the
             # first plateau timestamp by that evidence window so a 40-minute rule
             # remains approximately 40 minutes rather than silently becoming 55.
-            self._v2_main_plateau_since = max(0.0, float(timestamp_s) - 15 * 60)
+            self._v2_main_plateau_since = max(0.0, float(timestamp_s) - float(PLATEAU_EVIDENCE_WINDOW_MINUTES.default) * 60.0)
         return self._v2_main_plateau_since
 
     def _assess_main_sample(
@@ -697,7 +700,11 @@ class ChargeControllerV2(ChargeController):
         plateau_minutes = 0.0
         if plateau_since is not None:
             plateau_minutes = max(0.0, (timestamp_s - float(plateau_since)) / 60.0)
-        required_plateau = 120.0 if self.battery_type == self.PROFILE_AGM else 40.0
+        required_plateau = (
+            float(AGM_PLATEAU_REQUIRED_MINUTES.default)
+            if self.battery_type == self.PROFILE_AGM
+            else float(STANDARD_PLATEAU_REQUIRED_MINUTES.default)
+        )
         metrics = record.analysis.metrics
         return assess_first_stage(
             chemistry=chemistry_for_legacy_profile(self.battery_type),
@@ -1229,7 +1236,7 @@ class ChargeControllerV2(ChargeController):
         ah: float,
         reason: str,
     ) -> None:
-        self._agm_stage_idx = min(self._agm_stage_idx + 1, len(AGM_STAGES) - 1)
+        self._agm_stage_idx = min(self._agm_stage_idx + 1, len(AGM_STAGE_VOLTAGES_V.default) - 1)
         self.stage_start_time = now
         self._stage_start_ah = ah
         self._reset_delta_and_blanking(now)
@@ -1239,7 +1246,7 @@ class ChargeControllerV2(ChargeController):
         actions["set_current"] = ui
         self._add_phase_limits(actions, uv, ui)
         actions["notify"] = (
-            f"<b>🚀 V2 AGM ступень {self._agm_stage_idx + 1}/{len(AGM_STAGES)}:</b> "
+            f"<b>🚀 V2 AGM ступень {self._agm_stage_idx + 1}/{len(AGM_STAGE_VOLTAGES_V.default)}:</b> "
             f"{uv:.2f}В / {ui:.2f}А — {reason}."
         )
         actions["log_event"] = f"V2_AGM_STEP_{self._agm_stage_idx + 1}"
@@ -1338,14 +1345,14 @@ class ChargeControllerV2(ChargeController):
 
         if stage_before == self.STAGE_MAIN:
             required_hold = (
-                AGM_FIRST_STAGE_HOLD_SEC
+                agm_tail_hold_seconds()
                 if self.battery_type == self.PROFILE_AGM
-                else FIRST_STAGE_HOLD_SEC
+                else standard_tail_hold_seconds()
             )
             max_desulf = (
-                ANTISULFATE_MAX_AGM
+                int(AGM_MAX_RECOVERY_ATTEMPTS.default)
                 if self.battery_type == self.PROFILE_AGM
-                else ANTISULFATE_MAX_CA_EFB
+                else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
             )
             decision = decide_main_transition(
                 profile=self.battery_type,
@@ -1355,7 +1362,7 @@ class ChargeControllerV2(ChargeController):
                 seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
                 required_tail_hold_s=required_hold,
                 agm_stage_idx=self._agm_stage_idx,
-                agm_stage_count=len(AGM_STAGES),
+                agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
                 desulf_attempts=self.antisulfate_count,
                 max_desulf_attempts=max_desulf,
             )

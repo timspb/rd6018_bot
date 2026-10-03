@@ -3,17 +3,18 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
-from charge_logic import (
-    AGM_FIRST_STAGE_HOLD_SEC,
-    AGM_STAGES,
-    ANTISULFATE_MAX_AGM,
-    ANTISULFATE_MAX_CA_EFB,
-    FIRST_STAGE_HOLD_SEC,
-    MAIN_STAGE_MAX_HOURS,
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.strategy.main_authority import decide_main_transition
+from runtime.charge.strategy.main_variables import (
+    AGM_MAX_RECOVERY_ATTEMPTS,
+    AGM_STAGE_VOLTAGES_V,
+    STANDARD_MAX_RECOVERY_ATTEMPTS,
+    agm_tail_hold_seconds,
+    main_fallback_seconds,
+    standard_tail_hold_seconds,
 )
 from first_stage_evidence import FirstStageAssessment
 from production_controller import ProductionChargeControllerV2
-from v2_authority import AuthorityAction, AuthorityDecision, decide_main_transition
 
 
 class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
@@ -121,14 +122,14 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         is_cv: bool,
     ) -> AuthorityDecision:
         required_hold = (
-            AGM_FIRST_STAGE_HOLD_SEC
+            agm_tail_hold_seconds()
             if self.battery_type == self.PROFILE_AGM
-            else FIRST_STAGE_HOLD_SEC
+            else standard_tail_hold_seconds()
         )
         max_desulf = (
-            ANTISULFATE_MAX_AGM
+            int(AGM_MAX_RECOVERY_ATTEMPTS.default)
             if self.battery_type == self.PROFILE_AGM
-            else ANTISULFATE_MAX_CA_EFB
+            else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
         )
         return decide_main_transition(
             profile=self.battery_type,
@@ -138,11 +139,11 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
             seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
             required_tail_hold_s=required_hold,
             agm_stage_idx=self._agm_stage_idx,
-            agm_stage_count=len(AGM_STAGES),
+            agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
             desulf_attempts=self.antisulfate_count,
             max_desulf_attempts=max_desulf,
             main_elapsed_s=max(0.0, float(timestamp_s) - float(self.stage_start_time)),
-            main_limit_s=float(MAIN_STAGE_MAX_HOURS) * 3600.0,
+            main_limit_s=main_fallback_seconds(),
             current_a=float(current),
             is_cv=bool(is_cv),
         )

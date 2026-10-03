@@ -304,6 +304,20 @@ production route; tests prove removed fallback cannot return.
 Gate: golden traces, restart and failure paths match accepted behavior and the
 production MAIN path has no historical FSM transition call.
 
+#### ERADICATION-02a — MAIN decision/config extraction (implemented, pending CI)
+
+- canonical MAIN decision owner: `runtime/charge/strategy/main_authority.py`;
+- canonical MAIN variables: `runtime/charge/strategy/main_variables.py`;
+- canonical base target selection: `runtime/charge/strategy/main_targets.py`;
+- canonical stage-current ceiling declaration: `runtime/safety/variables.py`;
+- compatibility `v2_authority.py` re-exports the new MAIN owner;
+- transitional production controllers consume these modular owners;
+- accepted 72h / 2h / 3h / 3/4 recovery budgets / AGM 14.4→15.0V semantics are regression-tested.
+
+This is not ERADICATION-02 PASS yet. MAIN still uses the historical common tick
+scaffold. PASS requires deleting the MAIN `super().tick()` dependency and its
+time/blanking suppression.
+
 #### ERADICATION-03 — recovery lifecycle
 
 - DESULFATION;

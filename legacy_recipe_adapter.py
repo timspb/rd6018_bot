@@ -11,6 +11,7 @@ from pb_domain import (
     ChargeIntent,
 )
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
 
 
 PROFILE_CHEMISTRY = {
@@ -72,7 +73,7 @@ def authorize_legacy_target(
     target_current_a: float,
     expert_high_voltage: bool = False,
     custom_voltage_ceiling_v: Optional[float] = None,
-    hardware_max_current_a: float = 12.0,
+    hardware_max_current_a: float = float(MAX_STAGE_CURRENT_A.default),
 ) -> LegacyRecipeAuthorization:
     envelope = select_recipe_envelope(
         context,
