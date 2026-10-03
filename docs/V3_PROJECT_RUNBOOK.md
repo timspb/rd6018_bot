@@ -317,9 +317,11 @@ production MAIN path has no historical FSM transition call.
 - evidence thresholds live in `runtime/charge/evidence/first_stage_variables.py` with metadata;
 - root `first_stage_evidence.py` reduced to a compatibility re-export.
 
-This is not ERADICATION-02 PASS yet. MAIN still uses the historical common tick
-scaffold. PASS requires deleting the MAIN `super().tick()` dependency and its
-time/blanking suppression.
+ERADICATION-02 MAIN cutover is now implemented locally: authoritative MAIN uses
+`runtime/charge/runtime/main_scaffold.py` for accepted common runtime mechanics
+and does not enter historical `ChargeController.tick()`. The MAIN blanking mask
+and stage-clock falsification are removed. CI remains the gate before declaring
+this boundary merged.
 
 #### ERADICATION-03 — recovery lifecycle
 

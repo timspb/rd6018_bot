@@ -10,7 +10,7 @@ new entries require explicit architecture review.
 | L-001 | `bot.py -> runtime.v2_runtime as _legacy -> _legacy_main()` | production composition root aliases historical runtime | modular composition + lifecycle | all runtime owners extracted | OPEN |
 | L-002 | module monkey-patch installer stack | many `install_*(_legacy)` mutate one shared module | explicit dependency graph | each installer mapped and replaced | OPEN |
 | L-003 | `ChargeControllerV2(ChargeController)` | MAIN decision/config/targets now use modular owners, but historical FSM is still the superclass | modular stage engine | remove historical MAIN scaffold call, then remaining stages | IN_PROGRESS |
-| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | MAIN/MIX inputs are masked to suppress legacy transitions | explicit common safety/evidence services | no historical FSM call in AUTO | IN_PROGRESS |
+| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative MAIN now bypasses historical tick; pre-finish MIX still uses clock masking and historical scaffold | explicit common safety/evidence services | remove remaining MIX/DESULF/SAFE_WAIT historical scaffold calls | IN_PROGRESS |
 | L-005 | environment `V2_AUTHORITATIVE=0` | can restore legacy decision authority | no production legacy authority switch | env path removed | IMPLEMENTED_PENDING_CI |
 | L-006 | direct START fallbacks | `handle_ah_input` and default `v2_bot_ui._start_profile` could mutate RD without the canonical route | production START route | fallbacks removed; missing/injected owner hard-denies | IMPLEMENTED_PENDING_CI |
 | L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | new route hands execution to preserved owner | modular start/application/execution service | new START transaction parity | OPEN |
@@ -51,7 +51,12 @@ The first-stage evidence owner has also moved to
 `runtime/charge/evidence/first_stage_variables.py`. The root-level
 `first_stage_evidence.py` is now import compatibility only.
 
-Remaining blocker for ERADICATION-02 PASS: authoritative MAIN still enters the
-historical `super().tick()` scaffold with timing/blanking masks. The next change
-must extract the common non-transition mechanics needed by MAIN and remove that
-historical FSM call without changing accepted safety behavior.
+Authoritative MAIN no longer calls historical `ChargeController.tick()` and no
+longer uses blanking or stage-clock masking. Its accepted link-loss, thermal,
+history/reporting and stage bookkeeping mechanics are now provided by
+`runtime/charge/runtime/main_scaffold.py`, with runtime/safety timing values in
+module-owned variable files.
+
+ERADICATION-02 is functionally complete for MAIN. Remaining historical scaffold
+debt belongs to DESULFATION, recovery/final SAFE_WAIT and MIX and is tracked as
+the next boundaries.

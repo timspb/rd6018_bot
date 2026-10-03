@@ -92,6 +92,21 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         self.assertEqual(tuple(AGM_STAGE_VOLTAGES_V.default), (14.4, 14.6, 14.8, 15.0))
         self.assertEqual(float(AGM_TIMEOUT_TAIL_CURRENT_A.default), 0.20)
 
+    def test_authoritative_main_no_longer_enters_historical_tick(self) -> None:
+        controller = (ROOT / "charge_controller_v2.py").read_text(encoding="utf-8")
+        auto = (ROOT / "auto_strategy_v2.py").read_text(encoding="utf-8")
+        start = controller.index("async def _run_legacy_scaffold_tick")
+        end = controller.index("def _mix_limit_seconds", start)
+        scaffold = controller[start:end]
+        self.assertIn("run_authoritative_main_scaffold", scaffold)
+        self.assertNotIn("saved_blanking", scaffold)
+        self.assertNotIn("mask_main", scaffold)
+
+        auto_start = auto.index("async def _run_legacy_scaffold_tick")
+        auto_end = auto.index("def _decide_main_authority", auto_start)
+        auto_scaffold = auto[auto_start:auto_end]
+        self.assertNotIn("stage_before == self.STAGE_MAIN", auto_scaffold)
+
     def test_transitional_controllers_consume_modular_main_owner(self) -> None:
         auto = (ROOT / "auto_strategy_v2.py").read_text(encoding="utf-8")
         production = (ROOT / "production_controller.py").read_text(encoding="utf-8")

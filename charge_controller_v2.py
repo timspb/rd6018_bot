@@ -35,6 +35,7 @@ from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
 from runtime.charge.strategy.main_authority import decide_main_transition
 from runtime.charge.strategy.main_variables import (
     AGM_MAX_RECOVERY_ATTEMPTS,
@@ -44,6 +45,7 @@ from runtime.charge.strategy.main_variables import (
     STANDARD_MAX_RECOVERY_ATTEMPTS,
     STANDARD_PLATEAU_REQUIRED_MINUTES,
     agm_tail_hold_seconds,
+    main_fallback_seconds,
     standard_tail_hold_seconds,
 )
 from v2_authority import decide_mix_transition
@@ -1102,45 +1104,43 @@ class ChargeControllerV2(ChargeController):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        """Run common safety while legacy stage transitions are explicitly bypassed.
+        """Run the remaining transition scaffold only where it is still debt.
 
-        MAIN still needs the historical blanking mask until its remaining scaffold is
-        extracted. DESULFATION, recovery SAFE_WAIT and MIX now use explicit stage
-        override hooks and therefore require no timestamp falsification.
+        Authoritative MAIN no longer enters the historical ChargeController.tick.
+        Its common safety/bookkeeping mechanics are owned by the modular MAIN
+        runtime scaffold. DESULFATION/SAFE_WAIT/MIX remain transitional until their
+        own eradication boundaries are completed.
         """
-        if not self._is_authoritative_stage(stage_before):
-            return await super().tick(
-                voltage,
-                current,
-                temp_ext,
-                is_cv,
-                ah,
-                output_is_on,
+        if (
+            self._v2_authoritative
+            and self.battery_type != self.PROFILE_CUSTOM
+            and stage_before == self.STAGE_MAIN
+        ):
+            return await run_authoritative_main_scaffold(
+                self,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
                 manual_active=manual_active,
+                now_s=time.time(),
             )
 
-        saved_blanking = self._blanking_until
-        mask_main = stage_before == self.STAGE_MAIN
-        if mask_main:
-            self._blanking_until = time.time() + 365 * 24 * 3600
-
-        try:
-            return await super().tick(
-                voltage,
-                current,
-                temp_ext,
-                is_cv,
-                ah,
-                output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-            )
-        finally:
-            if mask_main and self.current_stage == stage_before:
-                self._blanking_until = saved_blanking
+        return await super().tick(
+            voltage,
+            current,
+            temp_ext,
+            is_cv,
+            ah,
+            output_is_on,
+            manual_off_active=manual_off_active,
+            is_cc=is_cc,
+            manual_active=manual_active,
+        )
 
     def _mix_limit_seconds(self) -> float:
         if self.battery_type == self.PROFILE_AGM:
@@ -1365,6 +1365,10 @@ class ChargeControllerV2(ChargeController):
                 agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
                 desulf_attempts=self.antisulfate_count,
                 max_desulf_attempts=max_desulf,
+                main_elapsed_s=max(0.0, float(timestamp_s) - float(self.stage_start_time)),
+                main_limit_s=main_fallback_seconds(),
+                current_a=float(current),
+                is_cv=bool(is_cv),
             )
             if decision.action == AuthorityAction.ADVANCE_AGM_STEP:
                 self._advance_agm_step(

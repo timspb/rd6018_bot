@@ -65,12 +65,10 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        strategy_clock_owned = self._is_authoritative_stage(stage_before) and (
-            stage_before == self.STAGE_MAIN
-            or (
-                stage_before == self.STAGE_MIX
-                and self.finish_timer_start is None
-            )
+        strategy_clock_owned = (
+            self._is_authoritative_stage(stage_before)
+            and stage_before == self.STAGE_MIX
+            and self.finish_timer_start is None
         )
         if not strategy_clock_owned:
             return await super()._run_legacy_scaffold_tick(
@@ -86,10 +84,10 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
                 manual_active=manual_active,
             )
 
-        # Main and pre-finish-hold Mix elapsed time are V2 strategy authority. Hide
-        # only that raw wall-stage age from the rollback scaffold so its historical
-        # 72 h / 20 h / 10 h fallbacks cannot transition before V2 evaluates the
-        # accepted strategy. All legacy telemetry/thermal/delta mechanics still run.
+        # Pre-finish-hold Mix still uses the transitional historical scaffold. Hide
+        # only its raw wall-stage age so the old profile timeout cannot transition
+        # before the modular authority evaluates the accepted strategy. MAIN no
+        # longer reaches this masking path.
         # Once a Mix finish hold exists, leave its timer visible: both layers accept
         # that sticky 2 h completion path and the legacy profile timeout no longer
         # participates in that branch.
