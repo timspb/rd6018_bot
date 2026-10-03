@@ -409,3 +409,78 @@ Stop before mutation/cutover if:
 - UI needs direct hardware/controller access;
 - restart could authorize Output ON from persisted state alone;
 - parity evidence is missing.
+
+### 14.8 Current checkpoint — 2026-10-04
+
+Repository/worktree authority for handoff:
+
+- canonical remote base remains `main@6eb6980d1e4a4aeeb804ae25a59af8e292a3d324`;
+- active migration branch: `refactor/v3-modular-legacy-eradication`;
+- local migration HEAD before this runbook update: `5bf7bf0a75ed99addc6868952db04512c82b8441`;
+- remote branch currently points to `2b21f245e71c098377a171a95a7ac8c176bdf6cf` because the last pushes from HOME-PC failed at network connect to github.com:443;
+- local worktree is `E:\CODEX\rd6018_v3_modular` and is intentionally isolated from the user's dirty primary worktree `E:\CODEX\rd6018_bot`;
+- production VM104 was not deployed/restarted/mutated by this migration. Last confirmed deployed production SHA remains `c1298ea2df67bba1e4888de6e830b002b5db2fce`.
+
+#### Completed locally after remote `2b21f245`
+
+`3f53139649b2cb5a26a5dc4ab26c947fc358f74e` — Move first-stage evidence into modular charge domain
+
+- canonical first-stage evidence moved to `runtime/charge/evidence/first_stage.py`;
+- evidence thresholds moved to `runtime/charge/evidence/first_stage_variables.py`;
+- root `first_stage_evidence.py` reduced to compatibility import surface;
+- production consumers were moved to the canonical evidence module.
+
+`5bf7bf0a75ed99addc6868952db04512c82b8441` — Cut authoritative MAIN off historical tick
+
+- authoritative MAIN no longer enters historical `ChargeController.tick()`;
+- MAIN blanking/time masking is removed;
+- accepted shared mechanics required by MAIN moved to `runtime/charge/runtime/main_scaffold.py`;
+- runtime/safety-owned timing and thresholds are declared in module-local variable files;
+- modular MAIN decision/config/target/evidence ownership remains the authority;
+- historical superclass still exists for non-migrated stages and compatibility, so this is not whole-controller retirement.
+
+#### Validation at this checkpoint
+
+- `git diff --check`: PASS;
+- `python -m compileall -q .`: PASS;
+- focused suites PASS:
+  - `test_v3_modular_architecture_contract.py`;
+  - `test_v3_main_authority_migration.py`;
+  - `test_v2_authority.py`;
+  - `test_auto_strategy_v2.py`;
+  - `test_v2_production_controller.py`;
+  - `test_charge_controller_v2.py`;
+  - `test_first_stage_evidence.py`;
+  - `test_legacy_enable_inventory.py`;
+  - `test_start_route_isolation.py`.
+- expected synthetic failure-path log traces appeared inside tests, but the suites passed.
+- full local suite after `5bf7bf0` has NOT yet been rerun in this checkpoint;
+- exact-head GitHub CI for `3f53139` / `5bf7bf0` has NOT run because those commits are not yet on the remote branch.
+
+#### Current plan state
+
+ERADICATION-01 is implemented locally and still needs exact-head CI/remote integration before being marked closed.
+
+ERADICATION-02 MAIN is functionally cut over locally: decision authority, variables, first-stage evidence, base target selection and common MAIN runtime scaffold are modular, and authoritative MAIN no longer calls the historical FSM tick.
+
+Next execution boundary is ERADICATION-03:
+
+1. migrate DESULFATION lifecycle to a self-contained module with its own variables;
+2. migrate recovery SAFE_WAIT continuation/relaxation/verified re-enable flow;
+3. preserve the already-fixed two-phase `SAFE_WAIT -> MAIN` commit rule;
+4. remove any remaining historical scaffold ownership for this chain;
+5. regression-test restart persistence, Output OFF proof, OVP/OCP/readback/enable failure handling and exact AGM stage restoration;
+6. only after that proceed to MIX/final SAFE_WAIT/Storage.
+
+Parallel architectural rule: every touched value must move to the variable file owned by its module with complete metadata. Do not create another shared constant bag.
+
+UI remains an independent mandatory workstream. New/future screens and buttons must use modular `ScreenSpec`/`ButtonSpec`/`UIAction`/routing and application intents; do not add callbacks or hardware/controller imports to legacy UI handlers while charge migration proceeds.
+
+#### Immediate handoff actions
+
+1. Re-verify local `HEAD` and worktree cleanliness.
+2. Push the two local functional commits plus this runbook checkpoint when GitHub connectivity is available.
+3. Wait for exact-head Python 3.10/3.11/3.12 CI.
+4. If CI is green, update ledger statuses for ERADICATION-01 and MAIN ERADICATION-02 accordingly.
+5. Start ERADICATION-03 from the exact green head; do not re-audit or redesign MAIN.
+6. Do not deploy VM104 until a separate production-validation instruction is given.
