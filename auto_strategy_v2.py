@@ -3,17 +3,18 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
-from charge_logic import (
-    AGM_FIRST_STAGE_HOLD_SEC,
-    AGM_STAGES,
-    ANTISULFATE_MAX_AGM,
-    ANTISULFATE_MAX_CA_EFB,
-    FIRST_STAGE_HOLD_SEC,
-    MAIN_STAGE_MAX_HOURS,
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.strategy.main_authority import decide_main_transition
+from runtime.charge.strategy.main_variables import (
+    AGM_MAX_RECOVERY_ATTEMPTS,
+    AGM_STAGE_VOLTAGES_V,
+    STANDARD_MAX_RECOVERY_ATTEMPTS,
+    agm_tail_hold_seconds,
+    main_fallback_seconds,
+    standard_tail_hold_seconds,
 )
-from first_stage_evidence import FirstStageAssessment
+from runtime.charge.evidence.first_stage import FirstStageAssessment
 from production_controller import ProductionChargeControllerV2
-from v2_authority import AuthorityAction, AuthorityDecision, decide_main_transition
 
 
 class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
@@ -64,12 +65,10 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        strategy_clock_owned = self._is_authoritative_stage(stage_before) and (
-            stage_before == self.STAGE_MAIN
-            or (
-                stage_before == self.STAGE_MIX
-                and self.finish_timer_start is None
-            )
+        strategy_clock_owned = (
+            self._is_authoritative_stage(stage_before)
+            and stage_before == self.STAGE_MIX
+            and self.finish_timer_start is None
         )
         if not strategy_clock_owned:
             return await super()._run_legacy_scaffold_tick(
@@ -85,10 +84,10 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
                 manual_active=manual_active,
             )
 
-        # Main and pre-finish-hold Mix elapsed time are V2 strategy authority. Hide
-        # only that raw wall-stage age from the rollback scaffold so its historical
-        # 72 h / 20 h / 10 h fallbacks cannot transition before V2 evaluates the
-        # accepted strategy. All legacy telemetry/thermal/delta mechanics still run.
+        # Pre-finish-hold Mix still uses the transitional historical scaffold. Hide
+        # only its raw wall-stage age so the old profile timeout cannot transition
+        # before the modular authority evaluates the accepted strategy. MAIN no
+        # longer reaches this masking path.
         # Once a Mix finish hold exists, leave its timer visible: both layers accept
         # that sticky 2 h completion path and the legacy profile timeout no longer
         # participates in that branch.
@@ -121,14 +120,14 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         is_cv: bool,
     ) -> AuthorityDecision:
         required_hold = (
-            AGM_FIRST_STAGE_HOLD_SEC
+            agm_tail_hold_seconds()
             if self.battery_type == self.PROFILE_AGM
-            else FIRST_STAGE_HOLD_SEC
+            else standard_tail_hold_seconds()
         )
         max_desulf = (
-            ANTISULFATE_MAX_AGM
+            int(AGM_MAX_RECOVERY_ATTEMPTS.default)
             if self.battery_type == self.PROFILE_AGM
-            else ANTISULFATE_MAX_CA_EFB
+            else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
         )
         return decide_main_transition(
             profile=self.battery_type,
@@ -138,11 +137,11 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
             seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
             required_tail_hold_s=required_hold,
             agm_stage_idx=self._agm_stage_idx,
-            agm_stage_count=len(AGM_STAGES),
+            agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
             desulf_attempts=self.antisulfate_count,
             max_desulf_attempts=max_desulf,
             main_elapsed_s=max(0.0, float(timestamp_s) - float(self.stage_start_time)),
-            main_limit_s=float(MAIN_STAGE_MAX_HOURS) * 3600.0,
+            main_limit_s=main_fallback_seconds(),
             current_a=float(current),
             is_cv=bool(is_cv),
         )
@@ -222,6 +221,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
         is_cv: bool,
         is_cc: bool,
         actions: Dict[str, Any],
+        output_is_on: Optional[Any] = None,
     ) -> Optional[AuthorityDecision]:
         if stage_before == self.STAGE_MAIN and self._is_authoritative_stage(stage_before):
             if self.current_stage != stage_before:
@@ -254,6 +254,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
             is_cv=is_cv,
             is_cc=is_cc,
             actions=actions,
+            output_is_on=output_is_on,
         )
 
     def _get_stage_max_hours(self) -> Optional[float]:

@@ -16,7 +16,7 @@ from manual_mode import (
     ManualSessionState,
 )
 from battery_registry import get_battery
-from first_stage_evidence import tail_current_threshold_a
+from runtime.charge.evidence.first_stage import tail_current_threshold_a
 from rd6018_telemetry import as_bool, finite_float
 from application.execution_intent.models import ExecutionIntent, SafetyContext
 

@@ -204,3 +204,393 @@ runtime. Он читает live state, `OperatorHmiState`, diagnostics и journa
 - hardcoded voltage/current/time/limits;
 - synthetic authorization или автоматический fallback между коннекторами;
 - изменение ESPHome/firmware/node 101 без отдельного разрешения.
+
+
+## 14. 2026-10-04 — Modular V3 and legacy eradication
+
+Repository authority at the start of this migration:
+
+- canonical remote branch: `main`;
+- baseline: `6eb6980d1e4a4aeeb804ae25a59af8e292a3d324`;
+- deployed VM104 remains on `c1298ea2df67bba1e4888de6e830b002b5db2fce`;
+- deployment/restart/hardware mutation is outside this migration unless separately approved.
+
+### 14.1 Decision
+
+The transitional model where V3 wraps V1/V2 is no longer an acceptable target.
+The migration must end with a genuinely modular production V3. Historical code
+can be a bounded oracle during parity work, but a migrated capability must not
+delegate its ownership back into the monolith.
+
+Authoritative contracts:
+
+- `docs/V3_MODULAR_ARCHITECTURE.md`;
+- `docs/V3_UI_MODULAR_ARCHITECTURE.md`;
+- `docs/V3_LEGACY_ERADICATION_LEDGER.md`.
+
+### 14.2 Mandatory module boundaries
+
+Production V3 is decomposed into:
+
+1. composition/lifecycle;
+2. application intents/use cases;
+3. charge programs/stages;
+4. signal/evidence;
+5. safety concerns;
+6. execution transaction;
+7. telemetry;
+8. ownership/session;
+9. persistence;
+10. infrastructure adapters;
+11. UI/presentation/Telegram transport.
+
+No module may recover a removed dependency by monkey-patching the historical
+runtime.
+
+### 14.3 Configuration rule
+
+Every configurable number, duration, threshold, enum or policy value has one
+semantic owner and one declaration location in that owner's `variables.py` or
+`config.py`.
+
+Every declaration documents:
+
+- key and type;
+- unit;
+- description;
+- owner;
+- default;
+- range/allowed values;
+- provenance;
+- override policy;
+- change effect (runtime/restart/deploy).
+
+Consumers receive typed configuration. Copying the literal into another module
+is prohibited.
+
+### 14.4 UI is a first-class migration workstream
+
+UI parity is not left until the end. Screens, buttons, navigation, components,
+graphs and future operator actions are modular.
+
+A new V3 button is a `ButtonSpec` with a stable `UIAction`; it does not contain
+a hardware callback. Telegram callback data is a transport concern, not the
+application API.
+
+A future screen/button must not require editing `runtime/v2_runtime.py`,
+`charge_logic.py`, controller classes, safety or execution modules.
+
+### 14.5 Legacy eradication sequence
+
+#### ERADICATION-01 — prevent legacy resurrection
+
+- retire environment-controlled legacy decision authority;
+- hard-deny START when the production START route is absent;
+- remove the hidden direct V/I/OVP/OCP/Output START fallback;
+- disable direct `bot_legacy.py` execution;
+- add architecture/static regression contracts;
+- establish module variable metadata and declarative UI primitives.
+
+Gate: no software behavior or hardware values change in the canonical
+production route; tests prove removed fallback cannot return.
+
+#### ERADICATION-02 — extract MAIN
+
+- characterize accepted MAIN semantics;
+- extract MAIN state/clock/tail/recovery decisions into modular charge code;
+- reuse explicit safety/evidence services, not `super().tick()`;
+- remove MAIN blanking/time masking of the historical FSM.
+
+Gate: golden traces, restart and failure paths match accepted behavior and the
+production MAIN path has no historical FSM transition call.
+
+#### ERADICATION-02a — MAIN decision/config extraction (implemented; exact-head CI PASS)
+
+- canonical MAIN decision owner: `runtime/charge/strategy/main_authority.py`;
+- canonical MAIN variables: `runtime/charge/strategy/main_variables.py`;
+- canonical base target selection: `runtime/charge/strategy/main_targets.py`;
+- canonical stage-current ceiling declaration: `runtime/safety/variables.py`;
+- compatibility `v2_authority.py` re-exports the new MAIN owner;
+- transitional production controllers consume these modular owners;
+- accepted 72h / 2h / 3h / 3/4 recovery budgets / AGM 14.4→15.0V semantics are regression-tested.
+- first-stage tail/plateau/thermal/sag evidence moved to `runtime/charge/evidence/first_stage.py`;
+- evidence thresholds live in `runtime/charge/evidence/first_stage_variables.py` with metadata;
+- root `first_stage_evidence.py` reduced to a compatibility re-export.
+
+ERADICATION-02 MAIN cutover is implemented: authoritative MAIN uses
+`runtime/charge/runtime/main_scaffold.py` for accepted common runtime mechanics
+and does not enter historical `ChargeController.tick()`. The MAIN blanking mask
+and stage-clock falsification are removed. Handoff exact-head CI run `#1510`
+(`37141127400`) passed on Python 3.10, 3.11 and 3.12 at
+`396b364b79816366380ee89d452256d1e0bacf08`.
+
+#### ERADICATION-03 — recovery lifecycle
+
+- DESULFATION;
+- recovery SAFE_WAIT;
+- verified return to MAIN;
+- continuation persistence and restart.
+
+Gate: the complete `MAIN -> DESULFATION -> SAFE_WAIT -> MAIN` path is modular
+and the old transition path is unreachable.
+
+#### ERADICATION-04 — MIX and final Storage
+
+- CV Imin/Delta-I;
+- CC Vmax/Delta-V;
+- confirmation spacing;
+- sticky active-time hold;
+- MIX limit;
+- final SAFE_WAIT;
+- verified Storage/DONE commit.
+
+Gate: one evidence owner and one FSM path; no legacy Mix timer/Delta branch.
+
+#### ERADICATION-05 — Manual/Custom
+
+Manual is a separate program family sharing safety/execution only. It is not a
+special-case escape hatch inside AUTO.
+
+#### ERADICATION-06 — safety and execution convergence
+
+Move all remaining setters/output calls behind the single execution owner.
+Safety is split into concern modules and emits typed decisions.
+
+Gate: static production scan finds no direct physical writes outside the
+approved physical implementation.
+
+#### ERADICATION-07 — UI cutover
+
+Migrate screens one at a time to canonical ViewModels, `ScreenSpec`,
+`ButtonSpec`, `UIAction` and application intents. Remove each old callback
+after parity.
+
+Gate: canonical UI imports no historical runtime/controller/HA/ESP modules.
+
+#### ERADICATION-08 — runtime/composition cutover
+
+Replace `_legacy`, `sys.modules` aliasing and top-level installer mutation
+with one explicit composition object and lifecycle.
+
+#### ERADICATION-09 — remove historical production graph
+
+When all prior gates pass:
+
+- no `runtime.v2_runtime` production import;
+- no historical FSM production import;
+- no `bot_legacy` production execution;
+- remove remaining compatibility files only after archive/reference capture.
+
+### 14.6 Per-boundary workflow
+
+Every migration increment follows:
+
+```text
+characterize
+-> modular implementation
+-> parity tests
+-> restart/failure tests
+-> switch one route
+-> prove new owner
+-> remove old route
+-> static no-regression guard
+-> exact-head CI
+```
+
+Do not keep a fallback mutating path after a successful cutover.
+
+### 14.7 Stop conditions
+
+Stop before mutation/cutover if:
+
+- ownership is ambiguous;
+- a safety semantic would change without explicit decision;
+- a configuration value has conflicting provenance;
+- a second execution owner appears;
+- UI needs direct hardware/controller access;
+- restart could authorize Output ON from persisted state alone;
+- parity evidence is missing.
+
+### 14.8 Current checkpoint — 2026-10-04
+
+Repository/worktree authority for handoff:
+
+- canonical remote base remains `main@6eb6980d1e4a4aeeb804ae25a59af8e292a3d324`;
+- active migration branch: `refactor/v3-modular-legacy-eradication`;
+- local migration HEAD before this runbook update: `5bf7bf0a75ed99addc6868952db04512c82b8441`;
+- the previously pending local commits through `978f5013eaec1472e0649690854dea4ba45d870d` were successfully pushed to `origin/refactor/v3-modular-legacy-eradication`;
+- local worktree is `E:\CODEX\rd6018_v3_modular` and is intentionally isolated from the user's dirty primary worktree `E:\CODEX\rd6018_bot`;
+- production VM104 was not deployed/restarted/mutated by this migration. Last confirmed deployed production SHA remains `c1298ea2df67bba1e4888de6e830b002b5db2fce`.
+
+#### Completed locally after remote `2b21f245`
+
+`3f53139649b2cb5a26a5dc4ab26c947fc358f74e` — Move first-stage evidence into modular charge domain
+
+- canonical first-stage evidence moved to `runtime/charge/evidence/first_stage.py`;
+- evidence thresholds moved to `runtime/charge/evidence/first_stage_variables.py`;
+- root `first_stage_evidence.py` reduced to compatibility import surface;
+- production consumers were moved to the canonical evidence module.
+
+`5bf7bf0a75ed99addc6868952db04512c82b8441` — Cut authoritative MAIN off historical tick
+
+- authoritative MAIN no longer enters historical `ChargeController.tick()`;
+- MAIN blanking/time masking is removed;
+- accepted shared mechanics required by MAIN moved to `runtime/charge/runtime/main_scaffold.py`;
+- runtime/safety-owned timing and thresholds are declared in module-local variable files;
+- modular MAIN decision/config/target/evidence ownership remains the authority;
+- historical superclass still exists for non-migrated stages and compatibility, so this is not whole-controller retirement.
+
+#### Validation at this checkpoint
+
+- `git diff --check`: PASS;
+- `python -m compileall -q .`: PASS;
+- focused suites PASS:
+  - `test_v3_modular_architecture_contract.py`;
+  - `test_v3_main_authority_migration.py`;
+  - `test_v2_authority.py`;
+  - `test_auto_strategy_v2.py`;
+  - `test_v2_production_controller.py`;
+  - `test_charge_controller_v2.py`;
+  - `test_first_stage_evidence.py`;
+  - `test_legacy_enable_inventory.py`;
+  - `test_start_route_isolation.py`.
+- expected synthetic failure-path log traces appeared inside tests, but the suites passed.
+- full local suite after `5bf7bf0` has NOT yet been rerun in this checkpoint;
+- GitHub CI was triggered after the branch synchronized; exact-head CI must be green before merge/closure.
+
+#### Current plan state
+
+ERADICATION-01 is implemented locally and still needs exact-head CI/remote integration before being marked closed.
+
+ERADICATION-02 MAIN is functionally cut over locally: decision authority, variables, first-stage evidence, base target selection and common MAIN runtime scaffold are modular, and authoritative MAIN no longer calls the historical FSM tick.
+
+Next execution boundary is ERADICATION-03:
+
+1. migrate DESULFATION lifecycle to a self-contained module with its own variables;
+2. migrate recovery SAFE_WAIT continuation/relaxation/verified re-enable flow;
+3. preserve the already-fixed two-phase `SAFE_WAIT -> MAIN` commit rule;
+4. remove any remaining historical scaffold ownership for this chain;
+5. regression-test restart persistence, Output OFF proof, OVP/OCP/readback/enable failure handling and exact AGM stage restoration;
+6. only after that proceed to MIX/final SAFE_WAIT/Storage.
+
+Parallel architectural rule: every touched value must move to the variable file owned by its module with complete metadata. Do not create another shared constant bag.
+
+UI remains an independent mandatory workstream. New/future screens and buttons must use modular `ScreenSpec`/`ButtonSpec`/`UIAction`/routing and application intents; do not add callbacks or hardware/controller imports to legacy UI handlers while charge migration proceeds.
+
+#### Immediate handoff actions
+
+1. Re-verify local `HEAD` and worktree cleanliness.
+2. Push the two local functional commits plus this runbook checkpoint when GitHub connectivity is available.
+3. Wait for exact-head Python 3.10/3.11/3.12 CI.
+4. If CI is green, update ledger statuses for ERADICATION-01 and MAIN ERADICATION-02 accordingly.
+5. Start ERADICATION-03 from the exact green head; do not re-audit or redesign MAIN.
+6. Do not deploy VM104 until a separate production-validation instruction is given.
+
+
+## 14.9 ERADICATION-03 checkpoint — 2026-10-04
+
+This checkpoint supersedes the execution plan in section 14.8.
+
+Authority before the boundary:
+
+- migration branch: `refactor/v3-modular-legacy-eradication`;
+- pre-boundary HEAD: `396b364b79816366380ee89d452256d1e0bacf08`;
+- PR: `#29 Begin modular V3 legacy eradication`;
+- exact-head GitHub Actions run `#1510` / `37141127400`: PASS on Python
+  3.10, 3.11 and 3.12;
+- isolated worktree was clean and local HEAD matched origin before mutation;
+- dirty primary worktree `E:\CODEX\rd6018_bot` was not touched;
+- production VM104 was not touched.
+
+Functional recovery cutover commit:
+
+`0f161a85a847d010ea6b7b860c065295145adf7a` — Migrate recovery chain to modular V3 authority
+
+Canonical recovery owners:
+
+- `runtime/charge/strategy/desulfation.py`;
+- `runtime/charge/strategy/desulfation_variables.py`;
+- `runtime/charge/strategy/recovery_safe_wait.py`;
+- `runtime/charge/strategy/safe_wait_variables.py`;
+- `runtime/charge/runtime/recovery_scaffold.py`.
+
+The authoritative recovery chain is now:
+
+`MAIN -> DESULFATION -> recovery SAFE_WAIT -> verified MAIN`.
+
+For this chain, historical `ChargeController.tick()` is no longer the
+execution/decision scaffold. Static regression tests patch the historical tick
+to fail if either authoritative DESULFATION or recovery SAFE_WAIT reaches it.
+
+DESULFATION owns its duration, base voltage, 0.02C current rule, minimum target
+current and stage-specific OCP margin through module-local `VariableSpec`
+declarations. SAFE_WAIT owns the relaxation margin and bounded timeout.
+
+Recovery SAFE_WAIT continuation now persists and validates:
+
+- exact source and next stage;
+- target V/I;
+- start time;
+- session identity;
+- session generation;
+- recovery attempt;
+- AGM stage index.
+
+Persisted continuation state is not sufficient to enable Output. A fresh
+physical Output OFF observation is required before the strategy may request a
+re-enable transaction. The software stage remains SAFE_WAIT while the request
+is pending. The existing execution transaction still owns the physical
+program/readback/enable/readback sequence, and only its successful verified
+acknowledgement may commit SAFE_WAIT -> MAIN.
+
+A restart defect was found while adding the required regression: historical
+restore reconstructed DESULFATION `stage_start_time` from Ah and could corrupt
+the bounded two-hour active-stage budget. The migrated controller now restores
+the exact persisted DESULFATION stage clock after the legacy compatibility
+restore. Recovery attempt and AGM step also survive restart.
+
+Validation after the functional cutover:
+
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- focused recovery/runtime/architecture regressions: PASS, including restart,
+  stale continuation, fresh-OFF gating, failed enable/readback, and
+  no-duplicate-enable coverage;
+- final full local suite: 1793 tests PASS, 2 skipped.
+
+ERADICATION-03 is locally complete. The remaining final gate is exact-head
+GitHub CI after this documentation checkpoint is pushed. After that, the next
+exact boundary is ERADICATION-04:
+
+`MIX -> finish evidence/hold -> final SAFE_WAIT -> verified Storage/DONE`.
+
+Do not fold Manual/Custom, full safety/execution convergence, UI cutover or
+composition cleanup into ERADICATION-04 unless a newly proven generic repository
+defect makes a minimal fix unavoidable.
+
+Production changed: NO.
+
+Hardware commands sent: NO.
+
+
+### 2026-10-04 ERADICATION-03 remote verification
+
+Exact functional/documentation HEAD:
+`39f8ab2ef143ce1092aab267d511114c58395ff0`.
+
+GitHub Actions exact-head run `#1512` / `37147682685` completed PASS:
+
+- Python 3.10: PASS;
+- Python 3.11: PASS;
+- Python 3.12: PASS.
+
+PR #29 points to the exact verified branch head. ERADICATION-03 is closed as
+remote-verified. Production VM104 was not touched and no hardware commands were
+sent.
+
+Next exact boundary:
+
+`ERADICATION-04: MIX -> finish evidence/hold -> final SAFE_WAIT -> verified Storage/DONE`.
+
+Do not fold Manual/Custom, UI migration, composition cleanup or unrelated
+safety/execution convergence into this boundary.

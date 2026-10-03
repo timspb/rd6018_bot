@@ -1,83 +1,91 @@
-"""Pure charge data and program contracts for the staged V3 migration."""
+"""Pure charge data and program contracts for the staged V3 migration.
 
-from .battery import BatteryProfile
-from .chemistry import ChemistryProfile, ProductionChemistry, map_production_chemistry
-from .engine import ChargeEngine
-from .decisions import ActuatorIntent, ContainmentResultRequest, DomainDecision
-from .profile_registry import ProfileDefinition, ProfileRegistry
-from .strategy_engine import StrategyEngine
-from .session import SessionManager, SessionSnapshot, SessionStatus
-from .intent import ChargeIntent
-from .limits import ChargeLimits
-from .measurements import Measurements
-from .post import FinishIntent
-from .profiles import RecipeDTO, ValidatedChargeRecipe, RecipeRegistry, ChargeRecipeValidator
-from .program import ChargeProgram
-from .state import ChargeState, DeltaRuntimeState
-from .adapters import LegacyChargeProgramAdapter
-from .shadow import ChargeDecisionShadow, ComparisonResult, DecisionComparison
-from .programs import ManualProgram, ManualTargets
-from .programs import MinimumConfig, MinimumProgram
-from .programs import DeltaConfig, DeltaProgram
-from .registry import ProgramRegistry
-from .strategy import (
-    ChargeRecipe, ChargeStrategy, StrategyRuntimeState,
-    MainPolicy, MainPolicyConfig, RecoveryPolicy, RecoveryPolicyConfig,
-    MixPolicy, MixPolicyConfig, CCMixExitPolicy, CCMixExitConfig,
-    CVMixExitPolicy, CVMixExitConfig, MixAuthorityState,
-    MixCurrentContainmentState, ResetProtectionIntent, post_mix_reset_intent,
-    emergency_stop_reset_intent, MixTemperatureDecision, MixTemperatureIntegrityPolicy,
-)
-from .service import ChargeRuntimeSnapshot, ChargeService
-from .contracts import (
-    ChargeDecisionCase,
-    DecisionMismatch,
-    DecisionValidationResult,
-    DecisionValidationStatus,
-    validate_case,
-)
-from .contracts import DELTA_TRANSITIONS, DeltaDecisionCase, DeltaState, delta_cases
+Leaf-module imports are lazy so a strategy import does not compose unrelated
+profiles, adapters, or the historical controller graph.
+"""
 
-__all__ = [
-    "BatteryProfile",
-    "ChargeEngine",
-    "ChargeIntent",
-    "ChargeLimits",
-    "ChargeProgram",
-    "ChargeState",
-    "ChemistryProfile",
-    "ProductionChemistry",
-    "map_production_chemistry",
-    "DeltaRuntimeState",
-    "LegacyChargeProgramAdapter",
-    "Measurements",
-    "FinishIntent",
-    "RecipeDTO", "ValidatedChargeRecipe", "RecipeRegistry", "ChargeRecipeValidator",
-    "ChargeDecisionShadow",
-    "ComparisonResult",
-    "DecisionComparison",
-    "ManualProgram",
-    "ManualTargets",
-    "MinimumConfig",
-    "MinimumProgram",
-    "DeltaConfig",
-    "DeltaProgram",
-    "ProgramRegistry",
-    "ChargeRuntimeSnapshot",
-    "ChargeService",
-    "ChargeDecisionCase",
-    "DELTA_TRANSITIONS",
-    "DeltaDecisionCase",
-    "DeltaState",
-    "DecisionMismatch",
-    "DecisionValidationResult",
-    "DecisionValidationStatus",
-    "delta_cases",
-    "validate_case",
-    "ChargeRecipe", "ChargeStrategy", "StrategyRuntimeState",
-    "MainPolicy", "MainPolicyConfig", "RecoveryPolicy", "RecoveryPolicyConfig",
-    "MixPolicy", "MixPolicyConfig", "CCMixExitPolicy", "CCMixExitConfig",
-    "CVMixExitPolicy", "CVMixExitConfig", "MixAuthorityState",
-    "MixCurrentContainmentState", "ResetProtectionIntent", "post_mix_reset_intent",
-    "emergency_stop_reset_intent", "MixTemperatureDecision", "MixTemperatureIntegrityPolicy",
-]
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "BatteryProfile": (".battery", "BatteryProfile"),
+    "ChemistryProfile": (".chemistry", "ChemistryProfile"),
+    "ProductionChemistry": (".chemistry", "ProductionChemistry"),
+    "map_production_chemistry": (".chemistry", "map_production_chemistry"),
+    "ChargeEngine": (".engine", "ChargeEngine"),
+    "ActuatorIntent": (".decisions", "ActuatorIntent"),
+    "ContainmentResultRequest": (".decisions", "ContainmentResultRequest"),
+    "DomainDecision": (".decisions", "DomainDecision"),
+    "ProfileDefinition": (".profile_registry", "ProfileDefinition"),
+    "ProfileRegistry": (".profile_registry", "ProfileRegistry"),
+    "StrategyEngine": (".strategy_engine", "StrategyEngine"),
+    "SessionManager": (".session", "SessionManager"),
+    "SessionSnapshot": (".session", "SessionSnapshot"),
+    "SessionStatus": (".session", "SessionStatus"),
+    "ChargeIntent": (".intent", "ChargeIntent"),
+    "ChargeLimits": (".limits", "ChargeLimits"),
+    "Measurements": (".measurements", "Measurements"),
+    "FinishIntent": (".post", "FinishIntent"),
+    "RecipeDTO": (".profiles", "RecipeDTO"),
+    "ValidatedChargeRecipe": (".profiles", "ValidatedChargeRecipe"),
+    "RecipeRegistry": (".profiles", "RecipeRegistry"),
+    "ChargeRecipeValidator": (".profiles", "ChargeRecipeValidator"),
+    "ChargeProgram": (".program", "ChargeProgram"),
+    "ChargeState": (".state", "ChargeState"),
+    "DeltaRuntimeState": (".state", "DeltaRuntimeState"),
+    "LegacyChargeProgramAdapter": (".adapters", "LegacyChargeProgramAdapter"),
+    "ChargeDecisionShadow": (".shadow", "ChargeDecisionShadow"),
+    "ComparisonResult": (".shadow", "ComparisonResult"),
+    "DecisionComparison": (".shadow", "DecisionComparison"),
+    "ManualProgram": (".programs", "ManualProgram"),
+    "ManualTargets": (".programs", "ManualTargets"),
+    "MinimumConfig": (".programs", "MinimumConfig"),
+    "MinimumProgram": (".programs", "MinimumProgram"),
+    "DeltaConfig": (".programs", "DeltaConfig"),
+    "DeltaProgram": (".programs", "DeltaProgram"),
+    "ProgramRegistry": (".registry", "ProgramRegistry"),
+    "ChargeRecipe": (".strategy", "ChargeRecipe"),
+    "ChargeStrategy": (".strategy", "ChargeStrategy"),
+    "StrategyRuntimeState": (".strategy", "StrategyRuntimeState"),
+    "MainPolicy": (".strategy", "MainPolicy"),
+    "MainPolicyConfig": (".strategy", "MainPolicyConfig"),
+    "RecoveryPolicy": (".strategy", "RecoveryPolicy"),
+    "RecoveryPolicyConfig": (".strategy", "RecoveryPolicyConfig"),
+    "MixPolicy": (".strategy", "MixPolicy"),
+    "MixPolicyConfig": (".strategy", "MixPolicyConfig"),
+    "CCMixExitPolicy": (".strategy", "CCMixExitPolicy"),
+    "CCMixExitConfig": (".strategy", "CCMixExitConfig"),
+    "CVMixExitPolicy": (".strategy", "CVMixExitPolicy"),
+    "CVMixExitConfig": (".strategy", "CVMixExitConfig"),
+    "MixAuthorityState": (".strategy", "MixAuthorityState"),
+    "MixCurrentContainmentState": (".strategy", "MixCurrentContainmentState"),
+    "ResetProtectionIntent": (".strategy", "ResetProtectionIntent"),
+    "post_mix_reset_intent": (".strategy", "post_mix_reset_intent"),
+    "emergency_stop_reset_intent": (".strategy", "emergency_stop_reset_intent"),
+    "MixTemperatureDecision": (".strategy", "MixTemperatureDecision"),
+    "MixTemperatureIntegrityPolicy": (".strategy", "MixTemperatureIntegrityPolicy"),
+    "ChargeRuntimeSnapshot": (".service", "ChargeRuntimeSnapshot"),
+    "ChargeService": (".service", "ChargeService"),
+    "ChargeDecisionCase": (".contracts", "ChargeDecisionCase"),
+    "DecisionMismatch": (".contracts", "DecisionMismatch"),
+    "DecisionValidationResult": (".contracts", "DecisionValidationResult"),
+    "DecisionValidationStatus": (".contracts", "DecisionValidationStatus"),
+    "validate_case": (".contracts", "validate_case"),
+    "DELTA_TRANSITIONS": (".contracts", "DELTA_TRANSITIONS"),
+    "DeltaDecisionCase": (".contracts", "DeltaDecisionCase"),
+    "DeltaState": (".contracts", "DeltaState"),
+    "delta_cases": (".contracts", "delta_cases"),
+}
+
+__all__ = list(_EXPORTS)
+
+def __getattr__(name: str) -> Any:
+    target = _EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, symbol = target
+    value = getattr(import_module(module_name, __name__), symbol)
+    globals()[name] = value
+    return value

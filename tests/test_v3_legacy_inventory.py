@@ -12,6 +12,8 @@ class V3LegacyInventoryTests(unittest.TestCase):
         legacy = (ROOT / "bot_legacy.py").read_text(encoding="utf-8")
         adapter = (ROOT / "telegram" / "runtime.py").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", legacy)), 0)
+        self.assertNotIn("asyncio.run(_runtime.main())", legacy)
+        self.assertIn("direct execution is retired", legacy)
         self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bBot\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bDispatcher\s*\(", adapter)), 1)

@@ -16,6 +16,9 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from config import MAX_VOLTAGE
 from charging_log import log_session_header
 from legacy_safety import clamp_legacy_target_voltage, main_timeout_decision
+from runtime.charge.strategy.desulfation import select_desulfation_target
+from runtime.charge.strategy.desulfation_variables import DESULFATION_OCP_MARGIN_A
+from runtime.charge.strategy.safe_wait_variables import SAFE_WAIT_TARGET_MARGIN_V, safe_wait_max_seconds
 
 logger = logging.getLogger("rd6018")
 
@@ -52,8 +55,9 @@ FIRST_STAGE_HOLD_SEC = FIRST_STAGE_HOLD_HOURS * 3600
 STORAGE_REPORT_INTERVAL_SEC = 3600
 
 # Безопасный переход HV -> LV (вместо фиксированной «паузы 30 мин» — ожидание по напряжению)
-SAFE_WAIT_V_MARGIN = 0.5  # В — ждать падения до (целевое напряжение следующего этапа − 0.5В)
-SAFE_WAIT_MAX_SEC = 2 * 3600  # макс 2 часа ожидания
+# Compatibility aliases; canonical SAFE_WAIT values live in runtime.charge.strategy.safe_wait_variables.
+SAFE_WAIT_V_MARGIN = float(SAFE_WAIT_TARGET_MARGIN_V.default)
+SAFE_WAIT_MAX_SEC = safe_wait_max_seconds()
 HIGH_V_FOR_SAFE_WAIT = 15.0  # переходы с V > 15В требуют ожидания
 POST_CHARGE_SAMPLE_SEC = 300  # сек — шаг постзарядной диагностики
 POST_CHARGE_MIN_WINDOW_SEC = 15 * 60  # сек — минимальное окно для вывода
@@ -94,7 +98,8 @@ HIGH_V_THRESHOLD = 15.0  # В — порог для ускоренного watch
 # Активная безопасность: OVP/OCP (v2.0: при каждой смене этапа)
 OVP_OFFSET = 0.1  # В — OVP = U_target + 0.1V
 OCP_OFFSET = 0.1  # А — OCP = I_limit + 0.1A
-DESULF_OCP_MARGIN = 1.0  # А — запас OCP для десульфатации, чтобы не ловить ложные срабатывания на разгон
+# Compatibility alias; DESULFATION owns this stage-specific protection margin.
+DESULF_OCP_MARGIN = float(DESULFATION_OCP_MARGIN_A.default)
 MAX_STAGE_CURRENT = 12.0  # А — жесткий лимит тока на всех этапах
 # Температура: ТОЛЬКО внешний датчик (АКБ). 35/40/45 — три уровня.
 TEMP_WARNING = 35.0  # °C — предупреждение в Telegram (один раз за сессию)
@@ -2085,7 +2090,11 @@ class ChargeController:
         return (self._apply_temperature_compensation(base_v, temp_c), i_main)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return (self._apply_temperature_compensation(16.3, temp_c), self._pct_ah(2.0))
+        target = select_desulfation_target(capacity_ah=float(self.ah_capacity))
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
 
     def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """v2.0: Mix Mode — I_target = ah * 0.03 (ёмкостно-ориентированный расчёт)."""

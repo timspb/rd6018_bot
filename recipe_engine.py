@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 from pb_domain import BatteryChemistry, BatteryCondition, ChargeContext, ChargeIntent
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,7 @@ def select_recipe_envelope(
     *,
     expert_high_voltage: bool = False,
     custom_voltage_ceiling_v: Optional[float] = None,
-    hardware_max_current_a: float = 12.0,
+    hardware_max_current_a: float = float(MAX_STAGE_CURRENT_A.default),
 ) -> RecipeEnvelope:
     """Select the allowed target envelope; stage logic chooses actual setpoints.
 

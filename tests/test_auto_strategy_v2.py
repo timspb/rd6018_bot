@@ -10,7 +10,7 @@ class DummyHass:
 
 
 class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
-    async def test_authoritative_main_hides_elapsed_clock_from_legacy_scaffold_then_restores_it(self):
+    async def test_authoritative_main_no_longer_masks_elapsed_clock(self):
         controller = AutoStrategyProductionChargeControllerV2(DummyHass(), authoritative=True)
         controller.current_stage = controller.STAGE_MAIN
         real_start = 1000.0
@@ -41,7 +41,7 @@ class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(actions, {"legacy": True})
-        self.assertEqual(seen, [now])
+        self.assertEqual(seen, [real_start])
         self.assertEqual(controller.stage_start_time, real_start)
 
     def test_production_mix_limits_are_20_24_10(self):

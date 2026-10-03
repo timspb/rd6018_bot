@@ -179,3 +179,26 @@ no bot_legacy production dependency
 ```
 
 До выполнения всех PASS-критериев `bot_legacy.py` не удалять.
+
+
+## 2026-10-04 superseding migration rules
+
+The previous phase list remains historical context, but the following rules now
+govern all new work:
+
+1. V3 may not remain a wrapper around the historical runtime.
+2. A migrated capability must not call the historical implementation as its
+   production owner.
+3. No new `install_*` monkey-patch layer may be added to keep the old monolith
+   alive.
+4. Historical behavior is an oracle for parity, not an execution dependency.
+5. Each successful cutover removes the old mutating route.
+6. UI is migrated as a modular workstream, including every button and callback.
+7. Configuration values move with their owning module and receive complete
+   metadata; no duplicate magic literals are accepted.
+8. Production rollback after a modular cutover is commit/deployment rollback,
+   not an environment switch that reactivates an old in-process authority.
+
+The detailed execution sequence is maintained in
+`docs/V3_PROJECT_RUNBOOK.md` section 14 and the shrinking debt list in
+`docs/V3_LEGACY_ERADICATION_LEDGER.md`.

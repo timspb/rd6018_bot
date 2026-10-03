@@ -59,11 +59,9 @@ For non-Custom profiles, V2 owns Main/Mix strategy decisions while the legacy co
 - ordinary legacy `Main -> HV` and `Mix -> finish` triggers are masked while V2 is authoritative;
 - Custom remains legacy-authoritative because it is an explicit operator-defined contract.
 
-Emergency strategy rollback:
-
-```bash
-V2_AUTHORITATIVE=0 python bot.py
-```
+The environment rollback `V2_AUTHORITATIVE=0` is retired. During modular V3
+migration, production decision authority must not fall back to the historical
+FSM inside the same process. Rollback is a deployment/commit rollback.
 
 ## CV and CC are different physical observations
 
@@ -335,19 +333,12 @@ Passing CI proves only covered software contracts. It does **not** prove physica
 
 ## Rollback
 
-```bash
-# Old Telegram UI only
-V2_UI=0 python bot.py
+`V2_AUTHORITATIVE=0` and direct `bot_legacy.py` execution are retired. A
+migrated production boundary is rolled back by deploying/reverting to a known
+good commit after the same safety prechecks used for deployment.
 
-# Legacy Main/Mix strategy authority
-V2_AUTHORITATIVE=0 python bot.py
-
-# Full rollback through production entrypoint
-V2_UI=0 V2_AUTHORITATIVE=0 python bot.py
-
-# Preserved old runtime directly
-V2_AUTHORITATIVE=0 python bot_legacy.py
-```
+`V2_UI=0` remains a temporary presentation compatibility switch only while the
+UI workstream is incomplete; it does not authorize historical charge strategy.
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) before changing a live node.
 

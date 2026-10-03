@@ -8,10 +8,12 @@ import time
 from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
-from charge_logic import AGM_FIRST_STAGE_HOLD_SEC, FIRST_STAGE_HOLD_SEC, SESSION_FILE
+from charge_logic import SESSION_FILE
+from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
+from runtime.charge.strategy.main_targets import select_main_target
 from charge_controller_v2 import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
-from first_stage_evidence import FirstStageAssessment, FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
@@ -123,7 +125,19 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         return self._bound_target(super()._prep_target(temp_c), self._recipe_envelope(), hv=False)
 
     def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return self._bound_target(super()._main_target(temp_c), self._recipe_envelope(), hv=False)
+        if self.battery_type == self.PROFILE_CUSTOM:
+            target = super()._main_target(temp_c)
+        else:
+            base = select_main_target(
+                profile=self.battery_type,
+                capacity_ah=float(self.ah_capacity),
+                agm_stage_idx=int(self._agm_stage_idx),
+            )
+            target = (
+                self._apply_temperature_compensation(base.voltage_v, temp_c),
+                base.current_a,
+            )
+        return self._bound_target(target, self._recipe_envelope(), hv=False)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         return self._bound_target(super()._desulf_target(temp_c), self._recipe_envelope(), hv=True)
@@ -142,10 +156,10 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         return float(V2_MIX_MAX_HOURS.get(self.battery_type, 20.0)) * 3600.0
 
     def _continuous_tail_hold_seconds(self) -> float:
-        return float(
-            AGM_FIRST_STAGE_HOLD_SEC
+        return (
+            agm_tail_hold_seconds()
             if self.battery_type == self.PROFILE_AGM
-            else FIRST_STAGE_HOLD_SEC
+            else standard_tail_hold_seconds()
         )
 
     def _reset_continuous_tail_hold(self) -> None:

@@ -146,24 +146,14 @@ RD6018_EDGE_LEASE_REQUIRED unset/true
 
 `RD6018_EDGE_LEASE_REQUIRED=0` exists only as an explicit emergency rollback of the new independent communication-loss boundary. It must not be the normal production configuration and must not be silently introduced to make a failed lease preflight pass.
 
-Other rollback options:
+Rollback policy during modular V3 migration:
 
-```bash
-# Old UI only
-V2_UI=0 python bot.py
+- `V2_AUTHORITATIVE=0` is retired and must not be used to re-enable legacy Main/Mix authority.
+- `bot_legacy.py` direct execution is retired.
+- `V2_UI=0` may be used only as the still-supported presentation compatibility switch while UI migration is incomplete; it does not alter charge authority.
+- Control/strategy rollback is an explicit deployment of a known-good commit after normal physical safety prechecks.
 
-# Legacy Main/Mix authority, V2 UI remains
-V2_AUTHORITATIVE=0 python bot.py
-
-# Full presentation/authority rollback through current entrypoint.
-# Strict actuator safety and the edge lease still remain installed.
-V2_UI=0 V2_AUTHORITATIVE=0 python bot.py
-
-# Preserved old runtime directly; use only as an explicit code rollback.
-V2_AUTHORITATIVE=0 python bot_legacy.py
-```
-
-For systemd, use the existing unit/environment mechanism; do not invent permanent overrides unless rollback is intentionally being activated.
+For systemd, use the existing unit/environment mechanism; do not invent permanent overrides that resurrect retired owners.
 
 ## Restart
 
