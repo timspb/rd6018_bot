@@ -42,6 +42,16 @@ Read these before changing control behavior:
 
 If code and these current documents disagree, stop and resolve the inconsistency; do not guess from an old comment, legacy test or historical commit.
 
+
+## Branch hygiene
+
+- `main` is the only long-lived canonical remote branch.
+- Create short-lived `fix/*`, `feat/*`, `test/*`, `refactor/*` or `codex/*` branches from current `main` only when isolated work is needed.
+- After integration, delete the remote working branch. Do **not** keep completed branches alive by fast-forwarding or force-moving them to follow `main`.
+- Production authority is an exact deployed commit SHA, not a permanent release branch.
+- If a retired divergent branch contains unique history worth keeping, preserve its head with an `archive/retired-YYYYMMDD/<name>` tag before deleting the branch.
+- Never reset, rebase, stash or overwrite a dirty local WIP worktree merely to make its branch match `main`; preserve it and integrate it explicitly when ready.
+
 ## Control invariants
 
 - Chemistry, intent, battery condition, program mode and actuator ownership are separate inputs.
