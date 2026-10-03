@@ -417,7 +417,7 @@ Repository/worktree authority for handoff:
 - canonical remote base remains `main@6eb6980d1e4a4aeeb804ae25a59af8e292a3d324`;
 - active migration branch: `refactor/v3-modular-legacy-eradication`;
 - local migration HEAD before this runbook update: `5bf7bf0a75ed99addc6868952db04512c82b8441`;
-- remote branch currently points to `2b21f245e71c098377a171a95a7ac8c176bdf6cf` because the last pushes from HOME-PC failed at network connect to github.com:443;
+- the previously pending local commits through `978f5013eaec1472e0649690854dea4ba45d870d` were successfully pushed to `origin/refactor/v3-modular-legacy-eradication`;
 - local worktree is `E:\CODEX\rd6018_v3_modular` and is intentionally isolated from the user's dirty primary worktree `E:\CODEX\rd6018_bot`;
 - production VM104 was not deployed/restarted/mutated by this migration. Last confirmed deployed production SHA remains `c1298ea2df67bba1e4888de6e830b002b5db2fce`.
 
@@ -455,7 +455,7 @@ Repository/worktree authority for handoff:
   - `test_start_route_isolation.py`.
 - expected synthetic failure-path log traces appeared inside tests, but the suites passed.
 - full local suite after `5bf7bf0` has NOT yet been rerun in this checkpoint;
-- exact-head GitHub CI for `3f53139` / `5bf7bf0` has NOT run because those commits are not yet on the remote branch.
+- GitHub CI was triggered after the branch synchronized; exact-head CI must be green before merge/closure.
 
 #### Current plan state
 
