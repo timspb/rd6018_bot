@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from urllib.parse import parse_qsl, urlencode
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -14,21 +15,45 @@ from runtime.ui.screen import ScreenSpec
 CALLBACK_PREFIX = "ui:"
 
 
-def callback_data_for(action: UIAction) -> str:
-    return f"{CALLBACK_PREFIX}{action.value}"
+def callback_data_for(
+    action: UIAction,
+    payload: tuple[tuple[str, str], ...] = (),
+) -> str:
+    base = f"{CALLBACK_PREFIX}{action.value}"
+    if not payload:
+        return base
+    encoded = urlencode(tuple((str(key), str(value)) for key, value in payload))
+    data = f"{base}?{encoded}"
+    if len(data.encode("utf-8")) > 64:
+        raise ValueError("Telegram callback_data exceeds 64-byte limit")
+    return data
 
 
-def action_from_callback_data(data: str) -> UIAction:
+def decode_callback_data(data: str) -> tuple[UIAction, dict[str, str]]:
     raw = str(data or "")
     if not raw.startswith(CALLBACK_PREFIX):
         raise ValueError("not a canonical UI callback")
-    return UIAction(raw[len(CALLBACK_PREFIX):])
+    encoded = raw[len(CALLBACK_PREFIX):]
+    action_raw, separator, query = encoded.partition("?")
+    action = UIAction(action_raw)
+    payload: dict[str, str] = {}
+    if separator:
+        for key, value in parse_qsl(query, keep_blank_values=True, strict_parsing=True):
+            if key in payload:
+                raise ValueError(f"duplicate canonical UI payload key: {key}")
+            payload[key] = value
+    return action, payload
+
+
+def action_from_callback_data(data: str) -> UIAction:
+    action, _payload = decode_callback_data(data)
+    return action
 
 
 def render_button(spec: ButtonSpec) -> InlineKeyboardButton:
     return InlineKeyboardButton(
         text=spec.label,
-        callback_data=callback_data_for(spec.action),
+        callback_data=callback_data_for(spec.action, spec.payload),
     )
 
 
@@ -51,6 +76,7 @@ __all__ = [
     "CALLBACK_PREFIX",
     "action_from_callback_data",
     "callback_data_for",
+    "decode_callback_data",
     "render_button",
     "render_screen_markup",
     "render_screen_text",
