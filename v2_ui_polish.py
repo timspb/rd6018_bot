@@ -210,7 +210,7 @@ def build_operator_dashboard_keyboard(
             )
         ],
         [
-            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh"),
             InlineKeyboardButton(text="ℹ️ Подробнее", callback_data=DETAILS_CALLBACK_DATA),
         ],
         [

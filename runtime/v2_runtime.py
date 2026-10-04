@@ -756,7 +756,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
             InlineKeyboardButton(text="📋 Полная инфо", callback_data=DETAILS_CALLBACK_DATA),
         ],
         [
-            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh"),
             InlineKeyboardButton(text="🧠 AI анализ", callback_data=ANALYSIS_CALLBACK_DATA),
         ],
         [
