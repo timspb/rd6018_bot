@@ -115,6 +115,8 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             "_apply_idle_protection",
             "_apply_controller_output_actions",
             "_hard_stop_charge",
+            "_operator_pause_toggle",
+            "power_toggle_handler",
         }
         forbidden = {
             "set_voltage",

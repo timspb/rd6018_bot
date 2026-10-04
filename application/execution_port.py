@@ -111,6 +111,22 @@ class ExecutionPort:
         """Delegate one verified Output-OFF transaction to the preserved V2 owner."""
         return bool(await self.v2_owner.turn_off())
 
+    async def request_verified_on(self) -> bool:
+        """Delegate one guarded/verified Output-ON transaction to the V2 owner."""
+        return bool(await self.v2_owner.turn_on())
+
+    async def program_voltage(self, value_v: float) -> bool:
+        return bool(await self.v2_owner.set_voltage(float(value_v)))
+
+    async def program_current(self, value_a: float) -> bool:
+        return bool(await self.v2_owner.set_current(float(value_a)))
+
+    async def program_ovp(self, value_v: float) -> bool:
+        return bool(await self.v2_owner.set_ovp(float(value_v)))
+
+    async def program_ocp(self, value_a: float) -> bool:
+        return bool(await self.v2_owner.set_ocp(float(value_a)))
+
     async def apply_phase_protection(
         self,
         *,
@@ -287,7 +303,7 @@ class ExecutionPort:
 
         enabled: Optional[bool] = None
         if actions.get("turn_on"):
-            enabled = bool(await self.v2_owner.turn_on())
+            enabled = await self.request_verified_on()
 
         attempted = False
         failed = False

@@ -1595,7 +1595,7 @@ async def _operator_pause_toggle(call: Any) -> str:
         if not charge_controller.is_active:
             return "Активной сессии заряда нет"
         if output_on:
-            await hass.turn_off(ENTITY_MAP["switch"])
+            await _runtime_execution_port().request_verified_off()
         after = await hass.get_all_live()
         if str(after.get("switch", "")).lower() == "on":
             return "Пауза не включена: Output не подтверждён OFF"
@@ -1617,7 +1617,7 @@ async def _operator_pause_toggle(call: Any) -> str:
         return "Пауза включена · Output OFF подтверждён"
 
     if output_on:
-        await hass.turn_off(ENTITY_MAP["switch"])
+        await _runtime_execution_port().request_verified_off()
         after = await hass.get_all_live()
         if str(after.get("switch", "")).lower() == "on":
             return "Продолжение заблокировано: Output не подтверждён OFF"
@@ -1655,9 +1655,9 @@ async def _operator_pause_toggle(call: Any) -> str:
 
     uv, ui = charge_controller._get_target_v_i(temp_ext)
     await _apply_phase_protection(uv, ui)
-    await hass.set_voltage(uv)
-    await hass.set_current(_cap_current(ui))
-    enabled = await hass.turn_on(ENTITY_MAP["switch"])
+    await _runtime_execution_port().program_voltage(uv)
+    await _runtime_execution_port().program_current(_cap_current(ui))
+    enabled = await _runtime_execution_port().request_verified_on()
     if not enabled:
         return "Продолжение заблокировано: безопасное включение не подтверждено"
 
@@ -4158,21 +4158,21 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                 await _apply_phase_protection(uv, ui)
-                await hass.set_voltage(uv)
-                await hass.set_current(_cap_current(ui))
-                await hass.turn_off(ENTITY_MAP["switch"])
+                await _runtime_execution_port().program_voltage(uv)
+                await _runtime_execution_port().program_current(_cap_current(ui))
+                await _runtime_execution_port().request_verified_off()
             else:
                 uv, ui = charge_controller._get_target_v_i(temp_ext)
                 await _apply_phase_protection(uv, ui)
-                await hass.set_voltage(uv)
-                await hass.set_current(_cap_current(ui))
-                await hass.turn_on(ENTITY_MAP["switch"])
+                await _runtime_execution_port().program_voltage(uv)
+                await _runtime_execution_port().program_current(_cap_current(ui))
+                await _runtime_execution_port().request_verified_on()
             await call.message.answer(
                 "<b>🚀 Заряд подхвачен.</b> Сессия восстановлена, бот снова управляет этапами.",
                 parse_mode=ParseMode.HTML,
             )
         else:
-            await hass.turn_on(ENTITY_MAP["switch"])
+            await _runtime_execution_port().request_verified_on()
             await call.message.answer(
                 "<b>🚀 Выход включён</b> с текущими параметрами RD6018. "
                 "Чтобы бот вёл этапы — выберите режим в <b>⚙️ РЕЖИМЫ</b>.",
