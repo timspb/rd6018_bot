@@ -6,16 +6,11 @@ import math
 import os
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from charge_logic import (
-    AGM_MIX_MAX_HOURS,
     BLANKING_SEC,
-    CA_MIX_MAX_HOURS,
     ChargeController,
-    EFB_MIX_MAX_HOURS,
-    MIX_DONE_TIMER,
     SESSION_FILE,
     SESSION_START_MAX_AGE,
 )
@@ -35,6 +30,7 @@ from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
+from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.strategy.desulfation import (
     DesulfationAction,
@@ -42,7 +38,18 @@ from runtime.charge.strategy.desulfation import (
     select_desulfation_target,
 )
 from runtime.charge.strategy.desulfation_variables import desulfation_duration_seconds
+from runtime.charge.strategy.final_safe_wait import (
+    FinalSafeWaitAction,
+    FinalSafeWaitContinuation,
+    decide_final_safe_wait,
+    validate_final_continuation,
+)
 from runtime.charge.strategy.main_authority import decide_main_transition
+from runtime.charge.strategy.mix import decide_mix_transition, select_mix_target
+from runtime.charge.strategy.mix_variables import (
+    mix_finish_hold_seconds,
+    mix_max_active_seconds,
+)
 from runtime.charge.strategy.recovery_safe_wait import (
     RecoverySafeWaitAction,
     RecoverySafeWaitContinuation,
@@ -53,6 +60,7 @@ from runtime.charge.strategy.safe_wait_variables import (
     SAFE_WAIT_TARGET_MARGIN_V,
     safe_wait_max_seconds,
 )
+from runtime.charge.strategy.storage import select_storage_target
 from runtime.charge.strategy.main_variables import (
     AGM_MAX_RECOVERY_ATTEMPTS,
     AGM_PLATEAU_REQUIRED_MINUTES,
@@ -64,8 +72,6 @@ from runtime.charge.strategy.main_variables import (
     main_fallback_seconds,
     standard_tail_hold_seconds,
 )
-from v2_authority import decide_mix_transition
-
 logger = logging.getLogger("rd6018.recovery")
 
 
@@ -73,46 +79,19 @@ logger = logging.getLogger("rd6018.recovery")
 INTERMEDIATE_RECOVERY_DURATION_SEC = desulfation_duration_seconds()
 
 
-@dataclass(frozen=True)
-class FinalSafeWaitContinuation:
-    """Typed successful-charge continuation from SAFE_WAIT to Storage/DONE."""
-
-    source_stage: str
-    next_stage: str
-    target_voltage_v: float
-    target_current_a: float
-    started_at: float
-    session_id: Optional[str]
-    completion_reason: str
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "version": 1,
-            "source_stage": self.source_stage,
-            "next_stage": self.next_stage,
-            "target_voltage_v": self.target_voltage_v,
-            "target_current_a": self.target_current_a,
-            "started_at": self.started_at,
-            "session_id": self.session_id,
-            "completion_reason": self.completion_reason,
-        }
-
-
 class ChargeControllerV2(ChargeController):
-    """Production V2 controller with a legacy safety/mechanics fallback.
+    """Transitional production controller while modular V3 replaces the old FSM.
 
-    Default production mode is V2-authoritative for non-Custom Main/Mix transitions
-    plus the bounded intermediate-recovery lifecycle and its SAFE_WAIT return.
-    The proven legacy controller is still called as the common safety/mechanics
-    scaffold (telemetry validation, hard Main timeout, temperature protection,
-    Cooling/restore/session persistence). Main/Mix transition triggers are masked;
-    DESULFATION and its recovery SAFE_WAIT use explicit stage override hooks so the
-    legacy timer/return branches are unreachable in production authority mode.
+    For non-Custom automatic charging, MAIN, bounded DESULFATION, recovery
+    SAFE_WAIT, MIX, and final SAFE_WAIT now use modular strategy/runtime owners and
+    do not enter historical ``ChargeController.tick()``. The superclass remains for
+    compatibility state, persistence helpers, Cooling mechanics, and program
+    families that have not yet been migrated.
 
-    Production no longer accepts an environment switch back to legacy transition
-    authority. ``authoritative=False`` is retained only for isolated characterization
-    and compatibility tests while the historical scaffold is being removed. Custom mode
-    remains a separately migrated program family and is not a production rollback path.
+    Production no longer accepts an environment switch back to historical
+    transition authority. ``authoritative=False`` is retained only for isolated
+    characterization/compatibility tests. Custom remains a separately migrated
+    program family and is not a production rollback path.
     """
 
     def __init__(
@@ -162,6 +141,21 @@ class ChargeControllerV2(ChargeController):
             self._apply_temperature_compensation(target.voltage_v, temp_c),
             target.current_a,
         )
+
+    def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        """Compatibility adapter over the canonical modular MIX target."""
+        target = select_mix_target(
+            profile=self.battery_type,
+            capacity_ah=float(self.ah_capacity),
+        )
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
+
+    def _storage_target(self) -> Tuple[float, float]:
+        target = select_storage_target()
+        return target.voltage_v, target.current_a
 
     def configure_recovery_context(
         self,
@@ -379,30 +373,37 @@ class ChargeControllerV2(ChargeController):
         raw = document.get("v2_final_safe_wait")
         if isinstance(raw, dict):
             try:
+                raw_generation = raw.get("session_generation")
                 candidate = FinalSafeWaitContinuation(
                     source_stage=str(raw.get("source_stage") or ""),
                     next_stage=str(raw.get("next_stage") or ""),
                     target_voltage_v=float(raw.get("target_voltage_v")),
                     target_current_a=float(raw.get("target_current_a")),
                     started_at=float(raw.get("started_at")),
-                    session_id=str(raw.get("session_id") or "") or None,
+                    session_id=(
+                        str(raw.get("session_id") or self._v2_trace_session_id or "") or None
+                    ),
                     completion_reason=str(raw.get("completion_reason") or ""),
+                    session_generation=(
+                        float(raw_generation)
+                        if raw_generation is not None
+                        else float(self._v2_trace_started_at)
+                    ),
                 )
             except (TypeError, ValueError, OverflowError):
                 candidate = None
             if (
                 candidate is not None
-                and candidate.source_stage in {self.STAGE_MAIN, self.STAGE_MIX}
-                and candidate.next_stage == self.STAGE_DONE
-                and math.isfinite(candidate.target_voltage_v)
-                and math.isfinite(candidate.target_current_a)
-                and math.isfinite(candidate.started_at)
-                and candidate.target_voltage_v > 0.0
-                and candidate.target_current_a > 0.0
-                and (candidate.session_id is None or candidate.session_id == self._v2_trace_session_id)
+                and validate_final_continuation(
+                    candidate,
+                    session_id=self._v2_trace_session_id,
+                    session_generation=self._v2_trace_started_at,
+                    expected_next_stage=self.STAGE_DONE,
+                    allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
+                )
             ):
                 self._final_safe_wait = candidate
-                return
+            return
 
         # One-way migration for a successful pre-cutover final SAFE_WAIT. Recovery
         # SAFE_WAIT is distinguished by next=MAIN and was reconstructed above.
@@ -424,6 +425,7 @@ class ChargeControllerV2(ChargeController):
                 started_at=float(self._safe_wait_start),
                 session_id=self._v2_trace_session_id,
                 completion_reason=str(self._last_transition_reason or "restored_successful_completion"),
+                session_generation=float(self._v2_trace_started_at),
             )
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
@@ -951,6 +953,85 @@ class ChargeControllerV2(ChargeController):
             f"recovery_safe_wait_enable_requested:{decision.reason}",
         )
 
+    def _apply_final_safe_wait_authority(
+        self,
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+        output_is_on: Optional[Any],
+    ) -> AuthorityDecision:
+        continuation = self._final_safe_wait
+        valid = (
+            continuation is not None
+            and self.current_stage == self.STAGE_SAFE_WAIT
+            and validate_final_continuation(
+                continuation,
+                session_id=self._v2_trace_session_id,
+                session_generation=self._v2_trace_started_at,
+                expected_next_stage=self.STAGE_DONE,
+                allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
+            )
+        )
+        if not valid:
+            reason = "final_safe_wait_continuation_invalid"
+            self._stop_and_diagnose(
+                actions=actions,
+                now=now,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                reason=reason,
+            )
+            self._final_safe_wait = None
+            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
+
+        assert continuation is not None
+        output_is_off = self._normalize_output_on(output_is_on) is False
+        if output_is_off:
+            self._record_safe_wait_sample(now, voltage, current, temp)
+        decision = decide_final_safe_wait(
+            continuation,
+            now_s=now,
+            voltage_v=voltage,
+            output_is_off=output_is_off,
+        )
+        if decision.action == FinalSafeWaitAction.WAIT:
+            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
+
+        actions["set_voltage"] = continuation.target_voltage_v
+        actions["set_current"] = continuation.target_current_a
+        self._add_phase_limits(
+            actions,
+            continuation.target_voltage_v,
+            continuation.target_current_a,
+        )
+        actions["turn_on"] = True
+        # Storage/DONE remains a two-phase transition: this token is only a request.
+        # The execution layer must prove programmed readback and physical Output ON
+        # before commit_verified_enable_transition may advance the software stage.
+        actions["verified_enable_transition"] = {
+            "kind": "final_safe_wait_to_done",
+            "session_id": continuation.session_id,
+            "session_generation": continuation.session_generation,
+            "started_at": continuation.started_at,
+            "reason": decision.reason,
+        }
+        actions["log_event"] = "FINAL_SAFE_WAIT_STORAGE_ENABLE_ATTEMPT"
+        logger.info(
+            "V2 final SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
+            decision.reason,
+            decision.wait_elapsed_s,
+        )
+        return AuthorityDecision(
+            AuthorityAction.CONTINUE,
+            f"final_safe_wait_storage_enable_requested:{decision.reason}",
+        )
+
     def _handle_safe_wait_stage_override(
         self,
         *,
@@ -962,7 +1043,7 @@ class ChargeControllerV2(ChargeController):
         actions: Dict[str, Any],
         output_is_on: Optional[Any],
     ) -> bool:
-        """Compatibility hook for direct callers and the still-unmigrated final SAFE_WAIT."""
+        """Compatibility hook delegating SAFE_WAIT decisions to modular owners."""
 
         if (
             not self._v2_authoritative
@@ -983,61 +1064,19 @@ class ChargeControllerV2(ChargeController):
             )
             return True
 
-        continuation = self._final_safe_wait
-        if continuation is None:
-            return False
-        if (
-            continuation.session_id
-            and continuation.session_id != self._v2_trace_session_id
-        ) or continuation.source_stage not in {self.STAGE_MAIN, self.STAGE_MIX}:
-            self._stop_and_diagnose(
-                actions=actions,
+        if self._final_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_DONE:
+            self._apply_final_safe_wait_authority(
                 now=now,
                 voltage=voltage,
                 current=current,
                 temp=temp,
                 ah=ah,
-                reason="safe_wait_session_or_source_mismatch",
+                actions=actions,
+                output_is_on=output_is_on,
             )
-            self._final_safe_wait = None
             return True
 
-        if self._normalize_output_on(output_is_on) is not False:
-            return True
-
-        self._record_safe_wait_sample(now, voltage, current, temp)
-        threshold = (
-            continuation.target_voltage_v
-            - float(SAFE_WAIT_TARGET_MARGIN_V.default)
-        )
-        wait_elapsed = max(0.0, now - continuation.started_at)
-        threshold_met = voltage <= threshold
-        timeout_met = wait_elapsed + 1e-6 >= safe_wait_max_seconds()
-        if not threshold_met and not timeout_met:
-            return True
-
-        reason = "threshold" if threshold_met else "timeout"
-        actions["set_voltage"] = continuation.target_voltage_v
-        actions["set_current"] = continuation.target_current_a
-        self._add_phase_limits(
-            actions,
-            continuation.target_voltage_v,
-            continuation.target_current_a,
-        )
-        actions["turn_on"] = True
-        actions["verified_enable_transition"] = {
-            "kind": "final_safe_wait_to_done",
-            "session_id": continuation.session_id,
-            "started_at": continuation.started_at,
-            "reason": reason,
-        }
-        actions["log_event"] = "FINAL_SAFE_WAIT_STORAGE_ENABLE_ATTEMPT"
-        logger.info(
-            "V2 final SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
-            reason,
-            wait_elapsed,
-        )
-        return True
+        return False
 
     def commit_verified_enable_transition(
         self,
@@ -1063,12 +1102,23 @@ class ChargeControllerV2(ChargeController):
             token_session = str(transition.get("session_id") or "") or None
             try:
                 token_started_at = float(transition.get("started_at"))
+                token_session_generation = float(transition.get("session_generation"))
             except (TypeError, ValueError):
                 return None
             if (
                 token_session != continuation.session_id
+                or continuation.session_generation is None
                 or not math.isfinite(token_started_at)
+                or not math.isfinite(token_session_generation)
                 or abs(token_started_at - continuation.started_at) > 1e-6
+                or abs(
+                    token_session_generation
+                    - float(continuation.session_generation)
+                ) > 1e-6
+                or abs(
+                    token_session_generation
+                    - float(self._v2_trace_started_at)
+                ) > 1e-6
             ):
                 logger.error("verified final completion rejected: continuation token mismatch")
                 return None
@@ -1171,11 +1221,10 @@ class ChargeControllerV2(ChargeController):
         is_cv: bool,
         is_cc: Optional[bool],
     ) -> bool:
-        """Suppress the historical MIX FSM when V2 owns MIX decisions.
+        """Compatibility hook marking MIX as modular-authoritative.
 
-        Safety/temperature/link checks still run in the common scaffold before the
-        stage branch.  Only the legacy MIX evidence/timer/timeout transitions are
-        bypassed; authoritative evidence is evaluated after the scaffold returns.
+        The production MIX path now bypasses historical ``ChargeController.tick()``
+        entirely; this hook remains only for characterization/direct legacy callers.
         """
         return bool(
             self._v2_authoritative
@@ -1195,6 +1244,7 @@ class ChargeControllerV2(ChargeController):
                         self._recovery_safe_wait is not None
                         or self._final_safe_wait is not None
                         or self._safe_wait_next_stage == self.STAGE_MAIN
+                        or self._safe_wait_next_stage == self.STAGE_DONE
                     )
                 )
             )
@@ -1214,10 +1264,11 @@ class ChargeControllerV2(ChargeController):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        """Route migrated stages around the historical ChargeController.tick.
+        """Route migrated automatic stages around historical ChargeController.tick.
 
-        MAIN and the intermediate recovery chain use modular runtime scaffolds.
-        Final SAFE_WAIT and MIX remain historical-scaffold debt for ERADICATION-04.
+        MAIN, intermediate recovery, MIX, and final SAFE_WAIT use modular runtime
+        scaffolds. Custom and not-yet-migrated program families retain the historical
+        compatibility path.
         """
         if (
             self._v2_authoritative
@@ -1265,6 +1316,38 @@ class ChargeControllerV2(ChargeController):
                 now_s=time.time(),
             )
 
+        final_safe_wait = (
+            stage_before == self.STAGE_SAFE_WAIT
+            and (
+                self._final_safe_wait is not None
+                or self._safe_wait_next_stage == self.STAGE_DONE
+            )
+        )
+        if (
+            self._v2_authoritative
+            and self.battery_type != self.PROFILE_CUSTOM
+            and (stage_before == self.STAGE_MIX or final_safe_wait)
+        ):
+            return await run_authoritative_mix_scaffold(
+                self,
+                stage_before=stage_before,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
+                manual_off_active=manual_off_active,
+                is_cc=is_cc,
+                manual_active=manual_active,
+                report_limit_s=(
+                    self._mix_limit_seconds()
+                    if stage_before == self.STAGE_MIX
+                    else safe_wait_max_seconds()
+                ),
+                now_s=time.time(),
+            )
+
         return await super().tick(
             voltage,
             current,
@@ -1278,11 +1361,8 @@ class ChargeControllerV2(ChargeController):
         )
 
     def _mix_limit_seconds(self) -> float:
-        if self.battery_type == self.PROFILE_AGM:
-            return float(AGM_MIX_MAX_HOURS) * 3600.0
-        if self.battery_type == self.PROFILE_EFB:
-            return float(EFB_MIX_MAX_HOURS) * 3600.0
-        return float(CA_MIX_MAX_HOURS) * 3600.0
+        """Compatibility accessor over the canonical modular MIX authority limit."""
+        return mix_max_active_seconds(self.battery_type)
 
     def _enter_safe_wait_done(
         self,
@@ -1316,6 +1396,7 @@ class ChargeControllerV2(ChargeController):
             started_at=float(now),
             session_id=self._v2_trace_session_id,
             completion_reason=str(reason),
+            session_generation=float(self._v2_trace_started_at),
         )
         self._recovery_safe_wait = None
         self._record_safe_wait_sample(now, voltage, current, temp)
@@ -1513,6 +1594,23 @@ class ChargeControllerV2(ChargeController):
                 output_is_on=output_is_on,
             )
 
+        if (
+            stage_before == self.STAGE_SAFE_WAIT
+            and (
+                self._final_safe_wait is not None
+                or self._safe_wait_next_stage == self.STAGE_DONE
+            )
+        ):
+            return self._apply_final_safe_wait_authority(
+                now=timestamp_s,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                actions=actions,
+                output_is_on=output_is_on,
+            )
+
         if stage_before != self.STAGE_MAIN and stage_before != self.STAGE_MIX:
             return None
 
@@ -1602,12 +1700,13 @@ class ChargeControllerV2(ChargeController):
             self.v_max_recorded = metrics.voltage_max_v
 
         decision = decide_mix_transition(
+            profile=self.battery_type,
             policy_decision=record.decision.decision,
-            mix_elapsed_s=max(0.0, timestamp_s - self.stage_start_time),
-            mix_limit_s=self._mix_limit_seconds(),
+            active_elapsed_s=max(0.0, timestamp_s - self.stage_start_time),
+            authority_limit_s=self._mix_limit_seconds(),
             finish_hold_started_at=self.finish_timer_start,
             now_s=timestamp_s,
-            finish_hold_s=MIX_DONE_TIMER,
+            finish_hold_s=mix_finish_hold_seconds(),
         )
         if decision.action == AuthorityAction.START_FINISH_HOLD:
             self.finish_timer_start = timestamp_s
@@ -1649,7 +1748,7 @@ class ChargeControllerV2(ChargeController):
             logger.info(
                 "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
                 self._delta_trigger_mode or "unknown",
-                MIX_DONE_TIMER,
+                mix_finish_hold_seconds(),
                 timestamp_s,
             )
         elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:

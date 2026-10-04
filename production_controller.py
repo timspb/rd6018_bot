@@ -11,6 +11,12 @@ from typing import Any, Dict, Optional, Tuple
 from charge_logic import SESSION_FILE
 from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
 from runtime.charge.strategy.main_targets import select_main_target
+from runtime.charge.strategy.mix_variables import (
+    AGM_MIX_MAX_ACTIVE_HOURS,
+    CA_MIX_MAX_ACTIVE_HOURS,
+    EFB_MIX_MAX_ACTIVE_HOURS,
+    mix_max_active_seconds,
+)
 from charge_controller_v2 import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
@@ -22,10 +28,12 @@ from recipe_engine import RecipeEnvelope, select_recipe_envelope
 logger = logging.getLogger("rd6018.production_controller")
 
 
+# Compatibility mapping for existing imports/UI tests. Canonical ownership is
+# runtime.charge.strategy.mix_variables; do not add independent values here.
 V2_MIX_MAX_HOURS = {
-    "Ca/Ca": 20.0,
-    "EFB": 24.0,
-    "AGM": 10.0,
+    "Ca/Ca": float(CA_MIX_MAX_ACTIVE_HOURS.default),
+    "EFB": float(EFB_MIX_MAX_ACTIVE_HOURS.default),
+    "AGM": float(AGM_MIX_MAX_ACTIVE_HOURS.default),
 }
 
 RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
@@ -153,7 +161,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         )
 
     def _mix_limit_seconds(self) -> float:
-        return float(V2_MIX_MAX_HOURS.get(self.battery_type, 20.0)) * 3600.0
+        return mix_max_active_seconds(self.battery_type)
 
     def _continuous_tail_hold_seconds(self) -> float:
         return (
