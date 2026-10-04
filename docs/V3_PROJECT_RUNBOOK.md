@@ -979,3 +979,55 @@ ERADICATION-09 gate:
 - no bot_legacy production execution;
 - remove compatibility files only after archive/reference capture and proof that
   the production graph no longer reaches them.
+
+### 2026-10-05 ERADICATION-09 checkpoint 1 - canonical production runtime identity
+
+Pre-boundary authority:
+ERADICATION-08 exact verified HEAD
+`cbb5d157f82202a9db15e6c64a6ea62037d2f088`,
+GitHub Actions run `#1566` / `37235184475`, Python 3.10/3.11/3.12 PASS.
+
+Exact code HEAD for this increment:
+`eff53c5d359afeb58584be9b5a17ae41ba446457`.
+
+The first historical-graph edge is retired:
+
+- `bot.py` imports `runtime.production_runtime` as the composition substrate;
+- production sources contain no import edge to `runtime.v2_runtime`;
+- `runtime/v2_runtime.py` is now a read-only compatibility facade over the
+  canonical production runtime;
+- `bot_legacy.py` is non-executable and read-only, with no `sys.modules`
+  aliasing;
+- production-oriented tests and source guards target
+  `runtime/production_runtime.py`; dedicated compatibility coverage keeps the
+  historical import name observable without granting it production authority.
+
+Local validation for the structural cut:
+
+- entrypoint/composition: 13/13 PASS;
+- legacy inventory: 4/4 PASS;
+- modular architecture contract: 9/9 PASS;
+- execution convergence: 12/12 PASS;
+- Manual/Custom eradication: 8/8 PASS;
+- uptime synchronization: 5/5 PASS;
+- canonical UI source/parity impact-set: 12 suites PASS;
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS.
+
+Remote verification:
+GitHub Actions exact-head run `#1568` / `37237082292` PASS on Python
+3.10/3.11/3.12.
+
+Closed ledger entry:
+`L-001`.
+
+ERADICATION-09 remains IN PROGRESS. Remaining exact debt:
+`L-002`, `L-003`, `L-004`, `L-007`, `L-008`, `L-010`, `L-012`.
+
+Next exact boundary:
+remove residual historical controller/FSM reachability. Do not delete the
+historical controller until PREP/COOLING/IDLE/DONE compatibility semantics are
+owned by modular runtime services and `super().tick()` is unreachable.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.

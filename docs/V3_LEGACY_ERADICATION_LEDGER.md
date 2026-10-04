@@ -7,7 +7,7 @@ new entries require explicit architecture review.
 
 | ID | Reachable legacy boundary | Current evidence | Replacement target | Removal gate | Status |
 |---|---|---|---|---|---|
-| L-001 | `bot.py -> ProductionComposition -> runtime.v2_runtime substrate` | production root is explicit; historical runtime is encapsulated as a compatibility substrate and is no longer the module identity/lifecycle owner | modular composition + lifecycle | remove the production `runtime.v2_runtime` substrate edge in ERADICATION-09 | IN_PROGRESS |
+| L-001 | `bot.py -> ProductionComposition -> runtime.v2_runtime substrate` | production now imports `runtime.production_runtime`; `runtime.v2_runtime` is a read-only compatibility facade with no production inbound import edge | modular composition + lifecycle | production `runtime.v2_runtime` substrate edge removed and exact-head CI verified | CLOSED |
 | L-002 | compatibility installer stack inside `ProductionComposition.compose()` | installer order is centralized under one explicit composition owner; no installer call executes independently at module top level | explicit dependency graph | retire remaining compatibility installers with the historical runtime graph | IN_PROGRESS |
 | L-003 | `ChargeControllerV2(ChargeController)` | automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT use modular decision/runtime owners; production Custom/Manual no longer enters the historical controller; superclass remains only for residual compatibility stages/helpers | modular stage engine | migrate residual compatibility stages/helpers until superclass execution is unreachable | IN_PROGRESS |
 | L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX/final SAFE_WAIT bypass historical tick; historical Custom is rejected/fail-closed and Manual uses its own runtime owner; `super().tick()` remains only for residual compatibility stages/helpers | explicit modular stage runtime services | remove the remaining historical scaffold reachability during residual convergence | IN_PROGRESS |
@@ -20,6 +20,38 @@ new entries require explicit architecture review.
 | L-014 | UI buttons/callbacks scattered across installers/handlers | all production Telegram UI routes are owned by canonical `runtime/ui` modules; historical `runtime/v2_runtime.py` declares no UI routes | modular ScreenSpec/ButtonSpec/action routing | screen-by-screen parity and removal | CLOSED |
 
 ## Current migration boundary
+
+**ERADICATION-09: remove historical production graph - IN PROGRESS.**
+
+Pre-boundary remote authority:
+ERADICATION-08 functional/documentation HEAD
+`cbb5d157f82202a9db15e6c64a6ea62037d2f088`,
+GitHub Actions run `#1566` / `37235184475`, Python 3.10/3.11/3.12 PASS.
+Documentation handoff HEAD:
+`2ef86987ac1d37ececbb2c6e30ba919d0053562f`.
+
+First ERADICATION-09 structural increment:
+`eff53c5d359afeb58584be9b5a17ae41ba446457`.
+
+- canonical production runtime identity is now `runtime.production_runtime`;
+- `bot.py` has zero production import edge to `runtime.v2_runtime`;
+- `runtime.v2_runtime` is a read-only historical import facade;
+- `bot_legacy.py` is a non-executable read-only facade and no longer aliases
+  `sys.modules`;
+- production-oriented characterization tests now inspect/import the canonical
+  runtime identity while dedicated compatibility coverage keeps the old import
+  name observable;
+- exact-head GitHub Actions run `#1568` / `37237082292` PASS on Python
+  3.10/3.11/3.12.
+
+This closes L-001. ERADICATION-09 remains open for L-002/L-003/L-004/L-007/
+L-008/L-010/L-012: compatibility installers, historical controller/FSM
+reachability, START adapter, legacy read model, recipe adapter and transition
+audit.
+
+Production VM104 was not touched. No hardware commands were sent.
+
+## Previous migration boundary - ERADICATION-08
 
 **ERADICATION-08: runtime/composition cutover - REMOTE-VERIFIED COMPLETE.**
 
