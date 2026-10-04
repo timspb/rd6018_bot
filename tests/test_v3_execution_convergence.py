@@ -179,6 +179,21 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{name}: {token}")
 
+    def test_diagnostic_modules_have_no_direct_execution_writes(self):
+        forbidden = (
+            ".hass.safe_enable_output(",
+            ".hass.turn_on(",
+            ".hass.turn_off(",
+            ".hass.set_voltage(",
+            ".hass.set_current(",
+            ".hass.set_ovp(",
+            ".hass.set_ocp(",
+        )
+        for name in ("diagnostic_persistence.py", "diagnostic_probe.py"):
+            source = (ROOT / name).read_text(encoding="utf-8")
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{name}: {token}")
+
     def test_manual_uses_same_application_scoped_execution_port(self):
         source = inspect.getsource(__import__("manual_mode"))
         self.assertIn("get_or_create_execution_port(self.app)", source)
