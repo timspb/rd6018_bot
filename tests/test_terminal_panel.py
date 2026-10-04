@@ -117,9 +117,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "v2_manual_choose",
             "v2_manual_interrupted",
             "v2_sg_menu",
-            "logs",
             "info_full",
-            "entities_status",
             "menu_off",
             "off_2h",
             "profile_custom",
@@ -145,7 +143,11 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(callback=callback):
                 self.assertTrue(_is_workspace_callback(callback))
 
+        # Raw legacy read-only callbacks were retired by ERADICATION-07;
+        # only their canonical runtime.ui.telegram callback data is workspace.
         for callback in (
+            "logs",
+            "entities_status",
             "power_toggle",
             "refresh",
             "dash_back",
