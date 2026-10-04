@@ -13,6 +13,7 @@ from .entities import install_entities_screen
 from .help import install_help_screen
 from .journal import install_journal_screen
 from .service import install_service_details_screen
+from .stats import install_stats_screen
 
 __all__ = [
     "CALLBACK_PREFIX",
@@ -23,6 +24,7 @@ __all__ = [
     "install_help_screen",
     "install_operator_details_screen",
     "install_service_details_screen",
+    "install_stats_screen",
     "render_button",
     "render_screen_markup",
     "render_screen_text",

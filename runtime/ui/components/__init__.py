@@ -4,6 +4,7 @@ from .details import render_operator_details_body
 from .entities import render_entities_body
 from .help import render_help_body
 from .service import render_service_details_body
+from .stats import render_stats_body
 from .journal import (
     collapse_noisy_events,
     format_journal_event,
@@ -16,6 +17,7 @@ __all__ = [
     "render_entities_body",
     "render_help_body",
     "render_service_details_body",
+    "render_stats_body",
     "collapse_noisy_events",
     "format_journal_event",
     "normalize_journal_events",

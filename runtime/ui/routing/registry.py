@@ -41,6 +41,7 @@ DEFAULT_ACTION_ROUTES: Mapping[UIAction, UIActionRoute] = {
             UIAction.OPEN_JOURNAL,
             UIAction.OPEN_ENTITIES,
             UIAction.OPEN_HELP,
+            UIAction.OPEN_STATS,
         )
     },
 }

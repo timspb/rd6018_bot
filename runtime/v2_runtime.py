@@ -2855,18 +2855,6 @@ async def cmd_start(message: Message) -> None:
     chat_dashboard[message.chat.id] = msg_id
 
 
-@router.message(Command("stats"))
-async def cmd_stats(message: Message) -> None:
-    """Статистика и прогноз перенесены в «Полная инфо»."""
-    if not await _check_chat_and_respond(message):
-        return
-    await message.answer(
-        "📋 Статистика и прогноз заряда теперь в блоке <b>«Полная инфо»</b> — нажмите кнопку под графиком.",
-        parse_mode=ParseMode.HTML,
-    )
-    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
-
-
 @router.message(Command("entities"))
 async def cmd_entities(message: Message) -> None:
     """Render the canonical entity-status read model for the text command."""

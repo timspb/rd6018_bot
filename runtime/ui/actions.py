@@ -25,6 +25,7 @@ class UIAction(str, Enum):
     OPEN_JOURNAL = "nav.journal"
     OPEN_ENTITIES = "nav.entities"
     OPEN_HELP = "nav.help"
+    OPEN_STATS = "nav.stats"
 
 
 __all__ = ["UIAction"]

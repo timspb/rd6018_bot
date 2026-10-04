@@ -28,6 +28,7 @@ from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.help import install_help_screen
 from runtime.ui.telegram.journal import install_journal_screen
 from runtime.ui.telegram.service import install_service_details_screen
+from runtime.ui.telegram.stats import install_stats_screen
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
 from operator_navigation_recovery import install_operator_navigation_recovery
@@ -256,6 +257,10 @@ if _v2_ui_enabled:
         home_handler=_legacy._operator_home_handler,
     )
     install_help_screen(
+        _legacy,
+        schedule_refresh=_legacy.schedule_dashboard_after_60,
+    )
+    install_stats_screen(
         _legacy,
         schedule_refresh=_legacy.schedule_dashboard_after_60,
     )
