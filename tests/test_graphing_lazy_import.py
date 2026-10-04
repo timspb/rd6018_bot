@@ -7,7 +7,7 @@ import unittest
 class GraphingLazyImportTests(unittest.TestCase):
     def test_runtime_import_does_not_load_graphing_stack(self):
         code = (
-            "import sys; import runtime.v2_runtime; "
+            "import sys; import runtime.production_runtime; "
             "assert not any(name == 'graphing' or name == 'matplotlib' or "
             "name == 'numpy' or name.startswith('matplotlib.') or "
             "name.startswith('numpy.') for name in sys.modules)"

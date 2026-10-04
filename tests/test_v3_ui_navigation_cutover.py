@@ -17,14 +17,14 @@ class V3NavigationUICutoverTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback(HOME_CALLBACK_DATA))
 
     def test_raw_back_callbacks_and_handlers_are_retired(self):
-        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "dash_back"', runtime_source)
         self.assertNotIn('F.data == "charge_back"', runtime_source)
         self.assertNotIn("async def dashboard_back_handler(", runtime_source)
         self.assertNotIn("async def charge_back_handler(", runtime_source)
 
         for rel in (
-            "runtime/v2_runtime.py",
+            "runtime/production_runtime.py",
             "v2_ui_polish.py",
             "v2_bootstrap.py",
             "v2_bot_ui.py",
@@ -38,14 +38,14 @@ class V3NavigationUICutoverTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback("charge_back"))
 
     def test_raw_chart_callbacks_are_retired(self):
-        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         panel_source = (ROOT / "telegram_panel.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data.startswith("chart_")', runtime_source)
         self.assertNotIn("async def chart_range_handler(", runtime_source)
         self.assertNotIn('data.startswith("chart_")', panel_source)
 
         for rel in (
-            "runtime/v2_runtime.py",
+            "runtime/production_runtime.py",
             "v2_ui_polish.py",
             "v2_bot_ui.py",
             "operator_hmi.py",
@@ -59,13 +59,13 @@ class V3NavigationUICutoverTests(unittest.TestCase):
         self.assertIn('F.data.startswith("operator_graph_")', operator_hmi)
 
     def test_raw_refresh_callback_is_retired(self):
-        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "refresh"', runtime_source)
         self.assertNotIn("async def refresh_handler(", runtime_source)
         self.assertNotIn("refresh", _ADOPT_CALLBACKS)
 
         for rel in (
-            "runtime/v2_runtime.py",
+            "runtime/production_runtime.py",
             "v2_ui_polish.py",
             "v2_bot_ui.py",
             "operator_hmi.py",

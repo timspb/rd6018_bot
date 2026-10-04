@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class V3HomeCommandCutoverTests(unittest.TestCase):
     def test_historical_start_route_is_removed(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('Command("start")', source)
         self.assertNotIn("async def cmd_start(", source)
 

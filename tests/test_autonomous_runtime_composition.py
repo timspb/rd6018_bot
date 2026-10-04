@@ -7,7 +7,7 @@ from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
 import bot as composition
-from runtime import v2_runtime as app
+from runtime import production_runtime as app
 from rd_control_mode import RdControlMode
 from soft_watchdog_containment import SoftWatchdogIncident, soft_watchdog_poll_once
 

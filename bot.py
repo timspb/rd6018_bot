@@ -1,15 +1,15 @@
-"""Production entrypoint for the evidence-driven V2 UI/controller.
+"""Production entrypoint for the modular RD6018 runtime.
 
-The preserved V2 runtime is isolated in ``runtime.v2_runtime``.  The historical
-module name remains only as a rollback compatibility shim; production imports the
-named runtime directly and keeps the existing V2 ownership boundaries intact.
+Production composition imports :mod:`runtime.production_runtime` directly.
+Historical runtime module names remain compatibility-only and are not production
+composition dependencies.
 """
 from __future__ import annotations
 
 import asyncio
 import os
 
-from runtime import v2_runtime as _runtime_substrate
+from runtime import production_runtime as _runtime_substrate
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from auto_manual_off_v2 import install_auto_manual_off_contract
 from diagnostic_persistence import install_diagnostic_persistence
@@ -417,7 +417,7 @@ def __getattr__(name: str):
     The production module identity is now `bot` itself.  Residual callers may
     still read historical runtime symbols through this explicit bridge, but
     composition-owned names (including `main`) are never replaced or written
-    back into `runtime.v2_runtime`.
+    back into historical runtime compatibility modules.
     """
 
     try:

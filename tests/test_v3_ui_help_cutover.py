@@ -67,7 +67,7 @@ class V3HelpUICutoverTests(unittest.TestCase):
         self.assertIsNone(route.intent_kind)
 
     def test_historical_help_command_is_removed(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('Command("help")', source)
         self.assertNotIn("async def cmd_help(", source)
         self.assertNotIn("RD6018: быстрые команды", source)

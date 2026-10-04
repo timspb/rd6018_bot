@@ -100,11 +100,11 @@ class LegacyEnableInventoryTests(unittest.TestCase):
         )
 
     def test_v2_runtime_has_no_direct_output_calls(self):
-        legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/v2_runtime.py"}
+        legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/production_runtime.py"}
         self.assertEqual(
             set(),
             legacy,
-            "runtime/v2_runtime.py must not regain direct Output authority after execution convergence",
+            "runtime/production_runtime.py must not regain direct Output authority after execution convergence",
         )
 
 

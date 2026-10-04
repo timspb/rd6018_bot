@@ -97,7 +97,7 @@ class V3AnalysisUICutoverTests(unittest.TestCase):
                 self.assertNotIn(forbidden, source, f"{rel}: {forbidden}")
 
     def test_historical_ai_routes_and_raw_callbacks_are_removed(self):
-        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         operator_source = (ROOT / "operator_hmi.py").read_text(encoding="utf-8")
         panel_source = (ROOT / "telegram_panel.py").read_text(encoding="utf-8")
         self.assertNotIn('Command("ai")', runtime_source)

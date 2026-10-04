@@ -4,6 +4,7 @@ import unittest
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+from runtime import production_runtime
 from runtime import v2_runtime as legacy_runtime
 import operator_dashboard
 import operator_hmi as hmi
@@ -46,7 +47,8 @@ class V2EntrypointTests(unittest.TestCase):
     def test_import_bot_is_distinct_composition_module_with_runtime_bridge(self):
         self.assertEqual(bot.__name__, "bot")
         self.assertIsNot(bot, legacy_runtime)
-        self.assertIs(bot.charge_controller, legacy_runtime.charge_controller)
+        self.assertIs(bot.charge_controller, production_runtime.charge_controller)
+        self.assertIs(legacy_runtime.charge_controller, production_runtime.charge_controller)
         self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
 
     def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
@@ -55,8 +57,8 @@ class V2EntrypointTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
         self.assertNotIn("sys.modules[__name__]", source)
         self.assertNotIn("_legacy.main = main", source)
-        self.assertNotIn("from runtime import v2_runtime as _legacy", source)
-        self.assertIn("from runtime import v2_runtime as _runtime_substrate", source)
+        self.assertNotIn("from runtime import v2_runtime", source)
+        self.assertIn("from runtime import production_runtime as _runtime_substrate", source)
         self.assertNotIn("_legacy_main = _composition.", source)
         self.assertNotIn("_v2_startup_recovery = _composition.", source)
         self.assertIn("def __getattr__(name: str):", source)
@@ -84,7 +86,7 @@ class V2EntrypointTests(unittest.TestCase):
         )
         self.assertIsInstance(bot._composition, bot.ProductionComposition)
         self.assertTrue(bot._composition.composed)
-        self.assertIs(bot._composition.runtime, legacy_runtime)
+        self.assertIs(bot._composition.runtime, production_runtime)
 
         install_calls = [
             node

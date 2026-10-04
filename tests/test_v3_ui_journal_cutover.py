@@ -179,7 +179,7 @@ class V3JournalUICutoverTests(unittest.TestCase):
         self.assertEqual([], violations)
 
     def test_historical_logs_routes_are_removed_and_command_is_canonical(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         canonical = (ROOT / "runtime" / "ui" / "telegram" / "journal.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "logs"', source)
         self.assertNotIn('Command("logs")', source)
@@ -192,7 +192,7 @@ class V3JournalUICutoverTests(unittest.TestCase):
 
     def test_live_graph_toolbar_no_longer_constructs_raw_logs_callback(self):
         source = (ROOT / "operator_dashboard.py").read_text(encoding="utf-8")
-        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         polish_source = (ROOT / "v2_ui_polish.py").read_text(encoding="utf-8")
         self.assertNotIn('callback_data="logs"', source)
         self.assertNotIn('callback_data="logs"', runtime_source)

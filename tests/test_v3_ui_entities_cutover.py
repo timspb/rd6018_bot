@@ -173,7 +173,7 @@ class V3EntitiesUIContractTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback("entities_status"))
 
     def test_historical_entities_callback_and_command_are_removed(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "entities_status"', source)
         self.assertNotIn("async def entities_status_handler(", source)
         self.assertNotIn('Command("entities")', source)

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class V3ProfileRouteRetirementTests(unittest.TestCase):
     def test_historical_profile_callbacks_are_not_production_routes(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         for raw in ("profile_caca", "profile_efb", "profile_agm", "profile_custom"):
             self.assertNotIn(f'F.data == "{raw}"', source)
             self.assertFalse(_is_workspace_callback(raw))
@@ -21,7 +21,7 @@ class V3ProfileRouteRetirementTests(unittest.TestCase):
         self.assertNotIn("async def custom_mode_start(", source)
 
     def test_compatibility_charge_menu_emits_only_live_v2_profile_routes(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         start = source.index("def _build_charge_modes_keyboard()")
         end = source.index("def _build_trend_summary(", start)
         body = source[start:end]

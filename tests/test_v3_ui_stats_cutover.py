@@ -66,7 +66,7 @@ class V3StatsUICutoverTests(unittest.TestCase):
         self.assertIsNone(route.intent_kind)
 
     def test_historical_stats_command_is_removed(self):
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('Command("stats")', source)
         self.assertNotIn("async def cmd_stats(", source)
         self.assertNotIn("Статистика и прогноз перенесены", source)

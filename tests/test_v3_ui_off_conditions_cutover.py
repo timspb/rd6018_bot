@@ -116,7 +116,7 @@ class V3OffConditionsCutoverTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback("menu_off"))
 
     def test_historical_off_routes_and_raw_callbacks_are_removed(self):
-        runtime = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         bootstrap = (ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
 
         self.assertNotIn('Command("off")', runtime)

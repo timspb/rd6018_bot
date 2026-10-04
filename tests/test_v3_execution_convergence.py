@@ -106,7 +106,7 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         self.assertTrue(result.verified)
 
     def test_migrated_runtime_helpers_have_no_direct_hass_writes(self):
-        path = ROOT / "runtime" / "v2_runtime.py"
+        path = ROOT / "runtime" / "production_runtime.py"
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         migrated = {
             "_apply_phase_protection",

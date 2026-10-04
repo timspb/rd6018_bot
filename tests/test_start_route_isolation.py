@@ -93,7 +93,7 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertIn("message.answer(format_start_feedback(result), parse_mode=None)", callback)
 
     def test_legacy_capacity_input_uses_v3_route_when_composed(self):
-        source = (pathlib.Path(__file__).parents[1] / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (pathlib.Path(__file__).parents[1] / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         start = source.index("async def handle_ah_input")
         end = source.index("async def handle_dialog_mode", start)
         callback = source[start:end]

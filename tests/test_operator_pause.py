@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import bot as composition
-from runtime import v2_runtime as bot
+from runtime import production_runtime as bot
 
 
 class FakePauseHass:

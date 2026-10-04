@@ -123,14 +123,14 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback("charge_modes"))
 
     def test_historical_modes_routes_and_raw_payloads_are_removed(self):
-        runtime = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('Command("modes")', runtime)
         self.assertNotIn('F.data == "charge_modes"', runtime)
         self.assertNotIn("async def cmd_modes(", runtime)
         self.assertNotIn("async def charge_modes_handler(", runtime)
 
         for rel in (
-            "runtime/v2_runtime.py",
+            "runtime/production_runtime.py",
             "manual_context_v2.py",
             "manual_text_v2.py",
             "v2_bootstrap.py",

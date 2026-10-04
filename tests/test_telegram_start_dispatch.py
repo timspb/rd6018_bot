@@ -9,7 +9,7 @@ from aiogram.methods import DeleteMessage, SendMessage, SendPhoto
 from aiogram.types import Chat, Message, MessageEntity, Update, User
 
 import bot as composition
-from runtime import v2_runtime as app
+from runtime import production_runtime as app
 
 
 class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):

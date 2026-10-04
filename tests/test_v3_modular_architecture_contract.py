@@ -111,7 +111,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         )
 
     def test_capacity_start_has_no_direct_legacy_physical_fallback(self) -> None:
-        source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         start = source.index("async def handle_ah_input")
         end = source.index("async def handle_dialog_mode", start)
         callback = source[start:end]
@@ -157,8 +157,10 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         self.assertIn("direct execution is retired", source)
         self.assertLess(
             source.index('if __name__ == "__main__":'),
-            source.index("from runtime import v2_runtime as _runtime"),
+            source.index("from runtime import production_runtime as _runtime"),
         )
+        self.assertNotIn("sys.modules[__name__]", source)
+        self.assertNotIn("v2_runtime", source)
 
     def test_modular_contract_and_debt_ledger_are_present(self) -> None:
         for name in (

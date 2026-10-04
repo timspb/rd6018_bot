@@ -60,7 +60,7 @@ class V3CustomCancelCutoverTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback("custom_cancel"))
 
     def test_historical_custom_cancel_route_and_payload_are_removed(self):
-        runtime = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        runtime = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         panel = (ROOT / "telegram_panel.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "custom_cancel"', runtime)
         self.assertNotIn("async def custom_mode_cancel(", runtime)

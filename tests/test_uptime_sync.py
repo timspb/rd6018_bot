@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 
-BOT_PATH = Path(__file__).resolve().parents[1] / "runtime" / "v2_runtime.py"
+BOT_PATH = Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py"
 
 
 def _load_uptime_sync_symbols():

@@ -20,8 +20,8 @@ class V3LegacyInventoryTests(unittest.TestCase):
 
     def test_bot_entrypoint_owns_one_explicit_composition_lifecycle(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        self.assertIn("from runtime import v2_runtime as _runtime_substrate", source)
-        self.assertNotIn("from runtime import v2_runtime as _legacy", source)
+        self.assertIn("from runtime import production_runtime as _runtime_substrate", source)
+        self.assertNotIn("from runtime import v2_runtime", source)
         self.assertNotIn("import bot_legacy", source)
         self.assertIn("_composition = ProductionComposition(_runtime_substrate).compose()", source)
         self.assertIn("await _composition.run()", source)
