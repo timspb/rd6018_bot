@@ -60,14 +60,14 @@ class MixDeltaTimeBudgetTests(unittest.IsolatedAsyncioTestCase):
     async def test_late_reversal_exposes_required_finish_grace(self):
         mix_start = 100.0
         await self._record(mix_start)
-        # Reversal appears 19.5h into an EFB Mix with a nominal 20h window.
-        reversal_at = mix_start + 19.5 * 3600.0
+        # Reversal appears 23.5h into the canonical EFB 24h active-MIX window.
+        reversal_at = mix_start + 23.5 * 3600.0
         await self._record(reversal_at, reversal=True)
 
         report = await build_trace_report("late-efb-mix")
         budget = report["mix_time_budget"]
 
-        self.assertEqual(budget["profile_limit_hours"], 20.0)
+        self.assertEqual(budget["profile_limit_hours"], 24.0)
         self.assertEqual(budget["finish_hold_seconds"], 2 * 3600)
         self.assertAlmostEqual(budget["seconds_remaining_at_reversal"], 30 * 60)
         self.assertFalse(budget["hold_fits_before_nominal_deadline"])

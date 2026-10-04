@@ -5,6 +5,7 @@ config.py — конфигурация RD6018 Async Bot.
 import os
 from typing import Optional
 from dotenv import load_dotenv
+from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 
 load_dotenv()
 
@@ -133,7 +134,7 @@ ENTITY_MAP = {
 }
 
 # Лимиты безопасности
-MAX_VOLTAGE = 16.6  # V — legacy profile ceiling; expert/manual V2 has its own ceiling
+MAX_VOLTAGE = float(PB_AUTOMATIC_TARGET_CEILING_V.default)  # compatibility alias; canonical owner: runtime.safety.voltage
 MAX_MANUAL_VOLTAGE = 17.5  # V — user command above this value is never accepted
 MIN_INPUT_VOLTAGE = 60.0  # V — PSU health reference only; not battery/FSM authority in V2
 TEMP_INT_PRECRITICAL = 55.0  # °C — выключение выхода при температуре блока (защита БП)

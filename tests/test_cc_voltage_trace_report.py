@@ -69,7 +69,7 @@ class CCVoltageTraceReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(cc["reversal_delta_v"]["median"], 0.05)
         self.assertAlmostEqual(cc["reversal_threshold_v"]["median"], 0.03)
         self.assertEqual(report["mix_time_budget"]["first_mix_reversal_at"], reversal_at)
-        self.assertEqual(report["mix_time_budget"]["profile_limit_hours"], 20.0)
+        self.assertEqual(report["mix_time_budget"]["profile_limit_hours"], 24.0)
 
     async def test_export_preserves_explicit_cc_mode(self):
         await self._record(100.0)

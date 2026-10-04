@@ -136,14 +136,24 @@ def mix_finish_hold_seconds() -> float:
     return float(MIX_FINISH_HOLD_HOURS.default) * 3600.0
 
 
+def mix_max_active_hours(profile: str) -> float | None:
+    normalized = str(profile).strip().upper()
+    if normalized == "AGM":
+        return float(AGM_MIX_MAX_ACTIVE_HOURS.default)
+    if normalized == "EFB":
+        return float(EFB_MIX_MAX_ACTIVE_HOURS.default)
+    if normalized in {"CA/CA", "CA"}:
+        return float(CA_MIX_MAX_ACTIVE_HOURS.default)
+    return None
+
+
 def mix_max_active_seconds(profile: str) -> float:
-    if str(profile) == "AGM":
-        hours = AGM_MIX_MAX_ACTIVE_HOURS
-    elif str(profile) == "EFB":
-        hours = EFB_MIX_MAX_ACTIVE_HOURS
-    else:
-        hours = CA_MIX_MAX_ACTIVE_HOURS
-    return float(hours.default) * 3600.0
+    hours = mix_max_active_hours(profile)
+    if hours is None:
+        # Preserve the historical compatibility fallback for callers that pass
+        # a non-production placeholder profile together with an explicit limit.
+        hours = float(CA_MIX_MAX_ACTIVE_HOURS.default)
+    return float(hours) * 3600.0
 
 
 __all__ = [
@@ -157,5 +167,6 @@ __all__ = [
     "MIX_FINISH_HOLD_HOURS",
     "MIX_MIN_CURRENT_A",
     "mix_finish_hold_seconds",
+    "mix_max_active_hours",
     "mix_max_active_seconds",
 ]

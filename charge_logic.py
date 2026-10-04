@@ -13,12 +13,15 @@ from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
-from config import MAX_VOLTAGE
 from charging_log import log_session_header
-from legacy_safety import clamp_legacy_target_voltage, main_timeout_decision
+from legacy_safety import main_timeout_decision
 from runtime.charge.strategy.desulfation import select_desulfation_target
 from runtime.charge.strategy.desulfation_variables import DESULFATION_OCP_MARGIN_A
 from runtime.charge.strategy.safe_wait_variables import SAFE_WAIT_TARGET_MARGIN_V, safe_wait_max_seconds
+from runtime.safety.voltage_variables import (
+    PB_PROFILE_WARNING_VOLTAGE_V,
+    clamp_pb_automatic_target_voltage,
+)
 
 logger = logging.getLogger("rd6018")
 
@@ -952,7 +955,7 @@ class ChargeController:
         target_finish = data.get("target_finish_time")
         restored_terminal = False
         target_v_raw = float(data.get("target_voltage", 14.7))
-        target_v = clamp_legacy_target_voltage(target_v_raw)
+        target_v = clamp_pb_automatic_target_voltage(target_v_raw)
         if abs(target_v - target_v_raw) >= 0.01:
             logger.warning("Restore: target voltage clamped %.2fV -> %.2fV", target_v_raw, target_v)
         target_i = float(data.get("target_current", 1.0))
@@ -2013,7 +2016,7 @@ class ChargeController:
     def _apply_temperature_compensation(self, base_v: float, temp_c: Optional[float]) -> float:
         """Коррекция напряжения по температуре АКБ с финальным legacy safety ceiling."""
         compensated = base_v + self._temperature_compensation_delta(temp_c)
-        return clamp_legacy_target_voltage(compensated)
+        return clamp_pb_automatic_target_voltage(compensated)
 
     def _temperature_compensation_snapshot(self, base_v: float, final_v: float, temp_c: Optional[float]) -> Dict[str, Any]:
         """Компактное описание температурной поправки для AI/UI."""
@@ -2590,7 +2593,7 @@ class ChargeController:
             self.notify(err)
             return actions
 
-        if voltage > MAX_VOLTAGE and not manual_active:
+        if voltage > float(PB_PROFILE_WARNING_VOLTAGE_V.default) and not manual_active:
             actions["notify"] = f"<b>⚠️ Напряжение</b> {voltage:.2f}V превышает лимит!"
 
         if self.current_stage == self.STAGE_IDLE:

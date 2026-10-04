@@ -49,12 +49,12 @@ from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     ENTITY_MAP,
-    MAX_VOLTAGE,
     MIN_INPUT_VOLTAGE,
     TEMP_INT_PRECRITICAL,
     TG_TOKEN,
 )
 from application.execution_port import get_or_create_execution_port
+from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
 from rd6018_telemetry import as_bool
@@ -958,7 +958,7 @@ async def _apply_current_with_startup_settle(
     )
 
 
-IDLE_SAFE_OVP = MAX_VOLTAGE + OVP_OFFSET
+IDLE_SAFE_OVP = float(PB_AUTOMATIC_TARGET_CEILING_V.default) + OVP_OFFSET
 # Hard cap for all charge stages.
 IDLE_SAFE_OCP = MAX_STAGE_CURRENT
 
@@ -995,7 +995,7 @@ async def _apply_controller_output_actions(
         ocp_offset_a=float(OCP_OFFSET),
         idle_safe_ocp_a=float(IDLE_SAFE_OCP),
         stabilize_delay_s=float(OCP_STABILIZE_DELAY_SEC),
-        recipe_voltage_ceiling_v=float(MAX_VOLTAGE),
+        recipe_voltage_ceiling_v=float(PB_AUTOMATIC_TARGET_CEILING_V.default),
         has_ovp=bool(ENTITY_MAP.get("ovp")),
         has_ocp=bool(ENTITY_MAP.get("ocp")),
     )

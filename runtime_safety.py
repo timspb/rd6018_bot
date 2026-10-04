@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from charge_logic import MAX_STAGE_CURRENT
-from config import MAX_VOLTAGE, MIN_INPUT_VOLTAGE, TEMP_INT_PRECRITICAL
+from config import MIN_INPUT_VOLTAGE, TEMP_INT_PRECRITICAL
+from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from rd6018_telemetry import (
     PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
     _parse_iso_timestamp,
@@ -146,7 +147,7 @@ class RuntimeSafetyGuard:
                     return min(ceiling, self.policy.absolute_voltage_ceiling_v)
             except (TypeError, ValueError):
                 pass
-        return min(float(MAX_VOLTAGE), self.policy.absolute_voltage_ceiling_v)
+        return min(float(PB_AUTOMATIC_TARGET_CEILING_V.default), self.policy.absolute_voltage_ceiling_v)
 
     def _notify(self, key: str, message: str) -> None:
         now = time.monotonic()

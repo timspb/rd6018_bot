@@ -6,13 +6,16 @@ from collections import Counter
 from typing import Any, Dict, List, Mapping, Optional
 
 from database import get_db
-from legacy_safety import mix_timeout_hours
 from recovery_session import HV_STAGE_NAMES, MAIN_STAGE_NAMES
+from runtime.charge.strategy.mix_variables import (
+    mix_finish_hold_seconds,
+    mix_max_active_hours,
+)
 from recovery_trace_store import TRACE_TABLE, init_recovery_trace_store
 
 
 MIX_STAGE_NAMES = frozenset({"mix", "mix mode"})
-MIX_FINISH_HOLD_SEC = 2 * 3600
+MIX_FINISH_HOLD_SEC = mix_finish_hold_seconds()  # compatibility/reporting alias
 TERMINAL_MIX_EXIT_NAMES = frozenset(
     {
         "safe wait",
@@ -222,7 +225,7 @@ def _mix_time_budget(
     authorize extending a live stage; it tells us exactly how much grace the current
     profile would need to honor an already-observed reversal.
     """
-    limit_hours = mix_timeout_hours(profile)
+    limit_hours = mix_max_active_hours(profile)
     nominal_deadline = None
     if first_mix_sample_at is not None and limit_hours is not None:
         nominal_deadline = first_mix_sample_at + float(limit_hours) * 3600.0
