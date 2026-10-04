@@ -950,3 +950,32 @@ docs checkpoint -> push -> exact-head GitHub CI (3.10/3.11/3.12).
 
 On CI PASS, close ERADICATION-08 as remote-verified and begin the final
 ERADICATION-09: remove the historical production graph.
+### 2026-10-05 ERADICATION-08 remote verification
+
+Exact functional/documentation HEAD:
+cbb5d157f82202a9db15e6c64a6ea62037d2f088.
+
+GitHub Actions exact-head run #1566 / 37235184475 completed PASS:
+
+- Python 3.10: PASS;
+- Python 3.11: PASS;
+- Python 3.12: PASS.
+
+PR #29 points to the verified ERADICATION-08 branch head. Production composition
+is now explicit and lifecycle-owned; sys.modules aliasing, module-level installer
+execution and module-level composition aliases are retired. runtime.v2_runtime
+remains only as the encapsulated compatibility substrate for the final
+ERADICATION-09 boundary.
+
+Production VM104 was not touched.
+Hardware commands sent: NO.
+
+Next exact boundary:
+ERADICATION-09 - remove historical production graph.
+
+ERADICATION-09 gate:
+- no production import of runtime.v2_runtime;
+- no historical FSM production import/reachability;
+- no bot_legacy production execution;
+- remove compatibility files only after archive/reference capture and proof that
+  the production graph no longer reaches them.

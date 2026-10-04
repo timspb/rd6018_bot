@@ -21,7 +21,7 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-08: runtime/composition cutover - LOCALLY COMPLETE; REMOTE CI PENDING.**
+**ERADICATION-08: runtime/composition cutover - REMOTE-VERIFIED COMPLETE.**
 
 Pre-boundary remote authority:
 ERADICATION-07 functional HEAD b5e5bff8328d187cd1ddb9c012f2be69e783a4fe,
