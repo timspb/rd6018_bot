@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 
 from runtime import v2_runtime as _legacy
 from application.operator_snapshot_provider import OperatorSnapshotProvider
@@ -353,12 +352,20 @@ async def main() -> None:
         await _physical_test_control.stop()
 
 
-# Keep one runtime module object. Existing tests and operational helpers import many
-# private bot symbols; aliasing preserves their globals/monkeypatch semantics instead
-# of copying 180+ KB of names into this shim.
-_legacy.main = main
+def __getattr__(name: str):
+    """Temporary read-only compatibility bridge during ERADICATION-08.
+
+    The production module identity is now `bot` itself.  Residual callers may
+    still read historical runtime symbols through this explicit bridge, but
+    composition-owned names (including `main`) are never replaced or written
+    back into `runtime.v2_runtime`.
+    """
+
+    try:
+        return getattr(_legacy, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
 
 if __name__ == "__main__":
     asyncio.run(main())
-else:
-    sys.modules[__name__] = _legacy

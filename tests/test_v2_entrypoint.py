@@ -4,6 +4,7 @@ import unittest
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+from runtime import v2_runtime as legacy_runtime
 import operator_dashboard
 import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
@@ -42,9 +43,19 @@ class V2EntrypointTests(unittest.TestCase):
             safety="",
         )
 
-    def test_import_bot_exposes_preserved_runtime_with_production_controller(self):
-        self.assertEqual(bot.__name__, "runtime.v2_runtime")
+    def test_import_bot_is_distinct_composition_module_with_runtime_bridge(self):
+        self.assertEqual(bot.__name__, "bot")
+        self.assertIsNot(bot, legacy_runtime)
+        self.assertIs(bot.charge_controller, legacy_runtime.charge_controller)
         self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
+
+    def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertNotIn("sys.modules[__name__]", source)
+        self.assertNotIn("_legacy.main = main", source)
+        self.assertIn("def __getattr__(name: str):", source)
 
     def test_production_guardrails_are_installed_after_controller_composition(self):
         self.assertTrue(bot._v2_production_guardrails_installed)

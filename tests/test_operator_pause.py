@@ -4,7 +4,8 @@ import types
 import unittest
 from unittest.mock import patch
 
-import bot
+import bot as composition
+from runtime import v2_runtime as bot
 
 
 class FakePauseHass:
