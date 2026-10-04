@@ -2,6 +2,7 @@
 
 from .details import render_operator_details_body
 from .entities import render_entities_body
+from .help import render_help_body
 from .service import render_service_details_body
 from .journal import (
     collapse_noisy_events,
@@ -13,6 +14,7 @@ from .journal import (
 __all__ = [
     "render_operator_details_body",
     "render_entities_body",
+    "render_help_body",
     "render_service_details_body",
     "collapse_noisy_events",
     "format_journal_event",
