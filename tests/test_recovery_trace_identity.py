@@ -38,7 +38,9 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         with p1, p2, patch("charge_logic.time.time", return_value=1100.0), patch(
             "charge_controller_v2.time.time", return_value=1100.0
         ):
-            custom = ChargeControllerV2(DummyHass())
+            # Historical Custom is characterization-only after ERADICATION-05;
+            # production authority routes Manual through ProductionManualSessionManager.
+            custom = ChargeControllerV2(DummyHass(), authoritative=False)
             custom.start_custom(
                 main_voltage=14.8,
                 main_current=5.0,

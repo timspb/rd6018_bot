@@ -55,7 +55,6 @@ ENABLE_CALLS = frozenset(
         ("runtime/v2_lifecycle.py", "run", "app.hass.turn_on"),
         ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_off"),
         ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_on"),
-        ("runtime/v2_runtime.py", "start_custom_charge", "hass.turn_on"),
         ("diagnostic_persistence.py", "recover_diagnostic_persistence", "app.hass.turn_off"),
         ("diagnostic_probe.py", "_restore_or_off", "self.hass.turn_off"),
         ("rd_managed_adoption.py", "_verified_off", "self.app.hass.turn_off"),

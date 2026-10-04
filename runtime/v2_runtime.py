@@ -3738,99 +3738,25 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
 
 
 async def start_custom_charge(message: Message, user_id: int, params: Dict[str, float]) -> None:
-    """Запуск заряда в ручном режиме."""
-    global last_chat_id, last_user_id, last_checkpoint_time
-    last_chat_id = message.chat.id
-    last_user_id = message.from_user.id if message.from_user else 0
-    try:
-        main_current = min(MAX_STAGE_CURRENT, max(0.1, float(params["main_current"])))
-        # Получаем текущие данные
-        live = await hass.get_all_live()
-        battery_v = _safe_float(live.get("battery_voltage", 12.0))
-        i = _safe_float(live.get("current", 0.0))
-        t = _safe_float(live.get("temp_ext", 25.0))
-        ah_val = _safe_float(live.get("ah", 0.0))
-        input_v = _safe_float(live.get("input_voltage"), 0.0)
-        if t < MIN_START_TEMP:
-            await message.answer(
-                f"❌ Заряд не запущен: температура внешнего датчика {t:.1f}°C ниже {MIN_START_TEMP:.0f}°C. "
-                "Прогрейте АКБ или помещение.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-        if input_v > 0 and input_v < MIN_INPUT_VOLTAGE:
-            log_event("Idle", battery_v, i, t, ah_val, f"START_REFUSED_INPUT_VOLTAGE_{input_v:.0f}V")
-            await message.answer(
-                f"❌ Заряд не запущен: входное напряжение {input_v:.0f} В ниже {MIN_INPUT_VOLTAGE:.0f} В. "
-                "Проверьте питание БП.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-        # Запускаем контроллер в ручном режиме
-        charge_controller.start_custom(
-            main_voltage=params["main_voltage"],
-            main_current=main_current,
-            delta_threshold=params["delta"],
-            time_limit_hours=params["time_limit"],
-            ah_capacity=int(params["capacity"])
-        )
-        
-        # Сначала выставляем OVP/OCP, затем U/I — иначе прибор может не дать включить выход после предыдущих настроек
-        if ENTITY_MAP.get("ovp"):
-            await hass.set_ovp(charge_controller._main_target(t)[0] + OVP_OFFSET)
-        if ENTITY_MAP.get("ocp"):
-            await hass.set_ocp(_cap_current(main_current) + OCP_OFFSET)
-        await hass.set_voltage(charge_controller._main_target(t)[0])
-        await hass.set_current(_cap_current(main_current))
-        await hass.turn_on(ENTITY_MAP["switch"])
-        
-        last_checkpoint_time = time.time()
-        log_event(
-            "Подготовка",
-            battery_v,
-            i,
-            t,
-            ah_val,
-            (
-                f"START CUSTOM main={params['main_voltage']:.1f}V/{main_current:.1f}A "
-                f"delta={params['delta']:.3f}V limit={params['time_limit']:.0f}h ah={params['capacity']:.0f}"
-            ),
-        )
-        
-        # Показываем результат
-        summary = (
-            f"✅ <b>Ручной режим запущен!</b>\n\n"
-            f"📋 <b>Параметры:</b>\n"
-            f"• Main: {params['main_voltage']:.1f}В / {main_current:.1f}А\n"
-            f"• Delta: {params['delta']:.3f}В\n"
-            f"• Лимит: {params['time_limit']:.0f}ч\n"
-            f"• Емкость: {params['capacity']:.0f} Ah\n\n"
-            f"🔋 <b>АКБ:</b> {battery_v:.2f}В | {i:.2f}А"
-        )
-        await message.answer(summary, parse_mode=ParseMode.HTML)
-        
-        # Обновляем дашборд
-        old_id = user_dashboard.get(user_id)
-        msg_id = await send_dashboard(message, old_msg_id=old_id)
-        if user_id:
-            user_dashboard[user_id] = msg_id
+    """Compatibility entrypoint for the retired historical Custom controller.
 
-        # Автообновление через 2 секунды после включения выхода
-        async def _delayed_dashboard_refresh_custom() -> None:
-            try:
-                await asyncio.sleep(2)
-                old = user_dashboard.get(user_id)
-                new_id = await send_dashboard(message, old_msg_id=old)
-                if user_id:
-                    user_dashboard[user_id] = new_id
-            except Exception as ex:
-                logger.warning("Delayed dashboard refresh (custom) failed: %s", ex)
+    Production composition replaces this module attribute with
+    ProductionManualSessionManager.start_from_legacy_ui. If the raw preserved
+    runtime is imported without that composition, fail closed unless an explicit
+    managed Manual owner is present. This function never writes RD6018 actuators.
+    """
 
-        asyncio.create_task(_delayed_dashboard_refresh_custom())
-        
-    except Exception as ex:
-        logger.error("start_custom_charge error: %s", ex)
-        await message.answer("❌ Ошибка запуска ручного режима. Проверьте подключение к RD6018.")
+    manager = globals().get("manual_session_manager")
+    route = getattr(manager, "start_from_legacy_ui", None)
+    if not callable(route):
+        logger.error(
+            "Historical Custom START rejected: managed Manual owner is unavailable"
+        )
+        await message.answer(
+            "❌ Ручной режим недоступен: безопасный Manual-контроллер не инициализирован."
+        )
+        return
+    await route(message, user_id, params)
 
 
 @router.callback_query(F.data == "charge_modes")

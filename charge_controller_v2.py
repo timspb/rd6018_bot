@@ -429,6 +429,10 @@ class ChargeControllerV2(ChargeController):
             )
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
+        if self._v2_authoritative and str(battery_type) == self.PROFILE_CUSTOM:
+            raise RuntimeError(
+                "historical Custom controller start is retired; use ProductionManualSessionManager"
+            )
         self._recovery_safe_wait = None
         self._final_safe_wait = None
         super().start(battery_type, ah_capacity)
@@ -443,6 +447,11 @@ class ChargeControllerV2(ChargeController):
         time_limit_hours: float,
         ah_capacity: int,
     ) -> None:
+        """Characterization-only adapter; production Custom is owned by Manual."""
+        if self._v2_authoritative:
+            raise RuntimeError(
+                "historical Custom controller start is retired; use ProductionManualSessionManager"
+            )
         self._recovery_safe_wait = None
         self._final_safe_wait = None
         super().start_custom(
@@ -483,6 +492,18 @@ class ChargeControllerV2(ChargeController):
     ) -> Tuple[bool, Optional[str]]:
         trace_document = self._read_legacy_session_document()
         ok, message = super().try_restore_session(voltage, current, ah)
+        if ok and self._v2_authoritative and self.battery_type == self.PROFILE_CUSTOM:
+            logger.warning(
+                "Historical Custom controller restore rejected; Manual requires operator reauthorization"
+            )
+            self.stop(clear_session=True)
+            self._recovery_safe_wait = None
+            self._final_safe_wait = None
+            self._v2_runtime = None
+            return (
+                False,
+                "Historical Custom session is retired; restart Manual with operator authorization.",
+            )
         if ok:
             self._restore_desulfation_stage_clock(trace_document)
             self._restore_trace_identity(trace_document)
@@ -1264,12 +1285,30 @@ class ChargeControllerV2(ChargeController):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        """Route migrated automatic stages around historical ChargeController.tick.
+        """Route migrated production stages around historical ChargeController.tick.
 
         MAIN, intermediate recovery, MIX, and final SAFE_WAIT use modular runtime
-        scaffolds. Custom and not-yet-migrated program families retain the historical
-        compatibility path.
+        scaffolds. Historical Custom is retired from production entirely: an IDLE
+        residue is inert, while any active residue fails closed to Output OFF.
+        Other not-yet-migrated automatic stages retain the compatibility path.
         """
+        if self._v2_authoritative and self.battery_type == self.PROFILE_CUSTOM:
+            if stage_before == self.STAGE_IDLE:
+                return {}
+            logger.error(
+                "Active historical Custom controller state rejected stage=%s; forcing OFF",
+                stage_before,
+            )
+            self.stop(clear_session=True)
+            return {
+                "turn_off": True,
+                "log_event": "HISTORICAL_CUSTOM_RUNTIME_RETIRED",
+                "notify": (
+                    "❌ Исторический Custom-контроллер отключён. "
+                    "Ручной режим запускается только через Manual."
+                ),
+            }
+
         if (
             self._v2_authoritative
             and self.battery_type != self.PROFILE_CUSTOM

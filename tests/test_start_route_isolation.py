@@ -65,11 +65,19 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertNotIn("profile_custom", callbacks)
 
     def test_legacy_start_functions_remain_available_only_as_preserved_surface(self):
-        # The rollback module remains importable, but its direct start functions are
-        # not the production route asserted above.
+        # The compatibility module remains importable, but production START routes
+        # are rebound to their modular owners.
         self.assertTrue(callable(bot_legacy.handle_ah_input))
         self.assertTrue(callable(bot_legacy.start_custom_charge))
         self.assertIsNot(bot_legacy.handle_ah_input, v2_bot_ui._start_profile)
+
+    def test_composed_custom_dialog_is_bound_to_manual_session_owner(self):
+        self.assertIs(bot.start_custom_charge.__self__, bot.manual_session_manager)
+        self.assertIs(
+            bot.start_custom_charge.__func__,
+            bot.manual_session_manager.start_from_legacy_ui.__func__,
+        )
+        self.assertIs(bot_legacy.start_custom_charge.__self__, bot.manual_session_manager)
 
     def test_quick_start_callback_uses_v3_route_when_composed(self):
         source = (pathlib.Path(__file__).parents[1] / "v2_bot_ui.py").read_text(encoding="utf-8")
