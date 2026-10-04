@@ -37,8 +37,6 @@ ENABLE_CALLS = frozenset(
     {
         # Controller action execution is centralized in the application port so a
         # verified-enable stage commit can be withheld when Output ON fails.
-        ("rd_managed_adoption.py", "_verified_off", "self.app.hass.turn_off"),
-        ("rd_managed_mix.py", "force_verified_off", "self.app.hass.turn_off"),
         ("recipe_output.py", "enable_authorized_recipe_target", "adapter.safe_enable_output"),
         ("recovery_orchestrator.py", "_confirm_output_off", "self.output_adapter.turn_off"),
         ("runtime_safety_strict.py", "turn_off", "super().turn_off"),

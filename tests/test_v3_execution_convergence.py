@@ -179,6 +179,22 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{name}: {token}")
 
+    def test_managed_adoption_modules_have_no_direct_execution_writes(self):
+        forbidden = (
+            ".hass.safe_enable_output(",
+            ".hass.turn_on(",
+            ".hass.turn_off(",
+            ".hass.set_voltage(",
+            ".hass.set_current(",
+            ".hass.set_ovp(",
+            ".hass.set_ocp(",
+        )
+        for name in ("rd_managed_adoption.py", "rd_managed_mix.py"):
+            source = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("get_or_create_execution_port", source)
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{name}: {token}")
+
     def test_diagnostic_modules_have_no_direct_execution_writes(self):
         forbidden = (
             ".hass.safe_enable_output(",
