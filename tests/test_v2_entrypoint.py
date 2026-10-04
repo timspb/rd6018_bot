@@ -109,6 +109,48 @@ class V2EntrypointTests(unittest.TestCase):
         compose_call_ids = {id(node) for node in ast.walk(compose_method)}
         self.assertTrue(all(id(call) in compose_call_ids for call in install_calls))
 
+    def test_production_lifecycle_is_owned_by_composition(self):
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        composition = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ProductionComposition"
+        )
+        run_method = next(
+            node
+            for node in composition.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "run"
+        )
+        main = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "main"
+        )
+        run_source = ast.get_source_segment(source, run_method) or ""
+        main_source = ast.get_source_segment(source, main) or ""
+
+        self.assertIn("_composition.run(", main_source)
+        for forbidden in (
+            "asyncio.create_task(",
+            "reconcile_startup_authority(",
+            "_physical_test_control.start(",
+            "_physical_test_control.stop(",
+            "_legacy_main()",
+        ):
+            self.assertNotIn(forbidden, main_source)
+
+        for required in (
+            "reconcile_startup_authority(",
+            "await physical.start()",
+            "await main_runner()",
+            "await physical.stop()",
+        ):
+            self.assertIn(required, run_source)
+
     def test_production_guardrails_are_installed_after_controller_composition(self):
         self.assertTrue(bot._v2_production_guardrails_installed)
         self.assertTrue(bot._v2_vin_psu_health_only)

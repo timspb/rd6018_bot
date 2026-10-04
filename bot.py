@@ -346,6 +346,63 @@ class ProductionComposition:
         self.composed = True
         return self
 
+    async def run(
+        self,
+        *,
+        runtime: object | None = None,
+        legacy_main=None,
+        startup_authority=None,
+        startup_recovery=None,
+        physical_test_control=None,
+        init_storage=None,
+    ) -> None:
+        """Run the composed production lifecycle with explicit dependencies."""
+
+        if not self.composed:
+            self.compose()
+        app = self.runtime if runtime is None else runtime
+        main_runner = self.legacy_main if legacy_main is None else legacy_main
+        authority = (
+            self.rd_startup_authority
+            if startup_authority is None
+            else startup_authority
+        )
+        recovery = self.startup_recovery if startup_recovery is None else startup_recovery
+        physical = (
+            self.physical_test_control
+            if physical_test_control is None
+            else physical_test_control
+        )
+        storage_init = init_v2_storage if init_storage is None else init_storage
+
+        initializer = getattr(app, "initialize_runtime", None)
+        if callable(initializer):
+            initializer()
+        await storage_init()
+
+        authority_task = asyncio.create_task(
+            reconcile_startup_authority(
+                authority,
+                recovery.recover_managed_startup_authority,
+                recovery.replay_deferred_startup_restore,
+            ),
+            name="rd6018-startup-authority-reconciliation",
+        )
+        self._authority_task = authority_task
+
+        await physical.start()
+        try:
+            await main_runner()
+        finally:
+            if not authority_task.done():
+                authority_task.cancel()
+                try:
+                    await authority_task
+                except asyncio.CancelledError:
+                    pass
+            self._authority_task = None
+            await physical.stop()
+
 
 _composition = ProductionComposition(_legacy).compose()
 
@@ -363,39 +420,14 @@ _legacy_main = _composition.legacy_main
 _v2_startup_recovery = _composition.startup_recovery
 
 async def main() -> None:
-    # Physical configuration and connector construction are startup concerns.
-    # Importing the composed V2 module must remain safe for tests and tooling.
-    initializer = getattr(_legacy, "initialize_runtime", None)
-    if callable(initializer):
-        initializer()
-    await init_v2_storage()
-
-    # Reconciliation runs alongside the transport/UI runtime, but the outer startup
-    # gate keeps every ordinary actuator and start/adoption path closed until this task
-    # returns MANAGED. Unknown edge authority retries read-only. Failed durable managed
-    # containment is retried at a throttled cadence while remaining fail-closed. If the
-    # legacy startup restore raced the gate, its intent is replayed once with fresh live
-    # telemetry after MANAGED recovery; AUTONOMOUS startup discards that intent.
-    authority_task = asyncio.create_task(
-        reconcile_startup_authority(
-            _rd_startup_authority,
-            _v2_startup_recovery.recover_managed_startup_authority,
-            _v2_startup_recovery.replay_deferred_startup_restore,
-        ),
-        name="rd6018-startup-authority-reconciliation",
+    await _composition.run(
+        runtime=_legacy,
+        legacy_main=_legacy_main,
+        startup_authority=_rd_startup_authority,
+        startup_recovery=_v2_startup_recovery,
+        physical_test_control=_physical_test_control,
+        init_storage=init_v2_storage,
     )
-
-    await _physical_test_control.start()
-    try:
-        await _legacy_main()
-    finally:
-        if not authority_task.done():
-            authority_task.cancel()
-            try:
-                await authority_task
-            except asyncio.CancelledError:
-                pass
-        await _physical_test_control.stop()
 
 
 def __getattr__(name: str):
