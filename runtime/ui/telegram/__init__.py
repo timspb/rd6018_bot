@@ -8,6 +8,7 @@ from .renderer import (
     render_screen_markup,
     render_screen_text,
 )
+from .details import install_operator_details_screen
 from .journal import install_journal_screen
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "action_from_callback_data",
     "callback_data_for",
     "install_journal_screen",
+    "install_operator_details_screen",
     "render_button",
     "render_screen_markup",
     "render_screen_text",

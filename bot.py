@@ -23,6 +23,7 @@ from manual_context_v2 import (
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
+from runtime.ui.telegram.details import install_operator_details_screen
 from runtime.ui.telegram.journal import install_journal_screen
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
@@ -235,6 +236,11 @@ if _v2_ui_enabled:
         interface=_legacy.operator_interface,
         home_handler=_legacy._operator_home_handler,
         retire_graph_tracking=_legacy._retire_graph_tracking_for_message,
+    )
+    install_operator_details_screen(
+        _legacy,
+        interface=_legacy.operator_interface,
+        home_handler=_legacy._operator_home_handler,
     )
 
 _legacy_main = _legacy.main
