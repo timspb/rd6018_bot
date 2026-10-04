@@ -66,14 +66,20 @@ class _RouterGroup:
 class _Router:
     def __init__(self) -> None:
         self.callback_query = _RouterGroup()
+        self.message = _RouterGroup()
 
 
 class _Message:
     def __init__(self) -> None:
         self.answers = []
+        self.edits = []
 
     async def answer(self, text, **kwargs):
         self.answers.append((text, kwargs))
+        return self
+
+    async def edit_text(self, text, **kwargs):
+        self.edits.append((text, kwargs))
 
 
 class _Call:
@@ -129,6 +135,26 @@ class V3EntitiesUICutoverTests(unittest.IsolatedAsyncioTestCase):
         await app._v3_home_handler(call)
         self.assertEqual(home_calls, [call])
 
+    async def test_entities_command_is_owned_by_canonical_installer(self):
+        app = _App()
+
+        async def home(_call):
+            return None
+
+        install_entities_screen(app, interface=_Interface(), home_handler=home)
+        self.assertEqual(len(app.router.message.handlers), 1)
+        message = _Message()
+        await app.router.message.handlers[0](message)
+
+        self.assertEqual(
+            message.answers,
+            [("⏳ Опрашиваю сущности HA...", {"parse_mode": "HTML"})],
+        )
+        self.assertEqual(len(message.edits), 1)
+        text, kwargs = message.edits[0]
+        self.assertEqual(text, render_screen_text(build_entities_screen(_view())))
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+
 
 class V3EntitiesUIContractTests(unittest.TestCase):
     def test_formatter_preserves_entity_status_semantics(self):
@@ -146,13 +172,20 @@ class V3EntitiesUIContractTests(unittest.TestCase):
         self.assertTrue(_is_workspace_callback(ENTITIES_CALLBACK_DATA))
         self.assertFalse(_is_workspace_callback("entities_status"))
 
-    def test_historical_entities_callback_is_removed_and_command_uses_application_view(self):
+    def test_historical_entities_callback_and_command_are_removed(self):
         source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "entities_status"', source)
         self.assertNotIn("async def entities_status_handler(", source)
+        self.assertNotIn('Command("entities")', source)
+        self.assertNotIn("async def cmd_entities(", source)
         self.assertNotIn("rows = await hass.get_entities_status()", source)
-        self.assertIn("view = await interface.get_entity_statuses()", source)
-        self.assertIn("build_entities_screen(view)", source)
+
+        canonical = (ROOT / "runtime" / "ui" / "telegram" / "entities.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('Command("entities")', canonical)
+        self.assertIn("view = await interface.get_entity_statuses()", canonical)
+        self.assertIn("build_entities_screen(view)", canonical)
 
     def test_canonical_entities_tree_has_no_hass_or_historical_import(self):
         for rel in (

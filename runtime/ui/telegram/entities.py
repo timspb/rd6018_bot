@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from aiogram import F
+from aiogram.filters import Command
 
 from runtime.ui.actions import UIAction
 from runtime.ui.routing.registry import route_for
@@ -46,6 +47,20 @@ def install_entities_screen(
             render_screen_text(screen),
             parse_mode=app.ParseMode.HTML,
             reply_markup=render_screen_markup(screen),
+        )
+
+    @app.router.message(Command("entities"))
+    async def _entities_command(message: Any) -> None:
+        if not await app._check_chat_and_respond(message):
+            return
+        status_msg = await message.answer(
+            "⏳ Опрашиваю сущности HA...",
+            parse_mode=app.ParseMode.HTML,
+        )
+        view = await interface.get_entity_statuses()
+        await status_msg.edit_text(
+            render_screen_text(build_entities_screen(view)),
+            parse_mode=app.ParseMode.HTML,
         )
 
     if not bool(getattr(app, "_v3_home_navigation_installed", False)):

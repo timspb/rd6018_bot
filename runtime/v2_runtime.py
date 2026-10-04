@@ -2855,26 +2855,6 @@ async def cmd_start(message: Message) -> None:
     chat_dashboard[message.chat.id] = msg_id
 
 
-@router.message(Command("entities"))
-async def cmd_entities(message: Message) -> None:
-    """Render the canonical entity-status read model for the text command."""
-    if not await _check_chat_and_respond(message):
-        return
-    status_msg = await message.answer("⏳ Опрашиваю сущности HA...", parse_mode=ParseMode.HTML)
-    interface = globals().get("operator_interface")
-    if interface is None:
-        await status_msg.edit_text("❌ Интерфейс чтения недоступен", parse_mode=ParseMode.HTML)
-        return
-    from runtime.ui.screens.entities import build_entities_screen
-    from runtime.ui.telegram.renderer import render_screen_text
-
-    view = await interface.get_entity_statuses()
-    await status_msg.edit_text(
-        render_screen_text(build_entities_screen(view)),
-        parse_mode=ParseMode.HTML,
-    )
-
-
 @router.message(Command("logs"))
 async def cmd_logs(message: Message) -> None:
     if not await _check_chat_and_respond(message):
