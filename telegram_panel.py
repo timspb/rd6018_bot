@@ -16,9 +16,7 @@ logger = logging.getLogger("rd6018.ui")
 
 # Callbacks that update/adopt the already-rendered main panel without opening a
 # workspace and therefore do not need a second terminal panel message.
-_ADOPT_CALLBACKS = {
-    "refresh",
-}
+_ADOPT_CALLBACKS = set()
 
 # A terminal callback closes an L3/L4 workspace. After its handler is finished the
 # semantic L2 panel must be republished as the newest message in the chat.

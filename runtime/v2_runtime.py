@@ -3733,28 +3733,6 @@ async def menu_off_handler(call: CallbackQuery) -> None:
     await call.message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
 
 
-@router.callback_query(F.data == "refresh")
-async def refresh_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    user_id = call.from_user.id if call.from_user else 0
-    if not _is_action_allowed(user_id, "refresh", cooldown_sec=1.0):
-        try:
-            await call.answer("Подождите 1 сек...", show_alert=False)
-        except Exception:
-            pass
-        return
-    try:
-        await call.answer("Информация обновлена")
-    except Exception:
-        pass
-    global last_chat_id, last_user_id
-    last_chat_id = call.message.chat.id
-    last_user_id = user_id
-    old_id = user_dashboard.get(user_id) if user_id else None
-    await send_dashboard(call, old_msg_id=old_id)
-
-
 @router.callback_query(F.data == "power_toggle")
 async def power_toggle_handler(call: CallbackQuery) -> None:
     if not await _check_chat_and_respond(call):

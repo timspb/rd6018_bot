@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
-from telegram_panel import _TERMINAL_CALLBACKS, _is_workspace_callback
+from telegram_panel import _ADOPT_CALLBACKS, _TERMINAL_CALLBACKS, _is_workspace_callback
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +36,22 @@ class V3NavigationUICutoverTests(unittest.TestCase):
 
         self.assertFalse(_is_workspace_callback("dash_back"))
         self.assertFalse(_is_workspace_callback("charge_back"))
+
+    def test_raw_refresh_callback_is_retired(self):
+        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        self.assertNotIn('F.data == "refresh"', runtime_source)
+        self.assertNotIn("async def refresh_handler(", runtime_source)
+        self.assertNotIn("refresh", _ADOPT_CALLBACKS)
+
+        for rel in (
+            "runtime/v2_runtime.py",
+            "v2_ui_polish.py",
+            "v2_bot_ui.py",
+            "operator_hmi.py",
+            "operator_dashboard.py",
+        ):
+            source = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertNotIn('callback_data="refresh"', source, rel)
 
 
 if __name__ == "__main__":
