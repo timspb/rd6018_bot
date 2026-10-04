@@ -25,6 +25,7 @@ from .intents import IntentDispatcher, OperatorIntent, OperatorIntentKind
 from .stop_command import StopCommandHandler
 from .pause_command import PauseCommandHandler
 from .profile_command import ProfileCommandHandler
+from .off_condition_command import OffConditionCommandHandler
 
 
 class OperatorSnapshotProvider:
@@ -48,12 +49,14 @@ class OperatorSnapshotProvider:
         if intent_dispatcher is None:
             pause_handler = PauseCommandHandler().route
             profile_handler = ProfileCommandHandler().route
+            off_condition_handler = OffConditionCommandHandler(app).route
             intent_dispatcher = IntentDispatcher(
                 stop_handler=StopCommandHandler().route,
                 routes={
                     OperatorIntentKind.PAUSE_CHARGE: pause_handler,
                     OperatorIntentKind.RESUME_CHARGE: pause_handler,
                     OperatorIntentKind.SELECT_CHARGE_PROFILE: profile_handler,
+                    OperatorIntentKind.SET_OFF_CONDITION: off_condition_handler,
                 },
             )
         self.intent_dispatcher = intent_dispatcher

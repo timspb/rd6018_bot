@@ -29,6 +29,7 @@ from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.help import install_help_screen
 from runtime.ui.telegram.home import install_home_command
 from runtime.ui.telegram.journal import install_journal_screen
+from runtime.ui.telegram.off_conditions import install_off_conditions_screen
 from runtime.ui.telegram.service import install_service_details_screen
 from runtime.ui.telegram.stats import install_stats_screen
 from operator_managed_stop import install_operator_managed_stop
@@ -246,6 +247,11 @@ if _v2_ui_enabled:
         interface=_legacy.operator_interface,
         home_handler=_legacy._operator_home_handler,
         retire_graph_tracking=_legacy._retire_graph_tracking_for_message,
+    )
+    install_off_conditions_screen(
+        _legacy,
+        interface=_legacy.operator_interface,
+        status_provider=_legacy._format_manual_off_for_dashboard,
     )
     install_operator_details_screen(
         _legacy,

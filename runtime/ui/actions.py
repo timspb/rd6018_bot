@@ -11,6 +11,7 @@ class UIAction(str, Enum):
     PAUSE_CHARGE = "charge.pause"
     RESUME_CHARGE = "charge.resume"
     SELECT_PROFILE = "charge.select_profile"
+    SET_OFF_PRESET = "charge.set_off_preset"
 
     OPEN_HOME = "nav.home"
     OPEN_CHARGE = "nav.charge"
@@ -27,6 +28,7 @@ class UIAction(str, Enum):
     OPEN_HELP = "nav.help"
     OPEN_STATS = "nav.stats"
     OPEN_ANALYSIS = "nav.analysis"
+    OPEN_OFF_CONDITIONS = "nav.off_conditions"
 
 
 __all__ = ["UIAction"]

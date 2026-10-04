@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.entities import ENTITIES_CALLBACK_DATA
 from runtime.ui.telegram.journal import HOME_CALLBACK_DATA, JOURNAL_CALLBACK_DATA
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA, OFF_PRESET_PREFIX
 
 logger = logging.getLogger("rd6018.ui")
 
@@ -53,7 +54,7 @@ _WORKSPACE_CALLBACKS = {
     JOURNAL_CALLBACK_DATA,
     ANALYSIS_CALLBACK_DATA,
     ENTITIES_CALLBACK_DATA,
-    "menu_off",
+    OFF_CALLBACK_DATA,
     "rd_live_mix",
     "rd_live_mix_status",
     "rd_managed_adopt",
@@ -75,6 +76,7 @@ _WORKSPACE_CALLBACK_PREFIXES = (
     "rd_managed_mix_",
     "rd_hands_off_release_",
     "operator_graph_",
+    OFF_PRESET_PREFIX + "?",
 )
 
 

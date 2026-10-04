@@ -31,6 +31,7 @@ from runtime.v2_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from operator_managed_stop import STOP_CONFIRM_CALLBACK
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
@@ -774,20 +775,37 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _build_off_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⏱ 2ч", callback_data="off_preset_time_2h"),
-                InlineKeyboardButton(text="🔋 I≤0.30A", callback_data="off_preset_i_le_030"),
-            ],
-            [
-                InlineKeyboardButton(text="⚡ V≥16.2V", callback_data="off_preset_v_ge_162"),
-                InlineKeyboardButton(text="🧹 Сброс", callback_data="off_preset_clear"),
-            ],
-            [InlineKeyboardButton(text="⬅️ К дашборду", callback_data=HOME_CALLBACK_DATA)],
-        ]
-    )
+def _apply_manual_off_preset(preset: str) -> str:
+    """Apply one named operator OFF-condition preset without Telegram concerns."""
+
+    global manual_off_voltage, manual_off_voltage_le
+    global manual_off_current, manual_off_current_ge
+    global manual_off_time_sec, manual_off_start_time
+
+    manual_off_voltage = None
+    manual_off_voltage_le = None
+    manual_off_current = None
+    manual_off_current_ge = None
+    manual_off_time_sec = None
+    manual_off_start_time = 0.0
+
+    if preset == "time_2h":
+        manual_off_time_sec = 2 * 3600
+        manual_off_start_time = time.time()
+        text = "✅ Preset применён: выключение через 2 часа."
+    elif preset == "i_le_030":
+        manual_off_current = 0.30
+        text = "✅ Preset применён: выключение при I≤0.30 A."
+    elif preset == "v_ge_162":
+        manual_off_voltage = 16.2
+        text = "✅ Preset применён: выключение при V≥16.2 V."
+    elif preset == "clear":
+        text = "✅ Условие выключения сброшено."
+    else:
+        raise ValueError("unknown_off_preset")
+
+    _save_manual_off_state()
+    return text
 
 
 def _charge_modes_text() -> str:
@@ -808,7 +826,7 @@ def _build_charge_modes_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual"),
-                InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
+                InlineKeyboardButton(text="⏹ Off по условию", callback_data=OFF_CALLBACK_DATA),
             ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
         ]
@@ -2836,23 +2854,6 @@ async def data_logger() -> None:
 # --- Handlers ---
 
 
-@router.message(Command("off"))
-async def cmd_off(message: Message) -> None:
-    if not await _check_chat_and_respond(message):
-        return
-    off_line = _format_manual_off_for_dashboard()
-    if off_line:
-        status_msg = f"<b>⏹ Принудительное выключение активно</b>\n\n{off_line}\n\n"
-    else:
-        status_msg = "Сейчас условие выключения не задано.\n\n"
-    status_msg += (
-        "Выберите preset кнопкой ниже или используйте текстовую команду "
-        "<code>off ...</code> (например, <code>off 2:00</code>)."
-    )
-    await message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
-    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
-
-
 @router.message(Command("modes"))
 async def cmd_modes(message: Message) -> None:
     if not await _check_chat_and_respond(message):
@@ -3617,78 +3618,6 @@ async def custom_mode_cancel(call: CallbackQuery) -> None:
     # Возвращаемся в главное меню
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
-
-
-@router.callback_query(F.data.startswith("off_preset_"))
-async def off_preset_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-
-    global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
-    preset = (call.data or "").replace("off_preset_", "", 1)
-
-    manual_off_voltage = None
-    manual_off_voltage_le = None
-    manual_off_current = None
-    manual_off_current_ge = None
-    manual_off_time_sec = None
-    manual_off_start_time = 0.0
-
-    if preset == "time_2h":
-        manual_off_time_sec = 2 * 3600
-        manual_off_start_time = time.time()
-        text = "✅ Preset применён: выключение через 2 часа."
-    elif preset == "i_le_030":
-        manual_off_current = 0.30
-        text = "✅ Preset применён: выключение при I≤0.30 A."
-    elif preset == "v_ge_162":
-        manual_off_voltage = 16.2
-        text = "✅ Preset применён: выключение при V≥16.2 V."
-    elif preset == "clear":
-        text = "✅ Условие выключения сброшено."
-    else:
-        try:
-            await call.answer("Неизвестный preset", show_alert=True)
-        except Exception:
-            pass
-        return
-
-    _save_manual_off_state()
-    await call.message.answer(text, parse_mode=ParseMode.HTML)
-    await menu_off_handler(call)
-
-
-@router.callback_query(F.data == "menu_off")
-async def menu_off_handler(call: CallbackQuery) -> None:
-    """Меню «Off по условию»: показать статус и подсказку по команде."""
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    off_line = _format_manual_off_for_dashboard()
-    if off_line:
-        status_msg = f"<b>⏹ Принудительное выключение активно</b>\n\n{off_line}\n\n"
-    else:
-        status_msg = "Сейчас условие выключения не задано.\n\n"
-    status_msg += (
-        "<b>Быстрые пресеты:</b> кнопки ниже.\n\n"
-        "<b>Расширенный ввод в чат:</b>\n"
-        "• <code>off I&lt;=1.23</code> или <code>off 1.23</code>\n"
-        "• <code>off I&gt;=2</code>\n"
-        "• <code>off V&gt;=16.4</code> или <code>off 16.4</code>\n"
-        "• <code>off V&lt;=13.2</code>\n"
-        "• <code>off 2:23</code>\n"
-        "• <code>off I&gt;=2 V&lt;=13.5 2:00</code>\n"
-        "• <code>off</code> — сброс\n\n"
-        "Защиты не сбрасываются; температура и входное напряжение могут выключить выход раньше."
-    )
-    await call.message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
 
 
 _lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)

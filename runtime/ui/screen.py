@@ -25,6 +25,7 @@ class ScreenId(str, Enum):
     HELP = "help"
     STATS = "stats"
     ANALYSIS = "analysis"
+    OFF_CONDITIONS = "off_conditions"
 
 
 @dataclass(frozen=True)

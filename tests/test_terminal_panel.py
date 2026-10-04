@@ -1,5 +1,6 @@
 import unittest
 
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import (
     PanelLastMiddleware,
     TerminalPanelManager,
@@ -117,7 +118,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "v2_manual_choose",
             "v2_manual_interrupted",
             "v2_sg_menu",
-            "menu_off",
+            OFF_CALLBACK_DATA,
             "off_2h",
             "rd_live_mix",
             "rd_live_mix_bat_0",
@@ -151,6 +152,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "profile_caca",
             "profile_efb",
             "profile_agm",
+            "menu_off",
             "power_toggle",
             "refresh",
             "dash_back",

@@ -25,6 +25,9 @@ DEFAULT_ACTION_ROUTES: Mapping[UIAction, UIActionRoute] = {
     UIAction.SELECT_PROFILE: UIActionRoute(
         UIAction.SELECT_PROFILE, OperatorIntentKind.SELECT_CHARGE_PROFILE
     ),
+    UIAction.SET_OFF_PRESET: UIActionRoute(
+        UIAction.SET_OFF_PRESET, OperatorIntentKind.SET_OFF_CONDITION
+    ),
     **{
         action: UIActionRoute(action, None, True)
         for action in (
@@ -43,6 +46,7 @@ DEFAULT_ACTION_ROUTES: Mapping[UIAction, UIActionRoute] = {
             UIAction.OPEN_HELP,
             UIAction.OPEN_STATS,
             UIAction.OPEN_ANALYSIS,
+            UIAction.OPEN_OFF_CONDITIONS,
         )
     },
 }
