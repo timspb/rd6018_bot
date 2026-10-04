@@ -1,5 +1,6 @@
 import unittest
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import (
     PanelLastMiddleware,
@@ -109,7 +110,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
 
     def test_program_live_mix_and_operator_submenus_are_workspace(self):
         for callback in (
-            "charge_modes",
+            CHARGE_CALLBACK_DATA,
             "v2_batteries",
             "v2_profile_caca",
             "v2_bat_intent_recovery",
@@ -149,6 +150,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "entities_status",
             "info_full",
             "profile_custom",
+            "charge_modes",
             "profile_caca",
             "profile_efb",
             "profile_agm",

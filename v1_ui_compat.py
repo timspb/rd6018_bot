@@ -4,6 +4,8 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+
 
 # These callbacks are presentation/navigation surfaces. The V1 compatibility layer
 # owns their placement on the primary graph panel, while the wrapped V2 HMI remains
@@ -76,7 +78,7 @@ def compose_v1_operator_keyboard(
     process_state = getattr(state, "process_state", None)
     final_callbacks = _callbacks(base)
 
-    idle_authorized = "charge_modes" in final_callbacks
+    idle_authorized = CHARGE_CALLBACK_DATA in final_callbacks
 
     shell_process_state = process_state
     if process_state is hmi.HmiProcessState.IDLE and not idle_authorized:
@@ -84,7 +86,7 @@ def compose_v1_operator_keyboard(
 
     blocked = set(_SHELL_CALLBACKS)
     if shell_process_state is hmi.HmiProcessState.CONTAINMENT:
-        blocked.update({"charge_modes", "v2_batteries"})
+        blocked.update({"charge_modes", CHARGE_CALLBACK_DATA, "v2_batteries"})
 
     stripped = _filter_callbacks(base, blocked)
     rows = [list(row) for row in stripped.inline_keyboard]

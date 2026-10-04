@@ -17,6 +17,7 @@ from manual_runtime_v2 import ProductionManualSessionManager
 from manual_text_v2 import install_manual_text_v2
 from pb_domain import ChargeIntent
 from runtime_safety_v2 import install_v2_runtime_safety
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import install_panel_last
@@ -44,7 +45,7 @@ def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Кондиционирование", callback_data=f"{prefix}_conditioning"),
                 InlineKeyboardButton(text="Диагностика", callback_data=f"{prefix}_diagnostic"),
             ],
-            [InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")],
+            [InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
 
@@ -53,7 +54,7 @@ def _operator_preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="▶ Запустить программу", callback_data=start_callback)],
-            [InlineKeyboardButton(text="⬅ Изменить", callback_data="charge_modes")],
+            [InlineKeyboardButton(text="⬅ Изменить", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
 

@@ -147,7 +147,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
     def test_raw_legacy_custom_entrypoint_has_no_actuator_or_historical_fsm_calls(self):
         source = (REPO_ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
         start = source.index("async def start_custom_charge")
-        end = source.index('@router.callback_query(F.data == "charge_modes")', start)
+        end = source.index('@router.callback_query(F.data == "custom_cancel")', start)
         body = source[start:end]
 
         self.assertIn("manual_session_manager", body)

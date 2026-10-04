@@ -24,6 +24,7 @@ from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from runtime.ui.telegram.analysis import install_analysis_screen
+from runtime.ui.telegram.charge import install_charge_program_screen
 from runtime.ui.telegram.details import install_operator_details_screen
 from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.help import install_help_screen
@@ -238,6 +239,25 @@ install_hands_off_background_isolation(_legacy, _rd_control_mode)
 # this provider in the current migration step.
 _legacy.operator_interface = OperatorSnapshotProvider(_legacy)
 if _v2_ui_enabled:
+    install_charge_program_screen(
+        _legacy,
+        profile_selector=_legacy._v2_select_quick_profile,
+        batteries_handler=_legacy._v2_batteries_handler,
+        battery_add_handler=_legacy._v2_battery_add_handler,
+        manual_handler=_legacy._v2_manual_choose_handler,
+        interrupted_manual_handler=_legacy._v2_manual_interrupted_handler,
+        interrupted_manual_provider=lambda: (
+            str(
+                getattr(
+                    getattr(getattr(_legacy, "manual_session_manager", None), "state", None),
+                    "value",
+                    "",
+                )
+            )
+            == "interrupted"
+        ),
+        schedule_refresh=_legacy.schedule_dashboard_after_60,
+    )
     install_home_command(
         _legacy,
         render_home=_legacy._build_and_send_dashboard,

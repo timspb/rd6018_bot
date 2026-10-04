@@ -15,6 +15,7 @@ from operator_hmi import (
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from bot_legacy import _build_dashboard_keyboard
 from application.operator_actions import OperatorAction, OperatorActionsView
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
 class FakeObserver:
@@ -222,7 +223,7 @@ class OperatorHmiTests(unittest.TestCase):
 
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
         self.assertEqual(texts[0], "⚡ Режимы заряда")
-        self.assertIn("charge_modes", callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
         self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)

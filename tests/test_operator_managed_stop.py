@@ -40,7 +40,7 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
     def test_historical_power_toggle_handler_and_helper_are_retired(self):
         import inspect
 
-        source = inspect.getsource(bot_legacy._runtime)
+        source = inspect.getsource(bot_legacy)
         self.assertNotIn('F.data == "power_toggle"', source)
         self.assertNotIn("async def power_toggle_handler(", source)
         self.assertNotIn("def _legacy_power_toggle_is_disabled(", source)

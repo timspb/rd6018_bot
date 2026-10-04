@@ -13,6 +13,7 @@ from operator_dashboard import (
     render_truthful_panel,
 )
 from operator_hmi import HmiProcessState, build_operator_keyboard
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
 class FakeApp:
@@ -70,7 +71,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.attention, "output_unknown")
         self.assertIn("OUTPUT НЕ ПОДТВЕРЖДЁН", text)
         self.assertNotIn("Output <b>OFF</b>", text)
-        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
 
     def test_stale_output_is_containment_even_when_last_value_says_on(self):
@@ -109,7 +110,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertIn("ЗАЩИТА НЕ ПОДТВЕРЖДЕНА", text)
         self.assertIn("Статус защит RD6018 не подтверждён", text)
         self.assertNotIn("Защита: норма", text)
-        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
 
     def test_confirmed_off_and_protections_remain_normal_idle(self):
@@ -120,7 +121,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
         self.assertNotIn("Output <b>", text)
         self.assertIn("Защита: норма", text)
-        self.assertIn("charge_modes", _callbacks(app, state))
+        self.assertIn(CHARGE_CALLBACK_DATA, _callbacks(app, state))
 
     def test_unknown_protection_while_output_on_is_alarm(self):
         app = FakeApp()
@@ -147,7 +148,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertIn("СРАБОТАЛА ЗАЩИТА OPP", text)
         self.assertIn("Защита: OPP", text)
         self.assertNotIn("Защита: норма", text)
-        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
 
     def test_raw_opp_trip_is_visible_even_when_legacy_bits_are_off_while_on(self):
@@ -186,7 +187,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         state = build_truthful_hmi_state(app, live)
 
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
-        self.assertNotIn("charge_modes", _callbacks(app, state))
+        self.assertNotIn(CHARGE_CALLBACK_DATA, _callbacks(app, state))
         self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
 
     def test_raw_regulation_code_overrides_legacy_mode_flags(self):

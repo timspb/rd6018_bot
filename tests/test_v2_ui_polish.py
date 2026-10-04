@@ -1,6 +1,7 @@
 import types
 import unittest
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from v2_ui_polish import (
     build_operator_dashboard_keyboard,
     format_active_evidence_pretty,
@@ -211,7 +212,7 @@ class V2UiPolishTests(unittest.TestCase):
         ]
         texts = [button.text for row in idle.inline_keyboard for button in row]
         self.assertEqual(idle.inline_keyboard[0][0].text, "▶️ Новая программа")
-        self.assertIn("charge_modes", callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("power_toggle", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
         self.assertNotIn("entities_status", callbacks)

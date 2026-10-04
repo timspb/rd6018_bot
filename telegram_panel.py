@@ -9,6 +9,14 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
+from runtime.ui.telegram.charge import (
+    BATTERIES_CALLBACK_DATA,
+    BATTERY_ADD_CALLBACK_DATA,
+    CHARGE_CALLBACK_DATA,
+    INTERRUPTED_MANUAL_CALLBACK_DATA,
+    MANUAL_CALLBACK_DATA,
+    PROFILE_CALLBACK_PREFIX,
+)
 from runtime.ui.telegram.entities import ENTITIES_CALLBACK_DATA
 from runtime.ui.telegram.journal import HOME_CALLBACK_DATA, JOURNAL_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA, OFF_PRESET_PREFIX
@@ -50,7 +58,11 @@ _TERMINAL_CALLBACKS = {
 # Navigation/detail/program callbacks are an operator workspace. Do NOT append a
 # dashboard after every click. The panel returns only when the workflow terminates.
 _WORKSPACE_CALLBACKS = {
-    "charge_modes",
+    CHARGE_CALLBACK_DATA,
+    BATTERIES_CALLBACK_DATA,
+    BATTERY_ADD_CALLBACK_DATA,
+    MANUAL_CALLBACK_DATA,
+    INTERRUPTED_MANUAL_CALLBACK_DATA,
     JOURNAL_CALLBACK_DATA,
     ANALYSIS_CALLBACK_DATA,
     ENTITIES_CALLBACK_DATA,
@@ -77,6 +89,7 @@ _WORKSPACE_CALLBACK_PREFIXES = (
     "rd_hands_off_release_",
     "operator_graph_",
     OFF_PRESET_PREFIX + "?",
+    PROFILE_CALLBACK_PREFIX + "?",
 )
 
 

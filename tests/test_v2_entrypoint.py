@@ -9,6 +9,7 @@ import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
 from operator_output_truth import OUTPUT_TRUTH_ATTR
 from production_controller import ProductionChargeControllerV2
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
 class V2EntrypointTests(unittest.TestCase):
@@ -81,7 +82,7 @@ class V2EntrypointTests(unittest.TestCase):
         dashboard_callbacks = self._callbacks(dashboard)
         self.assertNotIn("power_toggle", dashboard_callbacks)
         self.assertNotIn("v2_batteries", dashboard_callbacks)
-        self.assertIn("charge_modes", dashboard_callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, dashboard_callbacks)
         self.assertNotIn("operator_more", dashboard_callbacks)
 
     def test_composed_graph_unknown_output_never_restores_v1_start(self):
@@ -104,7 +105,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
-        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("power_toggle", callbacks)
 
@@ -118,7 +119,7 @@ class V2EntrypointTests(unittest.TestCase):
         markup = operator_dashboard._main_graph_markup(bot, state, 1)
         callbacks = self._callbacks(markup)
 
-        self.assertIn("charge_modes", callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertIn("rd_ownership_hands_off", callbacks)
         self.assertIn("rd_autonomous_confirm", callbacks)
         self.assertIn("operator_refresh", callbacks)
@@ -156,7 +157,7 @@ class V2EntrypointTests(unittest.TestCase):
             self.assertNotIn("rd_hands_off_output_off", callbacks)
             self.assertNotIn("rd_live_mix", callbacks)
             self.assertNotIn("v2_batteries", callbacks)
-            self.assertNotIn("charge_modes", callbacks)
+            self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
             self.assertNotIn("operator_more", callbacks)
             self.assertNotIn("power_toggle", callbacks)
         finally:

@@ -17,6 +17,7 @@ from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
+from runtime.ui.telegram.charge import BATTERIES_CALLBACK_DATA, CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
 
 
@@ -688,8 +689,8 @@ def render_operator_panel(state: OperatorHmiState) -> str:
 def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup:
     """Render logical capabilities without reading runtime objects."""
     labels = {
-        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", "charge_modes"),
-        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", "v2_batteries"),
+        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", CHARGE_CALLBACK_DATA),
+        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", BATTERIES_CALLBACK_DATA),
         # Newly rendered panels must use the managed confirmation-based route.
         OperatorAction.STOP_CHARGE: ("🛑 Стоп", "operator_managed_stop"),
         OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),

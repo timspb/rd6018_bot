@@ -29,6 +29,7 @@ from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
 from runtime.v2_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
@@ -765,9 +766,9 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
         [
             InlineKeyboardButton(
                 text=main_btn_text,
-                callback_data=STOP_CONFIRM_CALLBACK if is_on else "charge_modes",
+                callback_data=STOP_CONFIRM_CALLBACK if is_on else CHARGE_CALLBACK_DATA,
             ),
-            InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
+            InlineKeyboardButton(text="⚙️ Режимы", callback_data=CHARGE_CALLBACK_DATA),
         ],
     ]
     if back_to_dashboard:
@@ -2854,14 +2855,6 @@ async def data_logger() -> None:
 # --- Handlers ---
 
 
-@router.message(Command("modes"))
-async def cmd_modes(message: Message) -> None:
-    if not await _check_chat_and_respond(message):
-        return
-    await message.answer(_charge_modes_text(), parse_mode=ParseMode.HTML, reply_markup=_build_charge_modes_keyboard())
-    schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
-
-
 async def get_ai_context() -> str:
     """Получить полный слепок данных RD6018 для AI анализа."""
     try:
@@ -3104,7 +3097,7 @@ def _parse_two_numbers(text: str) -> Optional[tuple]:
         return None
 
 
-@router.message(F.text)
+@router.message(F.text & ~F.text.startswith("/"))
 async def text_message_handler(message: Message) -> None:
     """v2.6 Обработка текстовых сообщений: ввод ёмкости АКБ, ручной режим или режим диалога с LLM."""
     if not await _check_chat_and_respond(message):
@@ -3575,23 +3568,6 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
         )
         return
     await route(message, user_id, params)
-
-
-@router.callback_query(F.data == "charge_modes")
-async def charge_modes_handler(call: CallbackQuery) -> None:
-    """Открыть подменю «🚗 Авто» с режимами заряда."""
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    global last_chat_id, last_user_id
-    last_chat_id = call.message.chat.id
-    last_user_id = call.from_user.id if call.from_user else 0
-    text = _charge_modes_text()
-    ikb = _build_charge_modes_keyboard()
-    await _edit_or_send_charge_workspace(call, text, ikb)
 
 
 @router.callback_query(F.data == "custom_cancel")

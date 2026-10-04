@@ -16,6 +16,7 @@ from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import select_recipe_envelope
 from safe_output import snapshot_from_live
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from v2_battery_catalog import list_batteries
 from v2_ui import battery_button_label, profile_for_chemistry
 
@@ -346,7 +347,7 @@ def _mix_menu_keyboard(records: list[Any]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="AGM", callback_data="v2_mix_profile_agm"),
         ]
     )
-    rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")])
+    rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

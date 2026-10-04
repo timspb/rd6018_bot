@@ -13,6 +13,7 @@ from manual_mode import ManualChargeRequest, ManualSessionState
 from manual_runtime_v2 import ProductionManualSessionManager
 from manual_text_v2 import MANUAL_PROFILE_PATH, ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
 from runtime.charge.profiles.manual import load_manual_profile
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from v2_bot_ui import selected_battery_for_user
 from v2_battery_catalog import list_batteries
 
@@ -244,13 +245,15 @@ def install_manual_context_ui(app: Any) -> None:
             token_map[(user_id, tok)] = battery_id
             label = f"{battery_id} · {record.identity.chemistry.value} · {record.identity.nominal_capacity_ah:g}Ah"
             rows.append([InlineKeyboardButton(text=label[:55], callback_data=f"v2_mbind:{tok}")])
-        rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")])
+        rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)])
         await call.message.answer(
             "<b>Manual: привязка к истории</b>\n\n"
             "Можно выбрать физическую АКБ только для longitudinal history/diagnostics. "
             "Её chemistry/Ah не меняют Manual V/I и не дают дополнительных разрешений.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
+
+    app._v2_manual_choose_handler = _manual_choose
 
     @app.router.callback_query(F.data == "v2_manual_unbound")
     async def _manual_unbound(call: CallbackQuery) -> None:
@@ -348,10 +351,12 @@ def install_manual_context_ui(app: Any) -> None:
                 inline_keyboard=[
                     [InlineKeyboardButton(text="▶ Авторизовать заново", callback_data="v2_manual_reauthorize")],
                     [InlineKeyboardButton(text="🗑 Отменить запрос", callback_data="v2_manual_discard")],
-                    [InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")],
+                    [InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)],
                 ]
             ),
         )
+
+    app._v2_manual_interrupted_handler = _manual_interrupted
 
     @app.router.callback_query(F.data == "v2_manual_reauthorize")
     async def _manual_reauthorize(call: CallbackQuery) -> None:

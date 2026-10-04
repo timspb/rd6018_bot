@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from operator_hmi import build_operator_keyboard
 
@@ -44,7 +46,7 @@ class OperatorActionMatrixTests(unittest.TestCase):
         )
         keyboard = build_operator_keyboard(None, None, actions=view)  # type: ignore[arg-type]
         callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
-        self.assertEqual(callbacks, ["charge_modes", "operator_refresh"])
+        self.assertEqual(callbacks, [CHARGE_CALLBACK_DATA, "operator_refresh"])
 
 
 if __name__ == "__main__":

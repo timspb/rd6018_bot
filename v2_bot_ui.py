@@ -28,6 +28,7 @@ from v2_ui import (
 )
 from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.charge.profiles.manual import has_manual_profile
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
@@ -111,7 +112,7 @@ def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔄 Condition", callback_data=f"{prefix}_conditioning"),
                 InlineKeyboardButton(text="🔬 Диагностика", callback_data=f"{prefix}_diagnostic"),
             ],
-            [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
+            [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
 
@@ -120,7 +121,7 @@ def _preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="▶️ Запустить", callback_data=start_callback)],
-            [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
+            [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
 
@@ -351,7 +352,7 @@ def install_v2_ui(app: Any) -> None:
             for idx, item in enumerate(visible_records)
         ]
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
-        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")])
+        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
         text = (
             (format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена.")
             + "\n\n<b>Выберите сохранённую АКБ:</b>"
@@ -406,7 +407,7 @@ def install_v2_ui(app: Any) -> None:
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
                         [InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")],
-                        [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
+                        [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
                     ]
                 ),
             )
@@ -416,12 +417,14 @@ def install_v2_ui(app: Any) -> None:
             for idx, record in enumerate(records)
         ]
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
-        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")])
+        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
         await _safe_answer(
             call,
             "<b>🔋 Физические аккумуляторы</b>\nВыберите батарею:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
+
+    app._v2_batteries_handler = batteries_handler
 
     @app.router.callback_query(F.data == "v2_battery_add")
     async def battery_add_handler(call: Any) -> None:
@@ -437,6 +440,8 @@ def install_v2_ui(app: Any) -> None:
             "<code>ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель</code>\n\n"
             "Например:\n<code>varta70 | AGM | 70 | Varta | Silver Dynamic AGM</code>",
         )
+
+    app._v2_battery_add_handler = battery_add_handler
 
     @app.router.callback_query(F.data.startswith("v2_battery_") & ~F.data.in_({"v2_battery_add"}))
     async def battery_select_handler(call: Any) -> None:
@@ -468,13 +473,12 @@ def install_v2_ui(app: Any) -> None:
             ),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
-    @app.router.callback_query(F.data.startswith("v2_profile_"))
-    async def quick_profile_handler(call: Any) -> None:
+    async def _select_quick_profile(call: Any, profile: str) -> None:
         if not await app._check_chat_and_respond(call):
             return
         await call.answer()
-        profile = _profile_from_callback(call.data or "")
-        if not profile:
+        if profile not in {"Ca/Ca", "EFB", "AGM"}:
+            await call.answer("Неизвестный профиль", show_alert=True)
             return
         if not await _route_profile_intent(app, call, profile):
             return
@@ -486,6 +490,15 @@ def install_v2_ui(app: Any) -> None:
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
+
+    app._v2_select_quick_profile = _select_quick_profile
+
+    @app.router.callback_query(F.data.startswith("v2_profile_"))
+    async def quick_profile_handler(call: Any) -> None:
+        profile = _profile_from_callback(call.data or "")
+        if not profile:
+            return
+        await _select_quick_profile(call, profile)
 
     @app.router.callback_query(F.data.startswith("v2_quick_intent_"))
     async def quick_intent_handler(call: Any) -> None:
