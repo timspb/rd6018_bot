@@ -28,6 +28,7 @@ from v2_ui import (
 )
 from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.charge.profiles.manual import has_manual_profile
+from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
@@ -270,7 +271,7 @@ def install_v2_ui(app: Any) -> None:
                 [
                     InlineKeyboardButton(text="🛠 Ручной MAIN → MIX", callback_data="v2_manual"),
                 ],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
             ]
         )
 
@@ -386,7 +387,7 @@ def install_v2_ui(app: Any) -> None:
             f"<b>🧭 V2 controller</b>\n\n{text}\n\n"
             f"Stage: <code>{html.escape(app.charge_controller.current_stage)}</code>",
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="⬅️ Дашборд", callback_data="dash_back")]]
+                inline_keyboard=[[InlineKeyboardButton(text="⬅️ Дашборд", callback_data=HOME_CALLBACK_DATA)]]
             ),
         )
 

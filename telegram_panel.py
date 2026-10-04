@@ -23,8 +23,6 @@ _ADOPT_CALLBACKS = {
 # A terminal callback closes an L3/L4 workspace. After its handler is finished the
 # semantic L2 panel must be republished as the newest message in the chat.
 _TERMINAL_CALLBACKS = {
-    "dash_back",
-    "charge_back",
     "custom_cancel",
     "operator_done",
     HOME_CALLBACK_DATA,

@@ -233,7 +233,7 @@ class V2UiPolishTests(unittest.TestCase):
         app = types.SimpleNamespace(charge_controller=types.SimpleNamespace(is_active=True))
         markup = build_operator_dashboard_keyboard(app, True, 1, back_to_dashboard=True)
         self.assertEqual(len(markup.inline_keyboard), 1)
-        self.assertEqual(markup.inline_keyboard[0][0].callback_data, "dash_back")
+        self.assertEqual(markup.inline_keyboard[0][0].callback_data, "ui:nav.home")
         self.assertEqual(markup.inline_keyboard[0][0].text, "⬅️ К панели")
 
 
