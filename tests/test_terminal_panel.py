@@ -151,6 +151,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "power_toggle",
             "refresh",
             "dash_back",
+            "charge_back",
             "operator_done",
             "v2_battery_start",
             "v2_quick_start",

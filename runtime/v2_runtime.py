@@ -29,7 +29,7 @@ from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
 from runtime.v2_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
-from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
+from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -765,7 +765,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
         ],
     ]
     if back_to_dashboard:
-        rows.append([InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")])
+        rows.append([InlineKeyboardButton(text="⬅️ К дашборду", callback_data=HOME_CALLBACK_DATA)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -780,7 +780,7 @@ def _build_off_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="⚡ V≥16.2V", callback_data="off_preset_v_ge_162"),
                 InlineKeyboardButton(text="🧹 Сброс", callback_data="off_preset_clear"),
             ],
-            [InlineKeyboardButton(text="⬅️ К дашборду", callback_data="dash_back")],
+            [InlineKeyboardButton(text="⬅️ К дашборду", callback_data=HOME_CALLBACK_DATA)],
         ]
     )
 
@@ -805,7 +805,7 @@ def _build_charge_modes_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom"),
                 InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
             ],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
         ]
     )
 
@@ -3638,44 +3638,6 @@ async def custom_mode_cancel(call: CallbackQuery) -> None:
     # Возвращаемся в главное меню
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
     await send_dashboard(call, old_msg_id=old_id)
-
-
-@router.callback_query(F.data == "charge_back")
-async def charge_back_handler(call: CallbackQuery) -> None:
-    """Вернуться из подменю «🚗 Авто» в главное меню."""
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
-    await send_dashboard(call, old_msg_id=old_id)
-
-
-@router.callback_query(F.data == "dash_back")
-async def dashboard_back_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    user_id = call.from_user.id if call.from_user else 0
-    chat_id = call.message.chat.id
-    current_msg_id = call.message.message_id
-    old_id = user_dashboard.get(user_id) if user_id else None
-    if old_id is None:
-        old_id = chat_dashboard.get(chat_id)
-
-    # Если дашборд закреплён за другим сообщением, удаляем его,
-    # а текущий экран (полная инфо/логи/ai) превращаем обратно в дашборд.
-    if old_id and old_id != current_msg_id:
-        try:
-            await bot.delete_message(chat_id, old_id)
-        except Exception:
-            pass
-    await send_dashboard(call, old_msg_id=current_msg_id)
 
 
 @router.callback_query(F.data.startswith("chart_"))

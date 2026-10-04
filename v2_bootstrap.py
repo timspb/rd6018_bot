@@ -17,6 +17,7 @@ from manual_runtime_v2 import ProductionManualSessionManager
 from manual_text_v2 import install_manual_text_v2
 from pb_domain import ChargeIntent
 from runtime_safety_v2 import install_v2_runtime_safety
+from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 from telegram_panel import install_panel_last
 from v2_battery_input import parse_battery_spec
 from v2_sg_ui import install_sg_ui, sg_menu_button
@@ -87,7 +88,7 @@ def _operator_modes_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Ручной режим", callback_data="v2_manual"),
                 InlineKeyboardButton(text="Условие OFF", callback_data="menu_off"),
             ],
-            [InlineKeyboardButton(text="⬅ К панели", callback_data="charge_back")],
+            [InlineKeyboardButton(text="⬅ К панели", callback_data=HOME_CALLBACK_DATA)],
         ]
     )
 

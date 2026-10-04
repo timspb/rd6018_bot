@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from pb_domain import ChargeIntent
 from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
-from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
+from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 
 
 _DECISION_LABELS = {
@@ -191,7 +191,7 @@ def build_operator_dashboard_keyboard(
     if back_to_dashboard:
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ К панели", callback_data="dash_back")],
+                [InlineKeyboardButton(text="⬅️ К панели", callback_data=HOME_CALLBACK_DATA)],
             ]
         )
 
