@@ -146,10 +146,13 @@ class V3EntitiesUIContractTests(unittest.TestCase):
         self.assertTrue(_is_workspace_callback(ENTITIES_CALLBACK_DATA))
         self.assertFalse(_is_workspace_callback("entities_status"))
 
-    def test_historical_entities_callback_is_removed(self):
+    def test_historical_entities_callback_is_removed_and_command_uses_application_view(self):
         source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "entities_status"', source)
         self.assertNotIn("async def entities_status_handler(", source)
+        self.assertNotIn("rows = await hass.get_entities_status()", source)
+        self.assertIn("view = await interface.get_entity_statuses()", source)
+        self.assertIn("build_entities_screen(view)", source)
 
     def test_canonical_entities_tree_has_no_hass_or_historical_import(self):
         for rel in (

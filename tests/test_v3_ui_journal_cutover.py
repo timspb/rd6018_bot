@@ -176,11 +176,13 @@ class V3JournalUICutoverTests(unittest.TestCase):
                     violations.append((path.name, "call", node.func.attr))
         self.assertEqual([], violations)
 
-    def test_historical_logs_callback_is_removed_and_command_delegates_renderer(self):
+    def test_historical_logs_callback_is_removed_and_command_uses_application_view(self):
         source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "logs"', source)
         self.assertNotIn("async def logs_handler", source)
-        self.assertIn("render_journal_text(get_recent_events(limit), shown=shown)", source)
+        self.assertNotIn("def _build_logs_text(", source)
+        self.assertIn("view = await interface.get_event_journal(50)", source)
+        self.assertIn("build_journal_screen(view, shown=25)", source)
 
     def test_live_graph_toolbar_no_longer_constructs_raw_logs_callback(self):
         source = (ROOT / "operator_dashboard.py").read_text(encoding="utf-8")

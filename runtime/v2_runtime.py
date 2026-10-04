@@ -1522,18 +1522,6 @@ def format_log_event(event_line: str) -> str:
         return f"<code>{html.escape(event_line[:100])}</code>"
 
 
-def _build_logs_text(limit: int = 50, shown: int = 25) -> str:
-    """Compatibility command renderer delegated to the canonical UI component."""
-    from charging_log import get_recent_events
-    from runtime.ui.components.journal import render_journal_text
-
-    try:
-        return render_journal_text(get_recent_events(limit), shown=shown)
-    except Exception as ex:
-        logger.error("Failed to get recent events: %s", ex)
-        return "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
-
-
 def _retire_graph_tracking_for_message(chat_id: int, user_id: int, message_id: int) -> None:
     """Forget a graph workspace before replacing its Telegram message.
 
@@ -2881,48 +2869,22 @@ async def cmd_stats(message: Message) -> None:
 
 @router.message(Command("entities"))
 async def cmd_entities(message: Message) -> None:
-    """Опросить и показать статус всех сущностей Home Assistant (RD6018)."""
+    """Render the canonical entity-status read model for the text command."""
     if not await _check_chat_and_respond(message):
         return
     status_msg = await message.answer("⏳ Опрашиваю сущности HA...", parse_mode=ParseMode.HTML)
-    try:
-        rows = await hass.get_entities_status()
-        lines = ["<b>📡 Статус сущностей RD6018</b>\n"]
-        ok_count = sum(1 for r in rows if r["status"] == "ok")
-        bad = [r for r in rows if r["status"] != "ok"]
-        lines.append(f"✅ Доступно: {ok_count}/{len(rows)}")
-        if bad:
-            lines.append(f"⚠️ Нет данных: {len(bad)}\n")
-        for r in rows:
-            key = html.escape(r["key"])
-            eid = html.escape(r["entity_id"])
-            state_raw = r["state"]
-            if r["status"] == "ok" and state_raw is not None:
-                try:
-                    state = html.escape(f"{float(state_raw):.3f}")
-                except (TypeError, ValueError):
-                    state = html.escape(str(state_raw))
-            else:
-                state = html.escape(str(state_raw) if state_raw is not None else "")
-            unit = html.escape(r["unit"] or "")
-            status = r["status"]
-            if status == "ok":
-                icon = "🟢"
-                line = f"{icon} <b>{key}</b>: {state} {unit}".strip()
-            else:
-                icon = "🔴" if status == "error" else "🟡"
-                line = f"{icon} <b>{key}</b>: {status} ({state})"
-            lines.append(line)
-        text = "\n".join(lines)
-        if len(text) > 4000:
-            text = "\n".join(lines[:2] + [f"… всего {len(rows)} сущностей, обрезка"] + [l for l in lines[3:25]])
-        await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
-    except Exception as ex:
-        logger.exception("cmd_entities: %s", ex)
-        await status_msg.edit_text(
-            f"❌ Ошибка опроса сущностей: {html.escape(str(ex))}",
-            parse_mode=ParseMode.HTML,
-        )
+    interface = globals().get("operator_interface")
+    if interface is None:
+        await status_msg.edit_text("❌ Интерфейс чтения недоступен", parse_mode=ParseMode.HTML)
+        return
+    from runtime.ui.screens.entities import build_entities_screen
+    from runtime.ui.telegram.renderer import render_screen_text
+
+    view = await interface.get_entity_statuses()
+    await status_msg.edit_text(
+        render_screen_text(build_entities_screen(view)),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(Command("help"))
@@ -2958,7 +2920,15 @@ async def cmd_help(message: Message) -> None:
 async def cmd_logs(message: Message) -> None:
     if not await _check_chat_and_respond(message):
         return
-    text = _build_logs_text()
+    interface = globals().get("operator_interface")
+    if interface is None:
+        await message.answer("❌ Интерфейс чтения недоступен", parse_mode=ParseMode.HTML)
+        return
+    from runtime.ui.screens.journal import build_journal_screen
+    from runtime.ui.telegram.renderer import render_screen_text
+
+    view = await interface.get_event_journal(50)
+    text = render_screen_text(build_journal_screen(view, shown=25))
     user_id = message.from_user.id if message.from_user else 0
     is_on = await _safe_output_on()
     sent = await message.answer(
