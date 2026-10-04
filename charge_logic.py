@@ -16,6 +16,8 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from charging_log import log_session_header
 from legacy_safety import main_timeout_decision
 from runtime.charge.strategy.desulfation import select_desulfation_target
+from runtime.charge.strategy.prep import select_prep_target
+from runtime.charge.runtime.variables import STAGE_TRANSITION_BLANKING_S
 from runtime.charge.strategy.desulfation_variables import DESULFATION_OCP_MARGIN_A
 from runtime.charge.strategy.safe_wait_variables import SAFE_WAIT_TARGET_MARGIN_V, safe_wait_max_seconds
 from runtime.safety.voltage_variables import (
@@ -72,7 +74,8 @@ POST_CHARGE_STRONG_SLOPE_MV_MIN = 8.0
 POST_CHARGE_WATCH_SLOPE_MV_MIN = 4.0
 POST_CHARGE_PERIODIC_WINDOWS_SEC = (5 * 60, 10 * 60, 15 * 60)
 PHANTOM_CHARGE_MINUTES = 10  # мин — ток < порога за это время = подозрительно быстрый заряд
-BLANKING_SEC = 5 * 60  # сек — после смены фазы игнорировать триггеры
+# Compatibility alias; canonical owner is runtime.charge.runtime.variables.
+BLANKING_SEC = float(STAGE_TRANSITION_BLANKING_S.default)
 DELTA_MONITOR_DELAY_SEC = 120  # v2.0: начинать мониторинг dV/dI строго через 120 сек после смены уставок
 TRIGGER_CONFIRM_COUNT = 3  # подтверждений подряд с интервалом 1 мин для срабатывания Delta
 TRIGGER_CONFIRM_INTERVAL_SEC = 60  # сек — интервал между замерами для подтверждения
@@ -2072,9 +2075,11 @@ class ChargeController:
         return True
 
     def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        # Подготовка: мягкий старт на 0.01C для любой ёмкости, чтобы не давить АКБ лишним током.
-        base_v = 12.0
-        return (self._apply_temperature_compensation(base_v, temp_c), self._pct_ah(1.0))
+        target = select_prep_target(capacity_ah=float(self.ah_capacity))
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
 
     def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """v2.0: Main Charge — I_target = ah * 0.1 (ёмкостно-ориентированный расчёт)."""

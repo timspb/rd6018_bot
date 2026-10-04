@@ -106,7 +106,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             "tick",
             new=AsyncMock(side_effect=AssertionError("historical tick reached")),
         ), patch("charge_controller_v2.time.time", return_value=1100.0):
-            actions = await controller._run_legacy_scaffold_tick(
+            actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_MIX,
                 voltage=16.3,
                 current=0.5,
@@ -130,7 +130,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             "tick",
             new=AsyncMock(side_effect=AssertionError("historical tick reached")),
         ), patch("charge_controller_v2.time.time", return_value=1100.0):
-            actions = await controller._run_legacy_scaffold_tick(
+            actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_SAFE_WAIT,
                 voltage=13.5,
                 current=0.0,

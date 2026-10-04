@@ -63,7 +63,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             "tick",
             new=AsyncMock(side_effect=AssertionError("historical tick reached")),
         ):
-            actions = await controller._run_legacy_scaffold_tick(
+            actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_MAIN,
                 voltage=14.8,
                 current=2.0,
@@ -93,7 +93,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             "tick",
             new=AsyncMock(side_effect=AssertionError("historical tick reached")),
         ):
-            actions = await controller._run_legacy_scaffold_tick(
+            actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_IDLE,
                 voltage=0.0,
                 current=0.0,

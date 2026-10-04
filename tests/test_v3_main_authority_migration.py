@@ -95,17 +95,16 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
     def test_authoritative_main_no_longer_enters_historical_tick(self) -> None:
         controller = (ROOT / "charge_controller_v2.py").read_text(encoding="utf-8")
         auto = (ROOT / "auto_strategy_v2.py").read_text(encoding="utf-8")
-        start = controller.index("async def _run_legacy_scaffold_tick")
+        start = controller.index("async def _run_stage_scaffold_tick")
         end = controller.index("def _mix_limit_seconds", start)
         scaffold = controller[start:end]
         self.assertIn("run_authoritative_main_scaffold", scaffold)
         self.assertNotIn("saved_blanking", scaffold)
         self.assertNotIn("mask_main", scaffold)
 
-        auto_start = auto.index("async def _run_legacy_scaffold_tick")
-        auto_end = auto.index("def _decide_main_authority", auto_start)
-        auto_scaffold = auto[auto_start:auto_end]
-        self.assertNotIn("stage_before == self.STAGE_MAIN", auto_scaffold)
+        self.assertNotIn("async def _run_stage_scaffold_tick", auto)
+        self.assertNotIn("real_stage_start", auto)
+        self.assertNotIn("self.stage_start_time = time.time()", auto)
 
     def test_transitional_controllers_consume_modular_main_owner(self) -> None:
         auto = (ROOT / "auto_strategy_v2.py").read_text(encoding="utf-8")

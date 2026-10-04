@@ -24,10 +24,10 @@ class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(
             ProductionChargeControllerV2,
-            "_run_legacy_scaffold_tick",
+            "_run_stage_scaffold_tick",
             new=fake_parent,
         ), patch("auto_strategy_v2.time.time", return_value=now):
-            actions = await controller._run_legacy_scaffold_tick(
+            actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_MAIN,
                 voltage=14.8,
                 current=0.5,

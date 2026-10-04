@@ -33,6 +33,20 @@ STAGE_CLOCK_SANITY_MAX_HOURS = VariableSpec(
     maximum=10000.0,
 )
 
+STAGE_TRANSITION_BLANKING_S = VariableSpec(
+    key="charge.runtime.stage_transition_blanking_s",
+    default=300.0,
+    value_type=float,
+    unit="s",
+    description="Post-transition interval during which Delta/plateau triggers are ignored.",
+    owner="runtime.charge.runtime",
+    provenance="accepted production five-minute post-transition blanking window",
+    override_policy=OverridePolicy.CONFIG_FILE,
+    change_effect=ChangeEffect.RESTART_REQUIRED,
+    minimum=0.0,
+    maximum=3600.0,
+)
+
 OPERATOR_REPORT_INTERVAL_S = VariableSpec(
     key="charge.runtime.operator_report_interval_s",
     default=3600.0,
@@ -52,4 +66,5 @@ __all__ = [
     "HISTORY_SAMPLE_INTERVAL_S",
     "OPERATOR_REPORT_INTERVAL_S",
     "STAGE_CLOCK_SANITY_MAX_HOURS",
+    "STAGE_TRANSITION_BLANKING_S",
 ]

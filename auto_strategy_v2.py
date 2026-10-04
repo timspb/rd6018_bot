@@ -20,10 +20,9 @@ from production_controller import ProductionChargeControllerV2
 class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
     """Production AUTO strategy after the V1 behavioral audit.
 
-    This layer deliberately owns Main's strategy timeout so the legacy scaffold cannot
-    turn the accepted 72 h fallback into an unrelated hard OFF before V2 authority sees
-    it. It also keeps production/UI timing consistent with the accepted 20/24/10 h Mix
-    windows while the byte-for-byte-ish rollback scaffold retains historical constants.
+    This layer owns accepted AUTO decisions above the modular stage runtime.
+    Historical stage-time masking is retired; MAIN/MIX fallback windows are evaluated
+    directly by their canonical strategy owners.
     """
 
     _OPERATOR_REASON_TEXT = {
@@ -50,65 +49,6 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
             "AGM исчерпал сервисные recovery-попытки; остаёмся в Main и ждём нормальный хвост."
         ),
     }
-
-    async def _run_legacy_scaffold_tick(
-        self,
-        *,
-        stage_before: str,
-        voltage: float,
-        current: float,
-        temp_ext: Optional[float],
-        is_cv: bool,
-        ah: float,
-        output_is_on: Optional[Any],
-        manual_off_active: bool,
-        is_cc: Optional[bool],
-        manual_active: bool,
-    ) -> Dict[str, Any]:
-        strategy_clock_owned = (
-            self._is_authoritative_stage(stage_before)
-            and stage_before == self.STAGE_MIX
-            and self.finish_timer_start is None
-        )
-        if not strategy_clock_owned:
-            return await super()._run_legacy_scaffold_tick(
-                stage_before=stage_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                ah=ah,
-                output_is_on=output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-            )
-
-        # Pre-finish-hold Mix still uses the transitional historical scaffold. Hide
-        # only its raw wall-stage age so the old profile timeout cannot transition
-        # before the modular authority evaluates the accepted strategy. MAIN no
-        # longer reaches this masking path.
-        # Once a Mix finish hold exists, leave its timer visible: both layers accept
-        # that sticky 2 h completion path and the legacy profile timeout no longer
-        # participates in that branch.
-        real_stage_start = self.stage_start_time
-        self.stage_start_time = time.time()
-        try:
-            return await super()._run_legacy_scaffold_tick(
-                stage_before=stage_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                ah=ah,
-                output_is_on=output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-            )
-        finally:
-            if self.current_stage == stage_before:
-                self.stage_start_time = real_stage_start
 
     def _decide_main_authority(
         self,

@@ -9,7 +9,6 @@ import uuid
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from charge_logic import (
-    BLANKING_SEC,
     ChargeController,
     SESSION_FILE,
     SESSION_START_MAX_AGE,
@@ -22,7 +21,6 @@ from runtime.charge.evidence.first_stage import (
 )
 from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
 from legacy_recipe_adapter import chemistry_for_legacy_profile
-from legacy_transition_audit import LegacyTransitionAudit, TransitionAuditSeverity, audit_legacy_transition
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
 from recovery_session import RecoveryTracePoint
@@ -30,8 +28,10 @@ from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
+from runtime.charge.runtime.variables import STAGE_TRANSITION_BLANKING_S
 from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
+from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.strategy.desulfation import (
     DesulfationAction,
     decide_desulfation,
@@ -599,19 +599,6 @@ class ChargeControllerV2(ChargeController):
             "reason": assessment.reason,
         }
 
-    @staticmethod
-    def _transition_audit_metadata(audit: LegacyTransitionAudit) -> Dict[str, Any]:
-        return {
-            "code": audit.code,
-            "severity": audit.severity.value,
-            "reason": audit.reason,
-            "stage_before": audit.stage_before,
-            "stage_after": audit.stage_after,
-            "first_stage_state": (
-                audit.first_stage_state.value if audit.first_stage_state is not None else None
-            ),
-        }
-
     def _trace_point_metadata(
         self,
         *,
@@ -647,7 +634,6 @@ class ChargeControllerV2(ChargeController):
         *,
         trace_point: Dict[str, Any],
         first_stage: Optional[FirstStageAssessment] = None,
-        transition_audit: Optional[LegacyTransitionAudit] = None,
         authority_decision: Optional[AuthorityDecision] = None,
     ) -> Dict[str, Any]:
         metrics = record.analysis.metrics
@@ -678,8 +664,6 @@ class ChargeControllerV2(ChargeController):
         }
         if first_stage is not None:
             payload["first_stage"] = self._first_stage_metadata(first_stage)
-        if transition_audit is not None:
-            payload["transition_audit"] = self._transition_audit_metadata(transition_audit)
         if authority_decision is not None:
             payload["authority_decision"] = {
                 "action": authority_decision.action.value,
@@ -813,24 +797,6 @@ class ChargeControllerV2(ChargeController):
             reason or "unspecified",
             owner,
             float(timestamp_s),
-        )
-
-    @staticmethod
-    def _log_transition_audit(audit: Optional[LegacyTransitionAudit]) -> None:
-        if audit is None:
-            return
-        log_fn = logger.warning if audit.severity in {
-            TransitionAuditSeverity.REVIEW,
-            TransitionAuditSeverity.SAFETY,
-        } else logger.info
-        log_fn(
-            "RECOVERY_TRANSITION_AUDIT severity=%s code=%s from=%s to=%s first_stage=%s reason=%s",
-            audit.severity.value,
-            audit.code,
-            audit.stage_before,
-            audit.stage_after,
-            audit.first_stage_state.value if audit.first_stage_state is not None else "none",
-            audit.reason,
         )
 
     def _complete_desulfation_to_safe_wait(
@@ -1192,7 +1158,7 @@ class ChargeControllerV2(ChargeController):
         self._clear_restored_targets()
         self.stage_start_time = float(now)
         self._stage_start_ah = float(ah)
-        self._blanking_until = float(now) + BLANKING_SEC
+        self._blanking_until = float(now) + float(STAGE_TRANSITION_BLANKING_S.default)
         self.v_max_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
@@ -1271,7 +1237,7 @@ class ChargeControllerV2(ChargeController):
             )
         )
 
-    async def _run_legacy_scaffold_tick(
+    async def _run_stage_scaffold_tick(
         self,
         *,
         stage_before: str,
@@ -1308,6 +1274,27 @@ class ChargeControllerV2(ChargeController):
                     "Ручной режим запускается только через Manual."
                 ),
             }
+
+        if stage_before in {
+            self.STAGE_PREP,
+            self.STAGE_COOLING,
+            self.STAGE_IDLE,
+            self.STAGE_DONE,
+        }:
+            return await run_authoritative_residual_scaffold(
+                self,
+                stage_before=stage_before,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
+                manual_off_active=manual_off_active,
+                is_cc=is_cc,
+                manual_active=manual_active,
+                now_s=time.time(),
+            )
 
         if (
             self._v2_authoritative
@@ -1387,17 +1374,26 @@ class ChargeControllerV2(ChargeController):
                 now_s=time.time(),
             )
 
-        return await super().tick(
-            voltage,
-            current,
-            temp_ext,
-            is_cv,
-            ah,
-            output_is_on,
-            manual_off_active=manual_off_active,
-            is_cc=is_cc,
-            manual_active=manual_active,
+        reason = f"unsupported_modular_stage:{stage_before}"
+        logger.error(
+            "Historical controller fallback retired; rejecting stage=%s profile=%s",
+            stage_before,
+            self.battery_type,
         )
+        self.stop(clear_session=True)
+        return {
+            "turn_off": True,
+            "log_event": "HISTORICAL_STAGE_RUNTIME_RETIRED",
+            "notify": (
+                "❌ Этап не принадлежит модульному runtime. "
+                "Заряд остановлен до повторной авторизации."
+            ),
+            "recovery_shadow": {
+                "status": "fail_closed",
+                "reason": reason,
+                "authority": "v2",
+            },
+        }
 
     def _mix_limit_seconds(self) -> float:
         """Compatibility accessor over the canonical modular MIX authority limit."""
@@ -1844,7 +1840,7 @@ class ChargeControllerV2(ChargeController):
             except Exception:
                 target_before = None
 
-        actions = await self._run_legacy_scaffold_tick(
+        actions = await self._run_stage_scaffold_tick(
             stage_before=stage_before,
             voltage=voltage,
             current=current,
@@ -1861,7 +1857,6 @@ class ChargeControllerV2(ChargeController):
         resolved_is_cc = bool(is_cc) if is_cc is not None else not bool(is_cv)
         authority_decision: Optional[AuthorityDecision] = None
         first_stage: Optional[FirstStageAssessment] = None
-        transition_audit: Optional[LegacyTransitionAudit] = None
         record = None
 
         try:
@@ -2004,13 +1999,9 @@ class ChargeControllerV2(ChargeController):
                         output_is_on=output_is_on,
                     )
             else:
+                # Residual PREP/COOLING/IDLE/DONE stages are modular-owned too;
+                # no historical transition source remains to audit.
                 self._log_shadow_disagreement(record, stage=stage_before)
-                transition_audit = audit_legacy_transition(
-                    stage_before=stage_before,
-                    stage_after=self.current_stage,
-                    first_stage=first_stage,
-                )
-                self._log_transition_audit(transition_audit)
 
             trace_point = self._trace_point_metadata(
                 timestamp_s=timestamp_s,
@@ -2029,7 +2020,6 @@ class ChargeControllerV2(ChargeController):
                 record,
                 trace_point=trace_point,
                 first_stage=first_stage,
-                transition_audit=transition_audit,
                 authority_decision=authority_decision,
             )
         except Exception as exc:
