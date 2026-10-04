@@ -71,18 +71,29 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
         self.assertIn("app._operator_pause_active()", replay)
         self.assertIn("app._restore_allows_auto_enable(controller)", replay)
 
-        # D-STARTUP-3 deliberately realizes an eligible restored MANAGED session only
-        # after startup reconciliation. The calls must go through the final composed
-        # HassClient/runtime-safety surface; raw actuator aliases would bypass the gate.
+        # D-STARTUP-3 realizes an eligible restored MANAGED session only
+        # after startup reconciliation. Physical mutation must now cross the
+        # application-scoped execution owner rather than call HassClient directly.
+        self.assertIn("execution_port = get_or_create_execution_port(app)", replay)
         self.assertIn("await app._apply_phase_protection(uv, ui)", replay)
-        self.assertIn("await app.hass.set_voltage(uv)", replay)
-        self.assertIn("await app.hass.set_current(app._cap_current(ui))", replay)
-        self.assertIn("await app.hass.turn_on(app.ENTITY_MAP[\"switch\"])", replay)
-        self.assertIn("await app.hass.turn_off(app.ENTITY_MAP[\"switch\"])", replay)
-        self.assertNotIn("_raw_turn_on", replay)
-        self.assertNotIn("_raw_turn_off", replay)
-        self.assertNotIn("_raw_set_voltage", replay)
-        self.assertNotIn("_raw_set_current", replay)
+        self.assertIn("await execution_port.program_voltage(uv)", replay)
+        self.assertIn(
+            "await execution_port.program_current(app._cap_current(ui))",
+            replay,
+        )
+        self.assertIn("await execution_port.request_verified_on()", replay)
+        self.assertIn("await execution_port.request_verified_off()", replay)
+        for token in (
+            "app.hass.set_voltage(",
+            "app.hass.set_current(",
+            "app.hass.turn_on(",
+            "app.hass.turn_off(",
+            "_raw_turn_on",
+            "_raw_turn_off",
+            "_raw_set_voltage",
+            "_raw_set_current",
+        ):
+            self.assertNotIn(token, replay)
 
 
 if __name__ == "__main__":
