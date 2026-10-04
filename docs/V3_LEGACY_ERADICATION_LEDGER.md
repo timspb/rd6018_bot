@@ -13,65 +13,70 @@ new entries require explicit architecture review.
 | L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX/final SAFE_WAIT bypass historical tick; historical Custom is rejected/fail-closed and Manual uses its own runtime owner; `super().tick()` remains only for residual compatibility stages/helpers | explicit modular stage runtime services | remove the remaining historical scaffold reachability during residual convergence | IN_PROGRESS |
 | L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | new route hands execution to preserved owner | modular start/application/execution service | new START transaction parity | OPEN |
 | L-008 | legacy UI read adapter | OperatorSnapshot reads old HMI/runtime globals | canonical read model | migrated screens do not use old app | OPEN |
-| L-009 | direct actuator writers outside execution port | runtime/logger/restore/handlers own many setters | single execution service | static inventory reaches zero outside allowed physical implementation | OPEN |
+| L-009 | direct actuator writers outside execution port | live production writers now converge through the application execution port; only approved physical implementation plus quarantined unreachable history contains direct calls | single execution service | static inventory reaches zero outside allowed physical implementation | CLOSED |
 | L-010 | `legacy_recipe_adapter` | preflight/controller/recovery use compatibility naming | modular recipe/config owner | consumers moved and adapter removed | OPEN |
-| L-011 | `legacy_safety` | historical FSM uses clamp/timeout; reporting also reads Mix limits | modular safety/strategy variables | values have one canonical owner | OPEN |
+| L-011 | `legacy_safety` | compatibility module remains, but live voltage ceilings/MIX windows are derived from modular safety/strategy VariableSpec owners | modular safety/strategy variables | values have one canonical owner | CLOSED |
 | L-012 | `legacy_transition_audit` | controller audits movements produced by legacy fallback | canonical decision journal | no legacy transition source | OPEN |
 | L-014 | UI buttons/callbacks scattered across installers/handlers | UI is vulnerable to runtime refactors | modular ScreenSpec/ButtonSpec/action routing | screen-by-screen parity and removal | OPEN |
 
 ## Current migration boundary
 
-**ERADICATION-05: Manual/Custom — REMOTE-VERIFIED COMPLETE.**
+**ERADICATION-06: safety and execution convergence — LOCALLY COMPLETE.**
 
-Functional code commit:
-`c99f1180d7fbe38063c4f453083bd428ce646a62`.
+Exact code HEAD:
+`c63f75659d1809c34ba753b7045eb119ec0106c0`.
 
-Canonical production ownership for this boundary:
+The live physical-write graph now converges through the application-scoped
+`ExecutionPort`:
 
-- `manual_mode.py` owns the Manual program/session semantics;
-- `ProductionManualSessionManager` in `manual_runtime_v2.py` owns the
-  production Manual runtime and authorization lifecycle;
-- the preserved five-step Custom dialog is compatibility presentation only and
-  routes its request to `ProductionManualSessionManager.start_from_legacy_ui`;
-- authoritative `ChargeControllerV2.start(PROFILE_CUSTOM,...)` and
-  `start_custom(...)` reject the historical Custom FSM;
-- an active historical Custom residue never enters `ChargeController.tick()`;
-  it fails closed to Output OFF and clears the stale controller session;
-- a persisted historical Custom session is not resumed after restart; Manual
-  requires explicit operator reauthorization;
-- characterization may instantiate the old Custom controller only with
-  `authoritative=False` in tests. That is not a production rollback path.
+- START, Mix-only START and Manual use the same execution owner;
+- controller action batches execute through the same port, preserving the
+  existing two-phase verified-enable commit contract;
+- operator pause/power-toggle, restart restore, lifecycle restore and link
+  recovery no longer call HA setters/output methods directly;
+- diagnostic persistence/probe and managed adoption/MIX OFF paths route through
+  the same application execution owner;
+- direct physical calls in the production scan are confined to the approved
+  physical implementation stack:
+  `application/execution_port.py`, `hass_api.py`, `runtime_safety_strict.py`,
+  `runtime_safety_v2.py`, and `safe_output.py`;
+- `recipe_output.py` and `recovery_orchestrator.py` remain quarantined historical
+  compatibility modules with no production inbound import edge.
 
-Accepted five-step Custom UI semantics are preserved when translated to Manual:
-voltage, current, Delta, active-time limit and capacity. Existing Manual
-restart/re-authorization, cooling, verified-enable, stop and fail-closed
-contracts remain owned by the Manual runtime.
+Safety value ownership also converged:
 
-Validation on exact code commit
-`c99f1180d7fbe38063c4f453083bd428ce646a62`:
+- PB automatic voltage ceiling is owned by
+  `runtime/safety/voltage_variables.py`;
+- MIX voltage/current targets, authority windows and finish hold are owned by
+  `runtime/charge/strategy/mix_variables.py`;
+- `legacy_safety.py`, `config.py` and reporting surfaces derive compatibility
+  values from those canonical owners instead of defining competing values;
+- typed safety decisions remain owned by `runtime/safety/engine.py`;
+- verified OFF/ON ordering, readback verification, containment and edge-lease
+  semantics are unchanged.
 
-- ERADICATION-05 architecture/fail-closed suite: 8/8 PASS;
-- start-route isolation: 8/8 PASS;
-- recovery trace identity: 3/3 PASS;
-- legacy enable inventory: 2/2 PASS;
-- Manual runtime: 14/14 PASS;
-- Manual mode: 7/7 PASS;
-- Manual profile: 5/5 PASS;
-- Manual context: 4/4 PASS;
-- AUTO/manual-off: 4/4 PASS;
-- modular Manual program: 5/5 PASS;
-- Manual mode boundary: 3/3 PASS;
+Validation on exact code HEAD `c63f75659d1809c34ba753b7045eb119ec0106c0`:
+
+- execution convergence suite: 12/12 PASS;
+- safety/execution convergence suite: 6/6 PASS;
+- legacy actuator inventory: 2/2 PASS;
+- runtime safety V2: 26/26 PASS;
+- runtime safety audit: 2/2 PASS;
+- safe-output: 30/30 PASS;
+- physical execution gate: 4/4 PASS;
+- verified-OFF execution: 2/2 PASS;
+- autonomous startup authority contract: 8/8 PASS;
 - `python -m compileall -q .`: PASS;
 - `git diff --check`: PASS;
-- full local suite: **1812 tests PASS, 2 skipped**.
+- full local CI-equivalent suite: **1830 tests PASS, 2 skipped**.
 
-ERADICATION-05 is locally complete. Remaining gate:
+ERADICATION-06 is locally complete. Remaining gate:
 documentation checkpoint -> push -> exact-head GitHub CI on Python 3.10,
-3.11 and 3.12. On PASS, close ERADICATION-05 as remote-verified and begin
-ERADICATION-06: safety and execution convergence.
+3.11 and 3.12. On PASS, close ERADICATION-06 as remote-verified and begin
+ERADICATION-07: UI cutover.
 
-Previous boundary ERADICATION-04 is remote-verified by GitHub Actions run
-`#1516` / `37170224025` on Python 3.10, 3.11 and 3.12.
+Previous boundary ERADICATION-05 is remote-verified by GitHub Actions run
+`#1522` / `37172231948` on Python 3.10, 3.11 and 3.12.
 
 Production changed: NO.
 

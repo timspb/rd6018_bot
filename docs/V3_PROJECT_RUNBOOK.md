@@ -807,3 +807,58 @@ physical execution implementation. Preserve current safety semantics, verified
 OFF/ON ordering, readback verification, containment and lease behavior. Do not
 fold UI migration or composition-root cleanup into this boundary unless a
 proven execution/safety ownership defect requires the minimal dependency move.
+
+
+## 14.12 ERADICATION-06 checkpoint - 2026-10-04
+
+Boundary: `ERADICATION-06: safety and execution convergence`.
+
+Pre-boundary remote-verified head:
+`373325b82cbdbb5617a038ef1ac5bbd7287139a4`
+(ERADICATION-05, GitHub Actions run `#1522` / `37172231948`, Python
+3.10/3.11/3.12 PASS).
+
+Exact local code HEAD:
+`c63f75659d1809c34ba753b7045eb119ec0106c0`.
+
+The live execution graph now has one application execution owner. START,
+Mix-only START, Manual, controller action batches, operator output controls,
+restart/lifecycle restore, link recovery, diagnostic recovery/probes and managed
+adoption OFF all route through `application/execution_port.py`.
+
+Static production scan gate:
+
+- direct physical calls in the live graph are confined to the approved physical
+  implementation:
+  `application/execution_port.py`, `hass_api.py`, `runtime_safety_strict.py`,
+  `runtime_safety_v2.py`, `safe_output.py`;
+- `recipe_output.py` and `recovery_orchestrator.py` are quarantined historical
+  compatibility modules and have no production inbound import edge;
+- tests fail if a migrated runtime/application owner regains direct
+  `set_voltage`, `set_current`, `set_ovp`, `set_ocp`, `turn_on`, `turn_off`
+  or `safe_enable_output` authority.
+
+Safety convergence:
+
+- PB automatic voltage ceiling has one owner in
+  `runtime/safety/voltage_variables.py`;
+- MIX target/authority values have one owner in
+  `runtime/charge/strategy/mix_variables.py`;
+- historical compatibility surfaces derive those values rather than owning
+  duplicate constants;
+- typed safety decisions remain in `runtime/safety/engine.py`;
+- verified OFF/ON ordering, readback verification, containment and edge-safety
+  lease behavior are preserved.
+
+Local validation on exact code HEAD `c63f75659d1809c34ba753b7045eb119ec0106c0`:
+
+- focused execution/safety suites: PASS;
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- full CI-equivalent unittest discovery: **1830 PASS, 2 skipped**.
+
+Production VM104 was not touched. No hardware commands were sent.
+
+Remaining gate: commit this documentation checkpoint, push the branch, and
+require exact-head GitHub CI PASS on Python 3.10/3.11/3.12. Only then mark
+ERADICATION-06 remote-verified and begin `ERADICATION-07: UI cutover`.
