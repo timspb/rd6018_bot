@@ -117,6 +117,8 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             "_hard_stop_charge",
             "_operator_pause_toggle",
             "power_toggle_handler",
+            "data_logger",
+            "text_message_handler",
         }
         forbidden = {
             "set_voltage",

@@ -35,12 +35,8 @@ _ENABLE_METHODS = ("turn_on", "turn_off", "safe_enable_output")
 # Frozen inventory: (module, function, "owner.method") for every production call.
 ENABLE_CALLS = frozenset(
     {
-        # Controller action execution is centralized in one reviewed helper so a
+        # Controller action execution is centralized in the application port so a
         # verified-enable stage commit can be withheld when Output ON fails.
-        # data_logger still contains separate restore/containment call sites pending
-        # runtime-root retirement; they remain explicitly inventoried.
-        ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "data_logger", "hass.turn_on"),
         ("diagnostic_persistence.py", "recover_diagnostic_persistence", "app.hass.turn_off"),
         ("diagnostic_probe.py", "_restore_or_off", "self.hass.turn_off"),
         ("rd_managed_adoption.py", "_verified_off", "self.app.hass.turn_off"),
@@ -107,17 +103,12 @@ class LegacyEnableInventoryTests(unittest.TestCase):
             "update ENABLE_CALLS deliberately: " + repr(missing),
         )
 
-    def test_legacy_direct_switch_calls_are_inventoried(self):
-        # The preserved V2 runtime is the primary source of direct (non safe_enable_output)
-        # Output manipulation; its inventory must remain explicit.
+    def test_v2_runtime_has_no_direct_output_calls(self):
         legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/v2_runtime.py"}
-        self.assertTrue(
+        self.assertEqual(
+            set(),
             legacy,
-            "preserved V2 direct Output calls must remain inventoried before extraction",
-        )
-        self.assertTrue(
-            any(kind.endswith(".turn_on") for _, _, kind in legacy),
-            "preserved V2 runtime must still declare its direct Output ON entrypoints",
+            "runtime/v2_runtime.py must not regain direct Output authority after execution convergence",
         )
 
 

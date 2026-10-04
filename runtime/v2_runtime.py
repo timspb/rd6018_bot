@@ -2553,7 +2553,7 @@ async def data_logger() -> None:
             if _operator_pause_active():
                 if output_on:
                     logger.warning("Operator pause found Output ON; forcing verified OFF")
-                    await hass.turn_off(ENTITY_MAP["switch"])
+                    await _runtime_execution_port().request_verified_off()
                 await asyncio.sleep(30)
                 continue
 
@@ -2576,9 +2576,9 @@ async def data_logger() -> None:
                 ):
                     uv, ui = charge_controller._get_target_v_i(t)
                     await _apply_phase_protection(uv, ui)
-                    await hass.set_voltage(uv)
-                    await hass.set_current(_cap_current(ui))
-                    enabled = await hass.turn_on(ENTITY_MAP["switch"])
+                    await _runtime_execution_port().program_voltage(uv)
+                    await _runtime_execution_port().program_current(_cap_current(ui))
+                    enabled = await _runtime_execution_port().request_verified_on()
                     if enabled:
                         output_on = True
                         charge_controller._last_known_output_on = True
@@ -2614,15 +2614,15 @@ async def data_logger() -> None:
                             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                                 await _apply_phase_protection(uv, ui)
-                                await hass.set_voltage(uv)
-                                await hass.set_current(_cap_current(ui))
-                                await hass.turn_off(ENTITY_MAP["switch"])
+                                await _runtime_execution_port().program_voltage(uv)
+                                await _runtime_execution_port().program_current(_cap_current(ui))
+                                await _runtime_execution_port().request_verified_off()
                             else:
                                 uv, ui = charge_controller._get_target_v_i(t)
                                 await _apply_phase_protection(uv, ui)
-                                await hass.set_voltage(uv)
-                                await hass.set_current(_cap_current(ui))
-                                await hass.turn_on(ENTITY_MAP["switch"])
+                                await _runtime_execution_port().program_voltage(uv)
+                                await _runtime_execution_port().program_current(_cap_current(ui))
+                                await _runtime_execution_port().request_verified_on()
                             log_event(
                                 charge_controller.current_stage,
                                 battery_v,
@@ -2681,12 +2681,12 @@ async def data_logger() -> None:
                         if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                             uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                             await _apply_phase_protection(uv, ui)
-                            await hass.turn_off(ENTITY_MAP["switch"])
+                            await _runtime_execution_port().request_verified_off()
                         else:
                             uv, ui = charge_controller._get_target_v_i(t)
                             await _apply_phase_protection(uv, ui)
-                        await hass.set_voltage(uv)
-                        await hass.set_current(_cap_current(ui))
+                        await _runtime_execution_port().program_voltage(uv)
+                        await _runtime_execution_port().program_current(_cap_current(ui))
                         log_event(
                             charge_controller.current_stage,
                             battery_v,
@@ -2770,7 +2770,7 @@ async def data_logger() -> None:
                 last_cleanup_time = now_ts
 
             if actions.get("emergency_stop"):
-                await hass.turn_off(ENTITY_MAP["switch"])
+                await _runtime_execution_port().request_verified_off()
                 await _apply_idle_protection()
                 if actions.get("full_reset"):
                     charge_controller.full_reset()
@@ -2829,7 +2829,7 @@ async def data_logger() -> None:
                     logger.critical("Link lost during active charge: emergency shutdown")
                 
                 try:
-                    await hass.turn_off(ENTITY_MAP["switch"])
+                    await _runtime_execution_port().request_verified_off()
                     await _apply_idle_protection()
                 except Exception:
                     pass
@@ -3313,8 +3313,8 @@ async def text_message_handler(message: Message) -> None:
         if three is not None:
             v_set, i_set = three["v"], three["i"]
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
-                ok_v = await hass.set_voltage(v_set)
-                ok_i = await hass.set_current(_cap_current(i_set))
+                ok_v = await _runtime_execution_port().program_voltage(v_set)
+                ok_i = await _runtime_execution_port().program_current(_cap_current(i_set))
                 manual_off_voltage = None
                 manual_off_voltage_le = None
                 manual_off_current = None
@@ -3362,8 +3362,8 @@ async def text_message_handler(message: Message) -> None:
         if parsed is not None:
             v_set, i_set = parsed
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
-                ok_v = await hass.set_voltage(v_set)
-                ok_i = await hass.set_current(_cap_current(i_set))
+                ok_v = await _runtime_execution_port().program_voltage(v_set)
+                ok_i = await _runtime_execution_port().program_current(_cap_current(i_set))
                 if not ok_v or not ok_i:
                     await message.answer(
                         f"⚠️ Ошибка отправки в HA: напряжение — {'ок' if ok_v else 'ошибка'}, ток — {'ок' if ok_i else 'ошибка'}. Проверьте связь с Home Assistant.",
