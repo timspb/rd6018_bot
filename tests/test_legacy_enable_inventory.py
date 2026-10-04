@@ -40,13 +40,10 @@ ENABLE_CALLS = frozenset(
         # These are reviewed guarded call-sites, not raw actuator bypasses.
         ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_off"),
         ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_on"),
-        ("runtime/v2_runtime.py", "_hard_stop_charge", "hass.turn_off"),
         ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_off"),
         ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_on"),
         # Controller action execution is centralized in one reviewed helper so a
         # verified-enable stage commit can be withheld when Output ON fails.
-        ("runtime/v2_runtime.py", "_apply_controller_output_actions", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "_apply_controller_output_actions", "hass.turn_on"),
         # data_logger still contains separate restore/containment call sites pending
         # runtime-root retirement; they remain explicitly inventoried.
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
@@ -70,7 +67,8 @@ ENABLE_CALLS = frozenset(
         # Canonical application-scoped V2 execution port. START, Mix-only
         # START and Manual converge here instead of keeping direct HA enable/OFF calls.
         ("application/execution_port.py", "enable", "self.v2_owner.safe_enable_output"),
-        ("application/execution_port.py", "disable", "self.v2_owner.turn_off"),
+        ("application/execution_port.py", "execute_controller_actions", "self.v2_owner.turn_on"),
+        ("application/execution_port.py", "request_verified_off", "self.v2_owner.turn_off"),
     }
 )
 

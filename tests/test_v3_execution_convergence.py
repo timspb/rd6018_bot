@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import inspect
 from pathlib import Path
@@ -57,6 +58,17 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         self.assertIs(app.execution_port, first)
         self.assertIs(first.v2_owner, app.hass)
 
+    def test_port_rebinds_when_composed_v2_owner_changes(self):
+        first_owner = _Owner()
+        second_owner = _Owner()
+        app = SimpleNamespace(hass=first_owner)
+        first = get_or_create_execution_port(app)
+        app.hass = second_owner
+        second = get_or_create_execution_port(app)
+        self.assertIsNot(first, second)
+        self.assertIs(second.v2_owner, second_owner)
+        self.assertIs(app.execution_port, second)
+
     def test_disable_prefers_canonical_output_state_code(self):
         owner = _Owner()
         # Compatibility switch intentionally remains stale ON; canonical V2
@@ -92,6 +104,38 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         )
         # Unknown canonical V2 state uses the legacy switch compatibility path.
         self.assertTrue(result.verified)
+
+    def test_migrated_runtime_helpers_have_no_direct_hass_writes(self):
+        path = ROOT / "runtime" / "v2_runtime.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        migrated = {
+            "_apply_phase_protection",
+            "_apply_current_with_ocp",
+            "_apply_current_with_startup_settle",
+            "_apply_idle_protection",
+            "_apply_controller_output_actions",
+            "_hard_stop_charge",
+        }
+        forbidden = {
+            "set_voltage",
+            "set_current",
+            "set_ovp",
+            "set_ocp",
+            "turn_on",
+            "turn_off",
+            "safe_enable_output",
+        }
+        violations = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name not in migrated:
+                continue
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+                    if child.func.attr in forbidden:
+                        violations.append((node.name, child.func.attr))
+        self.assertEqual([], violations)
 
     def test_start_modules_have_no_direct_hass_execution_writes(self):
         forbidden = (

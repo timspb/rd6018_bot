@@ -54,7 +54,7 @@ from config import (
     TEMP_INT_PRECRITICAL,
     TG_TOKEN,
 )
-from protection_utils import should_delay_current_ramp, should_use_startup_settle
+from application.execution_port import get_or_create_execution_port
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
 from rd6018_telemetry import as_bool
@@ -900,34 +900,42 @@ def _should_skip_noisy_log_event(stage: str, event: str, now_ts: Optional[float]
     return False
 
 
+def _runtime_execution_port():
+    """Return the one app-scoped physical execution owner for this runtime module."""
+    return get_or_create_execution_port(sys.modules[__name__])
+
+
 async def _apply_phase_protection(uv: float, ui: float) -> None:
-    """Set OVP/OCP for target limits before output ON."""
-    if ENTITY_MAP.get("ovp"):
-        await hass.set_ovp(float(uv) + OVP_OFFSET)
-    if ENTITY_MAP.get("ocp"):
-        await hass.set_ocp(_cap_current(ui) + OCP_OFFSET)
+    """Compatibility helper delegated to the canonical execution owner."""
+    await _runtime_execution_port().apply_phase_protection(
+        target_voltage_v=float(uv),
+        target_current_a=float(ui),
+        ovp_offset_v=float(OVP_OFFSET),
+        ocp_offset_a=float(OCP_OFFSET),
+        max_stage_current_a=float(MAX_STAGE_CURRENT),
+        has_ovp=bool(ENTITY_MAP.get("ovp")),
+        has_ocp=bool(ENTITY_MAP.get("ocp")),
+    )
 
 
 OCP_STABILIZE_DELAY_SEC = 0.35
 
 
-async def _apply_current_with_ocp(target_i: float, current_set_i: float, target_ocp_raw: Optional[float]) -> None:
-    """Apply OCP/current in a way that avoids transient trips when current is raised."""
-    if target_ocp_raw is None or not ENTITY_MAP.get("ocp"):
-        await hass.set_current(target_i)
-        return
-
-    target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
-    if target_i < current_set_i:
-        await hass.set_current(target_i)
-        await hass.set_ocp(target_ocp)
-    elif should_delay_current_ramp(target_i, current_set_i, target_ocp_raw, True):
-        await hass.set_ocp(target_ocp)
-        await asyncio.sleep(OCP_STABILIZE_DELAY_SEC)
-        await hass.set_current(target_i)
-    else:
-        await hass.set_ocp(target_ocp)
-        await hass.set_current(target_i)
+async def _apply_current_with_ocp(
+    target_i: float,
+    current_set_i: float,
+    target_ocp_raw: Optional[float],
+) -> None:
+    """Compatibility helper delegated to the canonical execution owner."""
+    await _runtime_execution_port().apply_current_with_ocp(
+        target_current_a=float(target_i),
+        current_set_a=float(current_set_i),
+        target_ocp_a=target_ocp_raw,
+        max_stage_current_a=float(MAX_STAGE_CURRENT),
+        ocp_offset_a=float(OCP_OFFSET),
+        has_ocp=bool(ENTITY_MAP.get("ocp")),
+        stabilize_delay_s=float(OCP_STABILIZE_DELAY_SEC),
+    )
 
 
 async def _apply_current_with_startup_settle(
@@ -936,31 +944,18 @@ async def _apply_current_with_startup_settle(
     target_ocp_raw: Optional[float],
     turn_on_requested: bool,
 ) -> Optional[float]:
-    """
-    Apply current/OCP safely for stage starts.
-    Returns a final OCP value that should be restored after output turn-on, or None.
-    """
-    if target_ocp_raw is None or not ENTITY_MAP.get("ocp"):
-        await hass.set_current(target_i)
-        return None
-
-    target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
-    if should_use_startup_settle(target_i, current_set_i, target_ocp_raw, True, turn_on_requested):
-        await hass.set_ocp(IDLE_SAFE_OCP)
-        await hass.set_current(target_i)
-        return target_ocp
-
-    if target_i < current_set_i:
-        await hass.set_current(target_i)
-        await hass.set_ocp(target_ocp)
-    elif should_delay_current_ramp(target_i, current_set_i, target_ocp_raw, True):
-        await hass.set_ocp(target_ocp)
-        await asyncio.sleep(OCP_STABILIZE_DELAY_SEC)
-        await hass.set_current(target_i)
-    else:
-        await hass.set_ocp(target_ocp)
-        await hass.set_current(target_i)
-    return None
+    """Compatibility helper delegated to the canonical execution owner."""
+    return await _runtime_execution_port().apply_current_with_startup_settle(
+        target_current_a=float(target_i),
+        current_set_a=float(current_set_i),
+        target_ocp_a=target_ocp_raw,
+        turn_on_requested=bool(turn_on_requested),
+        max_stage_current_a=float(MAX_STAGE_CURRENT),
+        ocp_offset_a=float(OCP_OFFSET),
+        idle_safe_ocp_a=float(IDLE_SAFE_OCP),
+        has_ocp=bool(ENTITY_MAP.get("ocp")),
+        stabilize_delay_s=float(OCP_STABILIZE_DELAY_SEC),
+    )
 
 
 IDLE_SAFE_OVP = MAX_VOLTAGE + OVP_OFFSET
@@ -969,11 +964,13 @@ IDLE_SAFE_OCP = MAX_STAGE_CURRENT
 
 
 async def _apply_idle_protection() -> None:
-    """Reset OVP/OCP to wide safe values after full stop."""
-    if ENTITY_MAP.get("ovp"):
-        await hass.set_ovp(IDLE_SAFE_OVP)
-    if ENTITY_MAP.get("ocp"):
-        await hass.set_ocp(IDLE_SAFE_OCP)
+    """Reset OVP/OCP through the canonical execution owner after full stop."""
+    await _runtime_execution_port().reset_idle_protection(
+        idle_safe_ovp_v=float(IDLE_SAFE_OVP),
+        idle_safe_ocp_a=float(IDLE_SAFE_OCP),
+        has_ovp=bool(ENTITY_MAP.get("ovp")),
+        has_ocp=bool(ENTITY_MAP.get("ocp")),
+    )
 
 
 async def _apply_controller_output_actions(
@@ -985,72 +982,45 @@ async def _apply_controller_output_actions(
     temp: float,
     ah: float,
 ) -> Optional[bool]:
-    """Apply one controller actuator batch and acknowledge verified stage enables.
+    """Execute one controller batch through the single application execution owner.
 
-    Output ON is a transaction boundary: a controller stage that declares
-    ``verified_enable_transition`` is committed only after ``HassClient.turn_on``
-    confirms Output ON.  When startup OCP settling uses a temporary wide OCP, the
-    final tightened OCP plus V/I/OVP readback are re-verified before the commit.
+    Stage-transition commit remains a controller/runtime concern. Physical
+    ordering, startup settle, final V/I/OVP/OCP verification and forced OFF are
+    owned by :class:`application.execution_port.ExecutionPort`.
     """
-    if actions.get("turn_off"):
-        await hass.turn_off(ENTITY_MAP["switch"])
+    execution = await _runtime_execution_port().execute_controller_actions(
+        actions,
+        live,
+        max_stage_current_a=float(MAX_STAGE_CURRENT),
+        ocp_offset_a=float(OCP_OFFSET),
+        idle_safe_ocp_a=float(IDLE_SAFE_OCP),
+        stabilize_delay_s=float(OCP_STABILIZE_DELAY_SEC),
+        recipe_voltage_ceiling_v=float(MAX_VOLTAGE),
+        has_ovp=bool(ENTITY_MAP.get("ovp")),
+        has_ocp=bool(ENTITY_MAP.get("ocp")),
+    )
+    enabled = execution.enabled
 
-    if actions.get("set_ovp") is not None and ENTITY_MAP.get("ovp"):
-        await hass.set_ovp(float(actions["set_ovp"]))
-    if actions.get("set_voltage") is not None:
-        await hass.set_voltage(float(actions["set_voltage"]))
-
-    target_i_raw = actions.get("set_current")
-    target_ocp_raw = actions.get("set_ocp")
-    target_i: Optional[float] = None
-    pending_ocp_restore: Optional[float] = None
-    if target_i_raw is not None:
-        target_i = _cap_current(float(target_i_raw))
-        current_set_i = _safe_float(live.get("set_current"), target_i)
-        pending_ocp_restore = await _apply_current_with_startup_settle(
-            target_i,
-            current_set_i,
-            target_ocp_raw if ENTITY_MAP.get("ocp") else None,
-            bool(actions.get("turn_on")),
+    if actions.get("turn_on") and not enabled:
+        logger.warning(
+            "Controller Output ON request was not verified; stage commit withheld"
         )
-    elif target_ocp_raw is not None and ENTITY_MAP.get("ocp"):
-        target_ocp = min(float(target_ocp_raw), MAX_STAGE_CURRENT + OCP_OFFSET)
-        await hass.set_ocp(target_ocp)
-
-    enabled: Optional[bool] = None
-    if actions.get("turn_on"):
-        enabled = bool(await hass.turn_on(ENTITY_MAP["switch"]))
-        if not enabled:
-            logger.warning("Controller Output ON request was not verified; stage commit withheld")
-
-    if pending_ocp_restore is not None:
-        await asyncio.sleep(OCP_STABILIZE_DELAY_SEC)
-        await hass.set_ocp(pending_ocp_restore)
-        if enabled:
-            target_v_raw = actions.get("set_voltage")
-            target_ovp_raw = actions.get("set_ovp")
-            if target_v_raw is None or target_i is None or target_ovp_raw is None:
-                logger.error("Final startup protection verification lacks V/I/OVP target")
-                await hass.turn_off(ENTITY_MAP["switch"])
-                enabled = False
-            else:
-                final_ok = await hass.verify_live_programming(
-                    voltage_v=float(target_v_raw),
-                    current_a=float(target_i),
-                    ovp_v=float(target_ovp_raw),
-                    ocp_a=float(pending_ocp_restore),
-                    recipe_voltage_ceiling_v=float(MAX_VOLTAGE),
-                )
-                if not final_ok:
-                    logger.error("Final OVP/OCP/V/I verification failed after startup settle; forcing OFF")
-                    await hass.turn_off(ENTITY_MAP["switch"])
-                    enabled = False
+    if execution.final_targets_missing:
+        logger.error("Final startup protection verification lacks V/I/OVP target")
+    elif execution.final_verification_failed:
+        logger.error(
+            "Final OVP/OCP/V/I verification failed after startup settle; forcing OFF"
+        )
 
     transition = actions.get("verified_enable_transition")
     if isinstance(transition, dict):
         commit = None
         if enabled:
-            commit_fn = getattr(charge_controller, "commit_verified_enable_transition", None)
+            commit_fn = getattr(
+                charge_controller,
+                "commit_verified_enable_transition",
+                None,
+            )
             if callable(commit_fn):
                 commit = commit_fn(
                     transition,
@@ -1061,15 +1031,26 @@ async def _apply_controller_output_actions(
                 )
         if not enabled or not isinstance(commit, dict):
             if enabled:
-                logger.error("Verified Output ON could not be bound to controller transition; forcing OFF")
-                await hass.turn_off(ENTITY_MAP["switch"])
+                logger.error(
+                    "Verified Output ON could not be bound to controller transition; forcing OFF"
+                )
+                await _runtime_execution_port().request_verified_off()
                 enabled = False
-            logger.warning("Verified-enable stage transition remains pending in SAFE_WAIT")
+            logger.warning(
+                "Verified-enable stage transition remains pending in SAFE_WAIT"
+            )
         else:
             charge_controller._last_known_output_on = True
             event_name = str(commit.get("log_event") or "").strip()
             if event_name:
-                log_event(charge_controller.current_stage, battery_v, current, temp, ah, event_name)
+                log_event(
+                    charge_controller.current_stage,
+                    battery_v,
+                    current,
+                    temp,
+                    ah,
+                    event_name,
+                )
             notify = str(commit.get("notify") or "").strip()
             if notify:
                 _charge_notify(notify, critical=False)
@@ -1078,8 +1059,8 @@ async def _apply_controller_output_actions(
 
 
 async def _hard_stop_charge(clear_session: bool = True) -> None:
-    """Output OFF + safe protection reset + controller stop."""
-    await hass.turn_off(ENTITY_MAP["switch"])
+    """Verified Output OFF + safe protection reset + controller stop."""
+    await _runtime_execution_port().request_verified_off()
     await _apply_idle_protection()
     charge_controller.stop(clear_session=clear_session)
     _clear_operator_pause()
