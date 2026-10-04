@@ -22,6 +22,7 @@ from v2_battery_input import parse_battery_spec
 from v2_sg_ui import install_sg_ui, sg_menu_button
 from v2_startup import start_profile_transactional
 from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
+from application.execution_port import get_or_create_execution_port
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
 from application.production_start_runner import ProductionStartRunner
@@ -146,6 +147,7 @@ def _install_managed_charge_monitor_guard(app: Any) -> None:
 def install_v2(app: Any, *, install_ui: bool = True) -> None:
     if not isinstance(app.charge_controller, DiagnosticProductionChargeControllerV2):
         app.charge_controller = DiagnosticProductionChargeControllerV2(app.hass, notify_cb=app._charge_notify)
+    get_or_create_execution_port(app)
     if not isinstance(getattr(app, "manual_session_manager", None), ProductionManualSessionManager):
         app.manual_session_manager = ProductionManualSessionManager(app)
     app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui

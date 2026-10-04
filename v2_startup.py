@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import html
+from types import SimpleNamespace
 from typing import Any
 
+from application.execution_intent.models import ExecutionIntent, SafetyContext
+from application.execution_port import get_or_create_execution_port
 from legacy_recipe_adapter import chemistry_for_legacy_profile
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
@@ -13,10 +16,58 @@ from v2_ui import intent_label
 INITIAL_MAIN_THRESHOLD_V = 12.0
 
 
-async def _confirm_failed_start_is_off(app: Any) -> bool:
-    """Request shutdown and return True only when the HA boundary confirms OFF."""
+def _execution_identity(app: Any, event: Any, pending: Any, *, mode: str) -> Any:
+    controller_context = getattr(app.charge_controller, "recovery_trace_context", {})
+    if not isinstance(controller_context, dict):
+        controller_context = {}
+    event_context = getattr(event, "context", None)
+    trace_id = str(getattr(event_context, "trace_id", "") or "")
+    session_id = str(controller_context.get("session_id") or "")
+    if not session_id:
+        session_id = f"{mode.lower()}:{getattr(pending, 'battery_id', 'unbound')}"
+    if not trace_id:
+        trace_id = f"{mode.lower()}:{session_id}"
+    return SimpleNamespace(session_id=session_id, trace_id=trace_id)
+
+
+def _execution_intent(
+    *,
+    voltage_v: float,
+    current_a: float,
+    mode: str,
+    identity: Any,
+    limits_reference: str,
+) -> ExecutionIntent:
+    return ExecutionIntent(
+        requested_voltage_v=float(voltage_v),
+        requested_current_a=float(current_a),
+        requested_mode=mode,
+        source_decision_id=f"{mode.lower()}:{identity.trace_id}",
+        safety_context=SafetyContext(
+            telemetry_state="FRESH",
+            lease_state="V2_PHYSICAL_OWNER",
+            verification_state="REQUIRED",
+            limits_reference=limits_reference,
+        ),
+    )
+
+
+async def _confirm_failed_start_is_off(app: Any, *, identity: Any, mode: str) -> bool:
+    """Request shutdown only through the application-scoped execution owner."""
     try:
-        return bool(await app.hass.turn_off(app.ENTITY_MAP["switch"]))
+        intent = _execution_intent(
+            voltage_v=0.0,
+            current_a=0.0,
+            mode=f"{mode}_ROLLBACK_OFF",
+            identity=identity,
+            limits_reference="failed_start_containment",
+        )
+        result = await get_or_create_execution_port(app).disable(
+            intent,
+            identity=identity,
+            reason="failed_start_containment",
+        )
+        return bool(result.verified)
     except Exception:
         return False
 
@@ -127,6 +178,12 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         condition_before=pending.condition,
     )
     app.charge_controller.start(pending.profile, int(round(pending.capacity_ah)))
+    execution_identity = _execution_identity(
+        app,
+        event,
+        pending,
+        mode="AUTO_START",
+    )
 
     prep_skipped = False
     try:
@@ -151,15 +208,27 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             expert_high_voltage=False,
         )
 
-        result = await app.hass.safe_enable_output(
+        requested_i = float(app._cap_current(target_i))
+        execution_intent = _execution_intent(
             voltage_v=float(target_v),
-            current_a=float(app._cap_current(target_i)),
+            current_a=requested_i,
+            mode="AUTO_START",
+            identity=execution_identity,
+            limits_reference="recipe_envelope",
+        )
+        result = await get_or_create_execution_port(app).enable(
+            execution_intent,
+            identity=execution_identity,
             ovp_v=float(target_v) + float(app.OVP_OFFSET),
-            ocp_a=float(app._cap_current(target_i)) + float(app.OCP_OFFSET),
+            ocp_a=requested_i + float(app.OCP_OFFSET),
             recipe_voltage_ceiling_v=float(envelope.voltage_ceiling_v),
         )
     except Exception as exc:
-        off_confirmed = await _confirm_failed_start_is_off(app)
+        off_confirmed = await _confirm_failed_start_is_off(
+            app,
+            identity=execution_identity,
+            mode="AUTO_START",
+        )
         if off_confirmed:
             app.charge_controller.stop(clear_session=True)
             suffix = " Выход подтверждён OFF."
@@ -175,8 +244,12 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         )
         return False
 
-    if not result.enabled:
-        off_confirmed = await _confirm_failed_start_is_off(app)
+    if not result.verified:
+        off_confirmed = await _confirm_failed_start_is_off(
+            app,
+            identity=execution_identity,
+            mode="AUTO_START",
+        )
         if off_confirmed:
             app.charge_controller.stop(clear_session=True)
             state_text = "Выход подтверждён OFF."
@@ -185,7 +258,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
                 "🚨 <b>Output OFF НЕ подтверждён.</b> Контроллер оставлен активным и заблокированным "
                 "для контроля безопасности; проверьте RD6018/HA."
             )
-        detail = html.escape(result.detail or "RD6018 не подтвердил безопасное включение")
+        detail = html.escape(result.reason or "RD6018 не подтвердил безопасное включение")
         await message.answer(
             f"❌ <b>Запуск отменён.</b> {state_text}\n<code>{detail}</code>",
             parse_mode=app.ParseMode.HTML,

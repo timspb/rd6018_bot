@@ -67,12 +67,8 @@ ENABLE_CALLS = frozenset(
         ("runtime_safety_v2.py", "turn_on", "super().turn_on"),
         ("safe_output.py", "_force_off", "self.adapter.turn_off"),
         ("safe_output.py", "enable", "self.adapter.turn_on"),
-        ("v2_mix_mode.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
-        ("v2_mix_mode.py", "start_mix_transactional", "app.hass.safe_enable_output"),
-        ("v2_startup.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
-        ("v2_startup.py", "start_profile_transactional", "app.hass.safe_enable_output"),
-        # Canonical WS124 V2 execution port. These are the only new actuator
-        # calls introduced by the consolidated boundary.
+        # Canonical application-scoped V2 execution port. START, Mix-only
+        # START and Manual converge here instead of keeping direct HA enable/OFF calls.
         ("application/execution_port.py", "enable", "self.v2_owner.safe_enable_output"),
         ("application/execution_port.py", "disable", "self.v2_owner.turn_off"),
     }

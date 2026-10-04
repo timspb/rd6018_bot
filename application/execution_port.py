@@ -103,7 +103,7 @@ class ExecutionPort:
         try:
             accepted = bool(await self.v2_owner.turn_off())
             live = await self.v2_owner.get_all_live()
-            output_off = str(live.get("switch", "")).lower() in {"off", "false", "0"}
+            output_off = self._output_is_off(live)
             verified = accepted and output_off
             return self._result(intent, identity, "disable", accepted, verified, reason if verified else "off_verification_failed")
         except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
@@ -112,6 +112,18 @@ class ExecutionPort:
     @staticmethod
     def _identity_valid(identity: Any) -> bool:
         return bool(identity is not None and getattr(identity, "session_id", "") and getattr(identity, "trace_id", ""))
+
+    @staticmethod
+    def _output_is_off(live: Any) -> bool:
+        if not isinstance(live, dict):
+            return False
+        code = live.get("output_state_code_v2")
+        if code not in (None, "", "unknown", "unavailable"):
+            try:
+                return float(code) == 0.0
+            except (TypeError, ValueError):
+                return False
+        return str(live.get("switch", "")).strip().lower() in {"off", "false", "0"}
 
     def _result(self, intent: ExecutionIntent, identity: Any, operation: str, accepted: bool, verified: bool, reason: str) -> ExecutionPortResult:
         audit = ExecutionPortAudit(
@@ -128,4 +140,19 @@ class ExecutionPort:
         return ExecutionPortResult(accepted, verified, operation, reason, audit)
 
 
-__all__ = ["ExecutionPort", "ExecutionPortAudit", "ExecutionPortResult"]
+def get_or_create_execution_port(app: Any) -> ExecutionPort:
+    """Return the one application-scoped execution port for the current V2 owner."""
+    existing = getattr(app, "execution_port", None)
+    if isinstance(existing, ExecutionPort):
+        return existing
+    port = ExecutionPort(getattr(app, "hass", None))
+    setattr(app, "execution_port", port)
+    return port
+
+
+__all__ = [
+    "ExecutionPort",
+    "ExecutionPortAudit",
+    "ExecutionPortResult",
+    "get_or_create_execution_port",
+]
