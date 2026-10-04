@@ -781,3 +781,29 @@ execution/safety ownership defect.
 Production changed: NO.
 
 Hardware commands sent: NO.
+
+
+### 2026-10-04 ERADICATION-05 remote verification
+
+Exact functional/documentation HEAD:
+`ff75a060bb882546a87b6436f80da082731a5573`.
+
+GitHub Actions exact-head run `#1520` / `37172114417` completed PASS:
+
+- Python 3.10: PASS;
+- Python 3.11: PASS;
+- Python 3.12: PASS.
+
+PR #29 points to the verified ERADICATION-05 branch head. Manual/Custom is
+closed as remote-verified. Production VM104 was not touched and no hardware
+commands were sent.
+
+Next exact boundary:
+
+`ERADICATION-06: safety and execution convergence`.
+
+Gate: static production scan must find no physical writes outside the approved
+physical execution implementation. Preserve current safety semantics, verified
+OFF/ON ordering, readback verification, containment and lease behavior. Do not
+fold UI migration or composition-root cleanup into this boundary unless a
+proven execution/safety ownership defect requires the minimal dependency move.

@@ -21,7 +21,7 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-05: Manual/Custom — LOCALLY COMPLETE; EXACT-HEAD CI PENDING.**
+**ERADICATION-05: Manual/Custom — REMOTE-VERIFIED COMPLETE.**
 
 Functional code commit:
 `c99f1180d7fbe38063c4f453083bd428ce646a62`.
