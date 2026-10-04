@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from aiogram import F
+from aiogram.filters import Command
 
 from runtime.ui.actions import UIAction
 from runtime.ui.routing.registry import route_for
@@ -73,6 +74,22 @@ def install_journal_screen(
         if user_id:
             app.user_dashboard[user_id] = rendered_id
         app.chat_dashboard[chat_id] = rendered_id
+
+    @app.router.message(Command("logs"))
+    async def _journal_command(message: Any) -> None:
+        if not await app._check_chat_and_respond(message):
+            return
+        view = await interface.get_event_journal(50)
+        screen = build_journal_screen(view, shown=25)
+        sent = await message.answer(
+            render_screen_text(screen),
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=render_screen_markup(screen),
+        )
+        user_id = message.from_user.id if message.from_user else 0
+        if user_id:
+            app.user_dashboard[user_id] = int(sent.message_id)
+        app.chat_dashboard[int(message.chat.id)] = int(sent.message_id)
 
     if not bool(getattr(app, "_v3_home_navigation_installed", False)):
         @app.router.callback_query(F.data == HOME_CALLBACK_DATA)

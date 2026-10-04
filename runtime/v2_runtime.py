@@ -2856,32 +2856,6 @@ async def cmd_start(message: Message) -> None:
     chat_dashboard[message.chat.id] = msg_id
 
 
-@router.message(Command("logs"))
-async def cmd_logs(message: Message) -> None:
-    if not await _check_chat_and_respond(message):
-        return
-    interface = globals().get("operator_interface")
-    if interface is None:
-        await message.answer("❌ Интерфейс чтения недоступен", parse_mode=ParseMode.HTML)
-        return
-    from runtime.ui.screens.journal import build_journal_screen
-    from runtime.ui.telegram.renderer import render_screen_text
-
-    view = await interface.get_event_journal(50)
-    text = render_screen_text(build_journal_screen(view, shown=25))
-    user_id = message.from_user.id if message.from_user else 0
-    is_on = await _safe_output_on()
-    sent = await message.answer(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
-    )
-    if user_id:
-        user_dashboard[user_id] = sent.message_id
-    chat_dashboard[message.chat.id] = sent.message_id
-    schedule_dashboard_after_60(message.chat.id, user_id)
-
-
 @router.message(Command("ai"))
 async def cmd_ai(message: Message) -> None:
     if not await _check_chat_and_respond(message):

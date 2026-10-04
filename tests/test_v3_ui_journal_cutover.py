@@ -38,6 +38,7 @@ class _RouterGroup:
 class _Router:
     def __init__(self) -> None:
         self.callback_query = _RouterGroup()
+        self.message = _RouterGroup()
 
 
 class _Bot:
@@ -51,6 +52,7 @@ class _Bot:
 class _Message:
     def __init__(self, *, fail_edit: bool = False) -> None:
         self.chat = SimpleNamespace(id=10)
+        self.from_user = SimpleNamespace(id=7)
         self.message_id = 20
         self.fail_edit = fail_edit
         self.edits = []
@@ -176,13 +178,17 @@ class V3JournalUICutoverTests(unittest.TestCase):
                     violations.append((path.name, "call", node.func.attr))
         self.assertEqual([], violations)
 
-    def test_historical_logs_callback_is_removed_and_command_uses_application_view(self):
+    def test_historical_logs_routes_are_removed_and_command_is_canonical(self):
         source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        canonical = (ROOT / "runtime" / "ui" / "telegram" / "journal.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "logs"', source)
+        self.assertNotIn('Command("logs")', source)
         self.assertNotIn("async def logs_handler", source)
+        self.assertNotIn("async def cmd_logs", source)
         self.assertNotIn("def _build_logs_text(", source)
-        self.assertIn("view = await interface.get_event_journal(50)", source)
-        self.assertIn("build_journal_screen(view, shown=25)", source)
+        self.assertIn('Command("logs")', canonical)
+        self.assertIn("view = await interface.get_event_journal(50)", canonical)
+        self.assertIn("build_journal_screen(view, shown=25)", canonical)
 
     def test_live_graph_toolbar_no_longer_constructs_raw_logs_callback(self):
         source = (ROOT / "operator_dashboard.py").read_text(encoding="utf-8")
@@ -230,6 +236,29 @@ class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
 
         await app._v3_home_handler(call)
         self.assertEqual(home_calls, [call])
+
+    async def test_logs_command_uses_same_canonical_journal_screen(self):
+        app = _App()
+
+        async def home(_call):
+            return None
+
+        install_journal_screen(
+            app,
+            interface=_Interface(),
+            home_handler=home,
+            retire_graph_tracking=lambda *_args: None,
+        )
+        message = _Message()
+        command_handler = app.router.message.handlers[0]
+        await command_handler(message)
+
+        self.assertEqual(app.user_dashboard[7], 99)
+        self.assertEqual(app.chat_dashboard[10], 99)
+        text, kwargs = message.answers[0]
+        self.assertIn("Логи событий", text)
+        back = kwargs["reply_markup"].inline_keyboard[0][0]
+        self.assertEqual(back.callback_data, HOME_CALLBACK_DATA)
 
     async def test_photo_workspace_fallback_replaces_message_and_retires_old(self):
         app = _App()
