@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.entities import ENTITIES_CALLBACK_DATA
 from runtime.ui.telegram.journal import HOME_CALLBACK_DATA, JOURNAL_CALLBACK_DATA
 
@@ -54,7 +55,7 @@ _TERMINAL_CALLBACKS = {
 _WORKSPACE_CALLBACKS = {
     "charge_modes",
     JOURNAL_CALLBACK_DATA,
-    "ai_analysis",
+    ANALYSIS_CALLBACK_DATA,
     ENTITIES_CALLBACK_DATA,
     "menu_off",
     "rd_live_mix",

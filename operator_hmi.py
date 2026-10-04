@@ -16,6 +16,7 @@ from rd6018_telemetry import telemetry_freshness
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from application.intents import OperatorIntent, OperatorIntentKind
+from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
 
 
@@ -1041,7 +1042,7 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
 
 
 def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis")]]
+    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data=ANALYSIS_CALLBACK_DATA)]]
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
         rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])

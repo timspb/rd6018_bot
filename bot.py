@@ -23,6 +23,7 @@ from manual_context_v2 import (
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
+from runtime.ui.telegram.analysis import install_analysis_screen
 from runtime.ui.telegram.details import install_operator_details_screen
 from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.help import install_help_screen
@@ -263,6 +264,11 @@ if _v2_ui_enabled:
     install_stats_screen(
         _legacy,
         schedule_refresh=_legacy.schedule_dashboard_after_60,
+    )
+    install_analysis_screen(
+        _legacy,
+        analysis_provider=_legacy._build_ai_analysis_text,
+        home_handler=_legacy._operator_home_handler,
     )
 
 _legacy_main = _legacy.main

@@ -28,6 +28,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
 from runtime.v2_lifecycle import V2RuntimeLifecycle
+from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
@@ -756,7 +757,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
         ],
         [
             InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
-            InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis"),
+            InlineKeyboardButton(text="🧠 AI анализ", callback_data=ANALYSIS_CALLBACK_DATA),
         ],
         [
             InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
@@ -2856,25 +2857,6 @@ async def cmd_start(message: Message) -> None:
     chat_dashboard[message.chat.id] = msg_id
 
 
-@router.message(Command("ai"))
-async def cmd_ai(message: Message) -> None:
-    if not await _check_chat_and_respond(message):
-        return
-    status_msg = await message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
-    result_text = await _build_ai_analysis_text()
-    user_id = message.from_user.id if message.from_user else 0
-    is_on = await _safe_output_on()
-    await status_msg.edit_text(
-        result_text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=_build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True),
-    )
-    if user_id:
-        user_dashboard[user_id] = status_msg.message_id
-    chat_dashboard[message.chat.id] = status_msg.message_id
-    schedule_dashboard_after_60(message.chat.id, user_id)
-
-
 @router.message(Command("off"))
 async def cmd_off(message: Message) -> None:
     if not await _check_chat_and_respond(message):
@@ -3978,56 +3960,6 @@ async def profile_selection(call: CallbackQuery) -> None:
         parse_mode=ParseMode.HTML,
     )
     schedule_dashboard_after_60(call.message.chat.id, user_id)
-
-
-@router.callback_query(F.data == "ai_analysis")
-async def ai_analysis_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    status_msg = call.message
-    try:
-        await status_msg.edit_text("⏳ Анализирую...", parse_mode=ParseMode.HTML)
-    except Exception:
-        status_msg = await call.message.answer("⏳ Анализирую...", parse_mode=ParseMode.HTML)
-    result_text = await _build_ai_analysis_text()
-    user_id = call.from_user.id if call.from_user else 0
-    is_on = await _safe_output_on()
-    ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
-    try:
-        await status_msg.edit_text(
-            result_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=ikb,
-        )
-        if user_id:
-            user_dashboard[user_id] = status_msg.message_id
-        chat_dashboard[call.message.chat.id] = status_msg.message_id
-        if status_msg.message_id != call.message.message_id:
-            try:
-                await bot.delete_message(call.message.chat.id, call.message.message_id)
-            except Exception:
-                pass
-    except Exception:
-        sent = await call.message.answer(
-            result_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=ikb,
-        )
-        if user_id:
-            user_dashboard[user_id] = sent.message_id
-        chat_dashboard[call.message.chat.id] = sent.message_id
-        try:
-            await bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
-    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
-
-
-
 
 
 _lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)

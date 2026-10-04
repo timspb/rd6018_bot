@@ -242,7 +242,7 @@ class OperatorHmiTests(unittest.TestCase):
             for row in _more_keyboard(state).inline_keyboard
             for button in row
         ]
-        self.assertIn("ai_analysis", callbacks)
+        self.assertIn("ui:nav.analysis", callbacks)
         self.assertNotIn("v2_status", callbacks)
         self.assertNotIn("entities_status", callbacks)
         self.assertNotIn("operator_service_details", callbacks)
@@ -378,7 +378,7 @@ class OperatorHmiTests(unittest.TestCase):
         else:
             # Isolated compatibility imports retain the historical builder.
             self.assertEqual(rows[1], ["logs", "ui:nav.diagnostics"])
-            self.assertEqual(rows[2], ["refresh", "ai_analysis"])
+            self.assertEqual(rows[2], ["refresh", "ui:nav.analysis"])
 
     def test_manual_mix_panel_shows_reference_delta_and_bounded_hold(self):
         app = FakeApp(observer=None, hands_off=False)
