@@ -57,6 +57,58 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertNotIn("_legacy.main = main", source)
         self.assertIn("def __getattr__(name: str):", source)
 
+    def test_production_composition_owns_all_installer_calls(self):
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        top_level_calls = []
+        for node in tree.body:
+            value = None
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                value = node.value
+            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                value = node.value
+            if value is not None:
+                top_level_calls.append(ast.unparse(value))
+
+        self.assertEqual(top_level_calls, ["ProductionComposition(_legacy).compose()"])
+        self.assertIsInstance(bot._composition, bot.ProductionComposition)
+        self.assertTrue(bot._composition.composed)
+        self.assertIs(bot._composition.runtime, legacy_runtime)
+
+        install_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and (
+                (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id.startswith("install_")
+                )
+                or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr.startswith("install_")
+                )
+            )
+        ]
+        self.assertTrue(install_calls)
+
+        compose = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ProductionComposition"
+        )
+        compose_method = next(
+            node
+            for node in compose.body
+            if isinstance(node, ast.FunctionDef) and node.name == "compose"
+        )
+        compose_call_ids = {id(node) for node in ast.walk(compose_method)}
+        self.assertTrue(all(id(call) in compose_call_ids for call in install_calls))
+
     def test_production_guardrails_are_installed_after_controller_composition(self):
         self.assertTrue(bot._v2_production_guardrails_installed)
         self.assertTrue(bot._v2_vin_psu_health_only)
