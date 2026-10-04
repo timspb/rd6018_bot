@@ -129,6 +129,16 @@ class V3OperatorDetailsUICutoverTests(unittest.TestCase):
         self.assertNotIn('F.data == "operator_details"', source)
         self.assertNotIn("async def _operator_details(", source)
 
+    def test_historical_info_full_callback_is_removed(self):
+        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        polish_source = (ROOT / "v2_ui_polish.py").read_text(encoding="utf-8")
+        self.assertNotIn('F.data == "info_full"', runtime_source)
+        self.assertNotIn("async def info_full_handler(", runtime_source)
+        self.assertNotIn('callback_data="info_full"', runtime_source)
+        self.assertNotIn('callback_data="info_full"', polish_source)
+        self.assertIn("DETAILS_CALLBACK_DATA", runtime_source)
+        self.assertIn("DETAILS_CALLBACK_DATA", polish_source)
+
     def test_composition_installs_details_after_operator_interface(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         provider = source.index("_legacy.operator_interface = OperatorSnapshotProvider(_legacy)")

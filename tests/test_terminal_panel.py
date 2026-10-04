@@ -117,7 +117,6 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "v2_manual_choose",
             "v2_manual_interrupted",
             "v2_sg_menu",
-            "info_full",
             "menu_off",
             "off_2h",
             "profile_custom",
@@ -148,6 +147,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         for callback in (
             "logs",
             "entities_status",
+            "info_full",
             "power_toggle",
             "refresh",
             "dash_back",

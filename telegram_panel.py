@@ -54,7 +54,6 @@ _TERMINAL_CALLBACKS = {
 _WORKSPACE_CALLBACKS = {
     "charge_modes",
     JOURNAL_CALLBACK_DATA,
-    "info_full",
     "ai_analysis",
     ENTITIES_CALLBACK_DATA,
     "menu_off",

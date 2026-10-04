@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from pb_domain import ChargeIntent
 from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
+from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
 
 
 _DECISION_LABELS = {
@@ -210,7 +211,7 @@ def build_operator_dashboard_keyboard(
         ],
         [
             InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
-            InlineKeyboardButton(text="ℹ️ Подробнее", callback_data="info_full"),
+            InlineKeyboardButton(text="ℹ️ Подробнее", callback_data=DETAILS_CALLBACK_DATA),
         ],
         [
             chart_button(app.CHART_RANGE_30M, "30м"),

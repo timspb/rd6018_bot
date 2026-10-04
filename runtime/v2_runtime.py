@@ -28,6 +28,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
 from runtime.v2_lifecycle import V2RuntimeLifecycle
+from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -751,7 +752,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
         chart_buttons,
         [
             InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
-            InlineKeyboardButton(text="📋 Полная инфо", callback_data="info_full"),
+            InlineKeyboardButton(text="📋 Полная инфо", callback_data=DETAILS_CALLBACK_DATA),
         ],
         [
             InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
@@ -3813,122 +3814,6 @@ async def menu_off_handler(call: CallbackQuery) -> None:
     )
     await call.message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
 
-
-@router.callback_query(F.data == "info_full")
-async def info_full_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    try:
-        live = await hass.get_all_live()
-        try:
-            status_line, live_line, stage_block, capacity_line, idle_warning = _build_dashboard_blocks(live)
-        except Exception as ex:
-            logger.warning("info full dashboard fallback: %s", ex)
-            battery_v_fallback = _safe_float(live.get("battery_voltage"))
-            current_fallback = _safe_float(live.get("current"))
-            ah_fallback = _safe_float(live.get("ah"))
-            temp_ext_fallback = _safe_float(live.get("temp_ext"))
-            temp_int_fallback = _safe_float(live.get("temp_int"))
-            status_line = "⚠️ Полная информация недоступна"
-            live_line = (
-                f"⚡ LIVE: - "
-                f"{format_electrical_data(battery_v_fallback, current_fallback)} "
-                f"{format_temperature_data(temp_ext_fallback, temp_int_fallback)}"
-            )
-            stage_block = ""
-            capacity_line = f"Емкость: {ah_fallback:.2f} Ач"
-            idle_warning = "⚠️ Карточка собрана в упрощённом виде из-за ошибки во вспомогательном блоке."
-
-        full_text = f"{status_line}\n{live_line}{stage_block}\n{capacity_line}"
-        off_line = _format_manual_off_for_dashboard()
-        if off_line:
-            full_text += f"\n{off_line}"
-        full_text += f"\n⏱ Время работы: {_format_uptime_display(live.get('uptime'))}"
-        ovp_tr = _canonical_bool(live, "ovp_triggered")
-        ocp_tr = _canonical_bool(live, "ocp_triggered")
-        full_text += f"\n🛡 Защиты: OVP {'сработала' if ovp_tr else 'норма'}, OCP {'сработала' if ocp_tr else 'норма'}"
-
-        battery_v = _safe_float(live.get("battery_voltage"))
-        i = _safe_float(live.get("current"))
-        ah = _safe_float(live.get("ah"))
-        temp = _safe_float(live.get("temp_ext"))
-        if charge_controller.is_active:
-            try:
-                stats = charge_controller.get_stats(battery_v, i, ah, temp)
-                full_text += (
-                    "\n━━━━━━━━━━━━━━━━━━\n"
-                    "🧠 <b>Статистика по этапу</b>\n"
-                    f"📍 Этап: {stats['stage']}\n"
-                    f"⏳ Время этапа: {stats['elapsed_time']}\n"
-                    f"🔋 Набрано: {stats['ah_total']:.2f} Ач\n"
-                    f"🌡 АКБ: {stats['temp_ext']:.1f}°C ({stats['temp_trend']})\n"
-                    f"🕒 Прогноз завершения: {stats['predicted_time']}\n"
-                    f"<i>{stats['comment']}</i>"
-                )
-                if stats.get("health_warning"):
-                    full_text += f"\n\n{stats['health_warning']}"
-            except Exception as ex:
-                logger.warning("info full stats fallback: %s", ex)
-                full_text += (
-                    "\n━━━━━━━━━━━━━━━━━━\n"
-                    "🧠 <b>Статистика по этапу</b>\n"
-                    "<i>Недостаточно данных: временно недоступен расширенный блок статистики.</i>"
-                )
-        else:
-            full_text += "\n\n<i>Расширенная статистика доступна только во время активного заряда.</i>"
-
-        if idle_warning:
-            full_text += f"\n{idle_warning}"
-        full_text = full_text.replace("<hr>", "___________________").replace("<hr/>", "___________________").replace("<hr />", "___________________")
-        caption = f"<b>📋 Полная информация по заряду</b>\n\n{full_text}"
-        user_id = call.from_user.id if call.from_user else 0
-        chart_mode, graph_since, limit_pts = _chart_query_params(user_id)
-        times, voltages, currents, temps = await get_graph_data_with_temp(limit=limit_pts, since_timestamp=graph_since)
-        buf = await asyncio.to_thread(generate_chart, times, voltages, currents, temps)
-        photo = BufferedInputFile(buf.getvalue(), filename="chart.png") if buf else None
-        is_on = str(live.get("switch", "")).lower() == "on"
-        ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
-        try:
-            if photo:
-                await bot.edit_message_media(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    media=InputMediaPhoto(media=photo, caption=caption, parse_mode=ParseMode.HTML),
-                    reply_markup=ikb,
-                )
-            else:
-                await bot.edit_message_text(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    text=caption,
-                    reply_markup=ikb,
-                    parse_mode=ParseMode.HTML,
-                )
-            user_dashboard[user_id] = call.message.message_id
-            chat_dashboard[call.message.chat.id] = call.message.message_id
-        except Exception:
-            if photo:
-                sent = await call.message.answer_photo(photo=photo, caption=caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-            else:
-                sent = await call.message.answer(caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-            user_dashboard[user_id] = sent.message_id
-            chat_dashboard[call.message.chat.id] = sent.message_id
-            try:
-                await bot.delete_message(call.message.chat.id, call.message.message_id)
-            except Exception:
-                pass
-        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
-    except Exception as ex:
-        logger.error("info_full: %s", ex)
-        try:
-            await call.message.edit_text("⚠️ Не удалось открыть полную информацию.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ В дашборд", callback_data="dash_back")]]))
-        except Exception:
-            await call.message.answer("⚠️ Не удалось открыть полную информацию.")
-        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 @router.callback_query(F.data == "refresh")
 async def refresh_handler(call: CallbackQuery) -> None:
