@@ -8,6 +8,8 @@ from typing import Any, Mapping
 from runtime.ui.models import (
     ChargeView,
     DiagnosticsView,
+    EntityStatusItem,
+    EntityStatusView,
     JournalView,
     RuntimeUISnapshot,
     SafetyView,
@@ -168,6 +170,23 @@ class OperatorSnapshotProvider:
 
     async def get_event_journal(self, limit: int = 50) -> JournalView:
         return self._event_journal_reader.read(limit)
+
+    async def get_entity_statuses(self) -> EntityStatusView:
+        try:
+            rows = await self._legacy.read_entities_status()
+        except Exception as exc:
+            return EntityStatusView(error=f"{type(exc).__name__}: {exc}")
+        items = tuple(
+            EntityStatusItem(
+                key=str(row.get("key") or ""),
+                state=row.get("state"),
+                status=str(row.get("status") or "unknown"),
+                unit=str(row.get("unit") or ""),
+                friendly_name=str(row.get("friendly_name") or ""),
+            )
+            for row in rows
+        )
+        return EntityStatusView(items=items)
 
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]:
         if limit < 0:

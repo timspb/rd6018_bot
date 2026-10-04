@@ -9,6 +9,7 @@ from .renderer import (
     render_screen_text,
 )
 from .details import install_operator_details_screen
+from .entities import install_entities_screen
 from .journal import install_journal_screen
 from .service import install_service_details_screen
 
@@ -17,6 +18,7 @@ __all__ = [
     "action_from_callback_data",
     "callback_data_for",
     "install_journal_screen",
+    "install_entities_screen",
     "install_operator_details_screen",
     "install_service_details_screen",
     "render_button",

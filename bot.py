@@ -24,6 +24,7 @@ from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from runtime.ui.telegram.details import install_operator_details_screen
+from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.journal import install_journal_screen
 from runtime.ui.telegram.service import install_service_details_screen
 from operator_managed_stop import install_operator_managed_stop
@@ -244,6 +245,11 @@ if _v2_ui_enabled:
         home_handler=_legacy._operator_home_handler,
     )
     install_service_details_screen(
+        _legacy,
+        interface=_legacy.operator_interface,
+        home_handler=_legacy._operator_home_handler,
+    )
+    install_entities_screen(
         _legacy,
         interface=_legacy.operator_interface,
         home_handler=_legacy._operator_home_handler,

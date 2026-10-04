@@ -23,6 +23,7 @@ class UIAction(str, Enum):
     OPEN_SERVICE = "nav.service"
     OPEN_GRAPH = "nav.graph"
     OPEN_JOURNAL = "nav.journal"
+    OPEN_ENTITIES = "nav.entities"
 
 
 __all__ = ["UIAction"]

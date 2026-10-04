@@ -6,6 +6,8 @@ from .buttons import ButtonSpec
 from .models import (
     ChargeView,
     DiagnosticsView,
+    EntityStatusItem,
+    EntityStatusView,
     JournalView,
     RuntimeUISnapshot,
     SafetyView,
@@ -23,6 +25,8 @@ __all__ = [
     "ButtonSpec",
     "ChargeView",
     "DiagnosticsView",
+    "EntityStatusItem",
+    "EntityStatusView",
     "JournalView",
     "LegacyUIAdapter",
     "REQUIRED_SCREEN_FIELDS",

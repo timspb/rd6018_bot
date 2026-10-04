@@ -4021,50 +4021,6 @@ async def info_full_handler(call: CallbackQuery) -> None:
             await call.message.answer("⚠️ Не удалось открыть полную информацию.")
         schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
-@router.callback_query(F.data == "entities_status")
-async def entities_status_handler(call: CallbackQuery) -> None:
-    """Показать статус всех сущностей HA по кнопке дашборда."""
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer("Опрашиваю сущности...")
-    except Exception:
-        pass
-    try:
-        rows = await hass.get_entities_status()
-        lines = ["<b>📡 Статус сущностей RD6018</b>\n"]
-        ok_count = sum(1 for r in rows if r["status"] == "ok")
-        lines.append(f"✅ Доступно: {ok_count}/{len(rows)}\n")
-        for r in rows:
-            key = html.escape(r["key"])
-            state_raw = r["state"]
-            if r["status"] == "ok" and state_raw is not None:
-                try:
-                    state = html.escape(f"{float(state_raw):.3f}")
-                except (TypeError, ValueError):
-                    state = html.escape(str(state_raw))
-            else:
-                state = html.escape(str(state_raw) if state_raw is not None else "")
-            unit = html.escape(r["unit"] or "")
-            status = r["status"]
-            if status == "ok":
-                icon = "🟢"
-                line = f"{icon} <b>{key}</b>: {state} {unit}".strip()
-            else:
-                icon = "🔴" if status == "error" else "🟡"
-                line = f"{icon} <b>{key}</b>: {status} ({state})"
-            lines.append(line)
-        text = "\n".join(lines)
-        if len(text) > 4000:
-            text = "\n".join(lines[:3] + [f"… всего {len(rows)} сущностей"] + [l for l in lines[3:25]])
-        await call.message.answer(text, parse_mode=ParseMode.HTML)
-        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
-    except Exception as ex:
-        logger.exception("entities_status_handler: %s", ex)
-        await call.message.answer(f"❌ Ошибка опроса: {html.escape(str(ex))}", parse_mode=ParseMode.HTML)
-        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
-
-
 @router.callback_query(F.data == "refresh")
 async def refresh_handler(call: CallbackQuery) -> None:
     if not await _check_chat_and_respond(call):

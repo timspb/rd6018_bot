@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from runtime.ui.telegram.entities import ENTITIES_CALLBACK_DATA
 from runtime.ui.telegram.journal import HOME_CALLBACK_DATA, JOURNAL_CALLBACK_DATA
 
 logger = logging.getLogger("rd6018.ui")
@@ -55,7 +56,7 @@ _WORKSPACE_CALLBACKS = {
     JOURNAL_CALLBACK_DATA,
     "info_full",
     "ai_analysis",
-    "entities_status",
+    ENTITIES_CALLBACK_DATA,
     "menu_off",
     "rd_live_mix",
     "rd_live_mix_status",

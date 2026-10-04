@@ -26,6 +26,10 @@ class LegacyUIReadAdapter:
     async def read_live(self) -> Mapping[str, Any]:
         return await self._app.hass.get_all_live()
 
+    async def read_entities_status(self) -> tuple[Mapping[str, Any], ...]:
+        rows = await self._app.hass.get_entities_status()
+        return tuple(dict(row) for row in rows)
+
     def hmi_state(self, live: Mapping[str, Any]) -> Any:
         return build_operator_hmi_state(self._app, live)
 

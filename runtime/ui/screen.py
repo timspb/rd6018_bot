@@ -21,6 +21,7 @@ class ScreenId(str, Enum):
     SERVICE = "service"
     GRAPH = "graph"
     JOURNAL = "journal"
+    ENTITIES = "entities"
 
 
 @dataclass(frozen=True)

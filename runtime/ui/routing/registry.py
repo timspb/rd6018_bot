@@ -39,6 +39,7 @@ DEFAULT_ACTION_ROUTES: Mapping[UIAction, UIActionRoute] = {
             UIAction.OPEN_SERVICE,
             UIAction.OPEN_GRAPH,
             UIAction.OPEN_JOURNAL,
+            UIAction.OPEN_ENTITIES,
         )
     },
 }
