@@ -18,11 +18,14 @@ class V3LegacyInventoryTests(unittest.TestCase):
         self.assertEqual(len(re.findall(r"\bBot\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bDispatcher\s*\(", adapter)), 1)
 
-    def test_bot_entrypoint_does_not_execute_legacy_module_as_a_second_process(self):
+    def test_bot_entrypoint_owns_one_explicit_composition_lifecycle(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        self.assertIn("from runtime import v2_runtime as _legacy", source)
+        self.assertIn("from runtime import v2_runtime as _runtime_substrate", source)
+        self.assertNotIn("from runtime import v2_runtime as _legacy", source)
         self.assertNotIn("import bot_legacy", source)
-        self.assertIn("await _legacy_main()", source)
+        self.assertIn("_composition = ProductionComposition(_runtime_substrate).compose()", source)
+        self.assertIn("await _composition.run()", source)
+        self.assertIn("await main_runner()", source)
         self.assertEqual(len(re.findall(r"asyncio\.run\(main\(\)\)", source)), 1)
 
     def test_production_sources_do_not_import_historical_module_name(self):
