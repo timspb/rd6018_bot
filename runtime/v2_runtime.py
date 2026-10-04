@@ -738,15 +738,15 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
     chart_buttons = [
         InlineKeyboardButton(
             text=("● " if chart_mode == CHART_RANGE_30M else "") + "30м",
-            callback_data=f"chart_{CHART_RANGE_30M}",
+            callback_data=f"operator_graph_{CHART_RANGE_30M}",
         ),
         InlineKeyboardButton(
             text=("● " if chart_mode == CHART_RANGE_2H else "") + "2ч",
-            callback_data=f"chart_{CHART_RANGE_2H}",
+            callback_data=f"operator_graph_{CHART_RANGE_2H}",
         ),
         InlineKeyboardButton(
             text=("● " if chart_mode == CHART_RANGE_SESSION else "") + "Сессия",
-            callback_data=f"chart_{CHART_RANGE_SESSION}",
+            callback_data=f"operator_graph_{CHART_RANGE_SESSION}",
         ),
     ]
     rows = [
@@ -3637,27 +3637,6 @@ async def custom_mode_cancel(call: CallbackQuery) -> None:
     
     # Возвращаемся в главное меню
     old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
-    await send_dashboard(call, old_msg_id=old_id)
-
-
-@router.callback_query(F.data.startswith("chart_"))
-async def chart_range_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    user_id = call.from_user.id if call.from_user else 0
-    mode = (call.data or "").replace("chart_", "", 1)
-    if mode not in CHART_RANGE_VALUES:
-        try:
-            await call.answer("Неизвестный режим графика", show_alert=True)
-        except Exception:
-            pass
-        return
-    user_chart_range[user_id] = mode
-    try:
-        await call.answer(f"График: {_chart_label(mode)}")
-    except Exception:
-        pass
-    old_id = user_dashboard.get(user_id) if user_id else None
     await send_dashboard(call, old_msg_id=old_id)
 
 

@@ -37,6 +37,27 @@ class V3NavigationUICutoverTests(unittest.TestCase):
         self.assertFalse(_is_workspace_callback("dash_back"))
         self.assertFalse(_is_workspace_callback("charge_back"))
 
+    def test_raw_chart_callbacks_are_retired(self):
+        runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        panel_source = (ROOT / "telegram_panel.py").read_text(encoding="utf-8")
+        self.assertNotIn('F.data.startswith("chart_")', runtime_source)
+        self.assertNotIn("async def chart_range_handler(", runtime_source)
+        self.assertNotIn('data.startswith("chart_")', panel_source)
+
+        for rel in (
+            "runtime/v2_runtime.py",
+            "v2_ui_polish.py",
+            "v2_bot_ui.py",
+            "operator_hmi.py",
+            "operator_dashboard.py",
+        ):
+            source = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertNotIn('callback_data="chart_', source, rel)
+            self.assertNotIn('callback_data=f"chart_', source, rel)
+
+        operator_hmi = (ROOT / "operator_hmi.py").read_text(encoding="utf-8")
+        self.assertIn('F.data.startswith("operator_graph_")', operator_hmi)
+
     def test_raw_refresh_callback_is_retired(self):
         runtime_source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "refresh"', runtime_source)

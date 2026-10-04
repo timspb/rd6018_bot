@@ -264,12 +264,6 @@ class TerminalPanelManager:
                 await self.ensure_last(chat_id, user_id)
                 return
 
-            # Old stale dashboard graph callbacks are treated as a detail workspace;
-            # the new L2 panel no longer exposes them directly.
-            if data.startswith("chart_"):
-                self.enter_workspace(chat_id)
-                return
-
             if _is_workspace_callback(data):
                 self.enter_workspace(chat_id)
                 return

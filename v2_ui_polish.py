@@ -200,7 +200,7 @@ def build_operator_dashboard_keyboard(
 
     def chart_button(mode: str, label: str) -> InlineKeyboardButton:
         selected = "● " if chart_mode == mode else ""
-        return InlineKeyboardButton(text=f"{selected}📈 {label}", callback_data=f"chart_{mode}")
+        return InlineKeyboardButton(text=f"{selected}📈 {label}", callback_data=f"operator_graph_{mode}")
 
     rows = [
         [
