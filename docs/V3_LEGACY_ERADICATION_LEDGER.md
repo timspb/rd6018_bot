@@ -21,7 +21,7 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-04: MIX -> final SAFE_WAIT -> verified Storage/DONE.**
+**ERADICATION-04: MIX -> final SAFE_WAIT -> verified Storage/DONE — REMOTE-VERIFIED COMPLETE.**
 
 The functional cutover is implemented in commit
 `aecde476ccb65ae1aeeb086638d490cd9825992d`.

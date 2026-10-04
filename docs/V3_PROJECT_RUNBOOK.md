@@ -685,3 +685,28 @@ safety/execution convergence into that next boundary.
 Production changed: NO.
 
 Hardware commands sent: NO.
+
+
+### 2026-10-04 ERADICATION-04 remote verification
+
+Exact functional/documentation HEAD:
+`8e4a8964fad4b3d14d2ef5c0aad1424214444dee`.
+
+GitHub Actions exact-head run `#1516` / `37170224025` completed PASS:
+
+- Python 3.10: PASS;
+- Python 3.11: PASS;
+- Python 3.12: PASS.
+
+PR #29 points to the exact verified branch head. ERADICATION-04 is closed as
+remote-verified. Production VM104 was not touched and no hardware commands were
+sent.
+
+Next exact boundary:
+
+`ERADICATION-05: Manual/Custom`.
+
+Manual remains a separate program family that may share safety/execution
+mechanics but must not become an escape hatch back into the historical AUTO
+FSM. Preserve accepted Manual/Custom semantics while extracting its own
+strategy/runtime owner and restart/fail-closed contracts.
