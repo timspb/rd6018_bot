@@ -35,19 +35,12 @@ _ENABLE_METHODS = ("turn_on", "turn_off", "safe_enable_output")
 # Frozen inventory: (module, function, "owner.method") for every production call.
 ENABLE_CALLS = frozenset(
     {
-        # D-STARTUP-3: after explicit MANAGED reconciliation, deferred restore may
-        # converge physical Output through the final composed HassClient surface.
-        # These are reviewed guarded call-sites, not raw actuator bypasses.
-        ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_off"),
-        ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_on"),
         # Controller action execution is centralized in one reviewed helper so a
         # verified-enable stage commit can be withheld when Output ON fails.
         # data_logger still contains separate restore/containment call sites pending
         # runtime-root retirement; they remain explicitly inventoried.
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
         ("runtime/v2_runtime.py", "data_logger", "hass.turn_on"),
-        ("runtime/v2_lifecycle.py", "run", "app.hass.turn_off"),
-        ("runtime/v2_lifecycle.py", "run", "app.hass.turn_on"),
         ("diagnostic_persistence.py", "recover_diagnostic_persistence", "app.hass.turn_off"),
         ("diagnostic_probe.py", "_restore_or_off", "self.hass.turn_off"),
         ("rd_managed_adoption.py", "_verified_off", "self.app.hass.turn_off"),

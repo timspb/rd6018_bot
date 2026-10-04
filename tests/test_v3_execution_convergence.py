@@ -161,6 +161,22 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             self.assertIn(".enable(", source)
             self.assertIn(".disable(", source)
 
+    def test_runtime_restore_modules_have_no_direct_hass_execution_writes(self):
+        forbidden = (
+            ".hass.safe_enable_output(",
+            ".hass.turn_on(",
+            ".hass.turn_off(",
+            ".hass.set_voltage(",
+            ".hass.set_current(",
+            ".hass.set_ovp(",
+            ".hass.set_ocp(",
+        )
+        for name in ("runtime/v2_startup_recovery.py", "runtime/v2_lifecycle.py"):
+            source = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("get_or_create_execution_port", source)
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{name}: {token}")
+
     def test_manual_uses_same_application_scoped_execution_port(self):
         source = inspect.getsource(__import__("manual_mode"))
         self.assertIn("get_or_create_execution_port(self.app)", source)

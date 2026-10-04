@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from application.execution_port import get_or_create_execution_port
 from diagnostic_persistence import recover_diagnostic_persistence
 
 
@@ -33,6 +34,7 @@ class V2StartupRecovery:
         """Replay deferred managed restore through the existing safe V2 owner."""
         app = self.app
         controller = app.charge_controller
+        execution_port = get_or_create_execution_port(app)
         live = await app.hass.get_all_live()
 
         if not bool(getattr(controller, "is_active", False)):
@@ -66,7 +68,7 @@ class V2StartupRecovery:
                 return
             if output_state != "on":
                 raise RuntimeError("deferred startup restore cannot resolve SAFE_WAIT Output state")
-            confirmed_off = await app.hass.turn_off(app.ENTITY_MAP["switch"])
+            confirmed_off = await execution_port.request_verified_off()
             if not confirmed_off:
                 raise RuntimeError("deferred startup SAFE_WAIT Output OFF was not confirmed")
             return
@@ -82,9 +84,9 @@ class V2StartupRecovery:
         temp_ext = app._safe_float(raw_temp)
         uv, ui = controller._get_target_v_i(temp_ext)
         await app._apply_phase_protection(uv, ui)
-        await app.hass.set_voltage(uv)
-        await app.hass.set_current(app._cap_current(ui))
-        enabled = await app.hass.turn_on(app.ENTITY_MAP["switch"])
+        await execution_port.program_voltage(uv)
+        await execution_port.program_current(app._cap_current(ui))
+        enabled = await execution_port.request_verified_on()
         if not enabled:
             raise RuntimeError("deferred startup safe Output enable was not confirmed")
         app.logger.info(
