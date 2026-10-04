@@ -1167,24 +1167,6 @@ def install_operator_hmi(app: Any) -> None:
 
     app._build_dashboard_keyboard = dashboard_keyboard
 
-    @app.router.callback_query(F.data == "operator_service_details")
-    async def _operator_service_details(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
-            return
-        interface = getattr(app, "operator_interface", None)
-        if interface is None:
-            await call.answer("Интерфейс чтения недоступен", show_alert=True)
-            return
-        details = await interface.get_service_details()
-        await call.answer()
-        await call.message.answer(
-            render_operator_service_details_view(details),
-            parse_mode=app.ParseMode.HTML,
-            reply_markup=_back_keyboard(),
-        )
-
     @app.router.callback_query(F.data == "operator_pause_toggle")
     async def _operator_pause_toggle_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
