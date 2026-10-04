@@ -31,6 +31,7 @@ from runtime.v2_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
+from operator_managed_stop import STOP_CONFIRM_CALLBACK
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -761,7 +762,10 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
             InlineKeyboardButton(text="🧠 AI анализ", callback_data=ANALYSIS_CALLBACK_DATA),
         ],
         [
-            InlineKeyboardButton(text=main_btn_text, callback_data="power_toggle"),
+            InlineKeyboardButton(
+                text=main_btn_text,
+                callback_data=STOP_CONFIRM_CALLBACK if is_on else "charge_modes",
+            ),
             InlineKeyboardButton(text="⚙️ Режимы", callback_data="charge_modes"),
         ],
     ]
@@ -3685,99 +3689,6 @@ async def menu_off_handler(call: CallbackQuery) -> None:
         "Защиты не сбрасываются; температура и входное напряжение могут выключить выход раньше."
     )
     await call.message.answer(status_msg, parse_mode=ParseMode.HTML, reply_markup=_build_off_menu_keyboard())
-
-
-@router.callback_query(F.data == "power_toggle")
-async def power_toggle_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    # Current managed sessions use the explicit two-step STOP workflow. Old
-    # Telegram messages can retain ``power_toggle``; never let that stale
-    # callback fall through to the legacy generic Output ON/OFF toggle.
-    if _legacy_power_toggle_is_disabled():
-        try:
-            await call.answer("Кнопка устарела — обновите панель", show_alert=True)
-        except Exception:
-            pass
-        return
-    user_id = call.from_user.id if call.from_user else 0
-    if not _is_action_allowed(user_id, "power_toggle", cooldown_sec=1.5):
-        try:
-            await call.answer("Команда уже выполняется...", show_alert=False)
-        except Exception:
-            pass
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    global last_chat_id, last_user_id
-    last_chat_id = call.message.chat.id
-    last_user_id = user_id
-    live = await hass.get_all_live()
-    is_on = str(live.get("switch", "")).lower() == "on"
-    # Если заряд активен или выход включен — останавливаем заряд и выключаем выход
-    if charge_controller.is_active or is_on:
-        await _hard_stop_charge()
-        _clear_manual_off()
-        await call.message.answer(
-            "<b>🛑 Заряд остановлен.</b> Выход выключен.",
-            parse_mode=ParseMode.HTML,
-        )
-        schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
-    else:
-        # Выход выключен: пробуем восстановить сессию, чтобы бот снова управлял зарядом
-        battery_v = _safe_float(live.get("battery_voltage"))
-        i = _safe_float(live.get("current"))
-        ah = _safe_float(live.get("ah"))
-        temp_ext = _safe_float(live.get("temp_ext"))
-        ovp_triggered = _canonical_bool(live, "ovp_triggered")
-        ocp_triggered = _canonical_bool(live, "ocp_triggered")
-        input_voltage = _safe_float(live.get("input_voltage"), 0.0)
-        ok, msg = charge_controller.try_restore_session(
-            battery_v, i, ah, output_is_on=is_on,
-            is_cv=_canonical_bool(live, "is_cv"),
-            is_cc=_canonical_bool(live, "is_cc"),
-        )
-        if not ok and _operator_pause_active():
-            logger.warning("Clearing operator pause: no charge session to restore")
-            _clear_operator_pause()
-        if ok and msg:
-            _apply_restore_time_corrections(charge_controller, live)
-        allow_turn_on = ok and msg and not ovp_triggered and not ocp_triggered and input_voltage >= MIN_INPUT_VOLTAGE
-        if allow_turn_on:
-            if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
-                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                await _apply_phase_protection(uv, ui)
-                await _runtime_execution_port().program_voltage(uv)
-                await _runtime_execution_port().program_current(_cap_current(ui))
-                await _runtime_execution_port().request_verified_off()
-            else:
-                uv, ui = charge_controller._get_target_v_i(temp_ext)
-                await _apply_phase_protection(uv, ui)
-                await _runtime_execution_port().program_voltage(uv)
-                await _runtime_execution_port().program_current(_cap_current(ui))
-                await _runtime_execution_port().request_verified_on()
-            await call.message.answer(
-                "<b>🚀 Заряд подхвачен.</b> Сессия восстановлена, бот снова управляет этапами.",
-                parse_mode=ParseMode.HTML,
-            )
-        else:
-            await _runtime_execution_port().request_verified_on()
-            await call.message.answer(
-                "<b>🚀 Выход включён</b> с текущими параметрами RD6018. "
-                "Чтобы бот вёл этапы — выберите режим в <b>⚙️ РЕЖИМЫ</b>.",
-                parse_mode=ParseMode.HTML,
-            )
-    await asyncio.sleep(1)
-    old_id = user_dashboard.get(user_id) if user_id else None
-    await send_dashboard(call, old_msg_id=old_id)
-    schedule_dashboard_after_60(call.message.chat.id, user_id)
-
-
-def _legacy_power_toggle_is_disabled() -> bool:
-    """Return whether the managed STOP boundary owns current operator controls."""
-    return bool(globals().get("_operator_managed_stop_installed", False))
 
 
 _lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)

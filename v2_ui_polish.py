@@ -10,6 +10,7 @@ from pb_domain import ChargeIntent
 from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
+from operator_managed_stop import STOP_CONFIRM_CALLBACK
 
 
 _DECISION_LABELS = {
@@ -207,7 +208,7 @@ def build_operator_dashboard_keyboard(
         [
             InlineKeyboardButton(
                 text="🛑 Остановить заряд" if active else "▶️ Новая программа",
-                callback_data="power_toggle" if active else "charge_modes",
+                callback_data=STOP_CONFIRM_CALLBACK if active else "charge_modes",
             )
         ],
         [

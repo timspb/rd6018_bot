@@ -227,7 +227,7 @@ class V2UiPolishTests(unittest.TestCase):
         controller.is_active = True
         active = build_operator_dashboard_keyboard(app, True, 1)
         self.assertEqual(active.inline_keyboard[0][0].text, "🛑 Остановить заряд")
-        self.assertEqual(active.inline_keyboard[0][0].callback_data, "power_toggle")
+        self.assertEqual(active.inline_keyboard[0][0].callback_data, "operator_managed_stop")
 
     def test_secondary_screen_keyboard_is_only_back_to_panel(self):
         app = types.SimpleNamespace(charge_controller=types.SimpleNamespace(is_active=True))

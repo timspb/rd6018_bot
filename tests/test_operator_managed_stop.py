@@ -37,12 +37,13 @@ class FakeManual:
 
 
 class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
-    def test_stale_legacy_power_toggle_is_disabled_after_managed_stop_install(self):
-        with patch.object(bot_legacy, "_operator_managed_stop_installed", True, create=True):
-            self.assertTrue(bot_legacy._legacy_power_toggle_is_disabled())
+    def test_historical_power_toggle_handler_and_helper_are_retired(self):
+        import inspect
 
-        with patch.object(bot_legacy, "_operator_managed_stop_installed", False, create=True):
-            self.assertFalse(bot_legacy._legacy_power_toggle_is_disabled())
+        source = inspect.getsource(bot_legacy._runtime)
+        self.assertNotIn('F.data == "power_toggle"', source)
+        self.assertNotIn("async def power_toggle_handler(", source)
+        self.assertNotIn("def _legacy_power_toggle_is_disabled(", source)
 
     def _state(self, authority):
         return hmi.OperatorHmiState(
