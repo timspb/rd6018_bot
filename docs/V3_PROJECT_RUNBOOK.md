@@ -594,3 +594,94 @@ Next exact boundary:
 
 Do not fold Manual/Custom, UI migration, composition cleanup or unrelated
 safety/execution convergence into this boundary.
+
+
+## 14.10 ERADICATION-04 checkpoint — 2026-10-04
+
+This checkpoint starts from the remote-verified ERADICATION-03 head:
+
+- branch: `refactor/v3-modular-legacy-eradication`;
+- pre-boundary HEAD: `81e15c03f501f669f304660712ca77e84f3afb29`;
+- previous exact-head CI: run `#1512` / `37147682685`, PASS on Python
+  3.10, 3.11 and 3.12;
+- PR: `#29 Begin modular V3 legacy eradication`;
+- isolated worktree: `E:\CODEX\rd6018_v3_modular`;
+- dirty primary worktree `E:\CODEX\rd6018_bot`: not touched;
+- production VM104: not touched.
+
+Functional ERADICATION-04 commit:
+
+`aecde476ccb65ae1aeeb086638d490cd9825992d` — Migrate MIX and final completion to modular V3 authority
+
+The migrated automatic completion chain is now:
+
+`MIX -> finish evidence/hold -> final SAFE_WAIT -> verified Storage/DONE`.
+
+Canonical owners introduced/confirmed in this boundary:
+
+- `runtime/charge/strategy/mix.py` — production MIX stage decision while
+  preserving the existing reusable `MixPolicy` API;
+- `runtime/charge/strategy/mix_variables.py` — MIX voltage/current targets,
+  profile active-time limits and sticky finish-hold duration;
+- `runtime/charge/runtime/mix_scaffold.py` — common runtime mechanics for MIX
+  and final SAFE_WAIT without historical stage transitions;
+- `runtime/charge/strategy/final_safe_wait.py` — final continuation validation,
+  fresh-OFF gate and relaxation/timeout decision;
+- `runtime/charge/strategy/storage.py` — managed Storage target;
+- shared `runtime/charge/strategy/safe_wait_variables.py` remains the canonical
+  SAFE_WAIT margin/timeout owner.
+
+Production semantics preserved:
+
+- CV MIX: Imin / Delta-I evidence;
+- CC MIX: Vmax / Delta-V evidence;
+- confirmed mode-specific evidence starts the sticky two-hour finish hold;
+- active MIX authority: Ca/Ca 20 h, EFB 24 h, AGM 10 h;
+- final completion enters SAFE_WAIT with Output OFF;
+- Storage enable requires fresh physical Output OFF evidence;
+- final continuation is session-bound by identity and generation;
+- stale generation fails closed;
+- software remains in SAFE_WAIT while Storage enable is pending;
+- DONE commits only after the existing two-phase execution transaction verifies
+  OVP/OCP/V/I programming and physical Output ON.
+
+Historical reachability proof:
+
+- authoritative MIX no longer calls historical `ChargeController.tick()`;
+- authoritative final SAFE_WAIT no longer calls historical
+  `ChargeController.tick()`;
+- regression tests patch the historical tick to raise if either path reaches it;
+- `super().tick()` remains only for Custom/non-migrated program-family paths.
+
+During the cutover, three implementation defects were found and fixed without
+changing accepted charge semantics:
+
+1. the first draft replaced `runtime.charge.strategy.mix` wholesale and
+   accidentally removed its public `MixPolicy` compatibility API; the public
+   API was restored and the new production authority was appended;
+2. a module-level import of `runtime.safety.variables` created a package cycle;
+   the shared 12 A safety ceiling is now resolved lazily inside MIX target
+   selection, with no duplicate value owner;
+3. `ProductionChargeControllerV2._mix_limit_seconds()` still had an independent
+   local limit mapping; runtime now delegates directly to
+   `mix_max_active_seconds()`, while `V2_MIX_MAX_HOURS` remains only a
+   compatibility mapping derived from the same `VariableSpec` defaults.
+
+Validation on exact functional commit
+`aecde476ccb65ae1aeeb086638d490cd9825992d`:
+
+- focused MIX/final/recovery/Storage/Cooling/compatibility suites: PASS;
+- new ERADICATION-04 architecture/hardening suite: 10/10 PASS;
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- full local suite: **1803 tests PASS, 2 skipped**.
+
+ERADICATION-04 is locally complete. The remaining gate is exact-head GitHub CI
+after this documentation checkpoint is pushed. If Python 3.10/3.11/3.12 are all
+green, close ERADICATION-04 as remote-verified and begin ERADICATION-05
+(Manual/Custom). Do not fold UI migration, composition cleanup or broad
+safety/execution convergence into that next boundary.
+
+Production changed: NO.
+
+Hardware commands sent: NO.

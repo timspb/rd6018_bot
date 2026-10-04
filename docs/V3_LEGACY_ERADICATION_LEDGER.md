@@ -9,8 +9,8 @@ new entries require explicit architecture review.
 |---|---|---|---|---|---|
 | L-001 | `bot.py -> runtime.v2_runtime as _legacy -> _legacy_main()` | production composition root aliases historical runtime | modular composition + lifecycle | all runtime owners extracted | OPEN |
 | L-002 | module monkey-patch installer stack | many `install_*(_legacy)` mutate one shared module | explicit dependency graph | each installer mapped and replaced | OPEN |
-| L-003 | `ChargeControllerV2(ChargeController)` | MAIN, DESULFATION and recovery SAFE_WAIT now use modular decision/runtime owners; historical superclass remains reachable for MIX/final SAFE_WAIT and other non-migrated paths | modular stage engine | migrate MIX/final SAFE_WAIT, then remaining stages until superclass execution is unreachable | IN_PROGRESS |
-| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative MAIN, DESULFATION and recovery SAFE_WAIT bypass historical tick; MIX and final SAFE_WAIT still use the historical scaffold | explicit modular stage runtime services | remove MIX/final SAFE_WAIT historical scaffold calls in ERADICATION-04 | IN_PROGRESS |
+| L-003 | `ChargeControllerV2(ChargeController)` | MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT now use modular decision/runtime owners; historical superclass remains reachable only for other non-migrated program families/helpers | modular stage engine | migrate remaining stages until superclass execution is unreachable | IN_PROGRESS |
+| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT bypass historical tick; `super().tick()` remains only for Custom/non-migrated paths | explicit modular stage runtime services | remove the remaining historical scaffold reachability in later program-family boundaries | IN_PROGRESS |
 | L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | new route hands execution to preserved owner | modular start/application/execution service | new START transaction parity | OPEN |
 | L-008 | legacy UI read adapter | OperatorSnapshot reads old HMI/runtime globals | canonical read model | migrated screens do not use old app | OPEN |
 | L-009 | direct actuator writers outside execution port | runtime/logger/restore/handlers own many setters | single execution service | static inventory reaches zero outside allowed physical implementation | OPEN |
@@ -21,42 +21,69 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-03: MAIN -> DESULFATION -> recovery SAFE_WAIT -> verified MAIN return.**
+**ERADICATION-04: MIX -> final SAFE_WAIT -> verified Storage/DONE.**
 
 The functional cutover is implemented in commit
-`0f161a85a847d010ea6b7b860c065295145adf7a`.
+`aecde476ccb65ae1aeeb086638d490cd9825992d`.
 
 Canonical owners now are:
 
-- `runtime/charge/strategy/desulfation.py` + `desulfation_variables.py`;
-- `runtime/charge/strategy/recovery_safe_wait.py`;
-- `runtime/charge/strategy/safe_wait_variables.py`;
-- `runtime/charge/runtime/recovery_scaffold.py` for common runtime mechanics.
+- `runtime/charge/strategy/mix.py` for the production MIX stage decision while
+  retaining the reusable `MixPolicy` compatibility API;
+- `runtime/charge/strategy/mix_variables.py` for MIX V/I targets, profile
+  active-time limits and the sticky finish hold;
+- `runtime/charge/strategy/final_safe_wait.py` for successful-completion
+  continuation validation and relaxation decisions;
+- `runtime/charge/strategy/safe_wait_variables.py` for the shared SAFE_WAIT
+  relaxation margin/timeout;
+- `runtime/charge/strategy/storage.py` for the managed Storage target;
+- `runtime/charge/runtime/mix_scaffold.py` for accepted common runtime
+  mechanics without historical stage transitions.
 
-Authoritative DESULFATION and recovery SAFE_WAIT no longer enter historical
-`ChargeController.tick()`. The recovery continuation is session-bound by both
-session identity and generation, and persisted state alone cannot authorize
-Output ON. SAFE_WAIT -> MAIN remains a two-phase transition: the stage commit
-occurs only after the execution layer verifies the physical enable transaction.
+Authoritative MIX and final SAFE_WAIT no longer enter historical
+`ChargeController.tick()`. Static regressions patch the historical tick to
+fail if either path reaches it.
+
+Accepted production semantics are preserved:
+
+- CV MIX uses Imin / Delta-I evidence;
+- CC MIX uses Vmax / Delta-V evidence;
+- confirmed mode-specific evidence starts the sticky two-hour finish hold;
+- active MIX authority remains Ca/Ca 20 h, EFB 24 h, AGM 10 h;
+- successful completion enters final SAFE_WAIT with Output OFF;
+- persisted final continuation state alone cannot authorize Output ON;
+- a fresh physical Output OFF observation is required before Storage enable may
+  be requested;
+- SAFE_WAIT -> Storage/DONE remains a two-phase transaction and commits only
+  after the execution layer verifies programmed OVP/OCP/V/I and physical
+  Output ON.
+
+The final continuation persists and validates session identity plus session
+generation. Stale generations fail closed. The existing
+`V2_MIX_MAX_HOURS` compatibility mapping is derived from the modular
+`VariableSpec` owners rather than defining a second production value owner.
 
 Pre-boundary exact-head CI for
-`396b364b79816366380ee89d452256d1e0bacf08`, run `#1510`
-(`37141127400`), passed on Python 3.10, 3.11 and 3.12.
+`39f8ab2ef143ce1092aab267d511114c58395ff0`, run `#1512`
+(`37147682685`), passed on Python 3.10, 3.11 and 3.12.
 
 Local validation for the functional cutover:
 
 - `python -m compileall -q .`: PASS;
 - `git diff --check`: PASS;
-- full suite: 1793 tests PASS, 2 skipped;
-- restart/session-generation/fresh-OFF/failed-enable/no-duplicate-enable/
-  historical-tick-unreachable regressions: PASS.
+- focused MIX/final/recovery/Storage/Cooling/compatibility regressions: PASS;
+- historical-tick-unreachable, stale-generation, fresh-OFF, pending-enable and
+  no-duplicate-enable regressions: PASS;
+- full suite on exact code commit
+  `aecde476ccb65ae1aeeb086638d490cd9825992d`: **1803 tests PASS, 2 skipped**.
 
-Exact-head GitHub CI for
-`39f8ab2ef143ce1092aab267d511114c58395ff0`, run `#1512`
-(`37147682685`), passed on Python 3.10, 3.11 and 3.12.
+ERADICATION-04 is locally complete. The remaining gate is exact-head GitHub CI
+after the documentation checkpoint is pushed. On CI PASS, the next exact
+boundary is ERADICATION-05: Manual/Custom.
 
-ERADICATION-03 is therefore remote-verified and complete. The next exact
-boundary is ERADICATION-04: MIX -> final SAFE_WAIT -> verified Storage/DONE.
+Production changed: NO.
+
+Hardware commands sent: NO.
 
 ## ERADICATION-02 progress
 
@@ -97,4 +124,4 @@ and session generation. Stale generations fail closed.
 
 The historical superclass is still present, but its mutating stage path is
 unreachable for authoritative MAIN, DESULFATION and recovery SAFE_WAIT. MIX and
-final SAFE_WAIT remain ERADICATION-04 debt.
+final SAFE_WAIT were the next debt and are now cut over in ERADICATION-04.
