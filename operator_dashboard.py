@@ -17,6 +17,8 @@ from rd6018_telemetry import (
     resolve_regulation,
     telemetry_freshness,
 )
+from runtime.ui.screens.journal import journal_button_spec
+from runtime.ui.telegram.renderer import render_button
 
 
 _UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
@@ -79,7 +81,7 @@ def _graph_toolbar(app: Any, user_id: int, actions=None):
     if actions is not None and any(
         item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
     ):
-        top_row.append(hmi.InlineKeyboardButton(text="📋 Лог", callback_data="logs"))
+        top_row.append(render_button(journal_button_spec()))
     return top_row
 
 

@@ -8,6 +8,8 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from runtime.ui.telegram.journal import HOME_CALLBACK_DATA, JOURNAL_CALLBACK_DATA
+
 logger = logging.getLogger("rd6018.ui")
 
 # Callbacks that update/adopt the already-rendered main panel without opening a
@@ -23,6 +25,7 @@ _TERMINAL_CALLBACKS = {
     "charge_back",
     "custom_cancel",
     "operator_done",
+    HOME_CALLBACK_DATA,
     "operator_adopted_stop_execute",
     "operator_managed_mix_stop_execute",
     "rd_live_mix_start_observe",
@@ -49,7 +52,7 @@ _TERMINAL_CALLBACKS = {
 # dashboard after every click. The panel returns only when the workflow terminates.
 _WORKSPACE_CALLBACKS = {
     "charge_modes",
-    "logs",
+    JOURNAL_CALLBACK_DATA,
     "info_full",
     "ai_analysis",
     "entities_status",

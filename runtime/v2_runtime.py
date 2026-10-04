@@ -1523,21 +1523,12 @@ def format_log_event(event_line: str) -> str:
 
 
 def _build_logs_text(limit: int = 50, shown: int = 25) -> str:
-    """Собрать текст экрана логов для кнопки/команды."""
+    """Compatibility command renderer delegated to the canonical UI component."""
     from charging_log import get_recent_events
+    from runtime.ui.components.journal import render_journal_text
+
     try:
-        recent_events = get_recent_events(limit)
-        if not recent_events:
-            return "<b>📝 Логи событий</b>\n\nНет событий."
-        filtered_events = _remove_duplicate_events(recent_events)
-        lines = ["<b>📝 Логи событий</b>\n"]
-        for event in filtered_events[-shown:]:
-            formatted_event = format_log_event(event)
-            if formatted_event.strip():
-                lines.append(formatted_event)
-        if len(lines) <= 1:
-            return "<b>📝 Логи событий</b>\n\nТолько служебные события."
-        return "\n".join(lines)
+        return render_journal_text(get_recent_events(limit), shown=shown)
     except Exception as ex:
         logger.error("Failed to get recent events: %s", ex)
         return "<b>📝 Логи событий</b>\n\n❌ Ошибка загрузки событий."
@@ -4263,48 +4254,6 @@ async def profile_selection(call: CallbackQuery) -> None:
         parse_mode=ParseMode.HTML,
     )
     schedule_dashboard_after_60(call.message.chat.id, user_id)
-
-
-@router.callback_query(F.data == "logs")
-async def logs_handler(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    text = _build_logs_text()
-    user_id = call.from_user.id if call.from_user else 0
-    _retire_graph_tracking_for_message(
-        call.message.chat.id,
-        user_id,
-        call.message.message_id,
-    )
-    is_on = await _safe_output_on()
-    ikb = _build_dashboard_keyboard(is_on, user_id, back_to_dashboard=True)
-    try:
-        await call.message.edit_text(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=ikb,
-        )
-        if user_id:
-            user_dashboard[user_id] = call.message.message_id
-        chat_dashboard[call.message.chat.id] = call.message.message_id
-    except Exception:
-        sent = await call.message.answer(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=ikb,
-        )
-        if user_id:
-            user_dashboard[user_id] = sent.message_id
-        chat_dashboard[call.message.chat.id] = sent.message_id
-        try:
-            await bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
-    schedule_dashboard_after_60(call.message.chat.id, call.from_user.id if call.from_user else 0)
 
 
 @router.callback_query(F.data == "ai_analysis")

@@ -59,6 +59,12 @@ class SafetyView:
 
 
 @dataclass(frozen=True)
+class JournalView:
+    events: tuple[str, ...] = ()
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class RuntimeUISnapshot:
     charge: ChargeView
     battery: Mapping[str, object] = field(default_factory=dict)

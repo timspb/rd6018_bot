@@ -23,6 +23,7 @@ from manual_context_v2 import (
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
+from runtime.ui.telegram.journal import install_journal_screen
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
 from operator_navigation_recovery import install_operator_navigation_recovery
@@ -228,6 +229,13 @@ install_hands_off_background_isolation(_legacy, _rd_control_mode)
 # remain installed and retain their authority; only panel state acquisition uses
 # this provider in the current migration step.
 _legacy.operator_interface = OperatorSnapshotProvider(_legacy)
+if _v2_ui_enabled:
+    install_journal_screen(
+        _legacy,
+        interface=_legacy.operator_interface,
+        home_handler=_legacy._operator_home_handler,
+        retire_graph_tracking=_legacy._retire_graph_tracking_for_message,
+    )
 
 _legacy_main = _legacy.main
 _v2_startup_recovery = V2StartupRecovery(

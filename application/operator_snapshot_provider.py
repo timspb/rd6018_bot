@@ -5,8 +5,16 @@ from __future__ import annotations
 import inspect
 from typing import Any, Mapping
 
-from runtime.ui.models import ChargeView, DiagnosticsView, RuntimeUISnapshot, SafetyView, TelemetryView
+from runtime.ui.models import (
+    ChargeView,
+    DiagnosticsView,
+    JournalView,
+    RuntimeUISnapshot,
+    SafetyView,
+    TelemetryView,
+)
 
+from .journal_read_service import EventJournalReadService
 from .legacy_ui_boundary import DiagnosticAuthority, HmiProcessState, LegacyUIReadAdapter
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
@@ -25,8 +33,16 @@ class OperatorSnapshotProvider:
     that can start/stop charging or write an actuator is called here.
     """
 
-    def __init__(self, app: Any, *, journal: Any = None, intent_dispatcher: IntentDispatcher | None = None) -> None:
+    def __init__(
+        self,
+        app: Any,
+        *,
+        journal: Any = None,
+        intent_dispatcher: IntentDispatcher | None = None,
+        event_journal_reader: EventJournalReadService | None = None,
+    ) -> None:
         self._legacy = LegacyUIReadAdapter(app, journal=journal)
+        self._event_journal_reader = event_journal_reader or EventJournalReadService()
         if intent_dispatcher is None:
             pause_handler = PauseCommandHandler().route
             profile_handler = ProfileCommandHandler().route
@@ -149,6 +165,9 @@ class OperatorSnapshotProvider:
             return None if value is None else float(value)
         except (TypeError, ValueError):
             return None
+
+    async def get_event_journal(self, limit: int = 50) -> JournalView:
+        return self._event_journal_reader.read(limit)
 
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]:
         if limit < 0:

@@ -82,20 +82,33 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
                 else:
                     continue
                 for name in names:
-                    if any(name == token or name.startswith(token + ".") for token in forbidden):
+                    for token in forbidden:
+                        if not (name == token or name.startswith(token + ".")):
+                            continue
+                        if token == "aiogram" and "telegram" in path.parts:
+                            continue
                         violations.append(f"{path.relative_to(ROOT)}:{name}")
         self.assertEqual([], violations)
 
-    def test_canonical_runtime_ui_does_not_construct_telegram_buttons(self) -> None:
+    def test_only_telegram_renderer_layer_constructs_framework_buttons(self) -> None:
         violations: list[str] = []
+        renderer_hits: list[str] = []
         for path in (ROOT / "runtime" / "ui").rglob("*.py"):
             if "legacy_shadow" in path.parts:
                 continue
             text = path.read_text(encoding="utf-8")
             for token in ("InlineKeyboardButton(", "callback_data="):
-                if token in text:
+                if token not in text:
+                    continue
+                if "telegram" in path.parts:
+                    renderer_hits.append(f"{path.relative_to(ROOT)}:{token}")
+                else:
                     violations.append(f"{path.relative_to(ROOT)}:{token}")
         self.assertEqual([], violations)
+        self.assertTrue(
+            any("renderer.py:InlineKeyboardButton(" in item for item in renderer_hits),
+            "canonical Telegram renderer must be the explicit framework button boundary",
+        )
 
     def test_capacity_start_has_no_direct_legacy_physical_fallback(self) -> None:
         source = (ROOT / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
