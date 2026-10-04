@@ -2832,32 +2832,6 @@ async def data_logger() -> None:
 # --- Handlers ---
 
 
-@router.message(Command("start"))
-async def cmd_start(message: Message) -> None:
-    if not await _check_chat_and_respond(message):
-        return
-    global last_chat_id, last_user_id
-    last_chat_id = message.chat.id
-    last_user_id = message.from_user.id if message.from_user else 0
-    logger.info("Command /start from %s", message.from_user.id)
-    user_id = message.from_user.id if message.from_user else 0
-    old_id = user_dashboard.get(user_id) if user_id else chat_dashboard.get(message.chat.id)
-    if old_id:
-        try:
-            await bot.delete_message(message.chat.id, old_id)
-        except Exception:
-            pass
-    msg_id = await _build_and_send_dashboard(
-        chat_id=message.chat.id,
-        user_id=user_id,
-        old_msg_id=None,
-        anchor_msg_id=None,
-    )
-    if user_id:
-        user_dashboard[user_id] = msg_id
-    chat_dashboard[message.chat.id] = msg_id
-
-
 @router.message(Command("off"))
 async def cmd_off(message: Message) -> None:
     if not await _check_chat_and_respond(message):

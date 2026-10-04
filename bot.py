@@ -27,6 +27,7 @@ from runtime.ui.telegram.analysis import install_analysis_screen
 from runtime.ui.telegram.details import install_operator_details_screen
 from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.help import install_help_screen
+from runtime.ui.telegram.home import install_home_command
 from runtime.ui.telegram.journal import install_journal_screen
 from runtime.ui.telegram.service import install_service_details_screen
 from runtime.ui.telegram.stats import install_stats_screen
@@ -236,6 +237,10 @@ install_hands_off_background_isolation(_legacy, _rd_control_mode)
 # this provider in the current migration step.
 _legacy.operator_interface = OperatorSnapshotProvider(_legacy)
 if _v2_ui_enabled:
+    install_home_command(
+        _legacy,
+        render_home=_legacy._build_and_send_dashboard,
+    )
     install_journal_screen(
         _legacy,
         interface=_legacy.operator_interface,
