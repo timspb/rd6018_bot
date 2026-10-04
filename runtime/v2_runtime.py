@@ -30,6 +30,7 @@ from telegram.runtime import configure_commands, create_telegram_runtime, run_po
 from runtime.v2_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
+from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
@@ -752,7 +753,7 @@ def _build_dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: b
     rows = [
         chart_buttons,
         [
-            InlineKeyboardButton(text="📝 Логи", callback_data="logs"),
+            InlineKeyboardButton(text="📝 Логи", callback_data=JOURNAL_CALLBACK_DATA),
             InlineKeyboardButton(text="📋 Полная инфо", callback_data=DETAILS_CALLBACK_DATA),
         ],
         [

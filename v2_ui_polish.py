@@ -9,6 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pb_domain import ChargeIntent
 from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
+from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
 
 
 _DECISION_LABELS = {
@@ -218,7 +219,7 @@ def build_operator_dashboard_keyboard(
             chart_button(app.CHART_RANGE_2H, "2ч"),
             chart_button(app.CHART_RANGE_SESSION, "Сессия"),
         ],
-        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
+        [InlineKeyboardButton(text="📋 События", callback_data=JOURNAL_CALLBACK_DATA)],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
