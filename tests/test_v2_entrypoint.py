@@ -55,6 +55,10 @@ class V2EntrypointTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
         self.assertNotIn("sys.modules[__name__]", source)
         self.assertNotIn("_legacy.main = main", source)
+        self.assertNotIn("from runtime import v2_runtime as _legacy", source)
+        self.assertIn("from runtime import v2_runtime as _runtime_substrate", source)
+        self.assertNotIn("_legacy_main = _composition.", source)
+        self.assertNotIn("_v2_startup_recovery = _composition.", source)
         self.assertIn("def __getattr__(name: str):", source)
 
     def test_production_composition_owns_all_installer_calls(self):
@@ -74,7 +78,10 @@ class V2EntrypointTests(unittest.TestCase):
             if value is not None:
                 top_level_calls.append(ast.unparse(value))
 
-        self.assertEqual(top_level_calls, ["ProductionComposition(_legacy).compose()"])
+        self.assertEqual(
+            top_level_calls,
+            ["ProductionComposition(_runtime_substrate).compose()"],
+        )
         self.assertIsInstance(bot._composition, bot.ProductionComposition)
         self.assertTrue(bot._composition.composed)
         self.assertIs(bot._composition.runtime, legacy_runtime)

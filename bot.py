@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 
-from runtime import v2_runtime as _legacy
+from runtime import v2_runtime as _runtime_substrate
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from auto_manual_off_v2 import install_auto_manual_off_contract
 from diagnostic_persistence import install_diagnostic_persistence
@@ -404,30 +404,11 @@ class ProductionComposition:
             await physical.stop()
 
 
-_composition = ProductionComposition(_legacy).compose()
+_composition = ProductionComposition(_runtime_substrate).compose()
 
-# Transitional module-level read aliases for tests/operational helpers. These do
-# not own installation or lifecycle and are retired before ERADICATION-08 closes.
-_v2_ui_enabled = _composition.v2_ui_enabled
-_rd_control_mode = _composition.rd_control_mode
-_rd_autonomous_mode = _composition.rd_autonomous_mode
-_rd_live_mix_observer = _composition.rd_live_mix_observer
-_rd_managed_live_adoption = _composition.rd_managed_live_adoption
-_rd_managed_mix_adoption = _composition.rd_managed_mix_adoption
-_physical_test_control = _composition.physical_test_control
-_rd_startup_authority = _composition.rd_startup_authority
-_legacy_main = _composition.legacy_main
-_v2_startup_recovery = _composition.startup_recovery
 
 async def main() -> None:
-    await _composition.run(
-        runtime=_legacy,
-        legacy_main=_legacy_main,
-        startup_authority=_rd_startup_authority,
-        startup_recovery=_v2_startup_recovery,
-        physical_test_control=_physical_test_control,
-        init_storage=init_v2_storage,
-    )
+    await _composition.run()
 
 
 def __getattr__(name: str):
@@ -440,7 +421,7 @@ def __getattr__(name: str):
     """
 
     try:
-        return getattr(_legacy, name)
+        return getattr(_composition.runtime, name)
     except AttributeError as exc:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
 

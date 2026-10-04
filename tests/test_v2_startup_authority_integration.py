@@ -158,7 +158,7 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_entrypoint_replays_legacy_restore_race_once_after_managed_recovery(self):
         """Exercise the actual bot.py main orchestration, not only a source contract."""
-        shim = bot.main.__globals__
+        composition = bot._composition
         restored = asyncio.Event()
         allow_edge_read = asyncio.Event()
         hass = _FakeHass()
@@ -202,25 +202,30 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
             self.assertFalse(gate.deferred_restore_requested)
 
+        recovery = types.SimpleNamespace(
+            recover_managed_startup_authority=recover,
+            replay_deferred_startup_restore=V2StartupRecovery(
+                fake_legacy, None, None
+            ).replay_deferred_startup_restore,
+        )
         replacements = {
-            "_legacy": fake_legacy,
-            "_legacy_main": legacy_main,
-            "_rd_startup_authority": gate,
-            "_v2_startup_recovery": types.SimpleNamespace(
-                recover_managed_startup_authority=recover,
-                replay_deferred_startup_restore=V2StartupRecovery(
-                    fake_legacy, None, None
-                ).replay_deferred_startup_restore,
-            ),
-            "_physical_test_control": physical,
-            "init_v2_storage": init_storage,
+            "runtime": fake_legacy,
+            "legacy_main": legacy_main,
+            "rd_startup_authority": gate,
+            "startup_recovery": recovery,
+            "physical_test_control": physical,
         }
-        originals = {name: shim[name] for name in replacements}
+        originals = {name: getattr(composition, name) for name in replacements}
+        original_init_storage = bot.init_v2_storage
         try:
-            shim.update(replacements)
+            for name, value in replacements.items():
+                setattr(composition, name, value)
+            bot.init_v2_storage = init_storage
             await bot.main()
         finally:
-            shim.update(originals)
+            for name, value in originals.items():
+                setattr(composition, name, value)
+            bot.init_v2_storage = original_init_storage
 
         self.assertEqual(recovery_calls, 1)
         self.assertEqual(len(controller.restore_calls), 1)
@@ -239,24 +244,18 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_physical_resume_retries_without_restoring_session_twice(self):
         """Retry only physical convergence after software restore has already succeeded."""
-        shim = bot.main.__globals__
         restored = asyncio.Event()
         hass = _FakeHass(turn_on_results=[False, True])
         controller = _FakeController(restored)
         fake_legacy = self._fake_legacy(hass, controller)
-        original_legacy = shim["_legacy"]
-        try:
-            shim["_legacy"] = fake_legacy
-            with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
-                await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
-
-            self.assertTrue(controller.is_active)
-            self.assertEqual(len(controller.restore_calls), 1)
-            self.assertEqual(hass.live["switch"], "off")
-
+        with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
             await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
-        finally:
-            shim["_legacy"] = original_legacy
+
+        self.assertTrue(controller.is_active)
+        self.assertEqual(len(controller.restore_calls), 1)
+        self.assertEqual(hass.live["switch"], "off")
+
+        await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
 
         self.assertEqual(len(controller.restore_calls), 1)
         self.assertEqual(hass.turn_on_calls, 2)
