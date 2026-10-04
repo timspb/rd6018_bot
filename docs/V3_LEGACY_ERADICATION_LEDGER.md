@@ -7,8 +7,8 @@ new entries require explicit architecture review.
 
 | ID | Reachable legacy boundary | Current evidence | Replacement target | Removal gate | Status |
 |---|---|---|---|---|---|
-| L-001 | `bot.py -> runtime.v2_runtime as _legacy -> _legacy_main()` | production composition root aliases historical runtime | modular composition + lifecycle | all runtime owners extracted | OPEN |
-| L-002 | module monkey-patch installer stack | many `install_*(_legacy)` mutate one shared module | explicit dependency graph | each installer mapped and replaced | OPEN |
+| L-001 | `bot.py -> ProductionComposition -> runtime.v2_runtime substrate` | production root is explicit; historical runtime is encapsulated as a compatibility substrate and is no longer the module identity/lifecycle owner | modular composition + lifecycle | remove the production `runtime.v2_runtime` substrate edge in ERADICATION-09 | IN_PROGRESS |
+| L-002 | compatibility installer stack inside `ProductionComposition.compose()` | installer order is centralized under one explicit composition owner; no installer call executes independently at module top level | explicit dependency graph | retire remaining compatibility installers with the historical runtime graph | IN_PROGRESS |
 | L-003 | `ChargeControllerV2(ChargeController)` | automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT use modular decision/runtime owners; production Custom/Manual no longer enters the historical controller; superclass remains only for residual compatibility stages/helpers | modular stage engine | migrate residual compatibility stages/helpers until superclass execution is unreachable | IN_PROGRESS |
 | L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX/final SAFE_WAIT bypass historical tick; historical Custom is rejected/fail-closed and Manual uses its own runtime owner; `super().tick()` remains only for residual compatibility stages/helpers | explicit modular stage runtime services | remove the remaining historical scaffold reachability during residual convergence | IN_PROGRESS |
 | L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | new route hands execution to preserved owner | modular start/application/execution service | new START transaction parity | OPEN |
@@ -21,26 +21,53 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-07: UI cutover — REMOTE-VERIFIED COMPLETE.**
+**ERADICATION-08: runtime/composition cutover - LOCALLY COMPLETE; REMOTE CI PENDING.**
 
-Exact code HEAD:
-`b5e5bff8328d187cd1ddb9c012f2be69e783a4fe`.
+Pre-boundary remote authority:
+ERADICATION-07 functional HEAD b5e5bff8328d187cd1ddb9c012f2be69e783a4fe,
+GitHub Actions run #1564 / 37228622855, Python 3.10/3.11/3.12 PASS.
+Documentation handoff HEAD: 80881a978b4b7bf9286477f075493885102af909.
 
-All production Telegram UI routes are now registered by canonical
-`runtime/ui/telegram/*` modules. The historical `runtime/v2_runtime.py`
-declares no `@router.callback_query` or `@router.message(Command(...))`
-routes. Canonical UI imports no historical runtime/controller/HA/ESP module and
-contains no physical actuator calls.
+Exact local ERADICATION-08 code HEAD:
+517521d30b3708ab6d8366a200bdb587623b5164.
 
-GitHub Actions exact-head run `#1564` / `37228622855` passed on Python
-3.10, 3.11 and 3.12.
+Composition cutover now provides one explicit ProductionComposition owner:
 
-Next exact boundary: `ERADICATION-08: runtime/composition cutover`.
+- bot.py is a distinct production module and is no longer replaced through sys.modules;
+- production no longer writes bot.main into the historical runtime;
+- all compatibility installer calls are owned by ProductionComposition.compose();
+- module top level executes one composition call instead of a distributed installer stack;
+- startup authority reconciliation, physical-control lifecycle and runtime execution are
+  owned by ProductionComposition.run();
+- module-level _rd_*, _legacy_main and startup-recovery aliases are retired;
+- runtime.v2_runtime remains encapsulated only as the production composition substrate;
+- the temporary __getattr__ compatibility bridge is read-only and delegates through
+  composition.runtime. Removing that substrate/bridge belongs to ERADICATION-09.
 
-Production changed: NO.
+Local validation on exact code HEAD 517521d30b3708ab6d8366a200bdb587623b5164:
 
-Hardware commands sent: NO.
+- composition/entrypoint focused suites: PASS;
+- startup-authority integration: 2/2 PASS;
+- restart/restore HA composition: 1/1 PASS;
+- Phase 6 composition root: 5/5 PASS;
+- Phase 6 architecture guardrails: 6/6 PASS;
+- legacy inventory: 4/4 PASS;
+- production physical isolation: 2/2 PASS;
+- autonomous install-order contract: 4/4 PASS;
+- V1 UI compatibility: 9/9 PASS;
+- python -m compileall -q .: PASS;
+- git diff --check: PASS;
+- CI-equivalent local discovery: 1915 PASS, 2 skipped;
+- test_manual_context_v2: 4/4 PASS separately. Local Python 3.14 leaves a
+  post-test background/teardown process alive after reporting OK, so these four
+  tests were isolated from the main discovery run. Total logical coverage:
+  1919 tests, 2 skipped, 0 failures.
 
+Production VM104 was not touched. No hardware commands were sent.
+
+Remaining gate: commit this documentation checkpoint, push PR #29 and require
+exact-head GitHub CI PASS on Python 3.10/3.11/3.12. Only then close
+ERADICATION-08 as remote-verified and begin ERADICATION-09.
 ## Previous migration boundary — ERADICATION-06
 
 **ERADICATION-06: safety and execution convergence — REMOTE-VERIFIED COMPLETE.**

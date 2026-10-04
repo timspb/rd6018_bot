@@ -890,3 +890,63 @@ Migrate screens one at a time to canonical `ViewModel`, `ScreenSpec`,
 `ButtonSpec`, `UIAction` and application intents. Remove each historical
 callback only after parity. Gate: canonical UI imports no historical
 runtime/controller/HA/ESP modules.
+
+## 14.13 ERADICATION-08 checkpoint - 2026-10-05
+
+Boundary: ERADICATION-08: runtime/composition cutover.
+
+Pre-boundary authority:
+- ERADICATION-07 functional HEAD b5e5bff8328d187cd1ddb9c012f2be69e783a4fe;
+- GitHub Actions run #1564 / 37228622855: Python 3.10/3.11/3.12 PASS;
+- ERADICATION-07 documentation handoff HEAD 80881a978b4b7bf9286477f075493885102af909.
+
+Exact local ERADICATION-08 code HEAD:
+517521d30b3708ab6d8366a200bdb587623b5164.
+
+The production entrypoint now has one explicit composition owner and lifecycle:
+
+- bot.py remains the only production entrypoint and is a distinct module object;
+- sys.modules aliasing is removed;
+- bot.py no longer writes its main function back into runtime.v2_runtime;
+- every compatibility installer call is inside ProductionComposition.compose();
+- module top level performs one ProductionComposition(...).compose() call;
+- startup authority reconciliation, physical test-control start/stop, runtime
+  startup and cancellation are owned by ProductionComposition.run();
+- main() is a thin delegate to the composition lifecycle;
+- transitional module-level _rd_*, _legacy_main and startup-recovery aliases are removed;
+- compatibility reads use a read-only __getattr__ bridge through composition.runtime;
+- runtime.v2_runtime remains the encapsulated compatibility substrate and is
+  intentionally deferred to ERADICATION-09.
+
+Installer order and accepted runtime semantics are unchanged.
+
+Local validation on exact code HEAD 517521d30b3708ab6d8366a200bdb587623b5164:
+
+- entrypoint/composition ownership: 13/13 PASS;
+- startup-authority integration: 2/2 PASS;
+- restart/restore HA composition: 1/1 PASS;
+- Phase 6 composition root: 5/5 PASS;
+- Phase 6 architecture guardrails: 6/6 PASS;
+- legacy inventory: 4/4 PASS;
+- production physical isolation: 2/2 PASS;
+- autonomous install-order contract: 4/4 PASS;
+- V1 UI compatibility: 9/9 PASS;
+- python -m compileall -q .: PASS;
+- git diff --check: PASS;
+- filtered CI-equivalent full discovery: 1915 PASS, 2 skipped;
+- test_manual_context_v2: 4/4 PASS separately.
+
+The split full-suite execution is a local Python 3.14 teardown artifact:
+test_manual_context_v2 reports all four tests PASS, but its process remains alive
+after unittest completion. Total logical local coverage is therefore 1919 tests,
+2 skipped, 0 failures. The authoritative remote gate remains GitHub CI on
+Python 3.10/3.11/3.12.
+
+Production VM104 was not touched.
+Hardware commands sent: NO.
+
+Remaining gate:
+docs checkpoint -> push -> exact-head GitHub CI (3.10/3.11/3.12).
+
+On CI PASS, close ERADICATION-08 as remote-verified and begin the final
+ERADICATION-09: remove the historical production graph.
