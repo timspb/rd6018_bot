@@ -21,7 +21,7 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-06: safety and execution convergence — LOCALLY COMPLETE.**
+**ERADICATION-06: safety and execution convergence — REMOTE-VERIFIED COMPLETE.**
 
 Exact code HEAD:
 `c63f75659d1809c34ba753b7045eb119ec0106c0`.
@@ -70,10 +70,10 @@ Validation on exact code HEAD `c63f75659d1809c34ba753b7045eb119ec0106c0`:
 - `git diff --check`: PASS;
 - full local CI-equivalent suite: **1830 tests PASS, 2 skipped**.
 
-ERADICATION-06 is locally complete. Remaining gate:
-documentation checkpoint -> push -> exact-head GitHub CI on Python 3.10,
-3.11 and 3.12. On PASS, close ERADICATION-06 as remote-verified and begin
-ERADICATION-07: UI cutover.
+ERADICATION-06 is remote-verified. GitHub Actions exact-head run
+`#1524` / `37177596599` passed on Python 3.10, 3.11 and 3.12.
+
+Next exact boundary: `ERADICATION-07: UI cutover`.
 
 Previous boundary ERADICATION-05 is remote-verified by GitHub Actions run
 `#1522` / `37172231948` on Python 3.10, 3.11 and 3.12.

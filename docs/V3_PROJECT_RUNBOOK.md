@@ -862,3 +862,31 @@ Production VM104 was not touched. No hardware commands were sent.
 Remaining gate: commit this documentation checkpoint, push the branch, and
 require exact-head GitHub CI PASS on Python 3.10/3.11/3.12. Only then mark
 ERADICATION-06 remote-verified and begin `ERADICATION-07: UI cutover`.
+
+
+### 2026-10-04 ERADICATION-06 remote verification
+
+Exact functional/documentation HEAD:
+`ab3ac72093fa1ee296334dfa1435138104ab1e1a`.
+
+GitHub Actions exact-head run `#1524` / `37177596599` completed PASS:
+
+- Python 3.10: PASS;
+- Python 3.11: PASS;
+- Python 3.12: PASS.
+
+PR #29 points to the verified ERADICATION-06 branch head. The static production
+execution gate is closed: live physical writes are confined to the approved
+execution/physical implementation stack, while quarantined recovery
+compatibility modules remain unreachable from the production graph.
+
+Production VM104 was not touched and no hardware commands were sent.
+
+Next exact boundary:
+
+`ERADICATION-07: UI cutover`.
+
+Migrate screens one at a time to canonical `ViewModel`, `ScreenSpec`,
+`ButtonSpec`, `UIAction` and application intents. Remove each historical
+callback only after parity. Gate: canonical UI imports no historical
+runtime/controller/HA/ESP modules.
