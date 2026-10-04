@@ -710,3 +710,74 @@ Manual remains a separate program family that may share safety/execution
 mechanics but must not become an escape hatch back into the historical AUTO
 FSM. Preserve accepted Manual/Custom semantics while extracting its own
 strategy/runtime owner and restart/fail-closed contracts.
+
+
+## 14.11 ERADICATION-05 checkpoint - 2026-10-04
+
+Boundary: `ERADICATION-05: Manual/Custom`.
+
+Pre-boundary remote-verified HEAD:
+`c64eee457df3abe3a4e01a81d1464fb90b52a9fe`.
+
+Functional code commit:
+`c99f1180d7fbe38063c4f453083bd428ce646a62` — Retire historical Custom production authority.
+
+Manual is not being reimplemented as a second AUTO path. The existing modular
+Manual program remains the production owner:
+
+- `manual_mode.py` owns Manual session/program semantics;
+- `ProductionManualSessionManager` in `manual_runtime_v2.py` owns the
+  production runtime/authorization lifecycle;
+- the legacy five-step Custom UI is now only a compatibility adapter into
+  `ProductionManualSessionManager.start_from_legacy_ui`;
+- the raw preserved runtime's `start_custom_charge` contains no direct
+  actuator writes and fails closed if the managed Manual owner is absent.
+
+Historical Custom production authority is retired:
+
+- authoritative `ChargeControllerV2.start(PROFILE_CUSTOM,...)` is rejected;
+- authoritative `ChargeControllerV2.start_custom(...)` is rejected;
+- an active historical Custom residue is never allowed into
+  `ChargeController.tick()`; it is forced OFF and the stale controller
+  session is cleared;
+- an IDLE Custom residue is inert;
+- persisted historical Custom sessions are rejected on restore and require
+  explicit operator reauthorization through Manual;
+- `authoritative=False` Custom remains characterization-only for tests and is
+  not a production rollback path.
+
+Accepted Manual semantics were preserved, including the five-step Custom UI
+payload mapping for voltage, current, Delta, active-time limit and capacity.
+Existing Manual restart/re-authorization, cooling, verified-enable, stop and
+fail-closed contracts remain owned by the Manual runtime.
+
+Validation on exact functional commit
+`c99f1180d7fbe38063c4f453083bd428ce646a62`:
+
+- ERADICATION-05 architecture/fail-closed regressions: 8/8 PASS;
+- start-route isolation: 8/8 PASS;
+- recovery trace identity: 3/3 PASS;
+- legacy enable inventory: 2/2 PASS;
+- Manual runtime: 14/14 PASS;
+- Manual mode: 7/7 PASS;
+- Manual profile: 5/5 PASS;
+- Manual context: 4/4 PASS;
+- AUTO/manual-off: 4/4 PASS;
+- modular Manual program: 5/5 PASS;
+- Manual mode boundary: 3/3 PASS;
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- full local suite: **1812 tests PASS, 2 skipped**.
+
+ERADICATION-05 is locally complete. Remaining gate:
+
+`docs checkpoint -> push -> exact-head GitHub CI (3.10/3.11/3.12)`.
+
+On CI PASS, close ERADICATION-05 as remote-verified and continue with
+`ERADICATION-06: safety and execution convergence`. Do not fold UI migration
+or composition-root cleanup into ERADICATION-06 unless required by a proven
+execution/safety ownership defect.
+
+Production changed: NO.
+
+Hardware commands sent: NO.

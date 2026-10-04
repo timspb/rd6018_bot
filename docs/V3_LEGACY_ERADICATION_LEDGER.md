@@ -9,8 +9,8 @@ new entries require explicit architecture review.
 |---|---|---|---|---|---|
 | L-001 | `bot.py -> runtime.v2_runtime as _legacy -> _legacy_main()` | production composition root aliases historical runtime | modular composition + lifecycle | all runtime owners extracted | OPEN |
 | L-002 | module monkey-patch installer stack | many `install_*(_legacy)` mutate one shared module | explicit dependency graph | each installer mapped and replaced | OPEN |
-| L-003 | `ChargeControllerV2(ChargeController)` | MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT now use modular decision/runtime owners; historical superclass remains reachable only for other non-migrated program families/helpers | modular stage engine | migrate remaining stages until superclass execution is unreachable | IN_PROGRESS |
-| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT bypass historical tick; `super().tick()` remains only for Custom/non-migrated paths | explicit modular stage runtime services | remove the remaining historical scaffold reachability in later program-family boundaries | IN_PROGRESS |
+| L-003 | `ChargeControllerV2(ChargeController)` | automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT use modular decision/runtime owners; production Custom/Manual no longer enters the historical controller; superclass remains only for residual compatibility stages/helpers | modular stage engine | migrate residual compatibility stages/helpers until superclass execution is unreachable | IN_PROGRESS |
+| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX/final SAFE_WAIT bypass historical tick; historical Custom is rejected/fail-closed and Manual uses its own runtime owner; `super().tick()` remains only for residual compatibility stages/helpers | explicit modular stage runtime services | remove the remaining historical scaffold reachability during residual convergence | IN_PROGRESS |
 | L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | new route hands execution to preserved owner | modular start/application/execution service | new START transaction parity | OPEN |
 | L-008 | legacy UI read adapter | OperatorSnapshot reads old HMI/runtime globals | canonical read model | migrated screens do not use old app | OPEN |
 | L-009 | direct actuator writers outside execution port | runtime/logger/restore/handlers own many setters | single execution service | static inventory reaches zero outside allowed physical implementation | OPEN |
@@ -21,65 +21,57 @@ new entries require explicit architecture review.
 
 ## Current migration boundary
 
-**ERADICATION-04: MIX -> final SAFE_WAIT -> verified Storage/DONE — REMOTE-VERIFIED COMPLETE.**
+**ERADICATION-05: Manual/Custom — LOCALLY COMPLETE; EXACT-HEAD CI PENDING.**
 
-The functional cutover is implemented in commit
-`aecde476ccb65ae1aeeb086638d490cd9825992d`.
+Functional code commit:
+`c99f1180d7fbe38063c4f453083bd428ce646a62`.
 
-Canonical owners now are:
+Canonical production ownership for this boundary:
 
-- `runtime/charge/strategy/mix.py` for the production MIX stage decision while
-  retaining the reusable `MixPolicy` compatibility API;
-- `runtime/charge/strategy/mix_variables.py` for MIX V/I targets, profile
-  active-time limits and the sticky finish hold;
-- `runtime/charge/strategy/final_safe_wait.py` for successful-completion
-  continuation validation and relaxation decisions;
-- `runtime/charge/strategy/safe_wait_variables.py` for the shared SAFE_WAIT
-  relaxation margin/timeout;
-- `runtime/charge/strategy/storage.py` for the managed Storage target;
-- `runtime/charge/runtime/mix_scaffold.py` for accepted common runtime
-  mechanics without historical stage transitions.
+- `manual_mode.py` owns the Manual program/session semantics;
+- `ProductionManualSessionManager` in `manual_runtime_v2.py` owns the
+  production Manual runtime and authorization lifecycle;
+- the preserved five-step Custom dialog is compatibility presentation only and
+  routes its request to `ProductionManualSessionManager.start_from_legacy_ui`;
+- authoritative `ChargeControllerV2.start(PROFILE_CUSTOM,...)` and
+  `start_custom(...)` reject the historical Custom FSM;
+- an active historical Custom residue never enters `ChargeController.tick()`;
+  it fails closed to Output OFF and clears the stale controller session;
+- a persisted historical Custom session is not resumed after restart; Manual
+  requires explicit operator reauthorization;
+- characterization may instantiate the old Custom controller only with
+  `authoritative=False` in tests. That is not a production rollback path.
 
-Authoritative MIX and final SAFE_WAIT no longer enter historical
-`ChargeController.tick()`. Static regressions patch the historical tick to
-fail if either path reaches it.
+Accepted five-step Custom UI semantics are preserved when translated to Manual:
+voltage, current, Delta, active-time limit and capacity. Existing Manual
+restart/re-authorization, cooling, verified-enable, stop and fail-closed
+contracts remain owned by the Manual runtime.
 
-Accepted production semantics are preserved:
+Validation on exact code commit
+`c99f1180d7fbe38063c4f453083bd428ce646a62`:
 
-- CV MIX uses Imin / Delta-I evidence;
-- CC MIX uses Vmax / Delta-V evidence;
-- confirmed mode-specific evidence starts the sticky two-hour finish hold;
-- active MIX authority remains Ca/Ca 20 h, EFB 24 h, AGM 10 h;
-- successful completion enters final SAFE_WAIT with Output OFF;
-- persisted final continuation state alone cannot authorize Output ON;
-- a fresh physical Output OFF observation is required before Storage enable may
-  be requested;
-- SAFE_WAIT -> Storage/DONE remains a two-phase transaction and commits only
-  after the execution layer verifies programmed OVP/OCP/V/I and physical
-  Output ON.
-
-The final continuation persists and validates session identity plus session
-generation. Stale generations fail closed. The existing
-`V2_MIX_MAX_HOURS` compatibility mapping is derived from the modular
-`VariableSpec` owners rather than defining a second production value owner.
-
-Pre-boundary exact-head CI for
-`39f8ab2ef143ce1092aab267d511114c58395ff0`, run `#1512`
-(`37147682685`), passed on Python 3.10, 3.11 and 3.12.
-
-Local validation for the functional cutover:
-
+- ERADICATION-05 architecture/fail-closed suite: 8/8 PASS;
+- start-route isolation: 8/8 PASS;
+- recovery trace identity: 3/3 PASS;
+- legacy enable inventory: 2/2 PASS;
+- Manual runtime: 14/14 PASS;
+- Manual mode: 7/7 PASS;
+- Manual profile: 5/5 PASS;
+- Manual context: 4/4 PASS;
+- AUTO/manual-off: 4/4 PASS;
+- modular Manual program: 5/5 PASS;
+- Manual mode boundary: 3/3 PASS;
 - `python -m compileall -q .`: PASS;
 - `git diff --check`: PASS;
-- focused MIX/final/recovery/Storage/Cooling/compatibility regressions: PASS;
-- historical-tick-unreachable, stale-generation, fresh-OFF, pending-enable and
-  no-duplicate-enable regressions: PASS;
-- full suite on exact code commit
-  `aecde476ccb65ae1aeeb086638d490cd9825992d`: **1803 tests PASS, 2 skipped**.
+- full local suite: **1812 tests PASS, 2 skipped**.
 
-ERADICATION-04 is locally complete. The remaining gate is exact-head GitHub CI
-after the documentation checkpoint is pushed. On CI PASS, the next exact
-boundary is ERADICATION-05: Manual/Custom.
+ERADICATION-05 is locally complete. Remaining gate:
+documentation checkpoint -> push -> exact-head GitHub CI on Python 3.10,
+3.11 and 3.12. On PASS, close ERADICATION-05 as remote-verified and begin
+ERADICATION-06: safety and execution convergence.
+
+Previous boundary ERADICATION-04 is remote-verified by GitHub Actions run
+`#1516` / `37170224025` on Python 3.10, 3.11 and 3.12.
 
 Production changed: NO.
 
