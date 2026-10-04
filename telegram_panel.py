@@ -69,7 +69,6 @@ _WORKSPACE_CALLBACKS = {
 _WORKSPACE_CALLBACK_PREFIXES = (
     "v2_",
     "off_",
-    "profile_",
     "custom_",
     "rd_live_mix_",
     "rd_managed_adopt_",

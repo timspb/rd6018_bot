@@ -797,12 +797,12 @@ def _build_charge_modes_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="profile_caca"),
-                InlineKeyboardButton(text="🟧 EFB", callback_data="profile_efb"),
-                InlineKeyboardButton(text="🟥 AGM", callback_data="profile_agm"),
+                InlineKeyboardButton(text="🟦 Ca/Ca", callback_data="v2_profile_caca"),
+                InlineKeyboardButton(text="🟧 EFB", callback_data="v2_profile_efb"),
+                InlineKeyboardButton(text="🟥 AGM", callback_data="v2_profile_agm"),
             ],
             [
-                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="profile_custom"),
+                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual"),
                 InlineKeyboardButton(text="⏹ Off по условию", callback_data="menu_off"),
             ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
@@ -3824,82 +3824,6 @@ async def power_toggle_handler(call: CallbackQuery) -> None:
 def _legacy_power_toggle_is_disabled() -> bool:
     """Return whether the managed STOP boundary owns current operator controls."""
     return bool(globals().get("_operator_managed_stop_installed", False))
-
-
-@router.callback_query(F.data == "profile_custom")
-async def custom_mode_start(call: CallbackQuery) -> None:
-    """Начать ручной режим с приветственным сообщением."""
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    global custom_mode_state, custom_mode_data, last_chat_id, last_user_id
-    last_chat_id = call.message.chat.id
-    last_user_id = call.from_user.id if call.from_user else 0
-    user_id = call.from_user.id if call.from_user else 0
-    # Инициализируем состояние
-    custom_mode_state[user_id] = "voltage"
-    custom_mode_data[user_id] = {}
-    
-    # Приветственное сообщение
-    welcome_text = (
-        "🛠 <b>Ручной режим (Custom)</b>\n\n"
-        "• <b>Main:</b> До 80% емкости (обычно 14.7В).\n"
-        "• <b>Mix:</b> Финальный дозаряд (16+ В).\n"
-        "• <b>Delta:</b> Чувствительность финиша (0.03В — стандарт).\n"
-        "• <b>Limit:</b> Защита по времени.\n\n"
-        "⚠️ <b>ВНИМАНИЕ:</b> Высокие напряжения! Убедитесь, что АКБ отключена от бортсети."
-    )
-    
-    # Кнопка отмены
-    cancel_kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="custom_cancel")]]
-    )
-    
-    await call.message.answer(welcome_text, parse_mode=ParseMode.HTML, reply_markup=cancel_kb)
-    
-    # Начинаем ввод напряжения Main
-    await call.message.answer(
-        "<b>Шаг 1/5:</b> Введите напряжение Main (например 14.7):\n"
-        "<i>Диапазон: 12.0 - 17.0В</i>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=cancel_kb
-    )
-
-
-@router.callback_query(F.data.in_({"profile_caca", "profile_efb", "profile_agm"}))
-async def profile_selection(call: CallbackQuery) -> None:
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer()
-    except Exception:
-        pass
-    global awaiting_ah, last_chat_id, last_user_id
-    last_chat_id = call.message.chat.id
-    last_user_id = call.from_user.id if call.from_user else 0
-    mapping = {"profile_caca": "Ca/Ca", "profile_efb": "EFB", "profile_agm": "AGM"}
-    profile = mapping.get(call.data, "Ca/Ca")
-    interface = globals().get("operator_interface")
-    submit = getattr(interface, "submit_intent", None)
-    if callable(submit):
-        user = str(getattr(getattr(call, "from_user", None), "id", "0"))
-        result = await submit(
-            OperatorIntent(OperatorIntentKind.SELECT_CHARGE_PROFILE, "telegram", user, {"profile": profile})
-        )
-        if getattr(result, "status", None) == "rejected":
-            await call.answer("Профиль недоступен", show_alert=True)
-            return
-    user_id = call.from_user.id if call.from_user else 0
-    awaiting_ah[user_id] = profile
-    await call.message.answer(
-        f"<b>Профиль {profile}</b> выбран.\n\n"
-        "Введите ёмкость аккумулятора в Ah (например, 60):",
-        parse_mode=ParseMode.HTML,
-    )
-    schedule_dashboard_after_60(call.message.chat.id, user_id)
 
 
 _lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)
