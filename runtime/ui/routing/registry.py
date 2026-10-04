@@ -37,6 +37,7 @@ DEFAULT_ACTION_ROUTES: Mapping[UIAction, UIActionRoute] = {
             UIAction.OPEN_BATTERY_ADD,
             UIAction.OPEN_MANUAL,
             UIAction.OPEN_INTERRUPTED_MANUAL,
+            UIAction.CANCEL_CUSTOM,
             UIAction.OPEN_DIAGNOSTICS,
             UIAction.OPEN_RECOVERY,
             UIAction.OPEN_MIX,

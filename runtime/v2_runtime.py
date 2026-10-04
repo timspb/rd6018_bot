@@ -30,6 +30,7 @@ from telegram.runtime import configure_commands, create_telegram_runtime, run_po
 from runtime.v2_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.custom import CUSTOM_CANCEL_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
@@ -3376,7 +3377,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
     
     # Кнопка отмены для всех этапов
     cancel_kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="custom_cancel")]]
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data=CUSTOM_CANCEL_CALLBACK_DATA)]]
     )
     
     # В шаге "voltage" допускаем ввод двух чисел через пробел: "16.50 1.4" (В и А)
@@ -3570,30 +3571,12 @@ async def start_custom_charge(message: Message, user_id: int, params: Dict[str, 
     await route(message, user_id, params)
 
 
-@router.callback_query(F.data == "custom_cancel")
-async def custom_mode_cancel(call: CallbackQuery) -> None:
-    """Отменить ручной режим и вернуться в главное меню."""
-    if not await _check_chat_and_respond(call):
-        return
-    try:
-        await call.answer("Ручной режим отменен")
-    except Exception:
-        pass
-    
-    global custom_mode_state, custom_mode_data, custom_mode_confirm
-    user_id = call.from_user.id if call.from_user else 0
-    
-    # Очищаем состояние FSM
-    if user_id in custom_mode_state:
-        del custom_mode_state[user_id]
-    if user_id in custom_mode_data:
-        del custom_mode_data[user_id]
-    if user_id in custom_mode_confirm:
-        del custom_mode_confirm[user_id]
-    
-    # Возвращаемся в главное меню
-    old_id = user_dashboard.get(call.from_user.id) if call.from_user else None
-    await send_dashboard(call, old_msg_id=old_id)
+def _cancel_custom_mode_state(user_id: int) -> None:
+    """Clear compatibility Custom-wizard state without Telegram concerns."""
+
+    custom_mode_state.pop(int(user_id), None)
+    custom_mode_data.pop(int(user_id), None)
+    custom_mode_confirm.pop(int(user_id), None)
 
 
 _lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)

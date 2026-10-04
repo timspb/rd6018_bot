@@ -9,6 +9,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
+from runtime.ui.telegram.custom import CUSTOM_CANCEL_CALLBACK_DATA
 from runtime.ui.telegram.charge import (
     BATTERIES_CALLBACK_DATA,
     BATTERY_ADD_CALLBACK_DATA,
@@ -30,7 +31,7 @@ _ADOPT_CALLBACKS = set()
 # A terminal callback closes an L3/L4 workspace. After its handler is finished the
 # semantic L2 panel must be republished as the newest message in the chat.
 _TERMINAL_CALLBACKS = {
-    "custom_cancel",
+    CUSTOM_CANCEL_CALLBACK_DATA,
     "operator_done",
     HOME_CALLBACK_DATA,
     "operator_adopted_stop_execute",
@@ -82,7 +83,6 @@ _WORKSPACE_CALLBACKS = {
 _WORKSPACE_CALLBACK_PREFIXES = (
     "v2_",
     "off_",
-    "custom_",
     "rd_live_mix_",
     "rd_managed_adopt_",
     "rd_managed_mix_",

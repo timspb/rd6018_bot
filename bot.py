@@ -25,6 +25,7 @@ from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from runtime.ui.telegram.analysis import install_analysis_screen
 from runtime.ui.telegram.charge import install_charge_program_screen
+from runtime.ui.telegram.custom import install_custom_cancel_route
 from runtime.ui.telegram.details import install_operator_details_screen
 from runtime.ui.telegram.entities import install_entities_screen
 from runtime.ui.telegram.help import install_help_screen
@@ -257,6 +258,11 @@ if _v2_ui_enabled:
             == "interrupted"
         ),
         schedule_refresh=_legacy.schedule_dashboard_after_60,
+    )
+    install_custom_cancel_route(
+        _legacy,
+        cancel_state=_legacy._cancel_custom_mode_state,
+        home_handler=_legacy._operator_home_handler,
     )
     install_home_command(
         _legacy,

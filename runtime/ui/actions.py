@@ -12,6 +12,7 @@ class UIAction(str, Enum):
     RESUME_CHARGE = "charge.resume"
     SELECT_PROFILE = "charge.select_profile"
     SET_OFF_PRESET = "charge.set_off_preset"
+    CANCEL_CUSTOM = "custom.cancel"
 
     OPEN_HOME = "nav.home"
     OPEN_CHARGE = "nav.charge"
