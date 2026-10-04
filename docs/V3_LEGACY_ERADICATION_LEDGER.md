@@ -17,9 +17,31 @@ new entries require explicit architecture review.
 | L-010 | `legacy_recipe_adapter` | preflight/controller/recovery use compatibility naming | modular recipe/config owner | consumers moved and adapter removed | OPEN |
 | L-011 | `legacy_safety` | compatibility module remains, but live voltage ceilings/MIX windows are derived from modular safety/strategy VariableSpec owners | modular safety/strategy variables | values have one canonical owner | CLOSED |
 | L-012 | `legacy_transition_audit` | controller audits movements produced by legacy fallback | canonical decision journal | no legacy transition source | OPEN |
-| L-014 | UI buttons/callbacks scattered across installers/handlers | UI is vulnerable to runtime refactors | modular ScreenSpec/ButtonSpec/action routing | screen-by-screen parity and removal | OPEN |
+| L-014 | UI buttons/callbacks scattered across installers/handlers | all production Telegram UI routes are owned by canonical `runtime/ui` modules; historical `runtime/v2_runtime.py` declares no UI routes | modular ScreenSpec/ButtonSpec/action routing | screen-by-screen parity and removal | CLOSED |
 
 ## Current migration boundary
+
+**ERADICATION-07: UI cutover — REMOTE-VERIFIED COMPLETE.**
+
+Exact code HEAD:
+`b5e5bff8328d187cd1ddb9c012f2be69e783a4fe`.
+
+All production Telegram UI routes are now registered by canonical
+`runtime/ui/telegram/*` modules. The historical `runtime/v2_runtime.py`
+declares no `@router.callback_query` or `@router.message(Command(...))`
+routes. Canonical UI imports no historical runtime/controller/HA/ESP module and
+contains no physical actuator calls.
+
+GitHub Actions exact-head run `#1564` / `37228622855` passed on Python
+3.10, 3.11 and 3.12.
+
+Next exact boundary: `ERADICATION-08: runtime/composition cutover`.
+
+Production changed: NO.
+
+Hardware commands sent: NO.
+
+## Previous migration boundary — ERADICATION-06
 
 **ERADICATION-06: safety and execution convergence — REMOTE-VERIFIED COMPLETE.**
 
