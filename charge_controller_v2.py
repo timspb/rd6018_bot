@@ -8,11 +8,10 @@ import time
 import uuid
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from charge_logic import (
-    ChargeController,
-    SESSION_FILE,
-    SESSION_START_MAX_AGE,
-)
+from charge_logic import ChargeController
+from runtime.charge.persistence import SESSION_FILE, SESSION_START_MAX_AGE_S
+
+SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
 from runtime.charge.evidence.first_stage import (
     FirstStageAssessment,
     FirstStageState,

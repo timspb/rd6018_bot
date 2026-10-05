@@ -148,7 +148,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         reach_voltage_v: Optional[float] = None,
         reach_current_a: Optional[float] = None,
     ) -> bool:
-        from charge_logic import MAX_STAGE_CURRENT
+        from runtime.safety.variables import MAX_STAGE_CURRENT_A
         from config import MAX_MANUAL_VOLTAGE
 
         reach_v = self._validate_reach(
@@ -158,7 +158,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         )
         reach_i = self._validate_reach(
             reach_current_a,
-            ceiling=float(MAX_STAGE_CURRENT),
+            ceiling=float(MAX_STAGE_CURRENT_A.default),
             name="current",
         )
         self.reach_voltage_v = reach_v

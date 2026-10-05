@@ -132,7 +132,9 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             app = SimpleNamespace(charge_controller=controller)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
                 "charge_controller_v2.SESSION_FILE", session_file
-            ), patch("production_controller.SESSION_FILE", session_file):
+            ), patch("production_controller.SESSION_FILE", session_file), patch(
+                "done_storage_restore.SESSION_FILE", session_file
+            ):
                 install_done_storage_restore(app)
                 controller.start("AGM", 90)
                 controller._v2_trace_session_id = "session-final"

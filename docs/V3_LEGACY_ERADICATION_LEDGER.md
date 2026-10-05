@@ -275,3 +275,27 @@ Next exact boundary after that contraction:
 
 Production VM104 changed: **NO**.
 Hardware commands sent: **NO**.
+
+
+## 2026-10-05 ERADICATION-09 dependency-contraction checkpoint
+
+Status: local PASS, awaiting exact-head remote CI before beginning L-003 mutation.
+
+No ledger item is closed by this increment. Remaining debt is still:
+
+- **L-002** — compatibility installer stack in `ProductionComposition.compose()`;
+- **L-003** — historical `ChargeController` superclass reachability.
+
+Pre-L-003 ownership contraction completed:
+
+- session filename and session-start maximum age -> `runtime/charge/persistence.py`;
+- MIX ΔV/ΔI exit references -> `runtime/charge/strategy/exit_variables.py`;
+- stage-current ceiling, OVP/OCP margins and watchdog/high-voltage watchdog values -> `runtime/safety/variables.py`.
+
+Accepted values are preserved 1:1. Contract tests reject reintroduction of these historical value imports into the migrated consumers and assert that the sole remaining `charge_logic` import in `charge_controller_v2.py` is `ChargeController`.
+
+Observed residual L-003 dependency: inherited historical `_save_session()` still resolves `charge_logic.SESSION_FILE`; the V3 persistence reader no longer does. This is retained only until superclass retirement and is explicitly covered by transitional regression fixtures.
+
+Validation: focused PASS; compileall PASS; diff-check PASS; full CI-equivalent discovery 1925 PASS / 2 skipped.
+
+Production VM104 changed: NO. Hardware commands sent: NO.

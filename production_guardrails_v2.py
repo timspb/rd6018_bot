@@ -4,7 +4,9 @@ import math
 import time
 from typing import Any, Dict, Optional, Tuple
 
-from charge_logic import MAX_STAGE_CURRENT
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MAX_MANUAL_VOLTAGE
 
 

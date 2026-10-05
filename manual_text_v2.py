@@ -10,7 +10,9 @@ from aiogram import BaseMiddleware, F
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
 import v2_sg_ui
-from charge_logic import MAX_STAGE_CURRENT
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
 from manual_runtime_v2 import ProductionManualSessionManager

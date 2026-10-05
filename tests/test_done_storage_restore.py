@@ -26,7 +26,10 @@ class DoneStorageRestoreTests(unittest.TestCase):
     @staticmethod
     def _patch_session_file(path):
         stack = ExitStack()
+        # Until L-003 retires the historical superclass, its inherited _save_session()
+        # still resolves charge_logic.SESSION_FILE while V3 readers use the canonical owner.
         stack.enter_context(patch("charge_logic.SESSION_FILE", path))
+        stack.enter_context(patch("done_storage_restore.SESSION_FILE", path))
         stack.enter_context(patch("charge_controller_v2.SESSION_FILE", path))
         stack.enter_context(patch("production_controller.SESSION_FILE", path))
         return stack
@@ -164,7 +167,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
                 json.dump({"stage": "Done", "saved_at": 1.0}, handle)
             idle = SimpleNamespace(current_stage="Idle", STAGE_DONE="Done", is_active=False)
             app = SimpleNamespace(_operator_pause_active=lambda: True)
-            with patch("charge_logic.SESSION_FILE", path):
+            with patch("done_storage_restore.SESSION_FILE", path):
                 self.assertFalse(_paused_done_resume_is_authorized(app, idle))
 
     def test_operator_pause_accepts_only_explicit_storage_done_document_before_restore(self):
@@ -182,7 +185,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
                 )
             idle = SimpleNamespace(current_stage="Idle", STAGE_DONE="Done", is_active=False)
             app = SimpleNamespace(_operator_pause_active=lambda: True)
-            with patch("charge_logic.SESSION_FILE", path):
+            with patch("done_storage_restore.SESSION_FILE", path):
                 self.assertTrue(_paused_done_resume_is_authorized(app, idle))
 
     def test_operator_pause_blocks_already_restored_terminal_done(self):

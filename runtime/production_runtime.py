@@ -38,16 +38,17 @@ from operator_managed_stop import STOP_CONFIRM_CALLBACK
 
 from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
-from charge_logic import (
-    ChargeController,
-    DELTA_I_EXIT,
-    DELTA_V_EXIT,
-    HIGH_V_FAST_TIMEOUT,
-    HIGH_V_THRESHOLD,
-    MAX_STAGE_CURRENT,
-    WATCHDOG_TIMEOUT,
-    OVP_OFFSET,
-    OCP_OFFSET,
+from runtime.charge.strategy.exit_variables import (
+    MIX_CC_DELTA_V_EXIT_V,
+    MIX_CV_DELTA_I_EXIT_A,
+)
+from runtime.safety.variables import (
+    HIGH_V_FAST_TIMEOUT_S,
+    HIGH_V_THRESHOLD_V,
+    MAX_STAGE_CURRENT_A,
+    PROTECTION_OCP_MARGIN_A,
+    PROTECTION_OVP_MARGIN_V,
+    WATCHDOG_TIMEOUT_S,
 )
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from charge_controller_v2 import ChargeControllerV2
@@ -76,6 +77,16 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("rd6018")
+
+# Stable module-level compatibility values; semantic ownership lives in V3 VariableSpec modules.
+DELTA_I_EXIT = float(MIX_CV_DELTA_I_EXIT_A.default)
+DELTA_V_EXIT = float(MIX_CC_DELTA_V_EXIT_V.default)
+HIGH_V_FAST_TIMEOUT = float(HIGH_V_FAST_TIMEOUT_S.default)
+HIGH_V_THRESHOLD = float(HIGH_V_THRESHOLD_V.default)
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
+WATCHDOG_TIMEOUT = float(WATCHDOG_TIMEOUT_S.default)
+OVP_OFFSET = float(PROTECTION_OVP_MARGIN_V.default)
+OCP_OFFSET = float(PROTECTION_OCP_MARGIN_A.default)
 
 
 def _canonical_bool(live: Dict[str, Any], key: str) -> bool:

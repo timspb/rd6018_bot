@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from charge_logic import SESSION_FILE
+from runtime.charge.persistence import SESSION_FILE
 
 
 class MixActiveAuthorityError(RuntimeError):

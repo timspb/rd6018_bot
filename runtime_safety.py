@@ -7,7 +7,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from charge_logic import MAX_STAGE_CURRENT
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MIN_INPUT_VOLTAGE, TEMP_INT_PRECRITICAL
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from rd6018_telemetry import (

@@ -8,7 +8,7 @@ import time
 from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
-from charge_logic import SESSION_FILE
+from runtime.charge.persistence import SESSION_FILE
 from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.mix_variables import (

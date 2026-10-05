@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any, Dict, Optional, Tuple
 
-import charge_logic
+from runtime.charge.persistence import SESSION_FILE
 
 
 DONE_STATE_VERSION = 1
@@ -27,7 +27,7 @@ def _set_done_outcome(
 
 
 def _read_session_document() -> Dict[str, Any]:
-    path = charge_logic.SESSION_FILE
+    path = SESSION_FILE
     if not os.path.exists(path):
         return {}
     try:
@@ -79,7 +79,7 @@ def _write_done_outcome(controller: Any) -> None:
         document["target_finish_time"] = None
         document["finish_timer_start"] = None
 
-    path = charge_logic.SESSION_FILE
+    path = SESSION_FILE
     tmp_path = f"{path}.done-outcome.tmp"
     try:
         with open(tmp_path, "w", encoding="utf-8") as handle:

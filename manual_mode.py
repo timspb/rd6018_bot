@@ -11,7 +11,15 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from charge_logic import MAX_STAGE_CURRENT, OCP_OFFSET, OVP_OFFSET
+from runtime.safety.variables import (
+    MAX_STAGE_CURRENT_A,
+    PROTECTION_OCP_MARGIN_A,
+    PROTECTION_OVP_MARGIN_V,
+)
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
+OCP_OFFSET = float(PROTECTION_OCP_MARGIN_A.default)
+OVP_OFFSET = float(PROTECTION_OVP_MARGIN_V.default)
 from config import MAX_MANUAL_VOLTAGE
 from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
 from runtime.charge.profiles.manual import ManualChargeProfile, load_manual_profile

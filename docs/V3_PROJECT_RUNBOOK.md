@@ -1131,3 +1131,32 @@ Required continuation order:
 Do not restart the project audit. Repository state remains authority.
 Do not touch VM104/production during this migration boundary.
 Do not send hardware commands.
+
+
+### 2026-10-05 ERADICATION-09 checkpoint 3 - charge_logic dependency contraction
+
+The pre-L-003 dependency-contraction increment is complete locally.
+
+Canonical ownership moved without changing accepted production values:
+
+- `runtime/charge/persistence.py` owns `SESSION_FILE` and the 24-hour session-start age policy;
+- `runtime/charge/strategy/exit_variables.py` owns the MIX CC ΔV and CV ΔI exit references (0.03 V / 0.03 A);
+- `runtime/safety/variables.py` owns the 12.0 A stage-current ceiling, 0.1 V/A OVP/OCP margins, 300 s watchdog, 60 s high-voltage watchdog and 15.0 V high-voltage threshold.
+
+Production consumers in the contraction set no longer import those values from `charge_logic.py`. A static regression guard verifies the exact accepted values and proves that `charge_controller_v2.py` retains exactly one historical import edge: `ChargeController` itself.
+
+The remaining inherited persistence writer is deliberate evidence for L-003: until the historical superclass is retired, inherited `_save_session()` still resolves `charge_logic.SESSION_FILE`, while V3 readers resolve the canonical persistence owner. Tests patch both identities only for this transitional superclass boundary.
+
+Local validation:
+
+- focused charge/manual/MIX/production/runtime-safety/persistence regression set: PASS;
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- CI-equivalent full discovery with repository CI environment: **1925 tests PASS, 2 skipped**.
+
+L-002 and L-003 remain OPEN. This checkpoint does not claim superclass or installer retirement.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+Next exact boundary after exact-head remote CI: build the actual inherited dependency inventory for `ChargeControllerV2(ChargeController)`, migrate only residual production dependencies to modular owners, and remove the superclass edge (L-003).
