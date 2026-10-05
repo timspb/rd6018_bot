@@ -299,3 +299,31 @@ Observed residual L-003 dependency: inherited historical `_save_session()` still
 Validation: focused PASS; compileall PASS; diff-check PASS; full CI-equivalent discovery 1925 PASS / 2 skipped.
 
 Production VM104 changed: NO. Hardware commands sent: NO.
+
+
+## 2026-10-05 L-003 inherited dependency inventory
+
+L-003 remains **OPEN**, but its residual reachability is now bounded.
+
+At starting HEAD `0d9dc707469f689e35e0ccbdd2aac932a2e51e22`:
+- historical `ChargeController.tick()` is absent from the transitive support closure;
+- `charge_controller_v2.py` has exactly one `charge_logic` import edge:
+  `ChargeController`;
+- the exact remaining inherited support closure is 29 methods covering controller
+  initialization/state, lifecycle, persistence/restore, target/temperature helpers,
+  protection-limit helpers and bookkeeping;
+- `tests/test_v3_l003_inherited_dependency_inventory.py` fails on closure expansion
+  or historical tick re-entry.
+
+Validation: focused 2 PASS; compileall PASS; diff-check PASS; full CI-equivalent
+discovery 1927 PASS / 2 skipped.
+
+This checkpoint does not move historical behavior to a renamed compatibility
+monolith and does not close L-003. The next mutation must assign each remaining
+support dependency to an existing or minimal modular owner and then remove
+`ChargeControllerV2(ChargeController)` plus the historical import edge.
+
+L-002 remains OPEN and must not be changed until L-003 retirement proves which
+compatibility installers are genuinely unreachable.
+
+Production VM104 changed: NO. Hardware commands sent: NO.
