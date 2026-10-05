@@ -156,12 +156,16 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{name}: {token}")
 
-    def test_start_modules_use_application_execution_port(self):
-        for name in ("v2_startup.py", "v2_mix_mode.py"):
+    def test_start_owners_use_application_execution_port(self):
+        for name in ("application/start_transaction_service.py", "v2_mix_mode.py"):
             source = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("get_or_create_execution_port", source)
             self.assertIn(".enable(", source)
             self.assertIn(".disable(", source)
+
+        compatibility = (ROOT / "v2_startup.py").read_text(encoding="utf-8")
+        self.assertIn("application.start_transaction_service", compatibility)
+        self.assertNotIn("get_or_create_execution_port", compatibility)
 
     def test_runtime_restore_modules_have_no_direct_hass_execution_writes(self):
         forbidden = (
