@@ -1048,3 +1048,86 @@ Closed at this checkpoint:
 Remaining ERADICATION-09 debt: L-002 compatibility installer stack, L-003 historical `ChargeController` superclass, L-008 legacy UI read-model adapter, L-012 legacy transition audit.
 
 Production VM104 was not touched. No hardware commands were sent.
+
+
+### 2026-10-05 ERADICATION-09 handoff — final two debts
+
+Remote-verified functional checkpoint:
+
+- PR #29 branch: `refactor/v3-modular-legacy-eradication`;
+- exact functional HEAD: `309ea7ea9fcefea624291293b09d215df2b52bae`;
+- GitHub Actions run `#1578` / `37285010255`: PASS on Python
+  3.10 / 3.11 / 3.12;
+- local documentation checkpoint above that functional state:
+  `ea6200b1194b20232baeeea9d0adeb2052a33ee3`.
+
+Work completed since the previous START/recipe checkpoint:
+
+- operator read-model was detached from the historical runtime object;
+- the legacy UI read adapter boundary was retired;
+- the dead legacy transition-audit decision source was removed;
+- L-008 and L-012 are therefore CLOSED;
+- exact-head remote CI is green for the resulting functional state.
+
+ERADICATION-09 now has only two architectural debts left:
+
+- **L-002** compatibility installer stack;
+- **L-003** historical `ChargeController` superclass reachability.
+
+Current local worktree is intentionally dirty with the next contraction increment,
+and must be preserved for continuation. It is extracting shared constants and
+persistence values out of `charge_logic.py` so that superclass retirement can be
+done without duplicating accepted semantics.
+
+Current dirty/untracked scope:
+
+- modified:
+  `charge_controller_v2.py`,
+  `done_storage_restore.py`,
+  `manual_mode.py`,
+  `manual_runtime_v2.py`,
+  `manual_text_v2.py`,
+  `mix_active_authority.py`,
+  `mix_current_containment.py`,
+  `production_controller.py`,
+  `production_guardrails_v2.py`,
+  `runtime/charge/profiles/manual.py`,
+  `runtime/production_runtime.py`,
+  `runtime/safety/variables.py`,
+  `runtime_safety.py`,
+  `runtime_safety_v2.py`;
+- untracked:
+  `runtime/charge/persistence.py`,
+  `runtime/charge/strategy/exit_variables.py`.
+
+Intent of this dirty increment:
+
+- `runtime/charge/persistence.py` becomes owner of `SESSION_FILE` and session
+  restore-age policy;
+- `runtime/charge/strategy/exit_variables.py` becomes owner of MIX ΔI/ΔV exit
+  thresholds;
+- `runtime/safety/variables.py` becomes owner of watchdog/high-voltage watchdog
+  thresholds and OVP/OCP margins;
+- production consumers stop importing those values from `charge_logic.py`;
+- no target, timeout, margin or safety behavior is intentionally changed.
+
+Required continuation order:
+
+1. finish the current dependency-contraction diff without changing semantics;
+2. run focused charge/manual/runtime-safety/persistence regressions;
+3. run `python -m compileall -q .` and `git diff --check`;
+4. run the full unittest suite;
+5. commit/push the coherent increment and require exact-head CI 3.10/3.11/3.12 PASS;
+6. statically enumerate what `ChargeControllerV2` still consumes from
+   `ChargeController`;
+7. migrate those residual helpers/state to modular owners, then remove the
+   superclass edge (close L-003);
+8. remove compatibility installers that become unreachable (close L-002);
+9. prove the production graph has no historical FSM import/reachability;
+10. archive/reference-capture remaining compatibility files before deletion;
+11. full suite + exact-head CI, then close ERADICATION-09 and the overall
+    ERADICATION-01…09 migration.
+
+Do not restart the project audit. Repository state remains authority.
+Do not touch VM104/production during this migration boundary.
+Do not send hardware commands.

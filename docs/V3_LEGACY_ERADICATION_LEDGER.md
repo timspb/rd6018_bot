@@ -44,7 +44,7 @@ First ERADICATION-09 structural increment:
 - exact-head GitHub Actions run `#1568` / `37237082292` PASS on Python
   3.10/3.11/3.12.
 
-ERADICATION-09 checkpoint through `547de140eb4c32a527c94bbc2c65a15cea5847e2` is remote-verified by GitHub Actions run `#1574` / `37281527533` (Python 3.10/3.11/3.12 PASS). L-001, L-004, L-007 and L-010 are closed. ERADICATION-09 remains open only for L-002/L-003/L-008/L-012: compatibility installers, historical controller superclass reachability, legacy UI read-model adapter and transition audit.
+ERADICATION-09 checkpoint through `309ea7ea9fcefea624291293b09d215df2b52bae` is remote-verified by GitHub Actions run `#1578` / `37285010255` (Python 3.10/3.11/3.12 PASS). L-001, L-004, L-007, L-008, L-010 and L-012 are closed. ERADICATION-09 remains open only for L-002/L-003: compatibility installers and historical controller superclass reachability.
 
 Production VM104 was not touched. No hardware commands were sent.
 
@@ -200,3 +200,78 @@ and session generation. Stale generations fail closed.
 The historical superclass is still present, but its mutating stage path is
 unreachable for authoritative MAIN, DESULFATION and recovery SAFE_WAIT. MIX and
 final SAFE_WAIT were the next debt and are now cut over in ERADICATION-04.
+
+## 2026-10-05 handoff checkpoint — ERADICATION-09 final convergence
+
+Remote-verified functional authority:
+
+- PR #29 branch: `refactor/v3-modular-legacy-eradication`;
+- exact remote functional HEAD: `309ea7ea9fcefea624291293b09d215df2b52bae`;
+- GitHub Actions run `#1578` / `37285010255`: PASS on Python 3.10, 3.11 and 3.12;
+- local documentation checkpoint above that functional state:
+  `ea6200b1194b20232baeeea9d0adeb2052a33ee3`.
+
+Closed ERADICATION-09 debt at the remote-verified functional checkpoint:
+
+- L-001 canonical production runtime identity;
+- L-004 historical `super().tick()` production fallback;
+- L-007 legacy START runner/adapter;
+- L-008 legacy UI read adapter / runtime-object read-model coupling;
+- L-009 direct actuator writers outside the approved execution implementation;
+- L-010 legacy recipe adapter;
+- L-011 duplicate legacy safety-value ownership;
+- L-012 legacy transition-audit decision source;
+- L-014 scattered historical UI route ownership.
+
+Remaining ledger debt is now only:
+
+- **L-002** — compatibility installer stack still composes residual historical helpers;
+- **L-003** — `ChargeControllerV2(ChargeController)` still inherits the historical controller for residual compatibility helpers/state.
+
+Current uncommitted local worktree is the next ERADICATION-09 contraction increment.
+It is intentionally **not** part of the remote-verified authority above. The work
+extracts residual `charge_logic.py` value/persistence ownership into modular
+owners before attempting superclass retirement:
+
+- new `runtime/charge/persistence.py` for session-file and restore-age ownership;
+- new `runtime/charge/strategy/exit_variables.py` for MIX exit thresholds;
+- expanded `runtime/safety/variables.py` ownership for OVP/OCP margins,
+  watchdog timeout and high-voltage watchdog threshold/timeout;
+- consumers are being moved away from `charge_logic.py` constants while keeping
+  accepted values and semantics unchanged.
+
+Dirty worktree files at handoff:
+
+`charge_controller_v2.py`,
+`done_storage_restore.py`,
+`manual_mode.py`,
+`manual_runtime_v2.py`,
+`manual_text_v2.py`,
+`mix_active_authority.py`,
+`mix_current_containment.py`,
+`production_controller.py`,
+`production_guardrails_v2.py`,
+`runtime/charge/profiles/manual.py`,
+`runtime/production_runtime.py`,
+`runtime/safety/variables.py`,
+`runtime_safety.py`,
+`runtime_safety_v2.py`,
+plus untracked `runtime/charge/persistence.py` and
+`runtime/charge/strategy/exit_variables.py`.
+
+Do not mark this dirty increment PASS until focused parity, `compileall`,
+`git diff --check`, full suite, commit/push and exact-head GitHub CI all pass.
+
+Next exact boundary after that contraction:
+
+1. prove residual historical controller helpers/state have modular owners;
+2. remove `ChargeControllerV2(ChargeController)` superclass reachability (L-003);
+3. retire the remaining compatibility installer stack that exists only to compose
+   historical helpers (L-002);
+4. run a production import/reachability scan proving no historical FSM production
+   edge remains;
+5. archive/reference-capture compatibility files before deletion;
+6. exact-head CI PASS, then close ERADICATION-09 and the full 01–09 migration.
+
+Production VM104 changed: **NO**.
+Hardware commands sent: **NO**.
