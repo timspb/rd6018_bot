@@ -1160,3 +1160,43 @@ Production VM104 changed: NO.
 Hardware commands sent: NO.
 
 Next exact boundary after exact-head remote CI: build the actual inherited dependency inventory for `ChargeControllerV2(ChargeController)`, migrate only residual production dependencies to modular owners, and remove the superclass edge (L-003).
+
+
+### 2026-10-05 ERADICATION-09 checkpoint 4 - L-003 inherited dependency inventory
+
+The pre-mutation L-003 inventory is now explicit and regression-guarded.
+
+Starting authority for this boundary:
+- branch: `refactor/v3-modular-legacy-eradication`;
+- exact starting HEAD: `0d9dc707469f689e35e0ccbdd2aac932a2e51e22`;
+- GitHub Actions run `#1582` / `37307969815`: PASS on Python 3.10 / 3.11 / 3.12.
+
+Static analysis of `ChargeControllerV2(ChargeController)` proves that the historical
+`tick()` is not in the inherited production support closure. The remaining
+superclass edge is support-only: initialization, start/stop lifecycle, session
+persistence/restore, target helpers, temperature compensation, stage bookkeeping,
+protection-limit helpers and compatibility state.
+
+The exact inherited historical support closure is locked by
+`tests/test_v3_l003_inherited_dependency_inventory.py`. It contains 29 methods
+and rejects any expansion, especially re-entry of historical `tick()`.
+
+The only direct historical import in `charge_controller_v2.py` remains:
+`from charge_logic import ChargeController`.
+
+Validation for this characterization boundary:
+- focused inventory tests: 2 PASS;
+- `python -m compileall -q .`: PASS;
+- `git diff --check`: PASS;
+- CI-equivalent full discovery with workflow environment: 1927 PASS / 2 skipped.
+
+No ledger item is closed by this checkpoint. L-003 remains OPEN until
+`ChargeControllerV2` no longer inherits or imports historical `ChargeController`.
+L-002 remains OPEN.
+
+Next exact boundary: migrate the bounded support closure to modular owners without
+changing accepted semantics, remove the superclass/import edge, add zero-reachability
+guards, and require focused/full/exact-head CI before closing L-003.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
