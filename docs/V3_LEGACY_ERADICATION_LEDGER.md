@@ -10,11 +10,11 @@ new entries require explicit architecture review.
 | L-001 | `bot.py -> ProductionComposition -> runtime.v2_runtime substrate` | production now imports `runtime.production_runtime`; `runtime.v2_runtime` is a read-only compatibility facade with no production inbound import edge | modular composition + lifecycle | production `runtime.v2_runtime` substrate edge removed and exact-head CI verified | CLOSED |
 | L-002 | compatibility installer stack inside `ProductionComposition.compose()` | installer order is centralized under one explicit composition owner; no installer call executes independently at module top level | explicit dependency graph | retire remaining compatibility installers with the historical runtime graph | IN_PROGRESS |
 | L-003 | `ChargeControllerV2(ChargeController)` | automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX and final SAFE_WAIT use modular decision/runtime owners; production Custom/Manual no longer enters the historical controller; superclass remains only for residual compatibility stages/helpers | modular stage engine | migrate residual compatibility stages/helpers until superclass execution is unreachable | IN_PROGRESS |
-| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | authoritative automatic MAIN, DESULFATION, recovery SAFE_WAIT, MIX/final SAFE_WAIT bypass historical tick; historical Custom is rejected/fail-closed and Manual uses its own runtime owner; `super().tick()` remains only for residual compatibility stages/helpers | explicit modular stage runtime services | remove the remaining historical scaffold reachability during residual convergence | IN_PROGRESS |
-| L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | new route hands execution to preserved owner | modular start/application/execution service | new START transaction parity | OPEN |
+| L-004 | `_run_legacy_scaffold_tick -> super().tick()` | production fallback was retired; migrated stages use modular runtime services and unknown/residual historical stages fail closed instead of calling `super().tick()` | explicit modular stage runtime services | exact-head CI proves no production `super().tick()` fallback | CLOSED |
+| L-007 | `ProductionStartRunner -> V2StartRunnerAdapter -> v2_startup` | legacy START runner is retired from production; START execution is owned by `application.start_transaction_service` / `StartTransactionRunner` behind the production execution port | modular start/application/execution service | full parity plus exact-head CI | CLOSED |
 | L-008 | legacy UI read adapter | OperatorSnapshot reads old HMI/runtime globals | canonical read model | migrated screens do not use old app | OPEN |
 | L-009 | direct actuator writers outside execution port | live production writers now converge through the application execution port; only approved physical implementation plus quarantined unreachable history contains direct calls | single execution service | static inventory reaches zero outside allowed physical implementation | CLOSED |
-| L-010 | `legacy_recipe_adapter` | preflight/controller/recovery use compatibility naming | modular recipe/config owner | consumers moved and adapter removed | OPEN |
+| L-010 | `legacy_recipe_adapter` | adapter removed; production consumers use `application.recipe_policy` and the existing recipe engine/envelope | modular recipe/config owner | consumers moved, adapter removed and exact-head CI verified | CLOSED |
 | L-011 | `legacy_safety` | compatibility module remains, but live voltage ceilings/MIX windows are derived from modular safety/strategy VariableSpec owners | modular safety/strategy variables | values have one canonical owner | CLOSED |
 | L-012 | `legacy_transition_audit` | controller audits movements produced by legacy fallback | canonical decision journal | no legacy transition source | OPEN |
 | L-014 | UI buttons/callbacks scattered across installers/handlers | all production Telegram UI routes are owned by canonical `runtime/ui` modules; historical `runtime/v2_runtime.py` declares no UI routes | modular ScreenSpec/ButtonSpec/action routing | screen-by-screen parity and removal | CLOSED |
@@ -44,10 +44,7 @@ First ERADICATION-09 structural increment:
 - exact-head GitHub Actions run `#1568` / `37237082292` PASS on Python
   3.10/3.11/3.12.
 
-This closes L-001. ERADICATION-09 remains open for L-002/L-003/L-004/L-007/
-L-008/L-010/L-012: compatibility installers, historical controller/FSM
-reachability, START adapter, legacy read model, recipe adapter and transition
-audit.
+ERADICATION-09 checkpoint through `547de140eb4c32a527c94bbc2c65a15cea5847e2` is remote-verified by GitHub Actions run `#1574` / `37281527533` (Python 3.10/3.11/3.12 PASS). L-001, L-004, L-007 and L-010 are closed. ERADICATION-09 remains open only for L-002/L-003/L-008/L-012: compatibility installers, historical controller superclass reachability, legacy UI read-model adapter and transition audit.
 
 Production VM104 was not touched. No hardware commands were sent.
 

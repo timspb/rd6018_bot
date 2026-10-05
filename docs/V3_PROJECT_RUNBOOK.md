@@ -1031,3 +1031,20 @@ owned by modular runtime services and `super().tick()` is unreachable.
 
 Production VM104 changed: NO.
 Hardware commands sent: NO.
+
+
+### 2026-10-05 ERADICATION-09 checkpoint 2 - START/recipe retirement
+
+Exact functional HEAD: `547de140eb4c32a527c94bbc2c65a15cea5847e2`.
+
+GitHub Actions exact-head run `#1574` / `37281527533` completed PASS on Python 3.10, 3.11 and 3.12. Local CI-equivalent discovery on the same code state: 1926 tests PASS, 2 skipped.
+
+Closed at this checkpoint:
+
+- L-004: production historical `super().tick()` fallback retired; unknown residual stages fail closed;
+- L-007: legacy START runner/adapter retired from production; application START transaction service is authoritative;
+- L-010: `legacy_recipe_adapter` removed; recipe mapping/authorization is owned by `application/recipe_policy.py` with existing recipe envelope semantics preserved.
+
+Remaining ERADICATION-09 debt: L-002 compatibility installer stack, L-003 historical `ChargeController` superclass, L-008 legacy UI read-model adapter, L-012 legacy transition audit.
+
+Production VM104 was not touched. No hardware commands were sent.
