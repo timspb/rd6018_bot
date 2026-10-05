@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
-from runtime.charge.recipe_policy import RecipeAuthorization
+from application.recipe_policy import RecipeAuthorization
 from safe_output import EnableResult
 
 

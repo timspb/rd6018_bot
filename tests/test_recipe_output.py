@@ -1,6 +1,6 @@
 import unittest
 
-from runtime.charge.recipe_policy import authorize_target, build_charge_context
+from application.recipe_policy import authorize_target, build_charge_context
 from pb_domain import BatteryCondition, ChargeIntent
 from recipe_output import enable_authorized_recipe_target
 from safe_output import EnableResult

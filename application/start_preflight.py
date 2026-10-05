@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from runtime.charge.recipe_policy import chemistry_for_profile
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
 from runtime.ui.commands.models import CommandResult, CommandStatus, DomainIntent

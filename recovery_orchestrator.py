@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from battery_registry import BatteryRecord, get_battery
-from runtime.charge.recipe_policy import RecipeAuthorization, authorize_target
+from application.recipe_policy import RecipeAuthorization, authorize_target
 from pb_domain import ChargeContext, ChargeIntent
 from recipe_output import RecipeEnableResult, enable_authorized_recipe_target
 from recovery_runtime import RecoveryRuntime

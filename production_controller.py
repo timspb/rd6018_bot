@@ -20,7 +20,7 @@ from runtime.charge.strategy.mix_variables import (
 from charge_controller_v2 import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
-from runtime.charge.recipe_policy import chemistry_for_profile
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
 

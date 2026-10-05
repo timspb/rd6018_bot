@@ -12,7 +12,7 @@ from typing import Any
 
 from application.execution_intent.models import ExecutionIntent, SafetyContext
 from application.execution_port import get_or_create_execution_port
-from runtime.charge.recipe_policy import chemistry_for_profile
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
 from safe_output import snapshot_from_live

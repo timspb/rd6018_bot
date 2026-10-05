@@ -20,7 +20,7 @@ from runtime.charge.evidence.first_stage import (
     tail_current_threshold_a,
 )
 from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
-from runtime.charge.recipe_policy import chemistry_for_profile
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
 from recovery_session import RecoveryTracePoint

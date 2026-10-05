@@ -2,7 +2,7 @@ import pathlib
 import unittest
 
 from pb_domain import BatteryChemistry, BatteryCondition, ChargeIntent
-from runtime.charge.recipe_policy import (
+from application.recipe_policy import (
     authorize_target,
     build_charge_context,
     chemistry_for_profile,
