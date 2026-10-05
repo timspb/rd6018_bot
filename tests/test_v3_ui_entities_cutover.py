@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import unittest
 
 from application.operator_snapshot_provider import OperatorSnapshotProvider
+from application.operator_read_source import OperatorReadSource
 from runtime.ui.actions import UIAction
 from runtime.ui.components.entities import render_entities_body
 from runtime.ui.models import EntityStatusItem, EntityStatusView
@@ -109,7 +110,7 @@ class _App:
 class V3EntitiesUICutoverTests(unittest.IsolatedAsyncioTestCase):
     async def test_application_provider_maps_hass_rows_to_data_only_view(self):
         app = SimpleNamespace(hass=_Hass())
-        provider = OperatorSnapshotProvider(app)
+        provider = OperatorSnapshotProvider(OperatorReadSource(app))
         view = await provider.get_entity_statuses()
         self.assertEqual(len(view.items), 2)
         self.assertEqual(view.items[0].key, "battery_voltage")
@@ -206,7 +207,7 @@ class V3EntitiesUIContractTests(unittest.TestCase):
 
     def test_composition_installs_entities_after_operator_interface(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        provider = source.index("_legacy.operator_interface = OperatorSnapshotProvider(_legacy)")
+        provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_entities_screen(")
         self.assertLess(provider, install)
 

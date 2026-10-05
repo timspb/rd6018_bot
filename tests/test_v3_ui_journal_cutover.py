@@ -206,11 +206,13 @@ class V3JournalUICutoverTests(unittest.TestCase):
     def test_production_composition_installs_journal_after_read_model(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         provider_pos = source.index(
-            "_legacy.operator_interface = OperatorSnapshotProvider(_legacy)"
+            "operator_interface = OperatorSnapshotProvider("
         )
         journal_pos = source.index("install_journal_screen(")
         self.assertLess(provider_pos, journal_pos)
-        self.assertIn("interface=_legacy.operator_interface", source)
+        self.assertIn("operator_read_source = OperatorReadSource(_legacy)", source)
+        self.assertIn("interface=operator_interface", source)
+        self.assertNotIn("OperatorSnapshotProvider(_legacy)", source)
         self.assertIn("home_handler=_legacy._operator_home_handler", source)
 
 

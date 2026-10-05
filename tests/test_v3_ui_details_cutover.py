@@ -141,10 +141,12 @@ class V3OperatorDetailsUICutoverTests(unittest.TestCase):
 
     def test_composition_installs_details_after_operator_interface(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        provider = source.index("_legacy.operator_interface = OperatorSnapshotProvider(_legacy)")
+        provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_operator_details_screen(")
         self.assertLess(provider, install)
-        self.assertIn("interface=_legacy.operator_interface", source)
+        self.assertIn("operator_read_source = OperatorReadSource(_legacy)", source)
+        self.assertIn("interface=operator_interface", source)
+        self.assertNotIn("OperatorSnapshotProvider(_legacy)", source)
 
     def test_canonical_details_tree_has_no_historical_import(self):
         for rel in (

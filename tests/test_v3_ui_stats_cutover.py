@@ -73,7 +73,7 @@ class V3StatsUICutoverTests(unittest.TestCase):
 
     def test_composition_installs_stats_screen(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        provider = source.index("_legacy.operator_interface = OperatorSnapshotProvider(_legacy)")
+        provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_stats_screen(")
         self.assertLess(provider, install)
 

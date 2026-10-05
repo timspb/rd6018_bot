@@ -74,7 +74,7 @@ class V3HelpUICutoverTests(unittest.TestCase):
 
     def test_composition_installs_help_screen(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        provider = source.index("_legacy.operator_interface = OperatorSnapshotProvider(_legacy)")
+        provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_help_screen(")
         self.assertLess(provider, install)
 

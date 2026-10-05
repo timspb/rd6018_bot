@@ -11,6 +11,8 @@ import os
 
 from runtime import production_runtime as _runtime_substrate
 from application.operator_snapshot_provider import OperatorSnapshotProvider
+from application.operator_read_source import OperatorReadSource
+from application.operator_intent_factory import build_operator_intent_dispatcher
 from auto_manual_off_v2 import install_auto_manual_off_contract
 from diagnostic_persistence import install_diagnostic_persistence
 from done_storage_restore import install_done_storage_restore
@@ -251,10 +253,15 @@ class ProductionComposition:
         # its dynamic predicate sees the final authority boundary; recovery_scope stays exempt.
         install_hands_off_background_isolation(_legacy, _rd_control_mode)
 
-        # Read-only V3 application boundary for the operator panel. Existing callbacks
-        # remain installed and retain their authority; only panel state acquisition uses
-        # this provider in the current migration step.
-        _legacy.operator_interface = OperatorSnapshotProvider(_legacy)
+        # Read-only operator boundary: the provider receives an explicit source
+        # contract rather than the whole runtime.  The runtime attribute remains a
+        # compatibility attachment for installers that have not yet been retired.
+        operator_read_source = OperatorReadSource(_legacy)
+        operator_interface = OperatorSnapshotProvider(
+            operator_read_source,
+            intent_dispatcher=build_operator_intent_dispatcher(_legacy),
+        )
+        _legacy.operator_interface = operator_interface
         if _v2_ui_enabled:
             install_charge_program_screen(
                 _legacy,
@@ -286,28 +293,28 @@ class ProductionComposition:
             )
             install_journal_screen(
                 _legacy,
-                interface=_legacy.operator_interface,
+                interface=operator_interface,
                 home_handler=_legacy._operator_home_handler,
                 retire_graph_tracking=_legacy._retire_graph_tracking_for_message,
             )
             install_off_conditions_screen(
                 _legacy,
-                interface=_legacy.operator_interface,
+                interface=operator_interface,
                 status_provider=_legacy._format_manual_off_for_dashboard,
             )
             install_operator_details_screen(
                 _legacy,
-                interface=_legacy.operator_interface,
+                interface=operator_interface,
                 home_handler=_legacy._operator_home_handler,
             )
             install_service_details_screen(
                 _legacy,
-                interface=_legacy.operator_interface,
+                interface=operator_interface,
                 home_handler=_legacy._operator_home_handler,
             )
             install_entities_screen(
                 _legacy,
-                interface=_legacy.operator_interface,
+                interface=operator_interface,
                 home_handler=_legacy._operator_home_handler,
             )
             install_help_screen(
@@ -340,7 +347,8 @@ class ProductionComposition:
         self.rd_managed_mix_adoption = _rd_managed_mix_adoption
         self.physical_test_control = _physical_test_control
         self.rd_startup_authority = _rd_startup_authority
-        self.operator_interface = _legacy.operator_interface
+        self.operator_read_source = operator_read_source
+        self.operator_interface = operator_interface
         self.legacy_main = _legacy_main
         self.startup_recovery = _v2_startup_recovery
         self.composed = True

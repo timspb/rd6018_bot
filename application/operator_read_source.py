@@ -1,4 +1,4 @@
-"""Explicit read-only compatibility adapter for the preserved V2 UI source."""
+"""Explicit read-only source contract for operator read models."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from runtime.diagnostics import DiagnosticAuthority
 from runtime.journal import format_entry
 
 
-class LegacyUIReadAdapter:
-    """Keep legacy UI reads behind one explicit, non-writing boundary."""
+class OperatorReadSource:
+    """Expose production runtime reads through one explicit, non-writing boundary."""
 
     def __init__(self, app: Any, *, journal: Any = None) -> None:
         self._app = app
@@ -98,4 +98,4 @@ class LegacyUIReadAdapter:
         )
 
 
-__all__ = ["LegacyUIReadAdapter", "DiagnosticAuthority", "HmiProcessState"]
+__all__ = ["OperatorReadSource", "DiagnosticAuthority", "HmiProcessState"]

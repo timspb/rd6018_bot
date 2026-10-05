@@ -151,10 +151,12 @@ class V3OffConditionsCutoverTests(unittest.TestCase):
 
     def test_production_composition_installs_off_screen_after_operator_interface(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        provider = source.index("_legacy.operator_interface = OperatorSnapshotProvider(_legacy)")
+        provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_off_conditions_screen(")
         self.assertLess(provider, install)
-        self.assertIn("interface=_legacy.operator_interface", source)
+        self.assertIn("operator_read_source = OperatorReadSource(_legacy)", source)
+        self.assertIn("interface=operator_interface", source)
+        self.assertNotIn("OperatorSnapshotProvider(_legacy)", source)
         self.assertIn("status_provider=_legacy._format_manual_off_for_dashboard", source)
 
     def test_application_handler_validates_and_routes_preset(self):
