@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
-from legacy_recipe_adapter import LegacyRecipeAuthorization
+from runtime.charge.recipe_policy import RecipeAuthorization
 from safe_output import EnableResult
 
 
@@ -29,7 +29,7 @@ class RecipeEnableResult:
 
 async def enable_authorized_recipe_target(
     adapter: RecipeOutputAdapter,
-    authorization: LegacyRecipeAuthorization,
+    authorization: RecipeAuthorization,
     *,
     ovp_margin_v: float = 0.10,
     ocp_margin_a: float = 0.10,

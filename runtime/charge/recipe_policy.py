@@ -1,3 +1,5 @@
+"""Canonical Pb charge recipe mapping and target authorization."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,11 +23,16 @@ PROFILE_CHEMISTRY = {
     "Custom": BatteryChemistry.CUSTOM,
 }
 
-HV_STAGE_NAMES = frozenset({"mix mode", "десульфатация", "desulfation", "conditioning", "recovery"})
+HV_STAGE_NAMES = frozenset({
+    "mix mode",
+    "desulfation",
+    "conditioning",
+    "recovery",
+})
 
 
 @dataclass(frozen=True)
-class LegacyRecipeAuthorization:
+class RecipeAuthorization:
     envelope: RecipeEnvelope
     target_voltage_v: float
     target_current_a: float
@@ -34,14 +41,14 @@ class LegacyRecipeAuthorization:
     reason: str
 
 
-def chemistry_for_legacy_profile(profile: str) -> BatteryChemistry:
+def chemistry_for_profile(profile: str) -> BatteryChemistry:
     try:
         return PROFILE_CHEMISTRY[str(profile)]
     except KeyError as exc:
-        raise ValueError(f"unknown legacy profile: {profile!r}") from exc
+        raise ValueError(f"unknown charge profile: {profile!r}") from exc
 
 
-def build_legacy_charge_context(
+def build_charge_context(
     *,
     profile: str,
     capacity_ah: float,
@@ -53,7 +60,7 @@ def build_legacy_charge_context(
 ) -> ChargeContext:
     identity = BatteryIdentity(
         battery_id=str(battery_id),
-        chemistry=chemistry_for_legacy_profile(profile),
+        chemistry=chemistry_for_profile(profile),
         nominal_capacity_ah=float(capacity_ah),
         manufacturer=str(manufacturer),
         model=str(model),
@@ -65,7 +72,7 @@ def build_legacy_charge_context(
     )
 
 
-def authorize_legacy_target(
+def authorize_target(
     context: ChargeContext,
     *,
     stage: str,
@@ -74,7 +81,7 @@ def authorize_legacy_target(
     expert_high_voltage: bool = False,
     custom_voltage_ceiling_v: Optional[float] = None,
     hardware_max_current_a: float = float(MAX_STAGE_CURRENT_A.default),
-) -> LegacyRecipeAuthorization:
+) -> RecipeAuthorization:
     envelope = select_recipe_envelope(
         context,
         expert_high_voltage=expert_high_voltage,
@@ -84,7 +91,9 @@ def authorize_legacy_target(
     stage_key = " ".join(str(stage).strip().lower().replace("_", " ").split())
     stage_kind = "hv" if stage_key in HV_STAGE_NAMES else "main"
     current_ceiling = (
-        envelope.hv_current_limit_a if stage_kind == "hv" else envelope.main_current_limit_a
+        envelope.hv_current_limit_a
+        if stage_kind == "hv"
+        else envelope.main_current_limit_a
     )
 
     voltage_ok = envelope.allows_voltage(target_voltage_v)
@@ -104,7 +113,7 @@ def authorize_legacy_target(
     if not reasons:
         reasons.append("target is inside recipe envelope")
 
-    return LegacyRecipeAuthorization(
+    return RecipeAuthorization(
         envelope=envelope,
         target_voltage_v=float(target_voltage_v),
         target_current_a=float(target_current_a),
@@ -112,3 +121,13 @@ def authorize_legacy_target(
         allowed=allowed,
         reason="; ".join(reasons),
     )
+
+
+__all__ = [
+    "PROFILE_CHEMISTRY",
+    "HV_STAGE_NAMES",
+    "RecipeAuthorization",
+    "authorize_target",
+    "build_charge_context",
+    "chemistry_for_profile",
+]

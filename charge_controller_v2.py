@@ -20,7 +20,7 @@ from runtime.charge.evidence.first_stage import (
     tail_current_threshold_a,
 )
 from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
-from legacy_recipe_adapter import chemistry_for_legacy_profile
+from runtime.charge.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
 from recovery_session import RecoveryTracePoint
@@ -687,7 +687,7 @@ class ChargeControllerV2(ChargeController):
             return None
         try:
             threshold = tail_current_threshold_a(
-                chemistry_for_legacy_profile(self.battery_type),
+                chemistry_for_profile(self.battery_type),
                 float(self.ah_capacity),
             )
             near_target = float(voltage) >= float(target_before) - float(NEAR_TARGET_MARGIN_V.default)
@@ -741,7 +741,7 @@ class ChargeControllerV2(ChargeController):
         )
         metrics = record.analysis.metrics
         return assess_first_stage(
-            chemistry=chemistry_for_legacy_profile(self.battery_type),
+            chemistry=chemistry_for_profile(self.battery_type),
             capacity_ah=float(self.ah_capacity),
             voltage_v=self._finite_or_nan(voltage),
             current_a=self._finite_or_nan(current),

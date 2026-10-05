@@ -20,7 +20,7 @@ from runtime.charge.strategy.mix_variables import (
 from charge_controller_v2 import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
-from legacy_recipe_adapter import chemistry_for_legacy_profile
+from runtime.charge.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
 
@@ -95,7 +95,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
     def _recipe_envelope(self) -> Optional[RecipeEnvelope]:
         if self.battery_type == self.PROFILE_CUSTOM:
             return None
-        chemistry = chemistry_for_legacy_profile(self.battery_type)
+        chemistry = chemistry_for_profile(self.battery_type)
         identity = BatteryIdentity(
             battery_id=self._v2_battery_id or f"runtime:{self.battery_type}",
             chemistry=chemistry,
