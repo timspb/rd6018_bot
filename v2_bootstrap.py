@@ -23,14 +23,14 @@ from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import install_panel_last
 from v2_battery_input import parse_battery_spec
 from v2_sg_ui import install_sg_ui, sg_menu_button
-from v2_startup import start_profile_transactional
+from application.start_transaction_service import start_profile_transactional
 from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
 from application.execution_port import get_or_create_execution_port
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
-from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
+from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
 from application.v2_start_transaction_adapter import V2StartTransactionAdapter
 
 
@@ -195,7 +195,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     # Telegram START reaches the existing V2 owner only after StartPreflightService
     # and the transactional ExecutionPort checks have passed.
     v3_transaction_adapter = V2StartTransactionAdapter()
-    v3_runner_adapter = V2StartRunnerAdapter(app, event_factory=build_v2_start_event_context)
+    v3_runner_adapter = StartTransactionRunner(app, event_factory=build_start_event_context)
     v3_production_runner = ProductionStartRunner(
         transaction_adapter=v3_transaction_adapter,
         transaction_runner=v3_runner_adapter,

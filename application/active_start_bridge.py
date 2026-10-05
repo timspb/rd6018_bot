@@ -10,7 +10,7 @@ from .operator_feedback import OperatorFeedbackPort, build_legacy_feedback_bridg
 from .production_start_runner import ProductionStartRunner
 from .start_execution_contract import StartExecutionRequest
 from .v2_start_event_context import V2StartEventContext
-from .v2_start_runner_adapter import V2StartOwner, V2StartRunnerAdapter, build_v2_start_event_context
+from .start_transaction_runner import StartTransactionOwner, StartTransactionRunner, build_start_event_context
 from .v2_start_transaction_adapter import (
     StartExecutionResult,
     V2StartTransactionAdapter,
@@ -33,7 +33,7 @@ class ActiveStartExecutionBridge:
         app: Any,
         *,
         transaction_adapter: V2StartTransactionAdapter | None = None,
-        transaction_owner: V2StartOwner | None = None,
+        transaction_owner: StartTransactionOwner | None = None,
     ) -> None:
         self.app = app
         self.transaction_adapter = transaction_adapter or V2StartTransactionAdapter()
@@ -45,12 +45,12 @@ class ActiveStartExecutionBridge:
         feedback_port: OperatorFeedbackPort,
     ) -> StartExecutionResult:
         def event_factory(transaction):
-            context: V2StartEventContext = build_v2_start_event_context(transaction)
+            context: V2StartEventContext = build_start_event_context(transaction)
             feedback = build_legacy_feedback_bridge(context, feedback_port)
             user = SimpleNamespace(id=context.actor)
             return LegacyOperatorEventFacade(message=feedback, from_user=user)
 
-        runner_adapter = V2StartRunnerAdapter(
+        runner_adapter = StartTransactionRunner(
             self.app,
             event_factory=event_factory,
             transaction_owner=self.transaction_owner,
