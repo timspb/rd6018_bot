@@ -48,3 +48,19 @@ Status: 2026-10-07 post-ERADICATION / physical-evidence checkpoint.
 The unchecked items are operator/battery-specific inputs for the next physical
 charge run. They are not transport or software defects and must not be inferred
 from terminal voltage alone.
+
+## 2026-10-07 controlled charge closure
+
+- [x] connected battery profile/chemistry explicitly selected: Ca/Ca
+- [x] nominal capacity explicitly selected: 72 Ah
+- [x] battery identity recorded: Leoch-72Ah
+- [x] intended program recorded: recovery
+- [x] fresh START preflight PASS immediately before execution
+- [x] canonical START transaction trace captured
+- [x] bounded physical chemistry charge observed
+- [x] managed stop reached physical OFF + 0 A
+- [x] independent HA102/ESP128 post-stop MATCH
+
+Residual: strict edge-heartbeat OFF confirmation timed out before the later
+dual-source OFF/0 A proof. This remains an observability/latency item and does
+not justify weakening freshness requirements.
