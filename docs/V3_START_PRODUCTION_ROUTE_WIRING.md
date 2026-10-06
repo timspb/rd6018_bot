@@ -1,84 +1,59 @@
 # V3 production START route wiring
 
-Current route:
+Status: **current post-ERADICATION authority**.
 
 ```text
 Telegram callback: v2_battery_start
-        |
-        v
-OperatorIntent(START_CHARGE)
-        |
-        v
-ProductionStartRouteAdapter
-        |
-        v
-StartPreflightService
-        |
-        v
-ApprovedStartPlan
-        |
-        v
-        ProductionStartExecutionPort(DRY_RUN)
-        |
-        v
-V2StartTransactionAdapter.prepare()
-        |
-        v
-ProductionStartRunner (constructed, ACTIVE-gated)
-        |
-        v
-V2StartRunnerAdapter -> V2 transaction owner (ACTIVE only)
+  -> OperatorIntent(START_CHARGE)
+  -> ProductionStartRouteAdapter (ACTIVE by default)
+  -> StartPreflightService
+  -> ApprovedStartPlan
+  -> ProductionStartExecutionPort.submit_active()
+  -> ProductionStartRunner.execute_async()
+  -> StartTransactionRunner
+  -> application.start_transaction_service.start_profile_transactional()
+  -> canonical application execution port
+  -> SafeOutput / RD6018
 ```
 
-The production default is `DRY_RUN`. It performs telemetry, ownership, recipe,
-target and safety preflight, creates a correlation trace and prepares the V2
-transaction input. It does not mutate session/FSM state, call
-`start_profile_transactional()`, program setpoints, enable Output, or write
-Home Assistant.
+There is exactly one Telegram START callback. Production no longer calls the
+historical `v2_startup` facade directly. The facade only re-exports the
+application-owned START service for compatibility.
 
-Composition creates one shared `StartActivationPolicy`, transaction adapter,
-`ProductionStartRunner` and `V2StartRunnerAdapter`. The runner adapter creates
-an immutable `V2StartEventContext` containing `trace_id`, actor, source,
-intent/condition metadata, profile, capacity and correlation metadata. This
-context is data-only and does not contain controller, FSM, session, HA or
-physical objects. In the default DRY_RUN route it is not consumed by the V2
-owner.
+## Preflight authority
 
-Operator feedback is a separate `OperatorFeedbackPort`. The
-`LegacyOperatorFeedbackBridge` carries only status text, trace correlation and
-metadata to a future Telegram/UI adapter; no Telegram object is placed in
-`V2StartEventContext`, and the bridge has no runtime or physical authority.
-`TelegramOperatorFeedbackAdapter` is the transport implementation for sending
-or editing that feedback; it does not create intents or invoke execution.
+The route does not bypass safety. It creates no ApprovedStartPlan unless intent,
+ownership, telemetry, profile/chemistry, recipe, target and SafetySupervisor
+checks pass. HANDS_OFF, an active session, invalid/stale telemetry, Output
+already ON or a denied safety decision all stop the route before execution.
 
-`ActiveStartExecutionBridge` is the explicit composition point for a future
-ACTIVE call. It accepts only an already validated `StartExecutionRequest`,
-creates the data-only event context, attaches an `OperatorFeedbackPort`, and
-delegates to `ProductionStartRunner`. The default policy still denies ACTIVE;
-the bridge is not wired to Telegram START or physical execution.
+## Physical owner and rollback
 
-`v2_startup.start_profile_transactional()` remains the preserved V2 execution
-owner for the future explicitly gated ACTIVE handoff. The Telegram route no
-longer calls it directly.
+`start_profile_transactional()` remains the single START transaction owner.
+It configures the controller session, selects PREP/Main, builds the recipe
+envelope and delegates physical enable to the application-scoped execution
+port. V/I/OVP/OCP programming and Output ON are accepted only with verified
+readback.
 
-## Current invariants
+Any exception or unverified enable enters failed-start containment. The same
+application execution owner requests Output OFF; a verified OFF clears the
+session, while an unconfirmed OFF keeps the controller contained for operator
+attention. The V3 transaction adapter normalizes STARTED, denied/failed and
+rollback states without becoming a second actuator owner.
 
-- exactly one `v2_battery_start` callback is registered;
-- ACTIVE construction is rejected by the route adapter;
-- pending START preview is retained after DRY_RUN because no charge started;
-- V2 controller, FSM, SafetySupervisor, SafeOutputCoordinator and physical
-  layer are unchanged;
-- rollback and verified-OFF mapping remain in `V2StartTransactionAdapter`.
+## Modes
 
-## Remaining blockers before bench ACTIVE
+- `ACTIVE`: production default after preflight; uses the preserved transaction owner.
+- `DRY_RUN`: explicit diagnostic mode; routes data and creates trace without mutation.
+- `SHADOW`: explicit trace-only mode.
 
-1. Complete the documented START bench validation checklist.
-2. Validate rollback and `OFF_UNCONFIRMED` containment on the target hardware.
-3. Prove physical gate, lease and readback parity.
-4. Enable ACTIVE only through a separately reviewed feature configuration.
-5. For ACTIVE, provide the real V2 event/message context required by the
-   preserved owner; the data-only context is intentionally insufficient for
-   physical execution and must not be treated as a bench approval.
+The retired `StartActivationPolicy` and authority-window stack were removed by
+`c107d8e`. They are not current prerequisites and must not be reintroduced as
+parallel execution authority.
 
-Until all gates pass, Telegram START is a non-actuating preflight/DRY_RUN
-operation and must not be reported as a started charge.
+## Current physical evidence
+
+2026-10-07 independent ESP-direct bench evidence is PASS: dual-source read-only
+MATCH, programmed readback PASS, OFF -> ON -> OFF executed, ON latency 1.509 s,
+10 s hold, final OFF + 0.00 A after 2.531 s. This validates the transport and
+readback substrate; it is not by itself a full chemistry charge run.
