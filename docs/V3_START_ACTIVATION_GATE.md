@@ -1,33 +1,44 @@
-# V3 START activation gate
+# V3 START activation boundary
 
-## Policy
+Status: **current post-ERADICATION authority**.
+
+The historical `StartActivationPolicy` flag bundle was deliberately removed by
+commit `c107d8e` ("Simplify production START control path"). It is not part of
+the current executable repository and must not be treated as a live gate.
+
+## Current control path
 
 ```text
-StartActivationPolicy
-        |
-        +-- SHADOW  -> allowed
-        +-- DRY_RUN -> allowed
-        +-- ACTIVE  -> all explicit gates required
+Operator START
+  -> ProductionStartRouteAdapter
+  -> StartPreflightService
+  -> ApprovedStartPlan
+  -> ProductionStartExecutionPort.submit_active()
+  -> ProductionStartRunner
+  -> StartTransactionRunner
+  -> application.start_transaction_service.start_profile_transactional()
 ```
 
-ACTIVE requires all of:
+ACTIVE is therefore controlled by the canonical transaction path itself, not by
+a second feature-flag authority layer.
 
-- `explicit_active_enable=True`;
-- `bench_validation_passed=True`;
-- `rollback_validation_passed=True`;
-- `physical_gate_passed=True`;
-- policy execution mode set to `ACTIVE`.
+## Mandatory fail-closed gates
 
-The default policy is fail-closed and rejects ACTIVE.
+Before physical START the current path requires:
+- valid operator intent and profile/capacity;
+- ownership available (not HANDS_OFF);
+- no active charge session;
+- fresh complete telemetry and Output OFF;
+- recipe selection and target preview;
+- SafetySupervisor preflight PASS;
+- the application execution owner to program V/I/OVP/OCP and verify readback;
+- Output ON verification;
+- verified-OFF containment on failed start.
 
-## Integration
+`SHADOW` and `DRY_RUN` remain explicit modes for tests and diagnostics.
+Production composition uses the ACTIVE route after preflight.
 
-The policy is consulted only by `ProductionStartExecutionPort`. It does not
-change controller, FSM, SafetySupervisor, SafeOutputCoordinator or physical
-transport behavior.
-
-## Current status
-
-SHADOW and DRY_RUN remain available. ACTIVE is not enabled in production and
-there is no Telegram wiring to this port.
-
+No separate `explicit_active_enable`, `bench_validation_passed`,
+`rollback_validation_passed`, or `physical_gate_passed` flags exist in the
+current codebase. Documents that still require those flags are historical and
+must be updated rather than reintroducing the retired authority layer.

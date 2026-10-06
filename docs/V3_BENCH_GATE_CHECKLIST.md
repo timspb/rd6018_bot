@@ -1,38 +1,50 @@
 # V3 bench gate checklist
 
+Status: 2026-10-07 post-ERADICATION / physical-evidence checkpoint.
+
 ## Software
 
-- [ ] decision parity PASS
-- [ ] safety parity PASS
-- [ ] execution parity PASS
-- [ ] no duplicate actuator owner
+- [x] decision/preflight parity covered by current START tests
+- [x] safety preflight and SafeOutput contract covered
+- [x] execution route parity covered
+- [x] no duplicate START/actuator owner
 
 ## Readback
 
-- [ ] programmed/measured voltage
-- [ ] programmed/measured current
-- [ ] OVP/OCP
-- [ ] output state
-- [ ] battery voltage read before selecting bench Vset
-- [ ] Vset is above measured battery voltage by configured margin
-- [ ] final OFF confirmation includes measured current = 0 A
-- [ ] readback latency recorded for ON and OFF
+- [x] programmed/measured voltage
+- [x] programmed/measured current
+- [x] OVP/OCP
+- [x] output state
+- [x] battery voltage read before selecting bench Vset
+- [x] Vset above measured battery voltage by configured margin
+- [x] final OFF confirmation includes measured current = 0 A
+- [x] ON/OFF readback latency recorded
 
 ## Safety
 
-- [ ] verified OFF
-- [ ] emergency disable
-- [ ] stale telemetry reaction
-- [ ] temperature fault
-- [ ] battery-fault block
+- [x] verified OFF
+- [x] post-enable failure forces disable + verified-OFF containment
+- [x] stale telemetry reaction covered by fail-closed tests
+- [x] temperature fault covered by SafetySupervisor tests
+- [x] implausible/missing battery telemetry blocks START
 
 ## Hardware bench
 
-- [ ] voltage measurement
-- [ ] current measurement
-- [ ] enable sequence
-- [ ] disable sequence
-- [ ] power-cycle recovery
+- [x] voltage readback
+- [x] current readback
+- [x] enable sequence
+- [x] disable sequence
+- [x] ESP power-cycle/reconnect recovery
 
-Этот checklist только gate документации. Dry-run не подтверждает физическое
-поведение и не заменяет bench evidence.
+## Controlled chemistry charge
+
+- [ ] connected battery profile/chemistry explicitly selected
+- [ ] nominal capacity Ah explicitly selected
+- [ ] battery identity recorded
+- [ ] intended program/condition recorded
+- [ ] fresh START preflight PASS immediately before execution
+- [ ] canonical START transaction trace captured
+
+The unchecked items are operator/battery-specific inputs for the next physical
+charge run. They are not transport or software defects and must not be inferred
+from terminal voltage alone.
