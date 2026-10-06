@@ -1738,3 +1738,25 @@ Current HOME-PC preflight is **BLOCKED before physical execution**:
 
 Therefore the independent ESP-direct transition must not be attempted from the
 current HOME-PC context until fresh dual-source read-only evidence is available.
+
+
+### 2026-10-07 physical evidence checkpoint - source availability blocker
+
+Fresh read-only preflight proves the current blocker is source availability, not
+credential discovery or HA entity naming. Local credential sources were loaded
+only into process memory and never printed.
+
+Observed:
+- HA102 API reachable and authenticated;
+- all canonical RD6018 HA entities return `state=unavailable`;
+- ESP128 canonical/static address is still `192.168.1.28`;
+- that address does not answer ping or TCP 80/443/6053 from HOME-PC.
+
+During this preflight a fail-open evidence defect was found and corrected:
+`LiveSmokeRunner` no longer treats `connection_state=connected` as sufficient.
+Bench-critical snapshot fields must all be present or the run is `INVALID`.
+
+Result: physical continuation remains **BLOCKED**. The independent ESP-direct
+`OFF -> ON -> OFF` run is prohibited until a fresh read-only smoke returns two
+valid snapshots and a MATCH comparison. No node 101 access and no physical write
+occurred in this checkpoint.
