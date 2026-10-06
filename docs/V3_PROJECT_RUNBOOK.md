@@ -1781,3 +1781,28 @@ Fresh evidence:
 - physical writes sent: NONE.
 
 The prior source-availability blocker is cleared. The next physical gate is the independent ESP-direct `OFF -> ON -> OFF` bench transition under the existing manual execution/ARM protocol. This checkpoint itself remains strictly read-only.
+
+
+### 2026-10-07 physical evidence checkpoint - ESP-direct transition PASS
+
+The independent ESP-direct physical gate is closed.
+
+Fresh preflight: HA102=VALID, ESP128=VALID, comparison=MATCH, Output OFF,
+current 0.00 A, battery about 13.07 V. The manual controlled-state-transition
+path selected 13.57 V / 0.10 A with OVP 14.07 V / OCP 0.20 A, verified all
+programmed readbacks, confirmed ON after 1.509 s, held for 10 s, then confirmed
+OFF + 0.00 A after 2.531 s. Final dual-source post-check remained MATCH.
+
+The executor had already been hardened and exact-head CI verified before this
+run so that post-enable failures force verified-OFF containment and ON state is
+polled within the bounded readback timeout.
+
+Latency comparison with the earlier HA-ESP run (`1.526 s` ON / `2.546 s` OFF)
+shows no meaningful HA penalty; the difference versus direct ESP is about
+17/15 ms. The latency gate is therefore closed as downstream ESP/RD readback
+propagation rather than HA overhead.
+
+Next boundary: controlled charge bench readiness. Do not invent a new physical
+charge loop; use only an existing canonical charge/start execution route after
+its current readiness/ownership/rollback gates are re-evaluated against the
+post-ERADICATION main.
