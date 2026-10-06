@@ -64,3 +64,53 @@ The battery-aware target selection is enforced. The measured retry completed
 `OFF / 0 A` confirmation. The earlier HA latency failure is retained as
 evidence; no automatic fallback was used. A separate ESP-direct execution is
 still pending if dual-connector evidence remains required.
+
+
+## 2026-10-07 independent ESP-direct controlled transition
+
+Fresh read-only preflight immediately before execution showed both HA102 and
+ESP128 `VALID` with `MATCH`, Output `OFF`, measured current `0.00 A`, battery
+voltage about `13.07 V` and temperature `28 C`.
+
+The independent ESP-direct path then executed the existing manual bench
+`OFF -> ON -> OFF` transition through SafetyEngine, ExecutionPolicy,
+conservative hardware/battery envelope validation, a scoped
+`CONTROLLED_STATE_TRANSITION` bench lease and a manually armed
+`PhysicalExecutionGate`. No automatic fallback to HA was used.
+
+Battery-aware parameters were selected from the fresh snapshot:
+
+```text
+Vbat = 13.07 V
+Vset = 13.57 V
+Iset = 0.10 A
+OVP  = 14.07 V
+OCP  = 0.20 A
+hold = 10.0 s
+```
+
+Observed physical evidence:
+- programmed V/I/OVP/OCP readback: PASS;
+- Output ON confirmation: `1.509 s` after the direct ESP command;
+- configured ON hold: `10 s`;
+- final Output OFF + `0.00 A`: `2.531 s` after disable;
+- executor result: `EXECUTED`;
+- final independent HA102/ESP128 post-check: both `VALID`, comparison `MATCH`;
+- post-state: Output `OFF`, measured `0.00 V / 0.00 A`, battery about `13.08 V`,
+  temperature `29 C`.
+
+The bench-safe programmed values remain `13.57 V / 0.10 A / OVP 14.07 V /
+OCP 0.20 A` with Output OFF. They were intentionally not restored to the prior
+higher programmed current after the evidence run.
+
+### Latency conclusion
+
+The historical HA-ESP controlled retry measured `1.526 s` ON and `2.546 s`
+OFF, while the independent ESP-direct run measured `1.509 s` ON and `2.531 s`
+OFF+zero-current. The difference is only about `17 ms` / `15 ms`; therefore the
+observed ~1.5 s ON and ~2.5 s OFF latency is not materially introduced by Home
+Assistant. The dominant delay is downstream in ESP/RD command/readback
+propagation and polling.
+
+Result: **PASS** for independent ESP-direct transition and transport-latency
+characterization.
