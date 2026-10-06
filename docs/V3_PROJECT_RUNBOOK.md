@@ -1760,3 +1760,24 @@ Result: physical continuation remains **BLOCKED**. The independent ESP-direct
 `OFF -> ON -> OFF` run is prohibited until a fresh read-only smoke returns two
 valid snapshots and a MATCH comparison. No node 101 access and no physical write
 occurred in this checkpoint.
+
+
+### 2026-10-07 physical evidence checkpoint - dual-source read-only PASS
+
+After ESP128 was powered back on, the canonical read-only preflight was repeated from HOME-PC using existing local credential sources loaded only into process memory.
+
+Fresh evidence:
+- ESP128 (`192.168.1.28`) ping: PASS;
+- ESPHome native API TCP/6053: PASS;
+- HA102 snapshot: VALID;
+- ESP128 snapshot: VALID;
+- dual-source comparison: MATCH;
+- Output: OFF on both sources;
+- measured voltage/current: 0.00 V / 0.00 A on both sources;
+- battery voltage: ~13.07 V on both sources;
+- configured voltage/current: ~14.43 V / 9.00 A;
+- OVP/OCP: ~14.53 V / 9.10 A;
+- temperature: 28 C;
+- physical writes sent: NONE.
+
+The prior source-availability blocker is cleared. The next physical gate is the independent ESP-direct `OFF -> ON -> OFF` bench transition under the existing manual execution/ARM protocol. This checkpoint itself remains strictly read-only.
