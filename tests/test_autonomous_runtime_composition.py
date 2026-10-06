@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, Chat, Message, Update, User
 import bot as composition
 from runtime import production_runtime as app
 from rd_control_mode import RdControlMode
-from soft_watchdog_containment import SoftWatchdogIncident, soft_watchdog_poll_once
+from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 
 
 class AutonomousRuntimeCompositionTests(unittest.IsolatedAsyncioTestCase):

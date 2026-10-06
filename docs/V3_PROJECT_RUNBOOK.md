@@ -1200,3 +1200,507 @@ guards, and require focused/full/exact-head CI before closing L-003.
 
 Production VM104 changed: NO.
 Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 5 - L-003 controller state ownership cut
+
+The first actual L-003 superclass contraction is PASS.
+
+Starting remote authority:
+- remote checkpoint: `c8ca6010a5af11e4128e20eb2aa1a8f20a3ba2c9`;
+- GitHub Actions run `#1586` / `37321027512`: PASS on Python 3.10 / 3.11 / 3.12.
+
+Cut completed:
+- added `runtime/charge/controller_state.py` as the canonical owner for controller
+  stage/profile identifiers and compatibility-shaped mutable state bootstrap;
+- `ChargeControllerV2.__init__` no longer calls historical
+  `ChargeController.__init__`;
+- `current_stage` and `is_active` are now owned directly by
+  `ChargeControllerV2`;
+- all production-referenced stage/profile constants are explicitly owned by the
+  V2 controller via the canonical state module;
+- the historical superclass remains temporarily only for the still-bounded
+  lifecycle/persistence/target/temperature/protection/bookkeeping support surface.
+
+Regression guards were expanded to cover:
+- exact transitive historical method closure;
+- externally referenced inherited support surface;
+- stage/profile constant ownership;
+- state-shape parity against the historical constructor.
+
+Validation:
+- L-003 inventory/state tests: 5 PASS;
+- `test_charge_controller_v2.py`: 7 PASS;
+- production-controller tests: 26 PASS;
+- runtime-safety tests: 43 PASS;
+- persistence tests: 17 PASS;
+- CI-equivalent full discovery: 1930 PASS / 2 skipped;
+- compileall: PASS;
+- diff-check: PASS.
+
+L-003 remains OPEN. Historical `tick()` remains absent from the inherited support
+closure. Next cut: lifecycle/persistence support, then target/temperature/protection
+and remaining bookkeeping, with zero-reachability guards before removing the
+`ChargeController` import/inheritance edge.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 6 - L-003 bookkeeping and lifecycle contraction
+
+The second L-003 contraction is PASS.
+
+New modular ownership:
+- `runtime.charge.controller_state` now also owns stage-sample bookkeeping,
+  stage-metric reset, bank-fault reset, link-loss reset, restored-target clearing,
+  and Delta/blanking reset;
+- `runtime.charge.runtime.variables.DELTA_MONITOR_DELAY_S` canonically owns the
+  accepted 120 second Delta monitor delay;
+- `runtime.charge.lifecycle` owns start/start_custom session initialization,
+  session-data reset, and stop mechanics.
+
+Removed from historical inherited dependency:
+- `_mark_stage_sample`;
+- `_reset_stage_metrics`;
+- `_reset_bank_fault_state`;
+- `_reset_link_loss_state`;
+- `_clear_restored_targets`;
+- `_reset_delta_and_blanking`;
+- `start`;
+- `start_custom`;
+- `_init_session`;
+- `reset_session_data`;
+- `stop`.
+
+The historical superclass remains only for persistence/restore, target and
+temperature/protection helpers, plus a bounded diagnostic/operator support set.
+Historical `tick()` remains outside the dependency closure.
+
+Validation after the combined state + bookkeeping + lifecycle contraction:
+- L-003 inventory/state tests: 5 PASS;
+- ChargeControllerV2 tests: 7 PASS;
+- production-controller tests: 26 PASS;
+- focused start/lifecycle tests: PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- CI-equivalent full discovery: 1930 PASS / 2 skipped.
+
+Next boundary: persistence/restore extraction into the canonical session owner,
+followed by target/temperature/protection support and final zero-reachability
+removal of `charge_logic.ChargeController`.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 7 - L-003 persistence/restore extraction
+
+Session persistence and restore are now owned by `runtime.charge.persistence`.
+
+Retired from historical superclass dependency: `_clear_session_file`, `_save_session`, `try_restore_session`.
+
+The transfer is mechanical from accepted behavior. Session age, AGM stages, Mix finish hold, maximum stage current, elapsed-clock sanity and Pb voltage clamp now resolve through their existing modular owners. Existing session-path semantics are preserved by explicit `session_file=SESSION_FILE` injection from `ChargeControllerV2`.
+
+Validation: L-003 inventory/state 5 PASS; persistence-focused 17 PASS; ProductionChargeControllerV2 26 PASS; compileall/diff-check PASS; CI-equivalent full discovery 1930 PASS / 2 skipped.
+
+Residual L-003: target/temperature/protection plus bounded diagnostic/operator helpers, then zero-reachability removal of `ChargeControllerV2(ChargeController)` and its historical import. Historical `tick()` remains absent.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 7 - target, temperature, and protection extraction
+
+L-003 contracted again from starting local HEAD `93728a5e502079becd5a8aca3bfaab45e8cf5cc1`.
+
+This boundary moved the remaining target-selection, temperature-compensation, and
+phase-protection helpers out of the historical `ChargeController` inheritance
+surface and onto modular owners:
+- `runtime.charge.strategy.prep` and `runtime.charge.strategy.main_targets`
+  remain target authorities;
+- new `runtime/charge/strategy/temperature_variables.py` owns the accepted
+  25 C reference, 0.60 V compensation cap, and Ca/EFB/AGM/Custom coefficients;
+- `runtime.safety.variables` remains OVP/OCP/MAX-current authority;
+- `runtime.charge.strategy.desulfation_variables` remains DESULFATION OCP margin authority.
+
+`ChargeControllerV2` now owns compatibility-shaped adapters for:
+`_add_phase_limits`, `_add_desulf_limits`, temperature compensation,
+PREP/MAIN target selection, profile target selection, and restored-target selection.
+No transition decision or hardware-write authority moved into these adapters.
+
+The inherited transitive support closure shrank from 12 methods to 3:
+- `_make_log_event_end`;
+- `_post_charge_profile_params`;
+- `_record_safe_wait_sample`.
+
+The externally referenced inherited surface also shrank accordingly.
+
+Parity proof:
+- dedicated target/temperature/protection parity against historical controller;
+- L-003 inventory/parity: 6 PASS;
+- ChargeControllerV2 focused: 7 PASS;
+- production-controller focused: 26 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1931 PASS / 2 skipped.
+
+L-003 remains OPEN: historical superclass/import still exists for the residual
+bookkeeping/report helpers and externally referenced utility surface.
+L-002 remains OPEN.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 8 - zero transitive historical support closure
+
+L-003 reached a new structural boundary: `ChargeControllerV2` no longer calls any
+historical `ChargeController` helper transitively.
+
+Moved from inherited historical support:
+- post-charge profile thresholds now come from `runtime.charge.post`;
+- SAFE_WAIT sample recording is local to the V2 compatibility surface and consumes
+  the canonical post-charge profile owner;
+- stage-end log payload construction is local and behavior-preserving.
+
+Regression inventory now requires:
+`EXPECTED_HISTORICAL_SUPPORT_CLOSURE = set()`.
+
+Direct parity covers:
+- post-charge profile thresholds for Ca/Ca, EFB, AGM, Custom;
+- SAFE_WAIT sample cadence/state;
+- stage-end log payload.
+
+Validation:
+- L-003 inventory/parity: 7 PASS;
+- full CI-equivalent local discovery: 1932 PASS / 2 skipped;
+- compileall/diff-check remained PASS in the preceding focused gate.
+
+Important: L-003 is still OPEN. The superclass/import remains only because external
+production callers still address a bounded inherited utility API surface. No V2
+internal execution path depends on historical helper implementation anymore.
+
+Next exact boundary: migrate the remaining externally referenced utility surface by
+semantic owner, add zero-external-reachability guards, then remove
+`ChargeControllerV2(ChargeController)` and the `charge_logic` import.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 9 - L-003 historical superclass retired
+
+L-003 is CLOSED locally.
+
+`ChargeControllerV2` no longer imports or inherits historical
+`charge_logic.ChargeController`.
+
+The final extraction moved the remaining externally referenced compatibility
+surface to semantic V3 owners:
+- stage/exit/timer compatibility helpers -> `runtime.charge.runtime.support`;
+- emergency/full state reset -> `runtime.charge.lifecycle`;
+- read-only diagnostics, timer and AI snapshots -> `runtime.charge.diagnostics`;
+- CV Mix current-reversal ratio -> `runtime.charge.strategy.exit_variables`.
+
+Canonical policy was preserved rather than copying stale historical conflicts:
+- Ca/Ca active-Mix maximum: 20 h;
+- EFB active-Mix maximum: 24 h;
+- AGM active-Mix maximum: 10 h.
+The old `charge_logic.py` EFB 20 h diagnostic/reporting text was not reintroduced.
+
+Structural proof:
+- historical transitive support closure: ZERO;
+- external inherited production surface: ZERO;
+- `charge_controller_v2.py` charge_logic import edge: ZERO;
+- `ChargeControllerV2` superclass list: empty.
+
+Semantic proof includes controller-state parity, target/temperature/protection
+parity, post-charge/log parity, canonical Mix exit/timer checks, and V2
+diagnostic/bank-fault characterization.
+
+Validation after physical superclass removal:
+- focused L-003 inventory/parity: 9 PASS;
+- ChargeControllerV2: 7 PASS;
+- production controller: 26 PASS;
+- auto strategy: 2 PASS;
+- V2 production controller: 7 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1934 PASS / 2 skipped.
+
+No VM104 mutation occurred and no hardware command was sent.
+
+Next ERADICATION-09 boundary: L-002 only. Retire compatibility installers in
+`ProductionComposition.compose()` strictly where zero reachability/redundancy is
+proved; no aesthetic cleanup and no change to accepted production semantics.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 10 - L-002 Manual-OFF wrapper retired
+
+The first L-002 compatibility installer is retired from production composition.
+
+Removed from `ProductionComposition.compose()`:
+- `install_auto_manual_off_contract(_legacy)`;
+- the corresponding `auto_manual_off_v2` import in `bot.py`.
+
+The wrapper was proven redundant rather than merely old: its only production effect
+was to force `manual_off_active=False` before delegating to
+`ChargeControllerV2.tick()`. That invariant is now owned directly by the
+production controller before stage-scaffold evaluation, while the persistent
+Manual-OFF condition remains an externally evaluated asynchronous terminal stop.
+
+Regression proof:
+- dedicated Manual-OFF contract tests: 6 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1936 PASS / 2 skipped.
+
+The compatibility module itself is retained for now as historical/reference code;
+this checkpoint removes only its production composition edge. File deletion must
+wait for the final archive/reference-capture gate.
+
+L-002 remains OPEN because other compatibility installers still exist in
+`ProductionComposition.compose()`. No other installer is removed by implication.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 11 - L-002 production guardrail wrapper retired
+
+The second L-002 compatibility installer is retired from the production composition
+graph.
+
+Removed from `ProductionComposition.compose()`:
+- `install_production_guardrails(_legacy)`;
+- the corresponding `production_guardrails_v2` import from `bot.py`.
+
+Its two real production responsibilities were migrated to explicit owners instead
+of being dropped:
+- Vin chemistry authority is statically disabled in `runtime.production_runtime`;
+  `MIN_INPUT_VOLTAGE` remains a compatibility-shaped symbol with value `-inf`
+  and Vin remains PSU-health telemetry only;
+- durable Cooling continuation validation now runs directly inside
+  `ProductionChargeControllerV2.tick()/try_restore_session()`, with pure token
+  validation owned by `runtime.charge.runtime.cooling_guard`.
+
+The SAFE_WAIT Cooling contract remains unchanged: its clock is frozen through
+Cooling, Output stays OFF, and corrupt/missing continuation state fails closed.
+
+Regression proof:
+- direct guardrail/Cooling tests: 5 PASS;
+- production entrypoint: 13 PASS;
+- autonomous install-order contract: 4 PASS;
+- runtime namespace contract: 3 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1936 PASS / 2 skipped.
+
+The historical `production_guardrails_v2.py` file is retained only for
+archive/reference capture and is no longer reachable from `bot.py`.
+
+L-002 remains OPEN while other compatibility installers still patch the production
+runtime at composition time.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 12 - L-002 Output readback wrapper retired
+
+The third L-002 compatibility installer is retired from production composition.
+
+Removed from `ProductionComposition.compose()`:
+- `install_output_state_readback(_legacy)`;
+- the corresponding `live_output_readback_v2` import.
+
+Register-18 Output truth is now owned by the canonical telemetry normalization path:
+`rd6018_telemetry.canonicalize_live()` promotes a valid binary
+`output_state_code_v2` to the compatibility `switch` value and copies its
+freshness metadata with `source_key=output_state_code_v2`.
+
+This occurs inside `HassClient.get_all_live()` before runtime-safety captures its
+raw reader, so managed, HANDS_OFF and safety paths share the same canonical Output
+value/freshness without a late composition wrapper.
+
+Regression proof:
+- live freshness / Mix eligibility: 8 PASS;
+- autonomous install-order: 4 PASS;
+- runtime safety: 43 PASS;
+- Hass-focused suite: PASS, exit 0;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1936 PASS / 2 skipped.
+
+The historical `live_output_readback_v2.py` remains only for final
+archive/reference capture and is no longer reachable from `bot.py`.
+
+L-002 remains OPEN for the remaining composition-time compatibility installers.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 13 - L-002 Telegram bootstrap wrapper retired
+
+The fourth L-002 compatibility installer is retired from production composition.
+
+Removed from `ProductionComposition.compose()`:
+- `install_telegram_startup_resilience(_legacy)`;
+- the corresponding `telegram_startup_resilience` import.
+
+Bootstrap resilience now belongs to the Telegram transport adapter itself.
+`telegram.runtime.ResilientBootstrapBot` preserves the intentionally narrow
+accepted retry semantics:
+- `me()` retries only `TelegramNetworkError` with capped exponential backoff;
+- `set_my_commands()` attempts once, then defers idempotent command sync on a
+  transient Telegram network error;
+- non-network exceptions are never swallowed;
+- arbitrary send/edit/callback methods are not replayed.
+
+`create_telegram_runtime()` constructs the resilient transport directly, so no
+composition-time monkey patch is required.
+
+Regression proof:
+- Telegram bootstrap resilience: 4 PASS;
+- Telegram runtime adapter: 5 PASS;
+- production entrypoint: 13 PASS;
+- V3 legacy inventory: 4 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- stable full CI-equivalent local discovery: 1936 PASS / 2 skipped.
+
+The historical `telegram_startup_resilience.py` file remains only for final
+archive/reference capture and is no longer reachable from `bot.py`.
+
+L-002 remains OPEN pending exact classification/retirement of the residual
+compatibility installer stack. Canonical component/UI/ownership wiring is not
+considered debt merely because its API is named `install_*`.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 14 - L-002 soft watchdog wrapper retired
+
+The fifth L-002 compatibility installer is retired from production composition.
+
+Removed from `ProductionComposition.compose()`:
+- `install_soft_watchdog_containment(_legacy)`;
+- the corresponding root compatibility import.
+
+Canonical ownership now lives in:
+- `runtime.safety.soft_watchdog` for bounded outage/authority decisions;
+- `runtime.production_runtime.soft_watchdog_loop()` for the single periodic runtime task.
+
+Accepted safety semantics are preserved:
+- fresh heartbeat resets the incident;
+- unresolved startup authority, HANDS_OFF, AUTONOMOUS and live release suspend Pb watchdog authority;
+- idle/proven-OFF outage is passive;
+- managed or last-known-ON outage requests existing hard-stop containment immediately;
+- failed remote shutdown attempts are retried only at the bounded 60 s cadence;
+- a successful shutdown latches the incident and prevents command storms.
+
+Regression proof:
+- canonical soft-watchdog tests: 11 PASS;
+- autonomous composition: 2 PASS;
+- production entrypoint: 13 PASS;
+- runtime namespace contract: 3 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1937 PASS / 2 skipped.
+
+The historical `soft_watchdog_containment.py` remains only for final
+archive/reference capture and is no longer a production composition dependency.
+
+L-002 remains OPEN. The next true compatibility-patch candidate is
+`done_storage_restore`; canonical service/UI/ownership installers are not retired
+merely because their public API uses an `install_*` name.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 checkpoint 15 - L-002 Done/Storage restore wrapper retired
+
+The next L-002 compatibility installer is retired from production composition.
+
+Removed from `ProductionComposition.compose()`:
+- `install_done_storage_restore(_legacy)`;
+- the corresponding `done_storage_restore` import from `bot.py`.
+
+Its production responsibilities now belong to canonical owners:
+- Done/Storage durable intent and restore authorization: `runtime.charge.persistence`;
+- controller Done classification state: `runtime.charge.controller_state`;
+- startup/auto-enable and operator-pause restore guards: `runtime.production_runtime`.
+
+The accepted distinction between physically opposite Done states is preserved:
+- explicit managed Storage Done persists `completion_kind=storage`,
+  `output_intent=on`, and canonical Storage setpoints;
+- legacy/ambiguous/terminal Done normalizes fail-closed to
+  `completion_kind=terminal`, `output_intent=off`;
+- normalization updates only Done intent/version metadata and does not rewrite
+  previously captured terminal voltage/current/Ah evidence.
+
+A regression discovered during extraction was fixed before closure: legacy terminal
+Done normalization initially rewrote `terminal_metadata.voltage` with restore-time
+telemetry. The canonical normalizer now preserves historical terminal evidence 1:1.
+
+Regression proof:
+- Done/Storage restore tests: 9 PASS;
+- Done restore contract tests: 4 PASS;
+- final SAFE_WAIT output transaction: 5 PASS;
+- production controller: 26 PASS;
+- compileall: PASS;
+- diff-check: PASS;
+- full CI-equivalent local discovery: 1937 PASS / 2 skipped.
+
+The historical `done_storage_restore.py` file is retained only for final
+archive/reference capture and is no longer reachable from production composition.
+
+L-002 remains OPEN for remaining composition-time compatibility installers.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.
+
+
+### 2026-10-06 ERADICATION-09 final local closure candidate
+
+Local ERADICATION-09 implementation is complete.
+
+L-003 is already closed: the historical `ChargeController` superclass and all
+transitive/external inherited production reachability are gone.
+
+L-002 is now closed locally. Six composition-time compatibility patchers were
+retired after their semantics moved to canonical owners:
+- Manual-OFF inertness -> V2 controller / terminal condition;
+- Done/Storage restore -> canonical charge persistence/controller/runtime guards;
+- Output register-18 promotion -> telemetry canonicalization;
+- production guardrails -> production runtime + Cooling guard;
+- soft watchdog containment -> canonical safety watchdog owner;
+- Telegram bootstrap resilience -> Telegram transport owner.
+
+The remaining `install_*` calls are not legacy debt: a static inventory explicitly
+classifies the exact set as canonical domain, runtime/ownership, physical-validation
+or operator-UI component composition. Any unclassified installer now fails the
+architecture guard.
+
+Before deleting the six unreachable compatibility source files, their exact Git
+blob IDs, last source commits, and canonical replacements were captured in
+`docs/ERADICATION_09_COMPATIBILITY_REFERENCE.md`. Git history remains the archive.
+
+Final post-deletion local validation:
+- focused architecture/namespace/behavior guards: PASS;
+- compileall: PASS;
+- `git diff --check`: PASS;
+- full CI-equivalent discovery: **1936 PASS / 2 skipped**.
+
+This is not yet the remote authority. PR #29 still points at remote head
+`c8ca6010a5af11e4128e20eb2aa1a8f20a3ba2c9`. The final local tree must be
+synchronized to the PR branch and exact-head GitHub Actions must pass on Python
+3.10, 3.11 and 3.12. Only then may ERADICATION-09 be marked REMOTE-VERIFIED
+COMPLETE.
+
+Production VM104 changed: NO.
+Hardware commands sent: NO.

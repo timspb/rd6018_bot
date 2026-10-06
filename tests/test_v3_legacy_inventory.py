@@ -15,7 +15,8 @@ class V3LegacyInventoryTests(unittest.TestCase):
         self.assertNotIn("asyncio.run(_runtime.main())", legacy)
         self.assertIn("direct execution is retired", legacy)
         self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", adapter)), 1)
-        self.assertEqual(len(re.findall(r"\bBot\s*\(", adapter)), 1)
+        self.assertEqual(len(re.findall(r"class ResilientBootstrapBot\(Bot\)", adapter)), 1)
+        self.assertEqual(len(re.findall(r"\bbot=ResilientBootstrapBot\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bDispatcher\s*\(", adapter)), 1)
 
     def test_bot_entrypoint_owns_one_explicit_composition_lifecycle(self):

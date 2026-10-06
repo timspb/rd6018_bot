@@ -241,6 +241,22 @@ def canonical_programmed_readback(live: Mapping[str, Any], key: str) -> Optional
 def canonicalize_live(live: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     """Promote corrected V2 sensors while preserving migration-compatible keys."""
     meta = live.get("_meta") if isinstance(live.get("_meta"), dict) else None
+
+    # Register 18 is the authoritative force-updated Output heartbeat.  Promote its
+    # binary value and source freshness here, before runtime-safety captures the HA
+    # reader, so managed and raw/HANDS_OFF paths observe the same canonical truth.
+    raw_output_code = finite_float(live.get("output_state_code_v2"))
+    if (
+        raw_output_code is not None
+        and abs(raw_output_code - round(raw_output_code)) <= 1e-9
+        and int(round(raw_output_code)) in {0, 1}
+    ):
+        live["switch"] = "on" if int(round(raw_output_code)) == 1 else "off"
+        if meta is not None and isinstance(meta.get("output_state_code_v2"), Mapping):
+            copied = dict(meta["output_state_code_v2"])
+            copied["source_key"] = "output_state_code_v2"
+            meta["switch"] = copied
+
     for canonical, corrected in V2_CANONICAL_OVERRIDES.items():
         value = live.get(corrected)
         if value in (None, "", "unknown", "unavailable"):

@@ -6,10 +6,7 @@ import unittest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import ENTITY_MAP
-from live_output_readback_v2 import (
-    install_output_state_readback,
-    promote_output_state_readback,
-)
+from rd6018_telemetry import canonicalize_live
 from operator_mix_eligibility import (
     POTENTIAL_MIX_MIN_SETPOINT_V,
     filter_non_mix_actions,
@@ -38,7 +35,7 @@ class LiveOutputReadbackV2Tests(unittest.TestCase):
             },
         }
 
-        promoted = promote_output_state_readback(live)
+        promoted = canonicalize_live(live)
 
         self.assertEqual(promoted["switch"], "off")
         self.assertEqual(promoted["_meta"]["switch"]["last_reported"], "fresh")
@@ -49,52 +46,17 @@ class LiveOutputReadbackV2Tests(unittest.TestCase):
 
     def test_invalid_output_code_never_overrides_public_switch(self):
         live = {"switch": "on", "output_state_code_v2": 2, "_meta": {}}
-        promoted = promote_output_state_readback(live)
+        promoted = canonicalize_live(live)
         self.assertEqual(promoted["switch"], "on")
 
-    def test_existing_runtime_guard_raw_reader_is_promoted_for_hands_off(self):
-        class FakeHass:
-            async def get_all_live(self):
-                return {
-                    "switch": "off",
-                    "output_state_code_v2": 1,
-                    "_meta": {
-                        "switch": {
-                            "status": "ok",
-                            "last_reported": "stale-public-switch",
-                        },
-                        "output_state_code_v2": {
-                            "status": "ok",
-                            "last_reported": "fresh-register-18",
-                            "last_updated": "fresh-register-18",
-                        },
-                    },
-                }
+    def test_hass_canonicalization_owns_output_promotion_before_safety_capture(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        hass_source = (root / "hass_api.py").read_text(encoding="utf-8")
+        bot_source = (root / "bot.py").read_text(encoding="utf-8")
 
-        hass = FakeHass()
-
-        class FakeGuard:
-            def __init__(self):
-                # RuntimeSafetyGuard captures the HA reader before the later
-                # HANDS_OFF ownership wrapper starts using _raw_live().
-                self._raw_get_all_live = hass.get_all_live
-
-            async def _raw_live(self):
-                return await self._raw_get_all_live()
-
-        guard = FakeGuard()
-        app = types.SimpleNamespace(hass=hass, runtime_safety_guard=guard)
-
-        install_output_state_readback(app)
-        raw = asyncio.run(guard._raw_live())
-
-        self.assertEqual(raw["switch"], "on")
-        self.assertEqual(raw["_meta"]["switch"]["last_reported"], "fresh-register-18")
-        self.assertEqual(
-            raw["_meta"]["switch"]["source_key"],
-            "output_state_code_v2",
-        )
-        self.assertTrue(getattr(guard, "_v2_output_state_readback_raw_installed", False))
+        self.assertIn("canonicalize_live(", hass_source)
+        self.assertNotIn("install_output_state_readback", bot_source)
+        self.assertNotIn("live_output_readback_v2", bot_source)
 
 
 class MixActionEligibilityTests(unittest.TestCase):

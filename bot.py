@@ -13,10 +13,7 @@ from runtime import production_runtime as _runtime_substrate
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from application.operator_read_source import OperatorReadSource
 from application.operator_intent_factory import build_operator_intent_dispatcher
-from auto_manual_off_v2 import install_auto_manual_off_contract
 from diagnostic_persistence import install_diagnostic_persistence
-from done_storage_restore import install_done_storage_restore
-from live_output_readback_v2 import install_output_state_readback
 from manual_context_v2 import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
@@ -48,7 +45,6 @@ from physical_test_control_programmed_readback_v2 import (
     install_physical_test_control_programmed_readback_v2,
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
-from production_guardrails_v2 import install_production_guardrails
 from rd_autonomous_mode import install_rd_autonomous_final_hmi, install_rd_autonomous_mode
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_background import install_hands_off_background_isolation
@@ -61,8 +57,6 @@ from rd_startup_authority import (
     install_rd_startup_authority_gate,
     reconcile_startup_authority,
 )
-from soft_watchdog_containment import install_soft_watchdog_containment
-from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 from runtime.v2_startup_recovery import V2StartupRecovery
@@ -102,31 +96,17 @@ class ProductionComposition:
         # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
         _v2_ui_enabled = _env_enabled("V2_UI", True)
         install_v2(_legacy, install_ui=_v2_ui_enabled)
-        # ``Done`` historically overloaded managed Storage (Output ON) and terminal stop
-        # (Output OFF). Persist the physical intent explicitly and replace the legacy blanket
-        # restore guard before any startup recovery path can evaluate a saved Done session.
-        install_done_storage_restore(_legacy)
-        # The legacy 3-minute software watchdog ran every 10 seconds and called the full hard
-        # stop on every poll during one outage. Keep its immediate fail-safe role, but make the
-        # outage an incident: idle/proven-OFF loss is passive, while managed/last-known-ON state
-        # gets one immediate shutdown attempt and only bounded retries if remote I/O is down.
-        # The independently proven 15-minute edge lease remains the blind-operation backstop.
-        install_soft_watchdog_containment(_legacy)
-        # Telegram transport is not part of RD/edge safety authority, but a single transient
-        # DNS EAI_NODATA during aiogram bootstrap must not kill the production runtime before
-        # its local monitor/watchdog tasks come up. Restrict retry semantics to read-only getMe
-        # and idempotent setMyCommands; never replay arbitrary Telegram API writes.
-        install_telegram_startup_resilience(_legacy)
-        # The public ESPHome Output switch remains the actuator endpoint, but an unchanged
-        # switch state is not a source heartbeat. Prefer the V2 force-updated read-only
-        # register-18 sensor for canonical Output value/freshness whenever the matching
-        # firmware is present; absence remains fail-closed through the legacy path.
-        install_output_state_readback(_legacy)
-        # Composition guardrails close historical bot_legacy authority leaks without changing
-        # the V1 reference file itself: Vin becomes PSU-health-only and Cooling resume requires
-        # a complete durable V2 continuation token (SAFE_WAIT always remains Output OFF).
-        install_production_guardrails(_legacy)
-        install_auto_manual_off_contract(_legacy)
+        # Done/Storage intent is owned by canonical charge persistence and the
+        # runtime restore/pause guards; composition does not patch controller methods.
+        # Software-watchdog containment is owned directly by
+        # runtime.production_runtime + runtime.safety.soft_watchdog; composition
+        # does not replace the runtime loop.
+        # Telegram bootstrap resilience is owned by telegram.runtime's transport
+        # implementation; production composition does not patch bot methods.
+        # Output register-18 promotion is owned by telemetry canonicalization before
+        # runtime-safety captures its reader; no composition-time read wrapper is needed.
+        # Vin chemistry authority and Cooling continuation validation are now owned
+        # directly by the production runtime/controller; no composition wrapper is required.
         install_diagnostic_persistence(_legacy)
         if _v2_ui_enabled:
             install_mix_only_mode(_legacy)

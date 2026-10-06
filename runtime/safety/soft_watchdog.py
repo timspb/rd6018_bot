@@ -1,6 +1,7 @@
+"""Canonical bounded software-watchdog containment for managed RD6018 authority."""
+
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -24,19 +25,15 @@ class SoftWatchdogIncident:
 
 
 def _pb_watchdog_suspended(app: Any) -> bool:
-    """Return True when Pb software does not have reconciled actuator authority.
+    """Return True when Pb software does not have reconciled actuator authority."""
 
-    HANDS_OFF and explicit D065 AUTONOMOUS are outer ownership/operation boundaries,
-    not degraded managed-charge states. Startup edge authority is also initially
-    unknown; until the final startup gate proves non-autonomous recovery complete, the
-    legacy HA heartbeat watchdog must remain passive. The managed D056 edge lease and
-    D064 intrinsic firmware protections remain the independent local safety authorities.
-    """
     manager = getattr(app, "rd_control_mode_manager", None)
     if manager is None:
         return False
     startup = getattr(app, "rd_startup_authority_gate", None)
-    if startup is not None and not bool(getattr(startup, "managed_actuation_ready", False)):
+    if startup is not None and not bool(
+        getattr(startup, "managed_actuation_ready", False)
+    ):
         return True
     return bool(
         getattr(manager, "hands_off", False)
@@ -60,18 +57,12 @@ def _managed_authority_active(app: Any) -> bool:
     if manual is not None and bool(getattr(manual, "is_active", False)):
         return True
 
-    # The runtime guard is the final production view of controller ownership.  It
-    # includes first-class Manual authority and may grow additional managed authority
-    # without forcing the legacy watchdog to learn chemistry/session details.
     guard = getattr(app, "runtime_safety_guard", None)
     if guard is not None:
         try:
             if bool(getattr(guard, "controller_active")):
                 return True
         except Exception:
-            # Ownership ambiguity must not be interpreted as proof that no managed
-            # command exists. Fall back to the positive evidence above; the local edge
-            # lease remains the independent blind-operation bound.
             pass
     return False
 
@@ -98,19 +89,8 @@ async def soft_watchdog_poll_once(
     *,
     now: Optional[float] = None,
 ) -> None:
-    """Run one legacy soft-watchdog decision without creating an actuator storm.
+    """Apply bounded software-watchdog containment for one observation cycle."""
 
-    The data/logger heartbeat remains the authority for detecting the outage while Pb
-    software owns RD. An idle PB-managed system whose last known Output is OFF is
-    passive. If Output was known ON or a managed command is still active, request the
-    existing hard-stop path immediately and retry failed remote shutdowns only at a
-    bounded cadence.
-
-    HANDS_OFF, AUTONOMOUS and unresolved startup authority are outside this watchdog's
-    authority entirely. Entering one of those states resets any in-process Pb outage
-    incident and no hard-stop/protection write is attempted, even if legacy state still
-    remembers that Output was ON before the ownership transition.
-    """
     current = time.time() if now is None else float(now)
     last_ok = float(getattr(app, "last_ha_ok_time", 0.0) or 0.0)
     timeout = float(getattr(app, "SOFT_WATCHDOG_TIMEOUT", 180.0))
@@ -125,8 +105,6 @@ async def soft_watchdog_poll_once(
 
     incident.active = True
     if not _managed_authority_active(app):
-        # Output was last known OFF and no managed command survives. This is the
-        # operator contract for idle telemetry loss: quiet/passive containment.
         return
 
     if not incident.logged:
@@ -134,7 +112,8 @@ async def soft_watchdog_poll_once(
         logger = getattr(app, "logger", None)
         if logger is not None:
             logger.critical(
-                "CRITICAL: Soft Watchdog timeout while managed/energized; requesting bounded Output OFF containment."
+                "CRITICAL: Soft Watchdog timeout while managed/energized; "
+                "requesting bounded Output OFF containment."
             )
         _log_watchdog_incident(app)
 
@@ -147,8 +126,6 @@ async def soft_watchdog_poll_once(
     ):
         return
 
-    # Latch the retry timestamp before issuing I/O so exceptions cannot turn the
-    # 10-second outer poll into a command storm.
     incident.last_attempt_at = current
     try:
         await app._hard_stop_charge()
@@ -158,30 +135,11 @@ async def soft_watchdog_poll_once(
             logger.error("soft watchdog shutdown attempt failed: %s", exc)
         return
 
-    # _hard_stop_charge returns only after its Output-OFF transaction and protection
-    # reset completed. Do not issue more actuator commands for the same outage.
     incident.shutdown_complete = True
 
 
-def install_soft_watchdog_containment(app: Any) -> SoftWatchdogIncident:
-    if bool(getattr(app, "_soft_watchdog_containment_installed", False)):
-        return app._soft_watchdog_incident
-
-    incident = SoftWatchdogIncident()
-
-    async def bounded_soft_watchdog_loop() -> None:
-        while True:
-            await asyncio.sleep(10)
-            try:
-                await soft_watchdog_poll_once(app, incident)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger = getattr(app, "logger", None)
-                if logger is not None:
-                    logger.error("soft_watchdog_loop: %s", exc)
-
-    app.soft_watchdog_loop = bounded_soft_watchdog_loop
-    app._soft_watchdog_incident = incident
-    app._soft_watchdog_containment_installed = True
-    return incident
+__all__ = [
+    "SOFT_WATCHDOG_RETRY_S",
+    "SoftWatchdogIncident",
+    "soft_watchdog_poll_once",
+]

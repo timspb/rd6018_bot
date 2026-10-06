@@ -160,11 +160,18 @@ class V2EntrypointTests(unittest.TestCase):
         ):
             self.assertIn(required, run_source)
 
-    def test_production_guardrails_are_installed_after_controller_composition(self):
-        self.assertTrue(bot._v2_production_guardrails_installed)
+    def test_production_guardrails_are_owned_without_composition_wrapper(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertNotIn("install_production_guardrails", source)
+        self.assertNotIn("production_guardrails_v2", source)
         self.assertTrue(bot._v2_vin_psu_health_only)
         self.assertEqual(bot.MIN_INPUT_VOLTAGE, float("-inf"))
-        self.assertTrue(bot.charge_controller._v2_production_cooling_guard_installed)
+        self.assertFalse(hasattr(bot, "_v2_production_guardrails_installed"))
+        self.assertFalse(
+            hasattr(bot.charge_controller, "_v2_production_cooling_guard_installed")
+        )
 
     def test_final_semantic_operator_hmi_is_installed(self):
         self.assertTrue(bot._operator_hmi_installed)

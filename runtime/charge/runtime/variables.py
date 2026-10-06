@@ -33,6 +33,20 @@ STAGE_CLOCK_SANITY_MAX_HOURS = VariableSpec(
     maximum=10000.0,
 )
 
+DELTA_MONITOR_DELAY_S = VariableSpec(
+    key="charge.runtime.delta_monitor_delay_s",
+    default=120.0,
+    value_type=float,
+    unit="s",
+    description="Delay after target/stage changes before Delta evidence may be evaluated.",
+    owner="runtime.charge.runtime",
+    provenance="accepted production two-minute Delta monitor delay",
+    override_policy=OverridePolicy.CONFIG_FILE,
+    change_effect=ChangeEffect.RESTART_REQUIRED,
+    minimum=0.0,
+    maximum=3600.0,
+)
+
 STAGE_TRANSITION_BLANKING_S = VariableSpec(
     key="charge.runtime.stage_transition_blanking_s",
     default=300.0,
@@ -63,6 +77,7 @@ OPERATOR_REPORT_INTERVAL_S = VariableSpec(
 
 
 __all__ = [
+    "DELTA_MONITOR_DELAY_S",
     "HISTORY_SAMPLE_INTERVAL_S",
     "OPERATOR_REPORT_INTERVAL_S",
     "STAGE_CLOCK_SANITY_MAX_HOURS",

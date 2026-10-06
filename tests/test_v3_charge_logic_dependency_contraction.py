@@ -53,14 +53,12 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
 
     def test_contracted_consumers_do_not_reimport_historical_charge_logic_values(self) -> None:
         consumers = (
-            "done_storage_restore.py",
             "manual_mode.py",
             "manual_runtime_v2.py",
             "manual_text_v2.py",
             "mix_active_authority.py",
             "mix_current_containment.py",
             "production_controller.py",
-            "production_guardrails_v2.py",
             "runtime/charge/profiles/manual.py",
             "runtime/production_runtime.py",
             "runtime_safety.py",
@@ -73,11 +71,20 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
         }
         self.assertEqual({}, violations)
 
-    def test_charge_controller_v2_retains_only_the_l003_superclass_edge(self) -> None:
+    def test_charge_controller_v2_has_no_historical_charge_logic_edge(self) -> None:
         self.assertEqual(
-            {"ChargeController"},
+            set(),
             self._charge_logic_imports("charge_controller_v2.py"),
         )
+
+        path = ROOT / "charge_controller_v2.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        controller = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ChargeControllerV2"
+        )
+        self.assertEqual(controller.bases, [])
 
 
 if __name__ == "__main__":

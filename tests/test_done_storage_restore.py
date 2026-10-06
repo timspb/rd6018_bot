@@ -7,13 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
-from done_storage_restore import (
+from runtime.charge.persistence import (
     DONE_COMPLETION_STORAGE,
     DONE_COMPLETION_TERMINAL,
     DONE_OUTPUT_OFF,
     DONE_OUTPUT_ON,
-    _paused_done_resume_is_authorized,
-    install_done_storage_restore,
+    paused_done_resume_is_authorized,
     restore_allows_auto_enable,
 )
 
@@ -26,10 +25,9 @@ class DoneStorageRestoreTests(unittest.TestCase):
     @staticmethod
     def _patch_session_file(path):
         stack = ExitStack()
-        # Until L-003 retires the historical superclass, its inherited _save_session()
-        # still resolves charge_logic.SESSION_FILE while V3 readers use the canonical owner.
-        stack.enter_context(patch("charge_logic.SESSION_FILE", path))
-        stack.enter_context(patch("done_storage_restore.SESSION_FILE", path))
+        # V3 controller and production persistence both resolve the canonical
+        # session owner through their imported SESSION_FILE aliases.
+        stack.enter_context(patch("runtime.charge.persistence.SESSION_FILE", path))
         stack.enter_context(patch("charge_controller_v2.SESSION_FILE", path))
         stack.enter_context(patch("production_controller.SESSION_FILE", path))
         return stack
@@ -37,8 +35,10 @@ class DoneStorageRestoreTests(unittest.TestCase):
     @staticmethod
     def _installed_controller():
         controller = DiagnosticProductionChargeControllerV2(DummyHass(), authoritative=True)
-        app = SimpleNamespace(charge_controller=controller)
-        install_done_storage_restore(app)
+        app = SimpleNamespace(
+            charge_controller=controller,
+            _restore_allows_auto_enable=restore_allows_auto_enable,
+        )
         return app, controller
 
     def _write_storage_done(self, path):
@@ -167,8 +167,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
                 json.dump({"stage": "Done", "saved_at": 1.0}, handle)
             idle = SimpleNamespace(current_stage="Idle", STAGE_DONE="Done", is_active=False)
             app = SimpleNamespace(_operator_pause_active=lambda: True)
-            with patch("done_storage_restore.SESSION_FILE", path):
-                self.assertFalse(_paused_done_resume_is_authorized(app, idle))
+            self.assertFalse(paused_done_resume_is_authorized(app, idle, session_file=path))
 
     def test_operator_pause_accepts_only_explicit_storage_done_document_before_restore(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -185,8 +184,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
                 )
             idle = SimpleNamespace(current_stage="Idle", STAGE_DONE="Done", is_active=False)
             app = SimpleNamespace(_operator_pause_active=lambda: True)
-            with patch("done_storage_restore.SESSION_FILE", path):
-                self.assertTrue(_paused_done_resume_is_authorized(app, idle))
+            self.assertTrue(paused_done_resume_is_authorized(app, idle, session_file=path))
 
     def test_operator_pause_blocks_already_restored_terminal_done(self):
         terminal_done = SimpleNamespace(
@@ -198,7 +196,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
             _done_output_intent=DONE_OUTPUT_OFF,
         )
         app = SimpleNamespace(_operator_pause_active=lambda: True)
-        self.assertFalse(_paused_done_resume_is_authorized(app, terminal_done))
+        self.assertFalse(paused_done_resume_is_authorized(app, terminal_done))
 
     def test_non_done_restore_guard_contract_is_unchanged(self):
         active = SimpleNamespace(

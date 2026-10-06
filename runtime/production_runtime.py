@@ -42,6 +42,10 @@ from runtime.charge.strategy.exit_variables import (
     MIX_CC_DELTA_V_EXIT_V,
     MIX_CV_DELTA_I_EXIT_A,
 )
+from runtime.charge.persistence import (
+    paused_done_resume_is_authorized,
+    restore_allows_auto_enable,
+)
 from runtime.safety.variables import (
     HIGH_V_FAST_TIMEOUT_S,
     HIGH_V_THRESHOLD_V,
@@ -50,6 +54,7 @@ from runtime.safety.variables import (
     PROTECTION_OVP_MARGIN_V,
     WATCHDOG_TIMEOUT_S,
 )
+from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from charge_controller_v2 import ChargeControllerV2
 from config import (
@@ -77,6 +82,13 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("rd6018")
+
+# Production chemistry never grants or denies authority from PSU input voltage.
+# Vin remains telemetry/health context only.  Keep the historical symbol because
+# the runtime still contains compatibility-shaped comparisons, but make those
+# comparisons statically inert instead of mutating the module at composition time.
+MIN_INPUT_VOLTAGE = float("-inf")
+_v2_vin_psu_health_only = True
 
 # Stable module-level compatibility values; semantic ownership lives in V3 VariableSpec modules.
 DELTA_I_EXIT = float(MIX_CV_DELTA_I_EXIT_A.default)
@@ -314,12 +326,8 @@ hass.set_initializer(initialize_runtime)
 
 
 def _restore_allows_auto_enable(controller: Any) -> bool:
-    """Only active charge sessions may be auto-resumed after restore."""
-    blocked_stages = {controller.STAGE_DONE}
-    cooling_stage = getattr(controller, "STAGE_COOLING", None)
-    if cooling_stage is not None:
-        blocked_stages.add(cooling_stage)
-    return controller.current_stage not in blocked_stages
+    """Apply canonical persisted Done/Storage auto-enable authority."""
+    return restore_allows_auto_enable(controller)
 
 
 def _is_chat_allowed(chat_id: int) -> bool:
@@ -375,6 +383,7 @@ link_failure_streak: int = 0
 LINK_FAILURE_NOTIFY_THRESHOLD = 3
 soft_watchdog_outage_reported: bool = False
 SOFT_WATCHDOG_TIMEOUT = 3 * 60
+_soft_watchdog_incident = SoftWatchdogIncident()
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
 _event_log_last_at: Dict[str, float] = {}
@@ -1652,6 +1661,14 @@ async def _operator_pause_toggle(call: Any) -> str:
         return f"Продолжение заблокировано: вход БП {input_voltage:.0f}V"
 
     if not charge_controller.is_active:
+        if not paused_done_resume_is_authorized(
+            sys.modules[__name__],
+            charge_controller,
+        ):
+            return (
+                "Продолжение заблокировано: сохранённый Done не имеет "
+                "подтверждённого Storage Output ON intent"
+            )
         ok, _ = charge_controller.try_restore_session(
             _safe_float(live.get("battery_voltage")),
             _safe_float(live.get("current")),
@@ -2290,19 +2307,14 @@ async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg
 
 
 async def soft_watchdog_loop() -> None:
-    """Report prolonged outage; the independently proven edge lease is the actuator backstop."""
-    global last_ha_ok_time, soft_watchdog_outage_reported
+    """Run canonical bounded software-watchdog containment for managed authority."""
+    app = sys.modules[__name__]
     while True:
         await asyncio.sleep(10)
         try:
-            if last_ha_ok_time <= 0:
-                continue
-            if time.time() - last_ha_ok_time >= SOFT_WATCHDOG_TIMEOUT and not soft_watchdog_outage_reported:
-                logger.critical(
-                    "CRITICAL: Soft Watchdog timeout (HA/ESPHome connection lost 3min); "
-                    "host STOP suppressed, edge safety lease remains the backstop"
-                )
-                soft_watchdog_outage_reported = True
+            await soft_watchdog_poll_once(app, _soft_watchdog_incident)
+        except asyncio.CancelledError:
+            raise
         except Exception as ex:
             logger.error("soft_watchdog_loop: %s", ex)
 

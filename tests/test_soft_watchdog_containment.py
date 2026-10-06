@@ -1,7 +1,8 @@
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
-from soft_watchdog_containment import (
+from runtime.safety.soft_watchdog import (
     SOFT_WATCHDOG_RETRY_S,
     SoftWatchdogIncident,
     soft_watchdog_poll_once,
@@ -237,6 +238,25 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hard_stop_calls, 2)
         self.assertEqual(len(app.events), 2)
         self.assertEqual(len(app.logger.critical_messages), 2)
+
+    def test_production_owns_watchdog_without_composition_patch(self):
+        root = Path(__file__).resolve().parents[1]
+        bot_source = (root / "bot.py").read_text(encoding="utf-8")
+        runtime_source = (root / "runtime" / "production_runtime.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("install_soft_watchdog_containment", bot_source)
+        self.assertNotIn("soft_watchdog_containment", bot_source)
+        self.assertIn(
+            "from runtime.safety.soft_watchdog import "
+            "SoftWatchdogIncident, soft_watchdog_poll_once",
+            runtime_source,
+        )
+        self.assertIn(
+            "await soft_watchdog_poll_once(app, _soft_watchdog_incident)",
+            runtime_source,
+        )
 
 
 if __name__ == "__main__":
