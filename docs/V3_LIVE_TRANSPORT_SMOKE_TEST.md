@@ -48,3 +48,22 @@ The ESPHome object mapping belongs exclusively in
 `config/physical/ha102.yaml`. If a firmware or HA entity is renamed, change
 the mapping there and rerun the read-only smoke test. Never infer a write path
 from a successful read.
+
+
+## Operator CLI
+
+Use the strictly read-only wrapper:
+
+```text
+python tools/live_physical_smoke.py --operator <label>
+```
+
+The command returns exit code `0` only when both transports produce valid
+snapshots and their comparison is `MATCH`. Configuration, credential,
+connectivity or snapshot failures return `BLOCKED` with exit code `2`.
+The JSON output contains no credential values and does not expose a physical
+write operation.
+
+2026-10-07 HOME-PC preflight: HA102 TCP/8123 reachable; ESP128 TCP/6053 not
+reachable; required live environment values absent. Result: `BLOCKED`; no
+physical command sent.

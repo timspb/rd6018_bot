@@ -1704,3 +1704,37 @@ COMPLETE.
 
 Production VM104 changed: NO.
 Hardware commands sent: NO.
+
+
+### 2026-10-07 ERADICATION-09 remote closure and physical-evidence handoff
+
+ERADICATION-09 is **REMOTE-VERIFIED COMPLETE**.
+
+Remote authority:
+- PR #29 head: `019a9fdf2ceb43438e380ec09fd37a5f323feb8d`;
+- exact remote tree: `908fccf41e6bc7a2a12a2068952f028f5246bb00`;
+- GitHub Actions run `#1588` / `37487373313`: Python 3.10, 3.11 and 3.12 PASS;
+- PR #29 merged cleanly;
+- resulting `main`: `4336e7c54ccb83d00445cf8f7950824dde141c57`.
+
+The next canonical workstream is no longer legacy eradication. It resumes the
+physical-evidence sequence from section 12:
+1. fresh read-only dual-transport evidence;
+2. independent ESP-direct `OFF -> ON -> OFF` only after the read-only gate passes;
+3. HA control/readback latency characterization;
+4. controlled charge bench only after both previous physical gates pass.
+
+A new `tools/live_physical_smoke.py` command wraps the existing read-only
+`LiveSmokeRunner`. It has no executor/gate/command dependency and emits only
+sanitized evidence. Missing config, credentials, connectivity, snapshots or a
+non-MATCH comparison returns `BLOCKED` with exit code 2.
+
+Current HOME-PC preflight is **BLOCKED before physical execution**:
+- HA102 TCP/8123 is reachable;
+- ESP128 native API TCP/6053 is not reachable from HOME-PC;
+- deployment HA/ESP environment values are not present on HOME-PC;
+- no Output/setpoint/protection command was sent;
+- node 101 was not accessed or changed.
+
+Therefore the independent ESP-direct transition must not be attempted from the
+current HOME-PC context until fresh dual-source read-only evidence is available.
