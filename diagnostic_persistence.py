@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional
 
+from application.execution_port import get_or_create_execution_port
 from diagnostic_probe import ControlledCurrentProbe, ProbePlan, ProbeResult
 
 
@@ -265,8 +266,13 @@ class DiagnosticActionJournal:
 class PersistentControlledCurrentProbe(ControlledCurrentProbe):
     """Controlled probe with crash-visible lifecycle journaling."""
 
-    def __init__(self, hass: Any, journal: DiagnosticActionJournal) -> None:
-        super().__init__(hass)
+    def __init__(
+        self,
+        hass: Any,
+        journal: DiagnosticActionJournal,
+        execution_port: Any = None,
+    ) -> None:
+        super().__init__(hass, execution_port=execution_port)
         self.journal = journal
 
     async def run(
@@ -327,7 +333,11 @@ def install_diagnostic_persistence(
         return existing
     journal = DiagnosticActionJournal(path)
     app.diagnostic_action_journal = journal
-    app.controlled_diagnostic_probe = PersistentControlledCurrentProbe(app.hass, journal)
+    app.controlled_diagnostic_probe = PersistentControlledCurrentProbe(
+        app.hass,
+        journal,
+        execution_port=get_or_create_execution_port(app),
+    )
     return journal
 
 
@@ -345,7 +355,9 @@ async def recover_diagnostic_persistence(app: Any) -> List[DiagnosticActionRecor
         # managed start. The edge lease should already fail closed; this is defense in depth.
         off_confirmed = False
         try:
-            off_confirmed = bool(await app.hass.turn_off())
+            off_confirmed = bool(
+                await get_or_create_execution_port(app).request_verified_off()
+            )
         except Exception:
             logger = getattr(app, "logger", None)
             if logger is not None:

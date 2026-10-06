@@ -28,6 +28,8 @@ from v2_ui import (
 )
 from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.charge.profiles.manual import has_manual_profile
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
@@ -110,7 +112,7 @@ def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔄 Condition", callback_data=f"{prefix}_conditioning"),
                 InlineKeyboardButton(text="🔬 Диагностика", callback_data=f"{prefix}_diagnostic"),
             ],
-            [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
+            [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
 
@@ -119,7 +121,7 @@ def _preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="▶️ Запустить", callback_data=start_callback)],
-            [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
+            [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
 
@@ -212,89 +214,21 @@ async def _refresh_dashboard_after_selection(app: Any, call: Any, user_id: int) 
 
 
 async def _start_profile(app: Any, event: Any, pending: PendingStart) -> bool:
+    """Fail closed unless composition injects the canonical START owner."""
     message = event.message if hasattr(event, "message") and event.message is not None else event
-    user = getattr(event, "from_user", None) or getattr(message, "from_user", None)
-    user_id = user.id if user else 0
-
-    if app.charge_controller.is_active:
-        await message.answer("⚠️ Сначала остановите текущую сессию.")
-        return False
-
-    live = await app.hass.get_all_live()
-    battery_v = app._safe_float(live.get("battery_voltage"))
-    current = app._safe_float(live.get("current"))
-    temp_ext_raw = live.get("temp_ext")
-    if temp_ext_raw in (None, "", "unknown", "unavailable"):
-        await message.answer("❌ Нет валидной температуры temp_ext. V2 не разрешает запуск без датчика АКБ.")
-        return False
-    temp_ext = app._safe_float(temp_ext_raw)
-    ah_now = app._safe_float(live.get("ah"))
-    input_v = app._safe_float(live.get("input_voltage"), 0.0)
-    ovp_triggered = str(live.get("ovp_triggered", "")).lower() == "on"
-    ocp_triggered = str(live.get("ocp_triggered", "")).lower() == "on"
-
-    if temp_ext < app.MIN_START_TEMP:
-        await message.answer(
-            f"❌ temp_ext {temp_ext:.1f}°C ниже стартового порога {app.MIN_START_TEMP:.0f}°C."
-        )
-        return False
-    if ovp_triggered or ocp_triggered:
-        await message.answer("❌ На RD6018 активен флаг OVP/OCP. Сначала проверьте и сбросьте защиту.")
-        return False
-    if input_v > 0 and input_v < app.MIN_INPUT_VOLTAGE:
-        await message.answer(
-            f"❌ Вход БП {input_v:.0f}V ниже {app.MIN_INPUT_VOLTAGE:.0f}V."
-        )
-        return False
-
-    app.charge_controller.configure_recovery_context(
-        battery_id=pending.battery_id,
-        intent=pending.intent,
-        condition_before=pending.condition,
-    )
-    app.charge_controller.start(pending.profile, int(round(pending.capacity_ah)))
-    if battery_v < 12.0:
-        uv, ui = app.charge_controller._prep_target(temp_ext)
-    else:
-        uv, ui = app.charge_controller._main_target(temp_ext)
-
-    # Same transaction ordering as the production bot: protections -> setpoints -> ON.
-    await app._apply_phase_protection(uv, ui)
-    await app.hass.set_voltage(uv)
-    await app.hass.set_current(app._cap_current(ui))
-    await app.hass.turn_on(app.ENTITY_MAP["switch"])
-
-    app.last_checkpoint_time = app.time.time()
-    app.last_chat_id = message.chat.id
-    app.last_user_id = user_id
-    app.log_event(
-        app.charge_controller.current_stage,
-        battery_v,
-        current,
-        temp_ext,
-        ah_now,
-        f"V2_START | intent={pending.intent.value} battery={pending.battery_id}",
-    )
     await message.answer(
-        f"✅ <b>V2 заряд запущен</b>\n"
-        f"{html.escape(pending.profile)} {pending.capacity_ah:g}Ah · {html.escape(intent_label(pending.intent))}\n"
-        f"АКБ: <code>{html.escape(pending.battery_id)}</code>",
-        parse_mode=ParseMode.HTML,
+        "❌ START недоступен: production START owner не подключён. "
+        "Старый прямой UI→RD запуск отключён."
     )
-    try:
-        old = app.user_dashboard.get(user_id)
-        await app.send_dashboard(message, old_msg_id=old)
-    except Exception:
-        pass
-    return True
+    return False
 
 
 def install_v2_ui(app: Any) -> None:
     """Install the V2 Telegram presentation/workflow over the legacy monolithic bot.
 
-    The legacy module remains an emergency rollback entrypoint.  This installer only
-    replaces presentation functions and adds callback handlers; HA polling, watchdogs,
-    logging and the existing manual/custom workflow stay untouched.
+    This transitional installer only replaces presentation functions and adds callback
+    handlers while modular UI migration is in progress. It must not become a physical
+    execution fallback; canonical START is injected explicitly by composition.
     """
     global _installed
     if _installed:
@@ -338,7 +272,7 @@ def install_v2_ui(app: Any) -> None:
                 [
                     InlineKeyboardButton(text="🛠 Ручной MAIN → MIX", callback_data="v2_manual"),
                 ],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="charge_back")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
             ]
         )
 
@@ -418,7 +352,7 @@ def install_v2_ui(app: Any) -> None:
             for idx, item in enumerate(visible_records)
         ]
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
-        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")])
+        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
         text = (
             (format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена.")
             + "\n\n<b>Выберите сохранённую АКБ:</b>"
@@ -454,7 +388,7 @@ def install_v2_ui(app: Any) -> None:
             f"<b>🧭 V2 controller</b>\n\n{text}\n\n"
             f"Stage: <code>{html.escape(app.charge_controller.current_stage)}</code>",
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="⬅️ Дашборд", callback_data="dash_back")]]
+                inline_keyboard=[[InlineKeyboardButton(text="⬅️ Дашборд", callback_data=HOME_CALLBACK_DATA)]]
             ),
         )
 
@@ -473,7 +407,7 @@ def install_v2_ui(app: Any) -> None:
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
                         [InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")],
-                        [InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")],
+                        [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
                     ]
                 ),
             )
@@ -483,12 +417,14 @@ def install_v2_ui(app: Any) -> None:
             for idx, record in enumerate(records)
         ]
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
-        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data="charge_modes")])
+        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
         await _safe_answer(
             call,
             "<b>🔋 Физические аккумуляторы</b>\nВыберите батарею:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
+
+    app._v2_batteries_handler = batteries_handler
 
     @app.router.callback_query(F.data == "v2_battery_add")
     async def battery_add_handler(call: Any) -> None:
@@ -504,6 +440,8 @@ def install_v2_ui(app: Any) -> None:
             "<code>ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель</code>\n\n"
             "Например:\n<code>varta70 | AGM | 70 | Varta | Silver Dynamic AGM</code>",
         )
+
+    app._v2_battery_add_handler = battery_add_handler
 
     @app.router.callback_query(F.data.startswith("v2_battery_") & ~F.data.in_({"v2_battery_add"}))
     async def battery_select_handler(call: Any) -> None:
@@ -535,13 +473,12 @@ def install_v2_ui(app: Any) -> None:
             ),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
-    @app.router.callback_query(F.data.startswith("v2_profile_"))
-    async def quick_profile_handler(call: Any) -> None:
+    async def _select_quick_profile(call: Any, profile: str) -> None:
         if not await app._check_chat_and_respond(call):
             return
         await call.answer()
-        profile = _profile_from_callback(call.data or "")
-        if not profile:
+        if profile not in {"Ca/Ca", "EFB", "AGM"}:
+            await call.answer("Неизвестный профиль", show_alert=True)
             return
         if not await _route_profile_intent(app, call, profile):
             return
@@ -553,6 +490,15 @@ def install_v2_ui(app: Any) -> None:
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
+
+    app._v2_select_quick_profile = _select_quick_profile
+
+    @app.router.callback_query(F.data.startswith("v2_profile_"))
+    async def quick_profile_handler(call: Any) -> None:
+        profile = _profile_from_callback(call.data or "")
+        if not profile:
+            return
+        await _select_quick_profile(call, profile)
 
     @app.router.callback_query(F.data.startswith("v2_quick_intent_"))
     async def quick_intent_handler(call: Any) -> None:

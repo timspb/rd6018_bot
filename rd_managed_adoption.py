@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from aiogram import F
+from application.execution_port import get_or_create_execution_port
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from edge_live_adoption import EdgeLiveAdoption
@@ -390,7 +391,7 @@ class ManagedLiveAdoptionCoordinator:
             if bool(getattr(self.manager, "hands_off", False)):
                 await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
             else:
-                await self.app.hass.turn_off(self.app.ENTITY_MAP.get("switch"))
+                await get_or_create_execution_port(self.app).request_verified_off()
         except Exception as exc:
             self.last_status = f"{reason}: Output OFF unconfirmed: {type(exc).__name__}: {exc}"
             self._persist()

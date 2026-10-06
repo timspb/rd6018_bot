@@ -137,7 +137,7 @@ class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(actions.get("turn_off"))
         self.assertEqual(actions["recovery_shadow"]["status"], "error")
 
-    async def test_base_scaffold_still_exposes_legacy_timeout_for_rollback_tests(self):
+    async def test_authoritative_main_timeout_bypasses_legacy_done_transition(self):
         now = 70000.0
         controller = self._controller(now=now)
         controller.stage_start_time = now - 72 * 3600
@@ -145,8 +145,9 @@ class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.7, current=0.5))
         with patch("charge_logic.time.time", return_value=now), patch("charge_controller_v2.time.time", return_value=now):
             actions = await controller.tick(14.7, 0.5, 25.0, True, 50.0, True, is_cc=False)
-        self.assertEqual(controller.current_stage, controller.STAGE_DONE)
-        self.assertTrue(actions.get("turn_off"))
+        self.assertEqual(controller.current_stage, controller.STAGE_MIX)
+        self.assertFalse(bool(actions.get("turn_off")))
+        self.assertEqual(actions.get("log_event"), "START | V2_MIX")
 
 
 if __name__ == "__main__":

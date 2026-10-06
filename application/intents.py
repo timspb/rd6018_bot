@@ -16,6 +16,7 @@ class OperatorIntentKind(str, Enum):
     PAUSE_CHARGE = "pause_charge"
     RESUME_CHARGE = "resume_charge"
     SELECT_CHARGE_PROFILE = "select_charge_profile"
+    SET_OFF_CONDITION = "set_off_condition"
     SHOW_GRAPH = "show_graph"
     SHOW_LOG = "show_log"
     SHOW_JOURNAL = "show_journal"  # compatibility name for older callers
@@ -80,7 +81,10 @@ class IntentDispatcher:
             OperatorIntentKind.PAUSE_CHARGE,
             OperatorIntentKind.RESUME_CHARGE,
         }
-        routed_selection_kinds = {OperatorIntentKind.SELECT_CHARGE_PROFILE}
+        routed_selection_kinds = {
+            OperatorIntentKind.SELECT_CHARGE_PROFILE,
+            OperatorIntentKind.SET_OFF_CONDITION,
+        }
         if kind not in self.READ_ONLY_KINDS and kind not in routed_execution_kinds and kind not in routed_selection_kinds:
             return CommandResult(CommandStatus.REJECTED, "execution_intent_not_migrated")
         if (kind in routed_execution_kinds or kind in routed_selection_kinds) and kind not in self._routes:

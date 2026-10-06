@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from aiogram import F
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from application.execution_intent.models import ExecutionIntent, SafetyContext
+from application.execution_port import get_or_create_execution_port
 from battery_fault_engine import DiagnosticAuthority
-from legacy_recipe_adapter import chemistry_for_legacy_profile
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import select_recipe_envelope
 from safe_output import snapshot_from_live
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from v2_battery_catalog import list_batteries
 from v2_ui import battery_button_label, profile_for_chemistry
 
@@ -76,9 +80,52 @@ def build_mix_only_preview(pending: PendingMixStart) -> str:
     )
 
 
-async def _confirm_failed_start_is_off(app: Any) -> bool:
+def _mix_execution_identity(controller: Any, pending: PendingMixStart) -> Any:
+    context = getattr(controller, "recovery_trace_context", {})
+    if not isinstance(context, dict):
+        context = {}
+    session_id = str(context.get("session_id") or f"mix-only:{pending.battery_id}")
+    return SimpleNamespace(
+        session_id=session_id,
+        trace_id=f"mix-only:{session_id}",
+    )
+
+
+def _mix_execution_intent(
+    *,
+    voltage_v: float,
+    current_a: float,
+    mode: str,
+    identity: Any,
+) -> ExecutionIntent:
+    return ExecutionIntent(
+        requested_voltage_v=float(voltage_v),
+        requested_current_a=float(current_a),
+        requested_mode=mode,
+        source_decision_id=f"{mode.lower()}:{identity.trace_id}",
+        safety_context=SafetyContext(
+            telemetry_state="FRESH",
+            lease_state="V2_PHYSICAL_OWNER",
+            verification_state="REQUIRED",
+            limits_reference="recipe_envelope",
+        ),
+    )
+
+
+async def _confirm_failed_start_is_off(app: Any, *, identity: Any) -> bool:
     try:
-        return bool(await app.hass.turn_off(app.ENTITY_MAP["switch"]))
+        intent = _mix_execution_intent(
+            voltage_v=0.0,
+            current_a=0.0,
+            mode="MIX_ONLY_ROLLBACK_OFF",
+            identity=identity,
+        )
+        result = await get_or_create_execution_port(app).disable(
+            intent,
+            identity=identity,
+            reason="mix_only_failed_start_containment",
+        )
+        return bool(result.verified)
     except Exception:
         return False
 
@@ -176,6 +223,7 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
         )
         return False
 
+    execution_identity = _mix_execution_identity(controller, pending)
     try:
         _begin_mix_only_controller_session(
             controller,
@@ -186,12 +234,13 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
             temp_ext_c=snapshot.temp_ext_c,
             ah_now=ah_now,
         )
+        execution_identity = _mix_execution_identity(controller, pending)
         target_v, target_i = controller._mix_target(snapshot.temp_ext_c)
         target_i = float(app._cap_current(target_i))
 
         identity = BatteryIdentity(
             battery_id=pending.battery_id,
-            chemistry=chemistry_for_legacy_profile(pending.profile),
+            chemistry=chemistry_for_profile(pending.profile),
             nominal_capacity_ah=float(pending.capacity_ah),
         )
         envelope = select_recipe_envelope(
@@ -202,15 +251,24 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
             ),
             expert_high_voltage=False,
         )
-        result = await app.hass.safe_enable_output(
+        execution_intent = _mix_execution_intent(
             voltage_v=float(target_v),
             current_a=target_i,
+            mode="MIX_ONLY_START",
+            identity=execution_identity,
+        )
+        result = await get_or_create_execution_port(app).enable(
+            execution_intent,
+            identity=execution_identity,
             ovp_v=float(target_v) + float(app.OVP_OFFSET),
             ocp_a=target_i + float(app.OCP_OFFSET),
             recipe_voltage_ceiling_v=float(envelope.voltage_ceiling_v),
         )
     except Exception as exc:
-        off_confirmed = await _confirm_failed_start_is_off(app)
+        off_confirmed = await _confirm_failed_start_is_off(
+            app,
+            identity=execution_identity,
+        )
         if off_confirmed:
             controller.stop(clear_session=True)
             suffix = " Выход подтверждён OFF."
@@ -226,8 +284,11 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
         )
         return False
 
-    if not result.enabled:
-        off_confirmed = await _confirm_failed_start_is_off(app)
+    if not result.verified:
+        off_confirmed = await _confirm_failed_start_is_off(
+            app,
+            identity=execution_identity,
+        )
         if off_confirmed:
             controller.stop(clear_session=True)
             state_text = "Выход подтверждён OFF."
@@ -236,7 +297,7 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
                 "🚨 <b>Output OFF НЕ подтверждён.</b> Контроллер оставлен активным "
                 "для fail-closed контроля."
             )
-        detail = html.escape(result.detail or "RD6018 не подтвердил безопасное включение")
+        detail = html.escape(result.reason or "RD6018 не подтвердил безопасное включение")
         await message.answer(
             f"❌ <b>Auto Mix не запущен.</b> {state_text}\n<code>{detail}</code>",
             parse_mode=ParseMode.HTML,
@@ -286,7 +347,7 @@ def _mix_menu_keyboard(records: list[Any]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="AGM", callback_data="v2_mix_profile_agm"),
         ]
     )
-    rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")])
+    rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

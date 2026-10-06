@@ -13,7 +13,7 @@ from rd6018_telemetry import (
     resolve_protection,
     telemetry_freshness,
 )
-from runtime.v2_runtime import _canonical_bool
+from runtime.production_runtime import _canonical_bool
 
 
 class RD6018TelemetryTests(unittest.TestCase):

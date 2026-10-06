@@ -16,6 +16,9 @@ from rd6018_telemetry import telemetry_freshness
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from application.intents import OperatorIntent, OperatorIntentKind
+from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
+from runtime.ui.telegram.charge import BATTERIES_CALLBACK_DATA, CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
 
 
 class HmiProcessState(str, Enum):
@@ -686,15 +689,15 @@ def render_operator_panel(state: OperatorHmiState) -> str:
 def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup:
     """Render logical capabilities without reading runtime objects."""
     labels = {
-        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", "charge_modes"),
-        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", "v2_batteries"),
+        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", CHARGE_CALLBACK_DATA),
+        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", BATTERIES_CALLBACK_DATA),
         # Newly rendered panels must use the managed confirmation-based route.
         OperatorAction.STOP_CHARGE: ("🛑 Стоп", "operator_managed_stop"),
         OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),
         OperatorAction.RESUME_CHARGE: ("▶️ Продолжить", "operator_pause_toggle"),
         OperatorAction.SHOW_LOG: ("📋 События", "logs"),
-        OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", "operator_details"),
-        OperatorAction.ACK: ("✅ Подтвердить", "operator_details"),
+        OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", DETAILS_CALLBACK_DATA),
+        OperatorAction.ACK: ("✅ Подтвердить", DETAILS_CALLBACK_DATA),
         OperatorAction.ADOPT_MIX: ("🧲 Подхватить Mix", "rd_live_mix"),
         OperatorAction.STOP_MIX: ("⏹ Остановить Mix", "operator_adopted_stop"),
         OperatorAction.DISABLE_OUTPUT: ("⏹ Output OFF", "rd_hands_off_output_off"),
@@ -1040,7 +1043,7 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
 
 
 def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data="ai_analysis")]]
+    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data=ANALYSIS_CALLBACK_DATA)]]
     if state.process_state is HmiProcessState.IDLE:
         rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
         rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
@@ -1165,42 +1168,6 @@ def install_operator_hmi(app: Any) -> None:
         return build_operator_keyboard(app, state)
 
     app._build_dashboard_keyboard = dashboard_keyboard
-
-    @app.router.callback_query(F.data == "operator_details")
-    async def _operator_details(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
-            return
-        interface = getattr(app, "operator_interface", None)
-        if interface is None:
-            await call.answer("Интерфейс чтения недоступен", show_alert=True)
-            return
-        details = await interface.get_operator_details()
-        await call.answer()
-        await call.message.answer(
-            render_operator_details_view(details),
-            parse_mode=app.ParseMode.HTML,
-            reply_markup=_back_keyboard(),
-        )
-
-    @app.router.callback_query(F.data == "operator_service_details")
-    async def _operator_service_details(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        if not await route_read_intent(call, OperatorIntentKind.SHOW_DIAGNOSTICS):
-            return
-        interface = getattr(app, "operator_interface", None)
-        if interface is None:
-            await call.answer("Интерфейс чтения недоступен", show_alert=True)
-            return
-        details = await interface.get_service_details()
-        await call.answer()
-        await call.message.answer(
-            render_operator_service_details_view(details),
-            parse_mode=app.ParseMode.HTML,
-            reply_markup=_back_keyboard(),
-        )
 
     @app.router.callback_query(F.data == "operator_pause_toggle")
     async def _operator_pause_toggle_handler(call: Any) -> None:

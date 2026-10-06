@@ -16,7 +16,7 @@ class ExplodingShadowRuntime:
 
 class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
     def _shadow_controller(self):
-        return ChargeControllerV2(DummyHass(), authoritative=False)
+        return ChargeControllerV2(DummyHass(), authoritative=True)
 
     async def test_idle_tick_keeps_legacy_actions_and_adds_shadow_only(self):
         controller = self._shadow_controller()
@@ -32,7 +32,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("recovery_shadow", actions)
         self.assertEqual(actions["recovery_shadow"]["status"], "ok")
         self.assertEqual(actions["recovery_shadow"]["decision"], "continue")
-        self.assertEqual(actions["recovery_shadow"]["authority"], "legacy")
+        self.assertEqual(actions["recovery_shadow"]["authority"], "v2")
         self.assertNotIn("turn_on", actions)
         self.assertNotIn("turn_off", actions)
 
@@ -107,7 +107,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(trace["is_cc"])
         self.assertTrue(trace["output_on"])
 
-    async def test_fallback_audit_keeps_v2_evidence_independent_from_legacy_timer(self):
+    async def test_sparse_main_evidence_does_not_run_retired_legacy_timer(self):
         controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
@@ -118,7 +118,7 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         controller._last_known_output_on = True
 
         with patch("charge_logic.time.time", return_value=301.0):
-            await controller.tick(
+            first = await controller.tick(
                 voltage=14.8,
                 current=0.60,
                 temp_ext=23.0,
@@ -128,34 +128,31 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
                 is_cc=False,
             )
         self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
-        self.assertAlmostEqual(controller._stuck_current_since or 0.0, 301.0)
+        self.assertIsNone(controller._stuck_current_since)
+        self.assertEqual(
+            first["recovery_shadow"]["authority_decision"]["action"],
+            "continue",
+        )
 
         with patch("charge_logic.time.time", return_value=2701.0):
-            with self.assertLogs("rd6018.recovery", level="INFO") as captured:
-                actions = await controller.tick(
-                    voltage=14.8,
-                    current=0.60,
-                    temp_ext=23.0,
-                    is_cv=True,
-                    ah=0.6,
-                    output_is_on=True,
-                    is_cc=False,
-                )
+            actions = await controller.tick(
+                voltage=14.8,
+                current=0.60,
+                temp_ext=23.0,
+                is_cv=True,
+                ah=0.6,
+                output_is_on=True,
+                is_cc=False,
+            )
 
-        self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
-        audit = actions["recovery_shadow"]["transition_audit"]
-        # Legacy's own timer fired, but two sparse points are not enough for V2's
-        # independent 15-minute plateau window. That disagreement must stay visible.
-        self.assertEqual(audit["first_stage_state"], "bulk_or_taper")
-        self.assertEqual(audit["code"], "legacy_hv_escalation_while_tail_evolving")
-        self.assertEqual(audit["severity"], "review")
-        transition_logs = "\n".join(captured.output)
-        self.assertIn("CHARGE_TRANSITION", transition_logs)
-        self.assertIn("old=Main Charge", transition_logs)
-        self.assertIn("new=Десульфатация", transition_logs)
-        self.assertIn("owner=legacy", transition_logs)
+        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
+        self.assertIsNone(controller._stuck_current_since)
+        shadow = actions["recovery_shadow"]
+        self.assertEqual(shadow["first_stage"]["state"], "bulk_or_taper")
+        self.assertEqual(shadow["authority_decision"]["action"], "continue")
+        self.assertNotIn("transition_audit", shadow)
 
-    async def test_shadow_exception_does_not_invalidate_legacy_actions(self):
+    async def test_evidence_exception_fails_closed_without_legacy_fallback(self):
         controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
@@ -180,9 +177,11 @@ class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
         shadow = actions["recovery_shadow"]
         self.assertEqual(shadow["status"], "error")
         self.assertEqual(shadow["error_type"], "RuntimeError")
+        self.assertEqual(shadow["authority"], "v2")
         self.assertEqual(shadow["trace_point"]["stage"], controller.STAGE_MAIN)
-        self.assertNotIn("emergency_stop", actions)
-        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
+        self.assertTrue(actions["turn_off"])
+        self.assertEqual(actions["log_event"], "V2_STOP_DIAGNOSE")
+        self.assertEqual(controller.current_stage, controller.STAGE_DONE)
 
 
 if __name__ == "__main__":

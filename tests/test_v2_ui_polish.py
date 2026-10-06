@@ -1,6 +1,7 @@
 import types
 import unittest
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from v2_ui_polish import (
     build_operator_dashboard_keyboard,
     format_active_evidence_pretty,
@@ -211,7 +212,7 @@ class V2UiPolishTests(unittest.TestCase):
         ]
         texts = [button.text for row in idle.inline_keyboard for button in row]
         self.assertEqual(idle.inline_keyboard[0][0].text, "▶️ Новая программа")
-        self.assertIn("charge_modes", callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("power_toggle", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
         self.assertNotIn("entities_status", callbacks)
@@ -227,13 +228,13 @@ class V2UiPolishTests(unittest.TestCase):
         controller.is_active = True
         active = build_operator_dashboard_keyboard(app, True, 1)
         self.assertEqual(active.inline_keyboard[0][0].text, "🛑 Остановить заряд")
-        self.assertEqual(active.inline_keyboard[0][0].callback_data, "power_toggle")
+        self.assertEqual(active.inline_keyboard[0][0].callback_data, "operator_managed_stop")
 
     def test_secondary_screen_keyboard_is_only_back_to_panel(self):
         app = types.SimpleNamespace(charge_controller=types.SimpleNamespace(is_active=True))
         markup = build_operator_dashboard_keyboard(app, True, 1, back_to_dashboard=True)
         self.assertEqual(len(markup.inline_keyboard), 1)
-        self.assertEqual(markup.inline_keyboard[0][0].callback_data, "dash_back")
+        self.assertEqual(markup.inline_keyboard[0][0].callback_data, "ui:nav.home")
         self.assertEqual(markup.inline_keyboard[0][0].text, "⬅️ К панели")
 
 

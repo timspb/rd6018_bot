@@ -6,126 +6,173 @@ import math
 import os
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from charge_logic import (
-    AGM_FIRST_STAGE_HOLD_SEC,
-    AGM_MIX_MAX_HOURS,
-    AGM_STAGES,
-    ANTISULFATE_MAX_AGM,
-    ANTISULFATE_MAX_CA_EFB,
-    BLANKING_SEC,
-    CA_MIX_MAX_HOURS,
-    ChargeController,
-    EFB_MIX_MAX_HOURS,
-    FIRST_STAGE_HOLD_SEC,
-    MIX_DONE_TIMER,
-    SAFE_WAIT_MAX_SEC,
-    SAFE_WAIT_V_MARGIN,
-    SESSION_FILE,
+from runtime.charge.controller_state import (
+    PROFILE_AGM,
+    PROFILE_CA,
+    PROFILE_CUSTOM,
+    PROFILE_EFB,
+    STAGE_COOLING,
+    STAGE_DESULFATION,
+    STAGE_DONE,
+    STAGE_IDLE,
+    STAGE_MAIN,
+    STAGE_MIX,
+    STAGE_PREP,
+    STAGE_SAFE_WAIT,
+    clear_restored_targets,
+    initialize_controller_state,
+    mark_stage_sample,
+    reset_bank_fault_state,
+    reset_delta_and_blanking,
+    reset_link_loss_state,
+    reset_stage_metrics,
 )
-from first_stage_evidence import (
+from runtime.charge.lifecycle import (
+    full_reset as full_reset_charge,
+    initialize_session,
+    reset_session_data as reset_charge_session_data,
+    start_charge,
+    start_custom_charge,
+    stop_charge,
+)
+from runtime.charge.persistence import (
+    SESSION_FILE,
+    SESSION_START_MAX_AGE_S,
+    clear_session_file,
+    restore_session,
+    save_session,
+)
+from runtime.charge.post import post_charge_profile_params
+
+SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
+from runtime.charge.evidence.first_stage import (
     FirstStageAssessment,
     FirstStageState,
     assess_first_stage,
     tail_current_threshold_a,
 )
-from legacy_recipe_adapter import chemistry_for_legacy_profile
-from legacy_transition_audit import LegacyTransitionAudit, TransitionAuditSeverity, audit_legacy_transition
+from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
-from v2_authority import (
-    AuthorityAction,
-    AuthorityDecision,
-    decide_main_transition,
-    decide_mix_transition,
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.diagnostics import (
+    ai_stage_snapshot,
+    bank_fault_risk_snapshot,
+    get_timers as diagnostic_timers,
 )
-
+from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
+from runtime.charge.runtime.support import (
+    current_targets,
+    exit_cc_condition,
+    exit_cv_condition,
+    mix_current_delta_threshold,
+    session_rules_summary,
+    stage_max_hours,
+    target_finish_time,
+)
+from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S, STAGE_TRANSITION_BLANKING_S
+from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
+from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
+from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
+from runtime.charge.strategy.desulfation import (
+    DesulfationAction,
+    decide_desulfation,
+    select_desulfation_target,
+)
+from runtime.charge.strategy.desulfation_variables import (
+    DESULFATION_OCP_MARGIN_A,
+    desulfation_duration_seconds,
+)
+from runtime.charge.strategy.final_safe_wait import (
+    FinalSafeWaitAction,
+    FinalSafeWaitContinuation,
+    decide_final_safe_wait,
+    validate_final_continuation,
+)
+from runtime.charge.strategy.main_authority import decide_main_transition
+from runtime.charge.strategy.main_targets import select_main_target
+from runtime.charge.strategy.prep import select_prep_target
+from runtime.charge.strategy.mix import decide_mix_transition, select_mix_target
+from runtime.charge.strategy.mix_variables import (
+    mix_finish_hold_seconds,
+    mix_max_active_seconds,
+)
+from runtime.charge.strategy.recovery_safe_wait import (
+    RecoverySafeWaitAction,
+    RecoverySafeWaitContinuation,
+    decide_recovery_safe_wait,
+    validate_recovery_continuation,
+)
+from runtime.charge.strategy.safe_wait_variables import (
+    SAFE_WAIT_TARGET_MARGIN_V,
+    safe_wait_max_seconds,
+)
+from runtime.charge.strategy.storage import select_storage_target
+from runtime.charge.strategy.temperature_variables import (
+    AGM_COMPENSATION_V_PER_C,
+    CA_EFB_COMPENSATION_V_PER_C,
+    CUSTOM_COMPENSATION_V_PER_C,
+    TEMPERATURE_MAX_DELTA_V,
+    TEMPERATURE_REFERENCE_C,
+)
+from runtime.safety.variables import (
+    MAX_STAGE_CURRENT_A,
+    PROTECTION_OCP_MARGIN_A,
+    PROTECTION_OVP_MARGIN_V,
+)
+from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
+from runtime.charge.strategy.main_variables import (
+    AGM_MAX_RECOVERY_ATTEMPTS,
+    AGM_PLATEAU_REQUIRED_MINUTES,
+    AGM_STAGE_VOLTAGES_V,
+    PLATEAU_EVIDENCE_WINDOW_MINUTES,
+    STANDARD_MAX_RECOVERY_ATTEMPTS,
+    STANDARD_PLATEAU_REQUIRED_MINUTES,
+    agm_tail_hold_seconds,
+    main_fallback_seconds,
+    standard_tail_hold_seconds,
+)
 logger = logging.getLogger("rd6018.recovery")
 
 
-INTERMEDIATE_RECOVERY_DURATION_SEC = 2 * 3600.0
+# Compatibility alias for existing imports/tests; the semantic owner is modular.
+INTERMEDIATE_RECOVERY_DURATION_SEC = desulfation_duration_seconds()
 
 
-@dataclass(frozen=True)
-class RecoverySafeWaitContinuation:
-    """Typed continuation for the OFF relaxation after intermediate recovery."""
+class ChargeControllerV2:
+    """Transitional production controller while modular V3 replaces the old FSM.
 
-    source_stage: str
-    next_stage: str
-    target_voltage_v: float
-    target_current_a: float
-    started_at: float
-    session_id: Optional[str]
-    recovery_attempt: int
-    agm_stage_idx: int
+    For non-Custom automatic charging, MAIN, bounded DESULFATION, recovery
+    SAFE_WAIT, MIX, and final SAFE_WAIT now use modular strategy/runtime owners and
+    do not enter historical ``ChargeController.tick()``. Controller state,
+    persistence, lifecycle, diagnostics, target selection, and safety helpers
+    are now owned by modular V3 boundaries rather than historical inheritance.
 
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "version": 1,
-            "source_stage": self.source_stage,
-            "next_stage": self.next_stage,
-            "target_voltage_v": self.target_voltage_v,
-            "target_current_a": self.target_current_a,
-            "started_at": self.started_at,
-            "session_id": self.session_id,
-            "recovery_attempt": self.recovery_attempt,
-            "agm_stage_idx": self.agm_stage_idx,
-        }
-
-
-@dataclass(frozen=True)
-class FinalSafeWaitContinuation:
-    """Typed successful-charge continuation from SAFE_WAIT to Storage/DONE."""
-
-    source_stage: str
-    next_stage: str
-    target_voltage_v: float
-    target_current_a: float
-    started_at: float
-    session_id: Optional[str]
-    completion_reason: str
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "version": 1,
-            "source_stage": self.source_stage,
-            "next_stage": self.next_stage,
-            "target_voltage_v": self.target_voltage_v,
-            "target_current_a": self.target_current_a,
-            "started_at": self.started_at,
-            "session_id": self.session_id,
-            "completion_reason": self.completion_reason,
-        }
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return bool(default)
-    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
-
-
-class ChargeControllerV2(ChargeController):
-    """Production V2 controller with a legacy safety/mechanics fallback.
-
-    Default production mode is V2-authoritative for non-Custom Main/Mix transitions
-    plus the bounded intermediate-recovery lifecycle and its SAFE_WAIT return.
-    The proven legacy controller is still called as the common safety/mechanics
-    scaffold (telemetry validation, hard Main timeout, temperature protection,
-    Cooling/restore/session persistence). Main/Mix transition triggers are masked;
-    DESULFATION and its recovery SAFE_WAIT use explicit stage override hooks so the
-    legacy timer/return branches are unreachable in production authority mode.
-
-    Set ``V2_AUTHORITATIVE=0`` (or pass ``authoritative=False``) for an emergency
-    rollback to the previous legacy-authoritative + V2-shadow behaviour.  Custom mode
-    deliberately remains legacy-authoritative because its operator-defined delta and
-    time contract is separate from the Pb recovery recipes.
+    Production no longer accepts an environment switch back to historical
+    transition authority. ``authoritative=False`` is retained only for isolated
+    characterization/compatibility tests. Custom remains a separately migrated
+    program family and is not a production rollback path.
     """
+
+    STAGE_PREP = STAGE_PREP
+    STAGE_MAIN = STAGE_MAIN
+    STAGE_DESULFATION = STAGE_DESULFATION
+    STAGE_MIX = STAGE_MIX
+    STAGE_SAFE_WAIT = STAGE_SAFE_WAIT
+    STAGE_COOLING = STAGE_COOLING
+    STAGE_DONE = STAGE_DONE
+    STAGE_IDLE = STAGE_IDLE
+
+    PROFILE_CA = PROFILE_CA
+    PROFILE_EFB = PROFILE_EFB
+    PROFILE_AGM = PROFILE_AGM
+    PROFILE_CUSTOM = PROFILE_CUSTOM
 
     def __init__(
         self,
@@ -137,7 +184,7 @@ class ChargeControllerV2(ChargeController):
         condition_before: BatteryCondition = BatteryCondition.UNKNOWN,
         authoritative: Optional[bool] = None,
     ) -> None:
-        super().__init__(hass_client, notify_cb=notify_cb)
+        initialize_controller_state(self, hass_client, notify_cb=notify_cb)
         self._v2_battery_id = battery_id
         self._v2_intent = recovery_intent
         self._v2_condition_before = condition_before
@@ -153,11 +200,80 @@ class ChargeControllerV2(ChargeController):
         self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
         # Captured by the V2 tick and serialized by the production controller.
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
-        self._v2_authoritative = (
-            _env_bool("V2_AUTHORITATIVE", True)
-            if authoritative is None
-            else bool(authoritative)
+        # Production authority is fixed on the V2-authoritative path while the
+        # remaining historical scaffold is extracted. Environment configuration may
+        # not silently re-enable legacy transition ownership.
+        self._v2_authoritative = True if authoritative is None else bool(authoritative)
+
+    @property
+    def current_stage(self) -> str:
+        return getattr(self, "_current_stage", self.STAGE_IDLE)
+
+    @current_stage.setter
+    def current_stage(self, value: str) -> None:
+        prev = getattr(self, "_current_stage", None)
+        self._current_stage = value
+        if not getattr(self, "_stage_tracking_enabled", False):
+            return
+        if prev is None or prev == value:
+            return
+        self.previous_stage = prev
+        self._stage_history.append(
+            {
+                "from": prev,
+                "to": value,
+                "reason": str(getattr(self, "_last_transition_reason", "") or "").strip(),
+                "ts": time.time(),
+            }
         )
+        self._reset_stage_metrics()
+        self._last_transition_reason = ""
+
+    @property
+    def is_active(self) -> bool:
+        return self.current_stage not in (self.STAGE_IDLE, self.STAGE_DONE)
+
+    def _mark_stage_sample(
+        self,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+    ) -> None:
+        mark_stage_sample(self, voltage, current, temp, ah)
+
+    def _reset_stage_metrics(self) -> None:
+        reset_stage_metrics(self)
+
+    def _reset_bank_fault_state(self) -> None:
+        reset_bank_fault_state(self)
+
+    def _reset_link_loss_state(self) -> None:
+        reset_link_loss_state(self)
+
+    def _clear_restored_targets(self) -> None:
+        clear_restored_targets(self)
+
+    def _reset_delta_and_blanking(self, now: float) -> None:
+        reset_delta_and_blanking(
+            self,
+            now,
+            delay_s=float(DELTA_MONITOR_DELAY_S.default),
+        )
+
+    def reset_session_data(self) -> None:
+        reset_charge_session_data(self)
+
+    def _init_session(
+        self,
+        battery_type: str,
+        ah_capacity: int,
+        start_stage: str,
+    ) -> None:
+        initialize_session(self, battery_type, ah_capacity, start_stage)
+
+    def stop(self, clear_session: bool = True) -> None:
+        stop_charge(self, clear_session=clear_session)
 
     @property
     def v2_authoritative(self) -> bool:
@@ -167,6 +283,210 @@ class ChargeControllerV2(ChargeController):
         """Runtime rollback switch; changing it never mutates the current stage."""
         self._v2_authoritative = bool(enabled)
         logger.warning("V2 actuator authority set to %s", self._v2_authoritative)
+
+    def _add_phase_limits(
+        self,
+        actions: Dict[str, Any],
+        target_v: float,
+        target_i: float,
+    ) -> None:
+        actions["set_ovp"] = target_v + float(PROTECTION_OVP_MARGIN_V.default)
+        actions["set_ocp"] = target_i + float(PROTECTION_OCP_MARGIN_A.default)
+        self._phase_current_limit = target_i
+
+    def _add_desulf_limits(
+        self,
+        actions: Dict[str, Any],
+        target_v: float,
+        target_i: float,
+    ) -> None:
+        actions["set_ovp"] = target_v + float(PROTECTION_OVP_MARGIN_V.default)
+        actions["set_ocp"] = target_i + float(DESULFATION_OCP_MARGIN_A.default)
+        self._phase_current_limit = target_i
+
+    def _temperature_compensation_coeff(self) -> float:
+        if self.battery_type == self.PROFILE_AGM:
+            return float(AGM_COMPENSATION_V_PER_C.default)
+        if self.battery_type == self.PROFILE_CUSTOM:
+            return float(CUSTOM_COMPENSATION_V_PER_C.default)
+        return float(CA_EFB_COMPENSATION_V_PER_C.default)
+
+    def _temperature_compensation_delta(self, temp_c: Optional[float]) -> float:
+        if temp_c is None or self.current_stage not in (
+            self.STAGE_PREP,
+            self.STAGE_MAIN,
+            self.STAGE_DESULFATION,
+            self.STAGE_MIX,
+        ):
+            return 0.0
+        try:
+            temp = float(temp_c)
+        except (TypeError, ValueError):
+            return 0.0
+        raw_delta = self._temperature_compensation_coeff() * (
+            float(TEMPERATURE_REFERENCE_C.default) - temp
+        )
+        limit = float(TEMPERATURE_MAX_DELTA_V.default)
+        return max(-limit, min(limit, raw_delta))
+
+    def _apply_temperature_compensation(
+        self,
+        base_v: float,
+        temp_c: Optional[float],
+    ) -> float:
+        compensated = base_v + self._temperature_compensation_delta(temp_c)
+        return clamp_pb_automatic_target_voltage(compensated)
+
+    def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        target = select_prep_target(capacity_ah=float(self.ah_capacity))
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
+
+    def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        if self.battery_type == self.PROFILE_CUSTOM:
+            return (
+                self._apply_temperature_compensation(self._custom_main_voltage, temp_c),
+                min(
+                    float(MAX_STAGE_CURRENT_A.default),
+                    self._custom_main_current,
+                ),
+            )
+        target = select_main_target(
+            profile=self.battery_type,
+            capacity_ah=float(self.ah_capacity),
+            agm_stage_idx=int(self._agm_stage_idx),
+        )
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
+
+    def _get_profile_target_v_i(
+        self,
+        temp_c: Optional[float] = None,
+    ) -> Tuple[float, float]:
+        if self.current_stage == self.STAGE_PREP:
+            return self._prep_target(temp_c)
+        if self.current_stage == self.STAGE_MAIN:
+            return self._main_target(temp_c)
+        if self.current_stage == self.STAGE_DESULFATION:
+            return self._desulf_target(temp_c)
+        if self.current_stage == self.STAGE_MIX:
+            return self._mix_target(temp_c)
+        if self.current_stage in {self.STAGE_SAFE_WAIT, self.STAGE_COOLING}:
+            return (0.0, 0.0)
+        if self.current_stage == self.STAGE_DONE:
+            return self._storage_target()
+        return (0.0, 0.0)
+
+    def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        if self._restored_target_v > 0 and self._restored_target_i > 0:
+            return (self._restored_target_v, self._restored_target_i)
+        return self._get_profile_target_v_i(temp_c)
+
+    def _post_charge_profile_params(self) -> Dict[str, Any]:
+        return post_charge_profile_params(self.battery_type)
+
+    def _record_safe_wait_sample(
+        self,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+    ) -> None:
+        sample_sec = int(self._post_charge_profile_params().get("sample_sec", 300))
+        if now - self._last_safe_wait_sample < sample_sec:
+            return
+        self._safe_wait_v_samples.append((now, voltage, current, temp))
+        self._last_safe_wait_sample = now
+
+    def _make_log_event_end(
+        self,
+        now: float,
+        ah: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        trigger: str,
+    ) -> Dict[str, Any]:
+        return {
+            "stage": self.current_stage,
+            "time_sec": now - self.stage_start_time,
+            "ah_on_stage": ah - self._stage_start_ah,
+            "ah": ah,
+            "t": temp,
+            "v": voltage,
+            "i": current,
+            "trigger": trigger,
+        }
+
+    def _get_current_targets(
+        self,
+        temp_c: Optional[float] = None,
+    ) -> Tuple[float, float]:
+        return current_targets(self, temp_c)
+
+    def _get_target_finish_time(self) -> Optional[float]:
+        return target_finish_time(self)
+
+    def _get_stage_max_hours(self) -> Optional[float]:
+        return stage_max_hours(self)
+
+    def _mix_current_delta_threshold(self) -> float:
+        return mix_current_delta_threshold(self)
+
+    def _exit_cc_condition(self, v_now: float) -> bool:
+        return exit_cc_condition(self, v_now)
+
+    def _exit_cv_condition(self, i_now: float) -> bool:
+        return exit_cv_condition(self, i_now)
+
+    def _session_rules_summary(self) -> str:
+        return session_rules_summary(self)
+
+    def full_reset(self) -> None:
+        full_reset_charge(self)
+
+    def _bank_fault_risk_snapshot(
+        self,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        return bank_fault_risk_snapshot(self, now, voltage, current, temp, ah)
+
+    def get_timers(self) -> Dict[str, Any]:
+        return diagnostic_timers(self)
+
+    def get_ai_stage_snapshot(self, temp_c: Optional[float] = None) -> Dict[str, Any]:
+        return ai_stage_snapshot(self, temp_c)
+
+    def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        """Compatibility adapter over the canonical modular DESULFATION target."""
+        target = select_desulfation_target(capacity_ah=float(self.ah_capacity))
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
+
+    def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
+        """Compatibility adapter over the canonical modular MIX target."""
+        target = select_mix_target(
+            profile=self.battery_type,
+            capacity_ah=float(self.ah_capacity),
+        )
+        return (
+            self._apply_temperature_compensation(target.voltage_v, temp_c),
+            target.current_a,
+        )
+
+    def _storage_target(self) -> Tuple[float, float]:
+        target = select_storage_target()
+        return target.voltage_v, target.current_a
 
     def configure_recovery_context(
         self,
@@ -323,13 +643,21 @@ class ChargeControllerV2(ChargeController):
         raw = document.get("v2_recovery_safe_wait")
         if isinstance(raw, dict):
             try:
+                raw_generation = raw.get("session_generation")
                 candidate = RecoverySafeWaitContinuation(
                     source_stage=str(raw.get("source_stage") or ""),
                     next_stage=str(raw.get("next_stage") or ""),
                     target_voltage_v=float(raw.get("target_voltage_v")),
                     target_current_a=float(raw.get("target_current_a")),
                     started_at=float(raw.get("started_at")),
-                    session_id=str(raw.get("session_id") or "") or None,
+                    session_id=(
+                        str(raw.get("session_id") or self._v2_trace_session_id or "") or None
+                    ),
+                    session_generation=(
+                        float(raw_generation)
+                        if raw_generation is not None
+                        else float(self._v2_trace_started_at)
+                    ),
                     recovery_attempt=int(raw.get("recovery_attempt", self.antisulfate_count)),
                     agm_stage_idx=int(raw.get("agm_stage_idx", self._agm_stage_idx)),
                 )
@@ -337,17 +665,18 @@ class ChargeControllerV2(ChargeController):
                 candidate = None
             if (
                 candidate is not None
-                and candidate.source_stage == self.STAGE_DESULFATION
-                and candidate.next_stage == self.STAGE_MAIN
-                and math.isfinite(candidate.target_voltage_v)
-                and math.isfinite(candidate.target_current_a)
-                and math.isfinite(candidate.started_at)
-                and candidate.target_voltage_v > 0.0
-                and candidate.target_current_a > 0.0
-                and (candidate.session_id is None or candidate.session_id == self._v2_trace_session_id)
+                and validate_recovery_continuation(
+                    candidate,
+                    session_id=self._v2_trace_session_id,
+                    session_generation=self._v2_trace_started_at,
+                    expected_source_stage=self.STAGE_DESULFATION,
+                    expected_next_stage=self.STAGE_MAIN,
+                )
+                and candidate.recovery_attempt == int(self.antisulfate_count)
+                and candidate.agm_stage_idx == int(self._agm_stage_idx)
             ):
                 self._recovery_safe_wait = candidate
-                return
+            return
 
         # One-way migration of an already persisted pre-cutover recovery SAFE_WAIT.
         # SAFE_WAIT->MAIN is unique to intermediate recovery; final Mix uses DONE.
@@ -365,6 +694,7 @@ class ChargeControllerV2(ChargeController):
                 target_current_a=float(self._safe_wait_target_i),
                 started_at=float(self._safe_wait_start),
                 session_id=self._v2_trace_session_id,
+                session_generation=float(self._v2_trace_started_at),
                 recovery_attempt=int(self.antisulfate_count),
                 agm_stage_idx=int(self._agm_stage_idx),
             )
@@ -374,30 +704,37 @@ class ChargeControllerV2(ChargeController):
         raw = document.get("v2_final_safe_wait")
         if isinstance(raw, dict):
             try:
+                raw_generation = raw.get("session_generation")
                 candidate = FinalSafeWaitContinuation(
                     source_stage=str(raw.get("source_stage") or ""),
                     next_stage=str(raw.get("next_stage") or ""),
                     target_voltage_v=float(raw.get("target_voltage_v")),
                     target_current_a=float(raw.get("target_current_a")),
                     started_at=float(raw.get("started_at")),
-                    session_id=str(raw.get("session_id") or "") or None,
+                    session_id=(
+                        str(raw.get("session_id") or self._v2_trace_session_id or "") or None
+                    ),
                     completion_reason=str(raw.get("completion_reason") or ""),
+                    session_generation=(
+                        float(raw_generation)
+                        if raw_generation is not None
+                        else float(self._v2_trace_started_at)
+                    ),
                 )
             except (TypeError, ValueError, OverflowError):
                 candidate = None
             if (
                 candidate is not None
-                and candidate.source_stage in {self.STAGE_MAIN, self.STAGE_MIX}
-                and candidate.next_stage == self.STAGE_DONE
-                and math.isfinite(candidate.target_voltage_v)
-                and math.isfinite(candidate.target_current_a)
-                and math.isfinite(candidate.started_at)
-                and candidate.target_voltage_v > 0.0
-                and candidate.target_current_a > 0.0
-                and (candidate.session_id is None or candidate.session_id == self._v2_trace_session_id)
+                and validate_final_continuation(
+                    candidate,
+                    session_id=self._v2_trace_session_id,
+                    session_generation=self._v2_trace_started_at,
+                    expected_next_stage=self.STAGE_DONE,
+                    allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
+                )
             ):
                 self._final_safe_wait = candidate
-                return
+            return
 
         # One-way migration for a successful pre-cutover final SAFE_WAIT. Recovery
         # SAFE_WAIT is distinguished by next=MAIN and was reconstructed above.
@@ -419,12 +756,17 @@ class ChargeControllerV2(ChargeController):
                 started_at=float(self._safe_wait_start),
                 session_id=self._v2_trace_session_id,
                 completion_reason=str(self._last_transition_reason or "restored_successful_completion"),
+                session_generation=float(self._v2_trace_started_at),
             )
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
+        if self._v2_authoritative and str(battery_type) == self.PROFILE_CUSTOM:
+            raise RuntimeError(
+                "historical Custom controller start is retired; use ProductionManualSessionManager"
+            )
         self._recovery_safe_wait = None
         self._final_safe_wait = None
-        super().start(battery_type, ah_capacity)
+        start_charge(self, battery_type, ah_capacity)
         self._begin_trace_identity()
         self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
@@ -436,9 +778,15 @@ class ChargeControllerV2(ChargeController):
         time_limit_hours: float,
         ah_capacity: int,
     ) -> None:
+        """Characterization-only adapter; production Custom is owned by Manual."""
+        if self._v2_authoritative:
+            raise RuntimeError(
+                "historical Custom controller start is retired; use ProductionManualSessionManager"
+            )
         self._recovery_safe_wait = None
         self._final_safe_wait = None
-        super().start_custom(
+        start_custom_charge(
+            self,
             main_voltage=main_voltage,
             main_current=main_current,
             delta_threshold=delta_threshold,
@@ -448,9 +796,28 @@ class ChargeControllerV2(ChargeController):
         self._begin_trace_identity()
         self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
+    def _clear_session_file(self) -> None:
+        clear_session_file(self, session_file=SESSION_FILE)
+
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
-        super()._save_session(voltage, current, ah)
+        save_session(self, voltage, current, ah, session_file=SESSION_FILE)
         self._write_trace_identity_to_session_file()
+
+    def _restore_desulfation_stage_clock(self, document: Dict[str, Any]) -> None:
+        """Keep the persisted active DESULFATION clock authoritative across restart."""
+        if self.current_stage != self.STAGE_DESULFATION:
+            return
+        try:
+            saved_stage_start = float(document.get("stage_start_time"))
+        except (TypeError, ValueError, OverflowError):
+            return
+        now = float(time.time())
+        if (
+            math.isfinite(saved_stage_start)
+            and 0.0 < saved_stage_start <= now
+            and now - saved_stage_start <= float(SESSION_START_MAX_AGE)
+        ):
+            self.stage_start_time = saved_stage_start
 
     def try_restore_session(
         self,
@@ -459,8 +826,27 @@ class ChargeControllerV2(ChargeController):
         ah: float,
     ) -> Tuple[bool, Optional[str]]:
         trace_document = self._read_legacy_session_document()
-        ok, message = super().try_restore_session(voltage, current, ah)
+        ok, message = restore_session(
+            self,
+            voltage,
+            current,
+            ah,
+            session_file=SESSION_FILE,
+        )
+        if ok and self._v2_authoritative and self.battery_type == self.PROFILE_CUSTOM:
+            logger.warning(
+                "Historical Custom controller restore rejected; Manual requires operator reauthorization"
+            )
+            self.stop(clear_session=True)
+            self._recovery_safe_wait = None
+            self._final_safe_wait = None
+            self._v2_runtime = None
+            return (
+                False,
+                "Historical Custom session is retired; restart Manual with operator authorization.",
+            )
         if ok:
+            self._restore_desulfation_stage_clock(trace_document)
             self._restore_trace_identity(trace_document)
             self._restore_recovery_safe_wait(trace_document)
             self._restore_final_safe_wait(trace_document)
@@ -554,19 +940,6 @@ class ChargeControllerV2(ChargeController):
             "reason": assessment.reason,
         }
 
-    @staticmethod
-    def _transition_audit_metadata(audit: LegacyTransitionAudit) -> Dict[str, Any]:
-        return {
-            "code": audit.code,
-            "severity": audit.severity.value,
-            "reason": audit.reason,
-            "stage_before": audit.stage_before,
-            "stage_after": audit.stage_after,
-            "first_stage_state": (
-                audit.first_stage_state.value if audit.first_stage_state is not None else None
-            ),
-        }
-
     def _trace_point_metadata(
         self,
         *,
@@ -602,7 +975,6 @@ class ChargeControllerV2(ChargeController):
         *,
         trace_point: Dict[str, Any],
         first_stage: Optional[FirstStageAssessment] = None,
-        transition_audit: Optional[LegacyTransitionAudit] = None,
         authority_decision: Optional[AuthorityDecision] = None,
     ) -> Dict[str, Any]:
         metrics = record.analysis.metrics
@@ -633,8 +1005,6 @@ class ChargeControllerV2(ChargeController):
         }
         if first_stage is not None:
             payload["first_stage"] = self._first_stage_metadata(first_stage)
-        if transition_audit is not None:
-            payload["transition_audit"] = self._transition_audit_metadata(transition_audit)
         if authority_decision is not None:
             payload["authority_decision"] = {
                 "action": authority_decision.action.value,
@@ -658,10 +1028,10 @@ class ChargeControllerV2(ChargeController):
             return None
         try:
             threshold = tail_current_threshold_a(
-                chemistry_for_legacy_profile(self.battery_type),
+                chemistry_for_profile(self.battery_type),
                 float(self.ah_capacity),
             )
-            near_target = float(voltage) >= float(target_before) - 0.20
+            near_target = float(voltage) >= float(target_before) - float(NEAR_TARGET_MARGIN_V.default)
         except (TypeError, ValueError):
             self._v2_main_plateau_since = None
             return None
@@ -682,7 +1052,7 @@ class ChargeControllerV2(ChargeController):
             # CURRENT_PLATEAU itself is based on a 15-minute window.  Backdate the
             # first plateau timestamp by that evidence window so a 40-minute rule
             # remains approximately 40 minutes rather than silently becoming 55.
-            self._v2_main_plateau_since = max(0.0, float(timestamp_s) - 15 * 60)
+            self._v2_main_plateau_since = max(0.0, float(timestamp_s) - float(PLATEAU_EVIDENCE_WINDOW_MINUTES.default) * 60.0)
         return self._v2_main_plateau_since
 
     def _assess_main_sample(
@@ -705,10 +1075,14 @@ class ChargeControllerV2(ChargeController):
         plateau_minutes = 0.0
         if plateau_since is not None:
             plateau_minutes = max(0.0, (timestamp_s - float(plateau_since)) / 60.0)
-        required_plateau = 120.0 if self.battery_type == self.PROFILE_AGM else 40.0
+        required_plateau = (
+            float(AGM_PLATEAU_REQUIRED_MINUTES.default)
+            if self.battery_type == self.PROFILE_AGM
+            else float(STANDARD_PLATEAU_REQUIRED_MINUTES.default)
+        )
         metrics = record.analysis.metrics
         return assess_first_stage(
-            chemistry=chemistry_for_legacy_profile(self.battery_type),
+            chemistry=chemistry_for_profile(self.battery_type),
             capacity_ah=float(self.ah_capacity),
             voltage_v=self._finite_or_nan(voltage),
             current_a=self._finite_or_nan(current),
@@ -766,42 +1140,17 @@ class ChargeControllerV2(ChargeController):
             float(timestamp_s),
         )
 
-    @staticmethod
-    def _log_transition_audit(audit: Optional[LegacyTransitionAudit]) -> None:
-        if audit is None:
-            return
-        log_fn = logger.warning if audit.severity in {
-            TransitionAuditSeverity.REVIEW,
-            TransitionAuditSeverity.SAFETY,
-        } else logger.info
-        log_fn(
-            "RECOVERY_TRANSITION_AUDIT severity=%s code=%s from=%s to=%s first_stage=%s reason=%s",
-            audit.severity.value,
-            audit.code,
-            audit.stage_before,
-            audit.stage_after,
-            audit.first_stage_state.value if audit.first_stage_state is not None else "none",
-            audit.reason,
-        )
-
-    def _handle_desulfation_stage_override(
+    def _complete_desulfation_to_safe_wait(
         self,
         *,
         now: float,
-        elapsed: float,
         voltage: float,
         current: float,
         temp: float,
         ah: float,
         actions: Dict[str, Any],
-    ) -> bool:
-        if not self._v2_authoritative or self.battery_type == self.PROFILE_CUSTOM:
-            return False
-        if self.current_stage != self.STAGE_DESULFATION:
-            return False
-        if elapsed + 1e-6 < INTERMEDIATE_RECOVERY_DURATION_SEC:
-            return True
-
+    ) -> None:
+        elapsed = max(0.0, float(now) - float(self.stage_start_time))
         actions["log_event_end"] = self._make_log_event_end(
             now,
             ah,
@@ -820,14 +1169,14 @@ class ChargeControllerV2(ChargeController):
             session_id=self._v2_trace_session_id,
             recovery_attempt=int(self.antisulfate_count),
             agm_stage_idx=int(self._agm_stage_idx),
+            session_generation=float(self._v2_trace_started_at),
         )
         self._recovery_safe_wait = continuation
         self.current_stage = self.STAGE_SAFE_WAIT
         self._clear_restored_targets()
         self.stage_start_time = now
         self._stage_start_ah = ah
-        # Mirror only for existing UI/session readers. Transition authority below
-        # reads the typed continuation, never these compatibility fields.
+        # Compatibility mirrors for existing persistence/UI readers only.
         self._safe_wait_next_stage = continuation.next_stage
         self._safe_wait_target_v = continuation.target_voltage_v
         self._safe_wait_target_i = continuation.target_current_a
@@ -835,10 +1184,13 @@ class ChargeControllerV2(ChargeController):
         self._record_safe_wait_sample(now, voltage, current, temp)
         self._v2_main_plateau_since = None
         actions["turn_off"] = True
-        threshold = continuation.target_voltage_v - SAFE_WAIT_V_MARGIN
+        threshold = (
+            continuation.target_voltage_v
+            - float(SAFE_WAIT_TARGET_MARGIN_V.default)
+        )
         actions["notify"] = (
-            f"<b>? ????????????? ?????????.</b> ???????? ??????? ?? {threshold:.1f}?. "
-            "????? ????????."
+            f"<b>⏸ Десульфатация завершена.</b> Ожидание падения до {threshold:.1f}В. "
+            "Выход выключен."
         )
         actions["log_event"] = "START | INTERMEDIATE_RECOVERY_COMPLETE"
         logger.info(
@@ -848,7 +1200,165 @@ class ChargeControllerV2(ChargeController):
             continuation.recovery_attempt,
             continuation.agm_stage_idx,
         )
-        return True
+
+    def _apply_recovery_safe_wait_authority(
+        self,
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+        output_is_on: Optional[Any],
+    ) -> AuthorityDecision:
+        continuation = self._recovery_safe_wait
+        valid = (
+            continuation is not None
+            and self.current_stage == self.STAGE_SAFE_WAIT
+            and validate_recovery_continuation(
+                continuation,
+                session_id=self._v2_trace_session_id,
+                session_generation=self._v2_trace_started_at,
+                expected_source_stage=self.STAGE_DESULFATION,
+                expected_next_stage=self.STAGE_MAIN,
+            )
+            and continuation.recovery_attempt == int(self.antisulfate_count)
+            and continuation.agm_stage_idx == int(self._agm_stage_idx)
+        )
+        if not valid:
+            reason = "recovery_safe_wait_continuation_invalid"
+            self._stop_and_diagnose(
+                actions=actions,
+                now=now,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                reason=reason,
+            )
+            self._recovery_safe_wait = None
+            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
+
+        assert continuation is not None
+        output_is_off = self._normalize_output_on(output_is_on) is False
+        if output_is_off:
+            self._record_safe_wait_sample(now, voltage, current, temp)
+        decision = decide_recovery_safe_wait(
+            continuation,
+            now_s=now,
+            voltage_v=voltage,
+            output_is_off=output_is_off,
+        )
+        if decision.action == RecoverySafeWaitAction.WAIT:
+            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
+
+        actions["set_voltage"] = continuation.target_voltage_v
+        actions["set_current"] = continuation.target_current_a
+        self._add_phase_limits(
+            actions,
+            continuation.target_voltage_v,
+            continuation.target_current_a,
+        )
+        actions["turn_on"] = True
+        # The execution layer must prove the complete two-phase physical transaction
+        # before this token can commit SAFE_WAIT -> MAIN.
+        actions["verified_enable_transition"] = {
+            "kind": "recovery_safe_wait_to_main",
+            "session_id": continuation.session_id,
+            "session_generation": continuation.session_generation,
+            "started_at": continuation.started_at,
+            "reason": decision.reason,
+        }
+        actions["log_event"] = "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
+        logger.info(
+            "V2 recovery SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
+            decision.reason,
+            decision.wait_elapsed_s,
+        )
+        return AuthorityDecision(
+            AuthorityAction.CONTINUE,
+            f"recovery_safe_wait_enable_requested:{decision.reason}",
+        )
+
+    def _apply_final_safe_wait_authority(
+        self,
+        *,
+        now: float,
+        voltage: float,
+        current: float,
+        temp: float,
+        ah: float,
+        actions: Dict[str, Any],
+        output_is_on: Optional[Any],
+    ) -> AuthorityDecision:
+        continuation = self._final_safe_wait
+        valid = (
+            continuation is not None
+            and self.current_stage == self.STAGE_SAFE_WAIT
+            and validate_final_continuation(
+                continuation,
+                session_id=self._v2_trace_session_id,
+                session_generation=self._v2_trace_started_at,
+                expected_next_stage=self.STAGE_DONE,
+                allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
+            )
+        )
+        if not valid:
+            reason = "final_safe_wait_continuation_invalid"
+            self._stop_and_diagnose(
+                actions=actions,
+                now=now,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                reason=reason,
+            )
+            self._final_safe_wait = None
+            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
+
+        assert continuation is not None
+        output_is_off = self._normalize_output_on(output_is_on) is False
+        if output_is_off:
+            self._record_safe_wait_sample(now, voltage, current, temp)
+        decision = decide_final_safe_wait(
+            continuation,
+            now_s=now,
+            voltage_v=voltage,
+            output_is_off=output_is_off,
+        )
+        if decision.action == FinalSafeWaitAction.WAIT:
+            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
+
+        actions["set_voltage"] = continuation.target_voltage_v
+        actions["set_current"] = continuation.target_current_a
+        self._add_phase_limits(
+            actions,
+            continuation.target_voltage_v,
+            continuation.target_current_a,
+        )
+        actions["turn_on"] = True
+        # Storage/DONE remains a two-phase transition: this token is only a request.
+        # The execution layer must prove programmed readback and physical Output ON
+        # before commit_verified_enable_transition may advance the software stage.
+        actions["verified_enable_transition"] = {
+            "kind": "final_safe_wait_to_done",
+            "session_id": continuation.session_id,
+            "session_generation": continuation.session_generation,
+            "started_at": continuation.started_at,
+            "reason": decision.reason,
+        }
+        actions["log_event"] = "FINAL_SAFE_WAIT_STORAGE_ENABLE_ATTEMPT"
+        logger.info(
+            "V2 final SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
+            decision.reason,
+            decision.wait_elapsed_s,
+        )
+        return AuthorityDecision(
+            AuthorityAction.CONTINUE,
+            f"final_safe_wait_storage_enable_requested:{decision.reason}",
+        )
 
     def _handle_safe_wait_stage_override(
         self,
@@ -861,82 +1371,40 @@ class ChargeControllerV2(ChargeController):
         actions: Dict[str, Any],
         output_is_on: Optional[Any],
     ) -> bool:
-        continuation = self._recovery_safe_wait or self._final_safe_wait
+        """Compatibility hook delegating SAFE_WAIT decisions to modular owners."""
+
         if (
             not self._v2_authoritative
             or self.battery_type == self.PROFILE_CUSTOM
-            or continuation is None
             or self.current_stage != self.STAGE_SAFE_WAIT
         ):
             return False
-        is_recovery = isinstance(continuation, RecoverySafeWaitContinuation)
-        expected_source = self.STAGE_DESULFATION if is_recovery else continuation.source_stage
-        if (
-            continuation.session_id
-            and continuation.session_id != self._v2_trace_session_id
-        ) or expected_source not in {self.STAGE_DESULFATION, self.STAGE_MAIN, self.STAGE_MIX}:
-            self._stop_and_diagnose(
-                actions=actions,
+
+        if self._recovery_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_MAIN:
+            self._apply_recovery_safe_wait_authority(
                 now=now,
                 voltage=voltage,
                 current=current,
                 temp=temp,
                 ah=ah,
-                reason="safe_wait_session_or_source_mismatch",
+                actions=actions,
+                output_is_on=output_is_on,
             )
-            self._recovery_safe_wait = None
-            self._final_safe_wait = None
             return True
 
-        # Relaxation authority can only re-enable after a fresh physical OFF proof.
-        # UNKNOWN/ON remains in SAFE_WAIT; it never grants a transition to Main.
-        if self._normalize_output_on(output_is_on) is not False:
+        if self._final_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_DONE:
+            self._apply_final_safe_wait_authority(
+                now=now,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                actions=actions,
+                output_is_on=output_is_on,
+            )
             return True
 
-        self._record_safe_wait_sample(now, voltage, current, temp)
-        threshold = continuation.target_voltage_v - SAFE_WAIT_V_MARGIN
-        wait_elapsed = max(0.0, now - continuation.started_at)
-        threshold_met = voltage <= threshold
-        timeout_met = wait_elapsed + 1e-6 >= SAFE_WAIT_MAX_SEC
-        if not threshold_met and not timeout_met:
-            return True
-
-        reason = "threshold" if threshold_met else "timeout"
-        actions["set_voltage"] = continuation.target_voltage_v
-        actions["set_current"] = continuation.target_current_a
-        self._add_phase_limits(
-            actions,
-            continuation.target_voltage_v,
-            continuation.target_current_a,
-        )
-        actions["turn_on"] = True
-        # Do not commit SAFE_WAIT -> MAIN before the physical transaction is proven.
-        # The runtime acknowledges this token only after Output ON plus final OVP/OCP
-        # programmed readback have both been verified.  A rejected/failed enable leaves
-        # the controller in SAFE_WAIT with the continuation intact for a later retry.
-        transition_kind = (
-            "recovery_safe_wait_to_main"
-            if is_recovery
-            else "final_safe_wait_to_done"
-        )
-        actions["verified_enable_transition"] = {
-            "kind": transition_kind,
-            "session_id": continuation.session_id,
-            "started_at": continuation.started_at,
-            "reason": reason,
-        }
-        actions["log_event"] = (
-            "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
-            if is_recovery
-            else "FINAL_SAFE_WAIT_STORAGE_ENABLE_ATTEMPT"
-        )
-        logger.info(
-            "V2 %s SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
-            "recovery" if is_recovery else "final",
-            reason,
-            wait_elapsed,
-        )
-        return True
+        return False
 
     def commit_verified_enable_transition(
         self,
@@ -962,12 +1430,23 @@ class ChargeControllerV2(ChargeController):
             token_session = str(transition.get("session_id") or "") or None
             try:
                 token_started_at = float(transition.get("started_at"))
+                token_session_generation = float(transition.get("session_generation"))
             except (TypeError, ValueError):
                 return None
             if (
                 token_session != continuation.session_id
+                or continuation.session_generation is None
                 or not math.isfinite(token_started_at)
+                or not math.isfinite(token_session_generation)
                 or abs(token_started_at - continuation.started_at) > 1e-6
+                or abs(
+                    token_session_generation
+                    - float(continuation.session_generation)
+                ) > 1e-6
+                or abs(
+                    token_session_generation
+                    - float(self._v2_trace_started_at)
+                ) > 1e-6
             ):
                 logger.error("verified final completion rejected: continuation token mismatch")
                 return None
@@ -998,15 +1477,21 @@ class ChargeControllerV2(ChargeController):
             logger.error("verified recovery resume rejected: no matching SAFE_WAIT continuation")
             return None
         token_session = str(transition.get("session_id") or "") or None
-        if token_session != continuation.session_id:
-            logger.error("verified recovery resume rejected: session token mismatch")
-            return None
         try:
             token_started_at = float(transition.get("started_at"))
+            token_session_generation = float(transition.get("session_generation"))
         except (TypeError, ValueError):
             return None
-        if not math.isfinite(token_started_at) or abs(token_started_at - continuation.started_at) > 1e-6:
-            logger.error("verified recovery resume rejected: continuation generation mismatch")
+        if (
+            token_session != continuation.session_id
+            or continuation.session_generation is None
+            or not math.isfinite(token_started_at)
+            or not math.isfinite(token_session_generation)
+            or abs(token_started_at - continuation.started_at) > 1e-6
+            or abs(token_session_generation - float(continuation.session_generation)) > 1e-6
+            or abs(token_session_generation - float(self._v2_trace_started_at)) > 1e-6
+        ):
+            logger.error("verified recovery resume rejected: continuation token mismatch")
             return None
 
         prev = self.current_stage
@@ -1014,7 +1499,7 @@ class ChargeControllerV2(ChargeController):
         self._clear_restored_targets()
         self.stage_start_time = float(now)
         self._stage_start_ah = float(ah)
-        self._blanking_until = float(now) + BLANKING_SEC
+        self._blanking_until = float(now) + float(STAGE_TRANSITION_BLANKING_S.default)
         self.v_max_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
@@ -1064,11 +1549,10 @@ class ChargeControllerV2(ChargeController):
         is_cv: bool,
         is_cc: Optional[bool],
     ) -> bool:
-        """Suppress the historical MIX FSM when V2 owns MIX decisions.
+        """Compatibility hook marking MIX as modular-authoritative.
 
-        Safety/temperature/link checks still run in the common scaffold before the
-        stage branch.  Only the legacy MIX evidence/timer/timeout transitions are
-        bypassed; authoritative evidence is evaluated after the scaffold returns.
+        The production MIX path now bypasses historical ``ChargeController.tick()``
+        entirely; this hook remains only for characterization/direct legacy callers.
         """
         return bool(
             self._v2_authoritative
@@ -1084,12 +1568,17 @@ class ChargeControllerV2(ChargeController):
                 stage in {self.STAGE_MAIN, self.STAGE_DESULFATION, self.STAGE_MIX}
                 or (
                     stage == self.STAGE_SAFE_WAIT
-                    and (self._recovery_safe_wait is not None or self._final_safe_wait is not None)
+                    and (
+                        self._recovery_safe_wait is not None
+                        or self._final_safe_wait is not None
+                        or self._safe_wait_next_stage == self.STAGE_MAIN
+                        or self._safe_wait_next_stage == self.STAGE_DONE
+                    )
                 )
             )
         )
 
-    async def _run_legacy_scaffold_tick(
+    async def _run_stage_scaffold_tick(
         self,
         *,
         stage_before: str,
@@ -1103,52 +1592,153 @@ class ChargeControllerV2(ChargeController):
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        """Run common safety while legacy stage transitions are explicitly bypassed.
+        """Route migrated production stages around historical ChargeController.tick.
 
-        MAIN still needs the historical blanking mask until its remaining scaffold is
-        extracted. DESULFATION, recovery SAFE_WAIT and MIX now use explicit stage
-        override hooks and therefore require no timestamp falsification.
+        MAIN, intermediate recovery, MIX, and final SAFE_WAIT use modular runtime
+        scaffolds. Historical Custom is retired from production entirely: an IDLE
+        residue is inert, while any active residue fails closed to Output OFF.
+        Other not-yet-migrated automatic stages retain the compatibility path.
         """
-        if not self._is_authoritative_stage(stage_before):
-            return await super().tick(
-                voltage,
-                current,
-                temp_ext,
-                is_cv,
-                ah,
-                output_is_on,
+        if self._v2_authoritative and self.battery_type == self.PROFILE_CUSTOM:
+            if stage_before == self.STAGE_IDLE:
+                return {}
+            logger.error(
+                "Active historical Custom controller state rejected stage=%s; forcing OFF",
+                stage_before,
+            )
+            self.stop(clear_session=True)
+            return {
+                "turn_off": True,
+                "log_event": "HISTORICAL_CUSTOM_RUNTIME_RETIRED",
+                "notify": (
+                    "❌ Исторический Custom-контроллер отключён. "
+                    "Ручной режим запускается только через Manual."
+                ),
+            }
+
+        if stage_before in {
+            self.STAGE_PREP,
+            self.STAGE_COOLING,
+            self.STAGE_IDLE,
+            self.STAGE_DONE,
+        }:
+            return await run_authoritative_residual_scaffold(
+                self,
+                stage_before=stage_before,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
                 manual_active=manual_active,
+                now_s=time.time(),
             )
 
-        saved_blanking = self._blanking_until
-        mask_main = stage_before == self.STAGE_MAIN
-        if mask_main:
-            self._blanking_until = time.time() + 365 * 24 * 3600
-
-        try:
-            return await super().tick(
-                voltage,
-                current,
-                temp_ext,
-                is_cv,
-                ah,
-                output_is_on,
+        if (
+            self._v2_authoritative
+            and self.battery_type != self.PROFILE_CUSTOM
+            and stage_before == self.STAGE_MAIN
+        ):
+            return await run_authoritative_main_scaffold(
+                self,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
                 manual_off_active=manual_off_active,
                 is_cc=is_cc,
                 manual_active=manual_active,
+                now_s=time.time(),
             )
-        finally:
-            if mask_main and self.current_stage == stage_before:
-                self._blanking_until = saved_blanking
+
+        recovery_safe_wait = (
+            stage_before == self.STAGE_SAFE_WAIT
+            and (
+                self._recovery_safe_wait is not None
+                or self._safe_wait_next_stage == self.STAGE_MAIN
+            )
+        )
+        if (
+            self._v2_authoritative
+            and self.battery_type != self.PROFILE_CUSTOM
+            and (stage_before == self.STAGE_DESULFATION or recovery_safe_wait)
+        ):
+            return await run_authoritative_recovery_scaffold(
+                self,
+                stage_before=stage_before,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
+                manual_off_active=manual_off_active,
+                is_cc=is_cc,
+                manual_active=manual_active,
+                now_s=time.time(),
+            )
+
+        final_safe_wait = (
+            stage_before == self.STAGE_SAFE_WAIT
+            and (
+                self._final_safe_wait is not None
+                or self._safe_wait_next_stage == self.STAGE_DONE
+            )
+        )
+        if (
+            self._v2_authoritative
+            and self.battery_type != self.PROFILE_CUSTOM
+            and (stage_before == self.STAGE_MIX or final_safe_wait)
+        ):
+            return await run_authoritative_mix_scaffold(
+                self,
+                stage_before=stage_before,
+                voltage=voltage,
+                current=current,
+                temp_ext=temp_ext,
+                is_cv=is_cv,
+                ah=ah,
+                output_is_on=output_is_on,
+                manual_off_active=manual_off_active,
+                is_cc=is_cc,
+                manual_active=manual_active,
+                report_limit_s=(
+                    self._mix_limit_seconds()
+                    if stage_before == self.STAGE_MIX
+                    else safe_wait_max_seconds()
+                ),
+                now_s=time.time(),
+            )
+
+        reason = f"unsupported_modular_stage:{stage_before}"
+        logger.error(
+            "Historical controller fallback retired; rejecting stage=%s profile=%s",
+            stage_before,
+            self.battery_type,
+        )
+        self.stop(clear_session=True)
+        return {
+            "turn_off": True,
+            "log_event": "HISTORICAL_STAGE_RUNTIME_RETIRED",
+            "notify": (
+                "❌ Этап не принадлежит модульному runtime. "
+                "Заряд остановлен до повторной авторизации."
+            ),
+            "recovery_shadow": {
+                "status": "fail_closed",
+                "reason": reason,
+                "authority": "v2",
+            },
+        }
 
     def _mix_limit_seconds(self) -> float:
-        if self.battery_type == self.PROFILE_AGM:
-            return float(AGM_MIX_MAX_HOURS) * 3600.0
-        if self.battery_type == self.PROFILE_EFB:
-            return float(EFB_MIX_MAX_HOURS) * 3600.0
-        return float(CA_MIX_MAX_HOURS) * 3600.0
+        """Compatibility accessor over the canonical modular MIX authority limit."""
+        return mix_max_active_seconds(self.battery_type)
 
     def _enter_safe_wait_done(
         self,
@@ -1166,7 +1756,7 @@ class ChargeControllerV2(ChargeController):
             now, ah, voltage, current, temp, reason
         )
         uv, ui = self._storage_target()
-        threshold = uv - SAFE_WAIT_V_MARGIN
+        threshold = uv - float(SAFE_WAIT_TARGET_MARGIN_V.default)
         self.current_stage = self.STAGE_SAFE_WAIT
         self._clear_restored_targets()
         self.stage_start_time = now
@@ -1182,6 +1772,7 @@ class ChargeControllerV2(ChargeController):
             started_at=float(now),
             session_id=self._v2_trace_session_id,
             completion_reason=str(reason),
+            session_generation=float(self._v2_trace_started_at),
         )
         self._recovery_safe_wait = None
         self._record_safe_wait_sample(now, voltage, current, temp)
@@ -1237,7 +1828,7 @@ class ChargeControllerV2(ChargeController):
         ah: float,
         reason: str,
     ) -> None:
-        self._agm_stage_idx = min(self._agm_stage_idx + 1, len(AGM_STAGES) - 1)
+        self._agm_stage_idx = min(self._agm_stage_idx + 1, len(AGM_STAGE_VOLTAGES_V.default) - 1)
         self.stage_start_time = now
         self._stage_start_ah = ah
         self._reset_delta_and_blanking(now)
@@ -1247,7 +1838,7 @@ class ChargeControllerV2(ChargeController):
         actions["set_current"] = ui
         self._add_phase_limits(actions, uv, ui)
         actions["notify"] = (
-            f"<b>🚀 V2 AGM ступень {self._agm_stage_idx + 1}/{len(AGM_STAGES)}:</b> "
+            f"<b>🚀 V2 AGM ступень {self._agm_stage_idx + 1}/{len(AGM_STAGE_VOLTAGES_V.default)}:</b> "
             f"{uv:.2f}В / {ui:.2f}А — {reason}."
         )
         actions["log_event"] = f"V2_AGM_STEP_{self._agm_stage_idx + 1}"
@@ -1335,25 +1926,80 @@ class ChargeControllerV2(ChargeController):
         is_cv: bool,
         is_cc: bool,
         actions: Dict[str, Any],
+        output_is_on: Optional[Any] = None,
     ) -> Optional[AuthorityDecision]:
         if not self._is_authoritative_stage(stage_before) or self.current_stage != stage_before:
             return None
 
+        if stage_before == self.STAGE_DESULFATION:
+            decision = decide_desulfation(
+                active_elapsed_s=max(
+                    0.0,
+                    float(timestamp_s) - float(self.stage_start_time),
+                )
+            )
+            if decision.action == DesulfationAction.COMPLETE_TO_SAFE_WAIT:
+                self._complete_desulfation_to_safe_wait(
+                    now=timestamp_s,
+                    voltage=voltage,
+                    current=current,
+                    temp=temp,
+                    ah=ah,
+                    actions=actions,
+                )
+                return AuthorityDecision(
+                    AuthorityAction.COMPLETE_TO_SAFE_WAIT,
+                    decision.reason,
+                )
+            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
+
+        if (
+            stage_before == self.STAGE_SAFE_WAIT
+            and (
+                self._recovery_safe_wait is not None
+                or self._safe_wait_next_stage == self.STAGE_MAIN
+            )
+        ):
+            return self._apply_recovery_safe_wait_authority(
+                now=timestamp_s,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                actions=actions,
+                output_is_on=output_is_on,
+            )
+
+        if (
+            stage_before == self.STAGE_SAFE_WAIT
+            and (
+                self._final_safe_wait is not None
+                or self._safe_wait_next_stage == self.STAGE_DONE
+            )
+        ):
+            return self._apply_final_safe_wait_authority(
+                now=timestamp_s,
+                voltage=voltage,
+                current=current,
+                temp=temp,
+                ah=ah,
+                actions=actions,
+                output_is_on=output_is_on,
+            )
+
         if stage_before != self.STAGE_MAIN and stage_before != self.STAGE_MIX:
-            # SAFE_WAIT has its own continuation and must never be interpreted as
-            # Mix merely because it shares the authoritative lifecycle scaffold.
             return None
 
         if stage_before == self.STAGE_MAIN:
             required_hold = (
-                AGM_FIRST_STAGE_HOLD_SEC
+                agm_tail_hold_seconds()
                 if self.battery_type == self.PROFILE_AGM
-                else FIRST_STAGE_HOLD_SEC
+                else standard_tail_hold_seconds()
             )
             max_desulf = (
-                ANTISULFATE_MAX_AGM
+                int(AGM_MAX_RECOVERY_ATTEMPTS.default)
                 if self.battery_type == self.PROFILE_AGM
-                else ANTISULFATE_MAX_CA_EFB
+                else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
             )
             decision = decide_main_transition(
                 profile=self.battery_type,
@@ -1363,9 +2009,13 @@ class ChargeControllerV2(ChargeController):
                 seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
                 required_tail_hold_s=required_hold,
                 agm_stage_idx=self._agm_stage_idx,
-                agm_stage_count=len(AGM_STAGES),
+                agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
                 desulf_attempts=self.antisulfate_count,
                 max_desulf_attempts=max_desulf,
+                main_elapsed_s=max(0.0, float(timestamp_s) - float(self.stage_start_time)),
+                main_limit_s=main_fallback_seconds(),
+                current_a=float(current),
+                is_cv=bool(is_cv),
             )
             if decision.action == AuthorityAction.ADVANCE_AGM_STEP:
                 self._advance_agm_step(
@@ -1426,12 +2076,13 @@ class ChargeControllerV2(ChargeController):
             self.v_max_recorded = metrics.voltage_max_v
 
         decision = decide_mix_transition(
+            profile=self.battery_type,
             policy_decision=record.decision.decision,
-            mix_elapsed_s=max(0.0, timestamp_s - self.stage_start_time),
-            mix_limit_s=self._mix_limit_seconds(),
+            active_elapsed_s=max(0.0, timestamp_s - self.stage_start_time),
+            authority_limit_s=self._mix_limit_seconds(),
             finish_hold_started_at=self.finish_timer_start,
             now_s=timestamp_s,
-            finish_hold_s=MIX_DONE_TIMER,
+            finish_hold_s=mix_finish_hold_seconds(),
         )
         if decision.action == AuthorityAction.START_FINISH_HOLD:
             self.finish_timer_start = timestamp_s
@@ -1473,7 +2124,7 @@ class ChargeControllerV2(ChargeController):
             logger.info(
                 "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
                 self._delta_trigger_mode or "unknown",
-                MIX_DONE_TIMER,
+                mix_finish_hold_seconds(),
                 timestamp_s,
             )
         elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
@@ -1530,7 +2181,10 @@ class ChargeControllerV2(ChargeController):
             except Exception:
                 target_before = None
 
-        actions = await self._run_legacy_scaffold_tick(
+        # Persistent Manual-OFF is an asynchronous terminal kill condition
+        # owned outside AUTO chemistry. Its armed state must never alter automatic
+        # stage decisions before the external condition actually fires.
+        actions = await self._run_stage_scaffold_tick(
             stage_before=stage_before,
             voltage=voltage,
             current=current,
@@ -1538,7 +2192,7 @@ class ChargeControllerV2(ChargeController):
             is_cv=is_cv,
             ah=ah,
             output_is_on=output_is_on,
-            manual_off_active=manual_off_active,
+            manual_off_active=False,
             is_cc=is_cc,
             manual_active=manual_active,
         )
@@ -1547,7 +2201,6 @@ class ChargeControllerV2(ChargeController):
         resolved_is_cc = bool(is_cc) if is_cc is not None else not bool(is_cv)
         authority_decision: Optional[AuthorityDecision] = None
         first_stage: Optional[FirstStageAssessment] = None
-        transition_audit: Optional[LegacyTransitionAudit] = None
         record = None
 
         try:
@@ -1687,15 +2340,12 @@ class ChargeControllerV2(ChargeController):
                         is_cv=bool(is_cv),
                         is_cc=resolved_is_cc,
                         actions=actions,
+                        output_is_on=output_is_on,
                     )
             else:
+                # Residual PREP/COOLING/IDLE/DONE stages are modular-owned too;
+                # no historical transition source remains to audit.
                 self._log_shadow_disagreement(record, stage=stage_before)
-                transition_audit = audit_legacy_transition(
-                    stage_before=stage_before,
-                    stage_after=self.current_stage,
-                    first_stage=first_stage,
-                )
-                self._log_transition_audit(transition_audit)
 
             trace_point = self._trace_point_metadata(
                 timestamp_s=timestamp_s,
@@ -1714,7 +2364,6 @@ class ChargeControllerV2(ChargeController):
                 record,
                 trace_point=trace_point,
                 first_stage=first_stage,
-                transition_audit=transition_audit,
                 authority_decision=authority_decision,
             )
         except Exception as exc:

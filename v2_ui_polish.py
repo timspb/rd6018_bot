@@ -8,6 +8,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from pb_domain import ChargeIntent
 from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
+from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
+from operator_managed_stop import STOP_CONFIRM_CALLBACK
 
 
 _DECISION_LABELS = {
@@ -190,7 +194,7 @@ def build_operator_dashboard_keyboard(
     if back_to_dashboard:
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ К панели", callback_data="dash_back")],
+                [InlineKeyboardButton(text="⬅️ К панели", callback_data=HOME_CALLBACK_DATA)],
             ]
         )
 
@@ -199,25 +203,25 @@ def build_operator_dashboard_keyboard(
 
     def chart_button(mode: str, label: str) -> InlineKeyboardButton:
         selected = "● " if chart_mode == mode else ""
-        return InlineKeyboardButton(text=f"{selected}📈 {label}", callback_data=f"chart_{mode}")
+        return InlineKeyboardButton(text=f"{selected}📈 {label}", callback_data=f"operator_graph_{mode}")
 
     rows = [
         [
             InlineKeyboardButton(
                 text="🛑 Остановить заряд" if active else "▶️ Новая программа",
-                callback_data="power_toggle" if active else "charge_modes",
+                callback_data=STOP_CONFIRM_CALLBACK if active else CHARGE_CALLBACK_DATA,
             )
         ],
         [
-            InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh"),
-            InlineKeyboardButton(text="ℹ️ Подробнее", callback_data="info_full"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh"),
+            InlineKeyboardButton(text="ℹ️ Подробнее", callback_data=DETAILS_CALLBACK_DATA),
         ],
         [
             chart_button(app.CHART_RANGE_30M, "30м"),
             chart_button(app.CHART_RANGE_2H, "2ч"),
             chart_button(app.CHART_RANGE_SESSION, "Сессия"),
         ],
-        [InlineKeyboardButton(text="📋 События", callback_data="logs")],
+        [InlineKeyboardButton(text="📋 События", callback_data=JOURNAL_CALLBACK_DATA)],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

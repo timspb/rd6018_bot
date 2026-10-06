@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Iterable
 
 from runtime.ui.commands.models import CommandResult, CommandStatus, UserCommand
-from runtime.ui.models import DiagnosticsView
+from runtime.ui.models import DiagnosticsView, EntityStatusView, JournalView
 
 from .intents import IntentDispatcher, OperatorIntent
 from .operator_snapshot import OperatorSnapshot
@@ -31,6 +31,12 @@ class OperatorInterface(ABC):
     async def get_operator_actions(self) -> OperatorActionsView: ...
 
     @abstractmethod
+    async def get_event_journal(self, limit: int = 50) -> JournalView: ...
+
+    @abstractmethod
+    async def get_entity_statuses(self) -> EntityStatusView: ...
+
+    @abstractmethod
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]: ...
 
     @abstractmethod
@@ -45,6 +51,8 @@ class CallbackOperatorInterface(OperatorInterface):
         snapshot_provider: Callable[[], OperatorSnapshot],
         diagnostics_provider: Callable[[], DiagnosticsView],
         journal_provider: Callable[[int], Iterable[str]],
+        event_journal_provider: Callable[[int], JournalView] | None = None,
+        entity_status_provider: Callable[[], EntityStatusView] | None = None,
         details_provider: Callable[[], OperatorDetailsView] | None = None,
         service_details_provider: Callable[[], ServiceDetailsView] | None = None,
         actions_provider: Callable[[], OperatorActionsView] | None = None,
@@ -57,6 +65,8 @@ class CallbackOperatorInterface(OperatorInterface):
         self._service_details_provider = service_details_provider
         self._actions_provider = actions_provider
         self._journal_provider = journal_provider
+        self._event_journal_provider = event_journal_provider
+        self._entity_status_provider = entity_status_provider
         self._intent_handler = intent_handler
         self._intent_dispatcher = intent_dispatcher or IntentDispatcher()
 
@@ -80,6 +90,18 @@ class CallbackOperatorInterface(OperatorInterface):
         if self._actions_provider is None:
             raise RuntimeError("operator actions provider is not wired")
         return self._actions_provider()
+
+    async def get_event_journal(self, limit: int = 50) -> JournalView:
+        if limit < 0:
+            raise ValueError("limit must not be negative")
+        if self._event_journal_provider is None:
+            return JournalView(tuple(self._journal_provider(limit)))
+        return self._event_journal_provider(limit)
+
+    async def get_entity_statuses(self) -> EntityStatusView:
+        if self._entity_status_provider is None:
+            return EntityStatusView(error="entity_status_provider_not_wired")
+        return self._entity_status_provider()
 
     async def get_journal(self, limit: int = 20) -> tuple[str, ...]:
         if limit < 0:

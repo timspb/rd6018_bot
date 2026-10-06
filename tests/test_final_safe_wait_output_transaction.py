@@ -2,12 +2,11 @@ import json
 import os
 import tempfile
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from charge_controller_v2 import ChargeControllerV2, FinalSafeWaitContinuation
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
-from done_storage_restore import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON, install_done_storage_restore
+from runtime.charge.persistence import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON
 
 
 class DummyHass:
@@ -129,11 +128,9 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             controller = DiagnosticProductionChargeControllerV2(
                 DummyHass(), authoritative=True
             )
-            app = SimpleNamespace(charge_controller=controller)
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
+            with patch("runtime.charge.persistence.SESSION_FILE", session_file), patch(
                 "charge_controller_v2.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file):
-                install_done_storage_restore(app)
                 controller.start("AGM", 90)
                 controller._v2_trace_session_id = "session-final"
                 controller.current_stage = controller.STAGE_MIX

@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from application.operator_snapshot_provider import OperatorSnapshotProvider
+from application.operator_read_source import OperatorReadSource
 from application.operator_snapshot import snapshot_from_mapping
 from application.operator_snapshot_shadow import compare_hmi_to_snapshot
 
@@ -58,7 +59,7 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.psu_temp_c, 33.0)
         self.assertEqual(state.progress, "")
     async def test_idle_snapshot_is_read_only_and_maps_actions(self):
-        provider = OperatorSnapshotProvider(_App(live()))
+        provider = OperatorSnapshotProvider(OperatorReadSource(_App(live())))
         snapshot = await provider.get_operator_snapshot()
         self.assertEqual(snapshot.state, "IDLE")
         self.assertIn("start_charge", snapshot.available_actions)
@@ -67,18 +68,18 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_telemetry_is_fault_and_start_is_removed(self):
         old = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
         data = live(_meta={name: {"status": "ok", "last_reported": old} for name in ("switch", "battery_voltage", "current", "protection_code", "regulation_code")})
-        snapshot = await OperatorSnapshotProvider(_App(data)).get_operator_snapshot()
+        snapshot = await OperatorSnapshotProvider(OperatorReadSource(_App(data))).get_operator_snapshot()
         self.assertEqual(snapshot.state, "FAULT")
         self.assertNotIn("start_charge", snapshot.available_actions)
         self.assertFalse(snapshot.telemetry_fresh)
 
     async def test_fault_mapping(self):
-        snapshot = await OperatorSnapshotProvider(_App(live(ovp_triggered="on"))).get_operator_snapshot()
+        snapshot = await OperatorSnapshotProvider(OperatorReadSource(_App(live(ovp_triggered="on")))).get_operator_snapshot()
         self.assertEqual(snapshot.state, "FAULT")
         self.assertIn("OVP", snapshot.faults)
 
     async def test_details_and_service_details_are_dtos(self):
-        provider = OperatorSnapshotProvider(_App(live()))
+        provider = OperatorSnapshotProvider(OperatorReadSource(_App(live())))
         details = await provider.get_operator_details()
         service = await provider.get_service_details()
         self.assertEqual(details.process_state, "idle")
@@ -87,7 +88,7 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(hasattr(service, "controller"))
 
     async def test_shadow_matches_legacy_hmi_for_idle(self):
-        provider = OperatorSnapshotProvider(_App(live()))
+        provider = OperatorSnapshotProvider(OperatorReadSource(_App(live())))
         snapshot = await provider.get_operator_snapshot()
         hmi = provider.legacy_hmi_state(live())
         result = compare_hmi_to_snapshot(hmi, snapshot)

@@ -5,109 +5,88 @@ from unittest.mock import AsyncMock, patch
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import GetMe
 
-from telegram_startup_resilience import install_telegram_startup_resilience
+from telegram.runtime import ResilientBootstrapBot, create_telegram_runtime
+
+
+TOKEN = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
 
 
 def _network_error(message: str = "temporary resolver failure") -> TelegramNetworkError:
     return TelegramNetworkError(method=GetMe(), message=message)
 
 
-class _Legacy:
-    def __init__(self, bot):
-        self.bot = bot
+class _TestBot(ResilientBootstrapBot):
+    def __init__(self):
+        super().__init__(token=TOKEN)
+        self.me_calls = 0
+        self.command_calls = 0
+        self.me_failures = 0
+        self.command_failures = 0
+
+    async def _bootstrap_me_once(self):
+        self.me_calls += 1
+        if self.me_calls <= self.me_failures:
+            raise _network_error()
+        return {"id": 42}
+
+    async def _set_my_commands_once(self, *args, **kwargs):
+        self.command_calls += 1
+        if self.command_calls <= self.command_failures:
+            raise _network_error()
+        return True
 
 
 class TelegramStartupResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_me_retries_transient_network_failure_with_backoff(self):
-        class Bot:
-            def __init__(self):
-                self.calls = 0
-
-            async def me(self):
-                self.calls += 1
-                if self.calls < 3:
-                    raise _network_error()
-                return {"id": 42}
-
-            async def set_my_commands(self, *args, **kwargs):
-                return True
-
-        bot = Bot()
-        install_telegram_startup_resilience(_Legacy(bot))
+        bot = _TestBot()
+        bot.me_failures = 2
 
         sleeper = AsyncMock()
-        with patch("telegram_startup_resilience.asyncio.sleep", sleeper):
+        with patch("telegram.runtime.asyncio.sleep", sleeper):
             result = await bot.me()
 
         self.assertEqual(result, {"id": 42})
-        self.assertEqual(bot.calls, 3)
+        self.assertEqual(bot.me_calls, 3)
         self.assertEqual([call.args[0] for call in sleeper.await_args_list], [1.0, 2.0])
+        await bot.session.close()
 
     async def test_set_my_commands_defers_after_transient_network_failure(self):
-        class Bot:
-            def __init__(self):
-                self.calls = 0
-
-            async def me(self):
-                return {"id": 42}
-
-            async def set_my_commands(self, *args, **kwargs):
-                self.calls += 1
-                if self.calls == 1:
-                    raise _network_error()
-                return True
-
-        bot = Bot()
-        install_telegram_startup_resilience(_Legacy(bot))
+        bot = _TestBot()
+        bot.command_failures = 1
 
         result = await bot.set_my_commands(["start"])
         self.assertFalse(result)
 
-        # The deferred task retries immediately once before any backoff is needed.
         for _ in range(10):
-            if bot.calls >= 2:
+            if bot.command_calls >= 2:
                 break
             await asyncio.sleep(0)
 
-        self.assertEqual(bot.calls, 2)
+        self.assertEqual(bot.command_calls, 2)
+        await bot.session.close()
 
     async def test_non_network_set_commands_error_is_not_swallowed(self):
-        class Bot:
-            async def me(self):
-                return {"id": 42}
-
-            async def set_my_commands(self, *args, **kwargs):
+        class BadBot(_TestBot):
+            async def _set_my_commands_once(self, *args, **kwargs):
                 raise RuntimeError("programming/configuration error")
 
-        bot = Bot()
-        install_telegram_startup_resilience(_Legacy(bot))
-
+        bot = BadBot()
         with self.assertRaisesRegex(RuntimeError, "programming/configuration error"):
             await bot.set_my_commands([])
+        await bot.session.close()
 
-    async def test_install_is_idempotent(self):
-        class Bot:
-            def __init__(self):
-                self.me_calls = 0
+    async def test_factory_returns_resilient_transport_without_composition_patch(self):
+        runtime = create_telegram_runtime(TOKEN)
+        self.assertIsInstance(runtime.bot, ResilientBootstrapBot)
 
-            async def me(self):
-                self.me_calls += 1
-                return {"id": 42}
+        from pathlib import Path
 
-            async def set_my_commands(self, *args, **kwargs):
-                return True
-
-        bot = Bot()
-        legacy = _Legacy(bot)
-        install_telegram_startup_resilience(legacy)
-        first_me = bot.me
-        first_set = bot.set_my_commands
-        install_telegram_startup_resilience(legacy)
-
-        self.assertIs(bot.me, first_me)
-        self.assertIs(bot.set_my_commands, first_set)
-        await bot.me()
-        self.assertEqual(bot.me_calls, 1)
+        bot_source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("install_telegram_startup_resilience", bot_source)
+        self.assertNotIn("telegram_startup_resilience", bot_source)
+        await runtime.bot.session.close()
 
 
 if __name__ == "__main__":

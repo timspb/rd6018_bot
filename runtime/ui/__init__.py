@@ -1,10 +1,41 @@
-"""Transport-independent V3 presentation models."""
+"""Transport-independent V3 presentation contracts."""
 
+from .actions import UIAction
+from .adapter import LegacyUIAdapter
+from .buttons import ButtonSpec
 from .models import (
-    ChargeView, DiagnosticsView, RuntimeUISnapshot, SafetyView, TelemetryView,
+    ChargeView,
+    DiagnosticsView,
+    EntityStatusItem,
+    EntityStatusView,
+    JournalView,
+    RuntimeUISnapshot,
+    SafetyView,
+    TelemetryView,
     TransitionView,
 )
-from .adapter import LegacyUIAdapter
-from .screen import REQUIRED_SCREEN_FIELDS, missing_charge_screen_fields
+from .screen import (
+    REQUIRED_SCREEN_FIELDS,
+    ScreenId,
+    ScreenSpec,
+    missing_charge_screen_fields,
+)
 
-__all__ = ["ChargeView", "DiagnosticsView", "RuntimeUISnapshot", "SafetyView", "TelemetryView", "TransitionView", "LegacyUIAdapter", "REQUIRED_SCREEN_FIELDS", "missing_charge_screen_fields"]
+__all__ = [
+    "ButtonSpec",
+    "ChargeView",
+    "DiagnosticsView",
+    "EntityStatusItem",
+    "EntityStatusView",
+    "JournalView",
+    "LegacyUIAdapter",
+    "REQUIRED_SCREEN_FIELDS",
+    "RuntimeUISnapshot",
+    "SafetyView",
+    "ScreenId",
+    "ScreenSpec",
+    "TelemetryView",
+    "TransitionView",
+    "UIAction",
+    "missing_charge_screen_fields",
+]

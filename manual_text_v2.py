@@ -10,11 +10,14 @@ from aiogram import BaseMiddleware, F
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
 import v2_sg_ui
-from charge_logic import MAX_STAGE_CURRENT
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
 from manual_runtime_v2 import ProductionManualSessionManager
 from runtime.charge.profiles.manual import ManualChargeProfile, ManualStageProfile, load_manual_profile, save_manual_profile
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
@@ -473,7 +476,7 @@ def install_manual_text_v2(app: Any) -> ManualTextMiddleware:
             manual_help_text(),
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")]
+                    [InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)]
                 ]
             ),
         )

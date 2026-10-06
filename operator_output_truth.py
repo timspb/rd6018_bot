@@ -5,6 +5,8 @@ from typing import Any, Mapping, Optional
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+
 from rd6018_telemetry import telemetry_freshness
 
 
@@ -177,6 +179,7 @@ def filter_keyboard_for_output_truth(
             markup,
             {
                 "charge_modes",
+                CHARGE_CALLBACK_DATA,
                 "rd_ownership_adopt",
                 "rd_ownership_hands_off",
                 "rd_hands_off_disable",

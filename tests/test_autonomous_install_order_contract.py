@@ -3,13 +3,15 @@ import unittest
 
 
 class AutonomousInstallOrderContractTests(unittest.TestCase):
-    def test_production_installs_v2_safety_before_ownership_and_autonomous_boundaries(self):
+    def test_production_telemetry_and_guardrail_wrappers_are_retired_before_ownership(self):
         text = Path("bot.py").read_text(encoding="utf-8")
-        safety = text.index("install_production_guardrails(_legacy)")
+        diagnostic = text.index("install_diagnostic_persistence(_legacy)")
         ownership = text.index("install_rd_control_mode(_legacy")
         autonomous = text.index("install_rd_autonomous_mode(")
         physical = text.index("install_physical_test_control(_legacy)")
-        self.assertLess(safety, ownership)
+        self.assertNotIn("install_output_state_readback", text)
+        self.assertNotIn("install_production_guardrails", text)
+        self.assertLess(diagnostic, ownership)
         self.assertLess(ownership, autonomous)
         self.assertLess(autonomous, physical)
 

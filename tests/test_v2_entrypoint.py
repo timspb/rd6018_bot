@@ -4,11 +4,14 @@ import unittest
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
+from runtime import production_runtime
+from runtime import v2_runtime as legacy_runtime
 import operator_dashboard
 import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
 from operator_output_truth import OUTPUT_TRUTH_ATTR
 from production_controller import ProductionChargeControllerV2
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
 class V2EntrypointTests(unittest.TestCase):
@@ -41,15 +44,134 @@ class V2EntrypointTests(unittest.TestCase):
             safety="",
         )
 
-    def test_import_bot_exposes_preserved_runtime_with_production_controller(self):
-        self.assertEqual(bot.__name__, "runtime.v2_runtime")
+    def test_import_bot_is_distinct_composition_module_with_runtime_bridge(self):
+        self.assertEqual(bot.__name__, "bot")
+        self.assertIsNot(bot, legacy_runtime)
+        self.assertIs(bot.charge_controller, production_runtime.charge_controller)
+        self.assertIs(legacy_runtime.charge_controller, production_runtime.charge_controller)
         self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
 
-    def test_production_guardrails_are_installed_after_controller_composition(self):
-        self.assertTrue(bot._v2_production_guardrails_installed)
+    def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertNotIn("sys.modules[__name__]", source)
+        self.assertNotIn("_legacy.main = main", source)
+        self.assertNotIn("from runtime import v2_runtime", source)
+        self.assertIn("from runtime import production_runtime as _runtime_substrate", source)
+        self.assertNotIn("_legacy_main = _composition.", source)
+        self.assertNotIn("_v2_startup_recovery = _composition.", source)
+        self.assertIn("def __getattr__(name: str):", source)
+
+    def test_production_composition_owns_all_installer_calls(self):
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        top_level_calls = []
+        for node in tree.body:
+            value = None
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                value = node.value
+            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                value = node.value
+            if value is not None:
+                top_level_calls.append(ast.unparse(value))
+
+        self.assertEqual(
+            top_level_calls,
+            ["ProductionComposition(_runtime_substrate).compose()"],
+        )
+        self.assertIsInstance(bot._composition, bot.ProductionComposition)
+        self.assertTrue(bot._composition.composed)
+        self.assertIs(bot._composition.runtime, production_runtime)
+
+        install_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and (
+                (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id.startswith("install_")
+                )
+                or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr.startswith("install_")
+                )
+            )
+        ]
+        self.assertTrue(install_calls)
+
+        compose = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ProductionComposition"
+        )
+        compose_method = next(
+            node
+            for node in compose.body
+            if isinstance(node, ast.FunctionDef) and node.name == "compose"
+        )
+        compose_call_ids = {id(node) for node in ast.walk(compose_method)}
+        self.assertTrue(all(id(call) in compose_call_ids for call in install_calls))
+
+    def test_production_lifecycle_is_owned_by_composition(self):
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        composition = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ProductionComposition"
+        )
+        run_method = next(
+            node
+            for node in composition.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "run"
+        )
+        main = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "main"
+        )
+        run_source = ast.get_source_segment(source, run_method) or ""
+        main_source = ast.get_source_segment(source, main) or ""
+
+        self.assertIn("_composition.run(", main_source)
+        for forbidden in (
+            "asyncio.create_task(",
+            "reconcile_startup_authority(",
+            "_physical_test_control.start(",
+            "_physical_test_control.stop(",
+            "_legacy_main()",
+        ):
+            self.assertNotIn(forbidden, main_source)
+
+        for required in (
+            "reconcile_startup_authority(",
+            "await physical.start()",
+            "await main_runner()",
+            "await physical.stop()",
+        ):
+            self.assertIn(required, run_source)
+
+    def test_production_guardrails_are_owned_without_composition_wrapper(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertNotIn("install_production_guardrails", source)
+        self.assertNotIn("production_guardrails_v2", source)
         self.assertTrue(bot._v2_vin_psu_health_only)
         self.assertEqual(bot.MIN_INPUT_VOLTAGE, float("-inf"))
-        self.assertTrue(bot.charge_controller._v2_production_cooling_guard_installed)
+        self.assertFalse(hasattr(bot, "_v2_production_guardrails_installed"))
+        self.assertFalse(
+            hasattr(bot.charge_controller, "_v2_production_cooling_guard_installed")
+        )
 
     def test_final_semantic_operator_hmi_is_installed(self):
         self.assertTrue(bot._operator_hmi_installed)
@@ -81,7 +203,7 @@ class V2EntrypointTests(unittest.TestCase):
         dashboard_callbacks = self._callbacks(dashboard)
         self.assertNotIn("power_toggle", dashboard_callbacks)
         self.assertNotIn("v2_batteries", dashboard_callbacks)
-        self.assertIn("charge_modes", dashboard_callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, dashboard_callbacks)
         self.assertNotIn("operator_more", dashboard_callbacks)
 
     def test_composed_graph_unknown_output_never_restores_v1_start(self):
@@ -104,7 +226,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertNotIn("logs", callbacks)
         self.assertNotIn("ai_analysis", callbacks)
         self.assertNotIn("v2_batteries", callbacks)
-        self.assertNotIn("charge_modes", callbacks)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("operator_more", callbacks)
         self.assertNotIn("power_toggle", callbacks)
 
@@ -118,7 +240,7 @@ class V2EntrypointTests(unittest.TestCase):
         markup = operator_dashboard._main_graph_markup(bot, state, 1)
         callbacks = self._callbacks(markup)
 
-        self.assertIn("charge_modes", callbacks)
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertIn("rd_ownership_hands_off", callbacks)
         self.assertIn("rd_autonomous_confirm", callbacks)
         self.assertIn("operator_refresh", callbacks)
@@ -156,7 +278,7 @@ class V2EntrypointTests(unittest.TestCase):
             self.assertNotIn("rd_hands_off_output_off", callbacks)
             self.assertNotIn("rd_live_mix", callbacks)
             self.assertNotIn("v2_batteries", callbacks)
-            self.assertNotIn("charge_modes", callbacks)
+            self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
             self.assertNotIn("operator_more", callbacks)
             self.assertNotIn("power_toggle", callbacks)
         finally:

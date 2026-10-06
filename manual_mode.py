@@ -11,14 +11,22 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from charge_logic import MAX_STAGE_CURRENT, OCP_OFFSET, OVP_OFFSET
+from runtime.safety.variables import (
+    MAX_STAGE_CURRENT_A,
+    PROTECTION_OCP_MARGIN_A,
+    PROTECTION_OVP_MARGIN_V,
+)
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
+OCP_OFFSET = float(PROTECTION_OCP_MARGIN_A.default)
+OVP_OFFSET = float(PROTECTION_OVP_MARGIN_V.default)
 from config import MAX_MANUAL_VOLTAGE
 from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
 from runtime.charge.profiles.manual import ManualChargeProfile, load_manual_profile
 from application.manual_identity_integration import ManualIdentityIntegrationAdapter
 from application.manual_execution_boundary import ManualExecutionBoundary
 from application.execution_intent.models import ExecutionIntent, SafetyContext
-from application.execution_port import ExecutionPort
+from application.execution_port import get_or_create_execution_port
 from application.manual_phase_lifecycle import ManualPhaseLifecycle
 from v3_core.canonical_events import EventType
 
@@ -162,7 +170,7 @@ class ManualSessionManager:
         # Construction must remain compatible with persistence-only restore
         # callers that provide no live app/Hass object. Actual execution still
         # fails closed when the V2 owner is unavailable.
-        self.execution_port = ExecutionPort(getattr(self.app, "hass", None))
+        self.execution_port = get_or_create_execution_port(self.app)
         self.execution_boundary = ManualExecutionBoundary(self.execution_port)
         self.identity_restore_resolution = "AMBIGUOUS"
         self._manual_start_event_emitted = False

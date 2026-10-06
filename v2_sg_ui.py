@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from battery_diagnostics import SpecificGravityMeasurement, assess_specific_gravity
 from battery_diagnostics_store import record_specific_gravity
 from pb_domain import BatteryChemistry
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from sg_policy_v2 import (
     HydrometerMode,
     SGAccess,
@@ -156,7 +157,7 @@ def _catalog_keyboard(records: list[Any]) -> InlineKeyboardMarkup:
         identity = record.identity
         label = f"{identity.battery_id} · {identity.chemistry.value} · {identity.nominal_capacity_ah:g}Ah"
         rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"v2_sg_pick_{index}")])
-    rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data="charge_modes")])
+    rows.append([InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

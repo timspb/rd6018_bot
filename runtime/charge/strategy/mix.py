@@ -7,6 +7,17 @@ from typing import Optional
 
 from ..intent import ChargeIntent
 from ..measurements import Measurements
+from recovery_policy import RecoveryDecision
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.strategy.mix_variables import (
+    AGM_MIX_VOLTAGE_V,
+    CA_MIX_VOLTAGE_V,
+    EFB_MIX_VOLTAGE_V,
+    MIX_CURRENT_C_RATE,
+    MIX_MIN_CURRENT_A,
+    mix_finish_hold_seconds,
+    mix_max_active_seconds,
+)
 
 
 @dataclass
@@ -241,3 +252,98 @@ class MixPolicy:
             self.authority.last_timestamp = measurements.time
         if self.authority.active_seconds >= self.config.active_authority_seconds:
             self.authority.exhausted = True
+
+
+@dataclass(frozen=True)
+class MixTarget:
+    """Canonical automatic MIX V/I target before temperature/envelope bounding."""
+
+    voltage_v: float
+    current_a: float
+
+
+def select_mix_target(*, profile: str, capacity_ah: float) -> MixTarget:
+    # Import lazily: runtime.safety.__init__ imports the charge battery/strategy
+    # graph, so a module-level safety import would create a package cycle.
+    from runtime.safety.variables import MAX_STAGE_CURRENT_A
+
+    if str(profile) == "AGM":
+        voltage = float(AGM_MIX_VOLTAGE_V.default)
+    elif str(profile) == "EFB":
+        voltage = float(EFB_MIX_VOLTAGE_V.default)
+    else:
+        voltage = float(CA_MIX_VOLTAGE_V.default)
+    capacity = max(1.0, float(capacity_ah))
+    current = max(
+        float(MIX_MIN_CURRENT_A.default),
+        capacity * float(MIX_CURRENT_C_RATE.default),
+    )
+    current = min(current, float(MAX_STAGE_CURRENT_A.default))
+    return MixTarget(voltage_v=voltage, current_a=current)
+
+
+def _unsafe_policy_decision(decision: RecoveryDecision) -> bool:
+    return decision in {
+        RecoveryDecision.HOLD_OUTPUT_OFF,
+        RecoveryDecision.PAUSE_THERMAL,
+        RecoveryDecision.REST_AND_DIAGNOSE,
+    }
+
+
+def decide_mix_transition(
+    *,
+    profile: str,
+    policy_decision: RecoveryDecision,
+    active_elapsed_s: float,
+    finish_hold_started_at: Optional[float],
+    now_s: float,
+    authority_limit_s: Optional[float] = None,
+    finish_hold_s: Optional[float] = None,
+) -> AuthorityDecision:
+    """Canonical automatic MIX stage transition decision.
+
+    The existing MixPolicy classes above remain the lower-level reusable
+    CC/CV policy API. This function owns the production stage edge from active
+    MIX through the sticky finish hold to final SAFE_WAIT.
+    """
+
+    if _unsafe_policy_decision(policy_decision):
+        return AuthorityDecision(
+            AuthorityAction.STOP_AND_DIAGNOSE,
+            f"policy_{policy_decision.value}",
+        )
+    if finish_hold_started_at is not None:
+        held = max(0.0, float(now_s) - float(finish_hold_started_at))
+        required_hold = (
+            mix_finish_hold_seconds()
+            if finish_hold_s is None
+            else max(0.0, float(finish_hold_s))
+        )
+        if held >= required_hold:
+            return AuthorityDecision(
+                AuthorityAction.COMPLETE_TO_SAFE_WAIT,
+                "confirmed_delta_finish_hold_complete",
+            )
+        return AuthorityDecision(
+            AuthorityAction.CONTINUE,
+            "confirmed_delta_finish_hold_running",
+        )
+    if policy_decision == RecoveryDecision.FINISH_STAGE:
+        return AuthorityDecision(
+            AuthorityAction.START_FINISH_HOLD,
+            "mode_specific_end_of_charge_evidence_confirmed",
+        )
+    limit = (
+        mix_max_active_seconds(profile)
+        if authority_limit_s is None
+        else max(0.0, float(authority_limit_s))
+    )
+    if max(0.0, float(active_elapsed_s)) >= limit:
+        return AuthorityDecision(
+            AuthorityAction.STOP_AND_DIAGNOSE,
+            "MIX_TIMEOUT",
+        )
+    return AuthorityDecision(
+        AuthorityAction.CONTINUE,
+        "mix_observation_continues",
+    )

@@ -47,7 +47,7 @@ class V2StartRunnerAdapter:
 
     async def __call__(self, transaction: V2StartTransactionInput):
         if self.transaction_owner is None:
-            from v2_startup import start_profile_transactional
+            from .start_transaction_service import start_profile_transactional
 
             owner = start_profile_transactional
         else:

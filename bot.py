@@ -1,21 +1,19 @@
-"""Production entrypoint for the evidence-driven V2 UI/controller.
+"""Production entrypoint for the modular RD6018 runtime.
 
-The preserved V2 runtime is isolated in ``runtime.v2_runtime``.  The historical
-module name remains only as a rollback compatibility shim; production imports the
-named runtime directly and keeps the existing V2 ownership boundaries intact.
+Production composition imports :mod:`runtime.production_runtime` directly.
+Historical runtime module names remain compatibility-only and are not production
+composition dependencies.
 """
 from __future__ import annotations
 
 import asyncio
 import os
-import sys
 
-from runtime import v2_runtime as _legacy
+from runtime import production_runtime as _runtime_substrate
 from application.operator_snapshot_provider import OperatorSnapshotProvider
-from auto_manual_off_v2 import install_auto_manual_off_contract
+from application.operator_read_source import OperatorReadSource
+from application.operator_intent_factory import build_operator_intent_dispatcher
 from diagnostic_persistence import install_diagnostic_persistence
-from done_storage_restore import install_done_storage_restore
-from live_output_readback_v2 import install_output_state_readback
 from manual_context_v2 import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
@@ -23,6 +21,17 @@ from manual_context_v2 import (
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
+from runtime.ui.telegram.analysis import install_analysis_screen
+from runtime.ui.telegram.charge import install_charge_program_screen
+from runtime.ui.telegram.custom import install_custom_cancel_route
+from runtime.ui.telegram.details import install_operator_details_screen
+from runtime.ui.telegram.entities import install_entities_screen
+from runtime.ui.telegram.help import install_help_screen
+from runtime.ui.telegram.home import install_home_command
+from runtime.ui.telegram.journal import install_journal_screen
+from runtime.ui.telegram.off_conditions import install_off_conditions_screen
+from runtime.ui.telegram.service import install_service_details_screen
+from runtime.ui.telegram.stats import install_stats_screen
 from operator_managed_stop import install_operator_managed_stop
 from operator_mix_eligibility import install_mix_action_eligibility
 from operator_navigation_recovery import install_operator_navigation_recovery
@@ -36,7 +45,6 @@ from physical_test_control_programmed_readback_v2 import (
     install_physical_test_control_programmed_readback_v2,
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
-from production_guardrails_v2 import install_production_guardrails
 from rd_autonomous_mode import install_rd_autonomous_final_hmi, install_rd_autonomous_mode
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_background import install_hands_off_background_isolation
@@ -49,8 +57,6 @@ from rd_startup_authority import (
     install_rd_startup_authority_gate,
     reconcile_startup_authority,
 )
-from soft_watchdog_containment import install_soft_watchdog_containment
-from telegram_startup_resilience import install_telegram_startup_resilience
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
 from runtime.v2_startup_recovery import V2StartupRecovery
@@ -63,223 +69,350 @@ def _env_enabled(name: str, default: bool = True) -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
-# The battery-bound Manual preprocessor must be registered before the generic numeric
-# Manual middleware installed by install_v2(); this gives an explicitly selected
-# physical battery ownership of the next numeric message without changing Manual V/I.
-install_manual_context_preprocessor(_legacy)
+class ProductionComposition:
+    """Explicit production composition owner for ERADICATION-08.
 
-# Production controller + actuator safety are always installed. V2_UI controls only
-# presentation, exactly as documented; rolling the Telegram UI back must not remove
-# recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
-_v2_ui_enabled = _env_enabled("V2_UI", True)
-install_v2(_legacy, install_ui=_v2_ui_enabled)
-# ``Done`` historically overloaded managed Storage (Output ON) and terminal stop
-# (Output OFF). Persist the physical intent explicitly and replace the legacy blanket
-# restore guard before any startup recovery path can evaluate a saved Done session.
-install_done_storage_restore(_legacy)
-# The legacy 3-minute software watchdog ran every 10 seconds and called the full hard
-# stop on every poll during one outage. Keep its immediate fail-safe role, but make the
-# outage an incident: idle/proven-OFF loss is passive, while managed/last-known-ON state
-# gets one immediate shutdown attempt and only bounded retries if remote I/O is down.
-# The independently proven 15-minute edge lease remains the blind-operation backstop.
-install_soft_watchdog_containment(_legacy)
-# Telegram transport is not part of RD/edge safety authority, but a single transient
-# DNS EAI_NODATA during aiogram bootstrap must not kill the production runtime before
-# its local monitor/watchdog tasks come up. Restrict retry semantics to read-only getMe
-# and idempotent setMyCommands; never replay arbitrary Telegram API writes.
-install_telegram_startup_resilience(_legacy)
-# The public ESPHome Output switch remains the actuator endpoint, but an unchanged
-# switch state is not a source heartbeat. Prefer the V2 force-updated read-only
-# register-18 sensor for canonical Output value/freshness whenever the matching
-# firmware is present; absence remains fail-closed through the legacy path.
-install_output_state_readback(_legacy)
-# Composition guardrails close historical bot_legacy authority leaks without changing
-# the V1 reference file itself: Vin becomes PSU-health-only and Cooling resume requires
-# a complete durable V2 continuation token (SAFE_WAIT always remains Output OFF).
-install_production_guardrails(_legacy)
-install_auto_manual_off_contract(_legacy)
-install_diagnostic_persistence(_legacy)
-if _v2_ui_enabled:
-    install_mix_only_mode(_legacy)
-    install_manual_context_ui(_legacy)
+    Construction is side-effect free. compose() applies the preserved
+    installer graph exactly once and captures the resulting lifecycle owners.
+    The historical runtime is a compatibility substrate, not the composition
+    root itself.
+    """
 
-# RD6018 is a general-purpose PSU above the Pb controller. Install this ownership
-# boundary last so HANDS_OFF blocks every already-composed bot actuator path while
-# leaving raw telemetry available and preserving the explicit operator-only OFF action.
-_rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
-# AUTONOMOUS is a separate operation axis above HANDS_OFF. It requires a dedicated
-# persistent edge ACK and never treats plain HANDS_OFF as evidence of offline operation.
-_rd_autonomous_mode = install_rd_autonomous_mode(
-    _legacy,
-    _rd_control_mode,
-    install_ui=_v2_ui_enabled,
-)
-# A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
-# software session through the dedicated positively-ACKed live edge release. Ordinary
-# edge disarm remains verified-OFF only and does not enable AUTONOMOUS.
-install_rd_hands_off_release(_legacy, _rd_control_mode)
-# While HANDS_OFF owns an externally-running RD program, the operator may attach the
-# read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
-# all Delta authority starts from fresh post-activation source reports.
-_rd_live_mix_observer = (
-    install_rd_live_adoption(_legacy, _rd_control_mode)
-    if _v2_ui_enabled
-    else None
-)
-# D061 managed live adoption is a different transaction: it can acquire the local
-# dead-man around an already-ON HANDS_OFF Output, re-read the exact live program, and
-# only then cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. Explicit
-# AUTONOMOUS must exit while Output is OFF and is never live-adopted here.
-_rd_managed_live_adoption = install_managed_live_adoption(
-    _legacy,
-    _rd_control_mode,
-    install_ui=_v2_ui_enabled,
-)
-# D062/D063 builds a separate MIX_ADOPTED authority on the physically same D061 edge
-# primitive. It never masquerades as Manual/AUTO: prior active Mix time must be proven
-# by Recorder or explicitly declared, the remaining Ca/EFB/AGM hard budget is carried
-# into the managed session, Delta starts fresh after takeover, and normal completion is
-# verified OFF rather than SAFE_WAIT/Storage. Runtime-safety composition is installed
-# even with V2_UI disabled; the Telegram workflow itself follows V2_UI.
-_rd_managed_mix_adoption = install_managed_mix_adoption(
-    _legacy,
-    _rd_control_mode,
-    _rd_managed_live_adoption,
-    install_ui=_v2_ui_enabled,
-)
-_physical_test_control = install_physical_test_control(_legacy)
-# Physical validation also needs one safe inverse ownership transition for OFF-only
-# bench setup. This typed hook delegates to the existing RdControlModeManager and is
-# narrower than the Telegram operator action: no parameters, no actuator writes, clean
-# lease/Protection/Modbus state, and canonical register-18 Output OFF are mandatory.
-install_physical_test_control_pb_mode(_legacy, _physical_test_control)
-# D062/D063 physical validation reuses the same root-only AF_UNIX server. The extension
-# adds only conservative prior-age / near-budget adoption / verified-stop operations;
-# it never creates another listener and remains disabled with the base control plane.
-install_physical_test_control_d062(_legacy, _physical_test_control)
-# The final D062 normal-terminal gate also stays on the same disabled-by-default local
-# socket. It injects only in-memory fresh Delta evidence and rewinds only the sticky
-# finish-hold anchor by 2h; the chemistry active-time clock remains real. The production
-# coordinator must still perform DELTA_HOLD_COMPLETE and its normal verified-OFF/lease-
-# disarm path. This is not a wall-clock endurance claim and exposes no generic
-# clock/setpoint mutation endpoint.
-install_physical_test_control_d062_delta(_legacy, _physical_test_control)
-# Remaining source-freshness bench gates use the same opt-in local socket. Each hook
-# corrupts exactly one in-memory decision snapshot and restores the real reader before
-# production verified-OFF confirmation; no arbitrary HA/entity/timestamp write surface
-# is exposed.
-install_physical_test_control_source_faults(_legacy, _physical_test_control)
-# B16 originally proved that writable number metadata does not provide an authoritative
-# same-value heartbeat in production. Shadow only that operation with the V2 gate backed
-# by force-updated read-only Modbus register mirrors; the number entities remain command
-# endpoints and all other source-fault operations keep their existing implementation.
-install_physical_test_control_programmed_readback_v2(_legacy, _physical_test_control)
-# Diagnostic cancellation/restart physical gates also reuse the same local socket.
-# They can start only one hard-coded low-energy Manual program and a safer current
-# reduction; the restart gate is bounded by an automatic 20 s cleanup if SIGKILL does
-# not arrive. No arbitrary actuator parameters are accepted from the client.
-install_physical_test_control_diagnostic(_legacy, _physical_test_control)
-# The semantic L2/L3 operator station is the final presentation layer. It is installed
-# after ownership and live-session wrappers so the panel describes their effective
-# semantics rather than leaking the underlying composition/debug UI. Managed Stop is
-# then converted from the legacy ON/OFF toggle into a session-bound L4 stop-only action;
-# the graph-backed transport is composed underneath the final semantic state/controls.
-if _v2_ui_enabled:
-    # Register the real Back/Home handler before operator_hmi installs its historical
-    # no-op compatibility handler for the same callback.
-    install_operator_navigation_recovery(_legacy)
-    install_operator_hmi(_legacy)
-    # Re-compose ownership at the *final* semantic HMI boundary. Earlier ownership
-    # wrappers target the legacy dashboard builder and were being replaced by
-    # install_operator_hmi(), which made HANDS_OFF/release unavailable exactly when an
-    # orphan external Output needed operator recovery.
-    install_rd_ownership_recovery(_legacy, _rd_control_mode)
-    # A second-step adopted-Mix OFF button in an old Telegram message must not remain
-    # an indefinitely valid actuator capability. Bind it to the exact current observer
-    # epoch before composing the remaining operator actions.
-    install_operator_destructive_guard(_legacy)
-    install_operator_managed_stop(_legacy)
-    install_operator_graph_dashboard(_legacy)
-    # Mix affordances are contextual, not generic HANDS_OFF+ON actions. Hide them for
-    # setpoints that cannot be high-voltage Mix under any supported chemistry and gate
-    # stale Telegram callback messages with the same live rule.
-    install_mix_action_eligibility(_legacy)
-    # Last presentation boundary: stale/unknown canonical Output evidence must never be
-    # rendered as OFF or expose actions whose precondition is proven OFF. This wrapper
-    # is deliberately installed after every keyboard composer so UNKNOWN stays visible
-    # in the effective production panel without changing any actuator transaction.
-    install_operator_output_truth(_legacy)
-    # The Bot/AUTONOMOUS switch is composed after output-truth normalization so entry
-    # and exit affordances can never treat UNKNOWN/stale Output as confirmed OFF.
-    install_rd_autonomous_final_hmi(_legacy, _rd_autonomous_mode)
+    def __init__(self, runtime: object) -> None:
+        self.runtime = runtime
+        self.composed = False
 
-# Final execution boundary: before any normal application or ownership transaction can
-# use the fully composed actuator stack, explicit edge mode must be observed and stale
-# managed durable state must be reconciled. Recovery gets a task-local verified-OFF
-# exception; ordinary bot/Telegram/background work remains blocked in parallel.
-_rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_mode)
-# D066: the legacy logger/restore/tick loop remains useful for raw telemetry, but it
-# must not claim Pb actuator/chemistry authority in HANDS_OFF, AUTONOMOUS, or sibling
-# tasks while D065 startup authority is unresolved. Install after the startup gate so
-# its dynamic predicate sees the final authority boundary; recovery_scope stays exempt.
-install_hands_off_background_isolation(_legacy, _rd_control_mode)
+    def compose(self) -> "ProductionComposition":
+        if self.composed:
+            return self
+        _legacy = self.runtime
+        # The battery-bound Manual preprocessor must be registered before the generic numeric
+        # Manual middleware installed by install_v2(); this gives an explicitly selected
+        # physical battery ownership of the next numeric message without changing Manual V/I.
+        install_manual_context_preprocessor(_legacy)
 
-# Read-only V3 application boundary for the operator panel. Existing callbacks
-# remain installed and retain their authority; only panel state acquisition uses
-# this provider in the current migration step.
-_legacy.operator_interface = OperatorSnapshotProvider(_legacy)
+        # Production controller + actuator safety are always installed. V2_UI controls only
+        # presentation, exactly as documented; rolling the Telegram UI back must not remove
+        # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
+        _v2_ui_enabled = _env_enabled("V2_UI", True)
+        install_v2(_legacy, install_ui=_v2_ui_enabled)
+        # Done/Storage intent is owned by canonical charge persistence and the
+        # runtime restore/pause guards; composition does not patch controller methods.
+        # Software-watchdog containment is owned directly by
+        # runtime.production_runtime + runtime.safety.soft_watchdog; composition
+        # does not replace the runtime loop.
+        # Telegram bootstrap resilience is owned by telegram.runtime's transport
+        # implementation; production composition does not patch bot methods.
+        # Output register-18 promotion is owned by telemetry canonicalization before
+        # runtime-safety captures its reader; no composition-time read wrapper is needed.
+        # Vin chemistry authority and Cooling continuation validation are now owned
+        # directly by the production runtime/controller; no composition wrapper is required.
+        install_diagnostic_persistence(_legacy)
+        if _v2_ui_enabled:
+            install_mix_only_mode(_legacy)
+            install_manual_context_ui(_legacy)
 
-_legacy_main = _legacy.main
-_v2_startup_recovery = V2StartupRecovery(
-    _legacy,
-    _rd_managed_mix_adoption,
-    _rd_managed_live_adoption,
-    _rd_live_mix_observer,
-)
+        # RD6018 is a general-purpose PSU above the Pb controller. Install this ownership
+        # boundary last so HANDS_OFF blocks every already-composed bot actuator path while
+        # leaving raw telemetry available and preserving the explicit operator-only OFF action.
+        _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
+        # AUTONOMOUS is a separate operation axis above HANDS_OFF. It requires a dedicated
+        # persistent edge ACK and never treats plain HANDS_OFF as evidence of offline operation.
+        _rd_autonomous_mode = install_rd_autonomous_mode(
+            _legacy,
+            _rd_control_mode,
+            install_ui=_v2_ui_enabled,
+        )
+        # A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
+        # software session through the dedicated positively-ACKed live edge release. Ordinary
+        # edge disarm remains verified-OFF only and does not enable AUTONOMOUS.
+        install_rd_hands_off_release(_legacy, _rd_control_mode)
+        # While HANDS_OFF owns an externally-running RD program, the operator may attach the
+        # read-only/safety-OFF Mix observer. It imports HA Recorder history as context only;
+        # all Delta authority starts from fresh post-activation source reports.
+        _rd_live_mix_observer = (
+            install_rd_live_adoption(_legacy, _rd_control_mode)
+            if _v2_ui_enabled
+            else None
+        )
+        # D061 managed live adoption is a different transaction: it can acquire the local
+        # dead-man around an already-ON HANDS_OFF Output, re-read the exact live program, and
+        # only then cross durable HANDS_OFF -> PB_MANAGED as an Adopted Manual. Explicit
+        # AUTONOMOUS must exit while Output is OFF and is never live-adopted here.
+        _rd_managed_live_adoption = install_managed_live_adoption(
+            _legacy,
+            _rd_control_mode,
+            install_ui=_v2_ui_enabled,
+        )
+        # D062/D063 builds a separate MIX_ADOPTED authority on the physically same D061 edge
+        # primitive. It never masquerades as Manual/AUTO: prior active Mix time must be proven
+        # by Recorder or explicitly declared, the remaining Ca/EFB/AGM hard budget is carried
+        # into the managed session, Delta starts fresh after takeover, and normal completion is
+        # verified OFF rather than SAFE_WAIT/Storage. Runtime-safety composition is installed
+        # even with V2_UI disabled; the Telegram workflow itself follows V2_UI.
+        _rd_managed_mix_adoption = install_managed_mix_adoption(
+            _legacy,
+            _rd_control_mode,
+            _rd_managed_live_adoption,
+            install_ui=_v2_ui_enabled,
+        )
+        _physical_test_control = install_physical_test_control(_legacy)
+        # Physical validation also needs one safe inverse ownership transition for OFF-only
+        # bench setup. This typed hook delegates to the existing RdControlModeManager and is
+        # narrower than the Telegram operator action: no parameters, no actuator writes, clean
+        # lease/Protection/Modbus state, and canonical register-18 Output OFF are mandatory.
+        install_physical_test_control_pb_mode(_legacy, _physical_test_control)
+        # D062/D063 physical validation reuses the same root-only AF_UNIX server. The extension
+        # adds only conservative prior-age / near-budget adoption / verified-stop operations;
+        # it never creates another listener and remains disabled with the base control plane.
+        install_physical_test_control_d062(_legacy, _physical_test_control)
+        # The final D062 normal-terminal gate also stays on the same disabled-by-default local
+        # socket. It injects only in-memory fresh Delta evidence and rewinds only the sticky
+        # finish-hold anchor by 2h; the chemistry active-time clock remains real. The production
+        # coordinator must still perform DELTA_HOLD_COMPLETE and its normal verified-OFF/lease-
+        # disarm path. This is not a wall-clock endurance claim and exposes no generic
+        # clock/setpoint mutation endpoint.
+        install_physical_test_control_d062_delta(_legacy, _physical_test_control)
+        # Remaining source-freshness bench gates use the same opt-in local socket. Each hook
+        # corrupts exactly one in-memory decision snapshot and restores the real reader before
+        # production verified-OFF confirmation; no arbitrary HA/entity/timestamp write surface
+        # is exposed.
+        install_physical_test_control_source_faults(_legacy, _physical_test_control)
+        # B16 originally proved that writable number metadata does not provide an authoritative
+        # same-value heartbeat in production. Shadow only that operation with the V2 gate backed
+        # by force-updated read-only Modbus register mirrors; the number entities remain command
+        # endpoints and all other source-fault operations keep their existing implementation.
+        install_physical_test_control_programmed_readback_v2(_legacy, _physical_test_control)
+        # Diagnostic cancellation/restart physical gates also reuse the same local socket.
+        # They can start only one hard-coded low-energy Manual program and a safer current
+        # reduction; the restart gate is bounded by an automatic 20 s cleanup if SIGKILL does
+        # not arrive. No arbitrary actuator parameters are accepted from the client.
+        install_physical_test_control_diagnostic(_legacy, _physical_test_control)
+        # The semantic L2/L3 operator station is the final presentation layer. It is installed
+        # after ownership and live-session wrappers so the panel describes their effective
+        # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
+        # then converted from the legacy ON/OFF toggle into a session-bound L4 stop-only action;
+        # the graph-backed transport is composed underneath the final semantic state/controls.
+        if _v2_ui_enabled:
+            # Register the real Back/Home handler before operator_hmi installs its historical
+            # no-op compatibility handler for the same callback.
+            install_operator_navigation_recovery(_legacy)
+            install_operator_hmi(_legacy)
+            # Re-compose ownership at the *final* semantic HMI boundary. Earlier ownership
+            # wrappers target the legacy dashboard builder and were being replaced by
+            # install_operator_hmi(), which made HANDS_OFF/release unavailable exactly when an
+            # orphan external Output needed operator recovery.
+            install_rd_ownership_recovery(_legacy, _rd_control_mode)
+            # A second-step adopted-Mix OFF button in an old Telegram message must not remain
+            # an indefinitely valid actuator capability. Bind it to the exact current observer
+            # epoch before composing the remaining operator actions.
+            install_operator_destructive_guard(_legacy)
+            install_operator_managed_stop(_legacy)
+            install_operator_graph_dashboard(_legacy)
+            # Mix affordances are contextual, not generic HANDS_OFF+ON actions. Hide them for
+            # setpoints that cannot be high-voltage Mix under any supported chemistry and gate
+            # stale Telegram callback messages with the same live rule.
+            install_mix_action_eligibility(_legacy)
+            # Last presentation boundary: stale/unknown canonical Output evidence must never be
+            # rendered as OFF or expose actions whose precondition is proven OFF. This wrapper
+            # is deliberately installed after every keyboard composer so UNKNOWN stays visible
+            # in the effective production panel without changing any actuator transaction.
+            install_operator_output_truth(_legacy)
+            # The Bot/AUTONOMOUS switch is composed after output-truth normalization so entry
+            # and exit affordances can never treat UNKNOWN/stale Output as confirmed OFF.
+            install_rd_autonomous_final_hmi(_legacy, _rd_autonomous_mode)
+
+        # Final execution boundary: before any normal application or ownership transaction can
+        # use the fully composed actuator stack, explicit edge mode must be observed and stale
+        # managed durable state must be reconciled. Recovery gets a task-local verified-OFF
+        # exception; ordinary bot/Telegram/background work remains blocked in parallel.
+        _rd_startup_authority = install_rd_startup_authority_gate(_legacy, _rd_control_mode)
+        # D066: the legacy logger/restore/tick loop remains useful for raw telemetry, but it
+        # must not claim Pb actuator/chemistry authority in HANDS_OFF, AUTONOMOUS, or sibling
+        # tasks while D065 startup authority is unresolved. Install after the startup gate so
+        # its dynamic predicate sees the final authority boundary; recovery_scope stays exempt.
+        install_hands_off_background_isolation(_legacy, _rd_control_mode)
+
+        # Read-only operator boundary: the provider receives an explicit source
+        # contract rather than the whole runtime.  The runtime attribute remains a
+        # compatibility attachment for installers that have not yet been retired.
+        operator_read_source = OperatorReadSource(_legacy)
+        operator_interface = OperatorSnapshotProvider(
+            operator_read_source,
+            intent_dispatcher=build_operator_intent_dispatcher(_legacy),
+        )
+        _legacy.operator_interface = operator_interface
+        if _v2_ui_enabled:
+            install_charge_program_screen(
+                _legacy,
+                profile_selector=_legacy._v2_select_quick_profile,
+                batteries_handler=_legacy._v2_batteries_handler,
+                battery_add_handler=_legacy._v2_battery_add_handler,
+                manual_handler=_legacy._v2_manual_choose_handler,
+                interrupted_manual_handler=_legacy._v2_manual_interrupted_handler,
+                interrupted_manual_provider=lambda: (
+                    str(
+                        getattr(
+                            getattr(getattr(_legacy, "manual_session_manager", None), "state", None),
+                            "value",
+                            "",
+                        )
+                    )
+                    == "interrupted"
+                ),
+                schedule_refresh=_legacy.schedule_dashboard_after_60,
+            )
+            install_custom_cancel_route(
+                _legacy,
+                cancel_state=_legacy._cancel_custom_mode_state,
+                home_handler=_legacy._operator_home_handler,
+            )
+            install_home_command(
+                _legacy,
+                render_home=_legacy._build_and_send_dashboard,
+            )
+            install_journal_screen(
+                _legacy,
+                interface=operator_interface,
+                home_handler=_legacy._operator_home_handler,
+                retire_graph_tracking=_legacy._retire_graph_tracking_for_message,
+            )
+            install_off_conditions_screen(
+                _legacy,
+                interface=operator_interface,
+                status_provider=_legacy._format_manual_off_for_dashboard,
+            )
+            install_operator_details_screen(
+                _legacy,
+                interface=operator_interface,
+                home_handler=_legacy._operator_home_handler,
+            )
+            install_service_details_screen(
+                _legacy,
+                interface=operator_interface,
+                home_handler=_legacy._operator_home_handler,
+            )
+            install_entities_screen(
+                _legacy,
+                interface=operator_interface,
+                home_handler=_legacy._operator_home_handler,
+            )
+            install_help_screen(
+                _legacy,
+                schedule_refresh=_legacy.schedule_dashboard_after_60,
+            )
+            install_stats_screen(
+                _legacy,
+                schedule_refresh=_legacy.schedule_dashboard_after_60,
+            )
+            install_analysis_screen(
+                _legacy,
+                analysis_provider=_legacy._build_ai_analysis_text,
+                home_handler=_legacy._operator_home_handler,
+            )
+
+        _legacy_main = _legacy.main
+        _v2_startup_recovery = V2StartupRecovery(
+            _legacy,
+            _rd_managed_mix_adoption,
+            _rd_managed_live_adoption,
+            _rd_live_mix_observer,
+        )
+
+        self.v2_ui_enabled = _v2_ui_enabled
+        self.rd_control_mode = _rd_control_mode
+        self.rd_autonomous_mode = _rd_autonomous_mode
+        self.rd_live_mix_observer = _rd_live_mix_observer
+        self.rd_managed_live_adoption = _rd_managed_live_adoption
+        self.rd_managed_mix_adoption = _rd_managed_mix_adoption
+        self.physical_test_control = _physical_test_control
+        self.rd_startup_authority = _rd_startup_authority
+        self.operator_read_source = operator_read_source
+        self.operator_interface = operator_interface
+        self.legacy_main = _legacy_main
+        self.startup_recovery = _v2_startup_recovery
+        self.composed = True
+        return self
+
+    async def run(
+        self,
+        *,
+        runtime: object | None = None,
+        legacy_main=None,
+        startup_authority=None,
+        startup_recovery=None,
+        physical_test_control=None,
+        init_storage=None,
+    ) -> None:
+        """Run the composed production lifecycle with explicit dependencies."""
+
+        if not self.composed:
+            self.compose()
+        app = self.runtime if runtime is None else runtime
+        main_runner = self.legacy_main if legacy_main is None else legacy_main
+        authority = (
+            self.rd_startup_authority
+            if startup_authority is None
+            else startup_authority
+        )
+        recovery = self.startup_recovery if startup_recovery is None else startup_recovery
+        physical = (
+            self.physical_test_control
+            if physical_test_control is None
+            else physical_test_control
+        )
+        storage_init = init_v2_storage if init_storage is None else init_storage
+
+        initializer = getattr(app, "initialize_runtime", None)
+        if callable(initializer):
+            initializer()
+        await storage_init()
+
+        authority_task = asyncio.create_task(
+            reconcile_startup_authority(
+                authority,
+                recovery.recover_managed_startup_authority,
+                recovery.replay_deferred_startup_restore,
+            ),
+            name="rd6018-startup-authority-reconciliation",
+        )
+        self._authority_task = authority_task
+
+        await physical.start()
+        try:
+            await main_runner()
+        finally:
+            if not authority_task.done():
+                authority_task.cancel()
+                try:
+                    await authority_task
+                except asyncio.CancelledError:
+                    pass
+            self._authority_task = None
+            await physical.stop()
+
+
+_composition = ProductionComposition(_runtime_substrate).compose()
 
 
 async def main() -> None:
-    # Physical configuration and connector construction are startup concerns.
-    # Importing the composed V2 module must remain safe for tests and tooling.
-    initializer = getattr(_legacy, "initialize_runtime", None)
-    if callable(initializer):
-        initializer()
-    await init_v2_storage()
+    await _composition.run()
 
-    # Reconciliation runs alongside the transport/UI runtime, but the outer startup
-    # gate keeps every ordinary actuator and start/adoption path closed until this task
-    # returns MANAGED. Unknown edge authority retries read-only. Failed durable managed
-    # containment is retried at a throttled cadence while remaining fail-closed. If the
-    # legacy startup restore raced the gate, its intent is replayed once with fresh live
-    # telemetry after MANAGED recovery; AUTONOMOUS startup discards that intent.
-    authority_task = asyncio.create_task(
-        reconcile_startup_authority(
-            _rd_startup_authority,
-            _v2_startup_recovery.recover_managed_startup_authority,
-            _v2_startup_recovery.replay_deferred_startup_restore,
-        ),
-        name="rd6018-startup-authority-reconciliation",
-    )
 
-    await _physical_test_control.start()
+def __getattr__(name: str):
+    """Temporary read-only compatibility bridge during ERADICATION-08.
+
+    The production module identity is now `bot` itself.  Residual callers may
+    still read historical runtime symbols through this explicit bridge, but
+    composition-owned names (including `main`) are never replaced or written
+    back into historical runtime compatibility modules.
+    """
+
     try:
-        await _legacy_main()
-    finally:
-        if not authority_task.done():
-            authority_task.cancel()
-            try:
-                await authority_task
-            except asyncio.CancelledError:
-                pass
-        await _physical_test_control.stop()
+        return getattr(_composition.runtime, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
 
-
-# Keep one runtime module object. Existing tests and operational helpers import many
-# private bot symbols; aliasing preserves their globals/monkeypatch semantics instead
-# of copying 180+ KB of names into this shim.
-_legacy.main = main
 
 if __name__ == "__main__":
     asyncio.run(main())
-else:
-    sys.modules[__name__] = _legacy

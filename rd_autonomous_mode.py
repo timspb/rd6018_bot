@@ -6,6 +6,9 @@ from typing import Any, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
+
 from edge_autonomous_mode import EdgeAutonomousAuthority
 from operator_confirmation import ConfirmationStore
 from rd6018_telemetry import telemetry_freshness
@@ -349,9 +352,11 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
                     "rd_ownership_hands_off",
                     "rd_hands_off_release_confirm",
                     "charge_modes",
+                    CHARGE_CALLBACK_DATA,
                     "v2_batteries",
                     "power_toggle",
                     "menu_off",
+                    OFF_CALLBACK_DATA,
                 },
             )
             if output_known(state) and not bool(getattr(state, "output_on", False)):

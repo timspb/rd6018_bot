@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple
 
+from application.execution_port import ExecutionPort
 from battery_diagnostics import DynamicLoopProbe
 from rd6018_telemetry import (
     PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
@@ -57,8 +58,9 @@ class ControlledCurrentProbe:
     current setting must be restored and read back; otherwise Output is forced OFF.
     """
 
-    def __init__(self, hass: Any) -> None:
+    def __init__(self, hass: Any, execution_port: Any = None) -> None:
         self.hass = hass
+        self.execution_port = execution_port or ExecutionPort(hass)
 
     @staticmethod
     def _output_on(value: Any) -> bool:
@@ -148,7 +150,7 @@ class ControlledCurrentProbe:
         shutdown itself failed or could not be confirmed.
         """
         try:
-            restored = bool(await self.hass.set_current(original_current))
+            restored = bool(await self.execution_port.program_current(original_current))
         except Exception:
             restored = False
         if restored:
@@ -163,7 +165,7 @@ class ControlledCurrentProbe:
             return True, False
 
         try:
-            off_confirmed = bool(await self.hass.turn_off())
+            off_confirmed = bool(await self.execution_port.request_verified_off())
         except Exception:
             off_confirmed = False
         return False, off_confirmed
@@ -195,7 +197,7 @@ class ControlledCurrentProbe:
 
         stepped = False
         try:
-            if not await self.hass.set_current(plan.step_current_a):
+            if not await self.execution_port.program_current(plan.step_current_a):
                 return ProbeResult(False, reason="step_programming_failed")
             stepped = True
             if not await self._wait_current_readback(

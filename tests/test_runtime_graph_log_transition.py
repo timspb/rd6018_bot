@@ -1,6 +1,6 @@
 import unittest
 
-from runtime import v2_runtime
+from runtime import production_runtime as v2_runtime
 
 
 class RuntimeGraphLogTransitionTests(unittest.TestCase):

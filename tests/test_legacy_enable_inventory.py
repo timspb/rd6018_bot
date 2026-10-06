@@ -35,32 +35,8 @@ _ENABLE_METHODS = ("turn_on", "turn_off", "safe_enable_output")
 # Frozen inventory: (module, function, "owner.method") for every production call.
 ENABLE_CALLS = frozenset(
     {
-        # D-STARTUP-3: after explicit MANAGED reconciliation, deferred restore may
-        # converge physical Output through the final composed HassClient surface.
-        # These are reviewed guarded call-sites, not raw actuator bypasses.
-        ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_off"),
-        ("runtime/v2_startup_recovery.py", "replay_deferred_startup_restore", "app.hass.turn_on"),
-        ("runtime/v2_runtime.py", "_hard_stop_charge", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "_operator_pause_toggle", "hass.turn_on"),
-        # Controller action execution is centralized in one reviewed helper so a
+        # Controller action execution is centralized in the application port so a
         # verified-enable stage commit can be withheld when Output ON fails.
-        ("runtime/v2_runtime.py", "_apply_controller_output_actions", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "_apply_controller_output_actions", "hass.turn_on"),
-        # data_logger still contains separate restore/containment call sites pending
-        # runtime-root retirement; they remain explicitly inventoried.
-        ("runtime/v2_runtime.py", "data_logger", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "data_logger", "hass.turn_on"),
-        ("runtime/v2_runtime.py", "handle_ah_input", "hass.turn_on"),
-        ("runtime/v2_lifecycle.py", "run", "app.hass.turn_off"),
-        ("runtime/v2_lifecycle.py", "run", "app.hass.turn_on"),
-        ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_off"),
-        ("runtime/v2_runtime.py", "power_toggle_handler", "hass.turn_on"),
-        ("runtime/v2_runtime.py", "start_custom_charge", "hass.turn_on"),
-        ("diagnostic_persistence.py", "recover_diagnostic_persistence", "app.hass.turn_off"),
-        ("diagnostic_probe.py", "_restore_or_off", "self.hass.turn_off"),
-        ("rd_managed_adoption.py", "_verified_off", "self.app.hass.turn_off"),
-        ("rd_managed_mix.py", "force_verified_off", "self.app.hass.turn_off"),
         ("recipe_output.py", "enable_authorized_recipe_target", "adapter.safe_enable_output"),
         ("recovery_orchestrator.py", "_confirm_output_off", "self.output_adapter.turn_off"),
         ("runtime_safety_strict.py", "turn_off", "super().turn_off"),
@@ -69,15 +45,11 @@ ENABLE_CALLS = frozenset(
         ("runtime_safety_v2.py", "turn_on", "super().turn_on"),
         ("safe_output.py", "_force_off", "self.adapter.turn_off"),
         ("safe_output.py", "enable", "self.adapter.turn_on"),
-        ("v2_bot_ui.py", "_start_profile", "app.hass.turn_on"),
-        ("v2_mix_mode.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
-        ("v2_mix_mode.py", "start_mix_transactional", "app.hass.safe_enable_output"),
-        ("v2_startup.py", "_confirm_failed_start_is_off", "app.hass.turn_off"),
-        ("v2_startup.py", "start_profile_transactional", "app.hass.safe_enable_output"),
-        # Canonical WS124 V2 execution port. These are the only new actuator
-        # calls introduced by the consolidated boundary.
+        # Canonical application-scoped V2 execution port. START, Mix-only
+        # START and Manual converge here instead of keeping direct HA enable/OFF calls.
         ("application/execution_port.py", "enable", "self.v2_owner.safe_enable_output"),
-        ("application/execution_port.py", "disable", "self.v2_owner.turn_off"),
+        ("application/execution_port.py", "request_verified_on", "self.v2_owner.turn_on"),
+        ("application/execution_port.py", "request_verified_off", "self.v2_owner.turn_off"),
     }
 )
 
@@ -127,17 +99,12 @@ class LegacyEnableInventoryTests(unittest.TestCase):
             "update ENABLE_CALLS deliberately: " + repr(missing),
         )
 
-    def test_legacy_direct_switch_calls_are_inventoried(self):
-        # The preserved V2 runtime is the primary source of direct (non safe_enable_output)
-        # Output manipulation; its inventory must remain explicit.
-        legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/v2_runtime.py"}
-        self.assertTrue(
+    def test_v2_runtime_has_no_direct_output_calls(self):
+        legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/production_runtime.py"}
+        self.assertEqual(
+            set(),
             legacy,
-            "preserved V2 direct Output calls must remain inventoried before extraction",
-        )
-        self.assertTrue(
-            any(kind.endswith(".turn_on") for _, _, kind in legacy),
-            "preserved V2 runtime must still declare its direct Output ON entrypoints",
+            "runtime/production_runtime.py must not regain direct Output authority after execution convergence",
         )
 
 

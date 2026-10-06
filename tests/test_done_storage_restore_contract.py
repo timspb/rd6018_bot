@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from done_storage_restore import (
+from runtime.charge.persistence import (
     DONE_COMPLETION_STORAGE,
     DONE_OUTPUT_ON,
     restore_allows_auto_enable,

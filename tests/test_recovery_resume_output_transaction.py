@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
-from runtime import v2_runtime as runtime
+from runtime import production_runtime as runtime
 
 
 class FakeHass:

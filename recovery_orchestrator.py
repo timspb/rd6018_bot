@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from battery_registry import BatteryRecord, get_battery
-from legacy_recipe_adapter import LegacyRecipeAuthorization, authorize_legacy_target
+from application.recipe_policy import RecipeAuthorization, authorize_target
 from pb_domain import ChargeContext, ChargeIntent
 from recipe_output import RecipeEnableResult, enable_authorized_recipe_target
 from recovery_runtime import RecoveryRuntime
@@ -18,7 +18,7 @@ class RecoveryOutputOffUnconfirmed(RuntimeError):
 class RecoveryStartResult:
     started: bool
     reason: str
-    authorization: Optional[LegacyRecipeAuthorization] = None
+    authorization: Optional[RecipeAuthorization] = None
     enable_result: Optional[RecipeEnableResult] = None
 
 
@@ -34,7 +34,7 @@ class RecoveryOrchestrator:
     def __init__(self, output_adapter, *, runtime: Optional[RecoveryRuntime] = None) -> None:
         self.output_adapter = output_adapter
         self.runtime = runtime or RecoveryRuntime()
-        self._authorization: Optional[LegacyRecipeAuthorization] = None
+        self._authorization: Optional[RecipeAuthorization] = None
 
     @property
     def containment_active(self) -> bool:
@@ -86,7 +86,7 @@ class RecoveryOrchestrator:
         except KeyError as exc:
             return RecoveryStartResult(False, str(exc))
 
-        authorization = authorize_legacy_target(
+        authorization = authorize_target(
             context,
             stage=stage,
             target_voltage_v=target_voltage_v,

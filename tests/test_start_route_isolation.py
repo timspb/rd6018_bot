@@ -47,11 +47,32 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertIn("не запускался", feedback)
 
     def test_production_profile_start_has_one_transactional_owner(self):
-        self.assertIs(v2_bot_ui._start_profile, v2_startup.start_profile_transactional)
+        from application.start_transaction_service import start_profile_transactional
+
+        self.assertIs(v2_bot_ui._start_profile, start_profile_transactional)
+        self.assertIs(v2_startup.start_profile_transactional, start_profile_transactional)
 
         handlers = bot.router.observers["callback_query"].handlers
         names = [handler.callback.__name__ for handler in handlers]
         self.assertEqual(names.count("_v2_battery_start_route"), 1)
+
+    def test_production_start_graph_has_no_legacy_runner_or_owner_import(self):
+        root = pathlib.Path(__file__).parents[1]
+        for rel in (
+            "v2_bootstrap.py",
+            "application/active_start_bridge.py",
+        ):
+            source = (root / rel).read_text(encoding="utf-8")
+            self.assertNotIn("from v2_startup import", source, rel)
+            self.assertNotIn("V2StartRunnerAdapter", source, rel)
+        self.assertIn(
+            "StartTransactionRunner",
+            (root / "v2_bootstrap.py").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "start_transaction_service",
+            (root / "v2_bootstrap.py").read_text(encoding="utf-8"),
+        )
 
     def test_production_charge_modes_do_not_expose_legacy_profile_callbacks(self):
         callbacks = _callbacks(bot._build_charge_modes_keyboard())
@@ -65,11 +86,19 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertNotIn("profile_custom", callbacks)
 
     def test_legacy_start_functions_remain_available_only_as_preserved_surface(self):
-        # The rollback module remains importable, but its direct start functions are
-        # not the production route asserted above.
+        # The compatibility module remains importable, but production START routes
+        # are rebound to their modular owners.
         self.assertTrue(callable(bot_legacy.handle_ah_input))
         self.assertTrue(callable(bot_legacy.start_custom_charge))
         self.assertIsNot(bot_legacy.handle_ah_input, v2_bot_ui._start_profile)
+
+    def test_composed_custom_dialog_is_bound_to_manual_session_owner(self):
+        self.assertIs(bot.start_custom_charge.__self__, bot.manual_session_manager)
+        self.assertIs(
+            bot.start_custom_charge.__func__,
+            bot.manual_session_manager.start_from_legacy_ui.__func__,
+        )
+        self.assertIs(bot_legacy.start_custom_charge.__self__, bot.manual_session_manager)
 
     def test_quick_start_callback_uses_v3_route_when_composed(self):
         source = (pathlib.Path(__file__).parents[1] / "v2_bot_ui.py").read_text(encoding="utf-8")
@@ -85,13 +114,23 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertIn("message.answer(format_start_feedback(result), parse_mode=None)", callback)
 
     def test_legacy_capacity_input_uses_v3_route_when_composed(self):
-        source = (pathlib.Path(__file__).parents[1] / "runtime" / "v2_runtime.py").read_text(encoding="utf-8")
+        source = (pathlib.Path(__file__).parents[1] / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         start = source.index("async def handle_ah_input")
         end = source.index("async def handle_dialog_mode", start)
         callback = source[start:end]
         self.assertIn("_v3_production_start_route", callback)
         self.assertIn("await route.submit(intent)", callback)
         self.assertIn("BatteryCondition.UNKNOWN", callback)
+        self.assertIn("direct legacy START is retired", callback)
+        for forbidden in (
+            "charge_controller.start(",
+            "hass.set_ovp(",
+            "hass.set_ocp(",
+            "hass.set_voltage(",
+            "hass.set_current(",
+            "hass.turn_on(",
+        ):
+            self.assertNotIn(forbidden, callback)
 
 
 if __name__ == "__main__":

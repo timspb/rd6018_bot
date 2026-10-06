@@ -6,6 +6,7 @@ import re
 from types import MethodType
 from typing import Any, Dict, Optional
 
+from application.execution_port import get_or_create_execution_port
 from battery_registry import get_battery
 from diagnostic_persistence import (
     DiagnosticActionKind,
@@ -175,7 +176,11 @@ class PhysicalTestControlDiagnostic:
         journal = getattr(self.app, "diagnostic_action_journal", None)
         if journal is None:
             raise PhysicalTestControlError("diagnostic action journal unavailable")
-        probe = PersistentControlledCurrentProbe(self.app.hass, journal)
+        probe = PersistentControlledCurrentProbe(
+            self.app.hass,
+            journal,
+            execution_port=get_or_create_execution_port(self.app),
+        )
         original = probe._sample_medians
         hold = asyncio.Event()
         calls = 0

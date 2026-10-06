@@ -1,5 +1,7 @@
 import unittest
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import (
     PanelLastMiddleware,
     TerminalPanelManager,
@@ -108,7 +110,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
 
     def test_program_live_mix_and_operator_submenus_are_workspace(self):
         for callback in (
-            "charge_modes",
+            CHARGE_CALLBACK_DATA,
             "v2_batteries",
             "v2_profile_caca",
             "v2_bat_intent_recovery",
@@ -117,12 +119,8 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "v2_manual_choose",
             "v2_manual_interrupted",
             "v2_sg_menu",
-            "logs",
-            "info_full",
-            "entities_status",
-            "menu_off",
+            OFF_CALLBACK_DATA,
             "off_2h",
-            "profile_custom",
             "rd_live_mix",
             "rd_live_mix_bat_0",
             "rd_live_mix_status",
@@ -145,10 +143,22 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(callback=callback):
                 self.assertTrue(_is_workspace_callback(callback))
 
+        # Raw legacy read-only callbacks were retired by ERADICATION-07;
+        # only their canonical runtime.ui.telegram callback data is workspace.
         for callback in (
+            "logs",
+            "entities_status",
+            "info_full",
+            "profile_custom",
+            "charge_modes",
+            "profile_caca",
+            "profile_efb",
+            "profile_agm",
+            "menu_off",
             "power_toggle",
             "refresh",
             "dash_back",
+            "charge_back",
             "operator_done",
             "v2_battery_start",
             "v2_quick_start",

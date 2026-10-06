@@ -11,6 +11,9 @@ from typing import Any, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
+
 from runtime_safety import RuntimeSafetyError, _binary, logger
 from runtime_safety_v2 import V2RuntimeSafetyGuard
 
@@ -442,7 +445,7 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
 
         rows = _strip_callbacks(
             markup,
-            {"power_toggle", "charge_modes", "menu_off"},
+            {"power_toggle", "charge_modes", "menu_off", CHARGE_CALLBACK_DATA, OFF_CALLBACK_DATA},
         )
         primary: list[list[InlineKeyboardButton]] = []
         if is_on:

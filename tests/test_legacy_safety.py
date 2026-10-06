@@ -22,7 +22,7 @@ class LegacySafetyInvariantTests(unittest.TestCase):
         self.assertIn("hard safety timeout", decision.reason)
 
     def test_mix_profile_limits_are_explicit(self):
-        self.assertEqual(mix_timeout_hours("EFB"), 20.0)
+        self.assertEqual(mix_timeout_hours("EFB"), 24.0)
         self.assertEqual(mix_timeout_hours("Ca/Ca"), 20.0)
         self.assertEqual(mix_timeout_hours("AGM"), 10.0)
         self.assertIsNone(mix_timeout_hours("Custom"))
@@ -32,7 +32,7 @@ class LegacySafetyInvariantTests(unittest.TestCase):
         self.assertTrue(
             mix_timeout_decision(
                 profile="EFB",
-                elapsed_hours=20.01,
+                elapsed_hours=24.01,
                 finish_timer_active=False,
             ).stop
         )

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from application.execution_port import get_or_create_execution_port
 from runtime.background import start_background_tasks
 from rd6018_telemetry import as_bool
 
@@ -54,6 +55,7 @@ class V2RuntimeLifecycle:
 
     async def run(self) -> None:
         app = self.app
+        execution_port = get_or_create_execution_port(app)
         await app.init_db()
         app.rotate_if_needed()
         start_background_tasks(self._periodic_db_cleanup)
@@ -102,15 +104,15 @@ class V2RuntimeLifecycle:
                     if controller.current_stage == controller.STAGE_SAFE_WAIT:
                         uv, ui = controller._safe_wait_target_v, controller._safe_wait_target_i
                         await app._apply_phase_protection(uv, ui)
-                        await app.hass.set_voltage(uv)
-                        await app.hass.set_current(app._cap_current(ui))
-                        await app.hass.turn_off(app.ENTITY_MAP["switch"])
+                        await execution_port.program_voltage(uv)
+                        await execution_port.program_current(app._cap_current(ui))
+                        await execution_port.request_verified_off()
                     else:
                         uv, ui = controller._get_target_v_i(temp_ext)
                         await app._apply_phase_protection(uv, ui)
-                        await app.hass.set_voltage(uv)
-                        await app.hass.set_current(app._cap_current(ui))
-                        await app.hass.turn_on(app.ENTITY_MAP["switch"])
+                        await execution_port.program_voltage(uv)
+                        await execution_port.program_current(app._cap_current(ui))
+                        await execution_port.request_verified_on()
                     app.log_event(controller.current_stage, battery_v, current, temp_ext, ah, "RESTORE")
                     app._charge_notify(msg)
                     app.logger.info("Session restored: %s", controller.current_stage)

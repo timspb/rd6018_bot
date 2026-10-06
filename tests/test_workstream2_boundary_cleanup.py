@@ -36,7 +36,8 @@ class Workstream2BoundaryCleanupTests(unittest.TestCase):
         self.assertNotIn("rd6018_telemetry", imports)
         self.assertNotIn("runtime.diagnostics", imports)
         self.assertNotIn("runtime.journal", imports)
-        self.assertIn("legacy_ui_boundary", imports)
+        self.assertNotIn("legacy_ui_boundary", imports)
+        self.assertIn("operator_read_source", imports)
 
     def test_all_legacy_actuator_paths_are_inventory_only(self):
         paths = legacy_actuator_compatibility_paths()

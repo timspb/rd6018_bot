@@ -8,7 +8,8 @@ from aiogram.enums import ChatType, MessageEntityType
 from aiogram.methods import DeleteMessage, SendMessage, SendPhoto
 from aiogram.types import Chat, Message, MessageEntity, Update, User
 
-import bot as app
+import bot as composition
+from runtime import production_runtime as app
 
 
 class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):

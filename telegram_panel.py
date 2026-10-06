@@ -8,21 +8,32 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
+from runtime.ui.telegram.custom import CUSTOM_CANCEL_CALLBACK_DATA
+from runtime.ui.telegram.charge import (
+    BATTERIES_CALLBACK_DATA,
+    BATTERY_ADD_CALLBACK_DATA,
+    CHARGE_CALLBACK_DATA,
+    INTERRUPTED_MANUAL_CALLBACK_DATA,
+    MANUAL_CALLBACK_DATA,
+    PROFILE_CALLBACK_PREFIX,
+)
+from runtime.ui.telegram.entities import ENTITIES_CALLBACK_DATA
+from runtime.ui.telegram.journal import HOME_CALLBACK_DATA, JOURNAL_CALLBACK_DATA
+from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA, OFF_PRESET_PREFIX
+
 logger = logging.getLogger("rd6018.ui")
 
 # Callbacks that update/adopt the already-rendered main panel without opening a
 # workspace and therefore do not need a second terminal panel message.
-_ADOPT_CALLBACKS = {
-    "refresh",
-}
+_ADOPT_CALLBACKS = set()
 
 # A terminal callback closes an L3/L4 workspace. After its handler is finished the
 # semantic L2 panel must be republished as the newest message in the chat.
 _TERMINAL_CALLBACKS = {
-    "dash_back",
-    "charge_back",
-    "custom_cancel",
+    CUSTOM_CANCEL_CALLBACK_DATA,
     "operator_done",
+    HOME_CALLBACK_DATA,
     "operator_adopted_stop_execute",
     "operator_managed_mix_stop_execute",
     "rd_live_mix_start_observe",
@@ -48,12 +59,15 @@ _TERMINAL_CALLBACKS = {
 # Navigation/detail/program callbacks are an operator workspace. Do NOT append a
 # dashboard after every click. The panel returns only when the workflow terminates.
 _WORKSPACE_CALLBACKS = {
-    "charge_modes",
-    "logs",
-    "info_full",
-    "ai_analysis",
-    "entities_status",
-    "menu_off",
+    CHARGE_CALLBACK_DATA,
+    BATTERIES_CALLBACK_DATA,
+    BATTERY_ADD_CALLBACK_DATA,
+    MANUAL_CALLBACK_DATA,
+    INTERRUPTED_MANUAL_CALLBACK_DATA,
+    JOURNAL_CALLBACK_DATA,
+    ANALYSIS_CALLBACK_DATA,
+    ENTITIES_CALLBACK_DATA,
+    OFF_CALLBACK_DATA,
     "rd_live_mix",
     "rd_live_mix_status",
     "rd_managed_adopt",
@@ -69,13 +83,13 @@ _WORKSPACE_CALLBACKS = {
 _WORKSPACE_CALLBACK_PREFIXES = (
     "v2_",
     "off_",
-    "profile_",
-    "custom_",
     "rd_live_mix_",
     "rd_managed_adopt_",
     "rd_managed_mix_",
     "rd_hands_off_release_",
     "operator_graph_",
+    OFF_PRESET_PREFIX + "?",
+    PROFILE_CALLBACK_PREFIX + "?",
 )
 
 
@@ -263,12 +277,6 @@ class TerminalPanelManager:
             if data in _TERMINAL_CALLBACKS:
                 self.leave_workspace(chat_id)
                 await self.ensure_last(chat_id, user_id)
-                return
-
-            # Old stale dashboard graph callbacks are treated as a detail workspace;
-            # the new L2 panel no longer exposes them directly.
-            if data.startswith("chart_"):
-                self.enter_workspace(chat_id)
                 return
 
             if _is_workspace_callback(data):

@@ -8,7 +8,7 @@ from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_route import ProductionStartRouteAdapter
 from application.production_start_execution_port import ProductionStartMode
 from application.production_start_runner import ProductionStartRunner
-from application.v2_start_runner_adapter import V2StartRunnerAdapter
+from application.start_transaction_runner import StartTransactionRunner
 from application.start_request import StartRequest
 from application.start_preflight import StartPreflightService
 from application.start_plan import approved_plan_from_preflight
@@ -77,11 +77,15 @@ class ProductionStartRouteTests(unittest.TestCase):
         self.assertEqual(bot._v3_production_start_route.mode, ProductionStartMode.ACTIVE)
         port = bot._v3_production_start_route.port
         self.assertIsInstance(port.production_runner, ProductionStartRunner)
-        self.assertIsInstance(port.production_runner.transaction_runner, V2StartRunnerAdapter)
+        self.assertIsInstance(port.production_runner.transaction_runner, StartTransactionRunner)
 
         source = Path("v2_bootstrap.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('F.data == "v2_battery_start"'), 1)
         self.assertNotIn("start_profile_transactional(app, call, pending)", source)
+        self.assertNotIn("V2StartRunnerAdapter", source)
+        self.assertNotIn("from v2_startup import", source)
+        self.assertIn("StartTransactionRunner", source)
+        self.assertIn("application.start_transaction_service", source)
 
     def test_composed_dry_run_keeps_runner_boundary_non_actuating(self):
         composed_port = bot._v3_production_start_route.port

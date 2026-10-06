@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import operator_hmi as hmi
 from v1_ui_compat import compose_v1_operator_keyboard
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
 class FakeApp:
@@ -44,7 +45,7 @@ def semantic_base(current_state) -> InlineKeyboardMarkup:
     process = current_state.process_state
     if process is hmi.HmiProcessState.IDLE:
         rows = [
-            [_button("⚡ Режимы заряда", "charge_modes")],
+            [_button("⚡ Режимы заряда", CHARGE_CALLBACK_DATA)],
             [_button("🔋 АКБ", "v2_batteries")],
             [_button("🔄 Обновить", "operator_refresh")],
         ]
@@ -108,7 +109,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
         self.assertIn("v2_batteries", cb)
-        self.assertIn("charge_modes", cb)
+        self.assertIn(CHARGE_CALLBACK_DATA, cb)
         self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
@@ -120,7 +121,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         )
         base = InlineKeyboardMarkup(
             inline_keyboard=[
-                [_button("⚡ Режимы заряда", "charge_modes")],
+                [_button("⚡ Режимы заряда", CHARGE_CALLBACK_DATA)],
                 [_button("🔄 Обновить", "operator_refresh")],
             ]
         )
@@ -132,7 +133,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("v2_batteries", cb)
-        self.assertIn("charge_modes", cb)
+        self.assertIn(CHARGE_CALLBACK_DATA, cb)
         self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
 
@@ -151,7 +152,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("operator_managed_stop", cb)
         self.assertNotIn("power_toggle", cb)
         self.assertNotIn("v2_batteries", cb)
-        self.assertNotIn("charge_modes", cb)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, cb)
 
     def test_containment_never_becomes_a_start_surface(self):
         _app, markup = self.compose(
@@ -164,7 +165,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("v2_batteries", cb)
-        self.assertNotIn("charge_modes", cb)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, cb)
         self.assertNotIn("power_toggle", cb)
         self.assertNotIn("operator_more", cb)
 
@@ -181,7 +182,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("logs", cb)
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("v2_batteries", cb)
-        self.assertNotIn("charge_modes", cb)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, cb)
         self.assertNotIn("operator_more", cb)
 
     def test_adopted_mix_keeps_stop_first_and_only_adds_read_only_v1_rows(self):
@@ -195,7 +196,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("operator_adopted_stop", cb)
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("v2_batteries", cb)
-        self.assertNotIn("charge_modes", cb)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, cb)
         self.assertNotIn("operator_more", cb)
 
     def test_storage_remains_terminal_but_keeps_read_only_information(self):
@@ -210,7 +211,7 @@ class V1UiCompatibilityTests(unittest.TestCase):
         self.assertIn("ai_analysis", cb)
         self.assertNotIn("operator_more", cb)
         self.assertNotIn("power_toggle", cb)
-        self.assertNotIn("charge_modes", cb)
+        self.assertNotIn(CHARGE_CALLBACK_DATA, cb)
         self.assertNotIn("v2_batteries", cb)
 
     def test_chart_ranges_are_not_duplicated_by_compatibility_shell(self):

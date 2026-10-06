@@ -1,66 +1,44 @@
 import unittest
 
-from auto_manual_off_v2 import (
-    _force_manual_off_inert_for_auto,
-    install_auto_manual_off_contract,
-)
-
-
-class FakeController:
-    def __init__(self):
-        self.calls = []
-
-    async def tick(self, *args, **kwargs):
-        self.calls.append((args, kwargs))
-        return {"ok": True}
-
-
-class FakeApp:
-    def __init__(self):
-        self.charge_controller = FakeController()
-
 
 class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
-    def test_keyword_manual_off_is_forced_false(self):
-        args, kwargs = _force_manual_off_inert_for_auto(
-            (14.7, 1.0, 25.0, True, 12.0, "on"),
-            {"manual_off_active": True, "is_cc": False},
-        )
-        self.assertEqual(args, (14.7, 1.0, 25.0, True, 12.0, "on"))
-        self.assertIs(kwargs["manual_off_active"], False)
-        self.assertIs(kwargs["is_cc"], False)
+    async def test_production_controller_owns_manual_off_inertness_without_installer(self):
+        from charge_controller_v2 import ChargeControllerV2
 
-    def test_positional_manual_off_is_forced_false_without_duplicate_keyword(self):
-        args, kwargs = _force_manual_off_inert_for_auto(
-            (14.7, 1.0, 25.0, True, 12.0, "on", True, False),
-            {"manual_off_active": True},
-        )
-        self.assertIs(args[6], False)
-        self.assertNotIn("manual_off_active", kwargs)
+        controller = ChargeControllerV2(object())
+        controller.start("EFB", 70)
+        captured = {}
 
-    async def test_installed_wrapper_preserves_auto_tick_but_removes_manual_off_authority(self):
-        app = FakeApp()
-        install_auto_manual_off_contract(app)
-        result = await app.charge_controller.tick(
-            14.7,
-            0.6,
+        async def scaffold(**kwargs):
+            captured.update(kwargs)
+            controller.last_update_time = 1000.0
+            return {}
+
+        controller._run_stage_scaffold_tick = scaffold
+        controller._new_runtime = lambda **_: type(
+            "Runtime",
+            (),
+            {"observe": lambda self, point: type("Record", (), {"events": (), "decision": None})()},
+        )()
+
+        await controller.tick(
+            14.8,
+            1.0,
             25.0,
             True,
-            10.0,
+            1.0,
             "on",
             manual_off_active=True,
             is_cc=False,
         )
-        self.assertEqual(result, {"ok": True})
-        args, kwargs = app.charge_controller.calls[-1]
-        self.assertIs(kwargs["manual_off_active"], False)
+        self.assertIs(captured["manual_off_active"], False)
 
-    async def test_install_is_idempotent(self):
-        app = FakeApp()
-        install_auto_manual_off_contract(app)
-        installed_tick = app.charge_controller.tick
-        install_auto_manual_off_contract(app)
-        self.assertIs(app.charge_controller.tick, installed_tick)
+    def test_production_composition_has_no_manual_off_compatibility_edge(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        self.assertNotIn("install_auto_manual_off_contract", source)
+        self.assertNotIn("auto_manual_off_v2", source)
 
 
 if __name__ == "__main__":

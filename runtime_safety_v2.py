@@ -5,7 +5,9 @@ import math
 import time
 from typing import Any, Optional
 
-from charge_logic import MAX_STAGE_CURRENT
+from runtime.safety.variables import MAX_STAGE_CURRENT_A
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from rd6018_telemetry import (
     ProtectionStatus,

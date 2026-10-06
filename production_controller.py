@@ -8,11 +8,20 @@ import time
 from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
-from charge_logic import AGM_FIRST_STAGE_HOLD_SEC, FIRST_STAGE_HOLD_SEC, SESSION_FILE
+from runtime.charge.persistence import SESSION_FILE
+from runtime.charge.runtime.cooling_guard import finite, validate_cooling_pause
+from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
+from runtime.charge.strategy.main_targets import select_main_target
+from runtime.charge.strategy.mix_variables import (
+    AGM_MIX_MAX_ACTIVE_HOURS,
+    CA_MIX_MAX_ACTIVE_HOURS,
+    EFB_MIX_MAX_ACTIVE_HOURS,
+    mix_max_active_seconds,
+)
 from charge_controller_v2 import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
-from first_stage_evidence import FirstStageAssessment, FirstStageState
-from legacy_recipe_adapter import chemistry_for_legacy_profile
+from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
+from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import RecipeEnvelope, select_recipe_envelope
 
@@ -20,10 +29,12 @@ from recipe_engine import RecipeEnvelope, select_recipe_envelope
 logger = logging.getLogger("rd6018.production_controller")
 
 
+# Compatibility mapping for existing imports/UI tests. Canonical ownership is
+# runtime.charge.strategy.mix_variables; do not add independent values here.
 V2_MIX_MAX_HOURS = {
-    "Ca/Ca": 20.0,
-    "EFB": 24.0,
-    "AGM": 10.0,
+    "Ca/Ca": float(CA_MIX_MAX_ACTIVE_HOURS.default),
+    "EFB": float(EFB_MIX_MAX_ACTIVE_HOURS.default),
+    "AGM": float(AGM_MIX_MAX_ACTIVE_HOURS.default),
 }
 
 RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
@@ -85,7 +96,7 @@ class ProductionChargeControllerV2(ChargeControllerV2):
     def _recipe_envelope(self) -> Optional[RecipeEnvelope]:
         if self.battery_type == self.PROFILE_CUSTOM:
             return None
-        chemistry = chemistry_for_legacy_profile(self.battery_type)
+        chemistry = chemistry_for_profile(self.battery_type)
         identity = BatteryIdentity(
             battery_id=self._v2_battery_id or f"runtime:{self.battery_type}",
             chemistry=chemistry,
@@ -123,7 +134,19 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         return self._bound_target(super()._prep_target(temp_c), self._recipe_envelope(), hv=False)
 
     def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return self._bound_target(super()._main_target(temp_c), self._recipe_envelope(), hv=False)
+        if self.battery_type == self.PROFILE_CUSTOM:
+            target = super()._main_target(temp_c)
+        else:
+            base = select_main_target(
+                profile=self.battery_type,
+                capacity_ah=float(self.ah_capacity),
+                agm_stage_idx=int(self._agm_stage_idx),
+            )
+            target = (
+                self._apply_temperature_compensation(base.voltage_v, temp_c),
+                base.current_a,
+            )
+        return self._bound_target(target, self._recipe_envelope(), hv=False)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         return self._bound_target(super()._desulf_target(temp_c), self._recipe_envelope(), hv=True)
@@ -139,13 +162,13 @@ class ProductionChargeControllerV2(ChargeControllerV2):
         )
 
     def _mix_limit_seconds(self) -> float:
-        return float(V2_MIX_MAX_HOURS.get(self.battery_type, 20.0)) * 3600.0
+        return mix_max_active_seconds(self.battery_type)
 
     def _continuous_tail_hold_seconds(self) -> float:
-        return float(
-            AGM_FIRST_STAGE_HOLD_SEC
+        return (
+            agm_tail_hold_seconds()
             if self.battery_type == self.PROFILE_AGM
-            else FIRST_STAGE_HOLD_SEC
+            else standard_tail_hold_seconds()
         )
 
     def _reset_continuous_tail_hold(self) -> None:
@@ -668,12 +691,44 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             result = result.replace(old, new)
         return result
 
+    def _fail_closed_cooling_actions(self, reason: str) -> Dict[str, Any]:
+        try:
+            self.stop(clear_session=True)
+        except Exception:
+            pass
+        return {
+            "emergency_stop": True,
+            "turn_off": True,
+            "log_event": f"V2_COOLING_FAIL_CLOSED | {reason}",
+            "notify": (
+                "🛑 <b>Cooling restore/resume заблокирован.</b> "
+                f"Причина: <code>{reason}</code>. Output должен оставаться OFF; "
+                "автоматическое продолжение сессии отменено."
+            ),
+        }
+
     async def tick(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """Run managed V2 and enforce Cooling as a true pause of charge evidence."""
         if self.is_active and self.battery_type != self.PROFILE_CUSTOM:
             self._last_hourly_report = time.time()
 
         stage_before = self.current_stage
+        pause_before = (
+            dict(self._v2_cooling_pause)
+            if isinstance(getattr(self, "_v2_cooling_pause", None), dict)
+            else None
+        )
+        if stage_before == self.STAGE_COOLING:
+            valid, reason = validate_cooling_pause(self, pause_before)
+            if not valid:
+                return self._fail_closed_cooling_actions(reason)
+
+        safe_wait_start_before = (
+            finite(getattr(self, "_safe_wait_start", None))
+            if stage_before == self.STAGE_SAFE_WAIT
+            else None
+        )
+
         temp_ext = self._tick_arg(args, kwargs, "temp_ext", 2)
         voltage = self._tick_arg(args, kwargs, "voltage", 0, 0.0)
         current = self._tick_arg(args, kwargs, "current", 1, 0.0)
@@ -709,9 +764,34 @@ class ProductionChargeControllerV2(ChargeControllerV2):
                 source_tail_since=pre_tail_since,
                 source_runtime_signal=pre_runtime_signal,
             )
+            if stage_before == self.STAGE_SAFE_WAIT:
+                if safe_wait_start_before is None or safe_wait_start_before <= 0:
+                    return self._fail_closed_cooling_actions(
+                        "safe_wait_cooling_capture_failed"
+                    )
+                pause = dict(self._v2_cooling_pause or {})
+                pause["source_safe_wait_start"] = float(safe_wait_start_before)
+                self._v2_cooling_pause = pause
+                valid, reason = validate_cooling_pause(self, pause)
+                if not valid:
+                    return self._fail_closed_cooling_actions(reason)
             self._save_session(float(voltage), float(current), float(ah))
         elif stage_before == self.STAGE_COOLING and self.current_stage != self.STAGE_COOLING:
             self._resume_cooling_pause(resumed_at=now)
+            if self.current_stage == self.STAGE_SAFE_WAIT:
+                assert pause_before is not None
+                entered_at = float(pause_before["entered_at"])
+                source_safe_wait_start = float(pause_before["source_safe_wait_start"])
+                cooling_duration = max(0.0, float(now) - entered_at)
+                self._safe_wait_start = source_safe_wait_start + cooling_duration
+                for key in ("turn_on", "set_voltage", "set_current", "set_ovp", "set_ocp"):
+                    actions.pop(key, None)
+                actions["turn_off"] = True
+                actions["notify"] = (
+                    "🌡 АКБ остыла до порога возобновления. SAFE_WAIT продолжается с "
+                    "замороженным таймером; Output остаётся OFF."
+                )
+                actions["log_event"] = "COOLING -> SAFE_WAIT | OUTPUT_OFF_PRESERVED"
             self._save_session(float(voltage), float(current), float(ah))
 
         if isinstance(actions.get("notify"), str):
@@ -776,5 +856,15 @@ class ProductionChargeControllerV2(ChargeControllerV2):
             )
             self._restore_runtime_signal_snapshot(dict(pause.get("runtime_signal") or {}))
             self._v2_target_voltage_v = self._cooling_target_v or self._v2_target_voltage_v
+
+        if self.current_stage == self.STAGE_COOLING:
+            valid, reason = validate_cooling_pause(self, self._v2_cooling_pause)
+            if not valid:
+                self.stop(clear_session=True)
+                return (
+                    False,
+                    "Cooling session rejected: durable V2 pause state is missing/invalid "
+                    f"({reason}); automatic resume is disabled and Output must remain OFF.",
+                )
 
         return ok, message

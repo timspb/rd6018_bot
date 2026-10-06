@@ -344,7 +344,7 @@ class ProductionControllerTests(unittest.TestCase):
             with patch("charge_logic.SESSION_FILE", session_file), patch(
                 "charge_controller_v2.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch.object(
-                controller, "_run_legacy_scaffold_tick", new=no_legacy_scaffold
+                controller, "_run_stage_scaffold_tick", new=no_legacy_scaffold
             ):
                 for timestamp_s, voltage_v in samples:
                     controller.last_update_time = timestamp_s

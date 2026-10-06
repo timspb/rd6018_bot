@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from config import MAX_VOLTAGE
+from runtime.charge.strategy.mix_variables import (
+    AGM_MIX_MAX_ACTIVE_HOURS,
+    CA_MIX_MAX_ACTIVE_HOURS,
+    EFB_MIX_MAX_ACTIVE_HOURS,
+)
+from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
 
 
 @dataclass(frozen=True)
@@ -18,7 +23,7 @@ def clamp_legacy_target_voltage(voltage_v: float) -> float:
     Expert V2 recipes intentionally do not use this helper; their explicit recipe
     envelope is enforced by SafetySupervisor/SafeOutputCoordinator instead.
     """
-    return round(min(float(MAX_VOLTAGE), max(0.0, float(voltage_v))), 2)
+    return clamp_pb_automatic_target_voltage(voltage_v)
 
 
 def main_timeout_decision(
@@ -36,13 +41,14 @@ def main_timeout_decision(
 
 
 def mix_timeout_hours(profile: str) -> Optional[float]:
+    """Compatibility facade over canonical automatic MIX authority limits."""
     normalized = str(profile).strip().upper()
     if normalized == "EFB":
-        return 20.0
+        return float(EFB_MIX_MAX_ACTIVE_HOURS.default)
     if normalized in {"CA/CA", "CA"}:
-        return 20.0
+        return float(CA_MIX_MAX_ACTIVE_HOURS.default)
     if normalized == "AGM":
-        return 10.0
+        return float(AGM_MIX_MAX_ACTIVE_HOURS.default)
     return None
 
 
