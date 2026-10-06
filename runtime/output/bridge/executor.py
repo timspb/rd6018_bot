@@ -297,9 +297,43 @@ class PhysicalBridgeExecutor:
             self.gate.complete()
             return record
         except Exception as exc:
+            containment = None
+            containment_error = None
+            if "enable_output" in actions:
+                try:
+                    await self.transport.disable_output()
+                    actions.append("containment_disable_output")
+                    containment = await _wait_for_off(
+                        self.transport,
+                        tolerances.get("measured_current", 0.0) if tolerances else 0.0,
+                        timeout_s=off_timeout_s,
+                        poll_interval_s=off_poll_interval_s,
+                    )
+                    actions.append("containment_verify_off")
+                    current_limit = tolerances.get("measured_current", 0.0) if tolerances else 0.0
+                    if (
+                        containment is None
+                        or containment.output_state is not False
+                        or containment.measured_current is None
+                        or abs(float(containment.measured_current)) > current_limit
+                    ):
+                        raise PhysicalExecutionError("containment OFF and zero-current were not confirmed")
+                except Exception as containment_exc:
+                    containment_error = str(containment_exc)
             self.gate.fail()
-            self.audit.record(plan, self.gate.operator or "unknown", self.gate.state.value,
-                              actions=actions, readback={"before": before}, result="FAILED", error=str(exc))
+            self.audit.record(
+                plan,
+                self.gate.operator or "unknown",
+                self.gate.state.value,
+                actions=actions,
+                readback={"before": before, "containment": containment},
+                result="FAILED",
+                error=str(exc) if containment_error is None else f"{exc}; containment_failed:{containment_error}",
+            )
+            if containment_error is not None:
+                raise PhysicalExecutionError(
+                    f"{exc}; containment_failed:{containment_error}"
+                ) from exc
             raise
 
     def rollback(self, plan: PhysicalCommandPlan, safety: ExecutionPolicyDecision,
