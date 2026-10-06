@@ -275,7 +275,11 @@ class PhysicalBridgeExecutor:
                     raise PhysicalExecutionError(f"{field} readback mismatch")
             await self.transport.enable_output()
             actions.append("enable_output")
-            on = await self.transport.read_snapshot()
+            on = await _wait_for_on(
+                self.transport,
+                timeout_s=readback_timeout_s,
+                poll_interval_s=readback_poll_interval_s,
+            )
             actions.append("verify_on")
             if on is None or on.output_state is not True:
                 raise PhysicalExecutionError("output ON was not confirmed")
@@ -357,6 +361,21 @@ async def _wait_for_setpoint(transport: PhysicalBridgeTransport, field: str, exp
             return snapshot
         if time.monotonic() >= deadline:
             return snapshot
+        await asyncio.sleep(poll_interval_s)
+
+
+async def _wait_for_on(transport: PhysicalBridgeTransport, *, timeout_s: float,
+                       poll_interval_s: float):
+    if timeout_s < 0 or poll_interval_s <= 0:
+        raise PhysicalExecutionError("invalid ON polling configuration")
+    deadline = time.monotonic() + timeout_s
+    last = None
+    while True:
+        last = await transport.read_snapshot()
+        if last is not None and last.output_state is True:
+            return last
+        if time.monotonic() >= deadline:
+            return last
         await asyncio.sleep(poll_interval_s)
 
 

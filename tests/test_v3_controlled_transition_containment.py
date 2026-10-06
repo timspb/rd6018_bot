@@ -15,21 +15,24 @@ from runtime.physical.lease import BenchLeaseProvider, BenchLeaseScope
 
 
 class _AsyncTransitionTransport:
-    def __init__(self, *, fail_on_verification=False):
-        self.fail_on_verification = fail_on_verification
+    def __init__(self, *, delayed_on_once=False, never_confirm_on=False):
+        self.delayed_on_once = delayed_on_once
+        self.never_confirm_on = never_confirm_on
         self.output = False
         self.calls = []
         self.v = 13.57
         self.i = 0.10
         self.ovp = 14.07
         self.ocp = 0.20
-        self._failed_once = False
+        self._delayed_once = False
 
     async def read_snapshot(self):
         visible_output = self.output
-        if self.output and self.fail_on_verification and not self._failed_once:
+        if self.output and self.never_confirm_on:
             visible_output = False
-            self._failed_once = True
+        elif self.output and self.delayed_on_once and not self._delayed_once:
+            visible_output = False
+            self._delayed_once = True
         return HardwareSnapshot(
             1, "connected", visible_output, 0.0, 0.0,
             self.v, self.i, self.ovp, self.ocp, 25.0, 13.07,
@@ -111,8 +114,16 @@ class ControlledTransitionContainmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transport.calls.count("disable_output"), 1)
         self.assertEqual(executor.gate.state, PhysicalGateState.READY)
 
+    async def test_delayed_on_readback_is_polled_before_hold(self):
+        transport = _AsyncTransitionTransport(delayed_on_once=True)
+        executor, record = await self._run(transport)
+        self.assertEqual(record.result, "EXECUTED")
+        self.assertTrue(transport._delayed_once)
+        self.assertFalse(transport.output)
+        self.assertEqual(executor.gate.state, PhysicalGateState.READY)
+
     async def test_post_enable_failure_forces_verified_off_containment(self):
-        transport = _AsyncTransitionTransport(fail_on_verification=True)
+        transport = _AsyncTransitionTransport(never_confirm_on=True)
         gate = PhysicalExecutionGate(PhysicalExecutionConfig(enabled=True))
         gate.arm("operator")
         executor = PhysicalBridgeExecutor(gate, transport)
