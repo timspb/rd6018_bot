@@ -99,3 +99,20 @@ Controlled charge bench software/physical substrate: READY
 Next required input: explicit connected-battery profile + capacity + identity
 No new architecture or activation-policy layer required
 ```
+
+## 2026-10-07 controlled charge execution result
+
+The previously pending battery-specific boundary is now physically exercised.
+Operator-selected inputs: Ca/Ca, 72 Ah, `Leoch-72Ah`, recovery intent, condition
+`unknown`. Fresh preflight passed and the canonical production START transaction
+ran for a bounded 30 s observation window.
+
+Result: START accepted, physical output remained inside the selected envelope,
+and the managed stop ultimately proved Output OFF + 0 A. Independent HA102 and
+ESP128 post-stop readbacks were both VALID and MATCH.
+
+One residual remains: the strict edge-heartbeat OFF confirmation timed out before
+the later independent OFF/0 A proof. This is retained as a fail-closed
+observability/latency issue; no freshness requirement is relaxed.
+
+Controlled chemistry charge bench: **PASS WITH CONTAINED STOP-READBACK RESIDUAL**.

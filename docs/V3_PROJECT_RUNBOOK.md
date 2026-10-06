@@ -1806,3 +1806,30 @@ Next boundary: controlled charge bench readiness. Do not invent a new physical
 charge loop; use only an existing canonical charge/start execution route after
 its current readiness/ownership/rollback gates are re-evaluated against the
 post-ERADICATION main.
+
+### 2026-10-07 controlled chemistry charge bench
+
+Operator-selected battery: `Leoch-72Ah`, Ca/Ca, 72 Ah, intent `recovery`.
+Condition remains `unknown`; it was not inferred from terminal voltage.
+
+Fresh START preflight PASS: ownership available, telemetry valid, safety allowed,
+recipe `ca_ca:recovery`, ceiling 16.5 V, initial MAIN target preview 14.7 V / 7.2 A.
+
+A bounded 30 s run executed through the current production START route after
+managed startup-authority reconciliation. START returned `accepted=True`,
+`reason=started`, trace `80f16fddcdad48b1a6f81975f6d66c64`.
+
+Observed output stayed about 14.74-14.75 V while current tapered from about
+3.82 A to 3.35 A. External temperature stayed 23 C; internal temperature rose
+from 29 C to 30 C during the run.
+
+The managed stop issued OFF. Strict edge-heartbeat confirmation timed out and
+entered existing fail-closed containment, after which the fallback required
+read-only OFF + 0 A before retiring the AUTO session. A fresh independent
+HA102/ESP128 post-check then returned VALID/VALID/MATCH, OFF and 0.00 A.
+
+Physical bench result: PASS. Residual: strict OFF heartbeat observability window
+did not recognize the transition before timeout. Preserve freshness rules; fix
+the evidence/latency mismatch rather than weakening OFF confirmation.
+
+Evidence: `docs/V3_CONTROLLED_CHARGE_BENCH_EVIDENCE_2026-10-07.md`.
