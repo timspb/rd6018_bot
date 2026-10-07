@@ -9,7 +9,7 @@ from typing import Callable
 from pb_domain import BatteryCondition, ChargeIntent
 
 from .start_execution_contract import StartExecutionRequest
-from .v2_start_transaction_adapter import (
+from .start_transaction_adapter import (
     RollbackState,
     StartExecutionResult,
     StartExecutionStatus,

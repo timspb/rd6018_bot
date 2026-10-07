@@ -4,14 +4,14 @@ import unittest
 
 import bot
 from rd_startup_authority import RdStartupAuthorityGate
-from runtime.v2_startup_recovery import V2StartupRecovery
+from runtime.startup_recovery import StartupRecovery
 
 
 class _FakeController:
     STAGE_MAIN = "Main Charge"
-    STAGE_SAFE_WAIT = "Безопасное ожидание"
+    STAGE_SAFE_WAIT = "Р‘РµР·РѕРїР°СЃРЅРѕРµ РѕР¶РёРґР°РЅРёРµ"
     STAGE_DONE = "Done"
-    STAGE_COOLING = "🌡 Остывание"
+    STAGE_COOLING = "рџЊЎ РћСЃС‚С‹РІР°РЅРёРµ"
 
     def __init__(self, restored_event):
         self.is_active = False
@@ -204,7 +204,7 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         recovery = types.SimpleNamespace(
             recover_managed_startup_authority=recover,
-            replay_deferred_startup_restore=V2StartupRecovery(
+            replay_deferred_startup_restore=StartupRecovery(
                 fake_legacy, None, None
             ).replay_deferred_startup_restore,
         )
@@ -249,13 +249,13 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         controller = _FakeController(restored)
         fake_legacy = self._fake_legacy(hass, controller)
         with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
-            await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
+            await StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
 
         self.assertTrue(controller.is_active)
         self.assertEqual(len(controller.restore_calls), 1)
         self.assertEqual(hass.live["switch"], "off")
 
-        await V2StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
+        await StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
 
         self.assertEqual(len(controller.restore_calls), 1)
         self.assertEqual(hass.turn_on_calls, 2)

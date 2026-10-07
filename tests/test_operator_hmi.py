@@ -13,7 +13,7 @@ from operator_hmi import (
     render_operator_panel,
 )
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
-from bot_legacy import _build_dashboard_keyboard
+from runtime.production_runtime import _build_dashboard_keyboard
 from application.operator_actions import OperatorAction, OperatorActionsView
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 

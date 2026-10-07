@@ -9,11 +9,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 class V3LegacyInventoryTests(unittest.TestCase):
     def test_production_has_single_polling_owner_and_single_telegram_construction(self):
-        legacy = (ROOT / "bot_legacy.py").read_text(encoding="utf-8")
+        self.assertFalse((ROOT / "bot_legacy.py").exists())
+        self.assertFalse((ROOT / "runtime" / "v2_runtime.py").exists())
         adapter = (ROOT / "telegram" / "runtime.py").read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", legacy)), 0)
-        self.assertNotIn("asyncio.run(_runtime.main())", legacy)
-        self.assertIn("direct execution is retired", legacy)
         self.assertEqual(len(re.findall(r"\bstart_polling\s*\(", adapter)), 1)
         self.assertEqual(len(re.findall(r"class ResilientBootstrapBot\(Bot\)", adapter)), 1)
         self.assertEqual(len(re.findall(r"\bbot=ResilientBootstrapBot\s*\(", adapter)), 1)
@@ -34,8 +32,6 @@ class V3LegacyInventoryTests(unittest.TestCase):
         for path in ROOT.rglob("*.py"):
             if "tests" in path.parts or "__pycache__" in path.parts:
                 continue
-            if path.name == "bot_legacy.py":
-                continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -46,8 +42,8 @@ class V3LegacyInventoryTests(unittest.TestCase):
 
     def test_inventory_documents_legacy_import_as_current_blocker(self):
         text = (ROOT / "docs" / "V3_LEGACY_RUNTIME_INVENTORY.md").read_text(encoding="utf-8")
-        self.assertIn("legacy module is quarantined from production imports", text)
-        self.assertIn("ACTIVE remains fail-closed by default", text)
+        self.assertIn("quarantined from production", text)
+        self.assertIn("ACTIVE START is fail-closed", text)
 
 
 if __name__ == "__main__":

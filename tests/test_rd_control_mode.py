@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from rd_control_mode import RdControlMode, install_rd_control_mode
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
 from runtime_safety_v2 import V2RuntimeSafetyGuard
-from v2_startup import start_profile_transactional
+from application.start_transaction_service import start_profile_transactional
 
 
 class DummyHass:

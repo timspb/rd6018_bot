@@ -59,7 +59,7 @@ from rd_startup_authority import (
 )
 from v2_bootstrap import init_v2_storage, install_v2
 from v2_mix_mode import install_mix_only_mode
-from runtime.v2_startup_recovery import V2StartupRecovery
+from runtime.startup_recovery import StartupRecovery
 
 
 def _env_enabled(name: str, default: bool = True) -> bool:
@@ -312,7 +312,7 @@ class ProductionComposition:
             )
 
         _legacy_main = _legacy.main
-        _v2_startup_recovery = V2StartupRecovery(
+        _startup_recovery = StartupRecovery(
             _legacy,
             _rd_managed_mix_adoption,
             _rd_managed_live_adoption,
@@ -330,7 +330,7 @@ class ProductionComposition:
         self.operator_read_source = operator_read_source
         self.operator_interface = operator_interface
         self.legacy_main = _legacy_main
-        self.startup_recovery = _v2_startup_recovery
+        self.startup_recovery = _startup_recovery
         self.composed = True
         return self
 

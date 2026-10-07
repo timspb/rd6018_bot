@@ -69,8 +69,6 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         )
         violations: list[str] = []
         for path in (ROOT / "runtime" / "ui").rglob("*.py"):
-            if "legacy_shadow" in path.parts:
-                continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 module = ""
@@ -94,8 +92,6 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         violations: list[str] = []
         renderer_hits: list[str] = []
         for path in (ROOT / "runtime" / "ui").rglob("*.py"):
-            if "legacy_shadow" in path.parts:
-                continue
             text = path.read_text(encoding="utf-8")
             for token in ("InlineKeyboardButton(", "callback_data="):
                 if token not in text:
@@ -151,16 +147,19 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
             source,
         )
 
-    def test_bot_legacy_is_not_an_executable_runtime(self) -> None:
-        source = (ROOT / "bot_legacy.py").read_text(encoding="utf-8")
-        self.assertNotIn("asyncio.run(_runtime.main())", source)
-        self.assertIn("direct execution is retired", source)
-        self.assertLess(
-            source.index('if __name__ == "__main__":'),
-            source.index("from runtime import production_runtime as _runtime"),
-        )
-        self.assertNotIn("sys.modules[__name__]", source)
-        self.assertNotIn("v2_runtime", source)
+    def test_retired_runtime_facades_are_removed(self) -> None:
+        self.assertFalse((ROOT / "bot_legacy.py").exists())
+        self.assertFalse((ROOT / "runtime" / "v2_runtime.py").exists())
+        self.assertFalse((ROOT / "v2_startup.py").exists())
+        self.assertFalse((ROOT / "application" / "v2_start_runner_adapter.py").exists())
+        self.assertFalse((ROOT / "application" / "legacy_actuator_boundary.py").exists())
+        self.assertFalse((ROOT / "v1_ui_compat.py").exists())
+        self.assertFalse((ROOT / "application" / "v2_identity_bridge.py").exists())
+        self.assertFalse((ROOT / "application" / "operator_snapshot_shadow.py").exists())
+        self.assertFalse((ROOT / "runtime" / "ui" / "legacy_shadow").exists())
+        self.assertFalse((ROOT / "application" / "active_start_bridge.py").exists())
+        self.assertFalse((ROOT / "application" / "operator_feedback.py").exists())
+        self.assertFalse((ROOT / "application" / "telegram_operator_feedback.py").exists())
 
     def test_modular_contract_and_debt_ledger_are_present(self) -> None:
         for name in (

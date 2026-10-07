@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from aiogram import Dispatcher
 
-from runtime.v2_lifecycle import V2RuntimeLifecycle
+from runtime.production_lifecycle import V2RuntimeLifecycle
 
 
 class V2RuntimeLifecycleShutdownTests(unittest.IsolatedAsyncioTestCase):

@@ -6,7 +6,7 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = Path("bot.py").read_text(encoding="utf-8")
-        cls.recovery = Path("runtime/v2_startup_recovery.py").read_text(encoding="utf-8")
+        cls.recovery = Path("runtime/startup_recovery.py").read_text(encoding="utf-8")
         cls.gate = Path("rd_startup_authority.py").read_text(encoding="utf-8")
 
     def test_final_startup_gate_is_installed_after_runtime_composition(self):

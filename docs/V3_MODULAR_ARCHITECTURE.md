@@ -159,18 +159,16 @@ For each boundary:
 
 Do not leave two active owners after cutover.
 
-## 6. Legacy is allowed only as bounded debt
+## 6. Compatibility facades are forbidden
 
-Every remaining compatibility seam must be listed in
-`V3_LEGACY_ERADICATION_LEDGER.md` with:
+Retired compatibility modules are deleted rather than kept as forwarding shims.
+A historical `v2_*` filename may remain temporarily only when it is itself the
+production-reachable owner; that naming debt must be listed in
+`V3_LEGACY_ERADICATION_LEDGER.md` with current callers, replacement/rename gate
+and status.
 
-- current owner;
-- why it is still reachable;
-- replacement module;
-- removal gate;
-- status.
-
-New unlisted legacy dependencies fail review.
+No new legacy/compatibility import surface may be introduced. Callers move to
+the current owner directly.
 
 ## 7. Completion criteria
 

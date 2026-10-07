@@ -7,8 +7,8 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
 from .start_transaction_service import start_profile_transactional
-from .v2_start_event_context import V2StartEventContext
-from .v2_start_transaction_adapter import V2StartTransactionInput, V2TransactionOutcome
+from .start_event_context import V2StartEventContext
+from .start_transaction_adapter import V2StartTransactionInput, V2TransactionOutcome
 
 
 StartTransactionOwner = Callable[[Any, Any, Any], Awaitable[bool]]

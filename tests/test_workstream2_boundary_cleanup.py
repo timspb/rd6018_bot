@@ -6,7 +6,7 @@ import unittest
 
 from application.actuator_intent import ActuatorOperation
 from application.configuration_decision_registry import unresolved_configuration_decisions
-from application.legacy_actuator_boundary import legacy_actuator_compatibility_paths
+from application.actuator_intent_mapping import known_actuator_paths
 from application.safety_boundary import (
     SAFETY_DECISION_OWNER,
     SAFETY_OWNERSHIP_INVENTORY,
@@ -40,11 +40,11 @@ class Workstream2BoundaryCleanupTests(unittest.TestCase):
         self.assertIn("operator_read_source", imports)
 
     def test_all_legacy_actuator_paths_are_inventory_only(self):
-        paths = legacy_actuator_compatibility_paths()
+        paths = known_actuator_paths()
         self.assertGreaterEqual(len(paths), 10)
-        self.assertEqual({ActuatorOperation.OUTPUT_ON, ActuatorOperation.OUTPUT_OFF, ActuatorOperation.SET_VOLTAGE, ActuatorOperation.SET_CURRENT}, {path.operation for path in paths})
-        self.assertTrue(all(not path.dispatch_enabled for path in paths))
-        self.assertTrue(all(path.adapter_boundary for path in paths))
+        self.assertEqual({ActuatorOperation.OUTPUT_ON, ActuatorOperation.OUTPUT_OFF, ActuatorOperation.SET_VOLTAGE, ActuatorOperation.SET_CURRENT}, {path.current_operation for path in paths})
+        self.assertTrue(all(path.caller for path in paths))
+        self.assertTrue(all(path.owner for path in paths))
 
     def test_safety_flow_is_detection_decision_request_data_only(self):
         decision = decide(SafetySignal(SafetySignalKind.TELEMETRY, "test", False, "stale"), trace_id="t1")

@@ -2,9 +2,7 @@ import pathlib
 import unittest
 
 import bot
-import bot_legacy
 import v2_bot_ui
-import v2_startup
 from types import SimpleNamespace
 
 
@@ -50,7 +48,6 @@ class StartRouteIsolationTests(unittest.TestCase):
         from application.start_transaction_service import start_profile_transactional
 
         self.assertIs(v2_bot_ui._start_profile, start_profile_transactional)
-        self.assertIs(v2_startup.start_profile_transactional, start_profile_transactional)
 
         handlers = bot.router.observers["callback_query"].handlers
         names = [handler.callback.__name__ for handler in handlers]
@@ -60,7 +57,7 @@ class StartRouteIsolationTests(unittest.TestCase):
         root = pathlib.Path(__file__).parents[1]
         for rel in (
             "v2_bootstrap.py",
-            "application/active_start_bridge.py",
+            "application/start_transaction_runner.py",
         ):
             source = (root / rel).read_text(encoding="utf-8")
             self.assertNotIn("from v2_startup import", source, rel)
@@ -85,12 +82,11 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertNotIn("profile_agm", callbacks)
         self.assertNotIn("profile_custom", callbacks)
 
-    def test_legacy_start_functions_remain_available_only_as_preserved_surface(self):
-        # The compatibility module remains importable, but production START routes
-        # are rebound to their modular owners.
-        self.assertTrue(callable(bot_legacy.handle_ah_input))
-        self.assertTrue(callable(bot_legacy.start_custom_charge))
-        self.assertIsNot(bot_legacy.handle_ah_input, v2_bot_ui._start_profile)
+    def test_retired_start_facades_are_absent(self):
+        root = pathlib.Path(__file__).parents[1]
+        self.assertFalse((root / "bot_legacy.py").exists())
+        self.assertFalse((root / "v2_startup.py").exists())
+        self.assertFalse((root / "application" / "v2_start_runner_adapter.py").exists())
 
     def test_composed_custom_dialog_is_bound_to_manual_session_owner(self):
         self.assertIs(bot.start_custom_charge.__self__, bot.manual_session_manager)
@@ -98,7 +94,6 @@ class StartRouteIsolationTests(unittest.TestCase):
             bot.start_custom_charge.__func__,
             bot.manual_session_manager.start_from_legacy_ui.__func__,
         )
-        self.assertIs(bot_legacy.start_custom_charge.__self__, bot.manual_session_manager)
 
     def test_quick_start_callback_uses_v3_route_when_composed(self):
         source = (pathlib.Path(__file__).parents[1] / "v2_bot_ui.py").read_text(encoding="utf-8")

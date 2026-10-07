@@ -10,7 +10,7 @@ from .runtime_start_service import RuntimeStartService, StartExecutionTrace
 from .production_start_runner import ProductionStartRunner
 from .start_execution_contract import StartExecutionRequest, request_from_trace
 from .start_plan import ApprovedStartPlan
-from .v2_start_transaction_adapter import (
+from .start_transaction_adapter import (
     StartExecutionResult,
     StartExecutionStatus,
     V2StartTransactionAdapter,

@@ -194,10 +194,6 @@ class OperatorSnapshotProvider:
             return CommandResult(CommandStatus.REJECTED, "invalid_operator_intent")
         return await self.intent_dispatcher.dispatch(intent)
 
-    def legacy_hmi_state(self, live: Mapping[str, Any]):
-        """Expose the source state for shadow comparison; still read-only."""
-        return self._source.hmi_state(live)
-
     @staticmethod
     def hmi_state_from_snapshot(snapshot: OperatorSnapshot):
         """Adapt sanitized V3 data to the preserved renderer's data model."""

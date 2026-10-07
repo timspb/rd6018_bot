@@ -166,35 +166,32 @@ UI — read-only consumer ViewModel. Первая строка активной 
 показывается отдельной строкой. Он показывает stage/phase, параметры,
 таймеры, transition evidence, diagnostics, safety, output и хвост журнала.
 Журнал имеет однострочные пользовательские записи и отдельные event records;
-форматирование не находится в charge engine. V1 UI не удалять и не менять без
-отдельной задачи.
+форматирование не находится в charge engine. Production UI постепенно
+нормализуется на declarative screen/button/action contracts; удалённые V1/V2
+compatibility-фасады не являются допустимым fallback.
 
 ## 11. Operator Application Interface
 
-Текущий PR добавляет изолированный application/presentation/telegram контракт:
+Текущий production read path:
 
 ```text
 Telegram adapter -> OperatorInterface -> OperatorSnapshot -> declarative renderer
 ```
 
 `OperatorSnapshot` и `PanelLayout` содержат только данные и декларативные действия.
-Они не содержат HA/RD/controller объектов. Старый V1/V2 UI и его callbacks пока
-остаются production-путём; их прямые связи перечислены в UI-аудите и устраняются
-только после parity-проверок.
-
-`application/operator_snapshot_provider.py` — read-only adapter текущего V1/V2
-runtime. Он читает live state, `OperatorHmiState`, diagnostics и journal, но не
-вызывает start/stop или actuator methods. `application/operator_snapshot_shadow.py`
-сравнивает legacy HMI с V3 snapshot.
+Они не содержат HA/RD/controller объектов. `application/operator_snapshot_provider.py`
+читает explicit `OperatorReadSource`, diagnostics и journal, но не вызывает
+start/stop или actuator methods. Старый shadow comparator и V1 UI compatibility
+wrapper удалены после отсутствия production callers.
 
 ## 12. Следующие шаги
 
-1. Завершить независимую physical evidence-проверку ESP-direct.
-2. Устранить/задокументировать HA control/readback latency без обхода safety.
-3. Подключать runtime state к bot adapter через UserCommand/UI boundaries.
-4. Закрыть V3 UI parity с V1 без переноса V1 implementation.
-5. Только после parity и bench gates — controlled charge bench.
-6. Production migration — отдельное решение после физического evidence.
+1. Продолжить удаление test/shadow-only migration islands, не достижимых от `bot.py`.
+2. Переименовать или поглотить production-reachable `v2_*` модули только после
+   миграции их callers и parity/full-suite доказательства.
+3. Свести UI/runtime composition к нейтральным модульным именам без compatibility facades.
+4. На каждом boundary обновлять `docs/README.md`, runbook и eradication ledger.
+5. Production node 101 и физический заряд остаются отдельным operational boundary.
 
 ## 13. Запрещённые направления
 
