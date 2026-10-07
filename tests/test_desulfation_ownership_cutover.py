@@ -80,7 +80,7 @@ class FixedRuntime:
 
 class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, profile="AGM", capacity=90, now=10_000.0):
-        controller = ProductionChargeController(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass())
         controller.battery_type = profile
         controller.ah_capacity = capacity
         controller.current_stage = controller.STAGE_DESULFATION
@@ -447,7 +447,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                     saved = json.load(handle)
                 self.assertEqual(saved["v2_recovery_safe_wait"]["source_stage"], controller.STAGE_DESULFATION)
 
-                restored = ProductionChargeController(DummyHass(), authoritative=True)
+                restored = ProductionChargeController(DummyHass())
                 ok, _ = restored.try_restore_session(
                     15.0,
                     0.0,

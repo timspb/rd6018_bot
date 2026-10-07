@@ -28,7 +28,6 @@ class MixActiveTimeoutIntegrationTests(unittest.TestCase):
             wall = Clock(1000.0)
             controller = DiagnosticProductionChargeController(
                 DummyHass(),
-                authoritative=True,
             )
             controller.current_stage = controller.STAGE_MIX
             controller.battery_type = controller.PROFILE_CA

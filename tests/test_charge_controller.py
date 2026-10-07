@@ -16,9 +16,9 @@ class ExplodingShadowRuntime:
 
 class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
     def _shadow_controller(self):
-        return ManagedChargeController(DummyHass(), authoritative=True)
+        return ManagedChargeController(DummyHass())
 
-    async def test_idle_tick_keeps_legacy_actions_and_adds_shadow_only(self):
+    async def test_idle_tick_keeps_modular_actions_and_adds_observation(self):
         controller = self._shadow_controller()
         actions = await controller.tick(
             voltage=12.7,
@@ -32,7 +32,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("recovery_shadow", actions)
         self.assertEqual(actions["recovery_shadow"]["status"], "ok")
         self.assertEqual(actions["recovery_shadow"]["decision"], "continue")
-        self.assertEqual(actions["recovery_shadow"]["authority"], "v2")
+        self.assertEqual(actions["recovery_shadow"]["authority"], "modular")
         self.assertNotIn("turn_on", actions)
         self.assertNotIn("turn_off", actions)
 
@@ -152,7 +152,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(shadow["authority_decision"]["action"], "continue")
         self.assertNotIn("transition_audit", shadow)
 
-    async def test_evidence_exception_fails_closed_without_legacy_fallback(self):
+    async def test_evidence_exception_fails_closed_without_fallback_owner(self):
         controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
@@ -177,7 +177,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         shadow = actions["recovery_shadow"]
         self.assertEqual(shadow["status"], "error")
         self.assertEqual(shadow["error_type"], "RuntimeError")
-        self.assertEqual(shadow["authority"], "v2")
+        self.assertEqual(shadow["authority"], "modular")
         self.assertEqual(shadow["trace_point"]["stage"], controller.STAGE_MAIN)
         self.assertTrue(actions["turn_off"])
         self.assertEqual(actions["log_event"], "V2_STOP_DIAGNOSE")

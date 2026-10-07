@@ -832,3 +832,19 @@ Persisted `v2_*` session keys, Telegram callback-data tokens, the `V2_UI` extern
 configuration flag and deployed ESPHome/entity identifiers are intentionally not
 changed here because they cross restart/protocol boundaries. They require separate
 state/protocol migration contracts.
+
+
+## 2026-10-07 unconditional modular charge authority
+
+The remaining controller rollback switch was retired after proving there were no
+production callers of `authoritative=False` or `set_v2_authoritative()`.
+`ManagedChargeController` no longer accepts an authority-mode constructor flag,
+no longer exposes a runtime authority setter/property, and no longer provides the
+characterization-only `start_custom()` path. Production Custom remains owned by
+`ProductionManualSessionManager`.
+
+All automatic stage routing is now unconditionally modular. Unsupported or stale
+historical states continue to fail closed; there is no fallback transition owner.
+Operator/trace metadata reports `modular` authority. Historical persisted `v2_*`
+session keys remain temporarily readable/writable only as storage-schema
+compatibility and do not select runtime ownership.

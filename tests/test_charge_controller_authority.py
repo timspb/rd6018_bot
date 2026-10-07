@@ -46,7 +46,7 @@ class ExplodingRuntime:
 
 class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, profile="EFB", intent=ChargeIntent.RECOVERY, now=10000.0):
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = profile
         controller.ah_capacity = 70
@@ -89,7 +89,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mix_finish_evidence_starts_sticky_hold_then_completes(self):
         start = 40000.0
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.current_stage = controller.STAGE_MIX
         controller.battery_type = controller.PROFILE_AGM
         controller.ah_capacity = 70
@@ -111,7 +111,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mix_cc_finish_uses_voltage_policy(self):
         now = 50000.0
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.current_stage = controller.STAGE_MIX
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 70

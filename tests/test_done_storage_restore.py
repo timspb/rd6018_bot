@@ -34,7 +34,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
 
     @staticmethod
     def _installed_controller():
-        controller = DiagnosticProductionChargeController(DummyHass(), authoritative=True)
+        controller = DiagnosticProductionChargeController(DummyHass())
         app = SimpleNamespace(
             charge_controller=controller,
             _restore_allows_auto_enable=restore_allows_auto_enable,

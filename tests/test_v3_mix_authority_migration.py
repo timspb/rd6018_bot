@@ -36,7 +36,7 @@ class DummyHass:
 class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _controller(stage: str) -> ManagedChargeController:
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_AGM
         controller.ah_capacity = 90
         controller.current_stage = stage
@@ -250,7 +250,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 200_000.0
-            controller = ProductionChargeController(DummyHass(), authoritative=True)
+            controller = ProductionChargeController(DummyHass())
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_MIX
             controller._enter_safe_wait_done(
@@ -271,7 +271,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 "production_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)
-                restored = ProductionChargeController(DummyHass(), authoritative=True)
+                restored = ProductionChargeController(DummyHass())
                 ok, _ = restored.try_restore_session(
                     15.0,
                     0.0,

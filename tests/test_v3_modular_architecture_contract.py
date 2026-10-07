@@ -142,10 +142,9 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
         self.assertNotIn('os.getenv("V2_AUTHORITATIVE"', source)
         self.assertNotIn('_env_bool("V2_AUTHORITATIVE"', source)
-        self.assertIn(
-            "self._v2_authoritative = True if authoritative is None else bool(authoritative)",
-            source,
-        )
+        self.assertNotIn("authoritative:", source)
+        self.assertNotIn("_v2_authoritative", source)
+        self.assertNotIn("set_v2_authoritative", source)
 
     def test_retired_runtime_facades_are_removed(self) -> None:
         self.assertFalse((ROOT / "bot_legacy.py").exists())

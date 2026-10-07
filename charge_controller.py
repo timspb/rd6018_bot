@@ -154,10 +154,9 @@ class ManagedChargeController:
     persistence, lifecycle, diagnostics, target selection, and safety helpers
     are now owned by modular V3 boundaries rather than historical inheritance.
 
-    Production no longer accepts an environment switch back to historical
-    transition authority. ``authoritative=False`` is retained only for isolated
-    characterization/compatibility tests. Custom remains a separately migrated
-    program family and is not a production rollback path.
+    Production authority is unconditionally modular. Historical transition
+    ownership and runtime rollback switches are retired. Custom is owned by the
+    managed Manual path and cannot re-enter this controller.
     """
 
     STAGE_PREP = STAGE_PREP
@@ -182,7 +181,6 @@ class ManagedChargeController:
         battery_id: Optional[str] = None,
         recovery_intent: ChargeIntent = ChargeIntent.RECOVERY,
         condition_before: BatteryCondition = BatteryCondition.UNKNOWN,
-        authoritative: Optional[bool] = None,
     ) -> None:
         initialize_controller_state(self, hass_client, notify_cb=notify_cb)
         self._v2_battery_id = battery_id
@@ -198,12 +196,8 @@ class ManagedChargeController:
         self._v2_main_plateau_since: Optional[float] = None
         self._recovery_safe_wait: Optional[RecoverySafeWaitContinuation] = None
         self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
-        # Captured by the V2 tick and serialized by the production controller.
+        # Captured by the modular tick and serialized by the production controller.
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
-        # Production authority is fixed on the V2-authoritative path while the
-        # remaining historical scaffold is extracted. Environment configuration may
-        # not silently re-enable legacy transition ownership.
-        self._v2_authoritative = True if authoritative is None else bool(authoritative)
 
     @property
     def current_stage(self) -> str:
@@ -274,15 +268,6 @@ class ManagedChargeController:
 
     def stop(self, clear_session: bool = True) -> None:
         stop_charge(self, clear_session=clear_session)
-
-    @property
-    def v2_authoritative(self) -> bool:
-        return bool(self._v2_authoritative)
-
-    def set_v2_authoritative(self, enabled: bool) -> None:
-        """Runtime rollback switch; changing it never mutates the current stage."""
-        self._v2_authoritative = bool(enabled)
-        logger.warning("V2 actuator authority set to %s", self._v2_authoritative)
 
     def _add_phase_limits(
         self,
@@ -572,7 +557,7 @@ class ManagedChargeController:
         document["v2_battery_id"] = self._v2_battery_id
         document["v2_intent"] = self._v2_intent.value
         document["v2_condition_before"] = self._v2_condition_before.value
-        document["v2_authoritative"] = self._v2_authoritative
+        document["v2_authoritative"] = True
         if self._recovery_safe_wait is not None:
             document["v2_recovery_safe_wait"] = self._recovery_safe_wait.as_dict()
         else:
@@ -760,39 +745,13 @@ class ManagedChargeController:
             )
 
     def start(self, battery_type: str, ah_capacity: int) -> None:
-        if self._v2_authoritative and str(battery_type) == self.PROFILE_CUSTOM:
+        if str(battery_type) == self.PROFILE_CUSTOM:
             raise RuntimeError(
                 "historical Custom controller start is retired; use ProductionManualSessionManager"
             )
         self._recovery_safe_wait = None
         self._final_safe_wait = None
         start_charge(self, battery_type, ah_capacity)
-        self._begin_trace_identity()
-        self._initialize_shadow_session(started_at=self._v2_trace_started_at)
-
-    def start_custom(
-        self,
-        main_voltage: float,
-        main_current: float,
-        delta_threshold: float,
-        time_limit_hours: float,
-        ah_capacity: int,
-    ) -> None:
-        """Characterization-only adapter; production Custom is owned by Manual."""
-        if self._v2_authoritative:
-            raise RuntimeError(
-                "historical Custom controller start is retired; use ProductionManualSessionManager"
-            )
-        self._recovery_safe_wait = None
-        self._final_safe_wait = None
-        start_custom_charge(
-            self,
-            main_voltage=main_voltage,
-            main_current=main_current,
-            delta_threshold=delta_threshold,
-            time_limit_hours=time_limit_hours,
-            ah_capacity=ah_capacity,
-        )
         self._begin_trace_identity()
         self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
@@ -833,7 +792,7 @@ class ManagedChargeController:
             ah,
             session_file=SESSION_FILE,
         )
-        if ok and self._v2_authoritative and self.battery_type == self.PROFILE_CUSTOM:
+        if ok and self.battery_type == self.PROFILE_CUSTOM:
             logger.warning(
                 "Historical Custom controller restore rejected; Manual requires operator reauthorization"
             )
@@ -870,7 +829,7 @@ class ManagedChargeController:
             "capacity_ah": float(self.ah_capacity or 0.0),
             "intent": self._v2_intent,
             "condition_before": self._v2_condition_before,
-            "authoritative": self._v2_authoritative,
+            "authoritative": True,
         }
 
     async def _persist_shadow_trace_if_ready(self, shadow: Dict[str, Any]) -> bool:
@@ -985,7 +944,7 @@ class ManagedChargeController:
             "events": sorted(event.value for event in record.analysis.events),
             "disagreement": record.disagreement,
             "legacy_effect": record.legacy_effect,
-            "authority": "v2" if self._v2_authoritative else "legacy",
+            "authority": "modular",
             "trace_point": trace_point,
             "metrics": {
                 "d_voltage_v_per_min": metrics.d_voltage_v_per_min,
@@ -1130,7 +1089,7 @@ class ManagedChargeController:
         """Emit one structured transition record without changing FSM behavior."""
         if old_stage == new_stage:
             return
-        owner = "v2" if self._v2_authoritative else "legacy"
+        owner = "modular"
         logger.info(
             "CHARGE_TRANSITION old=%s new=%s reason=%s owner=%s timestamp=%.3f",
             old_stage,
@@ -1374,8 +1333,7 @@ class ManagedChargeController:
         """Compatibility hook delegating SAFE_WAIT decisions to modular owners."""
 
         if (
-            not self._v2_authoritative
-            or self.battery_type == self.PROFILE_CUSTOM
+            self.battery_type == self.PROFILE_CUSTOM
             or self.current_stage != self.STAGE_SAFE_WAIT
         ):
             return False
@@ -1552,18 +1510,16 @@ class ManagedChargeController:
         """Compatibility hook marking MIX as modular-authoritative.
 
         The production MIX path now bypasses historical ``ChargeController.tick()``
-        entirely; this hook remains only for characterization/direct legacy callers.
+        entirely; this hook remains only for direct characterization callers.
         """
         return bool(
-            self._v2_authoritative
-            and self.battery_type != self.PROFILE_CUSTOM
+            self.battery_type != self.PROFILE_CUSTOM
             and self.current_stage == self.STAGE_MIX
         )
 
     def _is_authoritative_stage(self, stage: str) -> bool:
         return (
-            self._v2_authoritative
-            and self.battery_type != self.PROFILE_CUSTOM
+            self.battery_type != self.PROFILE_CUSTOM
             and (
                 stage in {self.STAGE_MAIN, self.STAGE_DESULFATION, self.STAGE_MIX}
                 or (
@@ -1599,7 +1555,7 @@ class ManagedChargeController:
         residue is inert, while any active residue fails closed to Output OFF.
         Other not-yet-migrated automatic stages retain the compatibility path.
         """
-        if self._v2_authoritative and self.battery_type == self.PROFILE_CUSTOM:
+        if self.battery_type == self.PROFILE_CUSTOM:
             if stage_before == self.STAGE_IDLE:
                 return {}
             logger.error(
@@ -1638,8 +1594,7 @@ class ManagedChargeController:
             )
 
         if (
-            self._v2_authoritative
-            and self.battery_type != self.PROFILE_CUSTOM
+            self.battery_type != self.PROFILE_CUSTOM
             and stage_before == self.STAGE_MAIN
         ):
             return await run_authoritative_main_scaffold(
@@ -1664,8 +1619,7 @@ class ManagedChargeController:
             )
         )
         if (
-            self._v2_authoritative
-            and self.battery_type != self.PROFILE_CUSTOM
+            self.battery_type != self.PROFILE_CUSTOM
             and (stage_before == self.STAGE_DESULFATION or recovery_safe_wait)
         ):
             return await run_authoritative_recovery_scaffold(
@@ -1691,8 +1645,7 @@ class ManagedChargeController:
             )
         )
         if (
-            self._v2_authoritative
-            and self.battery_type != self.PROFILE_CUSTOM
+            self.battery_type != self.PROFILE_CUSTOM
             and (stage_before == self.STAGE_MIX or final_safe_wait)
         ):
             return await run_authoritative_mix_scaffold(
@@ -1717,7 +1670,7 @@ class ManagedChargeController:
 
         reason = f"unsupported_modular_stage:{stage_before}"
         logger.error(
-            "Historical controller fallback retired; rejecting stage=%s profile=%s",
+            "Unsupported modular stage; rejecting stage=%s profile=%s",
             stage_before,
             self.battery_type,
         )
@@ -1817,7 +1770,7 @@ class ManagedChargeController:
         )
         actions["log_event"] = "V2_STOP_DIAGNOSE"
         self._save_session(voltage, current, ah)
-        logger.warning("V2 diagnostic stop %s -> Done | %s", prev, reason)
+        logger.warning("Modular diagnostic stop %s -> Done | %s", prev, reason)
 
     def _advance_agm_step(
         self,
@@ -2367,10 +2320,9 @@ class ManagedChargeController:
                 authority_decision=authority_decision,
             )
         except Exception as exc:
-            # In legacy-fallback mode evidence remains diagnostic-only. In V2 authority
-            # mode a failed evidence path must fail closed instead of silently handing
-            # transition control back to legacy and possibly escalating voltage.
-            logger.exception("RECOVERY_V2 observation/authority failed")
+            # A failed modular evidence path must fail closed; there is no fallback
+            # transition owner to receive control after an internal error.
+            logger.exception("Recovery observation/authority failed")
             self._v2_session_signal_context = None
             trace_point = self._trace_point_metadata(
                 timestamp_s=timestamp_s,
@@ -2390,7 +2342,7 @@ class ManagedChargeController:
                 "decision": None,
                 "reason": "V2 observation/authority failed",
                 "error_type": type(exc).__name__,
-                "authority": "v2" if self._v2_authoritative else "legacy",
+                "authority": "modular",
                 "trace_point": trace_point,
             }
             if self._is_authoritative_stage(stage_before) and self.current_stage == stage_before:
@@ -2441,7 +2393,7 @@ class ManagedChargeController:
 
         # Mix scaffold temporarily hid the true stage clock from legacy persistence.
         # Rewrite the durable session after restoring/applying the authoritative state.
-        if self._v2_authoritative and self.current_stage not in {self.STAGE_IDLE, self.STAGE_DONE}:
+        if self.current_stage not in {self.STAGE_IDLE, self.STAGE_DONE}:
             self._save_session(float(voltage), float(current), float(ah))
 
         return actions
@@ -2506,7 +2458,7 @@ class ManagedChargeController:
                 and not last.analysis.has(SignalEvent.TELEMETRY_INVALID)
             )
         return {
-            "authoritative": self._v2_authoritative,
+            "authoritative": True,
             "battery_id": self._v2_battery_id,
             "intent": self._v2_intent.value,
             "condition": self._v2_condition_before.value,
@@ -2607,10 +2559,10 @@ class ManagedChargeController:
                 "disagreement_counts": {},
                 "last_disagreement": None,
                 "last_disagreement_repeats": 0,
-                "authoritative": self._v2_authoritative,
+                "authoritative": True,
             }
         summary = dict(self._v2_runtime.summary())
         summary["last_disagreement"] = self._v2_last_disagreement
         summary["last_disagreement_repeats"] = self._v2_disagreement_repeat_count
-        summary["authoritative"] = self._v2_authoritative
+        summary["authoritative"] = True
         return summary

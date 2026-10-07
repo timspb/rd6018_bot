@@ -33,7 +33,7 @@ class DummyHass:
 class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _controller(stage: str) -> ManagedChargeController:
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_AGM
         controller.ah_capacity = 90
         controller.current_stage = stage
@@ -195,7 +195,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 20_000.0
-            controller = ProductionChargeController(DummyHass(), authoritative=True)
+            controller = ProductionChargeController(DummyHass())
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_DESULFATION
             controller.stage_start_time = now - 1800.0
@@ -210,7 +210,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 "production_controller.time.time", return_value=now
             ):
                 controller._save_session(16.3, 0.5, 12.0)
-                restored = ProductionChargeController(DummyHass(), authoritative=True)
+                restored = ProductionChargeController(DummyHass())
                 ok, _ = restored.try_restore_session(
                     16.3,
                     0.5,

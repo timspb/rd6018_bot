@@ -11,7 +11,7 @@ class DummyHass:
 
 class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self):
-        controller = ProductionChargeController(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller._v2_intent = ChargeIntent.RECOVERY
@@ -111,7 +111,7 @@ class ProductionMixLimitTests(unittest.TestCase):
     def test_v2_mix_limits_are_the_agreed_fallback_windows(self):
         expected = {"Ca/Ca": 20.0, "EFB": 24.0, "AGM": 10.0}
         self.assertEqual(V2_MIX_MAX_HOURS, expected)
-        controller = ProductionChargeController(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass())
         for profile, hours in expected.items():
             controller.battery_type = profile
             self.assertEqual(controller._mix_limit_seconds(), hours * 3600.0)

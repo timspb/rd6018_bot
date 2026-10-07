@@ -732,16 +732,16 @@ Manual program remains the production owner:
 
 Historical Custom production authority is retired:
 
-- authoritative `ChargeControllerV2.start(PROFILE_CUSTOM,...)` is rejected;
-- authoritative `ChargeControllerV2.start_custom(...)` is rejected;
+- `ManagedChargeController.start(PROFILE_CUSTOM,...)` is rejected;
+- `ManagedChargeController.start_custom(...)` no longer exists;
 - an active historical Custom residue is never allowed into
   `ChargeController.tick()`; it is forced OFF and the stale controller
   session is cleared;
 - an IDLE Custom residue is inert;
 - persisted historical Custom sessions are rejected on restore and require
   explicit operator reauthorization through Manual;
-- `authoritative=False` Custom remains characterization-only for tests and is
-  not a production rollback path.
+- the controller has no runtime authority switch and no characterization-only
+  fallback owner; modular authority is unconditional.
 
 Accepted Manual semantics were preserved, including the five-step Custom UI
 payload mapping for voltage, current, Delta, active-time limit and capacity.
