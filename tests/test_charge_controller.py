@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from pb_domain import BatteryCondition, ChargeIntent
 
 
@@ -14,9 +14,9 @@ class ExplodingShadowRuntime:
         raise RuntimeError("synthetic shadow failure")
 
 
-class ChargeControllerV2Tests(unittest.IsolatedAsyncioTestCase):
+class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
     def _shadow_controller(self):
-        return ChargeControllerV2(DummyHass(), authoritative=True)
+        return ManagedChargeController(DummyHass(), authoritative=True)
 
     async def test_idle_tick_keeps_legacy_actions_and_adds_shadow_only(self):
         controller = self._shadow_controller()

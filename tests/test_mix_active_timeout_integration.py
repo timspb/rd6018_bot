@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from diagnostic_controller import DiagnosticProductionChargeControllerV2
+from diagnostic_controller import DiagnosticProductionChargeController
 from mix_active_authority import MixActiveTimeAuthority
 from recovery_policy import RecoveryDecision
 
@@ -26,7 +26,7 @@ class MixActiveTimeoutIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             mono = Clock(100.0)
             wall = Clock(1000.0)
-            controller = DiagnosticProductionChargeControllerV2(
+            controller = DiagnosticProductionChargeController(
                 DummyHass(),
                 authoritative=True,
             )

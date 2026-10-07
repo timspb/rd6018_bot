@@ -12,11 +12,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import production_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
-from diagnostic_controller import DiagnosticProductionChargeControllerV2
+from diagnostic_controller import DiagnosticProductionChargeController
 from manual_runtime import ProductionManualSessionManager
 from manual_text import install_manual_text
 from pb_domain import ChargeIntent
-from managed_runtime_safety import install_v2_runtime_safety
+from managed_runtime_safety import install_managed_runtime_safety
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
@@ -31,7 +31,7 @@ from application.production_start_execution_port import ProductionStartExecution
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
 from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
-from application.start_transaction_adapter import V2StartTransactionAdapter
+from application.start_transaction_adapter import StartTransactionAdapter
 
 
 def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -147,14 +147,14 @@ def _install_managed_charge_monitor_guard(app: Any) -> None:
     app._v2_managed_charge_monitor_guard_installed = True
 
 
-def install_v2(app: Any, *, install_ui: bool = True) -> None:
-    if not isinstance(app.charge_controller, DiagnosticProductionChargeControllerV2):
-        app.charge_controller = DiagnosticProductionChargeControllerV2(app.hass, notify_cb=app._charge_notify)
+def install_production(app: Any, *, install_ui: bool = True) -> None:
+    if not isinstance(app.charge_controller, DiagnosticProductionChargeController):
+        app.charge_controller = DiagnosticProductionChargeController(app.hass, notify_cb=app._charge_notify)
     get_or_create_execution_port(app)
     if not isinstance(getattr(app, "manual_session_manager", None), ProductionManualSessionManager):
         app.manual_session_manager = ProductionManualSessionManager(app)
     app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui
-    install_v2_runtime_safety(app)
+    install_managed_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
     install_manual_text(app)
     if not install_ui:
@@ -194,7 +194,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     production_bot_ui._preview_keyboard = _operator_preview_keyboard
     # Telegram START reaches the existing V2 owner only after StartPreflightService
     # and the transactional ExecutionPort checks have passed.
-    v3_transaction_adapter = V2StartTransactionAdapter()
+    v3_transaction_adapter = StartTransactionAdapter()
     v3_runner_adapter = StartTransactionRunner(app, event_factory=build_start_event_context)
     v3_production_runner = ProductionStartRunner(
         transaction_adapter=v3_transaction_adapter,
@@ -262,6 +262,6 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     install_panel_last(app)
 
 
-async def init_v2_storage() -> None:
+async def init_production_storage() -> None:
     await init_battery_registry()
     await init_battery_diagnostics_store()

@@ -6,7 +6,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from rd_control_mode import RdControlMode, install_rd_control_mode
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 from application.start_transaction_service import start_profile_transactional
 
 
@@ -125,7 +125,7 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             _charge_notify=lambda *args, **kwargs: None,
             rd_control_mode_file=state_file,
         )
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0

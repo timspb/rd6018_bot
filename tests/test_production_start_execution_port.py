@@ -13,8 +13,8 @@ from application.start_preflight import StartPreflightService
 from application.start_request import StartRequest
 from application.start_transaction_adapter import (
     StartExecutionStatus,
-    V2StartTransactionAdapter,
-    V2TransactionOutcome,
+    StartTransactionAdapter,
+    StartTransactionOutcome,
 )
 from pb_domain import BatteryChemistry, BatteryIdentity
 
@@ -86,7 +86,7 @@ class ProductionStartPortTests(unittest.TestCase):
 
         async def async_owner(request):
             calls.append(request)
-            return V2TransactionOutcome(
+            return StartTransactionOutcome(
                 trace_id=request.trace_id,
                 started=True,
                 reason="started",
@@ -95,7 +95,7 @@ class ProductionStartPortTests(unittest.TestCase):
         async def run():
             return await ProductionStartExecutionPort(
                 production_runner=ProductionStartRunner(
-                    V2StartTransactionAdapter(),
+                    StartTransactionAdapter(),
                     async_owner,
                 ),
             ).submit_active(plan, trace_id="trace-async-active")
@@ -116,7 +116,7 @@ class ProductionStartPortTests(unittest.TestCase):
         routed = port.submit(make_plan(), trace_id="trace-result", mode=ProductionStartMode.DRY_RUN)
         normalized = port.normalize_v2_outcome(
             routed.request,
-            V2TransactionOutcome(started=False, session_cleared=True, output_off_confirmed=True, reason="failed_start"),
+            StartTransactionOutcome(started=False, session_cleared=True, output_off_confirmed=True, reason="failed_start"),
         )
         self.assertEqual(normalized.trace_id, "trace-result")
         self.assertEqual(normalized.status, StartExecutionStatus.FAILED)

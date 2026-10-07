@@ -18,7 +18,7 @@ from runtime.charge.strategy.mix_variables import (
     EFB_MIX_MAX_ACTIVE_HOURS,
     mix_max_active_seconds,
 )
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from application.recipe_policy import chemistry_for_profile
@@ -40,7 +40,7 @@ V2_MIX_MAX_HOURS = {
 RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
 
 
-class ProductionChargeControllerV2(ChargeControllerV2):
+class ProductionChargeController(ManagedChargeController):
     """Live controller with recipe envelopes and production pause semantics."""
 
     _OPERATOR_REASON_TEXT = {

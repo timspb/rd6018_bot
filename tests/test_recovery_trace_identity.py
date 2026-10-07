@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 
 
 class DummyHass:
@@ -30,7 +30,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         with p1, p2, patch("charge_logic.time.time", return_value=1000.0), patch(
             "charge_controller.time.time", return_value=1000.0
         ):
-            profile = ChargeControllerV2(DummyHass())
+            profile = ManagedChargeController(DummyHass())
             profile.start(profile.PROFILE_EFB, 70)
             profile_id = profile.recovery_trace_context["session_id"]
 
@@ -40,7 +40,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         ):
             # Historical Custom is characterization-only after ERADICATION-05;
             # production authority routes Manual through ProductionManualSessionManager.
-            custom = ChargeControllerV2(DummyHass(), authoritative=False)
+            custom = ManagedChargeController(DummyHass(), authoritative=False)
             custom.start_custom(
                 main_voltage=14.8,
                 main_current=5.0,
@@ -59,7 +59,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         with p1, p2, patch("charge_logic.time.time", return_value=1000.0), patch(
             "charge_controller.time.time", return_value=1000.0
         ):
-            original = ChargeControllerV2(DummyHass())
+            original = ManagedChargeController(DummyHass())
             original.start(original.PROFILE_EFB, 70)
             original.current_stage = original.STAGE_MAIN
             original._device_set_voltage = 14.8
@@ -78,7 +78,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         self.assertEqual(saved["v2_trace_session_id"], original_id)
         self.assertAlmostEqual(saved["v2_trace_started_at"], original_started_at)
 
-        restored = ChargeControllerV2(DummyHass())
+        restored = ManagedChargeController(DummyHass())
         p1, p2 = self._session_patches()
         with p1, p2, patch("charge_logic.time.time", return_value=1200.0), patch(
             "charge_controller.time.time", return_value=1200.0
@@ -133,7 +133,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         with open(self.session_file, "w", encoding="utf-8") as handle:
             json.dump(legacy, handle)
 
-        first = ChargeControllerV2(DummyHass())
+        first = ManagedChargeController(DummyHass())
         p1, p2 = self._session_patches()
         with p1, p2, patch("charge_logic.time.time", return_value=1100.0), patch(
             "charge_controller.time.time", return_value=1100.0
@@ -146,7 +146,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
             enriched = json.load(handle)
         self.assertEqual(enriched["v2_trace_session_id"], migrated_id)
 
-        second = ChargeControllerV2(DummyHass())
+        second = ManagedChargeController(DummyHass())
         p1, p2 = self._session_patches()
         with p1, p2, patch("charge_logic.time.time", return_value=1150.0), patch(
             "charge_controller.time.time", return_value=1150.0

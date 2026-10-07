@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import database
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from recovery_trace_store import export_replay_document, list_trace_sessions
 
 
@@ -25,8 +25,8 @@ class RecoveryTraceCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.tempdir.cleanup()
 
     @staticmethod
-    def _controller() -> ChargeControllerV2:
-        controller = ChargeControllerV2(DummyHass())
+    def _controller() -> ManagedChargeController:
+        controller = ManagedChargeController(DummyHass())
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 70
@@ -36,7 +36,7 @@ class RecoveryTraceCaptureTests(unittest.IsolatedAsyncioTestCase):
         controller._last_known_output_on = True
         return controller
 
-    async def _tick(self, controller: ChargeControllerV2):
+    async def _tick(self, controller: ManagedChargeController):
         with patch("charge_logic.time.time", return_value=1000.0):
             return await controller.tick(
                 voltage=14.75,

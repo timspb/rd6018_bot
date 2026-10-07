@@ -22,7 +22,7 @@ CORE_DOMAIN_COMPONENTS = {
     "install_manual_context_preprocessor",
     "install_manual_context_ui",
     "install_mix_only_mode",
-    "install_v2",
+    "install_production",
 }
 
 OWNERSHIP_AND_RUNTIME_COMPONENTS = {

@@ -2,9 +2,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 from runtime.charge.runtime.cooling_guard import validate_cooling_pause
 
 
@@ -14,7 +14,7 @@ class DummyHass:
 
 class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self):
-        controller = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass(), authoritative=True)
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller._v2_intent = ChargeIntent.RECOVERY
@@ -120,7 +120,7 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
         controller.stop = stop
         with patch.object(controller, "_read_legacy_session_document", return_value={}):
             with patch.object(
-                ChargeControllerV2,
+                ManagedChargeController,
                 "try_restore_session",
                 return_value=(True, "cooling restored"),
             ):

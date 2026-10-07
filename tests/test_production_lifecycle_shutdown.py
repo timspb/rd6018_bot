@@ -4,17 +4,17 @@ from unittest.mock import AsyncMock, patch
 
 from aiogram import Dispatcher
 
-from runtime.production_lifecycle import V2RuntimeLifecycle
+from runtime.production_lifecycle import ProductionRuntimeLifecycle
 
 
-class V2RuntimeLifecycleShutdownTests(unittest.IsolatedAsyncioTestCase):
+class ProductionRuntimeLifecycleShutdownTests(unittest.IsolatedAsyncioTestCase):
     async def test_shutdown_hook_receives_aiogram_dispatcher_context(self):
         app = SimpleNamespace(
             logger=SimpleNamespace(info=lambda *args: None, warning=lambda *args: None),
             charge_controller=SimpleNamespace(is_active=False),
             hass=SimpleNamespace(close=AsyncMock()),
         )
-        lifecycle = V2RuntimeLifecycle(app, telegram_runtime=None)
+        lifecycle = ProductionRuntimeLifecycle(app, telegram_runtime=None)
         dispatcher = Dispatcher()
         dispatcher.shutdown.register(lifecycle.on_shutdown)
 

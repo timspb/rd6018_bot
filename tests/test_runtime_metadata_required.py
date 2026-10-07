@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from runtime_safety import RuntimeSafetyError
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 class _Hass:
@@ -73,7 +73,7 @@ class RuntimeMetadataRequiredTests(unittest.IsolatedAsyncioTestCase):
             manual_session_manager=None,
             _charge_notify=lambda *args, **kwargs: None,
         )
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0

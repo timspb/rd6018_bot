@@ -10,8 +10,8 @@ from application.start_request import StartRequest
 from application.start_transaction_adapter import (
     RollbackState,
     StartExecutionStatus,
-    V2StartTransactionAdapter,
-    V2TransactionOutcome,
+    StartTransactionAdapter,
+    StartTransactionOutcome,
 )
 from pb_domain import BatteryChemistry, BatteryIdentity
 
@@ -67,9 +67,9 @@ def make_plan():
     return approved_plan_from_preflight(result)
 
 
-class V2StartTransactionAdapterTests(unittest.TestCase):
+class StartTransactionAdapterTests(unittest.TestCase):
     def test_prepare_maps_approved_plan_without_runtime_objects(self):
-        transaction = V2StartTransactionAdapter().prepare(make_plan())
+        transaction = StartTransactionAdapter().prepare(make_plan())
         self.assertEqual(transaction.profile, "AGM")
         self.assertEqual(transaction.chemistry, "agm")
         self.assertEqual(transaction.recipe_id, "agm:normal")
@@ -78,7 +78,7 @@ class V2StartTransactionAdapterTests(unittest.TestCase):
         self.assertNotIn("hass", transaction.__dict__)
 
     def test_prepare_preserves_session_identity_in_transaction_metadata(self):
-        transaction = V2StartTransactionAdapter().prepare(
+        transaction = StartTransactionAdapter().prepare(
             make_plan(),
             trace_id="trace-identity",
             session_id="session-identity",
@@ -100,12 +100,12 @@ class V2StartTransactionAdapterTests(unittest.TestCase):
             telemetry_evidence=plan.telemetry_evidence,
         )
         with self.assertRaises(ValueError):
-            V2StartTransactionAdapter().prepare(denied)
+            StartTransactionAdapter().prepare(denied)
 
     def test_failed_start_normalizes_verified_off_and_cleared_session(self):
-        result = V2StartTransactionAdapter().normalize(
+        result = StartTransactionAdapter().normalize(
             make_plan(),
-            V2TransactionOutcome(
+            StartTransactionOutcome(
                 output_off_confirmed=True,
                 session_cleared=True,
                 reason="safe_enable_failed",
@@ -115,9 +115,9 @@ class V2StartTransactionAdapterTests(unittest.TestCase):
         self.assertEqual(result.rollback, RollbackState.SESSION_CLEARED)
 
     def test_unconfirmed_failure_normalizes_containment(self):
-        result = V2StartTransactionAdapter().normalize(
+        result = StartTransactionAdapter().normalize(
             make_plan(),
-            V2TransactionOutcome(
+            StartTransactionOutcome(
                 contained=True,
                 output_off_unconfirmed=True,
                 session_contained=True,
@@ -129,7 +129,7 @@ class V2StartTransactionAdapterTests(unittest.TestCase):
 
     def test_active_execution_is_disabled_and_runner_is_not_called(self):
         calls = []
-        result = V2StartTransactionAdapter().execute(
+        result = StartTransactionAdapter().execute(
             make_plan(),
             lambda _input: calls.append("called"),
         )

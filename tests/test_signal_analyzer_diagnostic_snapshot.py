@@ -1,6 +1,6 @@
 import copy
 import unittest
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
@@ -12,7 +12,7 @@ class DummyHass:
 
 
 def _controller(mode):
-    controller = ChargeControllerV2(DummyHass(), authoritative=True)
+    controller = ManagedChargeController(DummyHass(), authoritative=True)
     controller.current_stage = controller.STAGE_MIX
     controller.is_cv = mode == "CV"
     controller.is_cc = mode == "CC"

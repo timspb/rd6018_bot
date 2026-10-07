@@ -216,16 +216,16 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "physical_test_control": physical,
         }
         originals = {name: getattr(composition, name) for name in replacements}
-        original_init_storage = bot.init_v2_storage
+        original_init_storage = bot.init_production_storage
         try:
             for name, value in replacements.items():
                 setattr(composition, name, value)
-            bot.init_v2_storage = init_storage
+            bot.init_production_storage = init_storage
             await bot.main()
         finally:
             for name, value in originals.items():
                 setattr(composition, name, value)
-            bot.init_v2_storage = original_init_storage
+            bot.init_production_storage = original_init_storage
 
         self.assertEqual(recovery_calls, 1)
         self.assertEqual(len(controller.restore_calls), 1)

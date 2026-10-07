@@ -5,7 +5,7 @@ import unittest
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
 from runtime_safety import RuntimeSafetyError
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -81,7 +81,7 @@ class HandsOffTransferBarrierTests(unittest.IsolatedAsyncioTestCase):
                 rd_control_mode_file=f"{tmp}/mode.json",
                 _charge_notify=lambda *args, **kwargs: None,
             )
-            guard = V2RuntimeSafetyGuard(app)
+            guard = ManagedRuntimeSafetyGuard(app)
             guard.edge_lease_enforced = False
             guard.OFF_CONFIRMATION_WINDOW_S = 0.0
             guard.OFF_CONFIRMATION_POLL_S = 0.0

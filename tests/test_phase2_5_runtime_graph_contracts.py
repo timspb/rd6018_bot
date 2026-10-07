@@ -25,7 +25,7 @@ FORBIDDEN_TYPES = {
 EXECUTION_TYPES = {
     "ProductionStartExecutionPort",
     "ProductionStartRunner",
-    "V2StartTransactionAdapter",
+    "StartTransactionAdapter",
     "StartTransactionRunner",
 }
 

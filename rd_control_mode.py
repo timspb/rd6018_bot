@@ -15,7 +15,7 @@ from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 
 from runtime_safety import RuntimeSafetyError, _binary, logger
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 class RdControlMode(str, Enum):
@@ -39,8 +39,8 @@ class RdControlModeManager:
     def __init__(self, app: Any, *, state_file: Optional[str] = None) -> None:
         self.app = app
         self.guard = getattr(app, "runtime_safety_guard", None)
-        if not isinstance(self.guard, V2RuntimeSafetyGuard):
-            raise RuntimeError("RD control mode requires V2RuntimeSafetyGuard")
+        if not isinstance(self.guard, ManagedRuntimeSafetyGuard):
+            raise RuntimeError("RD control mode requires ManagedRuntimeSafetyGuard")
         self.state_file = str(
             state_file
             or getattr(app, "rd_control_mode_file", "rd_control_mode_v2.json")

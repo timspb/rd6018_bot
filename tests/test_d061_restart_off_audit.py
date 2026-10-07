@@ -9,7 +9,7 @@ import runtime_safety
 from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionState, ManagedLiveAdoptionCoordinator
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 def _stamp(offset_s: float) -> str:
@@ -131,7 +131,7 @@ class D061RestartOffAuditTests(unittest.IsolatedAsyncioTestCase):
             manual_session_manager=manual,
             _charge_notify=lambda *args, **kwargs: None,
         )
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.install()
         manager = _Manager(guard)
         return app, guard, manager, lease, manual

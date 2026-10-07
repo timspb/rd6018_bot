@@ -145,7 +145,7 @@ logger = logging.getLogger("rd6018.recovery")
 INTERMEDIATE_RECOVERY_DURATION_SEC = desulfation_duration_seconds()
 
 
-class ChargeControllerV2:
+class ManagedChargeController:
     """Transitional production controller while modular V3 replaces the old FSM.
 
     For non-Custom automatic charging, MAIN, bounded DESULFATION, recovery

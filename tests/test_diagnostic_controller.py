@@ -3,9 +3,9 @@ import unittest
 from unittest.mock import patch
 
 from battery_fault_engine import DiagnosticAuthority
-from diagnostic_controller import DiagnosticProductionChargeControllerV2
+from diagnostic_controller import DiagnosticProductionChargeController
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 from charge_authority import AuthorityAction, AuthorityDecision
 
 
@@ -15,7 +15,7 @@ class DummyHass:
 
 class DiagnosticControllerTests(unittest.TestCase):
     def _controller(self, *, profile="EFB"):
-        controller = DiagnosticProductionChargeControllerV2(DummyHass(), authoritative=True)
+        controller = DiagnosticProductionChargeController(DummyHass(), authoritative=True)
         controller.battery_type = profile
         controller.ah_capacity = 70
         controller._v2_intent = ChargeIntent.RECOVERY
@@ -73,7 +73,7 @@ class DiagnosticControllerTests(unittest.TestCase):
             return False, None
 
         with patch.object(
-            ProductionChargeControllerV2,
+            ProductionChargeController,
             "try_restore_session",
             production_restore,
         ):

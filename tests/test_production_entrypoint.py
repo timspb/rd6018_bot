@@ -9,7 +9,7 @@ import operator_dashboard
 import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
 from operator_output_truth import OUTPUT_TRUTH_ATTR
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
@@ -46,7 +46,7 @@ class V2EntrypointTests(unittest.TestCase):
     def test_import_bot_is_distinct_composition_module_with_runtime_bridge(self):
         self.assertEqual(bot.__name__, "bot")
         self.assertIs(bot.charge_controller, production_runtime.charge_controller)
-        self.assertIsInstance(bot.charge_controller, ProductionChargeControllerV2)
+        self.assertIsInstance(bot.charge_controller, ProductionChargeController)
 
     def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
         from pathlib import Path

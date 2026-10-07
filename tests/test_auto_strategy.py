@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from auto_strategy import AutoStrategyProductionChargeControllerV2
-from production_controller import ProductionChargeControllerV2
+from auto_strategy import AutoStrategyProductionChargeController
+from production_controller import ProductionChargeController
 
 
 class DummyHass:
@@ -11,7 +11,7 @@ class DummyHass:
 
 class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
     async def test_authoritative_main_no_longer_masks_elapsed_clock(self):
-        controller = AutoStrategyProductionChargeControllerV2(DummyHass(), authoritative=True)
+        controller = AutoStrategyProductionChargeController(DummyHass(), authoritative=True)
         controller.current_stage = controller.STAGE_MAIN
         real_start = 1000.0
         now = real_start + 80 * 3600
@@ -23,7 +23,7 @@ class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
             return {"legacy": True}
 
         with patch.object(
-            ProductionChargeControllerV2,
+            ProductionChargeController,
             "_run_stage_scaffold_tick",
             new=fake_parent,
         ), patch("auto_strategy.time.time", return_value=now):
@@ -45,7 +45,7 @@ class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.stage_start_time, real_start)
 
     def test_production_mix_limits_are_20_24_10(self):
-        controller = AutoStrategyProductionChargeControllerV2(DummyHass(), authoritative=True)
+        controller = AutoStrategyProductionChargeController(DummyHass(), authoritative=True)
         for profile, hours in (("Ca/Ca", 20.0), ("EFB", 24.0), ("AGM", 10.0)):
             controller.battery_type = profile
             controller.current_stage = controller.STAGE_MIX

@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
-class V2StartEventContext:
+class StartEventContext:
     """Data-only context; it is not a Telegram event or a runtime handle."""
 
     trace_id: str

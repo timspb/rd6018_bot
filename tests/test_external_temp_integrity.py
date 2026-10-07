@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 def _live(temp=25.0, *, when=None, switch="on"):
@@ -234,7 +234,7 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             external_temp_integrity_fault_file=os.path.join(tmp, "fault.json"),
             _charge_notify=lambda *args, **kwargs: None,
         )
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0
@@ -298,7 +298,7 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 external_temp_integrity_fault_file=path,
                 _charge_notify=lambda *args, **kwargs: None,
             )
-            guard = V2RuntimeSafetyGuard(app)
+            guard = ManagedRuntimeSafetyGuard(app)
             guard.edge_lease_enforced = False
             with self.assertRaisesRegex(RuntimeSafetyError, "auto-restore is forbidden"):
                 await guard.turn_on()

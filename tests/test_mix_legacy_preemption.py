@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from diagnostic_controller import DiagnosticProductionChargeControllerV2
+from diagnostic_controller import DiagnosticProductionChargeController
 from mix_active_authority import MixActiveTimeAuthority
 from recovery_policy import RecoveryDecision, RecoveryDecisionResult
 from signal_analyzer import SignalAnalysis, SignalMetrics, SignalSample
@@ -82,7 +82,7 @@ class FixedRuntime:
 
 class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, now: float, wall_stage_hours: float, active_hours: float, tmp: str):
-        controller = DiagnosticProductionChargeControllerV2(
+        controller = DiagnosticProductionChargeController(
             DummyHass(),
             authoritative=True,
         )

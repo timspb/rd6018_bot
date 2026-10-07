@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from diagnostic_controller import DiagnosticProductionChargeControllerV2
+from diagnostic_controller import DiagnosticProductionChargeController
 from runtime.charge.persistence import (
     DONE_COMPLETION_STORAGE,
     DONE_COMPLETION_TERMINAL,
@@ -34,7 +34,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
 
     @staticmethod
     def _installed_controller():
-        controller = DiagnosticProductionChargeControllerV2(DummyHass(), authoritative=True)
+        controller = DiagnosticProductionChargeController(DummyHass(), authoritative=True)
         app = SimpleNamespace(
             charge_controller=controller,
             _restore_allows_auto_enable=restore_allows_auto_enable,

@@ -28,7 +28,7 @@ class RollbackState(str, Enum):
 
 
 @dataclass(frozen=True)
-class V2StartTransactionInput:
+class StartTransactionInput:
     trace_id: str
     profile: str
     chemistry: str
@@ -53,7 +53,7 @@ class V2StartTransactionInput:
 
 
 @dataclass(frozen=True)
-class V2TransactionOutcome:
+class StartTransactionOutcome:
     trace_id: str = ""
     started: bool = False
     denied: bool = False
@@ -71,11 +71,11 @@ class StartExecutionResult:
     status: StartExecutionStatus
     rollback: RollbackState
     reason: str
-    transaction_input: V2StartTransactionInput
+    transaction_input: StartTransactionInput
     session_id: str | None = None
 
 
-class V2StartTransactionAdapter:
+class StartTransactionAdapter:
     """Translate a V3 plan to V2 data without owning V2 execution."""
 
     def prepare(
@@ -87,7 +87,7 @@ class V2StartTransactionAdapter:
         condition: BatteryCondition = BatteryCondition.UNKNOWN,
         execution_metadata: Mapping[str, Any] | None = None,
         session_id: str | None = None,
-    ) -> V2StartTransactionInput:
+    ) -> StartTransactionInput:
         if plan.ownership_result != "available":
             raise ValueError("cannot prepare V2 transaction without ownership")
         if plan.safety_result != "allowed":
@@ -101,7 +101,7 @@ class V2StartTransactionAdapter:
         intent_metadata = dict(metadata.get("intent_metadata") or {})
         intent_metadata.setdefault("intent", intent.value)
         intent_metadata.setdefault("condition", condition.value)
-        return V2StartTransactionInput(
+        return StartTransactionInput(
             trace_id=trace_id,
             profile=plan.profile,
             chemistry=plan.chemistry,
@@ -124,7 +124,7 @@ class V2StartTransactionAdapter:
     def normalize(
         self,
         plan: ApprovedStartPlan,
-        outcome: V2TransactionOutcome,
+        outcome: StartTransactionOutcome,
         *,
         trace_id: str | None = None,
         session_id: str | None = None,
@@ -167,7 +167,7 @@ class V2StartTransactionAdapter:
     def execute(
         self,
         plan: ApprovedStartPlan,
-        transaction_runner: Callable[[V2StartTransactionInput], Any] | None = None,
+        transaction_runner: Callable[[StartTransactionInput], Any] | None = None,
         *,
         active_enabled: bool = False,
     ) -> StartExecutionResult:

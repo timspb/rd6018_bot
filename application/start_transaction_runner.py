@@ -7,8 +7,8 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
 from .start_transaction_service import start_profile_transactional
-from .start_event_context import V2StartEventContext
-from .start_transaction_adapter import V2StartTransactionInput, V2TransactionOutcome
+from .start_event_context import StartEventContext
+from .start_transaction_adapter import StartTransactionInput, StartTransactionOutcome
 
 
 StartTransactionOwner = Callable[[Any, Any, Any], Awaitable[bool]]
@@ -24,8 +24,8 @@ class _ProductionMessage:
         return None
 
 
-def build_start_event_context(transaction: V2StartTransactionInput) -> V2StartEventContext:
-    return V2StartEventContext(
+def build_start_event_context(transaction: StartTransactionInput) -> StartEventContext:
+    return StartEventContext(
         trace_id=transaction.trace_id,
         actor=transaction.actor,
         source=transaction.source,
@@ -42,10 +42,10 @@ class StartTransactionRunner:
     """Adapt prepared START transaction data to the application-owned owner."""
 
     app: Any
-    event_factory: Callable[[V2StartTransactionInput], Any] | None = None
+    event_factory: Callable[[StartTransactionInput], Any] | None = None
     transaction_owner: StartTransactionOwner | None = None
 
-    async def __call__(self, transaction: V2StartTransactionInput) -> V2TransactionOutcome:
+    async def __call__(self, transaction: StartTransactionInput) -> StartTransactionOutcome:
         pending = SimpleNamespace(
             profile=transaction.profile,
             capacity_ah=transaction.capacity_ah,
@@ -54,7 +54,7 @@ class StartTransactionRunner:
             condition=transaction.condition,
         )
         event = (self.event_factory or build_start_event_context)(transaction)
-        if self.event_factory is None or isinstance(event, V2StartEventContext):
+        if self.event_factory is None or isinstance(event, StartEventContext):
             message = _ProductionMessage(transaction.actor)
             event = SimpleNamespace(
                 message=message,
@@ -63,7 +63,7 @@ class StartTransactionRunner:
             )
         owner = self.transaction_owner or start_profile_transactional
         started = await owner(self.app, event, pending)
-        return V2TransactionOutcome(
+        return StartTransactionOutcome(
             trace_id=transaction.trace_id,
             started=bool(started),
             reason="started" if started else "start_transaction_denied_or_failed",
