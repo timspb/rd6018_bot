@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
-from .v2_v3_comparison import ComparisonContext, ComparisonResult, ComparisonStatus
+from .decision_comparison import ComparisonContext, ComparisonResult, ComparisonStatus
 
 
 class DivergenceCategory(str, Enum):

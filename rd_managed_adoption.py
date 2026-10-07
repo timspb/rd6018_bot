@@ -21,8 +21,8 @@ from operator_confirmation import ConfirmationStore
 from pb_domain import BatteryChemistry
 from rd6018_telemetry import ProtectionStatus, finite_float, resolve_protection
 from runtime_safety import RuntimeSafetyError, _binary
-from v2_battery_catalog import list_batteries
-from v2_ui import battery_button_label
+from battery_catalog import list_batteries
+from ui_support import battery_button_label
 
 
 ADOPTION_POLL_S = 5.0

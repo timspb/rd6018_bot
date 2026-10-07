@@ -6,7 +6,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from rd_control_mode import RdControlMode, install_rd_control_mode
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 from application.start_transaction_service import start_profile_transactional
 
 
@@ -365,11 +365,11 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, _guard = self._app(f"{tmp}/mode.json", install_ui=True)
             await manager.enter_hands_off()
-            import v2_mix_mode
+            import mix_mode
 
             message = DummyMessage()
             pending = types.SimpleNamespace(profile="Ca/Ca", capacity_ah=60.0)
-            started = await v2_mix_mode.start_mix_transactional(app, message, pending)
+            started = await mix_mode.start_mix_transactional(app, message, pending)
 
             self.assertFalse(started)
             self.assertTrue(any("не лезь" in text for text in message.answers))

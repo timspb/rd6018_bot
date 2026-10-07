@@ -13,7 +13,7 @@ from battery_diagnostics import SpecificGravityMeasurement, assess_specific_grav
 from battery_diagnostics_store import record_specific_gravity
 from pb_domain import BatteryChemistry
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
-from sg_policy_v2 import (
+from sg_policy import (
     HydrometerMode,
     SGAccess,
     SGCorrectionProfile,
@@ -23,7 +23,7 @@ from sg_policy_v2 import (
     record_sg_measurement_metadata,
     set_sg_access,
 )
-from v2_battery_catalog import list_batteries
+from battery_catalog import list_batteries
 
 
 @dataclass(frozen=True)

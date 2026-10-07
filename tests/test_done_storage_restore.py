@@ -28,7 +28,7 @@ class DoneStorageRestoreTests(unittest.TestCase):
         # V3 controller and production persistence both resolve the canonical
         # session owner through their imported SESSION_FILE aliases.
         stack.enter_context(patch("runtime.charge.persistence.SESSION_FILE", path))
-        stack.enter_context(patch("charge_controller_v2.SESSION_FILE", path))
+        stack.enter_context(patch("charge_controller.SESSION_FILE", path))
         stack.enter_context(patch("production_controller.SESSION_FILE", path))
         return stack
 

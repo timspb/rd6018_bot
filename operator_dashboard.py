@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
-import v2_bot_ui
+import production_bot_ui
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from presentation.dark_panel import render_dark_dashboard, render_dark_panel
 from rd6018_telemetry import (

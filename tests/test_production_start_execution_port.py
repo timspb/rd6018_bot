@@ -121,8 +121,8 @@ class ProductionStartPortTests(unittest.TestCase):
         self.assertEqual(normalized.trace_id, "trace-result")
         self.assertEqual(normalized.status, StartExecutionStatus.FAILED)
 
-    def test_no_duplicate_telegram_start_route_in_v2_bootstrap(self):
-        source = Path("v2_bootstrap.py").read_text(encoding="utf-8")
+    def test_no_duplicate_telegram_start_route_in_production_bootstrap(self):
+        source = Path("production_bootstrap.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('F.data == "v2_battery_start"'), 1)
 
 

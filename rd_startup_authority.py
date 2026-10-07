@@ -166,16 +166,16 @@ class RdStartupAuthorityGate:
             controller.try_restore_session = restore
             controller._rd_startup_authority_restore_wrapped = True
 
-        import v2_mix_mode
-        if not bool(getattr(v2_mix_mode, "_rd_startup_authority_wrapped", False)):
-            original_mix = v2_mix_mode.start_mix_transactional
+        import mix_mode
+        if not bool(getattr(mix_mode, "_rd_startup_authority_wrapped", False)):
+            original_mix = mix_mode.start_mix_transactional
             async def mix_start(app_arg: Any, event: Any, pending: Any) -> bool:
                 installed = getattr(app_arg, "rd_startup_authority_gate", None) is self
                 if installed and not self.managed_actuation_ready:
                     raise self._blocked("Mix start")
                 return bool(await original_mix(app_arg, event, pending))
-            v2_mix_mode.start_mix_transactional = mix_start
-            v2_mix_mode._rd_startup_authority_wrapped = True
+            mix_mode.start_mix_transactional = mix_start
+            mix_mode._rd_startup_authority_wrapped = True
 
     def _install_ownership_gate(self) -> None:
         for attr in ("rd_managed_live_adoption", "rd_managed_mix_adoption"):

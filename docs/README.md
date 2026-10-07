@@ -48,12 +48,13 @@ The following names are intentionally absent from executable code:
 Do not recreate a forwarding shim for any removed name. Move callers to the
 current owner instead.
 
-## Naming debt
+## Production naming status
 
-A remaining `v2_*` filename does not automatically mean legacy execution.
-Several such modules are still production-reachable owners and will be renamed
-or absorbed in later bounded migrations. Removal requires caller migration,
-focused tests, the full suite and exact-head CI.
+Production-reachable filenames no longer use the historical `v2_*`/`*_v2`
+module namespace. Names such as `*_readback_v2` that remain in code are external
+RD6018/ESPHome telemetry schema identifiers, not alternate runtime ownership.
+Historical comparison/evidence modules may still use V2/V3 terminology and are
+not imported by the production root.
 
 ## Evidence documents
 

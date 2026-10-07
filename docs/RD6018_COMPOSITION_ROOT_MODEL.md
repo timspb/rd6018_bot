@@ -10,7 +10,7 @@ The retired compatibility facades are absent: there is no `bot_legacy.py`,
 no `runtime.v2_runtime`, no top-level `v2_startup.py`, no
 `application.v2_start_runner_adapter`, and no legacy actuator inventory facade.
 
-`v2_bootstrap.py` is still a transitional installer module by name, but it is
+`production_bootstrap.py` is still a transitional installer module by name, but it is
 not a second production root and it contains no charge-state machine or direct
 physical writes.
 

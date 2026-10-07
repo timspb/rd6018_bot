@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 
 from manual_mode import ManualChargeRequest, ManualSessionState
-from manual_runtime_v2 import ProductionManualSessionManager
+from manual_runtime import ProductionManualSessionManager
 
 
 class FakeHass:

@@ -64,7 +64,7 @@ class Phase25RuntimeGraphTests(unittest.TestCase):
         self.assertEqual(violations, [])
 
     def test_execution_composition_is_present_only_at_v2_boundary(self):
-        source = (ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
+        source = (ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         for type_name in EXECUTION_TYPES:
             self.assertIn(type_name + "(", source)
         self.assertIn("app._v3_production_start_route", source)

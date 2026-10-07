@@ -428,14 +428,14 @@ class PhysicalTestControlProgrammedReadbackV2:
             return self.control._error(f"operation rejected: {type(exc).__name__}: {exc}")
 
 
-def install_physical_test_control_programmed_readback_v2(
+def install_physical_test_control_programmed_readback(
     app: Any, control: PhysicalTestControl
 ) -> PhysicalTestControlProgrammedReadbackV2:
     """Shadow only B16 on the existing AF_UNIX physical-test control plane."""
-    existing = getattr(app, "physical_test_control_programmed_readback_v2", None)
+    existing = getattr(app, "physical_test_control_programmed_readback", None)
     if isinstance(existing, PhysicalTestControlProgrammedReadbackV2):
         return existing
     extension = PhysicalTestControlProgrammedReadbackV2(app, control)
     control.dispatch = extension.dispatch
-    app.physical_test_control_programmed_readback_v2 = extension
+    app.physical_test_control_programmed_readback = extension
     return extension

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from .v2_v3_comparison import ComparisonContext, ComparisonResult, DecisionSnapshot, V2V3ComparisonEngine
+from .decision_comparison import ComparisonContext, ComparisonResult, DecisionSnapshot, V2V3ComparisonEngine
 
 
 class DecisionAuthorityMode(str, Enum):

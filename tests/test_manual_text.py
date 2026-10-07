@@ -1,9 +1,9 @@
 import unittest
 from types import SimpleNamespace
 
-import v2_sg_ui
+import sg_ui
 from manual_mode import ManualChargeRequest
-from manual_text_v2 import _another_dialog_owns_text, _format_start, manual_help_text, parse_manual_command
+from manual_text import _another_dialog_owns_text, _format_start, manual_help_text, parse_manual_command
 
 
 class ManualTextV2Tests(unittest.TestCase):
@@ -68,7 +68,7 @@ class ManualTextV2Tests(unittest.TestCase):
         self.assertIn("hold=2", text)
 
     def test_staged_profile_parser_uses_hours(self):
-        from manual_text_v2 import parse_manual_profile_input
+        from manual_text import parse_manual_profile_input
 
         profile = parse_manual_profile_input(
             "MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
@@ -78,7 +78,7 @@ class ManualTextV2Tests(unittest.TestCase):
         self.assertEqual(profile.mix.hold_hours, 2.0)
 
     def test_staged_start_message_shows_both_accepted_modes(self):
-        from manual_text_v2 import parse_manual_profile_input
+        from manual_text import parse_manual_profile_input
 
         profile = parse_manual_profile_input(
             "MAIN: U=14.7 I=5.0 Imin=0.30 hold=0.5\n"
@@ -101,7 +101,7 @@ class ManualTextV2Tests(unittest.TestCase):
     def test_pending_specific_gravity_dialog_owns_six_numeric_values(self):
         user_id = 4242
         app = SimpleNamespace(custom_mode_state={}, awaiting_ah={})
-        v2_sg_ui._pending_sg_battery[user_id] = object()
+        sg_ui._pending_sg_battery[user_id] = object()
         try:
             self.assertTrue(_another_dialog_owns_text(app, user_id))
             # The payload is intentionally numeric and would otherwise look like a
@@ -110,7 +110,7 @@ class ManualTextV2Tests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_manual_command(payload)
         finally:
-            v2_sg_ui._pending_sg_battery.pop(user_id, None)
+            sg_ui._pending_sg_battery.pop(user_id, None)
 
 
 if __name__ == "__main__":

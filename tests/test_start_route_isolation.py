@@ -2,7 +2,7 @@ import pathlib
 import unittest
 
 import bot
-import v2_bot_ui
+import production_bot_ui
 from types import SimpleNamespace
 
 
@@ -26,7 +26,7 @@ class StartRouteIsolationTests(unittest.TestCase):
                 execution_result=SimpleNamespace(status=SimpleNamespace(value="STARTED")),
             ),
         )
-        feedback = v2_bot_ui.format_start_feedback(result)
+        feedback = production_bot_ui.format_start_feedback(result)
         self.assertIn("ACTIVE START STARTED", feedback)
         self.assertNotIn("DRY_RUN", feedback)
 
@@ -40,14 +40,14 @@ class StartRouteIsolationTests(unittest.TestCase):
                 execution_result=None,
             ),
         )
-        feedback = v2_bot_ui.format_start_feedback(result)
+        feedback = production_bot_ui.format_start_feedback(result)
         self.assertIn("DRY_RUN", feedback)
         self.assertIn("не запускался", feedback)
 
     def test_production_profile_start_has_one_transactional_owner(self):
         from application.start_transaction_service import start_profile_transactional
 
-        self.assertIs(v2_bot_ui._start_profile, start_profile_transactional)
+        self.assertIs(production_bot_ui._start_profile, start_profile_transactional)
 
         handlers = bot.router.observers["callback_query"].handlers
         names = [handler.callback.__name__ for handler in handlers]
@@ -56,7 +56,7 @@ class StartRouteIsolationTests(unittest.TestCase):
     def test_production_start_graph_has_no_legacy_runner_or_owner_import(self):
         root = pathlib.Path(__file__).parents[1]
         for rel in (
-            "v2_bootstrap.py",
+            "production_bootstrap.py",
             "application/start_transaction_runner.py",
         ):
             source = (root / rel).read_text(encoding="utf-8")
@@ -64,11 +64,11 @@ class StartRouteIsolationTests(unittest.TestCase):
             self.assertNotIn("V2StartRunnerAdapter", source, rel)
         self.assertIn(
             "StartTransactionRunner",
-            (root / "v2_bootstrap.py").read_text(encoding="utf-8"),
+            (root / "production_bootstrap.py").read_text(encoding="utf-8"),
         )
         self.assertIn(
             "start_transaction_service",
-            (root / "v2_bootstrap.py").read_text(encoding="utf-8"),
+            (root / "production_bootstrap.py").read_text(encoding="utf-8"),
         )
 
     def test_production_charge_modes_do_not_expose_legacy_profile_callbacks(self):
@@ -96,7 +96,7 @@ class StartRouteIsolationTests(unittest.TestCase):
         )
 
     def test_quick_start_callback_uses_v3_route_when_composed(self):
-        source = (pathlib.Path(__file__).parents[1] / "v2_bot_ui.py").read_text(encoding="utf-8")
+        source = (pathlib.Path(__file__).parents[1] / "production_bot_ui.py").read_text(encoding="utf-8")
         start = source.index('F.data == "v2_quick_start"')
         end = source.index('F.data.startswith("v2_bat_intent_")', start)
         callback = source[start:end]

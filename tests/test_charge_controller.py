@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from pb_domain import BatteryCondition, ChargeIntent
 
 

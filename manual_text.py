@@ -9,13 +9,13 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from aiogram import BaseMiddleware, F
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
-import v2_sg_ui
+import sg_ui
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
 
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
-from manual_runtime_v2 import ProductionManualSessionManager
+from manual_runtime import ProductionManualSessionManager
 from runtime.charge.profiles.manual import ManualChargeProfile, ManualStageProfile, load_manual_profile, save_manual_profile
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
@@ -322,7 +322,7 @@ def _another_dialog_owns_text(app: Any, user_id: int) -> bool:
         return True
     # SG input starts with six numeric values, so without explicit ownership the first
     # two can look exactly like a quick ``V I`` Manual command.
-    if user_id in getattr(v2_sg_ui, "_pending_sg_battery", {}):
+    if user_id in getattr(sg_ui, "_pending_sg_battery", {}):
         return True
     return False
 
@@ -454,7 +454,7 @@ class ManualTextMiddleware(BaseMiddleware):
         return None
 
 
-def install_manual_text_v2(app: Any) -> ManualTextMiddleware:
+def install_manual_text(app: Any) -> ManualTextMiddleware:
     existing = getattr(app, "_v2_manual_text_middleware", None)
     if isinstance(existing, ManualTextMiddleware):
         return existing

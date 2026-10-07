@@ -117,7 +117,7 @@ The live physical-write graph now converges through the application-scoped
 - direct physical calls in the production scan are confined to the approved
   physical implementation stack:
   `application/execution_port.py`, `hass_api.py`, `runtime_safety_strict.py`,
-  `runtime_safety_v2.py`, and `safe_output.py`;
+  `managed_runtime_safety.py`, and `safe_output.py`;
 - `recipe_output.py` and `recovery_orchestrator.py` remain quarantined historical
   compatibility modules with no production inbound import edge.
 
@@ -164,7 +164,7 @@ Hardware commands sent: NO.
 
 The canonical MAIN transition decision, MAIN strategy variables, base MAIN target
 selection and the 12 A stage-current ceiling have been moved to modular owners.
-`v2_authority.py` now re-exports the canonical MAIN decision for compatibility.
+`charge_authority.py` now re-exports the canonical MAIN decision for compatibility.
 
 The first-stage evidence owner has also moved to
 `runtime/charge/evidence/first_stage.py` with all evidence thresholds declared in
@@ -242,11 +242,11 @@ owners before attempting superclass retirement:
 
 Dirty worktree files at handoff:
 
-`charge_controller_v2.py`,
+`charge_controller.py`,
 `done_storage_restore.py`,
 `manual_mode.py`,
-`manual_runtime_v2.py`,
-`manual_text_v2.py`,
+`manual_runtime.py`,
+`manual_text.py`,
 `mix_active_authority.py`,
 `mix_current_containment.py`,
 `production_controller.py`,
@@ -255,7 +255,7 @@ Dirty worktree files at handoff:
 `runtime/production_runtime.py`,
 `runtime/safety/variables.py`,
 `runtime_safety.py`,
-`runtime_safety_v2.py`,
+`managed_runtime_safety.py`,
 plus untracked `runtime/charge/persistence.py` and
 `runtime/charge/strategy/exit_variables.py`.
 
@@ -292,7 +292,7 @@ Pre-L-003 ownership contraction completed:
 - MIX ΔV/ΔI exit references -> `runtime/charge/strategy/exit_variables.py`;
 - stage-current ceiling, OVP/OCP margins and watchdog/high-voltage watchdog values -> `runtime/safety/variables.py`.
 
-Accepted values are preserved 1:1. Contract tests reject reintroduction of these historical value imports into the migrated consumers and assert that the sole remaining `charge_logic` import in `charge_controller_v2.py` is `ChargeController`.
+Accepted values are preserved 1:1. Contract tests reject reintroduction of these historical value imports into the migrated consumers and assert that the sole remaining `charge_logic` import in `charge_controller.py` is `ChargeController`.
 
 Observed residual L-003 dependency: inherited historical `_save_session()` still resolves `charge_logic.SESSION_FILE`; the V3 persistence reader no longer does. This is retained only until superclass retirement and is explicitly covered by transitional regression fixtures.
 
@@ -307,7 +307,7 @@ L-003 remains **OPEN**, but its residual reachability is now bounded.
 
 At starting HEAD `0d9dc707469f689e35e0ccbdd2aac932a2e51e22`:
 - historical `ChargeController.tick()` is absent from the transitive support closure;
-- `charge_controller_v2.py` has exactly one `charge_logic` import edge:
+- `charge_controller.py` has exactly one `charge_logic` import edge:
   `ChargeController`;
 - the exact remaining inherited support closure is 29 methods covering controller
   initialization/state, lifecycle, persistence/restore, target/temperature helpers,
@@ -665,3 +665,22 @@ Python 3.10 / 3.11 / 3.12 before ERADICATION-09 may be declared remote-verified.
 
 Production VM104 changed: NO.
 Hardware commands sent: NO.
+
+
+## 2026-10-07 post-ERADICATION production namespace pass
+
+Status: **implementation complete locally; exact-head CI pending**.
+
+The compatibility runtime is already deleted. This follow-on pass removes the
+historical version namespace from production-reachable Python module filenames
+and imports. No compatibility aliases are introduced. The old startup-recovery
+duplicate is deleted and the comparison module is renamed to a neutral name.
+
+Guard: `tests/test_production_module_namespace.py` requires zero production
+Python filenames in the historical `v2` namespace and rejects imports of the
+retired module names.
+
+This pass intentionally does not rewrite persisted/session keys, external
+telemetry entity IDs, or callback-data tokens merely by textual substitution;
+those are compatibility/state boundaries and require separate fail-closed
+migration if changed.

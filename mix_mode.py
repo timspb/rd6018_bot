@@ -17,8 +17,8 @@ from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIn
 from recipe_engine import select_recipe_envelope
 from safe_output import snapshot_from_live
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
-from v2_battery_catalog import list_batteries
-from v2_ui import battery_button_label, profile_for_chemistry
+from battery_catalog import list_batteries
+from ui_support import battery_button_label, profile_for_chemistry
 
 
 MIX_ONLY_MIN_START_V = 12.0

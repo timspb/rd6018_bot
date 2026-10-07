@@ -96,9 +96,9 @@ class Phase1CleanupContractTests(unittest.TestCase):
         self.assertEqual(violations, [], "V3/UI direct actuator call detected: " + repr(violations))
 
     def test_v2_composition_is_the_production_execution_composition_root(self):
-        bootstrap = (REPO_ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
+        bootstrap = (REPO_ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         for type_name in EXECUTION_TYPES:
-            self.assertIn(type_name + "(", bootstrap, f"{type_name} is not composed by v2_bootstrap.py")
+            self.assertIn(type_name + "(", bootstrap, f"{type_name} is not composed by production_bootstrap.py")
         self.assertIn("app._v3_production_start_route", bootstrap)
 
         # Telegram/UI modules may submit an intent, but must not construct the

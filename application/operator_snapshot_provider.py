@@ -100,7 +100,7 @@ class OperatorSnapshotProvider:
         snapshot = {}
         if controller is not None:
             try:
-                snapshot = dict(controller.v2_ui_snapshot() or {})
+                snapshot = dict(controller.ui_support_snapshot() or {})
             except Exception:
                 snapshot = {}
         return ServiceDetailsView(

@@ -2,7 +2,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-import v2_mix_mode
+import mix_mode
 from rd_startup_authority import (
     RdStartupAuthorityGate,
     reconcile_startup_authority,
@@ -97,14 +97,14 @@ class DummyManager:
 
 class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.original_mix = v2_mix_mode.start_mix_transactional
-        if hasattr(v2_mix_mode, "_rd_startup_authority_wrapped"):
-            delattr(v2_mix_mode, "_rd_startup_authority_wrapped")
+        self.original_mix = mix_mode.start_mix_transactional
+        if hasattr(mix_mode, "_rd_startup_authority_wrapped"):
+            delattr(mix_mode, "_rd_startup_authority_wrapped")
 
     async def asyncTearDown(self):
-        v2_mix_mode.start_mix_transactional = self.original_mix
-        if hasattr(v2_mix_mode, "_rd_startup_authority_wrapped"):
-            delattr(v2_mix_mode, "_rd_startup_authority_wrapped")
+        mix_mode.start_mix_transactional = self.original_mix
+        if hasattr(mix_mode, "_rd_startup_authority_wrapped"):
+            delattr(mix_mode, "_rd_startup_authority_wrapped")
 
     @staticmethod
     def make():

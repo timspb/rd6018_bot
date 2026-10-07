@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 from application.production_shadow_observer import ShadowObservationSession
-from application.v2_v3_comparison import ComparisonContext, ComparisonStatus, DecisionSnapshot
+from application.decision_comparison import ComparisonContext, ComparisonStatus, DecisionSnapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]

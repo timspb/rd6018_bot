@@ -86,7 +86,7 @@ class V3StatsUICutoverTests(unittest.TestCase):
             source = (ROOT / rel).read_text(encoding="utf-8")
             for forbidden in (
                 "runtime.v2_runtime",
-                "charge_controller_v2",
+                "charge_controller",
                 "charge_logic",
                 "hass_api",
                 "runtime_safety",

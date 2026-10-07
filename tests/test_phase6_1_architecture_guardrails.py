@@ -56,11 +56,11 @@ class ArchitectureGuardrailTests(unittest.TestCase):
 
     def test_composition_and_transitional_bootstrap_are_algorithm_free(self) -> None:
         forbidden_attrs = {"turn_on", "turn_off", "set_voltage", "set_current", "safe_enable_output"}
-        for path in (ROOT / "application" / "composition_contract.py", ROOT / "v2_bootstrap.py"):
+        for path in (ROOT / "application" / "composition_contract.py", ROOT / "production_bootstrap.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             calls = [f"{path.name}:{node.lineno}:{node.attr}" for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr in forbidden_attrs]
             self.assertEqual([], calls)
-        bootstrap = (ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
+        bootstrap = (ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         for token in ("STAGE_", "MIX_DONE_TIMER", "MAIN_STAGE_MAX_HOURS", "def tick(", "current_stage ="):
             self.assertNotIn(token, bootstrap, token)
 

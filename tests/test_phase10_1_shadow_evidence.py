@@ -8,7 +8,7 @@ import unittest
 from application.persistence_boundary import InMemoryPersistenceProvider, PersistenceKind, RestoreRejected
 from application.production_shadow_observer import ShadowObservationSession
 from application.shadow_evidence import ShadowEvidenceStore
-from application.v2_v3_comparison import ComparisonContext, DecisionSnapshot
+from application.decision_comparison import ComparisonContext, DecisionSnapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]

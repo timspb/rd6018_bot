@@ -8,7 +8,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from .v2_v3_comparison import ComparisonContext, ComparisonResult, DecisionSnapshot, V2V3ComparisonEngine
+from .decision_comparison import ComparisonContext, ComparisonResult, DecisionSnapshot, V2V3ComparisonEngine
 
 
 class ShadowRunStatus(str, Enum):

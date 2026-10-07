@@ -123,10 +123,10 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, callback)
 
-    def test_v2_ui_default_start_helper_has_no_physical_fallback(self) -> None:
-        source = (ROOT / "v2_bot_ui.py").read_text(encoding="utf-8")
+    def test_ui_support_default_start_helper_has_no_physical_fallback(self) -> None:
+        source = (ROOT / "production_bot_ui.py").read_text(encoding="utf-8")
         start = source.index("async def _start_profile")
-        end = source.index("def install_v2_ui", start)
+        end = source.index("def install_ui_support", start)
         helper = source[start:end]
         self.assertIn("Старый прямой UI→RD запуск отключён", helper)
         for forbidden in (
@@ -139,7 +139,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, helper)
 
     def test_environment_cannot_reenable_legacy_transition_authority(self) -> None:
-        source = (ROOT / "charge_controller_v2.py").read_text(encoding="utf-8")
+        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
         self.assertNotIn('os.getenv("V2_AUTHORITATIVE"', source)
         self.assertNotIn('_env_bool("V2_AUTHORITATIVE"', source)
         self.assertIn(

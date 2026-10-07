@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-import v2_authority
+import charge_authority
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.strategy.main_authority import decide_main_transition
 from runtime.charge.strategy.main_targets import select_main_target
@@ -37,11 +37,11 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         self.assertNotIn("pb_domain", source)
 
     def test_compatibility_surface_reexports_canonical_main_owner(self) -> None:
-        self.assertIs(v2_authority.decide_main_transition, decide_main_transition)
-        self.assertIs(v2_authority.AuthorityAction, AuthorityAction)
-        self.assertIs(v2_authority.AuthorityDecision, AuthorityDecision)
+        self.assertIs(charge_authority.decide_main_transition, decide_main_transition)
+        self.assertIs(charge_authority.AuthorityAction, AuthorityAction)
+        self.assertIs(charge_authority.AuthorityDecision, AuthorityDecision)
         self.assertEqual(
-            v2_authority.AGM_TIMEOUT_TAIL_CURRENT_A,
+            charge_authority.AGM_TIMEOUT_TAIL_CURRENT_A,
             float(AGM_TIMEOUT_TAIL_CURRENT_A.default),
         )
 
@@ -93,8 +93,8 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         self.assertEqual(float(AGM_TIMEOUT_TAIL_CURRENT_A.default), 0.20)
 
     def test_authoritative_main_no_longer_enters_historical_tick(self) -> None:
-        controller = (ROOT / "charge_controller_v2.py").read_text(encoding="utf-8")
-        auto = (ROOT / "auto_strategy_v2.py").read_text(encoding="utf-8")
+        controller = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        auto = (ROOT / "auto_strategy.py").read_text(encoding="utf-8")
         start = controller.index("async def _run_stage_scaffold_tick")
         end = controller.index("def _mix_limit_seconds", start)
         scaffold = controller[start:end]
@@ -107,10 +107,10 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         self.assertNotIn("self.stage_start_time = time.time()", auto)
 
     def test_transitional_controllers_consume_modular_main_owner(self) -> None:
-        auto = (ROOT / "auto_strategy_v2.py").read_text(encoding="utf-8")
+        auto = (ROOT / "auto_strategy.py").read_text(encoding="utf-8")
         production = (ROOT / "production_controller.py").read_text(encoding="utf-8")
-        controller = (ROOT / "charge_controller_v2.py").read_text(encoding="utf-8")
-        compat = (ROOT / "v2_authority.py").read_text(encoding="utf-8")
+        controller = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        compat = (ROOT / "charge_authority.py").read_text(encoding="utf-8")
 
         self.assertNotIn("from charge_logic import (\n    AGM_FIRST_STAGE_HOLD_SEC", auto)
         self.assertIn("from runtime.charge.strategy.main_authority import decide_main_transition", auto)

@@ -70,12 +70,12 @@ _KNOWN_MAPPINGS = (
     ),
     ContainmentPathMapping(
         "runtime-safety-v2-hardware-trip",
-        "runtime_safety_v2",
+        "managed_runtime_safety",
         "hardware OVP/OCP or temperature/integrity fault",
         "ensure OFF and retire/latch session",
         "output/readback and durable latch where applicable",
         "verified_output_off_and_contain",
-        "runtime_safety_v2",
+        "managed_runtime_safety",
         ContainmentVerificationState.UNKNOWN,
     ),
     ContainmentPathMapping(
@@ -125,7 +125,7 @@ _KNOWN_MAPPINGS = (
         "stop session and request Output OFF",
         "manual session state and output readback",
         "stop_and_verified_output_off",
-        "manual_runtime_v2_safety_output",
+        "manual_runtime_safety_output",
         ContainmentVerificationState.REQUESTED,
     ),
     ContainmentPathMapping(

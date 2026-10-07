@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from v2_bootstrap import (
+from production_bootstrap import (
     _install_managed_charge_monitor_guard,
     _managed_aware_charge_monitor_poll,
 )

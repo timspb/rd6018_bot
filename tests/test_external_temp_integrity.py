@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 
 
 def _live(temp=25.0, *, when=None, switch="on"):

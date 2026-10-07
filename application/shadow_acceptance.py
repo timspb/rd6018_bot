@@ -8,7 +8,7 @@ from typing import Iterable
 
 from .divergence_explanation import DivergenceCategory
 from .shadow_evidence import ShadowEvidenceRecord
-from .v2_v3_comparison import ComparisonStatus
+from .decision_comparison import ComparisonStatus
 
 
 class AcceptanceStatus(str, Enum):

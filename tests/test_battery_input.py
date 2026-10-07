@@ -1,7 +1,7 @@
 import unittest
 
 from pb_domain import BatteryChemistry
-from v2_battery_input import parse_battery_spec
+from battery_input import parse_battery_spec
 
 
 class V2BatteryInputTests(unittest.TestCase):

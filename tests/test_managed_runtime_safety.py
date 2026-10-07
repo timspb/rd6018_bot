@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 
 
 class DummyHass:
@@ -234,7 +234,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             live[key] = None
         app = self._app(live)
         guard = self._guard(app)
-        with patch("runtime_safety_v2.time.monotonic", side_effect=[100.0, 279.0, 281.0] + [281.0] * 20):
+        with patch("managed_runtime_safety.time.monotonic", side_effect=[100.0, 279.0, 281.0] + [281.0] * 20):
             await guard.get_all_live()
             self.assertEqual(app.hass.turn_off_calls, 0)
             await guard.get_all_live()
@@ -249,7 +249,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             broken[key] = None
         app = self._app(broken)
         guard = self._guard(app)
-        with patch("runtime_safety_v2.time.monotonic", side_effect=[100.0, 200.0, 300.0]):
+        with patch("managed_runtime_safety.time.monotonic", side_effect=[100.0, 200.0, 300.0]):
             await guard.get_all_live()
             app.hass.live = self._with_freshness(self._live())
             await guard.get_all_live()

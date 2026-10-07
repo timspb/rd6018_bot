@@ -41,8 +41,8 @@ ENABLE_CALLS = frozenset(
         ("recovery_orchestrator.py", "_confirm_output_off", "self.output_adapter.turn_off"),
         ("runtime_safety_strict.py", "turn_off", "super().turn_off"),
         ("runtime_safety_strict.py", "turn_on", "super().turn_on"),
-        ("runtime_safety_v2.py", "turn_on", "super().turn_off"),
-        ("runtime_safety_v2.py", "turn_on", "super().turn_on"),
+        ("managed_runtime_safety.py", "turn_on", "super().turn_off"),
+        ("managed_runtime_safety.py", "turn_on", "super().turn_on"),
         ("safe_output.py", "_force_off", "self.adapter.turn_off"),
         ("safe_output.py", "enable", "self.adapter.turn_on"),
         # Canonical application-scoped V2 execution port. START, Mix-only

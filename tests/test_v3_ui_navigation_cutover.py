@@ -25,9 +25,9 @@ class V3NavigationUICutoverTests(unittest.TestCase):
 
         for rel in (
             "runtime/production_runtime.py",
-            "v2_ui_polish.py",
-            "v2_bootstrap.py",
-            "v2_bot_ui.py",
+            "ui_polish.py",
+            "production_bootstrap.py",
+            "production_bot_ui.py",
         ):
             source = (ROOT / rel).read_text(encoding="utf-8")
             self.assertNotIn('callback_data="dash_back"', source, rel)
@@ -46,8 +46,8 @@ class V3NavigationUICutoverTests(unittest.TestCase):
 
         for rel in (
             "runtime/production_runtime.py",
-            "v2_ui_polish.py",
-            "v2_bot_ui.py",
+            "ui_polish.py",
+            "production_bot_ui.py",
             "operator_hmi.py",
             "operator_dashboard.py",
         ):
@@ -66,8 +66,8 @@ class V3NavigationUICutoverTests(unittest.TestCase):
 
         for rel in (
             "runtime/production_runtime.py",
-            "v2_ui_polish.py",
-            "v2_bot_ui.py",
+            "ui_polish.py",
+            "production_bot_ui.py",
             "operator_hmi.py",
             "operator_dashboard.py",
         ):

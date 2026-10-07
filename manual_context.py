@@ -10,12 +10,12 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from battery_registry import get_battery
 from manual_mode import ManualChargeRequest, ManualSessionState
-from manual_runtime_v2 import ProductionManualSessionManager
-from manual_text_v2 import MANUAL_PROFILE_PATH, ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
+from manual_runtime import ProductionManualSessionManager
+from manual_text import MANUAL_PROFILE_PATH, ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
 from runtime.charge.profiles.manual import load_manual_profile
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
-from v2_bot_ui import selected_battery_for_user
-from v2_battery_catalog import list_batteries
+from production_bot_ui import selected_battery_for_user
+from battery_catalog import list_batteries
 
 
 class BoundManualTextMiddleware(BaseMiddleware):
@@ -150,7 +150,7 @@ def install_manual_context_preprocessor(app: Any) -> BoundManualTextMiddleware:
     if isinstance(existing, BoundManualTextMiddleware):
         return existing
     middleware = BoundManualTextMiddleware(app)
-    # Must be registered before manual_text_v2 so a battery-bound request owns its
+    # Must be registered before manual_text so a battery-bound request owns its
     # numeric payload before the generic Manual parser sees the same message.
     app.router.message.outer_middleware.register(middleware)
     app._v2_bound_manual_middleware = middleware

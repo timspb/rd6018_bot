@@ -18,7 +18,7 @@ from runtime.charge.strategy.mix_variables import (
     EFB_MIX_MAX_ACTIVE_HOURS,
     mix_max_active_seconds,
 )
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from application.recipe_policy import chemistry_for_profile

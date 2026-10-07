@@ -42,7 +42,7 @@ class Workstream1FinalArchitectureAuditTests(unittest.TestCase):
         modules = (
             "decision_authority.py", "decision_authority_shadow_run.py",
             "diagnostics_domain.py", "persistence_boundary.py", "staged_ownership.py",
-            "v2_v3_comparison.py",
+            "decision_comparison.py",
         )
         forbidden = ("hass", "homeassistant", "esphome", "transport", "controller", "lease", "physical", "output")
         for name in modules:

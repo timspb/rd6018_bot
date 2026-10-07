@@ -489,7 +489,7 @@ class OperatorHmiTests(unittest.TestCase):
             current_stage="Mix Mode",
             battery_type="Ca/Ca",
             ah_capacity=72,
-            v2_ui_snapshot=lambda: {
+            ui_support_snapshot=lambda: {
                 "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 7320},
                 "finish_hold_started_at": None,
                 "runtime_evidence_available": True,
@@ -509,7 +509,7 @@ class OperatorHmiTests(unittest.TestCase):
             current_stage="Mix Mode",
             battery_type="Ca/Ca",
             ah_capacity=72,
-            v2_ui_snapshot=lambda: {
+            ui_support_snapshot=lambda: {
                 "metrics": {
                     "current_min_a": 0.22,
                     "seconds_since_current_min": 10,
@@ -531,7 +531,7 @@ class OperatorHmiTests(unittest.TestCase):
             current_stage="Mix Mode",
             battery_type="Ca/Ca",
             ah_capacity=72,
-            v2_ui_snapshot=lambda: {
+            ui_support_snapshot=lambda: {
                 "is_cv": True,
                 "runtime_evidence_available": True,
                 "finish_hold_started_at": None,
@@ -551,7 +551,7 @@ class OperatorHmiTests(unittest.TestCase):
             current_stage="Mix Mode",
             battery_type="Ca/Ca",
             ah_capacity=72,
-            v2_ui_snapshot=lambda: {
+            ui_support_snapshot=lambda: {
                 "is_cv": True,
                 "runtime_evidence_available": False,
                 "finish_hold_started_at": None,
@@ -571,7 +571,7 @@ class OperatorHmiTests(unittest.TestCase):
             current_stage="Mix Mode",
             battery_type="Ca/Ca",
             ah_capacity=72,
-            v2_ui_snapshot=lambda: {
+            ui_support_snapshot=lambda: {
                 "is_cv": False, "is_cc": False,
                 "runtime_analysis_available": False,
                 "runtime_evidence_available": False,
@@ -661,7 +661,7 @@ class OperatorHmiTests(unittest.TestCase):
 
     def test_fresh_telemetry_restores_normal_operator_analytics(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)
-        app.charge_controller.v2_ui_snapshot = lambda: {
+        app.charge_controller.ui_support_snapshot = lambda: {
             "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 120},
             "finish_hold_started_at": None,
             "runtime_analysis_available": True,
