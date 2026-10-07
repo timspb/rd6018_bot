@@ -39,7 +39,7 @@ APPROVED_PHYSICAL_IMPLEMENTATION = {
     "managed_runtime_safety.py",
     "safe_output.py",
 }
-QUARANTINED_UNREACHABLE_HISTORY = {
+RETIRED_EXECUTION_COMPATIBILITY = {
     "recipe_output.py",
     "recovery_orchestrator.py",
 }
@@ -82,22 +82,12 @@ def _imported_modules(path: Path) -> set[str]:
 class V3SafetyExecutionConvergenceTests(unittest.TestCase):
     def test_live_direct_physical_calls_are_confined_to_approved_implementation(self):
         direct = _direct_physical_call_modules()
-        unexpected = direct - APPROVED_PHYSICAL_IMPLEMENTATION - QUARANTINED_UNREACHABLE_HISTORY
+        unexpected = direct - APPROVED_PHYSICAL_IMPLEMENTATION - RETIRED_EXECUTION_COMPATIBILITY
         self.assertEqual(set(), unexpected)
 
-    def test_quarantined_recovery_orchestrator_has_no_production_inbound_edge(self):
-        inbound_recovery = []
-        inbound_recipe = []
-        for module, path in _production_python_files():
-            if module in QUARANTINED_UNREACHABLE_HISTORY:
-                continue
-            imports = _imported_modules(path)
-            if "recovery_orchestrator" in imports:
-                inbound_recovery.append(module)
-            if "recipe_output" in imports:
-                inbound_recipe.append(module)
-        self.assertEqual([], inbound_recovery)
-        self.assertEqual([], inbound_recipe)
+    def test_retired_recovery_execution_compatibility_is_absent(self):
+        for rel in RETIRED_EXECUTION_COMPATIBILITY:
+            self.assertFalse((ROOT / rel).exists(), rel)
 
     def test_pb_voltage_ceiling_has_one_canonical_value_owner(self):
         self.assertEqual(16.6, float(PB_AUTOMATIC_TARGET_CEILING_V.default))
