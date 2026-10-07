@@ -6,7 +6,7 @@ from battery_fault_engine import DiagnosticAuthority
 from diagnostic_controller import DiagnosticProductionChargeController
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController
-from charge_authority import AuthorityAction, AuthorityDecision
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 
 
 class DummyHass:

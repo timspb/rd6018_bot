@@ -14,7 +14,7 @@ from battery_fault_engine import (
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 from mix_active_authority import MixActiveAuthorityMixin
-from charge_authority import AuthorityAction, AuthorityDecision
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 
 
 _HV_ACTIONS = frozenset({AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX})

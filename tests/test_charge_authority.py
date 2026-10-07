@@ -3,7 +3,9 @@ import unittest
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from pb_domain import ChargeIntent
 from recovery_policy import RecoveryDecision
-from charge_authority import AuthorityAction, decide_main_transition, decide_mix_transition
+from runtime.charge.decisions import AuthorityAction
+from runtime.charge.strategy.main_authority import decide_main_transition
+from runtime.charge.strategy.mix import decide_mix_transition
 
 
 def assessment(state, *, c_rate=0.004, threshold=0.28):
@@ -195,9 +197,10 @@ class V2MainAuthorityTests(unittest.TestCase):
 class V2MixAuthorityTests(unittest.TestCase):
     def test_finish_evidence_starts_hold_not_immediate_completion(self):
         result = decide_mix_transition(
+            profile="EFB",
             policy_decision=RecoveryDecision.FINISH_STAGE,
-            mix_elapsed_s=3 * 3600,
-            mix_limit_s=10 * 3600,
+            active_elapsed_s=3 * 3600,
+            authority_limit_s=10 * 3600,
             finish_hold_started_at=None,
             now_s=10000,
             finish_hold_s=2 * 3600,
@@ -206,9 +209,10 @@ class V2MixAuthorityTests(unittest.TestCase):
 
     def test_active_finish_hold_owns_completion_past_profile_deadline(self):
         result = decide_mix_transition(
+            profile="EFB",
             policy_decision=RecoveryDecision.CONTINUE,
-            mix_elapsed_s=21 * 3600,
-            mix_limit_s=20 * 3600,
+            active_elapsed_s=21 * 3600,
+            authority_limit_s=20 * 3600,
             finish_hold_started_at=1000,
             now_s=1000 + 3600,
             finish_hold_s=2 * 3600,
@@ -217,9 +221,10 @@ class V2MixAuthorityTests(unittest.TestCase):
 
     def test_hold_completes_after_two_hours(self):
         result = decide_mix_transition(
+            profile="EFB",
             policy_decision=RecoveryDecision.CONTINUE,
-            mix_elapsed_s=21 * 3600,
-            mix_limit_s=20 * 3600,
+            active_elapsed_s=21 * 3600,
+            authority_limit_s=20 * 3600,
             finish_hold_started_at=1000,
             now_s=1000 + 2 * 3600,
             finish_hold_s=2 * 3600,
@@ -228,9 +233,10 @@ class V2MixAuthorityTests(unittest.TestCase):
 
     def test_profile_window_is_fault_boundary_without_finish_hold(self):
         result = decide_mix_transition(
+            profile="EFB",
             policy_decision=RecoveryDecision.CONTINUE,
-            mix_elapsed_s=20 * 3600,
-            mix_limit_s=20 * 3600,
+            active_elapsed_s=20 * 3600,
+            authority_limit_s=20 * 3600,
             finish_hold_started_at=None,
             now_s=1000,
             finish_hold_s=2 * 3600,
