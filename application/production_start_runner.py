@@ -13,20 +13,20 @@ from .start_transaction_adapter import (
     RollbackState,
     StartExecutionResult,
     StartExecutionStatus,
-    V2StartTransactionAdapter,
-    V2TransactionOutcome,
+    StartTransactionAdapter,
+    StartTransactionOutcome,
 )
 
 
-V2TransactionRunner = Callable[[object], V2TransactionOutcome]
+StartTransactionCallable = Callable[[object], StartTransactionOutcome]
 
 
 @dataclass(frozen=True)
 class ProductionStartRunner:
     """Invoke the preserved V2 transaction owner after START preflight."""
 
-    transaction_adapter: V2StartTransactionAdapter
-    transaction_runner: V2TransactionRunner
+    transaction_adapter: StartTransactionAdapter
+    transaction_runner: StartTransactionCallable
 
     def execute(self, request: StartExecutionRequest) -> StartExecutionResult:
         transaction_input = self._prepare(request)
@@ -40,12 +40,12 @@ class ProductionStartRunner:
                 if close is not None:
                     close()
         except Exception as exc:  # runner failures are normalized, not leaked
-            outcome = V2TransactionOutcome(
+            outcome = StartTransactionOutcome(
                 trace_id=request.trace_id,
                 reason=f"runner_failed:{type(exc).__name__}",
             )
-        if not isinstance(outcome, V2TransactionOutcome):
-            outcome = V2TransactionOutcome(
+        if not isinstance(outcome, StartTransactionOutcome):
+            outcome = StartTransactionOutcome(
                 trace_id=request.trace_id,
                 reason="runner_returned_invalid_outcome",
             )
@@ -64,12 +64,12 @@ class ProductionStartRunner:
             if inspect.isawaitable(outcome):
                 outcome = await outcome
         except Exception as exc:  # runner failures are normalized, not leaked
-            outcome = V2TransactionOutcome(
+            outcome = StartTransactionOutcome(
                 trace_id=request.trace_id,
                 reason=f"runner_failed:{type(exc).__name__}",
             )
-        if not isinstance(outcome, V2TransactionOutcome):
-            outcome = V2TransactionOutcome(
+        if not isinstance(outcome, StartTransactionOutcome):
+            outcome = StartTransactionOutcome(
                 trace_id=request.trace_id,
                 reason="runner_returned_invalid_outcome",
             )

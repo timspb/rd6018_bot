@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from charge_logic import ChargeController
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 from runtime.charge.strategy import desulfation as desulfation_strategy
 from runtime.charge.strategy.desulfation_variables import (
     DESULFATION_BASE_VOLTAGE_V,
@@ -33,8 +33,8 @@ class DummyHass:
 
 class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
-    def _controller(stage: str) -> ChargeControllerV2:
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+    def _controller(stage: str) -> ManagedChargeController:
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.battery_type = controller.PROFILE_AGM
         controller.ah_capacity = 90
         controller.current_stage = stage
@@ -73,7 +73,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(spec.provenance)
 
     async def test_authoritative_desulfation_never_enters_historical_tick(self):
-        controller = self._controller(ChargeControllerV2.STAGE_DESULFATION)
+        controller = self._controller(ManagedChargeController.STAGE_DESULFATION)
         with patch.object(
             ChargeController,
             "tick",
@@ -95,7 +95,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
 
     async def test_recovery_safe_wait_never_enters_historical_tick(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._recovery_safe_wait = RecoverySafeWaitContinuation(
             source_stage=controller.STAGE_DESULFATION,
             next_stage=controller.STAGE_MAIN,
@@ -130,8 +130,8 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_stale_session_generation_cannot_authorize_recovery_continuation(self):
         continuation = RecoverySafeWaitContinuation(
-            source_stage=ChargeControllerV2.STAGE_DESULFATION,
-            next_stage=ChargeControllerV2.STAGE_MAIN,
+            source_stage=ManagedChargeController.STAGE_DESULFATION,
+            next_stage=ManagedChargeController.STAGE_MAIN,
             target_voltage_v=14.8,
             target_current_a=9.0,
             started_at=1100.0,
@@ -145,15 +145,15 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 continuation,
                 session_id="session-recovery",
                 session_generation=500.0,
-                expected_source_stage=ChargeControllerV2.STAGE_DESULFATION,
-                expected_next_stage=ChargeControllerV2.STAGE_MAIN,
+                expected_source_stage=ManagedChargeController.STAGE_DESULFATION,
+                expected_next_stage=ManagedChargeController.STAGE_MAIN,
             )
         )
 
     def test_persisted_continuation_alone_cannot_authorize_output_enable(self):
         continuation = RecoverySafeWaitContinuation(
-            source_stage=ChargeControllerV2.STAGE_DESULFATION,
-            next_stage=ChargeControllerV2.STAGE_MAIN,
+            source_stage=ManagedChargeController.STAGE_DESULFATION,
+            next_stage=ManagedChargeController.STAGE_MAIN,
             target_voltage_v=14.8,
             target_current_a=9.0,
             started_at=1000.0,
@@ -172,7 +172,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision.action.value, "wait")
 
     def test_stale_recovery_continuation_fails_closed_instead_of_falling_back(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._safe_wait_next_stage = controller.STAGE_MAIN
         controller._recovery_safe_wait = RecoverySafeWaitContinuation(
             source_stage=controller.STAGE_DESULFATION,
@@ -206,7 +206,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 20_000.0
-            controller = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            controller = ProductionChargeController(DummyHass(), authoritative=True)
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_DESULFATION
             controller.stage_start_time = now - 1800.0
@@ -223,7 +223,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 "production_controller.time.time", return_value=now
             ):
                 controller._save_session(16.3, 0.5, 12.0)
-                restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+                restored = ProductionChargeController(DummyHass(), authoritative=True)
                 ok, _ = restored.try_restore_session(
                     16.3,
                     0.5,

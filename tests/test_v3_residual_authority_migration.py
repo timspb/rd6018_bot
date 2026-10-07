@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,8 +15,8 @@ class DummyHass:
 
 
 class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
-    def _controller(self) -> ProductionChargeControllerV2:
-        controller = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+    def _controller(self) -> ProductionChargeController:
+        controller = ProductionChargeController(DummyHass(), authoritative=True)
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller.stage_start_time = 100.0

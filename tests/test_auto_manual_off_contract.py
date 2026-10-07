@@ -3,9 +3,9 @@ import unittest
 
 class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_production_controller_owns_manual_off_inertness_without_installer(self):
-        from charge_controller import ChargeControllerV2
+        from charge_controller import ManagedChargeController
 
-        controller = ChargeControllerV2(object())
+        controller = ManagedChargeController(object())
         controller.start("EFB", 70)
         captured = {}
 

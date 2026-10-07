@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from charge_logic import ChargeController
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 from runtime.charge.strategy import mix as mix_strategy
 from runtime.charge.strategy.final_safe_wait import (
     FinalSafeWaitContinuation,
@@ -36,8 +36,8 @@ class DummyHass:
 
 class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
-    def _controller(stage: str) -> ChargeControllerV2:
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+    def _controller(stage: str) -> ManagedChargeController:
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.battery_type = controller.PROFILE_AGM
         controller.ah_capacity = 90
         controller.current_stage = stage
@@ -51,7 +51,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
 
     @staticmethod
     def _final_continuation(
-        controller: ChargeControllerV2,
+        controller: ManagedChargeController,
         *,
         generation: float | None = None,
     ) -> FinalSafeWaitContinuation:
@@ -100,7 +100,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(spec.provenance)
 
     async def test_authoritative_mix_never_enters_historical_tick(self):
-        controller = self._controller(ChargeControllerV2.STAGE_MIX)
+        controller = self._controller(ManagedChargeController.STAGE_MIX)
         with patch.object(
             ChargeController,
             "tick",
@@ -122,7 +122,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
 
     async def test_final_safe_wait_never_enters_historical_tick(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._final_safe_wait = self._final_continuation(controller)
         controller._safe_wait_next_stage = controller.STAGE_DONE
         with patch.object(
@@ -146,7 +146,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
 
     def test_stale_session_generation_cannot_authorize_final_continuation(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         continuation = self._final_continuation(
             controller,
             generation=controller._v2_trace_started_at - 1.0,
@@ -162,7 +162,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_persisted_final_continuation_alone_cannot_authorize_storage_enable(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         continuation = self._final_continuation(controller)
         decision = decide_final_safe_wait(
             continuation,
@@ -174,7 +174,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision.action.value, "wait")
 
     def test_stale_final_continuation_fails_closed_instead_of_falling_back(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._safe_wait_next_stage = controller.STAGE_DONE
         controller._final_safe_wait = self._final_continuation(
             controller,
@@ -198,7 +198,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(controller._final_safe_wait)
 
     def test_storage_enable_request_does_not_commit_or_duplicate_while_output_is_on(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._safe_wait_next_stage = controller.STAGE_DONE
         controller._final_safe_wait = self._final_continuation(controller)
 
@@ -230,7 +230,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(controller._final_safe_wait)
 
     def test_stale_verified_storage_generation_cannot_commit_done(self):
-        controller = self._controller(ChargeControllerV2.STAGE_SAFE_WAIT)
+        controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._safe_wait_next_stage = controller.STAGE_DONE
         controller._final_safe_wait = self._final_continuation(controller)
         actions = {}
@@ -261,7 +261,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 200_000.0
-            controller = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+            controller = ProductionChargeController(DummyHass(), authoritative=True)
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_MIX
             controller._enter_safe_wait_done(
@@ -284,7 +284,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
                 "production_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)
-                restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+                restored = ProductionChargeController(DummyHass(), authoritative=True)
                 ok, _ = restored.try_restore_session(
                     15.0,
                     0.0,

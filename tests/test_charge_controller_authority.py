@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from pb_domain import ChargeIntent
 from recovery_policy import RecoveryDecision, RecoveryDecisionResult
 from signal_analyzer import SignalAnalysis, SignalEvent, SignalMetrics, SignalSample
@@ -44,9 +44,9 @@ class ExplodingRuntime:
         raise RuntimeError("synthetic V2 failure")
 
 
-class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
+class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, profile="EFB", intent=ChargeIntent.RECOVERY, now=10000.0):
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.current_stage = controller.STAGE_MAIN
         controller.battery_type = profile
         controller.ah_capacity = 70
@@ -89,7 +89,7 @@ class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mix_finish_evidence_starts_sticky_hold_then_completes(self):
         start = 40000.0
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.current_stage = controller.STAGE_MIX
         controller.battery_type = controller.PROFILE_AGM
         controller.ah_capacity = 70
@@ -111,7 +111,7 @@ class V2ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mix_cc_finish_uses_voltage_policy(self):
         now = 50000.0
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.current_stage = controller.STAGE_MIX
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 70

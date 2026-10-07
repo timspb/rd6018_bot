@@ -52,7 +52,7 @@ def _json_safe(value: Any) -> Any:
 def _enrich_signal_calibration(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     """Freeze the signal-threshold semantics used when this sample was captured.
 
-    ChargeControllerV2 historically did not expose `reversal_threshold_a` in its
+    ManagedChargeController historically did not expose `reversal_threshold_a` in its
     public shadow payload even though SignalAnalyzer computes it. RecoverySessionTracker
     uses the default SignalAnalyzerConfig, so the trace store can reconstruct that exact
     threshold at capture time and persist the config alongside it. This avoids later

@@ -15,7 +15,7 @@ from runtime.background import start_background_tasks
 from rd6018_telemetry import as_bool
 
 
-class V2RuntimeLifecycle:
+class ProductionRuntimeLifecycle:
     """Run the existing V2 lifecycle through an explicit orchestration seam."""
 
     def __init__(self, app: Any, telegram_runtime: Any) -> None:

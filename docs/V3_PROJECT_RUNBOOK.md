@@ -1852,3 +1852,18 @@ ownership aliases.
 Behavioral semantics, persisted charge policy and physical safety are unchanged
 by this namespace pass. Full-suite and remote exact-head CI are required before
 merge.
+
+
+## 2026-10-07 production type normalization
+
+The post-ERADICATION namespace cleanup now extends to current production types and
+composition API. Historical type names such as `ChargeControllerV2`,
+`ProductionChargeControllerV2`, `V2RuntimeSafetyGuard`, `V2RuntimeLifecycle` and
+V2 START transaction DTO/adapter names are removed from production sources.
+Current owners use neutral names (`ManagedChargeController`,
+`ProductionChargeController`, `ManagedRuntimeSafetyGuard`,
+`ProductionRuntimeLifecycle`, `StartTransaction*`, `StartEventContext`).
+
+This pass does not rename persisted session keys, telemetry entity IDs or Telegram
+callback-data tokens. Those values cross restart/UI protocol boundaries and require
+explicit fail-closed migration rather than textual substitution.

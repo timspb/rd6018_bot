@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from charge_controller import ChargeControllerV2
-from production_controller import ProductionChargeControllerV2
+from charge_controller import ManagedChargeController
+from production_controller import ProductionChargeController
 
 
 class DummyHass:
@@ -11,12 +11,12 @@ class DummyHass:
 
 class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_managed_profile_refreshes_legacy_hourly_clock_before_scaffold_tick(self):
-        controller = ProductionChargeControllerV2(DummyHass())
+        controller = ProductionChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_CA
         controller.current_stage = controller.STAGE_MAIN
         controller._last_hourly_report = 0.0
 
-        with patch.object(ChargeControllerV2, "tick", new=AsyncMock(return_value={})) as parent_tick:
+        with patch.object(ManagedChargeController, "tick", new=AsyncMock(return_value={})) as parent_tick:
             result = await controller.tick(
                 14.7,
                 0.1,
@@ -32,12 +32,12 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
         parent_tick.assert_awaited_once()
 
     async def test_custom_profile_retains_legacy_hourly_reporting_contract(self):
-        controller = ProductionChargeControllerV2(DummyHass())
+        controller = ProductionChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.current_stage = controller.STAGE_MAIN
         controller._last_hourly_report = 0.0
 
-        with patch.object(ChargeControllerV2, "tick", new=AsyncMock(return_value={})):
+        with patch.object(ManagedChargeController, "tick", new=AsyncMock(return_value={})):
             await controller.tick(
                 14.4,
                 1.0,

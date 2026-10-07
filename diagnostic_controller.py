@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Dict, Optional
 
-from auto_strategy import AutoStrategyProductionChargeControllerV2
+from auto_strategy import AutoStrategyProductionChargeController
 from battery_diagnostics import assess_specific_gravity
 from battery_diagnostics_store import list_specific_gravity
 from battery_fault_engine import (
@@ -20,9 +20,9 @@ from charge_authority import AuthorityAction, AuthorityDecision
 _HV_ACTIONS = frozenset({AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX})
 
 
-class DiagnosticProductionChargeControllerV2(
+class DiagnosticProductionChargeController(
     MixActiveAuthorityMixin,
-    AutoStrategyProductionChargeControllerV2,
+    AutoStrategyProductionChargeController,
 ):
     """Production AUTO controller with hypothesis-specific diagnostic evidence.
 

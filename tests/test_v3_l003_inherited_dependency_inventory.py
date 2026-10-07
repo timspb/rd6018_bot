@@ -90,7 +90,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
     def test_exact_historical_support_closure_is_bounded_and_tick_free(self) -> None:
         v2_tree = ast.parse(V2_PATH.read_text(encoding="utf-8"))
         legacy_tree = ast.parse(LEGACY_PATH.read_text(encoding="utf-8"))
-        v2 = _class(v2_tree, "ChargeControllerV2")
+        v2 = _class(v2_tree, "ManagedChargeController")
         legacy = _class(legacy_tree, "ChargeController")
 
         self.assertEqual(
@@ -128,7 +128,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
     def test_external_production_references_to_inherited_surface_are_bounded(self) -> None:
         v2_tree = ast.parse(V2_PATH.read_text(encoding="utf-8"))
         legacy_tree = ast.parse(LEGACY_PATH.read_text(encoding="utf-8"))
-        v2_methods = _methods(_class(v2_tree, "ChargeControllerV2"))
+        v2_methods = _methods(_class(v2_tree, "ManagedChargeController"))
         legacy_methods = _methods(_class(legacy_tree, "ChargeController"))
         historical_only = set(legacy_methods) - set(v2_methods)
 
@@ -151,7 +151,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
     def test_stage_and_profile_constants_are_owned_by_v2_state_module(self) -> None:
         v2_tree = ast.parse(V2_PATH.read_text(encoding="utf-8"))
         legacy_tree = ast.parse(LEGACY_PATH.read_text(encoding="utf-8"))
-        v2 = _class(v2_tree, "ChargeControllerV2")
+        v2 = _class(v2_tree, "ManagedChargeController")
         legacy = _class(legacy_tree, "ChargeController")
 
         legacy_constants = {
@@ -189,7 +189,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         self.assertEqual((legacy_constants - v2_constants) & referenced, set())
 
     def test_controller_state_bootstrap_matches_historical_shape(self) -> None:
-        from charge_controller import ChargeControllerV2
+        from charge_controller import ManagedChargeController
         from charge_logic import ChargeController
 
         hass = object()
@@ -198,7 +198,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
             return None
 
         historical = ChargeController(hass, notify_cb=notify)
-        current = ChargeControllerV2(hass, notify_cb=notify)
+        current = ManagedChargeController(hass, notify_cb=notify)
 
         for name, expected in historical.__dict__.items():
             with self.subTest(name=name):
@@ -211,14 +211,14 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
                     self.assertEqual(actual, expected)
 
     def test_target_temperature_and_protection_parity(self) -> None:
-        from charge_controller import ChargeControllerV2
+        from charge_controller import ManagedChargeController
         from charge_logic import ChargeController
 
         for profile in ("Ca/Ca", "EFB", "AGM", "Custom"):
             for capacity in (60, 90):
                 for temp in (5.0, 25.0, 40.0):
                     historical = ChargeController(object())
-                    current = ChargeControllerV2(object())
+                    current = ManagedChargeController(object())
                     for controller in (historical, current):
                         controller.battery_type = profile
                         controller.ah_capacity = capacity
@@ -261,12 +261,12 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
                     )
 
     def test_post_charge_and_log_helpers_match_historical_behavior(self) -> None:
-        from charge_controller import ChargeControllerV2
+        from charge_controller import ManagedChargeController
         from charge_logic import ChargeController
 
         for profile in ("Ca/Ca", "EFB", "AGM", "Custom"):
             historical = ChargeController(object())
-            current = ChargeControllerV2(object())
+            current = ManagedChargeController(object())
             historical.battery_type = profile
             current.battery_type = profile
             with self.subTest(profile=profile):
@@ -276,7 +276,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
                 )
 
         historical = ChargeController(object())
-        current = ChargeControllerV2(object())
+        current = ManagedChargeController(object())
         for controller in (historical, current):
             controller.current_stage = controller.STAGE_SAFE_WAIT
             controller.stage_start_time = 100.0
@@ -298,9 +298,9 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         )
 
     def test_runtime_support_helpers_use_canonical_limits(self) -> None:
-        from charge_controller import ChargeControllerV2
+        from charge_controller import ManagedChargeController
 
-        controller = ChargeControllerV2(object())
+        controller = ManagedChargeController(object())
         controller.battery_type = controller.PROFILE_EFB
         controller.current_stage = controller.STAGE_MIX
         controller.stage_start_time = 100.0
@@ -322,9 +322,9 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         self.assertTrue(controller._exit_cc_condition(16.47))
 
     def test_v2_diagnostics_use_canonical_policy_and_preserve_risk_heuristic(self) -> None:
-        from charge_controller import ChargeControllerV2
+        from charge_controller import ManagedChargeController
 
-        controller = ChargeControllerV2(object())
+        controller = ManagedChargeController(object())
         controller.battery_type = controller.PROFILE_EFB
         controller.current_stage = controller.STAGE_MIX
         controller.stage_start_time = 1_000.0

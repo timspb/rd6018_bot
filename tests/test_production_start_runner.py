@@ -9,7 +9,7 @@ from application.production_start_execution_port import (
 )
 from application.production_start_runner import ProductionStartRunner
 from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
-from application.start_event_context import V2StartEventContext
+from application.start_event_context import StartEventContext
 from application.start_execution_contract import request_from_trace
 from application.start_plan import approved_plan_from_preflight
 from application.start_preflight import StartPreflightService
@@ -17,8 +17,8 @@ from application.start_request import StartRequest
 from application.start_transaction_adapter import (
     RollbackState,
     StartExecutionStatus,
-    V2StartTransactionAdapter,
-    V2TransactionOutcome,
+    StartTransactionAdapter,
+    StartTransactionOutcome,
 )
 from pb_domain import BatteryChemistry, BatteryCondition, BatteryIdentity, ChargeIntent
 
@@ -77,10 +77,10 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         def fake_runner(transaction_input):
             calls.append(transaction_input)
-            return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+            return StartTransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
 
         result = ProductionStartRunner(
-            V2StartTransactionAdapter(), fake_runner
+            StartTransactionAdapter(), fake_runner
         ).execute(_request())
         self.assertEqual(result.status, StartExecutionStatus.STARTED)
         self.assertEqual(result.trace_id, "trace-runner")
@@ -92,10 +92,10 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         async def async_owner(transaction_input):
             calls.append(transaction_input.trace_id)
-            return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+            return StartTransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
 
         result = ProductionStartRunner(
-            V2StartTransactionAdapter(), async_owner
+            StartTransactionAdapter(), async_owner
         ).execute(_request())
         self.assertEqual(result.status, StartExecutionStatus.FAILED)
         self.assertEqual(result.reason, "runner_returned_invalid_outcome")
@@ -106,11 +106,11 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         async def async_owner(transaction_input):
             calls.append(transaction_input.trace_id)
-            return V2TransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+            return StartTransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
 
         result = asyncio.run(
             ProductionStartRunner(
-                V2StartTransactionAdapter(), async_owner
+                StartTransactionAdapter(), async_owner
             ).execute_async(_request())
         )
         self.assertEqual(result.status, StartExecutionStatus.STARTED)
@@ -123,7 +123,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         result = asyncio.run(
             ProductionStartRunner(
-                V2StartTransactionAdapter(), async_owner
+                StartTransactionAdapter(), async_owner
             ).execute_async(_request())
         )
         self.assertEqual(result.status, StartExecutionStatus.FAILED)
@@ -131,8 +131,8 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
     def test_runner_normalizes_rollback_mapping(self):
         result = ProductionStartRunner(
-            V2StartTransactionAdapter(),
-            lambda item: V2TransactionOutcome(
+            StartTransactionAdapter(),
+            lambda item: StartTransactionOutcome(
                 trace_id=item.trace_id, contained=True,
                 output_off_unconfirmed=True, session_contained=True,
                 reason="off_unconfirmed",
@@ -162,7 +162,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             calls.append((app, event, pending))
             return True
 
-        transaction = V2StartTransactionAdapter().prepare(
+        transaction = StartTransactionAdapter().prepare(
             _request().plan,
             trace_id="trace-owner",
         )
@@ -179,7 +179,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(calls[0][2].profile, "AGM")
 
     def test_event_context_contains_correlation_and_domain_metadata(self):
-        transaction = V2StartTransactionAdapter().prepare(
+        transaction = StartTransactionAdapter().prepare(
             _request().plan,
             trace_id="trace-context",
             intent=ChargeIntent.NORMAL,
@@ -187,7 +187,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             execution_metadata={"operator": "operator-7", "source": "telegram"},
         )
         context = build_start_event_context(transaction)
-        self.assertIsInstance(context, V2StartEventContext)
+        self.assertIsInstance(context, StartEventContext)
         self.assertEqual(context.trace_id, "trace-context")
         self.assertEqual(context.actor, "operator-7")
         self.assertEqual(context.source, "telegram")
@@ -196,7 +196,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(context.correlation_metadata["trace_id"], "trace-context")
 
     def test_default_event_context_is_data_only(self):
-        transaction = V2StartTransactionAdapter().prepare(_request().plan, trace_id="trace-data")
+        transaction = StartTransactionAdapter().prepare(_request().plan, trace_id="trace-data")
         context = build_start_event_context(transaction)
         self.assertFalse(hasattr(context, "controller"))
         self.assertFalse(hasattr(context, "hass"))
@@ -209,7 +209,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             received.append((event, pending))
             return True
 
-        transaction = V2StartTransactionAdapter().prepare(
+        transaction = StartTransactionAdapter().prepare(
             _request().plan,
             trace_id="trace-propagated",
             execution_metadata={"operator": "operator-9", "source": "telegram"},

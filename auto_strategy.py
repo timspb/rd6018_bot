@@ -14,10 +14,10 @@ from runtime.charge.strategy.main_variables import (
     standard_tail_hold_seconds,
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 
 
-class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
+class AutoStrategyProductionChargeController(ProductionChargeController):
     """Production AUTO strategy after the V1 behavioral audit.
 
     This layer owns accepted AUTO decisions above the modular stage runtime.
@@ -26,7 +26,7 @@ class AutoStrategyProductionChargeControllerV2(ProductionChargeControllerV2):
     """
 
     _OPERATOR_REASON_TEXT = {
-        **ProductionChargeControllerV2._OPERATOR_REASON_TEXT,
+        **ProductionChargeController._OPERATOR_REASON_TEXT,
         "main_tail_hold_complete_standard_mix": (
             "Основной заряд завершён по хвосту; начинается штатный Mix."
         ),

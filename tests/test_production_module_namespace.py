@@ -41,6 +41,26 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
                         violations.append(f"{path.relative_to(ROOT)}:{name}")
         self.assertEqual([], violations)
 
+    def test_retired_production_type_names_are_absent(self):
+        retired = (
+            "ChargeControllerV2", "ProductionChargeControllerV2",
+            "AutoStrategyProductionChargeControllerV2",
+            "DiagnosticProductionChargeControllerV2", "V2RuntimeSafetyGuard",
+            "V2RuntimeLifecycle", "V2StartTransactionAdapter",
+            "V2StartTransactionInput", "V2TransactionOutcome",
+            "V2StartEventContext", "V2TransactionRunner", "install_v2",
+            "init_v2_storage",
+        )
+        violations = []
+        for path in ROOT.rglob("*.py"):
+            if any(part in {".git", "__pycache__", "tests"} for part in path.parts):
+                continue
+            source = path.read_text(encoding="utf-8")
+            for name in retired:
+                if name in source:
+                    violations.append(f"{path.relative_to(ROOT)}:{name}")
+        self.assertEqual([], violations)
+
     def test_canonical_module_names_exist(self):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",

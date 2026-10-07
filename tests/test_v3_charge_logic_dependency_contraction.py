@@ -82,7 +82,7 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
         controller = next(
             node
             for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "ChargeControllerV2"
+            if isinstance(node, ast.ClassDef) and node.name == "ManagedChargeController"
         )
         self.assertEqual(controller.bases, [])
 

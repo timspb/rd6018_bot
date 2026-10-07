@@ -21,7 +21,7 @@ from runtime_safety_strict import StrictRuntimeSafetyGuard
 logger = logging.getLogger("rd6018")
 
 
-class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
+class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     """Production guard aligned with the accepted V2 authority model."""
 
     RUNTIME_FRESHNESS_KEYS = (
@@ -671,13 +671,13 @@ class V2RuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         return live
 
 
-def install_v2_runtime_safety(app: Any) -> V2RuntimeSafetyGuard:
+def install_managed_runtime_safety(app: Any) -> ManagedRuntimeSafetyGuard:
     existing = getattr(app.hass, "_runtime_safety_guard", None)
-    if isinstance(existing, V2RuntimeSafetyGuard):
+    if isinstance(existing, ManagedRuntimeSafetyGuard):
         return existing
     if existing is not None:
         raise RuntimeError("runtime safety guard was installed before V2 production guard")
-    guard = V2RuntimeSafetyGuard(app)
+    guard = ManagedRuntimeSafetyGuard(app)
     guard.install()
     app.runtime_safety_guard = guard
     return guard

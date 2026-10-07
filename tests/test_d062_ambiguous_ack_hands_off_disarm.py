@@ -5,7 +5,7 @@ import unittest
 
 from rd_control_mode import RdControlModeManager
 from rd_managed_mix import ManagedMixAdoptionCoordinator, ManagedMixState
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -82,7 +82,7 @@ class D062AmbiguousAckHandsOffDisarmTests(unittest.IsolatedAsyncioTestCase):
             app.manual_session_manager = None
             app._charge_notify = lambda *args, **kwargs: None
 
-            guard = V2RuntimeSafetyGuard(app)
+            guard = ManagedRuntimeSafetyGuard(app)
             guard.OFF_CONFIRMATION_WINDOW_S = 0.0
             guard.OFF_CONFIRMATION_POLL_S = 0.0
             lease = ResidualLease()

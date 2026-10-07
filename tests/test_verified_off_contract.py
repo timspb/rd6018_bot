@@ -11,7 +11,7 @@ from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionState, ManagedLiveAdoptionCoordinator
 from runtime_safety import OutputOffNotConfirmed
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 def _stamp(offset_s: float) -> str:
@@ -140,7 +140,7 @@ class VerifiedOffContractTests(unittest.IsolatedAsyncioTestCase):
         )
         if lease is not None:
             app.edge_safety_lease = lease
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.edge_lease_enforced = bool(lease)
         return app, guard
 

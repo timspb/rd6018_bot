@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -165,7 +165,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
 
     @staticmethod
     def _guard(app):
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0

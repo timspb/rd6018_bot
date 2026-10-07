@@ -57,7 +57,7 @@ from rd_startup_authority import (
     install_rd_startup_authority_gate,
     reconcile_startup_authority,
 )
-from production_bootstrap import init_v2_storage, install_v2
+from production_bootstrap import init_production_storage, install_production
 from mix_mode import install_mix_only_mode
 from runtime.startup_recovery import StartupRecovery
 
@@ -87,7 +87,7 @@ class ProductionComposition:
             return self
         _legacy = self.runtime
         # The battery-bound Manual preprocessor must be registered before the generic numeric
-        # Manual middleware installed by install_v2(); this gives an explicitly selected
+        # Manual middleware installed by install_production(); this gives an explicitly selected
         # physical battery ownership of the next numeric message without changing Manual V/I.
         install_manual_context_preprocessor(_legacy)
 
@@ -95,7 +95,7 @@ class ProductionComposition:
         # presentation, exactly as documented; rolling the Telegram UI back must not remove
         # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
         _ui_support_enabled = _env_enabled("V2_UI", True)
-        install_v2(_legacy, install_ui=_ui_support_enabled)
+        install_production(_legacy, install_ui=_ui_support_enabled)
         # Done/Storage intent is owned by canonical charge persistence and the
         # runtime restore/pause guards; composition does not patch controller methods.
         # Software-watchdog containment is owned directly by
@@ -361,7 +361,7 @@ class ProductionComposition:
             if physical_test_control is None
             else physical_test_control
         )
-        storage_init = init_v2_storage if init_storage is None else init_storage
+        storage_init = init_production_storage if init_storage is None else init_storage
 
         initializer = getattr(app, "initialize_runtime", None)
         if callable(initializer):

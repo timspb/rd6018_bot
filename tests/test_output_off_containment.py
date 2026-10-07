@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from runtime_safety import OutputOffNotConfirmed
-from managed_runtime_safety import V2RuntimeSafetyGuard
+from managed_runtime_safety import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -89,7 +89,7 @@ class OutputOffContainmentTests(unittest.IsolatedAsyncioTestCase):
             manual_session_manager=None,
             _charge_notify=notices.append,
         )
-        guard = V2RuntimeSafetyGuard(app)
+        guard = ManagedRuntimeSafetyGuard(app)
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0

@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charge_controller import ChargeControllerV2, FinalSafeWaitContinuation
-from diagnostic_controller import DiagnosticProductionChargeControllerV2
+from charge_controller import ManagedChargeController, FinalSafeWaitContinuation
+from diagnostic_controller import DiagnosticProductionChargeController
 from runtime.charge.persistence import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON
 
 
@@ -15,7 +15,7 @@ class DummyHass:
 
 class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
     def _controller_waiting_for_storage(self, session_file):
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.start("AGM", 90)
         controller._v2_trace_session_id = "session-final"
         controller.current_stage = controller.STAGE_MIX
@@ -125,7 +125,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
     def test_verified_final_transition_persists_storage_on_intent(self):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
-            controller = DiagnosticProductionChargeControllerV2(
+            controller = DiagnosticProductionChargeController(
                 DummyHass(), authoritative=True
             )
             with patch("runtime.charge.persistence.SESSION_FILE", session_file), patch(
@@ -171,7 +171,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 200_000.0
-            controller = DiagnosticProductionChargeControllerV2(
+            controller = DiagnosticProductionChargeController(
                 DummyHass(), authoritative=True
             )
             controller.start("AGM", 90)
@@ -195,7 +195,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 controller._save_session(15.0, 0.0, 10.0)
                 controller._write_trace_identity_to_session_file()
 
-                restored = DiagnosticProductionChargeControllerV2(
+                restored = DiagnosticProductionChargeController(
                     DummyHass(), authoritative=True
                 )
                 ok, _message = restored.try_restore_session(

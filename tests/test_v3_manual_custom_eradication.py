@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from charge_logic import ChargeController
 from manual_runtime import ProductionManualSessionManager
 
@@ -23,7 +23,7 @@ class DummyController:
 
 class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
     def test_production_controller_rejects_historical_custom_start(self):
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
 
         with self.assertRaisesRegex(RuntimeError, "historical Custom controller start is retired"):
             controller.start_custom(
@@ -41,7 +41,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
 
     def test_historical_custom_remains_characterization_only(self):
-        controller = ChargeControllerV2(DummyHass(), authoritative=False)
+        controller = ManagedChargeController(DummyHass(), authoritative=False)
         controller.start_custom(
             main_voltage=14.8,
             main_current=5.0,
@@ -53,7 +53,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
 
     async def test_authoritative_custom_state_never_enters_historical_tick(self):
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.ah_capacity = 70
         controller.current_stage = controller.STAGE_MAIN
@@ -84,7 +84,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
 
     async def test_idle_custom_residue_is_inert_and_never_enters_historical_tick(self):
-        controller = ChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass(), authoritative=True)
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.current_stage = controller.STAGE_IDLE
 
@@ -117,7 +117,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             ), patch("charge_logic.time.time", return_value=1000.0), patch(
                 "charge_controller.time.time", return_value=1000.0
             ):
-                legacy = ChargeControllerV2(DummyHass(), authoritative=False)
+                legacy = ManagedChargeController(DummyHass(), authoritative=False)
                 legacy.start_custom(
                     main_voltage=14.8,
                     main_current=5.0,
@@ -135,7 +135,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             ), patch("charge_logic.time.time", return_value=1100.0), patch(
                 "charge_controller.time.time", return_value=1100.0
             ):
-                production = ChargeControllerV2(DummyHass(), authoritative=True)
+                production = ManagedChargeController(DummyHass(), authoritative=True)
                 ok, message = production.try_restore_session(14.2, 1.0, 1.0)
 
             self.assertFalse(ok)

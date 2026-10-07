@@ -15,8 +15,8 @@ python bot.py
 Production controller:
 
 ```text
-ProductionChargeControllerV2
-  -> ChargeControllerV2 authority for non-Custom Main/Mix
+ProductionChargeController
+  -> ManagedChargeController authority for non-Custom Main/Mix
   -> legacy safety/mechanics scaffold
   -> recipe envelope
   -> SafeOutputCoordinator / strict runtime safety

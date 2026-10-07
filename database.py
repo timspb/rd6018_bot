@@ -12,7 +12,7 @@ logger = logging.getLogger("rd6018")
 DB_PATH = "rd6018.db"
 
 _db: Optional[aiosqlite.Connection] = None
-# ChargeControllerV2 uses this as a production/runtime gate for diagnostic trace
+# ManagedChargeController uses this as a production/runtime gate for diagnostic trace
 # persistence. Unit tests that instantiate a controller without init_db() remain
 # side-effect free.
 TRACE_CAPTURE_READY = False

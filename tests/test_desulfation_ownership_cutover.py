@@ -10,7 +10,7 @@ from charge_controller import (
     RecoverySafeWaitContinuation,
 )
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeControllerV2
+from production_controller import ProductionChargeController
 from recovery_policy import RecoveryDecision, RecoveryDecisionResult
 from signal_analyzer import SignalAnalysis, SignalEvent, SignalMetrics, SignalSample
 
@@ -80,7 +80,7 @@ class FixedRuntime:
 
 class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, profile="AGM", capacity=90, now=10_000.0):
-        controller = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass(), authoritative=True)
         controller.battery_type = profile
         controller.ah_capacity = capacity
         controller.current_stage = controller.STAGE_DESULFATION
@@ -449,7 +449,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                     saved = json.load(handle)
                 self.assertEqual(saved["v2_recovery_safe_wait"]["source_stage"], controller.STAGE_DESULFATION)
 
-                restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
+                restored = ProductionChargeController(DummyHass(), authoritative=True)
                 ok, _ = restored.try_restore_session(
                     15.0,
                     0.0,

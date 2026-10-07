@@ -13,8 +13,8 @@ from .start_plan import ApprovedStartPlan
 from .start_transaction_adapter import (
     StartExecutionResult,
     StartExecutionStatus,
-    V2StartTransactionAdapter,
-    V2TransactionOutcome,
+    StartTransactionAdapter,
+    StartTransactionOutcome,
 )
 
 
@@ -42,11 +42,11 @@ class ProductionStartExecutionPort:
     def __init__(
         self,
         runtime_start_service: RuntimeStartService | None = None,
-        transaction_adapter: V2StartTransactionAdapter | None = None,
+        transaction_adapter: StartTransactionAdapter | None = None,
         production_runner: ProductionStartRunner | None = None,
     ) -> None:
         self.runtime_start_service = runtime_start_service or RuntimeStartService()
-        self.transaction_adapter = transaction_adapter or V2StartTransactionAdapter()
+        self.transaction_adapter = transaction_adapter or StartTransactionAdapter()
         self.production_runner = production_runner
 
     def submit(
@@ -106,7 +106,7 @@ class ProductionStartExecutionPort:
     def normalize_v2_outcome(
         self,
         request: StartExecutionRequest,
-        outcome: V2TransactionOutcome,
+        outcome: StartTransactionOutcome,
     ) -> StartExecutionResult:
         """Normalize a captured V2 result while preserving request correlation."""
         return self.transaction_adapter.normalize(

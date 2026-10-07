@@ -27,7 +27,7 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
-from runtime.production_lifecycle import V2RuntimeLifecycle
+from runtime.production_lifecycle import ProductionRuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.custom import CUSTOM_CANCEL_CALLBACK_DATA
@@ -56,7 +56,7 @@ from runtime.safety.variables import (
 )
 from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
-from charge_controller import ChargeControllerV2
+from charge_controller import ManagedChargeController
 from config import (
     ALLOWED_CHAT_IDS,
     DEEPSEEK_API_KEY,
@@ -312,7 +312,7 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
         return None
 
 
-charge_controller = ChargeControllerV2(hass, notify_cb=_charge_notify)
+charge_controller = ManagedChargeController(hass, notify_cb=_charge_notify)
 
 
 def initialize_runtime() -> None:
@@ -3602,7 +3602,7 @@ def _cancel_custom_mode_state(user_id: int) -> None:
     custom_mode_confirm.pop(int(user_id), None)
 
 
-_lifecycle = V2RuntimeLifecycle(sys.modules[__name__], _telegram_runtime)
+_lifecycle = ProductionRuntimeLifecycle(sys.modules[__name__], _telegram_runtime)
 
 
 async def on_shutdown(dispatcher: Dispatcher) -> None:
