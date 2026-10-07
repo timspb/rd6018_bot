@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import bot_legacy
+from runtime import production_runtime
 
 
 class _Message:
@@ -29,8 +29,8 @@ class AiDialogContextTests(unittest.TestCase):
             async def get_all_live(self):
                 raise RuntimeError("telemetry unavailable")
 
-        with patch.object(bot_legacy, "hass", BrokenHass()):
-            context = asyncio.run(bot_legacy.get_ai_context_dict())
+        with patch.object(production_runtime, "hass", BrokenHass()):
+            context = asyncio.run(production_runtime.get_ai_context_dict())
         self.assertEqual(context["output_status"], "UNKNOWN")
         self.assertFalse(context["capacity_known"])
 
@@ -46,12 +46,12 @@ class AiDialogContextTests(unittest.TestCase):
         async def fake_context_dict():
             return {"output_status": "UNKNOWN"}
 
-        with patch.object(bot_legacy, "DEEPSEEK_API_KEY", "configured"), \
-                patch.object(bot_legacy, "get_ai_context", fake_context), \
-                patch.object(bot_legacy, "get_ai_context_dict", fake_context_dict), \
-                patch.object(bot_legacy, "ask_deepseek", fake_ask), \
-                patch.object(bot_legacy, "schedule_dashboard_after_60"):
-            asyncio.run(bot_legacy.handle_dialog_mode(message))
+        with patch.object(production_runtime, "DEEPSEEK_API_KEY", "configured"), \
+                patch.object(production_runtime, "get_ai_context", fake_context), \
+                patch.object(production_runtime, "get_ai_context_dict", fake_context_dict), \
+                patch.object(production_runtime, "ask_deepseek", fake_ask), \
+                patch.object(production_runtime, "schedule_dashboard_after_60"):
+            asyncio.run(production_runtime.handle_dialog_mode(message))
 
         self.assertTrue(message.answers)
 

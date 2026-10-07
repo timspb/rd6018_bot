@@ -3,7 +3,7 @@ import types
 import unittest
 from unittest import mock
 
-from runtime.v2_startup_recovery import V2StartupRecovery
+from runtime.startup_recovery import StartupRecovery
 
 
 class _Managed:
@@ -16,7 +16,7 @@ class _Managed:
         return self.result
 
 
-class V2StartupRecoveryTests(unittest.TestCase):
+class StartupRecoveryTests(unittest.TestCase):
     def test_recovery_order_is_managed_mix_then_live_then_observer(self):
         events = []
 
@@ -29,14 +29,14 @@ class V2StartupRecoveryTests(unittest.TestCase):
                 return True
 
         app = types.SimpleNamespace()
-        coordinator = V2StartupRecovery(
+        coordinator = StartupRecovery(
             app,
             Managed("mix"),
             Managed("live"),
             Managed("observer"),
         )
         with mock.patch(
-            "runtime.v2_startup_recovery.recover_diagnostic_persistence",
+            "runtime.startup_recovery.recover_diagnostic_persistence",
             new=mock.AsyncMock(),
         ) as recover_diagnostics:
             self.assertTrue(asyncio.run(coordinator.recover_managed_startup_authority()))
@@ -46,7 +46,7 @@ class V2StartupRecoveryTests(unittest.TestCase):
     def test_failed_ownership_recovery_short_circuits(self):
         mix = _Managed(False)
         live = _Managed(True)
-        coordinator = V2StartupRecovery(types.SimpleNamespace(), mix, live)
+        coordinator = StartupRecovery(types.SimpleNamespace(), mix, live)
 
         self.assertFalse(asyncio.run(coordinator.recover_managed_startup_authority()))
         self.assertEqual(mix.calls, 1)

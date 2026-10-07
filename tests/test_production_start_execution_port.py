@@ -11,7 +11,7 @@ from application.start_execution_contract import StartExecutionRequest
 from application.start_plan import approved_plan_from_preflight
 from application.start_preflight import StartPreflightService
 from application.start_request import StartRequest
-from application.v2_start_transaction_adapter import (
+from application.start_transaction_adapter import (
     StartExecutionStatus,
     V2StartTransactionAdapter,
     V2TransactionOutcome,

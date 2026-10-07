@@ -4,13 +4,13 @@ This document is for replacing the bot on an existing node. It intentionally doe
 
 ## Production model
 
-Normal V2 production launch:
+Normal production launch:
 
 ```bash
 python bot.py
 ```
 
-`bot.py` is a small V2 entrypoint. The previous large runtime is preserved as `bot_legacy.py` and is imported/wrapped by the V2 bootstrap.
+`bot.py` is the sole production entrypoint. It composes `runtime.production_runtime`; retired runtime facades have been removed.
 
 Production controller:
 
@@ -91,7 +91,7 @@ If the deployed tree contains local operational files or uncommitted configurati
 
 ## Install requested revision
 
-For this V2 branch:
+For the requested revision:
 
 ```bash
 git fetch origin
@@ -134,7 +134,7 @@ If either command fails:
 
 ## Environment flags
 
-Normal V2 deployment must not inject rollback flags.
+Normal production deployment must not inject retired rollback flags.
 
 Normal:
 
@@ -149,7 +149,6 @@ RD6018_EDGE_LEASE_REQUIRED unset/true
 Rollback policy during modular V3 migration:
 
 - `V2_AUTHORITATIVE=0` is retired and must not be used to re-enable legacy Main/Mix authority.
-- `bot_legacy.py` direct execution is retired.
 - `V2_UI=0` may be used only as the still-supported presentation compatibility switch while UI migration is incomplete; it does not alter charge authority.
 - Control/strategy rollback is an explicit deployment of a known-good commit after normal physical safety prechecks.
 

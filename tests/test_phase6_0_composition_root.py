@@ -41,7 +41,7 @@ class CompositionRootContractTests(unittest.TestCase):
         text = DOC.read_text(encoding="utf-8")
         for phrase in ("one authoritative `ApplicationComposition`", "one startup handoff", "not a second production root", "second bootstrap"):
             self.assertIn(phrase, text)
-        self.assertIn("bot_legacy.py", text)
+        self.assertIn("retired compatibility facades are absent", text)
 
     def test_bootstrap_does_not_define_domain_transition_logic(self) -> None:
         source = (ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")

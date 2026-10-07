@@ -5,7 +5,7 @@ from unittest.mock import patch
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import operator_hmi as hmi
-import bot_legacy
+from runtime import production_runtime
 from operator_managed_stop import _replace_legacy_power_toggle, _stop_exact_session
 from runtime_safety import OutputOffNotConfirmed
 
@@ -40,7 +40,7 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
     def test_historical_power_toggle_handler_and_helper_are_retired(self):
         import inspect
 
-        source = inspect.getsource(bot_legacy)
+        source = inspect.getsource(production_runtime)
         self.assertNotIn('F.data == "power_toggle"', source)
         self.assertNotIn("async def power_toggle_handler(", source)
         self.assertNotIn("def _legacy_power_toggle_is_disabled(", source)

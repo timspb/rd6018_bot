@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from bot_legacy import _restore_allows_auto_enable
+from runtime.production_runtime import _restore_allows_auto_enable
 
 
 class RestoreTerminalGuardTests(unittest.TestCase):

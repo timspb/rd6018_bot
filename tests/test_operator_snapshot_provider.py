@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from application.operator_read_source import OperatorReadSource
 from application.operator_snapshot import snapshot_from_mapping
-from application.operator_snapshot_shadow import compare_hmi_to_snapshot
 
 
 class _Hass:
@@ -87,12 +86,6 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(hasattr(details, "hass"))
         self.assertFalse(hasattr(service, "controller"))
 
-    async def test_shadow_matches_legacy_hmi_for_idle(self):
-        provider = OperatorSnapshotProvider(OperatorReadSource(_App(live())))
-        snapshot = await provider.get_operator_snapshot()
-        hmi = provider.legacy_hmi_state(live())
-        result = compare_hmi_to_snapshot(hmi, snapshot)
-        self.assertEqual(result.status, "MATCH")
 
 
 if __name__ == "__main__":

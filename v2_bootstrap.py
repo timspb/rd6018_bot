@@ -31,7 +31,7 @@ from application.production_start_execution_port import ProductionStartExecution
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
 from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
-from application.v2_start_transaction_adapter import V2StartTransactionAdapter
+from application.start_transaction_adapter import V2StartTransactionAdapter
 
 
 def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:

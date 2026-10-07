@@ -151,7 +151,7 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             ".hass.set_ovp(",
             ".hass.set_ocp(",
         )
-        for name in ("v2_startup.py", "v2_mix_mode.py"):
+        for name in ("application/start_transaction_service.py", "v2_mix_mode.py"):
             source = (ROOT / name).read_text(encoding="utf-8")
             for token in forbidden:
                 self.assertNotIn(token, source, f"{name}: {token}")
@@ -163,9 +163,6 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             self.assertIn(".enable(", source)
             self.assertIn(".disable(", source)
 
-        compatibility = (ROOT / "v2_startup.py").read_text(encoding="utf-8")
-        self.assertIn("application.start_transaction_service", compatibility)
-        self.assertNotIn("get_or_create_execution_port", compatibility)
 
     def test_runtime_restore_modules_have_no_direct_hass_execution_writes(self):
         forbidden = (
@@ -177,7 +174,7 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             ".hass.set_ovp(",
             ".hass.set_ocp(",
         )
-        for name in ("runtime/v2_startup_recovery.py", "runtime/v2_lifecycle.py"):
+        for name in ("runtime/startup_recovery.py", "runtime/production_lifecycle.py"):
             source = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("get_or_create_execution_port", source)
             for token in forbidden:

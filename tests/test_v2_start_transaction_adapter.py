@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from application.start_plan import approved_plan_from_preflight
 from application.start_preflight import StartPreflightService
 from application.start_request import StartRequest
-from application.v2_start_transaction_adapter import (
+from application.start_transaction_adapter import (
     RollbackState,
     StartExecutionStatus,
     V2StartTransactionAdapter,

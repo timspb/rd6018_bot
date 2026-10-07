@@ -7,7 +7,7 @@ new entries require explicit architecture review.
 
 | ID | Reachable legacy boundary | Current evidence | Replacement target | Removal gate | Status |
 |---|---|---|---|---|---|
-| L-001 | `bot.py -> ProductionComposition -> runtime.v2_runtime substrate` | production now imports `runtime.production_runtime`; `runtime.v2_runtime` is a read-only compatibility facade with no production inbound import edge | modular composition + lifecycle | production `runtime.v2_runtime` substrate edge removed and exact-head CI verified | CLOSED |
+| L-001 | `bot.py -> ProductionComposition -> runtime.v2_runtime substrate` | production imports `runtime.production_runtime`; the retired `runtime.v2_runtime` facade has been deleted | modular composition + lifecycle | production `runtime.v2_runtime` substrate edge removed and exact-head CI verified | CLOSED |
 | L-002 | compatibility installer stack inside `ProductionComposition.compose()` | six patch-only compatibility installers retired; residual `install_*` graph is explicitly classified as canonical domain/runtime/ownership/physical/UI composition and guarded against regression | explicit dependency graph | zero production reachability for retired shims + canonical residual installer inventory + full regression | CLOSED |
 | L-003 | historical `ChargeController` superclass | `ChargeControllerV2` has no `charge_logic` import or historical superclass; transitive historical support closure and external inherited production surface are both zero | modular stage engine | zero historical superclass/import reachability + parity regression | CLOSED |
 | L-004 | `_run_legacy_scaffold_tick -> super().tick()` | production fallback was retired; migrated stages use modular runtime services and unknown/residual historical stages fail closed instead of calling `super().tick()` | explicit modular stage runtime services | exact-head CI proves no production `super().tick()` fallback | CLOSED |
@@ -35,8 +35,8 @@ First ERADICATION-09 structural increment:
 
 - canonical production runtime identity is now `runtime.production_runtime`;
 - `bot.py` has zero production import edge to `runtime.v2_runtime`;
-- `runtime.v2_runtime` is a read-only historical import facade;
-- `bot_legacy.py` is a non-executable read-only facade and no longer aliases
+- `runtime.v2_runtime` has been deleted;
+- `bot_legacy.py` has been deleted and cannot alias
   `sys.modules`;
 - production-oriented characterization tests now inspect/import the canonical
   runtime identity while dedicated compatibility coverage keeps the old import
@@ -69,7 +69,7 @@ Composition cutover now provides one explicit ProductionComposition owner:
 - startup authority reconciliation, physical-control lifecycle and runtime execution are
   owned by ProductionComposition.run();
 - module-level _rd_*, _legacy_main and startup-recovery aliases are retired;
-- runtime.v2_runtime remains encapsulated only as the production composition substrate;
+- runtime.production_runtime is the production composition substrate; production startup recovery now imports `runtime.startup_recovery.StartupRecovery` directly, with no production inbound edge to the retired `runtime.v2_startup_recovery` name;
 - the temporary __getattr__ compatibility bridge is read-only and delegates through
   composition.runtime. Removing that substrate/bridge belongs to ERADICATION-09.
 

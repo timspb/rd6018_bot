@@ -8,19 +8,13 @@ from application.production_start_execution_port import (
     ProductionStartMode,
 )
 from application.production_start_runner import ProductionStartRunner
-from application.v2_start_runner_adapter import V2StartRunnerAdapter, build_v2_start_event_context
-from application.v2_start_event_context import V2StartEventContext
-from application.operator_feedback import (
-    LegacyFeedbackStatus,
-    build_legacy_feedback_bridge,
-)
-from application.telegram_operator_feedback import TelegramOperatorFeedbackAdapter
-from application.active_start_bridge import ActiveStartExecutionBridge, LegacyOperatorEventFacade
+from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
+from application.start_event_context import V2StartEventContext
 from application.start_execution_contract import request_from_trace
 from application.start_plan import approved_plan_from_preflight
 from application.start_preflight import StartPreflightService
 from application.start_request import StartRequest
-from application.v2_start_transaction_adapter import (
+from application.start_transaction_adapter import (
     RollbackState,
     StartExecutionStatus,
     V2StartTransactionAdapter,
@@ -161,7 +155,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertNotIn("HassClient", source)
         self.assertNotIn("SafeOutputCoordinator", source)
 
-    def test_async_v2_runner_adapter_calls_only_transaction_owner(self):
+    def test_async_start_transaction_runner_calls_only_transaction_owner(self):
         calls = []
 
         async def fake_owner(app, event, pending):
@@ -172,7 +166,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             _request().plan,
             trace_id="trace-owner",
         )
-        adapter = V2StartRunnerAdapter(
+        adapter = StartTransactionRunner(
             app="v2-app",
             event_factory=lambda item: ("event", item.trace_id),
             transaction_owner=fake_owner,
@@ -192,7 +186,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
             condition=BatteryCondition.UNKNOWN,
             execution_metadata={"operator": "operator-7", "source": "telegram"},
         )
-        context = build_v2_start_event_context(transaction)
+        context = build_start_event_context(transaction)
         self.assertIsInstance(context, V2StartEventContext)
         self.assertEqual(context.trace_id, "trace-context")
         self.assertEqual(context.actor, "operator-7")
@@ -203,7 +197,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
     def test_default_event_context_is_data_only(self):
         transaction = V2StartTransactionAdapter().prepare(_request().plan, trace_id="trace-data")
-        context = build_v2_start_event_context(transaction)
+        context = build_start_event_context(transaction)
         self.assertFalse(hasattr(context, "controller"))
         self.assertFalse(hasattr(context, "hass"))
         self.assertEqual(context.trace_id, "trace-data")
@@ -221,119 +215,15 @@ class ProductionStartRunnerTests(unittest.TestCase):
             execution_metadata={"operator": "operator-9", "source": "telegram"},
         )
         outcome = asyncio.run(
-            V2StartRunnerAdapter(app="v2-app", transaction_owner=fake_owner)(transaction)
+            StartTransactionRunner(app="v2-app", transaction_owner=fake_owner)(transaction)
         )
         self.assertTrue(outcome.started)
         self.assertEqual(outcome.trace_id, "trace-propagated")
-        self.assertEqual(received[0][0].actor, "operator-9")
-        self.assertEqual(received[0][0].source, "telegram")
-        self.assertEqual(received[0][0].correlation_metadata["trace_id"], "trace-propagated")
+        self.assertEqual(received[0][0].context.actor, "operator-9")
+        self.assertEqual(received[0][0].context.source, "telegram")
+        self.assertEqual(received[0][0].context.correlation_metadata["trace_id"], "trace-propagated")
         self.assertEqual(received[0][1].profile, "AGM")
 
-    def test_feedback_bridge_propagates_trace_without_transport_in_context(self):
-        published = []
-
-        class FakeFeedbackPort:
-            async def publish(self, **event):
-                published.append(event)
-
-        context = V2StartEventContext(
-            trace_id="trace-feedback",
-            actor="operator-11",
-            source="telegram",
-            profile="AGM",
-            capacity_ah=70.0,
-            condition=BatteryCondition.UNKNOWN,
-            correlation_metadata={"trace_id": "trace-feedback"},
-        )
-        bridge = build_legacy_feedback_bridge(context, FakeFeedbackPort())
-        asyncio.run(bridge.publish_status(LegacyFeedbackStatus.DENIED, "blocked"))
-        self.assertEqual(published[0]["trace_id"], "trace-feedback")
-        self.assertEqual(published[0]["status"], "DENIED")
-        self.assertFalse(hasattr(context, "telegram"))
-        self.assertFalse(hasattr(context, "controller"))
-
-    def test_telegram_feedback_adapter_sends_and_updates_without_execution_access(self):
-        class FakeMessage:
-            def __init__(self):
-                self.sent = []
-                self.edited = []
-
-            async def answer(self, text):
-                self.sent.append(text)
-
-            async def edit_text(self, text):
-                self.edited.append(text)
-
-        message = FakeMessage()
-        adapter = TelegramOperatorFeedbackAdapter(message)
-        asyncio.run(adapter.publish(
-            trace_id="trace-telegram",
-            status="DENIED",
-            message="blocked",
-            metadata={"trace_id": "trace-telegram"},
-        ))
-        asyncio.run(adapter.update(
-            trace_id="trace-telegram",
-            status="FAILED",
-            message="failed",
-            metadata={"trace_id": "trace-telegram"},
-        ))
-        self.assertEqual(message.sent, ["blocked"])
-        self.assertEqual(message.edited, ["failed"])
-        source = Path("application/telegram_operator_feedback.py").read_text(encoding="utf-8")
-        self.assertNotIn("ProductionStartRunner", source)
-        self.assertNotIn("Physical", source)
-
-    def test_active_bridge_uses_the_same_preflighted_runner(self):
-        calls = []
-
-        async def owner(*_args):
-            calls.append("owner")
-            return True
-
-        class Feedback:
-            async def publish(self, **_kwargs):
-                pass
-
-            async def update(self, **_kwargs):
-                pass
-
-        result = asyncio.run(
-            ActiveStartExecutionBridge(_App(), transaction_owner=owner).execute(_request(), Feedback())
-        )
-        self.assertEqual(result.status, StartExecutionStatus.STARTED)
-        self.assertEqual(calls, ["owner"])
-
-    def test_active_bridge_propagates_context_to_feedback_and_v2_owner(self):
-        received = []
-
-        async def owner(_app, event, pending):
-            self.assertIsInstance(event, LegacyOperatorEventFacade)
-            received.append((event, pending))
-            await event.message.answer("feedback")
-            return True
-
-        class Feedback:
-            def __init__(self):
-                self.events = []
-
-            async def publish(self, **event):
-                self.events.append(event)
-
-            async def update(self, **event):
-                self.events.append(event)
-
-        feedback = Feedback()
-        result = asyncio.run(
-            ActiveStartExecutionBridge(
-            _App(), transaction_owner=owner
-            ).execute(_request(), feedback)
-        )
-        self.assertEqual(result.status, StartExecutionStatus.STARTED)
-        self.assertEqual(result.trace_id, "trace-runner")
-        self.assertEqual(received[0][0].message.context.trace_id, "trace-runner")
-        self.assertEqual(feedback.events[0]["trace_id"], "trace-runner")
 
 
 if __name__ == "__main__":

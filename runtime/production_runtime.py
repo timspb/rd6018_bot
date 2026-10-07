@@ -27,7 +27,7 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 from telegram.runtime import configure_commands, create_telegram_runtime, run_polling
-from runtime.v2_lifecycle import V2RuntimeLifecycle
+from runtime.production_lifecycle import V2RuntimeLifecycle
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.custom import CUSTOM_CANCEL_CALLBACK_DATA
