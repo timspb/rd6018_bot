@@ -1,5 +1,12 @@
 # RD6018 Bot V3 Project Runbook
 
+## Current production host authority
+
+The only current production host is node 104. Node 101 is retired and excluded
+from all live checks, deployment, and physical validation. References to node
+101 later in this runbook are retained only inside historical evidence or
+migration records and do not identify the current production target.
+
 ## 1. Назначение проекта
 
 Проект — не просто контроллер RD6018. Он разделяет операторский интерфейс,
@@ -191,7 +198,7 @@ wrapper удалены после отсутствия production callers.
    миграции их callers и parity/full-suite доказательства.
 3. Свести UI/runtime composition к нейтральным модульным именам без compatibility facades.
 4. На каждом boundary обновлять `docs/README.md`, runbook и eradication ledger.
-5. Production node 101 и физический заряд остаются отдельным operational boundary.
+5. Production node 104 и физический заряд остаются отдельным operational boundary.
 
 ## 13. Запрещённые направления
 
@@ -200,7 +207,7 @@ wrapper удалены после отсутствия production callers.
 - обход SafetyEngine, ExecutionPolicy, lease или verified readback;
 - hardcoded voltage/current/time/limits;
 - synthetic authorization или автоматический fallback между коннекторами;
-- изменение ESPHome/firmware/node 101 без отдельного разрешения.
+- изменение ESPHome/firmware/node 104 без отдельного разрешения.
 
 
 ## 14. 2026-10-04 — Modular V3 and legacy eradication

@@ -89,8 +89,8 @@ trace. Any preflight or readback failure remains a hard deny.
 ## 5. Deployment statement
 
 This review proves repository and HOME-PC bench readiness. It does **not** claim
-that the current `main` is deployed on production node 101. Deployment/version
-proof is a separate operational boundary.
+that the current `main` is deployed on production node 104. Deployment/version
+proof is a separate operational boundary. Node 101 is retired and excluded.
 
 ## Decision
 
