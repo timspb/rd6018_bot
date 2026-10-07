@@ -10,7 +10,7 @@ Use these first:
 - `V3_PROJECT_RUNBOOK.md` — chronological project authority and current boundary.
 - `V3_MODULAR_ARCHITECTURE.md` — required module/layer rules.
 - `V3_UI_MODULAR_ARCHITECTURE.md` — UI/application/transport boundary.
-- `V3_LEGACY_ERADICATION_LEDGER.md` — removal ledger and proof status.
+- `V3_LEGACY_ERADICATION_LEDGER.md` — completed removal ledger and historical proof status; it is not a source of new runtime authority.
 - `RD6018_COMPOSITION_ROOT_MODEL.md` — current single-root composition contract.
 - `DEPLOYMENT.md` — deployment and rollback procedure.
 - `RD6018_FAILSAFE.md` — physical/edge fail-safe rules.
@@ -51,7 +51,7 @@ current owner instead.
 ## Production naming status
 
 Production-reachable filenames no longer use the historical `v2_*`/`*_v2`
-module namespace. Names such as `*_readback_v2` that remain in code are external
+module namespace, and the root README describes the current modular production system rather than the retired V2 cutover. Names such as `*_readback_v2` that remain in code are external
 RD6018/ESPHome telemetry schema identifiers, not alternate runtime ownership.
 Historical comparison/evidence modules may still use V2/V3 terminology and are
 not imported by the production root.
