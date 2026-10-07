@@ -37,7 +37,7 @@ class RecoveryTraceCaptureTests(unittest.IsolatedAsyncioTestCase):
         return controller
 
     async def _tick(self, controller: ManagedChargeController):
-        with patch("charge_logic.time.time", return_value=1000.0):
+        with patch("charge_controller.time.time", return_value=1000.0):
             return await controller.tick(
                 voltage=14.75,
                 current=0.70,

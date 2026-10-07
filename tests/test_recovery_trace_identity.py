@@ -21,13 +21,13 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
 
     def _session_patches(self):
         return (
-            patch("charge_logic.SESSION_FILE", self.session_file),
+            patch("charge_controller.SESSION_FILE", self.session_file),
             patch("charge_controller.SESSION_FILE", self.session_file),
         )
 
     def test_new_profile_and_custom_sessions_get_distinct_stable_ids(self):
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1000.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1000.0), patch(
             "charge_controller.time.time", return_value=1000.0
         ):
             profile = ManagedChargeController(DummyHass())
@@ -35,7 +35,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
             profile_id = profile.recovery_trace_context["session_id"]
 
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1100.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1100.0), patch(
             "charge_controller.time.time", return_value=1100.0
         ):
             # Historical Custom is characterization-only after ERADICATION-05;
@@ -56,7 +56,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
 
     def test_saved_trace_identity_survives_legacy_total_time_reestimation(self):
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1000.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1000.0), patch(
             "charge_controller.time.time", return_value=1000.0
         ):
             original = ManagedChargeController(DummyHass())
@@ -68,7 +68,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
             original_started_at = original.recovery_trace_context["started_at"]
 
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1100.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1100.0), patch(
             "charge_controller.time.time", return_value=1100.0
         ):
             original._save_session(voltage=14.2, current=1.0, ah=1.0)
@@ -80,7 +80,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
 
         restored = ManagedChargeController(DummyHass())
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1200.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1200.0), patch(
             "charge_controller.time.time", return_value=1200.0
         ):
             ok, _ = restored.try_restore_session(
@@ -135,7 +135,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
 
         first = ManagedChargeController(DummyHass())
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1100.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1100.0), patch(
             "charge_controller.time.time", return_value=1100.0
         ):
             ok, _ = first.try_restore_session(14.0, 1.0, 1.0)
@@ -148,7 +148,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
 
         second = ManagedChargeController(DummyHass())
         p1, p2 = self._session_patches()
-        with p1, p2, patch("charge_logic.time.time", return_value=1150.0), patch(
+        with p1, p2, patch("charge_controller.time.time", return_value=1150.0), patch(
             "charge_controller.time.time", return_value=1150.0
         ):
             ok, _ = second.try_restore_session(14.0, 1.0, 1.0)

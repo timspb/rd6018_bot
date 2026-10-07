@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from charge_controller import ManagedChargeController
-from charge_logic import ChargeController
 from production_controller import ProductionChargeController
 from runtime.charge.strategy import desulfation as desulfation_strategy
 from runtime.charge.strategy.desulfation_variables import (
@@ -74,23 +73,18 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_authoritative_desulfation_never_enters_historical_tick(self):
         controller = self._controller(ManagedChargeController.STAGE_DESULFATION)
-        with patch.object(
-            ChargeController,
-            "tick",
-            new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ), patch("charge_controller.time.time", return_value=1100.0):
-            actions = await controller._run_stage_scaffold_tick(
-                stage_before=controller.STAGE_DESULFATION,
-                voltage=16.3,
-                current=0.5,
-                temp_ext=25.0,
-                is_cv=True,
-                ah=12.0,
-                output_is_on=True,
-                manual_off_active=False,
-                is_cc=False,
-                manual_active=False,
-            )
+        actions = await controller._run_stage_scaffold_tick(
+            stage_before=controller.STAGE_DESULFATION,
+            voltage=16.3,
+            current=0.5,
+            temp_ext=25.0,
+            is_cv=True,
+            ah=12.0,
+            output_is_on=True,
+            manual_off_active=False,
+            is_cc=False,
+            manual_active=False,
+        )
         self.assertIsInstance(actions, dict)
         self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
 
@@ -108,23 +102,18 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             session_generation=controller._v2_trace_started_at,
         )
         controller._safe_wait_next_stage = controller.STAGE_MAIN
-        with patch.object(
-            ChargeController,
-            "tick",
-            new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ), patch("charge_controller.time.time", return_value=1100.0):
-            actions = await controller._run_stage_scaffold_tick(
-                stage_before=controller.STAGE_SAFE_WAIT,
-                voltage=14.5,
-                current=0.0,
-                temp_ext=25.0,
-                is_cv=False,
-                ah=12.0,
-                output_is_on=False,
-                manual_off_active=False,
-                is_cc=False,
-                manual_active=False,
-            )
+        actions = await controller._run_stage_scaffold_tick(
+            stage_before=controller.STAGE_SAFE_WAIT,
+            voltage=14.5,
+            current=0.0,
+            temp_ext=25.0,
+            is_cv=False,
+            ah=12.0,
+            output_is_on=False,
+            manual_off_active=False,
+            is_cc=False,
+            manual_active=False,
+        )
         self.assertIsInstance(actions, dict)
         self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
 
@@ -215,10 +204,8 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             controller._agm_stage_idx = 2
             controller._v2_trace_session_id = "session-restart"
             controller._v2_trace_started_at = now - 5000.0
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller.SESSION_FILE", session_file
-            ), patch("production_controller.SESSION_FILE", session_file), patch(
-                "charge_logic.time.time", return_value=now
+            with patch("charge_controller.SESSION_FILE", session_file), patch(
+                "production_controller.SESSION_FILE", session_file
             ), patch("charge_controller.time.time", return_value=now), patch(
                 "production_controller.time.time", return_value=now
             ):

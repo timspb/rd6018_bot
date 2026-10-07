@@ -85,7 +85,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_target_voltage_v = 14.8
         controller._last_known_output_on = True
 
-        with patch("charge_logic.time.time", return_value=1000.0):
+        with patch("charge_controller.time.time", return_value=1000.0):
             actions = await controller.tick(
                 voltage=14.75,
                 current=0.70,
@@ -117,7 +117,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_target_voltage_v = 14.8
         controller._last_known_output_on = True
 
-        with patch("charge_logic.time.time", return_value=301.0):
+        with patch("charge_controller.time.time", return_value=301.0):
             first = await controller.tick(
                 voltage=14.8,
                 current=0.60,
@@ -134,7 +134,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
             "continue",
         )
 
-        with patch("charge_logic.time.time", return_value=2701.0):
+        with patch("charge_controller.time.time", return_value=2701.0):
             actions = await controller.tick(
                 voltage=14.8,
                 current=0.60,
@@ -163,7 +163,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_runtime = ExplodingShadowRuntime()
         controller._last_known_output_on = True
 
-        with patch("charge_logic.time.time", return_value=1000.0):
+        with patch("charge_controller.time.time", return_value=1000.0):
             actions = await controller.tick(
                 voltage=14.2,
                 current=2.0,

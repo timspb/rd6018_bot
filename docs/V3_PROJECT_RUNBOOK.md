@@ -1886,3 +1886,20 @@ Historical audit documents remain evidence only and are not CI authority.
 
 Current architecture guards now require the retired shadow/migration module set
 to remain absent. No production behavior or physical safety semantics changed.
+
+
+## 2026-10-07 historical charge FSM eradication
+
+Operational-root reachability (production bot + tools + standalone CLIs) proved
+`charge_logic.py` and its sole helper `legacy_safety.py` had no live inbound edge.
+The historical FSM and safety compatibility source were deleted rather than kept
+as dormant fallback code.
+
+Tests that exercised only the historical controller were deleted. Current manual,
+Mix, recovery, persistence, diagnostics and fail-closed tests were retained and
+rewired to current owners; parity-with-legacy inventory was replaced by direct
+absence/ownership guards. No current production source imports either historical
+module.
+
+External persisted/session keys are unchanged in this pass. Physical/electrical
+safety semantics remain owned by current strategy/safety/execution modules.

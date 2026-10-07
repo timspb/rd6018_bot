@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from charge_controller import ManagedChargeController
-from charge_logic import ChargeController
 from manual_runtime import ProductionManualSessionManager
 
 
@@ -58,23 +57,18 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         controller.ah_capacity = 70
         controller.current_stage = controller.STAGE_MAIN
 
-        with patch.object(
-            ChargeController,
-            "tick",
-            new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ):
-            actions = await controller._run_stage_scaffold_tick(
-                stage_before=controller.STAGE_MAIN,
-                voltage=14.8,
-                current=2.0,
-                temp_ext=25.0,
-                is_cv=True,
-                ah=1.0,
-                output_is_on=True,
-                manual_off_active=False,
-                is_cc=False,
-                manual_active=False,
-            )
+        actions = await controller._run_stage_scaffold_tick(
+            stage_before=controller.STAGE_MAIN,
+            voltage=14.8,
+            current=2.0,
+            temp_ext=25.0,
+            is_cv=True,
+            ah=1.0,
+            output_is_on=True,
+            manual_off_active=False,
+            is_cc=False,
+            manual_active=False,
+        )
 
         self.assertTrue(actions.get("turn_off"))
         self.assertEqual(
@@ -88,23 +82,18 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.current_stage = controller.STAGE_IDLE
 
-        with patch.object(
-            ChargeController,
-            "tick",
-            new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ):
-            actions = await controller._run_stage_scaffold_tick(
-                stage_before=controller.STAGE_IDLE,
-                voltage=0.0,
-                current=0.0,
-                temp_ext=25.0,
-                is_cv=False,
-                ah=0.0,
-                output_is_on=False,
-                manual_off_active=False,
-                is_cc=False,
-                manual_active=True,
-            )
+        actions = await controller._run_stage_scaffold_tick(
+            stage_before=controller.STAGE_IDLE,
+            voltage=0.0,
+            current=0.0,
+            temp_ext=25.0,
+            is_cv=False,
+            ah=0.0,
+            output_is_on=False,
+            manual_off_active=False,
+            is_cc=False,
+            manual_active=True,
+        )
 
         self.assertEqual(actions, {})
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
@@ -112,9 +101,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
     def test_authoritative_restore_rejects_and_clears_historical_custom_session(self):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller.SESSION_FILE", session_file
-            ), patch("charge_logic.time.time", return_value=1000.0), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1000.0
             ):
                 legacy = ManagedChargeController(DummyHass(), authoritative=False)
@@ -130,9 +117,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
                 legacy._save_session(14.2, 1.0, 1.0)
                 self.assertTrue(os.path.exists(session_file))
 
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller.SESSION_FILE", session_file
-            ), patch("charge_logic.time.time", return_value=1100.0), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1100.0
             ):
                 production = ManagedChargeController(DummyHass(), authoritative=True)

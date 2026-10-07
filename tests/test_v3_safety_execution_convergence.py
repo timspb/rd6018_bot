@@ -106,11 +106,9 @@ class V3SafetyExecutionConvergenceTests(unittest.TestCase):
         self.assertIn("PB_AUTOMATIC_TARGET_CEILING_V.default", config_source)
         self.assertNotIn("MAX_VOLTAGE = 16.6", config_source)
 
-    def test_live_charge_logic_no_longer_uses_legacy_safety_clamp(self):
-        source = (ROOT / "charge_logic.py").read_text(encoding="utf-8")
-        self.assertNotIn("clamp_legacy_target_voltage", source)
-        self.assertNotIn("from config import MAX_VOLTAGE", source)
-        self.assertIn("clamp_pb_automatic_target_voltage", source)
+    def test_historical_charge_logic_and_safety_sources_are_removed(self):
+        self.assertFalse((ROOT / "charge_logic.py").exists())
+        self.assertFalse((ROOT / "legacy_safety.py").exists())
 
     def test_trace_reporting_uses_canonical_mix_authority_windows(self):
         source = (ROOT / "recovery_trace_report.py").read_text(encoding="utf-8")
@@ -120,13 +118,6 @@ class V3SafetyExecutionConvergenceTests(unittest.TestCase):
         self.assertEqual(10.0, mix_max_active_hours("AGM"))
         self.assertIsNone(mix_max_active_hours("Custom"))
 
-    def test_legacy_safety_is_derived_compatibility_not_value_owner(self):
-        source = (ROOT / "legacy_safety.py").read_text(encoding="utf-8")
-        self.assertNotIn("from config import MAX_VOLTAGE", source)
-        self.assertNotIn("return 20.0", source)
-        self.assertNotIn("return 10.0", source)
-        self.assertIn("clamp_pb_automatic_target_voltage", source)
-        self.assertIn("EFB_MIX_MAX_ACTIVE_HOURS.default", source)
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_runtime = FixedRuntime(
             analysis_at(now, voltage=voltage, current=current)
         )
-        with patch("charge_logic.time.time", return_value=now), patch(
+        with patch("charge_controller.time.time", return_value=now), patch(
             "charge_controller.time.time", return_value=now
         ), patch("production_controller.time.time", return_value=now):
             return await controller.tick(
@@ -187,7 +187,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
             ),
             decision=RecoveryDecision.FINISH_STAGE,
         )
-        with patch("charge_logic.time.time", return_value=now), patch(
+        with patch("charge_controller.time.time", return_value=now), patch(
             "charge_controller.time.time", return_value=now
         ), patch("production_controller.time.time", return_value=now):
             actions = await controller.tick(
@@ -437,10 +437,8 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                 agm_stage_idx=controller._agm_stage_idx,
                 session_generation=controller._v2_trace_started_at,
             )
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller.SESSION_FILE", session_file
-            ), patch("production_controller.SESSION_FILE", session_file), patch(
-                "charge_logic.time.time", return_value=now
+            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_controller.time.time", return_value=now
             ), patch("charge_controller.time.time", return_value=now), patch(
                 "production_controller.time.time", return_value=now
             ):
