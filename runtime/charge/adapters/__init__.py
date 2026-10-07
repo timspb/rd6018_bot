@@ -1,5 +1,6 @@
-"""Temporary adapters for comparing legacy decisions with V3 contracts."""
+"""Charge adapters package.
 
-from .legacy import LegacyChargeProgramAdapter
+Historical legacy decision adapters were retired after post-ERADICATION convergence.
+"""
 
-__all__ = ["LegacyChargeProgramAdapter"]
+__all__: list[str] = []

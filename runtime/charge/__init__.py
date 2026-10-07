@@ -35,7 +35,6 @@ _EXPORTS = {
     "ChargeProgram": (".program", "ChargeProgram"),
     "ChargeState": (".state", "ChargeState"),
     "DeltaRuntimeState": (".state", "DeltaRuntimeState"),
-    "LegacyChargeProgramAdapter": (".adapters", "LegacyChargeProgramAdapter"),
     "ManualProgram": (".programs", "ManualProgram"),
     "ManualTargets": (".programs", "ManualTargets"),
     "MinimumConfig": (".programs", "MinimumConfig"),
