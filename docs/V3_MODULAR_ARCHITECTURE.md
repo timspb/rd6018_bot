@@ -1,11 +1,9 @@
 # V3 Modular Architecture Contract
 
-Status: **authoritative target architecture** for the V3 migration.
+Status: **current production architecture contract**.
 
-This document supersedes the old idea that V3 may remain a compatibility shell
-around the V1/V2 runtime. Compatibility code may exist only while a bounded
-migration step is being proven. It must not be the final owner of a migrated
-capability.
+The modular cutover is complete. Retired V1/V2 compatibility, shadow and dual-runtime
+owners are not production architecture and must not be reintroduced.
 
 ## 1. Non-negotiable rule
 
@@ -22,7 +20,7 @@ A migrated V3 capability is implemented by a V3 module, not by:
 The historical implementation can be used as a **test oracle** until parity is
 proved. Once a boundary is migrated, its old production route is removed.
 
-## 2. Target module graph
+## 2. Production module graph
 
 ```text
 bot.py
@@ -145,34 +143,31 @@ Never:
 button/callback -> hass/set_voltage/turn_on/controller internals
 ```
 
-## 5. Migration rule
+## 5. Change rule
 
-For each boundary:
+For each production boundary change:
 
-1. capture old behavior with golden/characterization tests;
-2. implement the modular V3 owner without importing the legacy implementation;
-3. compare decisions/effects;
-4. prove restart/failure semantics;
-5. switch one production route;
-6. delete or make unreachable the old production route;
-7. add a static test proving the legacy route cannot return.
+1. identify the current owner and callers;
+2. preserve safety, restart and failure semantics with focused tests;
+3. change one authoritative route rather than adding a parallel owner;
+4. remove only code proven unreachable or superseded;
+5. keep static architecture guards that prevent retired compatibility routes from returning.
 
-Do not leave two active owners after cutover.
+Do not create two active owners.
 
 ## 6. Compatibility facades are forbidden
 
 Retired compatibility modules are deleted rather than kept as forwarding shims.
-A historical `v2_*` filename may remain temporarily only when it is itself the
-production-reachable owner; that naming debt must be listed in
-`V3_LEGACY_ERADICATION_LEDGER.md` with current callers, replacement/rename gate
-and status.
+Production filenames and internal owner types must not reintroduce the retired
+`v2_*` namespace. Historical-looking persisted/protocol/external telemetry identifiers
+are separate compatibility boundaries and are changed only through an explicit migration.
 
 No new legacy/compatibility import surface may be introduced. Callers move to
 the current owner directly.
 
 ## 7. Completion criteria
 
-V3 is complete only when production satisfies all of the following:
+Current production must continue to satisfy all of the following:
 
 - `bot.py` is a small composition/lifecycle entrypoint;
 - no production import of `runtime.v2_runtime`, `bot_legacy` or historical

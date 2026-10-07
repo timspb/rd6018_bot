@@ -10,9 +10,9 @@ The retired compatibility facades are absent: there is no `bot_legacy.py`,
 no `runtime.v2_runtime`, no top-level `v2_startup.py`, no
 `application.v2_start_runner_adapter`, and no legacy actuator inventory facade.
 
-`production_bootstrap.py` is still a transitional installer module by name, but it is
-not a second production root and it contains no charge-state machine or direct
-physical writes.
+`production_bootstrap.py` is a production composition installer module. It is not
+a second production root and contains no charge-state machine or direct physical
+writes.
 
 ## ApplicationComposition contract
 
@@ -38,12 +38,14 @@ The runtime lifecycle is delegated to the composed canonical runtime only.
 Any second bootstrap, module-alias facade, or compatibility entrypoint is a
 regression.
 
-## Transitional naming
+## Naming and external compatibility boundaries
 
-Some modules still carry historical `v2_*` names while their implementation
-is the current production owner. Naming debt is not authority debt: those
-modules must be renamed or absorbed only after callers move and tests prove
-behavioral parity. New code must not add more `v2_*` modules.
+Production-reachable module filenames and internal owner types use neutral current
+names. Historical-looking names may remain only in persisted state, Telegram
+callback-data, deployed ESPHome/entity schemas or explicit historical evidence;
+those are protocol/state boundaries and require explicit migration rather than
+textual renaming. New production modules must not reintroduce `v2_*`, legacy,
+shadow or compatibility ownership surfaces.
 
 ## Guardrail
 

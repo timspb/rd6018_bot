@@ -5,41 +5,37 @@ This repository controls a physical RD6018 power supply and lead-acid batteries.
 ## Production entrypoint
 
 - Production: `python bot.py`
-- `bot.py` is the transitional production entrypoint while the modular V3 composition is extracted.
-- `runtime/v2_runtime.py` and `charge_logic.py` are historical/reference implementations: do not add new production behavior to them.
-- `bot_legacy.py` direct execution is retired; import compatibility exists only for characterization while it is removed.
-- Production controller: `DiagnosticProductionChargeControllerV2` from `diagnostic_controller.py`.
-- `ProductionManualSessionManager` is the managed Manual authority.
-- `RdControlModeManager` is the outer RD6018 ownership boundary (`PB_MANAGED` / `HANDS_OFF`).
-- V2 production/runtime support starts at Python **3.10**. CI covers Python 3.10 / 3.11 / 3.12; Python 3.9 is not a supported deployment interpreter.
+- `bot.py` is the small canonical composition/lifecycle entrypoint.
+- `ProductionComposition` composes the canonical `runtime.production_runtime`; retired V2/legacy/shadow runtimes are absent and must not be recreated.
+- Current charge, Manual, ownership, safety, execution, telemetry, persistence and UI behavior belongs to its modular production owner rather than an in-process compatibility fallback.
+- Production supports Python **3.10+**. CI covers Python 3.10 / 3.11 / 3.12; Python 3.9 is not a supported deployment interpreter.
 
-Do not replace the production entrypoint with `bot_legacy.py` during a normal deployment.
+Do not add a second production entrypoint or compatibility runtime.
 
 ## Rollback controls
 
-- `V2_UI=0` remains a presentation compatibility switch while UI migration is incomplete.
-- `V2_AUTHORITATIVE=0` is retired as a production rollback mechanism. Do not restore legacy transition authority through environment configuration.
-- `bot_legacy.py` is not a production rollback entrypoint.
-- After a modular boundary is cut over, rollback is performed by reverting/deploying the previous known-good commit, not by enabling an in-process legacy owner.
+- Rollback is performed by reverting/deploying a previous known-good commit after the same safety prechecks used for deployment.
+- There is no supported in-process legacy owner or runtime fallback.
+- Existing persisted/protocol/configuration identifiers that still contain historical `v2` text are compatibility boundaries, not permission to restore V2 architecture.
 
-Do not add new environment flags that resurrect superseded owners.
+Do not add environment flags or forwarding shims that resurrect superseded owners.
 
 ## Source of truth
 
 Read these before changing control behavior:
 
-1. `docs/assistant/V2_DECISION_LOG.md` — durable accepted/implemented decisions.
-2. `docs/assistant/V2_OPEN_QUESTIONS.md` — genuinely unresolved strategy/calibration questions.
-3. `docs/assistant/CHARGE_STRATEGY.md` — current production strategy.
-4. `docs/assistant/PB_RECOVERY_V2.md` — V2 architecture and invariants.
-5. `docs/assistant/RD_HANDS_OFF_MODE.md` — general-purpose RD ownership boundary.
-6. `docs/assistant/D061_MANAGED_LIVE_ADOPTION.md` — already-ON managed ownership-transfer primitive and physical bench gate.
-7. `docs/assistant/D062_MANAGED_MIX_ADOPTION.md` — managed external-Mix takeover, prior-age and fresh-Delta authority.
-8. `README.md` — operator/repository overview.
-9. `docs/DEPLOYMENT.md` — deployment, validation and rollback runbook.
+1. `docs/V3_PROJECT_RUNBOOK.md` — current project state, merged boundaries and operational evidence.
+2. `docs/V3_MODULAR_ARCHITECTURE.md` — current module/ownership contract.
+3. `docs/V3_UI_MODULAR_ARCHITECTURE.md` — UI/application/transport boundary.
+4. `docs/RD6018_COMPOSITION_ROOT_MODEL.md` — single production composition-root contract.
+5. `docs/RD6018_FAILSAFE.md` — physical and edge fail-safe rules.
+6. `README.md` — current operator/repository overview.
+7. `docs/DEPLOYMENT.md` — deployment, validation and rollback runbook.
+8. `docs/README.md` — documentation authority classification.
+9. `docs/assistant/CHARGE_STRATEGY.md` — current charge-strategy detail where not superseded by the authorities above.
 10. `docs/RECOVERY_TRACE_REPLAY.md` — trace/replay tooling.
 
-If code and these current documents disagree, stop and resolve the inconsistency; do not guess from an old comment, legacy test or historical commit.
+If code and these current documents disagree, resolve the inconsistency against current `main` and the runbook; do not promote a migration-era document, old comment, deleted compatibility test or historical commit back into production authority.
 
 
 ## Branch hygiene
@@ -54,7 +50,7 @@ If code and these current documents disagree, stop and resolve the inconsistency
 ## Control invariants
 
 - Chemistry, intent, battery condition, program mode and actuator ownership are separate inputs.
-- `Normal` is the full V1-compatible automatic chain: bounded recovery and final Mix may occur when deterministic evidence/strategy allows them.
+- `Normal` is the canonical automatic chain: bounded recovery and final Mix may occur when deterministic evidence/strategy allows them.
 - `Diagnostic` is the explicit no-new-automatic-HV intent.
 - `Recovery` / `Conditioning` express operator purpose/context; they do not bypass evidence, recipe or safety authority.
 - CV finish evidence is current-based: `Imin -> confirmed delta-I`.
@@ -85,7 +81,7 @@ For a deployment request:
 - Preserve the existing service manager and service name discovered on the node.
 - Back up the currently deployed working tree before replacing it.
 - Check out the exact requested branch/SHA.
-- Use Python 3.10+ for V2. If the current system interpreter is older or its pip is broken, do **not** repair/replace `/usr/bin/python3` in place. Provision an isolated supported interpreter/venv, validate it completely before changing the service, and change only the service interpreter path during the final handover.
+- Use Python 3.10+. If the current system interpreter is older or its pip is broken, do **not** repair/replace `/usr/bin/python3` in place. Provision an isolated supported interpreter/venv, validate it completely before changing the service, and change only the service interpreter path during the final handover.
 - Install/update `requirements.txt` in the selected supported Python environment.
 - Run:
 
