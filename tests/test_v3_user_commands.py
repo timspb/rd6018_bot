@@ -2,7 +2,7 @@ import unittest
 
 from runtime.diagnostics import DiagnosticAuthority
 from runtime.ui.commands import (
-    CommandContext, CommandStatus, ConfirmSafetyCommand, LegacyActionAdapter,
+    CommandContext, CommandStatus, ConfirmSafetyCommand,
     SelectProfileCommand, StartChargeCommand, StopChargeCommand, UserCommandAdapter,
 )
 
@@ -31,11 +31,6 @@ class V3UserCommandTests(unittest.TestCase):
         result = UserCommandAdapter().adapt(command, CommandContext(authority=DiagnosticAuthority.HARD_STOP))
         self.assertEqual(result.status, CommandStatus.BLOCKED_BY_SAFETY)
 
-    def test_legacy_action_mapping_has_one_owner(self):
-        self.assertEqual(LegacyActionAdapter.map_action("START"), "start_charge")
-        self.assertEqual(LegacyActionAdapter.map_action("STOP"), "stop_charge")
-        with self.assertRaises(ValueError):
-            LegacyActionAdapter.map_action("OUTPUT_ON")
 
 
 if __name__ == "__main__":

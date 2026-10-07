@@ -1,7 +1,6 @@
 """Transport-independent V3 presentation contracts."""
 
 from .actions import UIAction
-from .adapter import LegacyUIAdapter
 from .buttons import ButtonSpec
 from .models import (
     ChargeView,
@@ -28,7 +27,6 @@ __all__ = [
     "EntityStatusItem",
     "EntityStatusView",
     "JournalView",
-    "LegacyUIAdapter",
     "REQUIRED_SCREEN_FIELDS",
     "RuntimeUISnapshot",
     "SafetyView",

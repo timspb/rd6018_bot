@@ -3,7 +3,7 @@ import unittest
 from runtime.diagnostics import (
     BankFaultEvidence, BankFaultLevel, BankFaultPolicy, BankFaultSignal,
     BatteryDiagnosticEvidence, BatteryDiagnosticsEngine, DiagnosticAuthority,
-    LegacyBankFaultAdapter, score_bank_fault, SafetyEvidence,
+    score_bank_fault, SafetyEvidence,
     evaluate_safety_evidence, safety_evidence_from_diagnostic,
 )
 
@@ -33,13 +33,6 @@ class V3BankFaultEvidenceTests(unittest.TestCase):
         ))
         report = BatteryDiagnosticsEngine().evaluate(BatteryDiagnosticEvidence(), bank_fault=bank)
         self.assertEqual(report.authority.authority, DiagnosticAuthority.BLOCK_AUTOMATIC_HV)
-
-    def test_legacy_snapshot_maps_to_signals(self):
-        evidence = LegacyBankFaultAdapter.from_snapshot(
-            {"reasons": ["main_slow_v_rise<0.8V", "main_duration>20h"]}, timestamp=100.0,
-        )
-        self.assertTrue(evidence.signal("slow_voltage_rise").value)
-        self.assertTrue(evidence.signal("prolonged_main_duration").value)
 
     def test_safety_evidence_is_read_only_boundary(self):
         evidence = safety_evidence_from_diagnostic(

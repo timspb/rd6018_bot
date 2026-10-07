@@ -2,7 +2,7 @@ import unittest
 
 from runtime.charge.intent import ChargeIntent
 from runtime.output.intent import OutputAction, SafeOutputIntent
-from runtime.output.execution_policy import ExecutionPolicy, ExecutionPolicyContext, LegacyExecutionPolicyAdapter
+from runtime.output.execution_policy import ExecutionPolicy, ExecutionPolicyContext
 from runtime.safety import SafetyDecision, SafetyEngine, SafetyLimits
 
 
@@ -33,11 +33,6 @@ class V3ExecutionPolicyTests(unittest.TestCase):
         safety = SafetyDecision(True, "ok")
         self.assertFalse(self.policy.evaluate(intent, safety, ExecutionPolicyContext(unsafe_state=True)).allowed)
 
-    def test_legacy_requirements_are_comparable(self):
-        intent = SafeOutputIntent(OutputAction.ENABLE, 14.4, 2.0)
-        v2 = LegacyExecutionPolicyAdapter.requirements(intent)
-        result = LegacyExecutionPolicyAdapter.compare(v2, dict(v2))
-        self.assertEqual(result.status, "MATCH")
 
 
 if __name__ == "__main__":
