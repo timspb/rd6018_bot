@@ -169,7 +169,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",
             "manual_runtime.py", "manual_text.py", "managed_runtime_safety.py",
-            "sg_policy.py", "charge_authority.py", "battery_catalog.py",
+            "sg_policy.py", "battery_catalog.py",
             "battery_input.py", "production_bootstrap.py", "production_bot_ui.py",
             "mix_mode.py", "sg_ui.py", "ui_support.py", "ui_polish.py",
             "runtime/startup_recovery.py",

@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-import charge_authority
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.strategy.main_authority import decide_main_transition
 from runtime.charge.strategy.main_targets import select_main_target
@@ -36,14 +35,11 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         source = (ROOT / "runtime" / "charge" / "strategy" / "main_authority.py").read_text(encoding="utf-8")
         self.assertNotIn("pb_domain", source)
 
-    def test_compatibility_surface_reexports_canonical_main_owner(self) -> None:
-        self.assertIs(charge_authority.decide_main_transition, decide_main_transition)
-        self.assertIs(charge_authority.AuthorityAction, AuthorityAction)
-        self.assertIs(charge_authority.AuthorityDecision, AuthorityDecision)
-        self.assertEqual(
-            charge_authority.AGM_TIMEOUT_TAIL_CURRENT_A,
-            float(AGM_TIMEOUT_TAIL_CURRENT_A.default),
-        )
+    def test_canonical_main_owner_exports_decision_contract(self) -> None:
+        self.assertTrue(callable(decide_main_transition))
+        self.assertIsNotNone(AuthorityAction)
+        self.assertIsNotNone(AuthorityDecision)
+        self.assertEqual(float(AGM_TIMEOUT_TAIL_CURRENT_A.default), 0.20)
 
     def test_main_variable_metadata_is_complete(self) -> None:
         variables = (
@@ -110,8 +106,6 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         auto = (ROOT / "auto_strategy.py").read_text(encoding="utf-8")
         production = (ROOT / "production_controller.py").read_text(encoding="utf-8")
         controller = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        compat = (ROOT / "charge_authority.py").read_text(encoding="utf-8")
-
         self.assertNotIn("from charge_logic import (\n    AGM_FIRST_STAGE_HOLD_SEC", auto)
         self.assertIn("from runtime.charge.strategy.main_authority import decide_main_transition", auto)
         self.assertIn("select_main_target(", production)
@@ -124,11 +118,7 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
             "AGM_STAGES",
         ):
             self.assertNotIn(name, controller)
-        self.assertNotIn("def decide_main_transition(", compat)
-        self.assertIn(
-            "from runtime.charge.strategy.main_authority import",
-            compat,
-        )
+        self.assertNotIn("from charge_authority", controller)
 
 
 if __name__ == "__main__":
