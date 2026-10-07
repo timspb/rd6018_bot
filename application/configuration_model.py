@@ -268,11 +268,11 @@ def default_configuration_authority() -> ConfigurationAuthority:
         ("charge.manual.main.voltage_v", ConfigurationSection.CHARGE, "Manual Profile Domain", float, 14.7, _positive, "config/charge/manual.yaml"),
         ("charge.manual.main.current_a", ConfigurationSection.CHARGE, "Manual Profile Domain", float, 5.0, _positive, "config/charge/manual.yaml"),
         ("charge.manual.mix.hold_hours", ConfigurationSection.CHARGE, "Manual Strategy Domain", float, 2.0, _non_negative, "config/charge/manual.yaml"),
-        ("strategy.mix.finish_hold_s", ConfigurationSection.STRATEGY, "Strategy Domain", float, 7200.0, _positive, "charge_logic.py / rd_live_adoption.py"),
+        ("strategy.mix.finish_hold_s", ConfigurationSection.STRATEGY, "Strategy Domain", float, 7200.0, _positive, "runtime/charge/strategy/mix_variables.py / rd_live_adoption.py"),
         ("safety.max_voltage_v", ConfigurationSection.SAFETY, "Safety Domain", float, 18.0, _positive, "config/charge/limits.yaml"),
         ("safety.max_current_a", ConfigurationSection.SAFETY, "Safety Domain", float, 18.0, _positive, "config/charge/limits.yaml"),
         ("safety.max_temperature_c", ConfigurationSection.SAFETY, "Safety Domain", float, 55.0, _positive, "config/safety/safety_limits.yaml"),
-        ("safety.watchdog_timeout_s", ConfigurationSection.SAFETY, "Runtime Safety", float, 300.0, _positive, "charge_logic.py"),
+        ("safety.watchdog_timeout_s", ConfigurationSection.SAFETY, "Runtime Safety", float, 300.0, _positive, "runtime/safety/soft_watchdog.py"),
         ("containment.off_confirmation_poll_s", ConfigurationSection.CONTAINMENT, "SafeOutput/Containment", float, 0.5, _positive, "runtime_safety.py"),
         ("containment.orphan_output_grace_s", ConfigurationSection.CONTAINMENT, "SafeOutput/Containment", float, 45.0, _positive, "runtime_safety.py"),
         ("lease.ttl_s", ConfigurationSection.LEASE, "Lease Authority", float, 900.0, _positive, "ESPHome contract"),
@@ -280,7 +280,7 @@ def default_configuration_authority() -> ConfigurationAuthority:
         ("transport.telemetry_interval_s", ConfigurationSection.TRANSPORT, "Transport Adapter", float, 5.0, _positive, "config/runtime/runtime.yaml"),
         ("transport.ha_timeout_s", ConfigurationSection.TRANSPORT, "HA Adapter", float, 15.0, _positive, "runtime/v2_runtime.py"),
         ("ui.dashboard_refresh_s", ConfigurationSection.UI, "UI Adapter", float, 5.0, _positive, "config/runtime/runtime.yaml"),
-        ("persistence.session_file", ConfigurationSection.PERSISTENCE, "Session Persistence", str, "charge_session.json", lambda value: bool(value.strip()), "charge_logic.py"),
+        ("persistence.session_file", ConfigurationSection.PERSISTENCE, "Session Persistence", str, "charge_session.json", lambda value: bool(value.strip()), "runtime/charge/persistence.py"),
     )
     return ConfigurationAuthority({
         key: ConfigurationParameter(key, section, owner, value_type, default, validator, description, source)

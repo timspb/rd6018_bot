@@ -61,7 +61,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         now = 10000.0
         controller = self._controller(intent=ChargeIntent.NORMAL, now=now)
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.8, current=0.20, current_min=0.20, seconds_since_min=3 * 3600))
-        with patch("charge_logic.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
+        with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(14.8, 0.20, 25.0, True, 20.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertAlmostEqual(actions.get("set_voltage"), 16.5)
@@ -71,7 +71,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         now = 20000.0
         controller = self._controller(intent=ChargeIntent.RECOVERY, now=now)
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.8, current=0.20, current_min=0.20, seconds_since_min=3 * 3600))
-        with patch("charge_logic.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
+        with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(14.8, 0.20, 25.0, True, 20.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertAlmostEqual(actions["set_voltage"], 16.5)
@@ -82,7 +82,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         controller.ah_capacity = 60
         controller._v2_main_plateau_since = now - 40 * 60
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.8, current=1.0, current_min=1.0, seconds_since_min=40 * 60, events={SignalEvent.CURRENT_PLATEAU}))
-        with patch("charge_logic.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
+        with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(14.8, 1.0, 25.0, True, 20.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_DESULFATION)
         self.assertAlmostEqual(actions["set_voltage"], 16.3)
@@ -98,13 +98,13 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_target_voltage_v = 16.3
         controller._last_known_output_on = True
         controller._v2_runtime = FixedRuntime(analysis_at(start, voltage=16.3, current=0.5, current_min=0.4, seconds_since_min=3600, events={SignalEvent.CURRENT_REVERSAL_CONFIRMED, SignalEvent.END_OF_CHARGE_LIKELY}), decision=RecoveryDecision.FINISH_STAGE)
-        with patch("charge_logic.time.time", return_value=start), patch("charge_controller.time.time", return_value=start):
+        with patch("charge_controller.time.time", return_value=start), patch("charge_controller.time.time", return_value=start):
             actions = await controller.tick(16.3, 0.5, 25.0, True, 30.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertAlmostEqual(controller.finish_timer_start, start)
         finish = start + 2 * 3600
         controller._v2_runtime = FixedRuntime(analysis_at(finish, voltage=16.3, current=0.45, current_min=0.4, seconds_since_min=3 * 3600))
-        with patch("charge_logic.time.time", return_value=finish), patch("charge_controller.time.time", return_value=finish):
+        with patch("charge_controller.time.time", return_value=finish), patch("charge_controller.time.time", return_value=finish):
             actions = await controller.tick(16.3, 0.45, 25.0, True, 31.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
         self.assertTrue(actions.get("turn_off"))
@@ -121,7 +121,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         a = analysis_at(now, voltage=16.42, current=2.1, is_cv=False, is_cc=True, current_min=None, events={SignalEvent.VOLTAGE_REVERSAL_CONFIRMED, SignalEvent.END_OF_CHARGE_LIKELY})
         a = SignalAnalysis(sample=a.sample, metrics=SignalMetrics(**{**a.metrics.__dict__, "voltage_max_v": 16.47, "delta_voltage_from_max_v": 0.05}), events=a.events)
         controller._v2_runtime = FixedRuntime(a, decision=RecoveryDecision.FINISH_STAGE)
-        with patch("charge_logic.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
+        with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(16.42, 2.1, 25.0, False, 20.0, True, is_cc=True)
         self.assertAlmostEqual(controller.finish_timer_start, now)
         self.assertIn("CC", actions.get("notify", ""))
@@ -131,7 +131,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         now = 60000.0
         controller = self._controller(now=now)
         controller._v2_runtime = ExplodingRuntime()
-        with patch("charge_logic.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
+        with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(14.4, 2.0, 25.0, False, 5.0, True, is_cc=True)
         self.assertEqual(controller.current_stage, controller.STAGE_DONE)
         self.assertTrue(actions.get("turn_off"))
@@ -143,7 +143,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         controller.stage_start_time = now - 72 * 3600
         controller.total_start_time = controller.stage_start_time
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.7, current=0.5))
-        with patch("charge_logic.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
+        with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(14.7, 0.5, 25.0, True, 50.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertFalse(bool(actions.get("turn_off")))

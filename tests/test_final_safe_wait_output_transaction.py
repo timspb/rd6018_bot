@@ -20,7 +20,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
         controller._v2_trace_session_id = "session-final"
         controller.current_stage = controller.STAGE_MIX
         actions = {}
-        with patch("charge_logic.SESSION_FILE", session_file), patch(
+        with patch("charge_controller.SESSION_FILE", session_file), patch(
             "charge_controller.SESSION_FILE", session_file
         ):
             controller._enter_safe_wait_done(
@@ -44,7 +44,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             self.assertIsInstance(controller._final_safe_wait, FinalSafeWaitContinuation)
 
             transition_actions = {}
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.SESSION_FILE", session_file
             ):
                 handled = controller._handle_safe_wait_stage_override(
@@ -185,10 +185,8 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 ah=10.0,
                 reason="confirmed_delta_and_sticky_hold",
             )
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller.SESSION_FILE", session_file
-            ), patch("production_controller.SESSION_FILE", session_file), patch(
-                "charge_logic.time.time", return_value=now + 30.0
+            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+                "charge_controller.time.time", return_value=now + 30.0
             ), patch("charge_controller.time.time", return_value=now + 30.0), patch(
                 "production_controller.time.time", return_value=now + 30.0
             ):

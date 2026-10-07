@@ -1,6 +1,6 @@
 """
-config.py — конфигурация RD6018 Async Bot.
-Все токены и URL берутся из .env.
+config.py вЂ” РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ RD6018 Async Bot.
+Р’СЃРµ С‚РѕРєРµРЅС‹ Рё URL Р±РµСЂСѓС‚СЃСЏ РёР· .env.
 """
 import os
 from typing import Optional
@@ -16,7 +16,7 @@ def _as_bool(value: Optional[str], default: bool = False) -> bool:
         return default
     return raw not in {"0", "false", "no", "off"}
 
-# Telegram (поддержка TG_TOKEN и TELEGRAM_BOT_TOKEN)
+# Telegram (РїРѕРґРґРµСЂР¶РєР° TG_TOKEN Рё TELEGRAM_BOT_TOKEN)
 TG_TOKEN = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 
 # Home Assistant
@@ -34,22 +34,22 @@ HA_TOKEN = os.getenv("HA_TOKEN", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
-# v2.6 Часовой пояс для всех временных меток
+# v2.6 Р§Р°СЃРѕРІРѕР№ РїРѕСЏСЃ РґР»СЏ РІСЃРµС… РІСЂРµРјРµРЅРЅС‹С… РјРµС‚РѕРє
 USER_TIMEZONE = os.getenv("USER_TIMEZONE", "Europe/Moscow")
 
-# Разрешённые chat_id (через запятую).
-# По умолчанию управление физическим выходом fail-closed: пустой whitelist
-# не означает «доступ всем». Для намеренно публичного/тестового бота требуется
-# явный ALLOW_ALL_CHATS=1.
+# Р Р°Р·СЂРµС€С‘РЅРЅС‹Рµ chat_id (С‡РµСЂРµР· Р·Р°РїСЏС‚СѓСЋ).
+# РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ СѓРїСЂР°РІР»РµРЅРёРµ С„РёР·РёС‡РµСЃРєРёРј РІС‹С…РѕРґРѕРј fail-closed: РїСѓСЃС‚РѕР№ whitelist
+# РЅРµ РѕР·РЅР°С‡Р°РµС‚ В«РґРѕСЃС‚СѓРї РІСЃРµРјВ». Р”Р»СЏ РЅР°РјРµСЂРµРЅРЅРѕ РїСѓР±Р»РёС‡РЅРѕРіРѕ/С‚РµСЃС‚РѕРІРѕРіРѕ Р±РѕС‚Р° С‚СЂРµР±СѓРµС‚СЃСЏ
+# СЏРІРЅС‹Р№ ALLOW_ALL_CHATS=1.
 ALLOW_ALL_CHATS = _as_bool(os.getenv("ALLOW_ALL_CHATS"), default=False)
 
 
 def _parse_allowed_chat_ids() -> tuple:
     raw = (os.getenv("ALLOWED_CHAT_IDS") or "").strip()
     if not raw:
-        # bot._is_chat_allowed() исторически трактует пустой tuple как allow-all.
-        # Поэтому используем невозможный Telegram chat_id sentinel, пока UI слой
-        # не будет переведён на явный policy object.
+        # bot._is_chat_allowed() РёСЃС‚РѕСЂРёС‡РµСЃРєРё С‚СЂР°РєС‚СѓРµС‚ РїСѓСЃС‚РѕР№ tuple РєР°Рє allow-all.
+        # РџРѕСЌС‚РѕРјСѓ РёСЃРїРѕР»СЊР·СѓРµРј РЅРµРІРѕР·РјРѕР¶РЅС‹Р№ Telegram chat_id sentinel, РїРѕРєР° UI СЃР»РѕР№
+        # РЅРµ Р±СѓРґРµС‚ РїРµСЂРµРІРµРґС‘РЅ РЅР° СЏРІРЅС‹Р№ policy object.
         return () if ALLOW_ALL_CHATS else (-1,)
     result = []
     for s in raw.split(","):
@@ -67,11 +67,11 @@ def _parse_allowed_chat_ids() -> tuple:
 
 ALLOWED_CHAT_IDS = _parse_allowed_chat_ids()
 
-# Маппинг сущностей HA (RD6018).
-# Legacy сущности оставлены для бесшовной миграции. Публичные сущности из
-# esphome/packages/rd6018_telemetry_v2.yaml создаются production HA под
-# device-prefixed namespace ``rd6018_rd_6018_*``. Для safety/diagnostic V2
-# каналов используем точные deterministic IDs этого namespace, без fuzzy search.
+# РњР°РїРїРёРЅРі СЃСѓС‰РЅРѕСЃС‚РµР№ HA (RD6018).
+# Legacy СЃСѓС‰РЅРѕСЃС‚Рё РѕСЃС‚Р°РІР»РµРЅС‹ РґР»СЏ Р±РµСЃС€РѕРІРЅРѕР№ РјРёРіСЂР°С†РёРё. РџСѓР±Р»РёС‡РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё РёР·
+# esphome/packages/rd6018_telemetry_v2.yaml СЃРѕР·РґР°СЋС‚СЃСЏ production HA РїРѕРґ
+# device-prefixed namespace ``rd6018_rd_6018_*``. Р”Р»СЏ safety/diagnostic V2
+# РєР°РЅР°Р»РѕРІ РёСЃРїРѕР»СЊР·СѓРµРј С‚РѕС‡РЅС‹Рµ deterministic IDs СЌС‚РѕРіРѕ namespace, Р±РµР· fuzzy search.
 ENTITY_MAP = {
     "voltage": "sensor.rd_6018_output_voltage",
     "battery_voltage": "sensor.rd_6018_battery_voltage",
@@ -133,9 +133,9 @@ ENTITY_MAP = {
     "cal_ibat_scale": "sensor.rd6018_rd_6018_cal_ibat_scale",
 }
 
-# Лимиты безопасности
+# Р›РёРјРёС‚С‹ Р±РµР·РѕРїР°СЃРЅРѕСЃС‚Рё
 MAX_VOLTAGE = float(PB_AUTOMATIC_TARGET_CEILING_V.default)  # compatibility alias; canonical owner: runtime.safety.voltage
-MAX_MANUAL_VOLTAGE = 17.5  # V — user command above this value is never accepted
-MIN_INPUT_VOLTAGE = 60.0  # V — PSU health reference only; not battery/FSM authority in V2
-TEMP_INT_PRECRITICAL = 55.0  # °C — выключение выхода при температуре блока (защита БП)
-# Температура АКБ: фактические уровни 35/40/45°C определены в charge_logic.py
+MAX_MANUAL_VOLTAGE = 17.5  # V вЂ” user command above this value is never accepted
+MIN_INPUT_VOLTAGE = 60.0  # V вЂ” PSU health reference only; not battery/FSM authority in V2
+TEMP_INT_PRECRITICAL = 55.0  # В°C вЂ” РІС‹РєР»СЋС‡РµРЅРёРµ РІС‹С…РѕРґР° РїСЂРё С‚РµРјРїРµСЂР°С‚СѓСЂРµ Р±Р»РѕРєР° (Р·Р°С‰РёС‚Р° Р‘Рџ)
+# Battery temperature thresholds are owned by modular safety/strategy policy.

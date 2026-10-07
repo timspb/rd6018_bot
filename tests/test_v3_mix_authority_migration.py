@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from charge_controller import ManagedChargeController
-from charge_logic import ChargeController
 from production_controller import ProductionChargeController
 from runtime.charge.strategy import mix as mix_strategy
 from runtime.charge.strategy.final_safe_wait import (
@@ -101,23 +100,18 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_authoritative_mix_never_enters_historical_tick(self):
         controller = self._controller(ManagedChargeController.STAGE_MIX)
-        with patch.object(
-            ChargeController,
-            "tick",
-            new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ), patch("charge_controller.time.time", return_value=1100.0):
-            actions = await controller._run_stage_scaffold_tick(
-                stage_before=controller.STAGE_MIX,
-                voltage=16.3,
-                current=0.5,
-                temp_ext=25.0,
-                is_cv=True,
-                ah=12.0,
-                output_is_on=True,
-                manual_off_active=False,
-                is_cc=False,
-                manual_active=False,
-            )
+        actions = await controller._run_stage_scaffold_tick(
+            stage_before=controller.STAGE_MIX,
+            voltage=16.3,
+            current=0.5,
+            temp_ext=25.0,
+            is_cv=True,
+            ah=12.0,
+            output_is_on=True,
+            manual_off_active=False,
+            is_cc=False,
+            manual_active=False,
+        )
         self.assertIsInstance(actions, dict)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
 
@@ -125,23 +119,18 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._final_safe_wait = self._final_continuation(controller)
         controller._safe_wait_next_stage = controller.STAGE_DONE
-        with patch.object(
-            ChargeController,
-            "tick",
-            new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ), patch("charge_controller.time.time", return_value=1100.0):
-            actions = await controller._run_stage_scaffold_tick(
-                stage_before=controller.STAGE_SAFE_WAIT,
-                voltage=13.5,
-                current=0.0,
-                temp_ext=25.0,
-                is_cv=False,
-                ah=12.0,
-                output_is_on=False,
-                manual_off_active=False,
-                is_cc=False,
-                manual_active=False,
-            )
+        actions = await controller._run_stage_scaffold_tick(
+            stage_before=controller.STAGE_SAFE_WAIT,
+            voltage=13.5,
+            current=0.0,
+            temp_ext=25.0,
+            is_cv=False,
+            ah=12.0,
+            output_is_on=False,
+            manual_off_active=False,
+            is_cc=False,
+            manual_active=False,
+        )
         self.assertIsInstance(actions, dict)
         self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
 
@@ -276,10 +265,8 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             expected_id = controller._v2_trace_session_id
             expected_generation = controller._v2_trace_started_at
 
-            with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller.SESSION_FILE", session_file
-            ), patch("production_controller.SESSION_FILE", session_file), patch(
-                "charge_logic.time.time", return_value=now + 30.0
+            with patch("charge_controller.SESSION_FILE", session_file), patch(
+                "production_controller.SESSION_FILE", session_file
             ), patch("charge_controller.time.time", return_value=now + 30.0), patch(
                 "production_controller.time.time", return_value=now + 30.0
             ):

@@ -88,6 +88,10 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         )
         self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
 
+    def test_historical_charge_fsm_sources_are_absent(self):
+        self.assertFalse((ROOT / "charge_logic.py").exists())
+        self.assertFalse((ROOT / "legacy_safety.py").exists())
+
     def test_canonical_module_names_exist(self):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",
