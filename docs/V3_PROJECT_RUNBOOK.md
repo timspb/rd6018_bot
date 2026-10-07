@@ -1938,3 +1938,18 @@ absent.
 
 No live production route, persisted session key or hardware behavior changed in
 this boundary.
+
+
+## 2026-10-07 alternate runtime eradication
+
+Operational-root reachability proved the staged alternate runtime stack
+(`runtime/app.py`, `runtime/application/*`, `runtime/lifecycle.py`,
+`runtime/dependencies.py`) had zero inbound edges from production, tools or
+standalone CLIs. Its only callers were replay/orchestrator characterization tests.
+
+The stack and those characterization tests were deleted. Current production remains
+owned by `bot.py`, `ProductionComposition` and `runtime.production_runtime`.
+No alternate runtime root or lifecycle remains.
+
+No production behavior, persisted state or hardware semantics changed in this
+boundary.

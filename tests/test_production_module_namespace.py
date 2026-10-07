@@ -138,6 +138,18 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         )
         self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
 
+    def test_retired_alternate_runtime_stack_is_absent(self):
+        retired = (
+            "runtime/app.py",
+            "runtime/application/__init__.py",
+            "runtime/application/context.py",
+            "runtime/application/lifecycle.py",
+            "runtime/application/orchestrator.py",
+            "runtime/lifecycle.py",
+            "runtime/dependencies.py",
+        )
+        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+
     def test_canonical_module_names_exist(self):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",
