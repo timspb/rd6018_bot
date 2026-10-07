@@ -88,6 +88,40 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         )
         self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
 
+    def test_retired_application_contract_island_is_absent(self):
+        retired = (
+            "application/actuator_intent.py",
+            "application/actuator_intent_adapter.py",
+            "application/actuator_intent_mapping.py",
+            "application/charge_event.py",
+            "application/composition_contract.py",
+            "application/composition_lifecycle.py",
+            "application/configuration_authority.py",
+            "application/configuration_decision_registry.py",
+            "application/configuration_model.py",
+            "application/containment_mapping.py",
+            "application/containment_observation.py",
+            "application/containment_result.py",
+            "application/diagnostics_domain.py",
+            "application/execution_boundary.py",
+            "application/infrastructure_contracts.py",
+            "application/operator_interface.py",
+            "application/persistence_boundary.py",
+            "application/rd_transport.py",
+            "application/safety_boundary.py",
+            "application/safety_state.py",
+            "application/start_dry_run.py",
+            "application/start_execution_adapter.py",
+            "application/telemetry_authority.py",
+            "application/ui_adapter.py",
+            "telegram/adapter.py",
+            "telegram/panel_store.py",
+            "presentation/panel_actions.py",
+            "presentation/panel_layout.py",
+            "presentation/panel_renderer.py",
+        )
+        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+
     def test_historical_charge_fsm_sources_are_absent(self):
         self.assertFalse((ROOT / "charge_logic.py").exists())
         self.assertFalse((ROOT / "legacy_safety.py").exists())

@@ -735,3 +735,21 @@ module.
 
 External persisted/session keys are unchanged in this pass. Physical/electrical
 safety semantics remain owned by current strategy/safety/execution modules.
+
+
+## 2026-10-07 application contract island eradication
+
+Operational-root reachability (production bot, standalone CLIs and tools) proved
+a closed application/presentation compatibility island had zero inbound edges.
+The retired island contained phase-era actuator/containment/configuration/domain
+contracts, alternate application composition/lifecycle, old dry-run/start adapters,
+old Telegram adapter/panel-store and old presentation panel modules.
+
+The island was deleted rather than wrapped. Phase/epic tests whose only subject
+was that island were removed. The live `application.execution_intent` contract and
+`application.execution_port` were explicitly retained because the physical
+execution owner imports and uses them. The remaining operator read-path and
+implicit-runtime-start checks were rewritten as current runtime guardrails.
+
+No production route, execution semantics, persisted session state or hardware
+behavior changed in this boundary.
