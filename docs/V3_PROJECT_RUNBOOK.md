@@ -2009,3 +2009,12 @@ Persisted `v2_*` session keys, Telegram callback-data tokens, the `V2_UI` extern
 configuration flag and deployed ESPHome/entity identifiers are intentionally not
 changed here because they cross restart/protocol boundaries. They require separate
 state/protocol migration contracts.
+
+
+## 2026-10-08 active architecture authority normalization
+
+Post-ERADICATION code authority is now reflected in the active agent/composition/modular architecture documents. `AGENTS.md` no longer directs contributors to deleted V2/legacy runtime owners or migration rollback switches. The composition-root document no longer labels the live bootstrap as transitional, and the modular architecture document is classified as the current production contract rather than a future migration target.
+
+Historical-looking persisted/session, Telegram callback-data and deployed ESPHome/entity identifiers remain explicit protocol/state boundaries; this documentation pass does not rename them or alter runtime semantics.
+
+Runtime code, node 101, physical execution and hardware behavior are unchanged by this boundary.
