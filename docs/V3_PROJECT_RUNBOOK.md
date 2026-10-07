@@ -2025,3 +2025,39 @@ Post-ERADICATION code authority is now reflected in the active agent/composition
 Historical-looking persisted/session, Telegram callback-data and deployed ESPHome/entity identifiers remain explicit protocol/state boundaries; this documentation pass does not rename them or alter runtime semantics.
 
 Runtime code, node 101, physical execution and hardware behavior are unchanged by this boundary.
+
+
+## 2026-10-08 node104 controlled acceptance checkpoint
+
+The current-main software-normalization boundary was deployed to production host
+node104 only. The deployed application marker is
+`5cd8cfe083b8e211f5acd34cb21005103a583973`; the existing
+`rd6018-bot.service`, service user, `.env`, configuration directory and virtual
+environment were preserved. A pre-handover application backup and rollback tree
+were created before the handover. Remote compileall and the complete 1570-test
+unit suite passed; exact-head GitHub Actions run 1654 also passed on Python
+3.10/3.11/3.12.
+
+The fresh node104 read-only HA102/ESP128 snapshot was valid and agreed: both
+reported Output OFF, 0 V and 0 A. With conservative bench values (13.57 V,
+0.10 A, OVP 14.07 V, OCP 0.20 A), controlled HA-ESP and ESP-direct
+OFF -> ON -> OFF transitions both completed with bounded readback and terminal
+Output OFF. HA lease renew/disarm readback passed. A deliberately armed lease
+expired during a controlled service-stop test; the edge reported lease tripped,
+kept Output OFF, and remained OFF after service restart. The final independent
+node104 snapshot remained HA/ESP MATCH, Output OFF, 0 V and 0 A. Node101 was not
+accessed, and no ESPHome firmware or application authentication boundary was
+changed.
+
+This is a checkpoint, not a completed production acceptance. The actual
+operator/application START -> STOP route was not executed because this run had
+no interactive operator callback session. The repository's opt-in physical-test
+control socket could not be activated under the existing service hardening:
+`ProtectSystem=strict` caused the `/run` bind to fail closed, and a temporary
+runtime-only `/run` allowance still left the socket inaccessible to the service
+user. Therefore controlled stale/unavailable-telemetry and post-enable
+verification-failure injections through the production application remain open.
+No hardening was weakened and the service was restored to its normal unit at the
+end of the checkpoint. The required terminal state was independently verified:
+Output OFF, near-zero V/I, lease disarmed/tripped containment retained, service
+active, and the deployed SHA exact.

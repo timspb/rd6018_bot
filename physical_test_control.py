@@ -31,6 +31,7 @@ from rd_managed_adoption import ManagedAdoptionPreview
 
 DEFAULT_SOCKET_PATH = "/run/rd6018-bot-physical-test-control.sock"
 ENV_ENABLE = "RD6018_PHYSICAL_TEST_CONTROL"
+ENV_SOCKET_PATH = "RD6018_PHYSICAL_TEST_SOCKET"
 _BATTERY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _OPS = {
     "status",
@@ -78,11 +79,13 @@ class PhysicalTestControl:
         self,
         app: Any,
         *,
-        socket_path: str = DEFAULT_SOCKET_PATH,
+        socket_path: Optional[str] = None,
         enabled: Optional[bool] = None,
     ) -> None:
         self.app = app
-        self.socket_path = str(socket_path)
+        self.socket_path = str(
+            socket_path or os.environ.get(ENV_SOCKET_PATH, DEFAULT_SOCKET_PATH)
+        )
         self.enabled = enabled_from_environment() if enabled is None else bool(enabled)
         self._server: Optional[asyncio.AbstractServer] = None
         self._operation_lock = asyncio.Lock()

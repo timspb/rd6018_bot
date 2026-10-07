@@ -14,6 +14,7 @@ from battery_registry import BatteryRecord
 from pb_domain import BatteryChemistry, BatteryCondition, BatteryIdentity, BatteryLifecycle
 from physical_test_control import (
     ENV_ENABLE,
+    ENV_SOCKET_PATH,
     PhysicalTestControl,
     _OPS,
 )
@@ -165,6 +166,17 @@ class PhysicalTestControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(control.enabled)
         self.assertFalse(await control.start())
         self.assertIsNone(control._server)
+
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix sockets unavailable")
+    async def test_enabled_uses_environment_socket_path_when_not_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "environment.sock")
+            with patch.dict(os.environ, {ENV_SOCKET_PATH: path}):
+                control = PhysicalTestControl(FakeApp(), enabled=True)
+                self.assertEqual(control.socket_path, path)
+                self.assertTrue(await control.start())
+                await control.stop()
+            self.assertFalse(os.path.exists(path))
 
     @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix sockets unavailable")
     async def test_binds_unix_socket_and_never_tcp(self):
