@@ -80,30 +80,3 @@ def score_bank_fault(evidence: BankFaultEvidence, policy: BankFaultPolicy) -> tu
         level = BankFaultLevel.STABLE
     return score, level
 
-
-class LegacyBankFaultAdapter:
-    """Map an existing risk snapshot; never invokes charge/controller code."""
-
-    _FEATURES = (
-        "slow_voltage_rise", "prolonged_main_duration", "weak_ah_progress",
-        "relaxation_decay", "thermal_without_voltage_gain",
-        "self_discharge_indicator", "low_voltage_persistent",
-    )
-
-    @classmethod
-    def from_snapshot(cls, snapshot: Mapping[str, Any], *, timestamp: float, source: str = "legacy") -> BankFaultEvidence:
-        reasons = " ".join(str(item).lower() for item in snapshot.get("reasons", ()) or ())
-        aliases = {
-            "slow_voltage_rise": ("slow_v_rise", "slow_to_12v", "weak_voltage"),
-            "prolonged_main_duration": ("main_duration",),
-            "weak_ah_progress": ("low_ah_acceptance",),
-            "relaxation_decay": ("decay_", "relaxation"),
-            "thermal_without_voltage_gain": ("temp_rise", "thermal"),
-            "self_discharge_indicator": ("self_discharge",),
-            "low_voltage_persistent": ("start_low", "below_12v"),
-        }
-        signals = tuple(
-            BankFaultSignal(feature, any(alias in reasons for alias in aliases[feature]), timestamp, source)
-            for feature in cls._FEATURES
-        )
-        return BankFaultEvidence(signals)

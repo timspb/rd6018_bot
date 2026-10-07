@@ -1976,3 +1976,12 @@ or hardware behavior changed in this boundary.
 or operational callers and was only exercised by its own characterization test.
 The temporary adapter and its public package export were deleted. Historical
 Phase 4D/4E documents remain evidence only and are not current runtime authority.
+
+
+## 2026-10-07 residual legacy adapter retirement
+
+Post-ERADICATION caller analysis showed the remaining UI/action/diagnostic/bank-fault/
+hardware/execution-policy legacy adapters had zero production or operational callers.
+Only characterization tests and package exports kept them alive. Those adapter surfaces
+and parity-only tests were removed while live UI commands, diagnostics scoring, physical
+bridge interfaces and execution policy remain unchanged.

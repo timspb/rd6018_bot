@@ -6,10 +6,10 @@ from .models import (
     UpdateChargeSettingsCommand, UserCommand,
 )
 from .validation import CommandContext, CommandValidator
-from .adapter import LegacyActionAdapter, UserCommandAdapter
+from .adapter import UserCommandAdapter
 
 __all__ = [
     "UserCommand", "StartChargeCommand", "StopChargeCommand", "SelectProfileCommand",
     "UpdateChargeSettingsCommand", "ConfirmSafetyCommand", "CommandResult", "CommandStatus",
-    "DomainIntent", "CommandContext", "CommandValidator", "UserCommandAdapter", "LegacyActionAdapter",
+    "DomainIntent", "CommandContext", "CommandValidator", "UserCommandAdapter",
 ]
