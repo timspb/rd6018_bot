@@ -146,7 +146,7 @@ class V3JournalUICutoverTests(unittest.TestCase):
             "charge_logic",
             "hass_api",
             "runtime_safety",
-            "runtime_safety_v2",
+            "managed_runtime_safety",
             "runtime_safety_strict",
             "safe_output",
         }
@@ -193,7 +193,7 @@ class V3JournalUICutoverTests(unittest.TestCase):
     def test_live_graph_toolbar_no_longer_constructs_raw_logs_callback(self):
         source = (ROOT / "operator_dashboard.py").read_text(encoding="utf-8")
         runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
-        polish_source = (ROOT / "v2_ui_polish.py").read_text(encoding="utf-8")
+        polish_source = (ROOT / "ui_polish.py").read_text(encoding="utf-8")
         self.assertNotIn('callback_data="logs"', source)
         self.assertNotIn('callback_data="logs"', runtime_source)
         self.assertNotIn('callback_data="logs"', polish_source)

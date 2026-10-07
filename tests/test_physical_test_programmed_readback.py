@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from physical_test_control import PhysicalTestControl
-from physical_test_control_programmed_readback_v2 import (
+from physical_test_control_programmed_readback import (
     OPERATION,
-    install_physical_test_control_programmed_readback_v2,
+    install_physical_test_control_programmed_readback,
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from safe_output import OutputRequest, SafeOutputCoordinator, SafetySupervisor
@@ -191,7 +191,7 @@ class ProgrammedReadbackV2PhysicalHookTests(unittest.IsolatedAsyncioTestCase):
         # Production composition installs the legacy/source-fault extension first, then
         # the authoritative readback B16 shadow.
         install_physical_test_control_source_faults(app, control)
-        install_physical_test_control_programmed_readback_v2(app, control)
+        install_physical_test_control_programmed_readback(app, control)
         return app, adapter, guard, control
 
     async def test_b16_uses_authoritative_force_updated_readback_and_never_attempts_on(self):
@@ -230,7 +230,7 @@ class ProgrammedReadbackV2PhysicalHookTests(unittest.IsolatedAsyncioTestCase):
     async def test_number_write_without_readback_heartbeat_cannot_prove_b16(self):
         _app, adapter, _guard, control = self.make_system(refresh_readback=False)
         with patch(
-            "physical_test_control_programmed_readback_v2._B16_REAL_READBACK_PROOF_TIMEOUT_S",
+            "physical_test_control_programmed_readback._B16_REAL_READBACK_PROOF_TIMEOUT_S",
             0.01,
         ):
             response = await control.dispatch({"op": OPERATION})

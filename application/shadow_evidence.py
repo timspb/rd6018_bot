@@ -22,7 +22,7 @@ from .persistence_boundary import (
     StateSnapshot,
 )
 from .production_shadow_observer import ShadowObservationRecord
-from .v2_v3_comparison import ComparisonResult, DecisionSnapshot
+from .decision_comparison import ComparisonResult, DecisionSnapshot
 
 
 def _plain(value: Any) -> Any:

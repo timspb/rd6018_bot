@@ -2,7 +2,7 @@ import types
 import unittest
 
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
-from v2_ui_polish import (
+from ui_polish import (
     build_operator_dashboard_keyboard,
     format_active_evidence_pretty,
     install_dashboard_polish,
@@ -152,7 +152,7 @@ class V2UiPolishTests(unittest.TestCase):
             STAGE_MIX="Mix Mode",
             battery_type="Ca/Ca",
             ah_capacity=72,
-            v2_ui_snapshot=lambda: snapshot,
+            ui_support_snapshot=lambda: snapshot,
             get_timers=lambda: {"total_time": "03:12", "stage_time": "03:12", "remaining_time": "68:48"},
         )
         app = types.SimpleNamespace(

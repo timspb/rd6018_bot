@@ -7,7 +7,7 @@ from typing import Any, Mapping, Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from pb_domain import ChargeIntent
-from v2_ui import INTENT_LABELS, _display_mode, _runtime_analysis_available
+from ui_support import INTENT_LABELS, _display_mode, _runtime_analysis_available
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA, HOME_CALLBACK_DATA
 from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
@@ -250,7 +250,7 @@ def install_dashboard_polish(app: Any, ui_module: Any) -> None:
 
         if controller.is_active:
             try:
-                snapshot = controller.v2_ui_snapshot()
+                snapshot = controller.ui_support_snapshot()
             except Exception:
                 snapshot = {}
             profile = html.escape(str(controller.battery_type))

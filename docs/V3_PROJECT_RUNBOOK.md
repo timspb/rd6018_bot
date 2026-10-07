@@ -307,7 +307,7 @@ production MAIN path has no historical FSM transition call.
 - canonical MAIN variables: `runtime/charge/strategy/main_variables.py`;
 - canonical base target selection: `runtime/charge/strategy/main_targets.py`;
 - canonical stage-current ceiling declaration: `runtime/safety/variables.py`;
-- compatibility `v2_authority.py` re-exports the new MAIN owner;
+- compatibility `charge_authority.py` re-exports the new MAIN owner;
 - transitional production controllers consume these modular owners;
 - accepted 72h / 2h / 3h / 3/4 recovery budgets / AGM 14.4→15.0V semantics are regression-tested.
 - first-stage tail/plateau/thermal/sag evidence moved to `runtime/charge/evidence/first_stage.py`;
@@ -444,10 +444,10 @@ Repository/worktree authority for handoff:
 - focused suites PASS:
   - `test_v3_modular_architecture_contract.py`;
   - `test_v3_main_authority_migration.py`;
-  - `test_v2_authority.py`;
-  - `test_auto_strategy_v2.py`;
+  - `test_charge_authority.py`;
+  - `test_auto_strategy.py`;
   - `test_v2_production_controller.py`;
-  - `test_charge_controller_v2.py`;
+  - `test_charge_controller.py`;
   - `test_first_stage_evidence.py`;
   - `test_legacy_enable_inventory.py`;
   - `test_start_route_isolation.py`.
@@ -723,7 +723,7 @@ Manual is not being reimplemented as a second AUTO path. The existing modular
 Manual program remains the production owner:
 
 - `manual_mode.py` owns Manual session/program semantics;
-- `ProductionManualSessionManager` in `manual_runtime_v2.py` owns the
+- `ProductionManualSessionManager` in `manual_runtime.py` owns the
   production runtime/authorization lifecycle;
 - the legacy five-step Custom UI is now only a compatibility adapter into
   `ProductionManualSessionManager.start_from_legacy_ui`;
@@ -828,7 +828,7 @@ Static production scan gate:
 - direct physical calls in the live graph are confined to the approved physical
   implementation:
   `application/execution_port.py`, `hass_api.py`, `runtime_safety_strict.py`,
-  `runtime_safety_v2.py`, `safe_output.py`;
+  `managed_runtime_safety.py`, `safe_output.py`;
 - `recipe_output.py` and `recovery_orchestrator.py` are quarantined historical
   compatibility modules and have no production inbound import edge;
 - tests fail if a migrated runtime/application owner regains direct
@@ -1079,11 +1079,11 @@ done without duplicating accepted semantics.
 Current dirty/untracked scope:
 
 - modified:
-  `charge_controller_v2.py`,
+  `charge_controller.py`,
   `done_storage_restore.py`,
   `manual_mode.py`,
-  `manual_runtime_v2.py`,
-  `manual_text_v2.py`,
+  `manual_runtime.py`,
+  `manual_text.py`,
   `mix_active_authority.py`,
   `mix_current_containment.py`,
   `production_controller.py`,
@@ -1092,7 +1092,7 @@ Current dirty/untracked scope:
   `runtime/production_runtime.py`,
   `runtime/safety/variables.py`,
   `runtime_safety.py`,
-  `runtime_safety_v2.py`;
+  `managed_runtime_safety.py`;
 - untracked:
   `runtime/charge/persistence.py`,
   `runtime/charge/strategy/exit_variables.py`.
@@ -1140,7 +1140,7 @@ Canonical ownership moved without changing accepted production values:
 - `runtime/charge/strategy/exit_variables.py` owns the MIX CC ΔV and CV ΔI exit references (0.03 V / 0.03 A);
 - `runtime/safety/variables.py` owns the 12.0 A stage-current ceiling, 0.1 V/A OVP/OCP margins, 300 s watchdog, 60 s high-voltage watchdog and 15.0 V high-voltage threshold.
 
-Production consumers in the contraction set no longer import those values from `charge_logic.py`. A static regression guard verifies the exact accepted values and proves that `charge_controller_v2.py` retains exactly one historical import edge: `ChargeController` itself.
+Production consumers in the contraction set no longer import those values from `charge_logic.py`. A static regression guard verifies the exact accepted values and proves that `charge_controller.py` retains exactly one historical import edge: `ChargeController` itself.
 
 The remaining inherited persistence writer is deliberate evidence for L-003: until the historical superclass is retired, inherited `_save_session()` still resolves `charge_logic.SESSION_FILE`, while V3 readers resolve the canonical persistence owner. Tests patch both identities only for this transitional superclass boundary.
 
@@ -1178,7 +1178,7 @@ The exact inherited historical support closure is locked by
 `tests/test_v3_l003_inherited_dependency_inventory.py`. It contains 29 methods
 and rejects any expansion, especially re-entry of historical `tick()`.
 
-The only direct historical import in `charge_controller_v2.py` remains:
+The only direct historical import in `charge_controller.py` remains:
 `from charge_logic import ChargeController`.
 
 Validation for this characterization boundary:
@@ -1227,7 +1227,7 @@ Regression guards were expanded to cover:
 
 Validation:
 - L-003 inventory/state tests: 5 PASS;
-- `test_charge_controller_v2.py`: 7 PASS;
+- `test_charge_controller.py`: 7 PASS;
 - production-controller tests: 26 PASS;
 - runtime-safety tests: 43 PASS;
 - persistence tests: 17 PASS;
@@ -1409,7 +1409,7 @@ The old `charge_logic.py` EFB 20 h diagnostic/reporting text was not reintroduce
 Structural proof:
 - historical transitive support closure: ZERO;
 - external inherited production surface: ZERO;
-- `charge_controller_v2.py` charge_logic import edge: ZERO;
+- `charge_controller.py` charge_logic import edge: ZERO;
 - `ChargeControllerV2` superclass list: empty.
 
 Semantic proof includes controller-state parity, target/temperature/protection
@@ -1830,3 +1830,25 @@ did not recognize the transition before timeout. Preserve freshness rules; fix
 the evidence/latency mismatch rather than weakening OFF confirmation.
 
 Evidence: `docs/V3_CONTROLLED_CHARGE_BENCH_EVIDENCE_2026-10-07.md`.
+
+### 2026-10-07 production namespace normalization
+
+Post-ERADICATION cleanup continues beyond compatibility-facade deletion.
+Production-reachable module filenames were renamed away from the historical
+`v2_*` / `*_v2` namespace without adding forwarding shims. The current names
+include `production_bootstrap`, `production_bot_ui`, `charge_controller`,
+`managed_runtime_safety`, `charge_authority`, `battery_catalog`, `battery_input`,
+`mix_mode`, `manual_*`, `sg_*`, `ui_support`, and `ui_polish`.
+
+The duplicate, unreachable `runtime/v2_startup_recovery.py` source is deleted;
+production already uses `runtime.startup_recovery.StartupRecovery`. The Phase 9
+comparison file is renamed to neutral `application/decision_comparison.py`.
+
+A static namespace regression test rejects production Python filenames/imports
+that reintroduce the retired module namespace. External ESPHome/readback entity
+identifiers that contain `_v2` are protocol/schema names and are not runtime
+ownership aliases.
+
+Behavioral semantics, persisted charge policy and physical safety are unchanged
+by this namespace pass. Full-suite and remote exact-head CI are required before
+merge.

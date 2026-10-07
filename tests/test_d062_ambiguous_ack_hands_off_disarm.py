@@ -5,7 +5,7 @@ import unittest
 
 from rd_control_mode import RdControlModeManager
 from rd_managed_mix import ManagedMixAdoptionCoordinator, ManagedMixState
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 
 
 class DummyHass:

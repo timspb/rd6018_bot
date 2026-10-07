@@ -430,7 +430,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             except Exception:
                 progress = ""
         try:
-            snapshot = controller.v2_ui_snapshot()
+            snapshot = controller.ui_support_snapshot()
             metrics = dict(snapshot.get("metrics") or {})
             hold_started = snapshot.get("finish_hold_started_at")
             durable_status = _durable_finish_status(snapshot, regulator)
@@ -956,7 +956,7 @@ def render_operator_service_details(app: Any, state: OperatorHmiState, live: Map
     controller = getattr(app, "charge_controller", None)
     if controller is not None:
         try:
-            snapshot = controller.v2_ui_snapshot()
+            snapshot = controller.ui_support_snapshot()
         except Exception:
             snapshot = {}
         lines.append(f"Этап: <code>{html.escape(str(getattr(controller, 'current_stage', '—')))}</code>")

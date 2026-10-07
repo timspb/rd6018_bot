@@ -125,7 +125,7 @@ APP_ATTRS_WRITTEN = frozenset(
         "physical_test_control_d062_delta",
         "physical_test_control_diagnostic",
         "physical_test_control_pb_mode",
-        "physical_test_control_programmed_readback_v2",
+        "physical_test_control_programmed_readback",
         "physical_test_control_source_faults",
         "rd_autonomous_mode",
         "rd_control_mode_manager",
@@ -225,7 +225,7 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "physical_test_control_d062_delta",
         "physical_test_control_diagnostic",
         "physical_test_control_pb_mode",
-        "physical_test_control_programmed_readback_v2",
+        "physical_test_control_programmed_readback",
         "physical_test_control_source_faults",
         "rd_autonomous_mode",
         "rd_control_mode_manager",
@@ -243,13 +243,13 @@ INSTALL_ATTRS_WRITTEN = frozenset(
 
 # Frozen ownership of critical runtime components: attribute -> writing modules.
 CRITICAL_OWNERSHIP = {
-    "charge_controller": {"v2_bootstrap.py"},
-    "manual_session_manager": {"v2_bootstrap.py"},
-    "charge_monitor": {"v2_bootstrap.py"},
+    "charge_controller": {"production_bootstrap.py"},
+    "manual_session_manager": {"production_bootstrap.py"},
+    "charge_monitor": {"production_bootstrap.py"},
     "runtime_safety_guard": {
         "runtime_safety.py",
         "runtime_safety_strict.py",
-        "runtime_safety_v2.py",
+        "managed_runtime_safety.py",
     },
     "edge_safety_lease": {"runtime_safety_strict.py"},
     "rd_control_mode_manager": {"rd_control_mode.py"},
@@ -268,8 +268,8 @@ CRITICAL_OWNERSHIP = {
         "rd_control_mode.py",
         "rd_hands_off_release.py",
         "rd_live_adoption.py",
-        "v2_bootstrap.py",
-        "v2_bot_ui.py",
+        "production_bootstrap.py",
+        "production_bot_ui.py",
     },
 }
 

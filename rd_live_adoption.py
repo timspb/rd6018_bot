@@ -18,8 +18,8 @@ from ha_history import HomeAssistantHistoryError, HomeAssistantHistoryReader, Mi
 from pb_domain import BatteryChemistry
 from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
 from signal_analyzer import SignalAnalyzer, SignalEvent, SignalSample
-from v2_battery_catalog import list_batteries
-from v2_ui import battery_button_label
+from battery_catalog import list_batteries
+from ui_support import battery_button_label
 
 
 MIX_HARD_LIMIT_HOURS = {

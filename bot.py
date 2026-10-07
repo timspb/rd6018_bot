@@ -14,7 +14,7 @@ from application.operator_snapshot_provider import OperatorSnapshotProvider
 from application.operator_read_source import OperatorReadSource
 from application.operator_intent_factory import build_operator_intent_dispatcher
 from diagnostic_persistence import install_diagnostic_persistence
-from manual_context_v2 import (
+from manual_context import (
     install_manual_context_preprocessor,
     install_manual_context_ui,
 )
@@ -41,8 +41,8 @@ from physical_test_control_d062 import install_physical_test_control_d062
 from physical_test_control_d062_delta import install_physical_test_control_d062_delta
 from physical_test_control_diagnostic import install_physical_test_control_diagnostic
 from physical_test_control_pb_mode import install_physical_test_control_pb_mode
-from physical_test_control_programmed_readback_v2 import (
-    install_physical_test_control_programmed_readback_v2,
+from physical_test_control_programmed_readback import (
+    install_physical_test_control_programmed_readback,
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
 from rd_autonomous_mode import install_rd_autonomous_final_hmi, install_rd_autonomous_mode
@@ -57,8 +57,8 @@ from rd_startup_authority import (
     install_rd_startup_authority_gate,
     reconcile_startup_authority,
 )
-from v2_bootstrap import init_v2_storage, install_v2
-from v2_mix_mode import install_mix_only_mode
+from production_bootstrap import init_v2_storage, install_v2
+from mix_mode import install_mix_only_mode
 from runtime.startup_recovery import StartupRecovery
 
 
@@ -94,8 +94,8 @@ class ProductionComposition:
         # Production controller + actuator safety are always installed. V2_UI controls only
         # presentation, exactly as documented; rolling the Telegram UI back must not remove
         # recipe envelopes, verified OFF, telemetry fail-close, or live protection readback.
-        _v2_ui_enabled = _env_enabled("V2_UI", True)
-        install_v2(_legacy, install_ui=_v2_ui_enabled)
+        _ui_support_enabled = _env_enabled("V2_UI", True)
+        install_v2(_legacy, install_ui=_ui_support_enabled)
         # Done/Storage intent is owned by canonical charge persistence and the
         # runtime restore/pause guards; composition does not patch controller methods.
         # Software-watchdog containment is owned directly by
@@ -108,20 +108,20 @@ class ProductionComposition:
         # Vin chemistry authority and Cooling continuation validation are now owned
         # directly by the production runtime/controller; no composition wrapper is required.
         install_diagnostic_persistence(_legacy)
-        if _v2_ui_enabled:
+        if _ui_support_enabled:
             install_mix_only_mode(_legacy)
             install_manual_context_ui(_legacy)
 
         # RD6018 is a general-purpose PSU above the Pb controller. Install this ownership
         # boundary last so HANDS_OFF blocks every already-composed bot actuator path while
         # leaving raw telemetry available and preserving the explicit operator-only OFF action.
-        _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_v2_ui_enabled)
+        _rd_control_mode = install_rd_control_mode(_legacy, install_ui=_ui_support_enabled)
         # AUTONOMOUS is a separate operation axis above HANDS_OFF. It requires a dedicated
         # persistent edge ACK and never treats plain HANDS_OFF as evidence of offline operation.
         _rd_autonomous_mode = install_rd_autonomous_mode(
             _legacy,
             _rd_control_mode,
-            install_ui=_v2_ui_enabled,
+            install_ui=_ui_support_enabled,
         )
         # A deliberate HANDS_OFF request may also release an already-running AUTO/Manual
         # software session through the dedicated positively-ACKed live edge release. Ordinary
@@ -132,7 +132,7 @@ class ProductionComposition:
         # all Delta authority starts from fresh post-activation source reports.
         _rd_live_mix_observer = (
             install_rd_live_adoption(_legacy, _rd_control_mode)
-            if _v2_ui_enabled
+            if _ui_support_enabled
             else None
         )
         # D061 managed live adoption is a different transaction: it can acquire the local
@@ -142,7 +142,7 @@ class ProductionComposition:
         _rd_managed_live_adoption = install_managed_live_adoption(
             _legacy,
             _rd_control_mode,
-            install_ui=_v2_ui_enabled,
+            install_ui=_ui_support_enabled,
         )
         # D062/D063 builds a separate MIX_ADOPTED authority on the physically same D061 edge
         # primitive. It never masquerades as Manual/AUTO: prior active Mix time must be proven
@@ -154,7 +154,7 @@ class ProductionComposition:
             _legacy,
             _rd_control_mode,
             _rd_managed_live_adoption,
-            install_ui=_v2_ui_enabled,
+            install_ui=_ui_support_enabled,
         )
         _physical_test_control = install_physical_test_control(_legacy)
         # Physical validation also needs one safe inverse ownership transition for OFF-only
@@ -182,7 +182,7 @@ class ProductionComposition:
         # same-value heartbeat in production. Shadow only that operation with the V2 gate backed
         # by force-updated read-only Modbus register mirrors; the number entities remain command
         # endpoints and all other source-fault operations keep their existing implementation.
-        install_physical_test_control_programmed_readback_v2(_legacy, _physical_test_control)
+        install_physical_test_control_programmed_readback(_legacy, _physical_test_control)
         # Diagnostic cancellation/restart physical gates also reuse the same local socket.
         # They can start only one hard-coded low-energy Manual program and a safer current
         # reduction; the restart gate is bounded by an automatic 20 s cleanup if SIGKILL does
@@ -193,7 +193,7 @@ class ProductionComposition:
         # semantics rather than leaking the underlying composition/debug UI. Managed Stop is
         # then converted from the legacy ON/OFF toggle into a session-bound L4 stop-only action;
         # the graph-backed transport is composed underneath the final semantic state/controls.
-        if _v2_ui_enabled:
+        if _ui_support_enabled:
             # Register the real Back/Home handler before operator_hmi installs its historical
             # no-op compatibility handler for the same callback.
             install_operator_navigation_recovery(_legacy)
@@ -242,7 +242,7 @@ class ProductionComposition:
             intent_dispatcher=build_operator_intent_dispatcher(_legacy),
         )
         _legacy.operator_interface = operator_interface
-        if _v2_ui_enabled:
+        if _ui_support_enabled:
             install_charge_program_screen(
                 _legacy,
                 profile_selector=_legacy._v2_select_quick_profile,
@@ -319,7 +319,7 @@ class ProductionComposition:
             _rd_live_mix_observer,
         )
 
-        self.v2_ui_enabled = _v2_ui_enabled
+        self.ui_support_enabled = _ui_support_enabled
         self.rd_control_mode = _rd_control_mode
         self.rd_autonomous_mode = _rd_autonomous_mode
         self.rd_live_mix_observer = _rd_live_mix_observer

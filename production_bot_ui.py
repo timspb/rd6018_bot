@@ -17,8 +17,8 @@ from pb_domain import (
     BatteryLifecycle,
     ChargeIntent,
 )
-from v2_battery_catalog import list_batteries
-from v2_ui import (
+from battery_catalog import list_batteries
+from ui_support import (
     battery_button_label,
     build_program_preview,
     format_active_evidence,
@@ -223,7 +223,7 @@ async def _start_profile(app: Any, event: Any, pending: PendingStart) -> bool:
     return False
 
 
-def install_v2_ui(app: Any) -> None:
+def install_ui_support(app: Any) -> None:
     """Install the V2 Telegram presentation/workflow over the legacy monolithic bot.
 
     This transitional installer only replaces presentation functions and adds callback
@@ -282,7 +282,7 @@ def install_v2_ui(app: Any) -> None:
             app.charge_controller.STAGE_MIX,
         }:
             try:
-                snap = app.charge_controller.v2_ui_snapshot()
+                snap = app.charge_controller.ui_support_snapshot()
                 compact = format_active_evidence(
                     snap,
                     voltage_v=app._safe_float(live.get("battery_voltage")),
@@ -376,7 +376,7 @@ def install_v2_ui(app: Any) -> None:
             return
         await call.answer()
         live = await app.hass.get_all_live()
-        snap = app.charge_controller.v2_ui_snapshot()
+        snap = app.charge_controller.ui_support_snapshot()
         text = format_active_evidence(
             snap,
             voltage_v=app._safe_float(live.get("battery_voltage")),

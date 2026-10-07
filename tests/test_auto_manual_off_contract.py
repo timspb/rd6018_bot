@@ -3,7 +3,7 @@ import unittest
 
 class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_production_controller_owns_manual_off_inertness_without_installer(self):
-        from charge_controller_v2 import ChargeControllerV2
+        from charge_controller import ChargeControllerV2
 
         controller = ChargeControllerV2(object())
         controller.start("EFB", 70)

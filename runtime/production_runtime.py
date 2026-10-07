@@ -56,7 +56,7 @@ from runtime.safety.variables import (
 )
 from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from config import (
     ALLOWED_CHAT_IDS,
     DEEPSEEK_API_KEY,
@@ -3307,7 +3307,7 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         if not result.accepted:
             await message.answer(f"START отклонён: {result.reason}", parse_mode=ParseMode.HTML)
             return
-        from v2_bot_ui import format_start_feedback
+        from production_bot_ui import format_start_feedback
 
         await message.answer(format_start_feedback(result), parse_mode=ParseMode.HTML)
         return

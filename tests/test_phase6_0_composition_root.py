@@ -32,7 +32,7 @@ class CompositionRootContractTests(unittest.TestCase):
         self.assertEqual([], violations)
 
     def test_transitional_bootstrap_has_no_physical_calls_or_domain_algorithms(self) -> None:
-        path = ROOT / "v2_bootstrap.py"
+        path = ROOT / "production_bootstrap.py"
         source = path.read_text(encoding="utf-8")
         for token in ("turn_on(", "turn_off(", "set_voltage(", "set_current(", "STAGE_", "MIX_DONE_TIMER", "def tick("):
             self.assertNotIn(token, source, token)
@@ -44,7 +44,7 @@ class CompositionRootContractTests(unittest.TestCase):
         self.assertIn("retired compatibility facades are absent", text)
 
     def test_bootstrap_does_not_define_domain_transition_logic(self) -> None:
-        source = (ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
+        source = (ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         for marker in ("AGM_STAGES", "EFB_MIX_MAX_HOURS", "CA_MIX_MAX_HOURS", "MAIN_STAGE_MAX_HOURS", "current_stage ="):
             self.assertNotIn(marker, source)
 

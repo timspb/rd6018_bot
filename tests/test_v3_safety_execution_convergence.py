@@ -36,7 +36,7 @@ APPROVED_PHYSICAL_IMPLEMENTATION = {
     "application/execution_port.py",
     "hass_api.py",
     "runtime_safety_strict.py",
-    "runtime_safety_v2.py",
+    "managed_runtime_safety.py",
     "safe_output.py",
 }
 QUARANTINED_UNREACHABLE_HISTORY = {

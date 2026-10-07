@@ -2446,7 +2446,7 @@ class ChargeControllerV2:
 
         return actions
 
-    def v2_ui_snapshot(self) -> Dict[str, Any]:
+    def ui_support_snapshot(self) -> Dict[str, Any]:
         """Compact mode-specific status for Telegram/UI without exposing raw internals."""
         metrics: Dict[str, Any] = {}
         decision = None
@@ -2575,7 +2575,7 @@ class ChargeControllerV2:
                 "accepted": accepted,
                 "reject_reason": reject_reason,
             }
-        snapshot = self.v2_ui_snapshot()
+        snapshot = self.ui_support_snapshot()
         return {
             "available": True,
             "session_id": context.get("session_id"),

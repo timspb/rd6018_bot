@@ -5,9 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from charge_logic import ChargeController
-from manual_runtime_v2 import ProductionManualSessionManager
+from manual_runtime import ProductionManualSessionManager
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -113,9 +113,9 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("charge_logic.time.time", return_value=1000.0), patch(
-                "charge_controller_v2.time.time", return_value=1000.0
+                "charge_controller.time.time", return_value=1000.0
             ):
                 legacy = ChargeControllerV2(DummyHass(), authoritative=False)
                 legacy.start_custom(
@@ -131,9 +131,9 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(os.path.exists(session_file))
 
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("charge_logic.time.time", return_value=1100.0), patch(
-                "charge_controller_v2.time.time", return_value=1100.0
+                "charge_controller.time.time", return_value=1100.0
             ):
                 production = ChargeControllerV2(DummyHass(), authoritative=True)
                 ok, message = production.try_restore_session(14.2, 1.0, 1.0)
@@ -164,7 +164,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(forbidden, body)
 
     def test_production_bootstrap_binds_custom_dialog_to_manual_owner(self):
-        source = (REPO_ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
+        source = (REPO_ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         self.assertIn(
             "app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui",
             source,

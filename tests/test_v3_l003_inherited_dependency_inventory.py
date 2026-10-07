@@ -6,7 +6,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-V2_PATH = ROOT / "charge_controller_v2.py"
+V2_PATH = ROOT / "charge_controller.py"
 LEGACY_PATH = ROOT / "charge_logic.py"
 
 EXPECTED_HISTORICAL_SUPPORT_CLOSURE = set()
@@ -189,7 +189,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         self.assertEqual((legacy_constants - v2_constants) & referenced, set())
 
     def test_controller_state_bootstrap_matches_historical_shape(self) -> None:
-        from charge_controller_v2 import ChargeControllerV2
+        from charge_controller import ChargeControllerV2
         from charge_logic import ChargeController
 
         hass = object()
@@ -211,7 +211,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
                     self.assertEqual(actual, expected)
 
     def test_target_temperature_and_protection_parity(self) -> None:
-        from charge_controller_v2 import ChargeControllerV2
+        from charge_controller import ChargeControllerV2
         from charge_logic import ChargeController
 
         for profile in ("Ca/Ca", "EFB", "AGM", "Custom"):
@@ -261,7 +261,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
                     )
 
     def test_post_charge_and_log_helpers_match_historical_behavior(self) -> None:
-        from charge_controller_v2 import ChargeControllerV2
+        from charge_controller import ChargeControllerV2
         from charge_logic import ChargeController
 
         for profile in ("Ca/Ca", "EFB", "AGM", "Custom"):
@@ -298,7 +298,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         )
 
     def test_runtime_support_helpers_use_canonical_limits(self) -> None:
-        from charge_controller_v2 import ChargeControllerV2
+        from charge_controller import ChargeControllerV2
 
         controller = ChargeControllerV2(object())
         controller.battery_type = controller.PROFILE_EFB
@@ -322,7 +322,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         self.assertTrue(controller._exit_cc_condition(16.47))
 
     def test_v2_diagnostics_use_canonical_policy_and_preserve_risk_heuristic(self) -> None:
-        from charge_controller_v2 import ChargeControllerV2
+        from charge_controller import ChargeControllerV2
 
         controller = ChargeControllerV2(object())
         controller.battery_type = controller.PROFILE_EFB
@@ -357,7 +357,7 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         self.assertGreaterEqual(risk["score"], 70)
         self.assertIn("prep_start_low=10.70V", risk["reasons"])
 
-    def test_charge_controller_v2_has_no_historical_import_edge(self) -> None:
+    def test_charge_controller_has_no_historical_import_edge(self) -> None:
         tree = ast.parse(V2_PATH.read_text(encoding="utf-8"))
         imports: list[tuple[str, tuple[str, ...]]] = []
         for node in tree.body:

@@ -11,7 +11,7 @@ from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionState, ManagedLiveAdoptionCoordinator
 from runtime_safety import OutputOffNotConfirmed
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 
 
 def _stamp(offset_s: float) -> str:

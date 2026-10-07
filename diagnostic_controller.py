@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Dict, Optional
 
-from auto_strategy_v2 import AutoStrategyProductionChargeControllerV2
+from auto_strategy import AutoStrategyProductionChargeControllerV2
 from battery_diagnostics import assess_specific_gravity
 from battery_diagnostics_store import list_specific_gravity
 from battery_fault_engine import (
@@ -14,7 +14,7 @@ from battery_fault_engine import (
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 from mix_active_authority import MixActiveAuthorityMixin
-from v2_authority import AuthorityAction, AuthorityDecision
+from charge_authority import AuthorityAction, AuthorityDecision
 
 
 _HV_ACTIONS = frozenset({AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX})

@@ -27,7 +27,7 @@ Telegram handlers. Telemetry transport is data acquisition, not domain logic.
 
 The composition contract may create dependencies and wire ports. It must not
 contain recipes, thresholds, transition algorithms, safety decisions, Telegram
-handlers or physical calls. Transitional `v2_bootstrap.py` is checked for the
+handlers or physical calls. Transitional `production_bootstrap.py` is checked for the
 same absence of phase algorithms and actuator calls while it remains in place.
 
 ## Bootstrap inventory
@@ -35,7 +35,7 @@ same absence of phase algorithms and actuator calls while it remains in place.
 | Path | Classification | Allowed role |
 |---|---|---|
 | `bot.py` | production entrypoint | one startup handoff; transitional installer composition |
-| `v2_bootstrap.py` | transitional composition | connect current V2 owners and dry-run ports |
+| `production_bootstrap.py` | transitional composition | connect current V2 owners and dry-run ports |
 | `runtime/v2_runtime.py` | legacy V2 runtime surface | current compatibility/runtime owner |
 | `bot_legacy.py` | rollback-only | explicitly selected emergency compatibility entrypoint |
 | `v2_startup.py` / recovery | startup/transaction compatibility | existing V2 owner; not a second production root |

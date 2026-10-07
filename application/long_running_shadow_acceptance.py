@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .v2_v3_comparison import ComparisonStatus
+from .decision_comparison import ComparisonStatus
 
 
 class AcceptanceBand(str, Enum):

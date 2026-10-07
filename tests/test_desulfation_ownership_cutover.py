@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from charge_controller_v2 import (
+from charge_controller import (
     INTERMEDIATE_RECOVERY_DURATION_SEC,
     RecoverySafeWaitContinuation,
 )
@@ -104,7 +104,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
             analysis_at(now, voltage=voltage, current=current)
         )
         with patch("charge_logic.time.time", return_value=now), patch(
-            "charge_controller_v2.time.time", return_value=now
+            "charge_controller.time.time", return_value=now
         ), patch("production_controller.time.time", return_value=now):
             return await controller.tick(
                 voltage=voltage,
@@ -188,7 +188,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
             decision=RecoveryDecision.FINISH_STAGE,
         )
         with patch("charge_logic.time.time", return_value=now), patch(
-            "charge_controller_v2.time.time", return_value=now
+            "charge_controller.time.time", return_value=now
         ), patch("production_controller.time.time", return_value=now):
             actions = await controller.tick(
                 16.3,
@@ -438,10 +438,10 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                 session_generation=controller._v2_trace_started_at,
             )
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=now
-            ), patch("charge_controller_v2.time.time", return_value=now), patch(
+            ), patch("charge_controller.time.time", return_value=now), patch(
                 "production_controller.time.time", return_value=now
             ):
                 controller._save_session(15.0, 0.0, 12.0)

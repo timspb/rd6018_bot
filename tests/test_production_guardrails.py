@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeControllerV2
 from runtime.charge.runtime.cooling_guard import validate_cooling_pause

@@ -9,7 +9,7 @@ from application.decision_authority import (
     DecisionAuthorityMode,
     DecisionOwner,
 )
-from application.v2_v3_comparison import ComparisonContext, DecisionSnapshot
+from application.decision_comparison import ComparisonContext, DecisionSnapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +50,7 @@ class EpicGDecisionOwnershipTests(unittest.TestCase):
         self.assertIsNone(result.selected)
         self.assertIn("no_implicit_v2_takeover", result.provenance.reason)
 
-    def test_rollback_returns_v2_authority(self) -> None:
+    def test_rollback_returns_charge_authority(self) -> None:
         coordinator = DecisionAuthorityCoordinator()
         coordinator.set_mode(DecisionAuthorityMode.ACTIVE_DECISION, explicit_approval=True)
         provenance = coordinator.rollback_to_v2(reason="parity_conflict")

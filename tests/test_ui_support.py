@@ -2,7 +2,7 @@ import unittest
 
 from battery_registry import BatteryRecord
 from pb_domain import BatteryChemistry, BatteryCondition, BatteryIdentity, BatteryLifecycle, ChargeIntent
-from v2_ui import battery_button_label, build_program_preview, format_active_evidence, format_battery_card
+from ui_support import battery_button_label, build_program_preview, format_active_evidence, format_battery_card
 
 
 class V2UiTests(unittest.TestCase):

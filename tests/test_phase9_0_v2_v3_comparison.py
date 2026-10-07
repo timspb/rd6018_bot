@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from application.v2_v3_comparison import (
+from application.decision_comparison import (
     ComparisonContext,
     ComparisonStatus,
     DecisionSnapshot,

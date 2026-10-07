@@ -5,7 +5,7 @@ import unittest
 import database
 from battery_registry import init_battery_registry, upsert_battery
 from pb_domain import BatteryChemistry, BatteryIdentity, BatteryLifecycle
-from v2_battery_catalog import list_batteries
+from battery_catalog import list_batteries
 
 
 class V2BatteryCatalogTests(unittest.IsolatedAsyncioTestCase):

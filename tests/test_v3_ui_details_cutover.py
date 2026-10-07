@@ -131,7 +131,7 @@ class V3OperatorDetailsUICutoverTests(unittest.TestCase):
 
     def test_historical_info_full_callback_is_removed(self):
         runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
-        polish_source = (ROOT / "v2_ui_polish.py").read_text(encoding="utf-8")
+        polish_source = (ROOT / "ui_polish.py").read_text(encoding="utf-8")
         self.assertNotIn('F.data == "info_full"', runtime_source)
         self.assertNotIn("async def info_full_handler(", runtime_source)
         self.assertNotIn('callback_data="info_full"', runtime_source)

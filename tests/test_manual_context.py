@@ -8,10 +8,10 @@ from types import SimpleNamespace
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot
-from manual_context_v2 import BoundManualTextMiddleware
+from manual_context import BoundManualTextMiddleware
 from manual_mode import ManualSessionState
-from manual_runtime_v2 import ProductionManualSessionManager
-from manual_text_v2 import ManualTextMiddleware
+from manual_runtime import ProductionManualSessionManager
+from manual_text import ManualTextMiddleware
 
 
 class ManualContextEntrypointTests(unittest.TestCase):

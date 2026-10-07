@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from auto_strategy_v2 import AutoStrategyProductionChargeControllerV2
+from auto_strategy import AutoStrategyProductionChargeControllerV2
 from production_controller import ProductionChargeControllerV2
 
 
@@ -26,7 +26,7 @@ class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
             ProductionChargeControllerV2,
             "_run_stage_scaffold_tick",
             new=fake_parent,
-        ), patch("auto_strategy_v2.time.time", return_value=now):
+        ), patch("auto_strategy.time.time", return_value=now):
             actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_MAIN,
                 voltage=14.8,

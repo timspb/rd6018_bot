@@ -44,7 +44,7 @@ PHYSICAL_VALIDATION_COMPONENTS = {
     "install_physical_test_control_d062_delta",
     "install_physical_test_control_diagnostic",
     "install_physical_test_control_pb_mode",
-    "install_physical_test_control_programmed_readback_v2",
+    "install_physical_test_control_programmed_readback",
     "install_physical_test_control_source_faults",
 }
 

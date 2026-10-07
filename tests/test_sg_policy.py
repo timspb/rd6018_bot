@@ -6,7 +6,7 @@ import database
 from battery_diagnostics import DiagnosticHypothesis, DiagnosticLevel
 from battery_registry import init_battery_registry, upsert_battery
 from pb_domain import BatteryChemistry, BatteryIdentity, BatteryLifecycle
-from sg_policy_v2 import (
+from sg_policy import (
     HydrometerMode,
     SGAccess,
     SGCorrectionProfile,

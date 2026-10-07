@@ -12,7 +12,7 @@ from typing import Any, Callable, Mapping
 
 from .diagnostics_domain import DiagnosticCategory, DiagnosticEvent, DiagnosticSeverity, DiagnosticsDomain
 from .divergence_explanation import DivergenceAnalysis, DivergenceExplanationEngine
-from .v2_v3_comparison import ComparisonContext, ComparisonResult, DecisionSnapshot, V2V3ComparisonEngine
+from .decision_comparison import ComparisonContext, ComparisonResult, DecisionSnapshot, V2V3ComparisonEngine
 
 
 def _freeze(value: Any) -> Any:

@@ -149,9 +149,9 @@ class ProductionControllerTests(unittest.TestCase):
                 json.dump(document, handle)
             controller = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("charge_logic.time.time", return_value=1100.0), patch(
-                "charge_controller_v2.time.time", return_value=1100.0
+                "charge_controller.time.time", return_value=1100.0
             ):
                 ok, _ = controller.try_restore_session(16.0, 2.0, 1.0)
                 target = controller._get_target_v_i(25.0)
@@ -214,10 +214,10 @@ class ProductionControllerTests(unittest.TestCase):
 
     def _persist_runtime_signal(self, controller, session_file):
         with patch("charge_logic.SESSION_FILE", session_file), patch(
-            "charge_controller_v2.SESSION_FILE", session_file
+            "charge_controller.SESSION_FILE", session_file
         ), patch("production_controller.SESSION_FILE", session_file), patch(
             "charge_logic.time.time", return_value=1000.0
-        ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+        ), patch("charge_controller.time.time", return_value=1000.0), patch(
             "production_controller.time.time", return_value=1000.0
         ):
             controller._save_session(16.47, 0.66, 1.0)
@@ -238,10 +238,10 @@ class ProductionControllerTests(unittest.TestCase):
             "session_id": controller._v2_trace_session_id,
         }
         with patch("charge_logic.SESSION_FILE", session_file), patch(
-            "charge_controller_v2.SESSION_FILE", session_file
+            "charge_controller.SESSION_FILE", session_file
         ), patch("production_controller.SESSION_FILE", session_file), patch(
             "charge_logic.time.time", return_value=1000.0
-        ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+        ), patch("charge_controller.time.time", return_value=1000.0), patch(
             "production_controller.time.time", return_value=1000.0
         ):
             controller._save_session(16.47, 0.66, 1.0)
@@ -257,10 +257,10 @@ class ProductionControllerTests(unittest.TestCase):
 
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+            ), patch("charge_controller.time.time", return_value=1010.0), patch(
                 "production_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
@@ -294,10 +294,10 @@ class ProductionControllerTests(unittest.TestCase):
             self._persist_runtime_signal(original, session_file)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+            ), patch("charge_controller.time.time", return_value=1010.0), patch(
                 "production_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
@@ -342,7 +342,7 @@ class ProductionControllerTests(unittest.TestCase):
                 (now, 16.25),
             )
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch.object(
                 controller, "_run_stage_scaffold_tick", new=no_legacy_scaffold
             ):
@@ -405,10 +405,10 @@ class ProductionControllerTests(unittest.TestCase):
                 self._persist_runtime_signal(original, session_file)
                 restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
                 with patch("charge_logic.SESSION_FILE", session_file), patch(
-                    "charge_controller_v2.SESSION_FILE", session_file
+                    "charge_controller.SESSION_FILE", session_file
                 ), patch("production_controller.SESSION_FILE", session_file), patch(
                     "charge_logic.time.time", return_value=now
-                ), patch("charge_controller_v2.time.time", return_value=now), patch(
+                ), patch("charge_controller.time.time", return_value=now), patch(
                     "production_controller.time.time", return_value=now
                 ):
                     ok, _ = restored.try_restore_session(
@@ -430,10 +430,10 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertAlmostEqual(saved["finish_evidence"]["accepted_delta"], 0.24)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+            ), patch("charge_controller.time.time", return_value=1010.0), patch(
                 "production_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
@@ -459,10 +459,10 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertAlmostEqual(saved["finish_evidence"]["accepted_delta"], 0.05)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+            ), patch("charge_controller.time.time", return_value=1010.0), patch(
                 "production_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
@@ -486,7 +486,7 @@ class ProductionControllerTests(unittest.TestCase):
                 json.dump(saved, handle)
                 handle.truncate()
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
-            with patch("charge_logic.SESSION_FILE", session_file), patch("charge_controller_v2.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_logic.time.time", return_value=1010.0), patch("charge_controller_v2.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
+            with patch("charge_logic.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_logic.time.time", return_value=1010.0), patch("charge_controller.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
             self.assertTrue(ok)
             self.assertTrue(restored._delta_reported)
@@ -504,7 +504,7 @@ class ProductionControllerTests(unittest.TestCase):
                 json.dump(saved, handle)
                 handle.truncate()
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
-            with patch("charge_logic.SESSION_FILE", session_file), patch("charge_controller_v2.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_logic.time.time", return_value=1010.0), patch("charge_controller_v2.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
+            with patch("charge_logic.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_logic.time.time", return_value=1010.0), patch("charge_controller.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
             self.assertTrue(ok)
             self.assertTrue(restored._delta_reported)
@@ -521,19 +521,19 @@ class ProductionControllerTests(unittest.TestCase):
             controller._safe_wait_target_v = 13.8
             controller._safe_wait_target_i = 1.0
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1000.0
-            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+            ), patch("charge_controller.time.time", return_value=1000.0), patch(
                 "production_controller.time.time", return_value=1000.0
             ):
                 controller._save_session(13.8, 0.0, 1.0)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0):
+            ), patch("charge_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(13.8, 0.0, 1.0, output_is_on=False)
             self.assertTrue(ok)
             self.assertEqual(restored.current_stage, restored.STAGE_SAFE_WAIT)
@@ -549,10 +549,10 @@ class ProductionControllerTests(unittest.TestCase):
             controller.stage_start_time = 900.0
             actions = {}
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1000.0
-            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+            ), patch("charge_controller.time.time", return_value=1000.0), patch(
                 "production_controller.time.time", return_value=1000.0
             ):
                 controller._stop_and_diagnose(
@@ -579,10 +579,10 @@ class ProductionControllerTests(unittest.TestCase):
 
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+            ), patch("charge_controller.time.time", return_value=1010.0), patch(
                 "production_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
@@ -607,10 +607,10 @@ class ProductionControllerTests(unittest.TestCase):
             controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
             controller.current_stage = controller.STAGE_DONE
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1000.0
-            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+            ), patch("charge_controller.time.time", return_value=1000.0), patch(
                 "production_controller.time.time", return_value=1000.0
             ):
                 controller._save_session(0.0, 0.0, 0.0)
@@ -629,10 +629,10 @@ class ProductionControllerTests(unittest.TestCase):
             controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
             controller.current_stage = controller.STAGE_DONE
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1000.0
-            ), patch("charge_controller_v2.time.time", return_value=1000.0), patch(
+            ), patch("charge_controller.time.time", return_value=1000.0), patch(
                 "production_controller.time.time", return_value=1000.0
             ):
                 controller._save_session(13.8, 0.66, 10.5)
@@ -668,10 +668,10 @@ class ProductionControllerTests(unittest.TestCase):
                 json.dump(document, handle)
             restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=1010.0
-            ), patch("charge_controller_v2.time.time", return_value=1010.0):
+            ), patch("charge_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
             self.assertTrue(ok)
             self.assertFalse(restored._delta_reported)
@@ -686,10 +686,10 @@ class ProductionControllerTests(unittest.TestCase):
                 self._persist_runtime_signal(original, session_file)
                 restored = ProductionChargeControllerV2(DummyHass(), authoritative=True)
                 with patch("charge_logic.SESSION_FILE", session_file), patch(
-                    "charge_controller_v2.SESSION_FILE", session_file
+                    "charge_controller.SESSION_FILE", session_file
                 ), patch("production_controller.SESSION_FILE", session_file), patch(
                     "charge_logic.time.time", return_value=1010.0
-                ), patch("charge_controller_v2.time.time", return_value=1010.0), patch(
+                ), patch("charge_controller.time.time", return_value=1010.0), patch(
                     "production_controller.time.time", return_value=1010.0
                 ):
                     ok, _ = restored.try_restore_session(

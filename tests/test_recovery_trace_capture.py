@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import database
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from recovery_trace_store import export_replay_document, list_trace_sessions
 
 

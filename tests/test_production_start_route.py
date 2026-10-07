@@ -79,7 +79,7 @@ class ProductionStartRouteTests(unittest.TestCase):
         self.assertIsInstance(port.production_runner, ProductionStartRunner)
         self.assertIsInstance(port.production_runner.transaction_runner, StartTransactionRunner)
 
-        source = Path("v2_bootstrap.py").read_text(encoding="utf-8")
+        source = Path("production_bootstrap.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('F.data == "v2_battery_start"'), 1)
         self.assertNotIn("start_profile_transactional(app, call, pending)", source)
         self.assertNotIn("V2StartRunnerAdapter", source)

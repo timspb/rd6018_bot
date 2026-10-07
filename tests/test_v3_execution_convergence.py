@@ -151,13 +151,13 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
             ".hass.set_ovp(",
             ".hass.set_ocp(",
         )
-        for name in ("application/start_transaction_service.py", "v2_mix_mode.py"):
+        for name in ("application/start_transaction_service.py", "mix_mode.py"):
             source = (ROOT / name).read_text(encoding="utf-8")
             for token in forbidden:
                 self.assertNotIn(token, source, f"{name}: {token}")
 
     def test_start_owners_use_application_execution_port(self):
-        for name in ("application/start_transaction_service.py", "v2_mix_mode.py"):
+        for name in ("application/start_transaction_service.py", "mix_mode.py"):
             source = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("get_or_create_execution_port", source)
             self.assertIn(".enable(", source)
@@ -220,7 +220,7 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         )
 
     def test_bootstrap_materializes_execution_port_before_manual_manager(self):
-        source = (ROOT / "v2_bootstrap.py").read_text(encoding="utf-8")
+        source = (ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         port_pos = source.index("get_or_create_execution_port(app)")
         manual_pos = source.index("ProductionManualSessionManager(app)")
         self.assertLess(port_pos, manual_pos)

@@ -131,13 +131,13 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
 
         for rel in (
             "runtime/production_runtime.py",
-            "manual_context_v2.py",
-            "manual_text_v2.py",
-            "v2_bootstrap.py",
-            "v2_bot_ui.py",
-            "v2_mix_mode.py",
-            "v2_sg_ui.py",
-            "v2_ui_polish.py",
+            "manual_context.py",
+            "manual_text.py",
+            "production_bootstrap.py",
+            "production_bot_ui.py",
+            "mix_mode.py",
+            "sg_ui.py",
+            "ui_polish.py",
         ):
             source = (ROOT / rel).read_text(encoding="utf-8")
             self.assertNotIn('callback_data="charge_modes"', source, rel)
@@ -166,8 +166,8 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
                 "hass_api",
                 "runtime_safety",
                 "safe_output",
-                "v2_bot_ui",
-                "manual_context_v2",
+                "production_bot_ui",
+                "manual_context",
                 "esphome",
             ):
                 self.assertNotIn(forbidden, source, f"{rel}: {forbidden}")

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from runtime_safety import OutputOffNotConfirmed
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 
 
 class DummyHass:

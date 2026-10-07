@@ -1,7 +1,7 @@
 import unittest
 
-from sg_policy_v2 import HydrometerMode, SGCorrectionProfile
-from v2_sg_ui import parse_sg_input
+from sg_policy import HydrometerMode, SGCorrectionProfile
+from sg_ui import parse_sg_input
 
 
 class V2SpecificGravityUiTests(unittest.TestCase):

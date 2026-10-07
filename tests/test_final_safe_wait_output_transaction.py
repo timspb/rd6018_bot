@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charge_controller_v2 import ChargeControllerV2, FinalSafeWaitContinuation
+from charge_controller import ChargeControllerV2, FinalSafeWaitContinuation
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
 from runtime.charge.persistence import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON
 
@@ -21,7 +21,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
         controller.current_stage = controller.STAGE_MIX
         actions = {}
         with patch("charge_logic.SESSION_FILE", session_file), patch(
-            "charge_controller_v2.SESSION_FILE", session_file
+            "charge_controller.SESSION_FILE", session_file
         ):
             controller._enter_safe_wait_done(
                 actions=actions,
@@ -45,7 +45,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
 
             transition_actions = {}
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ):
                 handled = controller._handle_safe_wait_stage_override(
                     now=1001.0,
@@ -129,7 +129,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 DummyHass(), authoritative=True
             )
             with patch("runtime.charge.persistence.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file):
                 controller.start("AGM", 90)
                 controller._v2_trace_session_id = "session-final"
@@ -186,10 +186,10 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 reason="confirmed_delta_and_sticky_hold",
             )
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=now + 30.0
-            ), patch("charge_controller_v2.time.time", return_value=now + 30.0), patch(
+            ), patch("charge_controller.time.time", return_value=now + 30.0), patch(
                 "production_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)

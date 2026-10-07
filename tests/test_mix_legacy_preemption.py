@@ -120,12 +120,12 @@ class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("diagnostic_controller.list_specific_gravity", new=AsyncMock(return_value=[])),
             patch("charge_logic.SESSION_FILE", session_file),
-            patch("charge_controller_v2.SESSION_FILE", session_file),
+            patch("charge_controller.SESSION_FILE", session_file),
             patch("production_controller.SESSION_FILE", session_file),
             patch("charge_logic.time.time", return_value=now),
-            patch("charge_controller_v2.time.time", return_value=now),
+            patch("charge_controller.time.time", return_value=now),
             patch("production_controller.time.time", return_value=now),
-            patch("auto_strategy_v2.time.time", return_value=now),
+            patch("auto_strategy.time.time", return_value=now),
         ):
             return await controller.tick(
                 16.50,

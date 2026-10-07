@@ -9,7 +9,7 @@ from application.decision_authority_shadow_run import (
     ShadowFailure,
     ShadowRunStatus,
 )
-from application.v2_v3_comparison import ComparisonContext, DecisionSnapshot
+from application.decision_comparison import ComparisonContext, DecisionSnapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]

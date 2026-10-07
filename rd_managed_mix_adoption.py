@@ -33,8 +33,8 @@ from rd_managed_mix import (
     install_runtime_composition,
     resolve_prior_mix_age,
 )
-from v2_battery_catalog import list_batteries
-from v2_ui import battery_button_label
+from battery_catalog import list_batteries
+from ui_support import battery_button_label
 
 
 __all__ = [

@@ -3,7 +3,7 @@ import unittest
 from first_stage_evidence import FirstStageAssessment, FirstStageState
 from pb_domain import ChargeIntent
 from recovery_policy import RecoveryDecision
-from v2_authority import AuthorityAction, decide_main_transition, decide_mix_transition
+from charge_authority import AuthorityAction, decide_main_transition, decide_mix_transition
 
 
 def assessment(state, *, c_rate=0.004, threshold=0.28):

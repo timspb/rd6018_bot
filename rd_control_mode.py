@@ -15,7 +15,7 @@ from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 
 from runtime_safety import RuntimeSafetyError, _binary, logger
-from runtime_safety_v2 import V2RuntimeSafetyGuard
+from managed_runtime_safety import V2RuntimeSafetyGuard
 
 
 class RdControlMode(str, Enum):
@@ -389,10 +389,10 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
 
     # Auto Mix creates a session through _init_session rather than controller.start().
     # Its installed handler resolves this module global at call time.
-    import v2_mix_mode
+    import mix_mode
 
-    if not getattr(v2_mix_mode, "_rd_control_mode_start_wrapped", False):
-        original_mix_start = v2_mix_mode.start_mix_transactional
+    if not getattr(mix_mode, "_rd_control_mode_start_wrapped", False):
+        original_mix_start = mix_mode.start_mix_transactional
 
         async def guarded_mix_start(app_arg: Any, event: Any, pending: Any) -> bool:
             rd_mode = getattr(app_arg, "rd_control_mode_manager", None)
@@ -413,8 +413,8 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
                 return False
             return bool(await original_mix_start(app_arg, event, pending))
 
-        v2_mix_mode.start_mix_transactional = guarded_mix_start
-        v2_mix_mode._rd_control_mode_start_wrapped = True
+        mix_mode.start_mix_transactional = guarded_mix_start
+        mix_mode._rd_control_mode_start_wrapped = True
 
     original_dashboard_keyboard = app._build_dashboard_keyboard
 

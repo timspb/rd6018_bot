@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 from application.divergence_explanation import DivergenceCategory, DivergenceExplanationEngine
-from application.v2_v3_comparison import ComparisonContext, ComparisonStatus, DecisionSnapshot, V2V3ComparisonEngine
+from application.decision_comparison import ComparisonContext, ComparisonStatus, DecisionSnapshot, V2V3ComparisonEngine
 
 
 ROOT = Path(__file__).resolve().parents[1]

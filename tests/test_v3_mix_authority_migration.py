@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from charge_controller_v2 import ChargeControllerV2
+from charge_controller import ChargeControllerV2
 from charge_logic import ChargeController
 from production_controller import ProductionChargeControllerV2
 from runtime.charge.strategy import mix as mix_strategy
@@ -105,7 +105,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             ChargeController,
             "tick",
             new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ), patch("charge_controller_v2.time.time", return_value=1100.0):
+        ), patch("charge_controller.time.time", return_value=1100.0):
             actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_MIX,
                 voltage=16.3,
@@ -129,7 +129,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             ChargeController,
             "tick",
             new=AsyncMock(side_effect=AssertionError("historical tick reached")),
-        ), patch("charge_controller_v2.time.time", return_value=1100.0):
+        ), patch("charge_controller.time.time", return_value=1100.0):
             actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_SAFE_WAIT,
                 voltage=13.5,
@@ -277,10 +277,10 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             expected_generation = controller._v2_trace_started_at
 
             with patch("charge_logic.SESSION_FILE", session_file), patch(
-                "charge_controller_v2.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("production_controller.SESSION_FILE", session_file), patch(
                 "charge_logic.time.time", return_value=now + 30.0
-            ), patch("charge_controller_v2.time.time", return_value=now + 30.0), patch(
+            ), patch("charge_controller.time.time", return_value=now + 30.0), patch(
                 "production_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)

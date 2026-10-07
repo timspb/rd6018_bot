@@ -54,15 +54,15 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
     def test_contracted_consumers_do_not_reimport_historical_charge_logic_values(self) -> None:
         consumers = (
             "manual_mode.py",
-            "manual_runtime_v2.py",
-            "manual_text_v2.py",
+            "manual_runtime.py",
+            "manual_text.py",
             "mix_active_authority.py",
             "mix_current_containment.py",
             "production_controller.py",
             "runtime/charge/profiles/manual.py",
             "runtime/production_runtime.py",
             "runtime_safety.py",
-            "runtime_safety_v2.py",
+            "managed_runtime_safety.py",
         )
         violations = {
             path: sorted(self._charge_logic_imports(path))
@@ -71,13 +71,13 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
         }
         self.assertEqual({}, violations)
 
-    def test_charge_controller_v2_has_no_historical_charge_logic_edge(self) -> None:
+    def test_charge_controller_has_no_historical_charge_logic_edge(self) -> None:
         self.assertEqual(
             set(),
-            self._charge_logic_imports("charge_controller_v2.py"),
+            self._charge_logic_imports("charge_controller.py"),
         )
 
-        path = ROOT / "charge_controller_v2.py"
+        path = ROOT / "charge_controller.py"
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         controller = next(
             node

@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 from application.long_running_shadow_acceptance import AcceptanceBand, ShadowAcceptanceCollector
-from application.v2_v3_comparison import ComparisonStatus
+from application.decision_comparison import ComparisonStatus
 
 
 ROOT = Path(__file__).resolve().parents[1]

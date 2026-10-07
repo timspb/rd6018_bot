@@ -9,22 +9,22 @@ from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-import v2_bot_ui
+import production_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from diagnostic_controller import DiagnosticProductionChargeControllerV2
-from manual_runtime_v2 import ProductionManualSessionManager
-from manual_text_v2 import install_manual_text_v2
+from manual_runtime import ProductionManualSessionManager
+from manual_text import install_manual_text
 from pb_domain import ChargeIntent
-from runtime_safety_v2 import install_v2_runtime_safety
+from managed_runtime_safety import install_v2_runtime_safety
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import install_panel_last
-from v2_battery_input import parse_battery_spec
-from v2_sg_ui import install_sg_ui, sg_menu_button
+from battery_input import parse_battery_spec
+from sg_ui import install_sg_ui, sg_menu_button
 from application.start_transaction_service import start_profile_transactional
-from v2_ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
+from ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
 from application.execution_port import get_or_create_execution_port
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
@@ -156,7 +156,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui
     install_v2_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
-    install_manual_text_v2(app)
+    install_manual_text(app)
     if not install_ui:
         return
 
@@ -164,10 +164,10 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
         await init_battery_registry()
         await registry_upsert_battery(identity, lifecycle, updated_at=time.time())
 
-    v2_bot_ui.upsert_battery = _upsert_from_ui
-    v2_bot_ui._start_profile = start_profile_transactional
-    v2_bot_ui.parse_battery_spec = parse_battery_spec
-    original_safe_answer = v2_bot_ui._safe_answer
+    production_bot_ui.upsert_battery = _upsert_from_ui
+    production_bot_ui._start_profile = start_profile_transactional
+    production_bot_ui.parse_battery_spec = parse_battery_spec
+    original_safe_answer = production_bot_ui._safe_answer
 
     async def _safe_answer_operator(event, text: str, *, reply_markup=None) -> None:
         if "ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель" in text:
@@ -189,9 +189,9 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             text = text.replace(old, new)
         await original_safe_answer(event, text, reply_markup=reply_markup)
 
-    v2_bot_ui._safe_answer = _safe_answer_operator
-    v2_bot_ui._intent_keyboard = _operator_intent_keyboard
-    v2_bot_ui._preview_keyboard = _operator_preview_keyboard
+    production_bot_ui._safe_answer = _safe_answer_operator
+    production_bot_ui._intent_keyboard = _operator_intent_keyboard
+    production_bot_ui._preview_keyboard = _operator_preview_keyboard
     # Telegram START reaches the existing V2 owner only after StartPreflightService
     # and the transactional ExecutionPort checks have passed.
     v3_transaction_adapter = V2StartTransactionAdapter()
@@ -215,7 +215,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             return
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
-        pending = v2_bot_ui._pending_start.get(user_id)
+        pending = production_bot_ui._pending_start.get(user_id)
         if pending is None:
             await call.answer("Предпросмотр устарел — выберите АКБ заново", show_alert=True)
             return
@@ -237,14 +237,14 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
             await call.answer(f"START отклонён: {result.reason}", show_alert=True)
             return
         await call.answer(
-            v2_bot_ui.format_start_feedback(result),
+            production_bot_ui.format_start_feedback(result),
             show_alert=True,
         )
 
-    v2_bot_ui.install_v2_ui(app)
+    production_bot_ui.install_ui_support(app)
     install_sg_ui(app)
-    install_dashboard_polish(app, v2_bot_ui)
-    app._selected_program_for_user = v2_bot_ui.selected_program_for_user
+    install_dashboard_polish(app, production_bot_ui)
+    app._selected_program_for_user = production_bot_ui.selected_program_for_user
     app._charge_modes_text = _operator_modes_text
     app._build_charge_modes_keyboard = _operator_modes_keyboard
 
@@ -255,7 +255,7 @@ def install_v2(app: Any, *, install_ui: bool = True) -> None:
     installed_handle_ah = app.handle_ah_input
 
     async def _handle_ah_conservative(message, profile: str, user_id: int) -> None:
-        v2_bot_ui._pending_intent.setdefault(user_id, ChargeIntent.NORMAL)
+        production_bot_ui._pending_intent.setdefault(user_id, ChargeIntent.NORMAL)
         await installed_handle_ah(message, profile, user_id)
 
     app.handle_ah_input = _handle_ah_conservative
