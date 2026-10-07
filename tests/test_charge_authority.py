@@ -1,6 +1,6 @@
 import unittest
 
-from first_stage_evidence import FirstStageAssessment, FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from pb_domain import ChargeIntent
 from recovery_policy import RecoveryDecision
 from charge_authority import AuthorityAction, decide_main_transition, decide_mix_transition

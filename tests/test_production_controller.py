@@ -7,7 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from first_stage_evidence import FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageState
 from pb_domain import BatteryCondition, ChargeIntent
 from production_controller import ProductionChargeController
 from recovery_session import RecoveryTracePoint

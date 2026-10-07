@@ -57,7 +57,6 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
             "manual_runtime.py",
             "manual_text.py",
             "mix_active_authority.py",
-            "mix_current_containment.py",
             "production_controller.py",
             "runtime/charge/profiles/manual.py",
             "runtime/production_runtime.py",

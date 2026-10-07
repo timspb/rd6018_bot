@@ -1921,3 +1921,20 @@ implicit-runtime-start checks were rewritten as current runtime guardrails.
 
 No production route, execution semantics, persisted session state or hardware
 behavior changed in this boundary.
+
+
+## 2026-10-07 root compatibility eradication
+
+Operational-root reachability proved the remaining root compatibility set
+(`first_stage_evidence.py`, `live_recovery_bridge.py`,
+`mix_current_containment.py`, `rd_operation_mode.py`, `recipe_output.py`,
+`recovery_orchestrator.py`, `recovery_runtime.py`) had zero live inbound edges.
+
+The first-stage re-export was removed after tests were moved to the canonical
+`runtime.charge.evidence.first_stage` owner. The other modules and their direct
+characterization tests were removed rather than preserved as dormant fallback
+paths. Architecture guards now require these root compatibility files to remain
+absent.
+
+No live production route, persisted session key or hardware behavior changed in
+this boundary.

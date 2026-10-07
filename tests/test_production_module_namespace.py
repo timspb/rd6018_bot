@@ -126,6 +126,18 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         self.assertFalse((ROOT / "charge_logic.py").exists())
         self.assertFalse((ROOT / "legacy_safety.py").exists())
 
+    def test_retired_root_compatibility_modules_are_absent(self):
+        retired = (
+            "first_stage_evidence.py",
+            "live_recovery_bridge.py",
+            "mix_current_containment.py",
+            "rd_operation_mode.py",
+            "recipe_output.py",
+            "recovery_orchestrator.py",
+            "recovery_runtime.py",
+        )
+        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+
     def test_canonical_module_names_exist(self):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",
