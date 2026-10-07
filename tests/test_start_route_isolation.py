@@ -1,7 +1,8 @@
 import pathlib
 import unittest
 
-import bot
+import bot  # compose production runtime
+from runtime import production_runtime as runtime_app
 import production_bot_ui
 from types import SimpleNamespace
 
@@ -49,7 +50,7 @@ class StartRouteIsolationTests(unittest.TestCase):
 
         self.assertIs(production_bot_ui._start_profile, start_profile_transactional)
 
-        handlers = bot.router.observers["callback_query"].handlers
+        handlers = runtime_app.router.observers["callback_query"].handlers
         names = [handler.callback.__name__ for handler in handlers]
         self.assertEqual(names.count("_v2_battery_start_route"), 1)
 
@@ -72,7 +73,7 @@ class StartRouteIsolationTests(unittest.TestCase):
         )
 
     def test_production_charge_modes_do_not_expose_legacy_profile_callbacks(self):
-        callbacks = _callbacks(bot._build_charge_modes_keyboard())
+        callbacks = _callbacks(runtime_app._build_charge_modes_keyboard())
 
         self.assertIn("v2_profile_caca", callbacks)
         self.assertIn("v2_profile_efb", callbacks)
@@ -89,10 +90,10 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertFalse((root / "application" / "v2_start_runner_adapter.py").exists())
 
     def test_composed_custom_dialog_is_bound_to_manual_session_owner(self):
-        self.assertIs(bot.start_custom_charge.__self__, bot.manual_session_manager)
+        self.assertIs(runtime_app.start_custom_charge.__self__, runtime_app.manual_session_manager)
         self.assertIs(
-            bot.start_custom_charge.__func__,
-            bot.manual_session_manager.start_from_legacy_ui.__func__,
+            runtime_app.start_custom_charge.__func__,
+            runtime_app.manual_session_manager.start_from_legacy_ui.__func__,
         )
 
     def test_quick_start_callback_uses_v3_route_when_composed(self):

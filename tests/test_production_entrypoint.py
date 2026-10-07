@@ -43,10 +43,10 @@ class V2EntrypointTests(unittest.TestCase):
             safety="",
         )
 
-    def test_import_bot_is_distinct_composition_module_with_runtime_bridge(self):
+    def test_import_bot_is_composition_only_without_runtime_bridge(self):
         self.assertEqual(bot.__name__, "bot")
-        self.assertIs(bot.charge_controller, production_runtime.charge_controller)
-        self.assertIsInstance(bot.charge_controller, ProductionChargeController)
+        self.assertFalse(hasattr(bot, "charge_controller"))
+        self.assertIsInstance(production_runtime.charge_controller, ProductionChargeController)
 
     def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
         from pathlib import Path
@@ -58,7 +58,9 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertIn("from runtime import production_runtime as _runtime_substrate", source)
         self.assertNotIn("_legacy_main = _composition.", source)
         self.assertNotIn("_v2_startup_recovery = _composition.", source)
-        self.assertIn("def __getattr__(name: str):", source)
+        self.assertNotIn("def __getattr__(name: str):", source)
+        self.assertNotIn("_legacy", source)
+        self.assertNotIn("legacy_main", source)
 
     def test_production_composition_owns_all_installer_calls(self):
         import ast
@@ -145,7 +147,7 @@ class V2EntrypointTests(unittest.TestCase):
             "reconcile_startup_authority(",
             "_physical_test_control.start(",
             "_physical_test_control.stop(",
-            "_legacy_main()",
+            "legacy_main",
         ):
             self.assertNotIn(forbidden, main_source)
 
@@ -163,17 +165,17 @@ class V2EntrypointTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
         self.assertNotIn("install_production_guardrails", source)
         self.assertNotIn("production_guardrails_v2", source)
-        self.assertTrue(bot._v2_vin_psu_health_only)
-        self.assertEqual(bot.MIN_INPUT_VOLTAGE, float("-inf"))
+        self.assertTrue(production_runtime._v2_vin_psu_health_only)
+        self.assertEqual(production_runtime.MIN_INPUT_VOLTAGE, float("-inf"))
         self.assertFalse(hasattr(bot, "_v2_production_guardrails_installed"))
         self.assertFalse(
-            hasattr(bot.charge_controller, "_v2_production_cooling_guard_installed")
+            hasattr(production_runtime.charge_controller, "_v2_production_cooling_guard_installed")
         )
 
     def test_final_semantic_operator_hmi_is_installed(self):
-        self.assertTrue(bot._operator_hmi_installed)
-        self.assertTrue(bot._operator_graph_dashboard_installed)
-        keyboard = bot._build_charge_modes_keyboard()
+        self.assertTrue(production_runtime._operator_hmi_installed)
+        self.assertTrue(production_runtime._operator_graph_dashboard_installed)
+        keyboard = production_runtime._build_charge_modes_keyboard()
         callbacks = {
             button.callback_data
             for row in keyboard.inline_keyboard
@@ -188,15 +190,15 @@ class V2EntrypointTests(unittest.TestCase):
         # The semantic layer owns caption/button meaning; routine L2 updates remain
         # text-only and the explicit graph workspace owns photo rendering.
         self.assertEqual(
-            bot._build_and_send_dashboard.__name__,
+            production_runtime._build_and_send_dashboard.__name__,
             "build_and_send_graph_dashboard",
         )
-        self.assertEqual(bot._compact_dashboard_caption.__name__, "compact_dashboard_caption")
+        self.assertEqual(production_runtime._compact_dashboard_caption.__name__, "compact_dashboard_caption")
 
         # The legacy boolean keyboard helper remains a semantic compatibility surface.
         # The V1 visual shell is composed only on the live graph/dashboard path where
         # Output freshness and ownership state have already been resolved.
-        dashboard = bot._build_dashboard_keyboard(False, 1)
+        dashboard = production_runtime._build_dashboard_keyboard(False, 1)
         dashboard_callbacks = self._callbacks(dashboard)
         self.assertNotIn("power_toggle", dashboard_callbacks)
         self.assertNotIn("v2_batteries", dashboard_callbacks)
@@ -211,7 +213,7 @@ class V2EntrypointTests(unittest.TestCase):
         )
         object.__setattr__(state, OUTPUT_TRUTH_ATTR, False)
 
-        markup = operator_dashboard._main_graph_markup(bot, state, 1)
+        markup = operator_dashboard._main_graph_markup(production_runtime, state, 1)
         callbacks = self._callbacks(markup)
 
         self.assertNotIn("operator_graph_30m", callbacks)
@@ -234,7 +236,7 @@ class V2EntrypointTests(unittest.TestCase):
             output_on=False,
         )
 
-        markup = operator_dashboard._main_graph_markup(bot, state, 1)
+        markup = operator_dashboard._main_graph_markup(production_runtime, state, 1)
         callbacks = self._callbacks(markup)
 
         self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
@@ -246,7 +248,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertNotIn("rd_hands_off_disable", callbacks)
 
     def test_composed_graph_autonomous_never_restores_pb_start(self):
-        manager = bot.rd_control_mode_manager
+        manager = production_runtime.rd_control_mode_manager
         old_mode = manager.mode
         old_edge_autonomous = manager._edge_autonomous
         try:
@@ -260,7 +262,7 @@ class V2EntrypointTests(unittest.TestCase):
                 output_on=False,
             )
 
-            markup = operator_dashboard._main_graph_markup(bot, state, 1)
+            markup = operator_dashboard._main_graph_markup(production_runtime, state, 1)
             callbacks = self._callbacks(markup)
 
             self.assertNotIn("operator_graph_30m", callbacks)
@@ -283,15 +285,15 @@ class V2EntrypointTests(unittest.TestCase):
             manager._edge_autonomous = old_edge_autonomous
 
     def test_charge_mode_copy_matches_normal_full_auto_contract(self):
-        text = bot._charge_modes_text()
+        text = production_runtime._charge_modes_text()
         self.assertIn("Обычный — штатный полный автоматический заряд", text)
         self.assertIn("recovery/Mix выполняются только по критериям", text)
         self.assertNotIn("без автоматического HV/Mix", text)
 
     def test_active_managed_dashboard_uses_session_bound_stop_not_legacy_toggle(self):
         # Temporarily present a normal managed session to the final semantic keyboard.
-        manager = bot.rd_control_mode_manager
-        controller = bot.charge_controller
+        manager = production_runtime.rd_control_mode_manager
+        controller = production_runtime.charge_controller
         old_mode = manager.mode
         old_stage = controller.current_stage
         old_profile = controller.battery_type
@@ -304,7 +306,7 @@ class V2EntrypointTests(unittest.TestCase):
             controller.battery_type = controller.PROFILE_CA
             controller.ah_capacity = 72
             # is_active is a property derived from the stage.
-            dashboard = bot._build_dashboard_keyboard(True, 1)
+            dashboard = production_runtime._build_dashboard_keyboard(True, 1)
             callbacks = {
                 button.callback_data
                 for row in dashboard.inline_keyboard
@@ -322,7 +324,7 @@ class V2EntrypointTests(unittest.TestCase):
             controller.ah_capacity = old_capacity
 
     def test_saved_battery_start_route_precedes_generic_battery_selector(self):
-        handlers = bot.router.observers["callback_query"].handlers
+        handlers = production_runtime.router.observers["callback_query"].handlers
         callback_names = [handler.callback.__name__ for handler in handlers]
         self.assertIn("_v2_battery_start_route", callback_names)
         self.assertIn("battery_select_handler", callback_names)
@@ -333,8 +335,8 @@ class V2EntrypointTests(unittest.TestCase):
         )
 
     def test_diagnostic_action_journal_is_installed(self):
-        self.assertIsInstance(bot.diagnostic_action_journal, DiagnosticActionJournal)
-        self.assertTrue(hasattr(bot, "controlled_diagnostic_probe"))
+        self.assertIsInstance(production_runtime.diagnostic_action_journal, DiagnosticActionJournal)
+        self.assertTrue(hasattr(production_runtime, "controlled_diagnostic_probe"))
 
 
 if __name__ == "__main__":

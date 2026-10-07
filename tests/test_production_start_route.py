@@ -3,7 +3,8 @@ import unittest
 from types import SimpleNamespace
 from pathlib import Path
 
-import bot
+import bot  # compose production runtime
+from runtime import production_runtime as runtime_app
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_route import ProductionStartRouteAdapter
 from application.production_start_execution_port import ProductionStartMode
@@ -73,9 +74,9 @@ def _intent():
 
 class ProductionStartRouteTests(unittest.TestCase):
     def test_production_composition_installs_one_active_route(self):
-        self.assertIsInstance(bot._v3_production_start_route, ProductionStartRouteAdapter)
-        self.assertEqual(bot._v3_production_start_route.mode, ProductionStartMode.ACTIVE)
-        port = bot._v3_production_start_route.port
+        self.assertIsInstance(runtime_app._v3_production_start_route, ProductionStartRouteAdapter)
+        self.assertEqual(runtime_app._v3_production_start_route.mode, ProductionStartMode.ACTIVE)
+        port = runtime_app._v3_production_start_route.port
         self.assertIsInstance(port.production_runner, ProductionStartRunner)
         self.assertIsInstance(port.production_runner.transaction_runner, StartTransactionRunner)
 
@@ -88,7 +89,7 @@ class ProductionStartRouteTests(unittest.TestCase):
         self.assertIn("application.start_transaction_service", source)
 
     def test_composed_dry_run_keeps_runner_boundary_non_actuating(self):
-        composed_port = bot._v3_production_start_route.port
+        composed_port = runtime_app._v3_production_start_route.port
         result = asyncio.run(ProductionStartRouteAdapter(_App(), port=composed_port, mode=ProductionStartMode.DRY_RUN).submit(_intent()))
         self.assertTrue(result.accepted)
         self.assertEqual(result.reason, "dry_run_routed_no_mutation")

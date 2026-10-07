@@ -154,10 +154,10 @@ class V3OffConditionsCutoverTests(unittest.TestCase):
         provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_off_conditions_screen(")
         self.assertLess(provider, install)
-        self.assertIn("operator_read_source = OperatorReadSource(_legacy)", source)
+        self.assertIn("operator_read_source = OperatorReadSource(app)", source)
         self.assertIn("interface=operator_interface", source)
-        self.assertNotIn("OperatorSnapshotProvider(_legacy)", source)
-        self.assertIn("status_provider=_legacy._format_manual_off_for_dashboard", source)
+        self.assertNotIn("OperatorSnapshotProvider(app)", source)
+        self.assertIn("status_provider=app._format_manual_off_for_dashboard", source)
 
     def test_application_handler_validates_and_routes_preset(self):
         calls = []

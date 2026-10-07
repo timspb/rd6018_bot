@@ -114,8 +114,8 @@ class V3AnalysisUICutoverTests(unittest.TestCase):
     def test_composition_installs_analysis_with_injected_provider(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         self.assertIn("install_analysis_screen(", source)
-        self.assertIn("analysis_provider=_legacy._build_ai_analysis_text", source)
-        self.assertIn("home_handler=_legacy._operator_home_handler", source)
+        self.assertIn("analysis_provider=app._build_ai_analysis_text", source)
+        self.assertIn("home_handler=app._operator_home_handler", source)
 
 
 class V3AnalysisTelegramRouteTests(unittest.IsolatedAsyncioTestCase):

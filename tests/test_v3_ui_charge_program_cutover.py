@@ -176,11 +176,11 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         self.assertIn("install_charge_program_screen(", source)
         for fragment in (
-            "profile_selector=_legacy._v2_select_quick_profile",
-            "batteries_handler=_legacy._v2_batteries_handler",
-            "battery_add_handler=_legacy._v2_battery_add_handler",
-            "manual_handler=_legacy._v2_manual_choose_handler",
-            "interrupted_manual_handler=_legacy._v2_manual_interrupted_handler",
+            "profile_selector=app._v2_select_quick_profile",
+            "batteries_handler=app._v2_batteries_handler",
+            "battery_add_handler=app._v2_battery_add_handler",
+            "manual_handler=app._v2_manual_choose_handler",
+            "interrupted_manual_handler=app._v2_manual_interrupted_handler",
         ):
             self.assertIn(fragment, source)
 
