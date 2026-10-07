@@ -1,57 +1,82 @@
 import unittest
+from types import SimpleNamespace
 
-from runtime.application import RuntimeContext, RuntimeOrchestrator
-from runtime.journal import InMemoryJournalRecorder
 from runtime.replay import (
-    ReplayComparator, ReplayRunner, ReplayScenario, ReplayTelemetryProvider,
-    TelemetryReplayRecord, load_replay_jsonl,
+    ReplayComparator,
+    ReplayRunner,
+    ReplayScenario,
+    ReplayTelemetryProvider,
+    load_replay_jsonl,
 )
 
 
-class _Service:
-    def update_state(self, state, telemetry):
-        return {"stage": "MAIN", "phase": "CV"}
+class _Journal:
+    def __init__(self):
+        self.events = []
 
-    def evaluate(self, state, telemetry):
-        return {"intent": {"stage": state["stage"]}}
+    def append(self, event):
+        self.events.append(event)
 
-
-class _Diagnostics:
-    def evaluate(self, telemetry, state): return {"authority": "allow"}
-
-
-class _Safety:
-    def evaluate(self, intent, telemetry, state, diagnostics): return {"allowed": True}
+    def tail(self, count=1):
+        return tuple(self.events[-count:])
 
 
-class _Execution:
-    def evaluate(self, intent, safety): return {"allowed": True}
+class _ReplayOrchestrator:
+    """Minimal injected orchestrator contract for ReplayRunner tests."""
+
+    def __init__(self, records):
+        self.context = SimpleNamespace(
+            telemetry_provider=ReplayTelemetryProvider(records),
+            journal_recorder=_Journal(),
+        )
+
+    def start(self):
+        return None
+
+    def tick(self):
+        telemetry = self.context.telemetry_provider()
+        state = {"stage": "MAIN", "phase": "CV"}
+        charge = {"intent": {"stage": "MAIN"}}
+        safety = {"allowed": True}
+        execution = {"allowed": True}
+        self.context.journal_recorder.append({"stage": "MAIN"})
+        return {
+            "telemetry": telemetry,
+            "state": state,
+            "charge": charge,
+            "safety": safety,
+            "execution": execution,
+        }
 
 
 class V3ReplayTests(unittest.TestCase):
     def _orchestrator(self, records):
-        journal = InMemoryJournalRecorder()
-        return RuntimeOrchestrator(RuntimeContext(
-            ReplayTelemetryProvider(records), _Service(), _Diagnostics(), _Safety(), _Execution(), journal,
-            lambda values: values,
-        ))
+        return _ReplayOrchestrator(records)
 
     def test_loader_and_deterministic_trace(self):
-        records = load_replay_jsonl('{"timestamp": 1, "voltage": 14.4}\n{"timestamp": 2, "voltage": 14.5}')
+        records = load_replay_jsonl(
+            '{"timestamp": 1, "voltage": 14.4}\n'
+            '{"timestamp": 2, "voltage": 14.5}'
+        )
         scenario = ReplayScenario("main", None, None, records)
         first = ReplayRunner(self._orchestrator(records))
         first.orchestrator.start()
         second = ReplayRunner(self._orchestrator(records))
         second.orchestrator.start()
+
         trace_a = first.run(scenario)
         trace_b = second.run(scenario)
+
         self.assertEqual(trace_a, trace_b)
         self.assertEqual(trace_a[0].stage, "MAIN")
 
     def test_comparison_and_invalid_scenario(self):
         result = ReplayComparator.compare({"stage": "MAIN"}, {"stage": "MIX"})
         self.assertEqual(result.status, "MISMATCH")
-        self.assertEqual(ReplayComparator.compare({}, {"stage": "MAIN"}).status, "INCONCLUSIVE")
+        self.assertEqual(
+            ReplayComparator.compare({}, {"stage": "MAIN"}).status,
+            "INCONCLUSIVE",
+        )
         with self.assertRaises(ValueError):
             ReplayScenario("", None, None, ())
 

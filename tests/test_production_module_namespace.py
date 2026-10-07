@@ -152,6 +152,19 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         )
         self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
 
+    def test_retired_runtime_skeleton_is_absent(self):
+        retired = (
+            "runtime/app.py",
+            "runtime/dependencies.py",
+            "runtime/lifecycle.py",
+            "runtime/application",
+        )
+        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+        source = (ROOT / "runtime" / "__init__.py").read_text(encoding="utf-8")
+        for name in ("RuntimeApp", "RuntimeDependencies", "LifecycleManager", "LifecycleState"):
+            self.assertNotIn(name, source)
+        self.assertNotIn("def __getattr__", source)
+
     def test_canonical_module_names_exist(self):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",

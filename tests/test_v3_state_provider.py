@@ -2,7 +2,6 @@ import ast
 import pathlib
 import unittest
 
-from runtime import RuntimeApp
 from runtime.charge import ChargeState
 from runtime.charge.state_provider import ChargeStateProvider
 
@@ -41,9 +40,7 @@ class V3StateProviderTests(unittest.TestCase):
         self.assertEqual({"stage": 1.0}, timers)
         self.assertFalse(any(name in dir(provider) for name in ("turn_on", "turn_off", "set_voltage")))
 
-    def test_runtime_app_owns_provider_without_forbidden_imports(self):
-        app = RuntimeApp()
-        self.assertIsNotNone(app.state_provider)
+    def test_provider_module_has_no_forbidden_imports(self):
         path = pathlib.Path(__file__).parents[1] / "runtime" / "charge" / "state_provider.py"
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         forbidden = {"bot_legacy", "hass_api", "aiogram", "rd_control_mode", "safe_output"}
