@@ -14,7 +14,7 @@ class DummyHass:
 
 class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self):
-        controller = ProductionChargeController(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller._v2_intent = ChargeIntent.RECOVERY

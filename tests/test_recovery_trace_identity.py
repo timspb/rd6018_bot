@@ -25,7 +25,7 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
             patch("charge_controller.SESSION_FILE", self.session_file),
         )
 
-    def test_new_profile_and_custom_sessions_get_distinct_stable_ids(self):
+    def test_new_modular_sessions_get_distinct_stable_ids(self):
         p1, p2 = self._session_patches()
         with p1, p2, patch("charge_controller.time.time", return_value=1000.0), patch(
             "charge_controller.time.time", return_value=1000.0
@@ -38,21 +38,13 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         with p1, p2, patch("charge_controller.time.time", return_value=1100.0), patch(
             "charge_controller.time.time", return_value=1100.0
         ):
-            # Historical Custom is characterization-only after ERADICATION-05;
-            # production authority routes Manual through ProductionManualSessionManager.
-            custom = ManagedChargeController(DummyHass(), authoritative=False)
-            custom.start_custom(
-                main_voltage=14.8,
-                main_current=5.0,
-                delta_threshold=0.03,
-                time_limit_hours=24,
-                ah_capacity=70,
-            )
-            custom_id = custom.recovery_trace_context["session_id"]
+            second = ManagedChargeController(DummyHass())
+            second.start(second.PROFILE_AGM, 70)
+            second_id = second.recovery_trace_context["session_id"]
 
         self.assertTrue(profile_id)
-        self.assertTrue(custom_id)
-        self.assertNotEqual(profile_id, custom_id)
+        self.assertTrue(second_id)
+        self.assertNotEqual(profile_id, second_id)
 
     def test_saved_trace_identity_survives_legacy_total_time_reestimation(self):
         p1, p2 = self._session_patches()

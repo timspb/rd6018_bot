@@ -22,16 +22,9 @@ class DummyController:
 
 class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
     def test_production_controller_rejects_historical_custom_start(self):
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
 
-        with self.assertRaisesRegex(RuntimeError, "historical Custom controller start is retired"):
-            controller.start_custom(
-                main_voltage=14.8,
-                main_current=5.0,
-                delta_threshold=0.03,
-                time_limit_hours=24.0,
-                ah_capacity=70,
-            )
+        self.assertFalse(hasattr(controller, "start_custom"))
 
         with self.assertRaisesRegex(RuntimeError, "historical Custom controller start is retired"):
             controller.start(controller.PROFILE_CUSTOM, 70)
@@ -39,20 +32,8 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(controller.is_active)
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
 
-    def test_historical_custom_remains_characterization_only(self):
-        controller = ManagedChargeController(DummyHass(), authoritative=False)
-        controller.start_custom(
-            main_voltage=14.8,
-            main_current=5.0,
-            delta_threshold=0.03,
-            time_limit_hours=24.0,
-            ah_capacity=70,
-        )
-        self.assertEqual(controller.battery_type, controller.PROFILE_CUSTOM)
-        self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
-
     async def test_authoritative_custom_state_never_enters_historical_tick(self):
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.ah_capacity = 70
         controller.current_stage = controller.STAGE_MAIN
@@ -78,7 +59,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
 
     async def test_idle_custom_residue_is_inert_and_never_enters_historical_tick(self):
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.current_stage = controller.STAGE_IDLE
 
@@ -104,14 +85,14 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             with patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1000.0
             ):
-                legacy = ManagedChargeController(DummyHass(), authoritative=False)
-                legacy.start_custom(
-                    main_voltage=14.8,
-                    main_current=5.0,
-                    delta_threshold=0.03,
-                    time_limit_hours=24.0,
-                    ah_capacity=70,
-                )
+                legacy = ManagedChargeController(DummyHass())
+                legacy.start(legacy.PROFILE_EFB, 70)
+                legacy.battery_type = legacy.PROFILE_CUSTOM
+                legacy.current_stage = legacy.STAGE_MAIN
+                legacy._custom_main_voltage = 14.8
+                legacy._custom_main_current = 5.0
+                legacy._custom_delta_threshold = 0.03
+                legacy._custom_time_limit_hours = 24.0
                 legacy._device_set_voltage = 14.8
                 legacy._device_set_current = 5.0
                 legacy._save_session(14.2, 1.0, 1.0)
@@ -120,7 +101,7 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
             with patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1100.0
             ):
-                production = ManagedChargeController(DummyHass(), authoritative=True)
+                production = ManagedChargeController(DummyHass())
                 ok, message = production.try_restore_session(14.2, 1.0, 1.0)
 
             self.assertFalse(ok)

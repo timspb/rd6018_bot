@@ -15,7 +15,7 @@ class DummyHass:
 
 class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
     def _controller_waiting_for_storage(self, session_file):
-        controller = ManagedChargeController(DummyHass(), authoritative=True)
+        controller = ManagedChargeController(DummyHass())
         controller.start("AGM", 90)
         controller._v2_trace_session_id = "session-final"
         controller.current_stage = controller.STAGE_MIX
@@ -126,7 +126,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             controller = DiagnosticProductionChargeController(
-                DummyHass(), authoritative=True
+                DummyHass()
             )
             with patch("runtime.charge.persistence.SESSION_FILE", session_file), patch(
                 "charge_controller.SESSION_FILE", session_file
@@ -172,7 +172,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 200_000.0
             controller = DiagnosticProductionChargeController(
-                DummyHass(), authoritative=True
+                DummyHass()
             )
             controller.start("AGM", 90)
             controller.current_stage = controller.STAGE_MIX
@@ -194,7 +194,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 controller._write_trace_identity_to_session_file()
 
                 restored = DiagnosticProductionChargeController(
-                    DummyHass(), authoritative=True
+                    DummyHass()
                 )
                 ok, _message = restored.try_restore_session(
                     15.0,

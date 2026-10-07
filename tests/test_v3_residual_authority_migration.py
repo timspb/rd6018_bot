@@ -16,7 +16,7 @@ class DummyHass:
 
 class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self) -> ProductionChargeController:
-        controller = ProductionChargeController(DummyHass(), authoritative=True)
+        controller = ProductionChargeController(DummyHass())
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller.stage_start_time = 100.0

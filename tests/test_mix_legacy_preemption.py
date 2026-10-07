@@ -84,7 +84,6 @@ class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, now: float, wall_stage_hours: float, active_hours: float, tmp: str):
         controller = DiagnosticProductionChargeController(
             DummyHass(),
-            authoritative=True,
         )
         controller.current_stage = controller.STAGE_MIX
         controller.battery_type = controller.PROFILE_EFB

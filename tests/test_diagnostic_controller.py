@@ -15,7 +15,7 @@ class DummyHass:
 
 class DiagnosticControllerTests(unittest.TestCase):
     def _controller(self, *, profile="EFB"):
-        controller = DiagnosticProductionChargeController(DummyHass(), authoritative=True)
+        controller = DiagnosticProductionChargeController(DummyHass())
         controller.battery_type = profile
         controller.ah_capacity = 70
         controller._v2_intent = ChargeIntent.RECOVERY

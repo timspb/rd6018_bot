@@ -12,7 +12,7 @@ class DummyHass:
 
 
 def _controller(mode):
-    controller = ManagedChargeController(DummyHass(), authoritative=True)
+    controller = ManagedChargeController(DummyHass())
     controller.current_stage = controller.STAGE_MIX
     controller.is_cv = mode == "CV"
     controller.is_cc = mode == "CC"
