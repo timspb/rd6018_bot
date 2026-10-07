@@ -1,4 +1,4 @@
-"""PR00 characterization: legacy Output-enable inventory.
+"""Production Output-enable inventory.
 
 Freezes every production call site that can change RD6018 Output state
 (``turn_on`` / ``turn_off`` / ``safe_enable_output``), together with its owning
@@ -43,11 +43,11 @@ ENABLE_CALLS = frozenset(
         ("managed_runtime_safety.py", "turn_on", "super().turn_on"),
         ("safe_output.py", "_force_off", "self.adapter.turn_off"),
         ("safe_output.py", "enable", "self.adapter.turn_on"),
-        # Canonical application-scoped V2 execution port. START, Mix-only
+        # Canonical application-scoped execution port. START, Mix-only
         # START and Manual converge here instead of keeping direct HA enable/OFF calls.
-        ("application/execution_port.py", "enable", "self.v2_owner.safe_enable_output"),
-        ("application/execution_port.py", "request_verified_on", "self.v2_owner.turn_on"),
-        ("application/execution_port.py", "request_verified_off", "self.v2_owner.turn_off"),
+        ("application/execution_port.py", "enable", "self.execution_owner.safe_enable_output"),
+        ("application/execution_port.py", "request_verified_on", "self.execution_owner.turn_on"),
+        ("application/execution_port.py", "request_verified_off", "self.execution_owner.turn_off"),
     }
 )
 
@@ -79,7 +79,7 @@ def scan_enable_calls():
     return calls
 
 
-class LegacyEnableInventoryTests(unittest.TestCase):
+class OutputEnableInventoryTests(unittest.TestCase):
     def test_enable_call_inventory_is_frozen(self):
         actual = scan_enable_calls()
         missing = sorted(ENABLE_CALLS - actual)
@@ -97,11 +97,11 @@ class LegacyEnableInventoryTests(unittest.TestCase):
             "update ENABLE_CALLS deliberately: " + repr(missing),
         )
 
-    def test_v2_runtime_has_no_direct_output_calls(self):
-        legacy = {c for c in ENABLE_CALLS if c[0] == "runtime/production_runtime.py"}
+    def test_production_runtime_has_no_direct_output_calls(self):
+        direct_runtime_calls = {c for c in ENABLE_CALLS if c[0] == "runtime/production_runtime.py"}
         self.assertEqual(
             set(),
-            legacy,
+            direct_runtime_calls,
             "runtime/production_runtime.py must not regain direct Output authority after execution convergence",
         )
 

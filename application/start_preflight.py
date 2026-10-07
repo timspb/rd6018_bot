@@ -23,7 +23,7 @@ INITIAL_MAIN_THRESHOLD_V = 12.0
 
 
 class StartPreflightService:
-    """Evaluate the existing V2 START contract without executing it."""
+    """Evaluate the existing production START contract without executing it."""
 
     def __init__(self, app: Any) -> None:
         self.app = app

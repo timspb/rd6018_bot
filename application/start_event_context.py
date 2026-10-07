@@ -1,4 +1,4 @@
-"""Immutable, non-runtime context passed across the preserved V2 START boundary."""
+"""Immutable, non-runtime context passed across the preserved production START boundary."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Gated handoff from the V3 START contract to the preserved V2 owner."""
+"""Gated handoff from the V3 START contract to the production owner."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ StartTransactionCallable = Callable[[object], StartTransactionOutcome]
 
 @dataclass(frozen=True)
 class ProductionStartRunner:
-    """Invoke the preserved V2 transaction owner after START preflight."""
+    """Invoke the production transaction owner after START preflight."""
 
     transaction_adapter: StartTransactionAdapter
     transaction_runner: StartTransactionCallable
@@ -57,7 +57,7 @@ class ProductionStartRunner:
         )
 
     async def execute_async(self, request: StartExecutionRequest) -> StartExecutionResult:
-        """Async variant for the existing async V2 transaction owner."""
+        """Async variant for the existing async production transaction owner."""
         transaction_input = self._prepare(request)
         try:
             outcome = self.transaction_runner(transaction_input)

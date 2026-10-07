@@ -1994,3 +1994,18 @@ The root `README.md` was still an active-documentation defect after the code cle
 The root README is now a concise current-production entry document. It points to the V3 runbook/modular architecture/fail-safe/deployment authorities, describes the explicit modular ownership path, and makes physical execution a separate authorization boundary. It does not resurrect migration-era V2/V1 modules or rename persisted/protocol identifiers.
 
 `docs/README.md` now explicitly treats the eradication ledger as completed historical proof rather than a source of new runtime authority. Runtime code, physical behavior, persisted state, node 101 and hardware are unchanged by this documentation-only boundary.
+
+
+## 2026-10-07 internal V2 semantic identifier cleanup
+
+Production filenames/types were already normalized. This pass removes residual
+internal owner terminology such as `v2_owner` and stale "preserved V2 owner"
+wording from the application execution/START boundaries. The application-scoped
+physical port now exposes `execution_owner`; the frozen actuator call inventory
+was updated only for that identifier rename and the exact set of physical call
+sites is unchanged.
+
+Persisted `v2_*` session keys, Telegram callback-data tokens, the `V2_UI` external
+configuration flag and deployed ESPHome/entity identifiers are intentionally not
+changed here because they cross restart/protocol boundaries. They require separate
+state/protocol migration contracts.

@@ -1,4 +1,4 @@
-"""Transition-only bridge to the existing V2 physical owner.
+"""Transition-only bridge to the existing production physical owner.
 
 The bridge accepts an already-decided V3 target, requires full identity, uses
 the installed V2 guarded setter methods, and verifies canonical readback.  It
@@ -26,7 +26,7 @@ class ManualExecutionAudit:
 
 
 class ManualExecutionBoundary:
-    """Apply a V3 decision through the existing, safety-wrapped V2 owner."""
+    """Apply a V3 decision through the existing safety-wrapped execution owner."""
 
     def __init__(self, physical_owner) -> None:
         self.execution_port = physical_owner if isinstance(physical_owner, ExecutionPort) else ExecutionPort(physical_owner)

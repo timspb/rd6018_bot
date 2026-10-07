@@ -56,9 +56,9 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         second = get_or_create_execution_port(app)
         self.assertIs(first, second)
         self.assertIs(app.execution_port, first)
-        self.assertIs(first.v2_owner, app.hass)
+        self.assertIs(first.execution_owner, app.hass)
 
-    def test_port_rebinds_when_composed_v2_owner_changes(self):
+    def test_port_rebinds_when_composed_execution_owner_changes(self):
         first_owner = _Owner()
         second_owner = _Owner()
         app = SimpleNamespace(hass=first_owner)
@@ -66,7 +66,7 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         app.hass = second_owner
         second = get_or_create_execution_port(app)
         self.assertIsNot(first, second)
-        self.assertIs(second.v2_owner, second_owner)
+        self.assertIs(second.execution_owner, second_owner)
         self.assertIs(app.execution_port, second)
 
     def test_disable_prefers_canonical_output_state_code(self):

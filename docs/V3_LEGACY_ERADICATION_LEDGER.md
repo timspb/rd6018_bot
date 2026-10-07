@@ -817,3 +817,18 @@ hardware/execution-policy legacy adapters had zero production or operational cal
 Only characterization tests and package exports kept them alive. Those adapter surfaces
 and parity-only tests were removed while live UI commands, diagnostics scoring, physical
 bridge interfaces and execution policy remain unchanged.
+
+
+## 2026-10-07 internal V2 semantic identifier cleanup
+
+Production filenames/types were already normalized. This pass removes residual
+internal owner terminology such as `v2_owner` and stale "preserved V2 owner"
+wording from the application execution/START boundaries. The application-scoped
+physical port now exposes `execution_owner`; the frozen actuator call inventory
+was updated only for that identifier rename and the exact set of physical call
+sites is unchanged.
+
+Persisted `v2_*` session keys, Telegram callback-data tokens, the `V2_UI` external
+configuration flag and deployed ESPHome/entity identifiers are intentionally not
+changed here because they cross restart/protocol boundaries. They require separate
+state/protocol migration contracts.
