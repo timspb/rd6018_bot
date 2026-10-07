@@ -120,6 +120,7 @@ APP_ATTRS_WRITTEN = frozenset(
         "last_user_id",
         "log_event",
         "manual_session_manager",
+        "operator_interface",
         "physical_test_control",
         "physical_test_control_d062",
         "physical_test_control_d062_delta",

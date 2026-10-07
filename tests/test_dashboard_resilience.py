@@ -4,7 +4,8 @@ from unittest.mock import PropertyMock, patch
 
 os.environ["TG_TOKEN"] = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
 
-import bot
+import bot  # compose production runtime
+from runtime import production_runtime as runtime_app
 
 
 class DashboardResilienceTests(unittest.TestCase):
@@ -17,7 +18,7 @@ class DashboardResilienceTests(unittest.TestCase):
             "is_cc": "off",
         }
 
-        controller = bot.charge_controller
+        controller = runtime_app.charge_controller
         original_stage = controller.current_stage
         original_profile = controller.battery_type
         original_finish_timer = controller.finish_timer_start
@@ -31,7 +32,7 @@ class DashboardResilienceTests(unittest.TestCase):
                 controller.i_min_recorded = 1.0
 
                 with patch.object(controller, "get_ai_stage_snapshot", side_effect=RuntimeError("boom")):
-                    line = bot._format_stage_progress_line(live)
+                    line = runtime_app._format_stage_progress_line(live)
 
             self.assertIsInstance(line, str)
         finally:

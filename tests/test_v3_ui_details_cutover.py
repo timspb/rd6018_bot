@@ -144,9 +144,9 @@ class V3OperatorDetailsUICutoverTests(unittest.TestCase):
         provider = source.index("operator_interface = OperatorSnapshotProvider(")
         install = source.index("install_operator_details_screen(")
         self.assertLess(provider, install)
-        self.assertIn("operator_read_source = OperatorReadSource(_legacy)", source)
+        self.assertIn("operator_read_source = OperatorReadSource(app)", source)
         self.assertIn("interface=operator_interface", source)
-        self.assertNotIn("OperatorSnapshotProvider(_legacy)", source)
+        self.assertNotIn("OperatorSnapshotProvider(app)", source)
 
     def test_canonical_details_tree_has_no_historical_import(self):
         for rel in (

@@ -173,12 +173,13 @@ import json
 import time
 
 import bot
+from runtime import production_runtime as runtime_app
 from runtime.startup_recovery import StartupRecovery
 from rd_startup_authority import reconcile_startup_authority
 
 shim = bot.main.__globals__
-controller = bot.charge_controller
-gate = bot.rd_startup_authority_gate
+controller = runtime_app.charge_controller
+gate = runtime_app.rd_startup_authority_gate
 
 with open("charge_session.json", "w", encoding="utf-8") as handle:
     json.dump(
@@ -197,7 +198,7 @@ with open("charge_session.json", "w", encoding="utf-8") as handle:
     )
 
 async def run():
-    # Reproduce the real race: legacy startup asks for restore while startup
+    # Reproduce the real race: runtime startup asks for restore while startup
     # authority is still unresolved. The outer gate must defer, not mutate.
     ok, message = controller.try_restore_session(
         12.55,
@@ -216,7 +217,7 @@ async def run():
     result = await reconcile_startup_authority(
         gate,
         recover,
-        StartupRecovery(bot, None, None).replay_deferred_startup_restore,
+        StartupRecovery(runtime_app, None, None).replay_deferred_startup_restore,
     )
     live = await gate.guard._raw_live()
     payload = {
@@ -226,7 +227,7 @@ async def run():
         "switch": str(live.get("switch", "")).lower(),
         "deferred": gate.deferred_restore_requested,
     }
-    await bot.hass.close()
+    await runtime_app.hass.close()
     print("RESULT=" + json.dumps(payload, sort_keys=True))
 
 asyncio.run(run())

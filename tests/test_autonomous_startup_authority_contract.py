@@ -10,7 +10,7 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
         cls.gate = Path("rd_startup_authority.py").read_text(encoding="utf-8")
 
     def test_final_startup_gate_is_installed_after_runtime_composition(self):
-        ownership = self.text.index("install_rd_control_mode(_legacy")
+        ownership = self.text.index("install_rd_control_mode(app")
         managed_mix = self.text.index("install_managed_mix_adoption(")
         startup = self.text.index("install_rd_startup_authority_gate(")
         self.assertLess(ownership, managed_mix)

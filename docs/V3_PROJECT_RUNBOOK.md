@@ -1938,3 +1938,16 @@ absent.
 
 No live production route, persisted session key or hardware behavior changed in
 this boundary.
+
+
+## 2026-10-07 final bot runtime bridge eradication
+
+The production entrypoint `bot.py` is now composition-only. Its temporary module
+`__getattr__` delegation to `runtime.production_runtime` is removed, composition
+locals no longer use `_legacy`, and the lifecycle dependency is named
+`runtime_main`. Runtime controller/router/HASS/UI state must be imported from the
+canonical runtime owner directly rather than read through `bot`.
+
+Regression coverage requires the bridge and `_legacy`/`legacy_main` terminology
+to remain absent from `bot.py`. No actuator, safety, persisted-state or physical
+behavior changes are part of this boundary.

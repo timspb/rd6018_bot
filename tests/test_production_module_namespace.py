@@ -122,6 +122,20 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
         )
         self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
 
+    def test_bot_has_no_runtime_compatibility_bridge(self):
+        source = (ROOT / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source, filename="bot.py")
+        self.assertFalse(
+            any(isinstance(node, ast.FunctionDef) and node.name == "__getattr__" for node in tree.body)
+        )
+        self.assertNotIn("_legacy", source)
+        self.assertNotIn("legacy_main", source)
+        for runtime_attr in (
+            "charge_controller", "router", "hass", "rd_control_mode_manager",
+            "diagnostic_action_journal", "manual_session_manager",
+        ):
+            self.assertFalse(hasattr(__import__("bot"), runtime_attr), runtime_attr)
+
     def test_historical_charge_fsm_sources_are_absent(self):
         self.assertFalse((ROOT / "charge_logic.py").exists())
         self.assertFalse((ROOT / "legacy_safety.py").exists())

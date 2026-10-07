@@ -30,7 +30,7 @@ class V3HomeCommandCutoverTests(unittest.TestCase):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         self.assertIn("from runtime.ui.telegram.home import install_home_command", source)
         self.assertIn("install_home_command(", source)
-        self.assertIn("render_home=_legacy._build_and_send_dashboard", source)
+        self.assertIn("render_home=app._build_and_send_dashboard", source)
 
 
 if __name__ == "__main__":

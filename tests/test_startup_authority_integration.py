@@ -136,7 +136,7 @@ class _FakePhysicalControl:
 
 class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
-    def _fake_legacy(hass, controller):
+    def _fake_runtime(hass, controller):
         async def apply_phase_protection(uv, ui):
             await hass.set_ovp(float(uv) + 0.1)
             await hass.set_ocp(float(ui) + 0.1)
@@ -165,8 +165,8 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         controller = _FakeController(restored)
         guard = _BlockingGuard(hass, allow_edge_read)
         manager = _FakeManager(guard)
-        fake_legacy = self._fake_legacy(hass, controller)
-        gate = RdStartupAuthorityGate(fake_legacy, manager)
+        fake_runtime = self._fake_runtime(hass, controller)
+        gate = RdStartupAuthorityGate(fake_runtime, manager)
         physical = _FakePhysicalControl()
         recovery_calls = 0
 
@@ -178,8 +178,8 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
             recovery_calls += 1
             return True
 
-        async def legacy_main():
-            # Reproduce the production race: legacy startup reaches restore while the
+        async def runtime_main():
+            # Reproduce the production race: runtime startup reaches restore while the
             # authority task is still blocked on the first edge-mode read.
             ok, message = controller.try_restore_session(
                 12.4,
@@ -205,12 +205,12 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         recovery = types.SimpleNamespace(
             recover_managed_startup_authority=recover,
             replay_deferred_startup_restore=StartupRecovery(
-                fake_legacy, None, None
+                fake_runtime, None, None
             ).replay_deferred_startup_restore,
         )
         replacements = {
-            "runtime": fake_legacy,
-            "legacy_main": legacy_main,
+            "runtime": fake_runtime,
+            "runtime_main": runtime_main,
             "rd_startup_authority": gate,
             "startup_recovery": recovery,
             "physical_test_control": physical,
@@ -238,7 +238,7 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hass.turn_off_calls, 0)
         self.assertEqual(hass.write_calls, 4)
         self.assertEqual(hass.live["switch"], "on")
-        self.assertEqual(fake_legacy.last_checkpoint_time, 1234.0)
+        self.assertEqual(fake_runtime.last_checkpoint_time, 1234.0)
         self.assertEqual(physical.starts, 1)
         self.assertEqual(physical.stops, 1)
 
@@ -247,15 +247,15 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         restored = asyncio.Event()
         hass = _FakeHass(turn_on_results=[False, True])
         controller = _FakeController(restored)
-        fake_legacy = self._fake_legacy(hass, controller)
+        fake_runtime = self._fake_runtime(hass, controller)
         with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
-            await StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
+            await StartupRecovery(fake_runtime, None, None).replay_deferred_startup_restore()
 
         self.assertTrue(controller.is_active)
         self.assertEqual(len(controller.restore_calls), 1)
         self.assertEqual(hass.live["switch"], "off")
 
-        await StartupRecovery(fake_legacy, None, None).replay_deferred_startup_restore()
+        await StartupRecovery(fake_runtime, None, None).replay_deferred_startup_restore()
 
         self.assertEqual(len(controller.restore_calls), 1)
         self.assertEqual(hass.turn_on_calls, 2)

@@ -86,8 +86,8 @@ class V3CustomCancelCutoverTests(unittest.TestCase):
     def test_production_composition_injects_state_clear_and_home_navigation(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         self.assertIn("install_custom_cancel_route(", source)
-        self.assertIn("cancel_state=_legacy._cancel_custom_mode_state", source)
-        self.assertIn("home_handler=_legacy._operator_home_handler", source)
+        self.assertIn("cancel_state=app._cancel_custom_mode_state", source)
+        self.assertIn("home_handler=app._operator_home_handler", source)
 
 
 class V3CustomCancelTelegramTests(unittest.IsolatedAsyncioTestCase):

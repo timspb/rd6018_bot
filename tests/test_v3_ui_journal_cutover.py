@@ -210,10 +210,10 @@ class V3JournalUICutoverTests(unittest.TestCase):
         )
         journal_pos = source.index("install_journal_screen(")
         self.assertLess(provider_pos, journal_pos)
-        self.assertIn("operator_read_source = OperatorReadSource(_legacy)", source)
+        self.assertIn("operator_read_source = OperatorReadSource(app)", source)
         self.assertIn("interface=operator_interface", source)
-        self.assertNotIn("OperatorSnapshotProvider(_legacy)", source)
-        self.assertIn("home_handler=_legacy._operator_home_handler", source)
+        self.assertNotIn("OperatorSnapshotProvider(app)", source)
+        self.assertIn("home_handler=app._operator_home_handler", source)
 
 
 class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):

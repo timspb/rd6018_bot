@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
-import bot
+import bot  # compose production runtime
+from runtime import production_runtime as runtime_app
 from manual_context import BoundManualTextMiddleware
 from manual_mode import ManualSessionState
 from manual_runtime import ProductionManualSessionManager
@@ -16,7 +17,7 @@ from manual_text import ManualTextMiddleware
 
 class ManualContextEntrypointTests(unittest.TestCase):
     def test_program_menu_routes_manual_through_identity_choice(self) -> None:
-        keyboard = bot._build_charge_modes_keyboard()
+        keyboard = runtime_app._build_charge_modes_keyboard()
         callbacks = {
             button.callback_data
             for row in keyboard.inline_keyboard
@@ -27,7 +28,7 @@ class ManualContextEntrypointTests(unittest.TestCase):
         self.assertNotIn("v2_manual", callbacks)
 
     def test_context_callbacks_are_registered(self) -> None:
-        handlers = bot.router.observers["callback_query"].handlers
+        handlers = runtime_app.router.observers["callback_query"].handlers
         names = {handler.callback.__name__ for handler in handlers}
         self.assertIn("_manual_choose", names)
         self.assertIn("_manual_bind", names)
@@ -36,7 +37,7 @@ class ManualContextEntrypointTests(unittest.TestCase):
         self.assertIn("_manual_discard", names)
 
     def test_battery_bound_manual_middleware_precedes_generic_numeric_parser(self) -> None:
-        manager = bot.router.observers["message"].outer_middleware
+        manager = runtime_app.router.observers["message"].outer_middleware
         middlewares = list(manager._middlewares)
         bound_index = next(
             index for index, middleware in enumerate(middlewares)
