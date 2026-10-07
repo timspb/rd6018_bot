@@ -100,7 +100,7 @@ def compare_start_execution_trace(
     v2: Mapping[str, Any],
     trace: StartExecutionTrace,
 ) -> StartTraceComparison:
-    """Compare captured V2 expectations with a non-executing V3 trace."""
+    """Compare captured production expectations with a non-executing V3 trace."""
     v3 = {
         "profile": trace.profile,
         "chemistry": trace.chemistry,

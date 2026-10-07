@@ -27,7 +27,7 @@ class ProductionStartRouteResult:
 
 
 class ProductionStartRouteAdapter:
-    """Convert one Telegram START intent into preflighted V2 execution."""
+    """Convert one Telegram START intent into preflighted production execution."""
 
     def __init__(
         self,

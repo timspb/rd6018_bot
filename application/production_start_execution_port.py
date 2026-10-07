@@ -1,4 +1,4 @@
-"""V3 START port to the preserved V2 transaction owner."""
+"""V3 START port to the production transaction owner."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class ProductionStartPortResult:
 
 
 class ProductionStartExecutionPort:
-    """Route V3 data to the preserved V2 boundary without owning execution."""
+    """Route V3 data to the production boundary without owning execution."""
 
     def __init__(
         self,
@@ -108,7 +108,7 @@ class ProductionStartExecutionPort:
         request: StartExecutionRequest,
         outcome: StartTransactionOutcome,
     ) -> StartExecutionResult:
-        """Normalize a captured V2 result while preserving request correlation."""
+        """Normalize a captured transaction result while preserving request correlation."""
         return self.transaction_adapter.normalize(
             request.plan,
             outcome,
@@ -124,7 +124,7 @@ class ProductionStartExecutionPort:
         execution_metadata: Mapping[str, Any] | None = None,
         session_id: str | None = None,
     ) -> ProductionStartPortResult:
-        """Async ACTIVE boundary for the preserved async V2 transaction owner."""
+        """Async ACTIVE boundary for the production async transaction owner."""
         trace = self.runtime_start_service.build_trace(plan)
         if not trace.allowed:
             return ProductionStartPortResult(False, ProductionStartMode.ACTIVE, trace_id, ", ".join(trace.reasons), trace=trace)

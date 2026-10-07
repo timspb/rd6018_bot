@@ -1,4 +1,4 @@
-"""Data-only adapter contract for the preserved V2 START transaction owner."""
+"""Data-only adapter contract for the preserved production START transaction owner."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class StartExecutionResult:
 
 
 class StartTransactionAdapter:
-    """Translate a V3 plan to V2 data without owning V2 execution."""
+    """Translate a V3 plan to V2 data without owning production execution."""
 
     def prepare(
         self,
@@ -171,7 +171,7 @@ class StartTransactionAdapter:
         *,
         active_enabled: bool = False,
     ) -> StartExecutionResult:
-        """ACTIVE-off guard; the preserved V2 owner is not invoked by default."""
+        """ACTIVE-off guard; the production owner is not invoked by default."""
         transaction_input = self.prepare(plan)
         if not active_enabled:
             return StartExecutionResult(
@@ -189,4 +189,4 @@ class StartTransactionAdapter:
                 "v2_transaction_runner_not_configured",
                 transaction_input,
             )
-        raise RuntimeError("ACTIVE V2 START transaction requires separate production approval")
+        raise RuntimeError("ACTIVE production START transaction requires separate production approval")

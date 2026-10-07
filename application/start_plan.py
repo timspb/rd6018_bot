@@ -67,7 +67,7 @@ def compare_approved_start_plan(
     v2: Mapping[str, Any],
     plan: ApprovedStartPlan,
 ) -> StartPlanComparison:
-    """Compare captured V2 expected values with a non-executing V3 plan."""
+    """Compare captured production expected values with a non-executing V3 plan."""
     v3 = {
         "profile": plan.profile,
         "chemistry": plan.chemistry,
