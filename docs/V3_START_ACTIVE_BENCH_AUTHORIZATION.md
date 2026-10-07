@@ -3,6 +3,9 @@
 Статус документа: historical migration package; approval windows are no longer
 part of the production START path.
 
+The recorded node-101 host value below is historical evidence only. Node 101 is
+retired and excluded; current production authority is node 104.
+
 Физическое исполнение и запуск заряда этим документом не выполняются и не
 разрешаются автоматически.
 

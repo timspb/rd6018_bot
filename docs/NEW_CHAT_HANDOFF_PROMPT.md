@@ -20,7 +20,7 @@ repo-side forensic engineer, not consultant.
 Do NOT start by proposing another architecture/refactor plan.
 Do NOT continue legacy removal / RuntimeApp extraction yet.
 Do NOT deploy.
-Do NOT touch production node 101 or ESPHome unless I explicitly authorize operational work.
+Do NOT touch production node 104 or ESPHome unless I explicitly authorize operational work.
 Do NOT weaken safety tests or guards.
 
 Current objective:
@@ -77,7 +77,7 @@ PRODUCTION / PHYSICAL CONTEXT
 ==================================================
 
 Production bot node:
-  101
+  104
 
 Home Assistant / ESPHome server:
   192.168.1.102
@@ -101,7 +101,7 @@ Production bot was previously rebaselined successfully to:
 Historical rollback snapshot:
   /root/rd6018_bot-backups/preflight-20260910T063732Z
 
-Do NOT infer c204429 is deployed to node 101 unless proven.
+Do NOT infer any commit is deployed to node 104 unless proven.
 
 ==================================================
 NON-NEGOTIABLE SAFETY INVARIANTS
@@ -119,7 +119,7 @@ NON-NEGOTIABLE SAFETY INVARIANTS
 - ESPHome edge lease / authority contract is a physical safety boundary
 - do not change EFB MIX 20h / 24h semantics during forensic/refactor work
 - do not extend timeouts or bypass guards just to make tests pass
-- node 101 is not an experimental target
+- node 104 is the only current production target; node 101 is retired and excluded
 - safety-changing changes require explicit physical/bench validation
 
 ==================================================

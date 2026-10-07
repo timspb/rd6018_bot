@@ -26,7 +26,7 @@ The canonical access parameters are kept here, not in Python code:
 | ESP128 | `192.168.1.28:6053` | `config/physical/esp128.yaml` | env `ESPHOME_API_KEY` |
 
 The repository stores only secret names. In the current deployment, the
-operator loads `HA_TOKEN` from the node-101 runtime environment and
+operator loads `HA_TOKEN` from the node-104 runtime environment and
 `ESPHOME_API_KEY` from the Home Assistant ESPHome secrets file
 `/config/esphome/secrets.yaml`; values must never be copied into Git,
 documentation or command output. If these locations change, update the

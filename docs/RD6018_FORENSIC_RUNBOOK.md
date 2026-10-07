@@ -1,5 +1,9 @@
 # RD6018 Forensic / Runtime Handoff Runbook
 
+Status: **historical handoff**. This document records the pre-node-104 forensic
+baseline; its node-101 facts are historical evidence, not current production
+authority. Use `docs/V3_PROJECT_RUNBOOK.md` for current host authority.
+
 Last updated: 2026-09-13
 
 This file is the canonical handoff note for the current RD6018 bot investigation. It exists so a new ChatGPT/Codex session can resume without reconstructing months of context from chat history.

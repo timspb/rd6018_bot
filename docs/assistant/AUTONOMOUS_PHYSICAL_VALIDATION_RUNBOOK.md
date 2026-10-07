@@ -6,7 +6,8 @@ substitute for these checks.
 
 ## Scope and hard stops
 
-- Use only the dedicated approved bench. **Never use node 101 as a test bench.**
+- Use only the dedicated approved bench on current production node 104.
+  **Node 101 is retired and excluded from testing.**
 - Do not connect or charge a live Pb battery for this validation. A no-load or
   already-approved benign bench load is sufficient for the authority/outage
   checks.
@@ -66,7 +67,7 @@ unavailable, mark that phase `BLOCKED_NO_INDEPENDENT_OBSERVER`.
 
 Before crossing ownership:
 
-1. Prove the target is the approved bench and not node 101.
+1. Prove the target is node 104 and the approved bench; node 101 is excluded.
 2. Record the exact repository SHA and CI status.
 3. Verify the deployed edge exposes the expected V2 Output readback,
    Protection raw code, lease state/generation and explicit AUTONOMOUS state.
