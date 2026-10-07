@@ -61,6 +61,33 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
                     violations.append(f"{path.relative_to(ROOT)}:{name}")
         self.assertEqual([], violations)
 
+    def test_retired_shadow_migration_modules_are_absent(self):
+        retired = (
+            "application/charge_orchestration.py",
+            "application/configuration_ownership.py",
+            "application/decision_authority.py",
+            "application/decision_authority_shadow_run.py",
+            "application/decision_comparison.py",
+            "application/divergence_explanation.py",
+            "application/dual_runtime.py",
+            "application/execution_shadow_validation.py",
+            "application/legacy_domain_adapter.py",
+            "application/long_running_shadow_acceptance.py",
+            "application/ownership_transition.py",
+            "application/production_shadow_observer.py",
+            "application/runtime_composition.py",
+            "application/shadow_acceptance.py",
+            "application/shadow_composition.py",
+            "application/shadow_evidence.py",
+            "application/staged_ownership.py",
+            "application/telemetry_ownership.py",
+            "application/transport_adapters_shadow.py",
+            "runtime/charge/shadow",
+            "runtime/output/shadow_bridge.py",
+            "runtime/safety/parity.py",
+        )
+        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+
     def test_canonical_module_names_exist(self):
         for rel in (
             "auto_strategy.py", "charge_controller.py", "manual_context.py",
@@ -68,7 +95,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "sg_policy.py", "charge_authority.py", "battery_catalog.py",
             "battery_input.py", "production_bootstrap.py", "production_bot_ui.py",
             "mix_mode.py", "sg_ui.py", "ui_support.py", "ui_polish.py",
-            "runtime/startup_recovery.py", "application/decision_comparison.py",
+            "runtime/startup_recovery.py",
         ):
             self.assertTrue((ROOT / rel).is_file(), rel)
 
