@@ -18,6 +18,12 @@ When enabled, `bot.py` binds only the Unix-domain socket
 listener. The separate client only sends one newline-delimited JSON request;
 it does not import or construct any production stateful manager.
 
+For a temporary acceptance activation under a service hardening policy that
+does not permit writes below `/run`, `RD6018_PHYSICAL_TEST_SOCKET` may point to
+an already-authorized writable runtime directory. The default remains the
+`/run` path above; this override is opt-in and must be removed with the test
+flag after validation.
+
 Enabling this flag is a separate activation-stage change. It is not part of
 the code deployment and must not be enabled during ordinary production runs.
 
