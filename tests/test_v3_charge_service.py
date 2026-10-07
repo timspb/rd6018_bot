@@ -2,38 +2,37 @@ import ast
 import pathlib
 import unittest
 
-from runtime import RuntimeApp, RuntimeDependencies
 from runtime.charge import (
     BatteryProfile,
+    ChargeDecisionCase,
     ChargeIntent,
+    ChargeService,
     ChargeState,
     ChemistryProfile,
+    DecisionValidationResult,
+    DecisionValidationStatus,
     ManualProgram,
     ManualTargets,
     Measurements,
     ProgramRegistry,
 )
+from runtime.charge.state_provider import ChargeStateProvider
 
 
 class V3ChargeServiceTests(unittest.TestCase):
-    def test_runtime_app_creates_charge_service(self):
-        app = RuntimeApp(RuntimeDependencies(clock=lambda: 10.0))
-
-        self.assertIsNotNone(app.charge_service)
-        self.assertEqual(("delta", "manual", "minimum"), app.charge_service.registry.available())
-        self.assertIsNotNone(app.state_provider)
+    def test_leaf_services_construct_without_runtime_container(self):
+        service = ChargeService(ProgramRegistry.with_defaults(), lambda: 10.0)
+        provider = ChargeStateProvider()
+        self.assertEqual(("delta", "manual", "minimum"), service.registry.available())
+        self.assertIsInstance(provider, ChargeStateProvider)
 
     def test_service_selects_program_and_returns_snapshot(self):
         battery = BatteryProfile(ChemistryProfile.AGM, 80.0)
-        app = RuntimeApp(RuntimeDependencies(clock=lambda: 42.0))
-        snapshot = app.charge_service.evaluate(
-            battery,
-            "manual",
-            ManualTargets(14.4, 2.0),
-            ChargeState(stage="manual"),
-            Measurements(12.6, 0.0, 25.0, 1.0),
+        service = ChargeService(ProgramRegistry.with_defaults(), lambda: 42.0)
+        snapshot = service.evaluate(
+            battery, "manual", ManualTargets(14.4, 2.0),
+            ChargeState(stage="manual"), Measurements(12.6, 0.0, 25.0, 1.0),
         )
-
         self.assertEqual("manual", snapshot.active_program)
         self.assertEqual(ChargeIntent(14.4, 2.0, "manual", False, "manual targets"), snapshot.intent)
         self.assertEqual(42.0, snapshot.timestamp)
@@ -49,15 +48,13 @@ class V3ChargeServiceTests(unittest.TestCase):
             if isinstance(node, ast.ImportFrom):
                 self.assertNotIn((node.module or "").split(".")[0], forbidden)
 
-    def test_custom_registry_is_used_by_runtime_app(self):
+    def test_custom_registry_is_used_by_charge_service(self):
         registry = ProgramRegistry()
         registry.register("manual", ManualProgram)
-        app = RuntimeApp(RuntimeDependencies(clock=lambda: 1.0, program_registry=registry))
+        service = ChargeService(registry, lambda: 1.0)
+        self.assertEqual(("manual",), service.registry.available())
 
-        self.assertEqual(("manual",), app.charge_service.registry.available())
-
-    def test_runtime_shadow_tick_returns_snapshot_and_comparison(self):
-        from runtime.charge import ChargeDecisionCase, DecisionValidationStatus
+    def test_decision_validation_is_independent_of_runtime_container(self):
         case = ChargeDecisionCase(
             "service-manual",
             BatteryProfile(ChemistryProfile.AGM, 80.0),
@@ -66,10 +63,12 @@ class V3ChargeServiceTests(unittest.TestCase):
             {"program": "manual"},
             ChargeIntent(14.4, 2.0, "manual", False, "manual targets"),
         )
-        app = RuntimeApp(RuntimeDependencies(clock=lambda: 99.0))
-
-        snapshot, comparison = app.shadow_tick(case, ManualTargets(14.4, 2.0))
-
+        service = ChargeService(ProgramRegistry.with_defaults(), lambda: 99.0)
+        snapshot = service.evaluate(
+            case.battery_profile, "manual", ManualTargets(14.4, 2.0),
+            case.charge_state, case.measurements,
+        )
+        comparison = DecisionValidationResult.compare(case, snapshot.intent)
         self.assertEqual("manual", snapshot.active_program)
         self.assertEqual(99.0, snapshot.timestamp)
         self.assertIs(DecisionValidationStatus.MATCH, comparison.status)

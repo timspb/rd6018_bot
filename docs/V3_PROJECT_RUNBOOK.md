@@ -1951,3 +1951,20 @@ canonical runtime owner directly rather than read through `bot`.
 Regression coverage requires the bridge and `_legacy`/`legacy_main` terminology
 to remain absent from `bot.py`. No actuator, safety, persisted-state or physical
 behavior changes are part of this boundary.
+
+
+## 2026-10-07 staged runtime skeleton eradication
+
+The unused Phase-era runtime container was removed after proving zero production
+and tool callers. Deleted surfaces include `runtime.app.RuntimeApp`,
+`RuntimeDependencies`, the duplicate generic lifecycle manager, and the
+`runtime.application` context/orchestrator/lifecycle package. The package root
+`runtime.__init__` no longer provides lazy compatibility exports.
+
+Live leaf components were retained and tested directly: `ChargeService`,
+`ChargeStateProvider`, and replay models/runner/comparator. Replay tests now use
+an injected minimal orchestrator contract instead of retaining the dead staged
+application container. Production `ProductionRuntimeLifecycle` is unchanged.
+
+No production execution, physical safety, persisted-state, Telegram protocol,
+or hardware behavior changed in this boundary.
