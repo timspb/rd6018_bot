@@ -1985,3 +1985,12 @@ hardware/execution-policy legacy adapters had zero production or operational cal
 Only characterization tests and package exports kept them alive. Those adapter surfaces
 and parity-only tests were removed while live UI commands, diagnostics scoring, physical
 bridge interfaces and execution policy remain unchanged.
+
+
+## 2026-10-07 current documentation authority normalization
+
+The root `README.md` was still an active-documentation defect after the code cleanup: it described the retired V2 cutover as production, advertised removed compatibility files and a historical branch, and presented deleted legacy ownership as current architecture.
+
+The root README is now a concise current-production entry document. It points to the V3 runbook/modular architecture/fail-safe/deployment authorities, describes the explicit modular ownership path, and makes physical execution a separate authorization boundary. It does not resurrect migration-era V2/V1 modules or rename persisted/protocol identifiers.
+
+`docs/README.md` now explicitly treats the eradication ledger as completed historical proof rather than a source of new runtime authority. Runtime code, physical behavior, persisted state, node 101 and hardware are unchanged by this documentation-only boundary.
