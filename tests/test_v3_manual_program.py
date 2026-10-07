@@ -4,12 +4,10 @@ import unittest
 
 from runtime.charge import (
     BatteryProfile,
-    ChargeDecisionShadow,
     ChargeEngine,
     ChargeIntent,
     ChargeState,
     ChemistryProfile,
-    ComparisonResult,
     ManualProgram,
     ManualTargets,
     Measurements,
@@ -38,17 +36,6 @@ class V3ManualProgramTests(unittest.TestCase):
         self.assertEqual(1.0, result.target_current)
         self.assertEqual("manual", result.next_stage)
         self.assertFalse(result.completed)
-
-    def test_legacy_manual_comparison_detects_mismatch(self):
-        engine = ChargeEngine(self.battery, ManualProgram(self.battery, ManualTargets(14.7, 5.0, "manual", "MANUAL_START")))
-        comparison = ChargeDecisionShadow(self.battery, engine).compare(
-            {"set_voltage": 14.6, "set_current": 5.0, "next_stage": "manual", "completed": False, "log_event": "MANUAL_START"},
-            self.state,
-            self.measurements,
-        )
-
-        self.assertIs(ComparisonResult.MISMATCH, comparison.result)
-        self.assertEqual(("target_voltage",), comparison.mismatches)
 
     def test_manual_program_has_no_integration_imports_or_actuators(self):
         root = pathlib.Path(__file__).parents[1] / "runtime" / "charge" / "programs"

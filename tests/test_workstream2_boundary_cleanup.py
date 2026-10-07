@@ -66,12 +66,6 @@ class Workstream2BoundaryCleanupTests(unittest.TestCase):
         self.assertTrue(any(item.key == "lease.renewal_interval" for item in decisions))
         self.assertEqual({"RESOLVED", "UNRESOLVED", "MIGRATION_REQUIRED"}, {item.status.value for item in decisions})
 
-    def test_domain_imports_use_explicit_legacy_adapter(self):
-        for name in ("charge_orchestration.py", "shadow_composition.py"):
-            text = (ROOT / "application" / name).read_text(encoding="utf-8")
-            self.assertNotIn("from runtime.charge", text)
-            self.assertIn("legacy_domain_adapter", text)
-
     def test_application_has_no_implicit_runtime_start(self):
         for path in (ROOT / "application").glob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -85,10 +79,6 @@ class Workstream2BoundaryCleanupTests(unittest.TestCase):
                     self.assertNotEqual((getattr(node.func.value, "id", ""), node.func.attr), ("asyncio", "run"), path.name)
             self.assertNotIn("runtime.v2_runtime", imports, path.name)
 
-    def test_report_keeps_remaining_blockers_visible(self):
-        text = AUDIT.read_text(encoding="utf-8")
-        for marker in ("ACT-B01", "CFG-B01", "SAFE-B01", "RUN-B01", "Stage 1", "BLOCKED"):
-            self.assertIn(marker, text)
 
 
 if __name__ == "__main__":

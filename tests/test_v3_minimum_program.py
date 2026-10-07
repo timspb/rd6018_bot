@@ -4,12 +4,10 @@ import unittest
 
 from runtime.charge import (
     BatteryProfile,
-    ChargeDecisionShadow,
     ChargeEngine,
     ChargeIntent,
     ChargeState,
     ChemistryProfile,
-    ComparisonResult,
     Measurements,
     MinimumConfig,
     MinimumProgram,
@@ -37,39 +35,6 @@ class V3MinimumProgramTests(unittest.TestCase):
         self.assertTrue(result.completed)
         self.assertEqual("delta", result.next_stage)
         self.assertEqual("MINIMUM_COMPLETE", result.reason)
-
-    def test_shadow_matches_representative_legacy_minimum(self):
-        program = MinimumProgram(self.battery, self.config)
-        shadow = ChargeDecisionShadow(self.battery, ChargeEngine(self.battery, program))
-        measurements = Measurements(14.3, 0.2, 25.0, 2.0)
-
-        comparison = shadow.compare(
-            {
-                "set_voltage": 14.4,
-                "set_current": 5.0,
-                "next_stage": "delta",
-                "completed": True,
-                "log_event": "MINIMUM_COMPLETE",
-            },
-            self.state,
-            measurements,
-        )
-
-        self.assertIs(ComparisonResult.MATCH, comparison.result)
-        self.assertEqual((), comparison.mismatches)
-
-    def test_mismatch_is_explicitly_reported(self):
-        program = MinimumProgram(self.battery, self.config)
-        shadow = ChargeDecisionShadow(self.battery, ChargeEngine(self.battery, program))
-
-        comparison = shadow.compare(
-            {"set_voltage": 14.3, "set_current": 5.0, "next_stage": "delta", "completed": True, "log_event": "MINIMUM_COMPLETE"},
-            self.state,
-            Measurements(14.3, 0.2, 25.0, 2.0),
-        )
-
-        self.assertIs(ComparisonResult.MISMATCH, comparison.result)
-        self.assertEqual(("target_voltage",), comparison.mismatches)
 
     def test_program_has_no_integration_or_actuator_imports(self):
         path = pathlib.Path(__file__).parents[1] / "runtime" / "charge" / "programs" / "minimum.py"

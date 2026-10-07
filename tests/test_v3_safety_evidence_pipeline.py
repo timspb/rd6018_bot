@@ -4,7 +4,7 @@ from runtime.diagnostics import (
     DiagnosticAuthority, DiagnosticDecision, SafetyEvidence,
     combine_safety_evidence, safety_evidence_from_diagnostic,
 )
-from runtime.safety import SafetyEngine, SafetyLimits, SafetyParityComparator
+from runtime.safety import SafetyEngine, SafetyLimits
 
 
 class V3SafetyEvidencePipelineTests(unittest.TestCase):
@@ -31,10 +31,6 @@ class V3SafetyEvidencePipelineTests(unittest.TestCase):
         self.assertEqual(decision.violations[0].severity, "critical")
         self.assertIsNone(decision.intent)
 
-    def test_parity_reports_mismatch_without_fixing_it(self):
-        result = SafetyParityComparator.compare({"allowed": True}, {"allowed": False})
-        self.assertEqual(result.status, "MISMATCH")
-        self.assertEqual(result.fields, ("allowed",))
 
 
 if __name__ == "__main__":

@@ -12,8 +12,6 @@ _EXPORTS = {
     "SafetyEngine": (".engine", "SafetyEngine"),
     "SafetyLimits": (".engine", "SafetyLimits"),
     "SafetyViolation": (".engine", "SafetyViolation"),
-    "SafetyParityComparator": (".parity", "SafetyParityComparator"),
-    "SafetyParityResult": (".parity", "SafetyParityResult"),
     "SafeOutputIntent": ("runtime.output.intent", "SafeOutputIntent"),
 }
 

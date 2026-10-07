@@ -699,3 +699,22 @@ Current owners use neutral names (`ManagedChargeController`,
 This pass does not rename persisted session keys, telemetry entity IDs or Telegram
 callback-data tokens. Those values cross restart/UI protocol boundaries and require
 explicit fail-closed migration rather than textual substitution.
+
+
+## 2026-10-07 shadow/migration island eradication
+
+Static import-graph analysis from `bot.py` plus an external-inbound scan proved a
+closed shadow/migration cluster had zero callers outside the cluster. The cluster
+included obsolete dual-runtime, decision-authority shadow/parity, telemetry and
+configuration ownership rehearsal, staged-ownership, transition, shadow observer,
+evidence/acceptance and legacy-domain adapter modules.
+
+Because these modules were unreachable from production and tools, they were
+deleted rather than renamed or wrapped. Phase/epic tests whose only purpose was
+to characterize that retired island were deleted with it. The historical
+Workstream-1 audit test was also removed because it asserted obsolete facts such
+as `V2 remains execution owner` and `NOT READY FOR REAL OWNERSHIP TRANSITIONS`.
+Historical audit documents remain evidence only and are not CI authority.
+
+Current architecture guards now require the retired shadow/migration module set
+to remain absent. No production behavior or physical safety semantics changed.
