@@ -800,3 +800,11 @@ application container. Production `ProductionRuntimeLifecycle` is unchanged.
 
 No production execution, physical safety, persisted-state, Telegram protocol,
 or hardware behavior changed in this boundary.
+
+
+## 2026-10-07 legacy charge adapter retirement
+
+`runtime.charge.adapters.legacy.LegacyChargeProgramAdapter` had zero production
+or operational callers and was only exercised by its own characterization test.
+The temporary adapter and its public package export were deleted. Historical
+Phase 4D/4E documents remain evidence only and are not current runtime authority.
