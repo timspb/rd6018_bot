@@ -2084,3 +2084,36 @@ The remaining stale/unavailable-telemetry, post-enable verification-failure and
 operator START→STOP acceptance gates therefore remain unexecuted. No physical PASS
 is claimed. The explicit `RD6018_STATE_DIR` history-path resolution change is local
 only and is not deployed or merged while this acceptance blocker remains.
+
+## 2026-10-10 node104 acceptance continuation 2 - deferred lease fix and stop
+
+The narrow production-state and deferred-edge-lease fixes are committed locally
+as `6f2ff85` and `e18c3fde4e22e619e1c2f860bfa9e05bc3f8304c`. Local validation
+passed: `python -m compileall -q .`, `git diff --check`, focused edge-lease and
+physical-control tests, and the complete suite (`1573` tests, `OK`, `3 skipped`).
+The branch is two commits ahead of `origin/main` `8db6a904254c261bce51313df42a61b913b2657a`.
+
+The exact merged application was deployed to node104 with the pre-existing
+service and `ProtectSystem=strict`; the charging history path was corrected to
+the service state directory. The deferred lease fix was then installed as a
+bounded node104 acceptance artifact after a file backup. The service remained
+`active`; temporary physical-test configuration was removed again and the unit
+was restarted with `DropInPaths=` empty. No change was made to node101.
+
+The physical sequence was stopped before any energization. The production
+socket client first failed closed with `edge lease reader unavailable`; after
+the local fix it did not return a bounded independent live snapshot and
+timed out while reading the external HA/lease state. There was therefore no
+authorized fresh OFF snapshot suitable to precede ON, no proven non-battery
+bench load, and no interactive operator callback for START -> STOP. No stale
+telemetry injection, post-enable verification-failure injection, or real
+operator START -> STOP was run. No actuator ON command was issued by this
+acceptance continuation.
+
+GitHub publication of the two local commits failed with `Invalid username or
+token`; consequently no new PR/CI result exists and merge/final production
+acceptance cannot be claimed. The terminal node104 service state was observed
+as `active`, `ProtectSystem=strict`, and normal drop-in state restored. Final
+hardware Output OFF/V/I evidence for this continuation is not claimed because
+the bounded live snapshot was unavailable; this is an external acceptance
+blocker, not a PASS.
