@@ -1,6 +1,7 @@
 import types
 import unittest
 
+from hass_api import HassClient
 from runtime_safety import RuntimeSafetyError
 from runtime_safety_strict import install_strict_runtime_safety
 
@@ -150,6 +151,28 @@ class RuntimeEdgeLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(lease)
         self.assertIs(lease, guard.edge_safety_lease)
         self.assertIs(lease, app.edge_safety_lease)
+        self.assertTrue(guard.edge_lease_enforced)
+
+    def test_deferred_bind_keeps_physical_backend_and_ha_lease_reader(self):
+        class Backend:
+            async def get_all_live(self):
+                return live_state(switch="off", current=0.0)
+
+        app = FakeApp(state=live_state(switch="off", current=0.0))
+        app.hass = HassClient("", "", backend=Backend())
+        app.edge_safety_lease = None
+        guard = self._guard(app)
+
+        self.assertIsNone(guard.edge_safety_lease)
+        app.hass.base_url = "http://ha.example"
+        app.hass.token = "sidecar-token"
+
+        lease = guard.ensure_edge_safety_lease()
+
+        self.assertIsNotNone(lease)
+        self.assertIs(lease.hass._physical_backend, app.hass._physical_backend)
+        self.assertEqual("http://ha.example", lease.hass.base_url)
+        self.assertEqual("sidecar-token", lease.hass.token)
         self.assertTrue(guard.edge_lease_enforced)
 
     async def test_output_enable_arms_edge_lease_before_physical_on(self):

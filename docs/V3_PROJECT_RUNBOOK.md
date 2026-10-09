@@ -2117,3 +2117,32 @@ as `active`, `ProtectSystem=strict`, and normal drop-in state restored. Final
 hardware Output OFF/V/I evidence for this continuation is not claimed because
 the bounded live snapshot was unavailable; this is an external acceptance
 blocker, not a PASS.
+
+## 2026-10-10 software-only node104 acceptance checkpoint - HA sidecar factory fix
+
+Root cause confirmed for the deferred lease-binding failure: production config
+selects `default_connector=esp_direct`, but `HassClient.from_physical_config()`
+constructed `HassClient("", "", backend=connector)`. The ESP-direct backend
+therefore supplied physical telemetry and actuator methods, while the same
+client had no HA URL/token for `get_state()`, so `EdgeSafetyLease` could not
+read the six HA lease entities after deferred startup. The node104 observation
+provided with this checkpoint showed the HA endpoint reachable and ESP-direct
+telemetry valid with Output OFF; no node access was performed during this
+software-only change.
+
+The narrow fix in this checkpoint retains the configured `HA_URL` and
+`HA_TOKEN` in the client while keeping the selected connector as
+`_physical_backend`. Existing dispatch remains physical-backend-first for
+`get_all_live()` and actuator writes; HA REST is only the lease/read sidecar.
+The regression tests cover sidecar state reads plus physical telemetry,
+factory credential retention, and deferred lease binding with lease enforcement
+still enabled. HA URL selection was reviewed in `config.py`: `HA_LOCAL_URL` is
+used only when deployment configuration enables `HA_PREFER_LOCAL`; no runtime
+configuration or secret was changed.
+
+Software evidence on the local worktree: focused composition and edge-lease
+suites passed (`5` and `8` tests); `python -m compileall -q .` passed;
+`git diff --check` passed; complete unittest discovery passed (`1576` tests,
+`3` skipped) on local Python `3.14.0`. No physical acceptance, CI result,
+node104 modification, service restart, Output ON command, or node101 access is
+claimed.

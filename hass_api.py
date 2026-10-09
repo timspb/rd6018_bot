@@ -59,7 +59,9 @@ class HassClient:
         if not connector_name:
             raise RuntimeError("physical connector selection is not configured")
         connector = PhysicalConnectorFactory(config).create(connector_name)
-        return cls("", "", backend=connector)
+        # Keep HA REST available as a lease/read sidecar while the selected
+        # physical connector remains authoritative for telemetry and writes.
+        return cls(HA_URL, HA_TOKEN, backend=connector)
 
     @property
     def _uses_physical_backend(self) -> bool:
