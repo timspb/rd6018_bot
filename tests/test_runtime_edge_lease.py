@@ -85,6 +85,13 @@ class FakeHass:
         return True
 
 
+class DeferredHass(FakeHass):
+    base_url = None
+
+    async def get_state(self, entity_id):
+        return {"state": "off"}
+
+
 class FakeLease:
     def __init__(self):
         self.arm_calls = 0
@@ -128,6 +135,22 @@ class RuntimeEdgeLeaseTests(unittest.IsolatedAsyncioTestCase):
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0
         return guard
+
+    def test_deferred_ha_bind_lazily_installs_production_edge_lease(self):
+        app = FakeApp(state=live_state(switch="off", current=0.0))
+        app.hass = DeferredHass(app.hass.live)
+        app.edge_safety_lease = None
+        guard = self._guard(app)
+
+        self.assertIsNone(guard.edge_safety_lease)
+        app.hass.base_url = "http://ha.example"
+
+        lease = guard.ensure_edge_safety_lease()
+
+        self.assertIsNotNone(lease)
+        self.assertIs(lease, guard.edge_safety_lease)
+        self.assertIs(lease, app.edge_safety_lease)
+        self.assertTrue(guard.edge_lease_enforced)
 
     async def test_output_enable_arms_edge_lease_before_physical_on(self):
         app = FakeApp(state=live_state(switch="off", current=0.0))
