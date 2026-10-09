@@ -2061,3 +2061,26 @@ No hardening was weakened and the service was restored to its normal unit at the
 end of the checkpoint. The required terminal state was independently verified:
 Output OFF, near-zero V/I, lease disarmed/tripped containment retained, service
 active, and the deployed SHA exact.
+
+## 2026-10-10 node104 acceptance continuation — blocked at hardened socket boundary
+
+The local checkpoint was fast-forwarded without discarding work to exact merged
+`origin/main` `8db6a904254c261bce51313df42a61b913b2657a` (PR #57 head
+`8fcdab9373c68496f794076b5d8f770c11edec1f`). Exact-head CI was green on Python
+3.10, 3.11 and 3.12. Focused local charging-log and physical-control suites
+passed (`5` and `13` tests; `3` physical-control skips).
+
+The production unit was inspected on node104 only. It remains `ProtectSystem=strict`,
+with its original `ReadWritePaths` and no permanent environment changes. A temporary
+opt-in physical-control activation was attempted using the existing socket-path
+override, first under the service state directory and then under a systemd-managed
+runtime directory with a narrow bind/read-write exception. The process failed closed
+at `asyncio` socket bind with `OSError: [Errno 30] Read-only file system` in every
+location; no physical-test operation or actuator command was reached. The temporary
+drop-in, socket paths and restart state were removed. The service returned `active`
+with its normal environment, no test socket, and normal polling logs.
+
+The remaining stale/unavailable-telemetry, post-enable verification-failure and
+operator START→STOP acceptance gates therefore remain unexecuted. No physical PASS
+is claimed. The explicit `RD6018_STATE_DIR` history-path resolution change is local
+only and is not deployed or merged while this acceptance blocker remains.
