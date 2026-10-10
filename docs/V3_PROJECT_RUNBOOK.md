@@ -2,10 +2,12 @@
 
 ## Current production host authority
 
-The only current production host is node 104. Node 101 is retired and excluded
-from all live checks, deployment, and physical validation. References to node
-101 later in this runbook are retained only inside historical evidence or
-migration records and do not identify the current production target.
+The only current production host is node 104. Node 101 is retired and is not a
+production, deployment, or physical-validation target. The one-time read-only
+legacy-eradication audit dated 2026-10-10 is documented below; it does not make
+node 101 an operational target. Other references to node 101 later in this
+runbook are retained as historical evidence or migration records and do not
+identify the current production target.
 
 ## 1. Назначение проекта
 
@@ -2061,3 +2063,65 @@ No hardening was weakened and the service was restored to its normal unit at the
 end of the checkpoint. The required terminal state was independently verified:
 Output OFF, near-zero V/I, lease disarmed/tripped containment retained, service
 active, and the deployed SHA exact.
+
+## 2026-10-10 — node101 RD6018 Legacy Eradication
+
+Status: **ERADICATION PASS** for the live node. This is an explicit, one-time
+read-only cleanup audit of node101; node104, the RD6018 hardware, ESPHome, HA,
+and Telegram control APIs were not accessed. No live RD6018-owned object
+remained to remove, so no service, file, database, credential, or system setting
+was changed.
+
+### Target and access
+
+- SSH target: `192.168.1.101`; host key was accepted only through the existing
+  HOME-PC OpenSSH `known_hosts` entry.
+- Reported host identity: `Deb11.127.0.0.1`, Debian 11, kernel
+  `6.8.12-17-pve`, SSH user `root`.
+- The existing HOME-PC profile was used without changing credentials or SSH
+  configuration. Secret values were not emitted or recorded.
+
+### Read-only inventory and removal manifest
+
+| Object | Owner / state | Dependency and evidence | Action | Reason |
+|---|---|---|---|---|
+| Live `rd6018-bot.service` and system unit files | RD6018; unit is `LoadState=not-found`, unit file absent | No RD6018-related system or user services, timers, drop-ins, enabled, failed, or masked units found | None | Already absent |
+| RD6018 processes, polling instances, open descriptors and sockets | None found | Full `/proc` process inventory, executable/cgroup/script basenames, matching file descriptors, and current service inventory contained no RD6018 process | None | No live process to stop |
+| Cron and supervisor definitions | None found | No RD6018 references in root/system cron sources, user spool, or supervisor configuration | None | No scheduled job to remove |
+| Docker/Podman deployment | None found | `docker ps -a` and Compose stack list empty; no RD6018 image; Podman unavailable | None | No container deployment |
+| Docker volumes | Three unlabeled opaque volumes | No RD6018 ownership evidence; unrelated/shared use cannot be excluded | Preserve | Explicitly avoid deleting shared or uncertain data |
+| Checkout, release, staging, venv, database, config and log paths | None found | Scanned the requested canonical paths and root filesystem for RD6018 names and source signatures (`diagnostic_controller.py`, `charge_logic.py`, `rd6018.db`); no matching checkout, venv, database, deployment file, or runtime path | None | No live project tree or data remained |
+| RD6018-specific environment/secrets | None found in live project locations | Environment-file inventory returned no RD6018-specific key names; values were never printed. Historical unit points to `/root/rd6018_bot/.env`, but that path is absent | None | No live RD6018 secret file identified |
+| Historical system journal | systemd-owned history | 9,180 records attributed to the former `rd6018-bot.service`, from `2026-09-21 07:21:13 UTC` through `2026-09-26 04:45:38 UTC`; 49 Telegram `getUpdates` conflict records. A redacted pattern scan found no Telegram token URL, token-shaped value, bearer value, or token assignment in those records | Preserve | Logs are retained as evidence; system logs must not be cleared |
+| Mixed FORT-RDP preservation archive | Other project / shared backup | `/root/wghub_clean/archive/fort-rdp-controlled-reset-backup-20260922-021708/end-preserve-files.tgz` contains exactly two RD6018-named members: the old unit file and its `multi-user.target.wants` symlink. The archived unit points to `/root/rd6018_bot/bot.py` and `/root/rd6018_bot/.env`; neither live target exists. The archive also contains unrelated path-control-plane deployments, environment files, and databases | Preserve; documented exception | Rewriting this mixed backup would alter another project's preservation artifact. The historical unit is inert and cannot poll from the current node |
+| Other archived network artifacts | Other projects | Archive member-name scans found no RD6018 markers | Preserve | No RD6018 ownership |
+| `tim-wghub-bot.service` / `tg_wghub_bot.py` | WG Control Hub; active and enabled | Separate unit and path; MainPID `194`, `NRestarts=0`; unit-file SHA256 `bee21d2957b1d6d40d0fe0be91f2856dc065746dca0bbf86b14aac800ca544f7` | Preserve unchanged | Explicitly excluded third-party Telegram bot |
+
+No matching user unit, cron job, screen/tmux session, Supervisor program,
+Compose stack, container, RD6018 file descriptor, or live RD6018 Telegram
+poller was present. Historical journal messages and the two unit records inside
+the mixed archive are known, non-running exceptions; neither is an active
+deployment path. The archive's other contents and all system journals remain
+untouched.
+
+### Independent post-check
+
+- RD6018 processes: `0`.
+- Active/enabled RD6018 system or user units: `0`; RD6018 timers: `0`.
+- RD6018 cron/Supervisor definitions: `0`.
+- RD6018 containers, Compose stacks and images: `0`.
+- Live RD6018 checkout, venv, database, deployment, configuration and secret
+  paths: `0`.
+- Polling-conflict records remain only in the historical system journal; no
+  current RD6018 poller exists.
+- `tim-wghub-bot.service` remained `active (running)` and `enabled`, MainPID
+  `194`, `NRestarts=0`; its unit-file hash was recorded and no stop, restart,
+  edit, or configuration change was issued.
+- No systemd unit changed, so `systemctl daemon-reload` was not run. No
+  hardware, lease, ESPHome, HA, or Telegram control command was sent.
+
+No deletion or backup was necessary because no live, exclusively RD6018-owned
+candidate existed. The two archived unit records and historical journal are the
+only identified RD6018 remnants; they are documented above as preserved,
+non-executable evidence. The original PR #58 worktree and its uncommitted
+runbook changes were not modified or included in this record.
