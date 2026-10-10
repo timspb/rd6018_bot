@@ -81,6 +81,36 @@ class PhysicalConnectorCompositionTests(unittest.TestCase):
                 session.requested,
             )
 
+    def test_native_lease_state_and_button_bypass_ha(self):
+        class Backend:
+            def __init__(self):
+                self.states = []
+                self.buttons = []
+
+            async def get_state(self, entity_id):
+                self.states.append(entity_id)
+                return "off", {"source": "esp_native_api", "age_s": 1.0}
+
+            async def press_button(self, entity_id):
+                self.buttons.append(entity_id)
+                return True
+
+        import asyncio
+
+        async def exercise():
+            backend = Backend()
+            client = HassClient("http://ha.example:8123", "secret", backend=backend)
+            client._ensure_session = AsyncMock(side_effect=AssertionError("HA must not be used"))
+            self.assertEqual(
+                ("off", {"source": "esp_native_api", "age_s": 1.0}),
+                await client.get_state("binary_sensor.rd6018_rd_6018_safety_lease_armed"),
+            )
+            self.assertTrue(await client.press_button("button.rd6018_rd_6018_safety_lease_renew"))
+            self.assertEqual(backend.states, ["binary_sensor.rd6018_rd_6018_safety_lease_armed"])
+            self.assertEqual(backend.buttons, ["button.rd6018_rd_6018_safety_lease_renew"])
+
+        asyncio.run(exercise())
+
         import asyncio
         asyncio.run(exercise())
 

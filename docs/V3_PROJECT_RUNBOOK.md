@@ -2146,3 +2146,25 @@ suites passed (`5` and `8` tests); `python -m compileall -q .` passed;
 `3` skipped) on local Python `3.14.0`. No physical acceptance, CI result,
 node104 modification, service restart, Output ON command, or node101 access is
 claimed.
+
+## 2026-10-10 native ESPHome safety-lease migration checkpoint
+
+The `esp_direct` physical connector now owns the lease read/command path through
+the native ESPHome Noise API. The six lease states are read from the subscribed
+native entities with source/type/freshness metadata, and the renew, disarm, and
+HANDS_OFF-release buttons are invoked by native ESPHome key/device identifiers.
+The existing lease authority still requires generation change, armed/tripped and
+quarantine checks, fresh direct Modbus age, and a replenished 900-second lease;
+renewal cadence remains 300 seconds. Missing, stale, unknown-type, disconnected,
+or rejected native state fails closed. HA REST is retained only as a compatibility
+sidecar when the selected connector does not provide native methods.
+
+Read-only node104 discovery confirmed the six states and three buttons on
+`192.168.1.28:6053`, with 66 entities and no services. Native readback was
+available for all six states; the observed state was unarmed, tripped, boot
+quarantine clear, generation 2, fresh Modbus telemetry, and zero remaining time.
+No lease button or actuator command was sent, no Output ON was attempted, and
+node104 was not restarted or modified. This is software CODE PASS plus native
+discovery evidence, not physical bench validation or production deployment
+acceptance; exact ESPHome compile/flash and the D061/D062 bench gate remain the
+next production prerequisite.

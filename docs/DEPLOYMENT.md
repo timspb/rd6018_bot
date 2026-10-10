@@ -24,7 +24,7 @@ ProductionChargeController
   -> RD6018 via Home Assistant / direct local Modbus
 ```
 
-The production safety lease is a dead-man contract, not an optional dashboard feature. Before any controller-managed Output ON, the bot requires a positively acknowledged local lease. The normal contract is a 30-minute local TTL renewed every 10 minutes. If bot/HA/API communication disappears completely, the ESPHome node must be able to turn RD6018 Output OFF locally when that lease expires.
+The production safety lease is a dead-man contract, not an optional dashboard feature. Before any controller-managed Output ON, the bot requires a positively acknowledged local lease. The production contract is a 900-second local TTL renewed every 300 seconds. If bot/API communication disappears completely, the ESPHome node must be able to turn RD6018 Output OFF locally when that lease expires. With `esp_direct`, lease state and button commands use the native ESPHome Noise API directly; Home Assistant is not required for the lease path and remains only a compatibility sidecar when configured.
 
 See `docs/RD6018_FAILSAFE.md` and `esphome/rd6018_safety_lease.yaml`.
 
@@ -72,7 +72,7 @@ Before replacing the running bot:
 7. With RD6018 Output OFF, press Renew once and verify:
    - generation increments;
    - armed becomes ON;
-   - remaining jumps to approximately 1800 s;
+   - remaining jumps to approximately 900 s;
    - direct Modbus remains fresh.
 8. Press Disarm with Output still OFF and verify armed becomes OFF.
 
@@ -201,7 +201,7 @@ A physical charge is a separate controlled hardware-validation step.
 
 After non-actuating deployment passes, validate the dead-man path on a current-limited dummy load or other low-consequence load before any battery Mix/HV test.
 
-For this validation only, it is reasonable to temporarily use a much shorter edge TTL (for example 90 s with a 20--30 s renewal interval), provided bot and ESPHome configuration use the same test geometry and the production 30 min / 10 min values are restored afterwards.
+For this validation only, it is reasonable to temporarily use a much shorter edge TTL (for example 90 s with a 20--30 s renewal interval), provided bot and ESPHome configuration use the same test geometry and the production 900 s / 300 s values are restored afterwards.
 
 Prove each of these independently:
 
