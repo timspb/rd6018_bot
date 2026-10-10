@@ -91,7 +91,15 @@ def load_config(root: str | Path | None = None) -> ConfigBundle:
         item = dict(require_mapping(entry, f"transport {name}"))
         profile = str(item.get("profile", name))
         profile_data = load_yaml(base / "physical" / f"{profile}.yaml")
-        transports[name] = PhysicalTransportConfig(name, str(profile_data["type"]), bool(item.get("enabled", False)), int(item.get("priority", 0)), _connection(profile_data, profile, required=name == selected_transport), dict(profile_data.get("entities", {})))
+        transports[name] = PhysicalTransportConfig(
+            name,
+            str(profile_data["type"]),
+            bool(item.get("enabled", False)),
+            int(item.get("priority", 0)),
+            _connection(profile_data, profile, required=name == selected_transport),
+            dict(profile_data.get("entities", {})),
+            dict(profile_data.get("edge_entities", {})),
+        )
     rd_values = validate_rd(load_yaml(base / "physical" / "rd6018.yaml"))
     return ConfigBundle(
         transports, RDConfig(**rd_values), load_yaml(base / "charge" / "recipes.yaml"),

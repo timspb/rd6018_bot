@@ -78,6 +78,31 @@ class DelayedDisarmHass(FakeHass):
         return await super().get_state(entity_id)
 
 
+class NativeHass(FakeHass):
+    def __init__(self, *, age_s=1.0, native_type_overrides=None):
+        super().__init__()
+        self.age_s = age_s
+        self.native_type_overrides = native_type_overrides or {}
+
+    async def get_state(self, entity_id):
+        suffix = entity_id.rsplit(".", 1)[-1]
+        logical_suffix = next(
+            (name for name in self.native_type_overrides if suffix.endswith(name)),
+            None,
+        )
+        native_type = self.native_type_overrides.get(logical_suffix)
+        if native_type is None:
+            native_type = "BinarySensorState" if suffix.endswith((
+                "safety_lease_armed", "safety_lease_tripped", "safety_boot_quarantine"
+            )) else "SensorState"
+        return self.states.get(entity_id), {
+            "source": "esp_native_api",
+            "status": "ok",
+            "age_s": self.age_s,
+            "native_type": native_type,
+        }
+
+
 class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
     def _lease(self, hass=None, clock=None):
         hass = hass or FakeHass()
@@ -168,6 +193,20 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "trip is latched"):
             await lease.arm()
 
+        self.assertEqual(hass.presses, [])
+
+    async def test_native_edge_state_age_is_required_and_bounded(self):
+        hass, _clock, lease = self._lease(NativeHass(age_s=21.0))
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "native ESPHome edge state"):
+            await lease.arm()
+        self.assertEqual(hass.presses, [])
+
+    async def test_native_edge_state_type_mismatch_fails_closed(self):
+        hass, _clock, lease = self._lease(
+            NativeHass(native_type_overrides={"safety_lease_generation": "BinarySensorState"})
+        )
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "entity type is invalid"):
+            await lease.arm()
         self.assertEqual(hass.presses, [])
 
     async def test_missing_telemetry_names_exact_entity(self):

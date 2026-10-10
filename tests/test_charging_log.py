@@ -1,12 +1,21 @@
 import logging
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import charging_log
 
 
 class ChargingLogTests(unittest.TestCase):
+    def test_default_log_file_uses_explicit_state_directory(self):
+        with patch.dict(os.environ, {"RD6018_STATE_DIR": "/var/lib/rd6018"}):
+            self.assertEqual(
+                charging_log._default_log_file(),
+                os.path.join("/var/lib/rd6018", "charging_history.log"),
+            )
+
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)

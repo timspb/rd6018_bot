@@ -59,7 +59,9 @@ class HassClient:
         if not connector_name:
             raise RuntimeError("physical connector selection is not configured")
         connector = PhysicalConnectorFactory(config).create(connector_name)
-        return cls("", "", backend=connector)
+        # Keep HA REST available as a lease/read sidecar while the selected
+        # physical connector remains authoritative for telemetry and writes.
+        return cls(HA_URL, HA_TOKEN, backend=connector)
 
     @property
     def _uses_physical_backend(self) -> bool:
@@ -118,6 +120,11 @@ class HassClient:
 
     async def get_state(self, entity_id: str) -> Tuple[Any, Dict]:
         """Получить состояние сущности; HA source timestamps сохраняются в attrs."""
+        if self._uses_physical_backend:
+            reader = getattr(self._physical_backend, "get_state", None)
+            if not callable(reader):
+                return None, {"source": "physical_backend", "status": "unsupported"}
+            return await reader(entity_id)
         if not self.base_url or not self.token:
             logger.warning("HassClient not configured")
             return None, {}
@@ -155,6 +162,26 @@ class HassClient:
 
         results = await asyncio.gather(*[_get_one(eid) for eid in entity_ids])
         return {eid: state for eid, state in results}
+
+    async def press_button(self, entity_id: str) -> bool:
+        """Press a configured physical button through the selected backend."""
+        if self._uses_physical_backend:
+            press = getattr(self._physical_backend, "press_button", None)
+            if not callable(press):
+                return False
+            return bool(await press(entity_id))
+        if not self.base_url or not self.token:
+            return False
+        try:
+            session = await self._ensure_session()
+            async with session.post(
+                f"{self.base_url}/api/services/button/press",
+                json={"entity_id": entity_id},
+            ) as response:
+                return response.status in (200, 201)
+        except Exception as ex:
+            logger.error("HA button press %s: %s", entity_id, ex)
+            return False
 
     async def set_value(self, entity_id: str, value: Any) -> bool:
         if self._uses_physical_backend:

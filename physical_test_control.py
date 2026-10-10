@@ -217,6 +217,9 @@ class PhysicalTestControl:
 
     async def _lease_state(self) -> Any:
         guard = self.app.runtime_safety_guard
+        ensure = getattr(guard, "ensure_edge_safety_lease", None)
+        if callable(ensure):
+            ensure()
         lease = getattr(guard, "edge_safety_lease", None)
         reader = getattr(lease, "read_state", None)
         if not callable(reader):

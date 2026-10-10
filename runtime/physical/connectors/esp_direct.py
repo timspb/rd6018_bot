@@ -30,6 +30,14 @@ class ESPDirectConnector(IndependentPhysicalConnector):
     async def get_all_live(self) -> dict[str, Any]:
         return await self.transport.get_live_values()
 
+    async def get_state(self, entity_id: str):
+        """Read an edge entity directly from the ESPHome native state stream."""
+        return await self.transport.get_entity_state(entity_id)
+
+    async def press_button(self, entity_id: str) -> bool:
+        """Invoke an explicitly mapped edge button through native API."""
+        return await self.transport.press_button(entity_id)
+
     async def disable_output(self) -> None:
         await self.transport.disable_output()
 

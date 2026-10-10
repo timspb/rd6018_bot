@@ -2061,3 +2061,144 @@ No hardening was weakened and the service was restored to its normal unit at the
 end of the checkpoint. The required terminal state was independently verified:
 Output OFF, near-zero V/I, lease disarmed/tripped containment retained, service
 active, and the deployed SHA exact.
+
+## 2026-10-10 node104 acceptance continuation — blocked at hardened socket boundary
+
+The local checkpoint was fast-forwarded without discarding work to exact merged
+`origin/main` `8db6a904254c261bce51313df42a61b913b2657a` (PR #57 head
+`8fcdab9373c68496f794076b5d8f770c11edec1f`). Exact-head CI was green on Python
+3.10, 3.11 and 3.12. Focused local charging-log and physical-control suites
+passed (`5` and `13` tests; `3` physical-control skips).
+
+The production unit was inspected on node104 only. It remains `ProtectSystem=strict`,
+with its original `ReadWritePaths` and no permanent environment changes. A temporary
+opt-in physical-control activation was attempted using the existing socket-path
+override, first under the service state directory and then under a systemd-managed
+runtime directory with a narrow bind/read-write exception. The process failed closed
+at `asyncio` socket bind with `OSError: [Errno 30] Read-only file system` in every
+location; no physical-test operation or actuator command was reached. The temporary
+drop-in, socket paths and restart state were removed. The service returned `active`
+with its normal environment, no test socket, and normal polling logs.
+
+The remaining stale/unavailable-telemetry, post-enable verification-failure and
+operator START→STOP acceptance gates therefore remain unexecuted. No physical PASS
+is claimed. The explicit `RD6018_STATE_DIR` history-path resolution change is local
+only and is not deployed or merged while this acceptance blocker remains.
+
+## 2026-10-10 node104 acceptance continuation 2 - deferred lease fix and stop
+
+The narrow production-state and deferred-edge-lease fixes are committed locally
+as `6f2ff85` and `e18c3fde4e22e619e1c2f860bfa9e05bc3f8304c`. Local validation
+passed: `python -m compileall -q .`, `git diff --check`, focused edge-lease and
+physical-control tests, and the complete suite (`1573` tests, `OK`, `3 skipped`).
+The branch is two commits ahead of `origin/main` `8db6a904254c261bce51313df42a61b913b2657a`.
+
+The exact merged application was deployed to node104 with the pre-existing
+service and `ProtectSystem=strict`; the charging history path was corrected to
+the service state directory. The deferred lease fix was then installed as a
+bounded node104 acceptance artifact after a file backup. The service remained
+`active`; temporary physical-test configuration was removed again and the unit
+was restarted with `DropInPaths=` empty. No change was made to node101.
+
+The physical sequence was stopped before any energization. The production
+socket client first failed closed with `edge lease reader unavailable`; after
+the local fix it did not return a bounded independent live snapshot and
+timed out while reading the external HA/lease state. There was therefore no
+authorized fresh OFF snapshot suitable to precede ON, no proven non-battery
+bench load, and no interactive operator callback for START -> STOP. No stale
+telemetry injection, post-enable verification-failure injection, or real
+operator START -> STOP was run. No actuator ON command was issued by this
+acceptance continuation.
+
+GitHub publication of the two local commits failed with `Invalid username or
+token`; consequently no new PR/CI result exists and merge/final production
+acceptance cannot be claimed. The terminal node104 service state was observed
+as `active`, `ProtectSystem=strict`, and normal drop-in state restored. Final
+hardware Output OFF/V/I evidence for this continuation is not claimed because
+the bounded live snapshot was unavailable; this is an external acceptance
+blocker, not a PASS.
+
+## 2026-10-10 software-only node104 acceptance checkpoint - HA sidecar factory fix
+
+Root cause confirmed for the deferred lease-binding failure: production config
+selects `default_connector=esp_direct`, but `HassClient.from_physical_config()`
+constructed `HassClient("", "", backend=connector)`. The ESP-direct backend
+therefore supplied physical telemetry and actuator methods, while the same
+client had no HA URL/token for `get_state()`, so `EdgeSafetyLease` could not
+read the six HA lease entities after deferred startup. The node104 observation
+provided with this checkpoint showed the HA endpoint reachable and ESP-direct
+telemetry valid with Output OFF; no node access was performed during this
+software-only change.
+
+The narrow fix in this checkpoint retains the configured `HA_URL` and
+`HA_TOKEN` in the client while keeping the selected connector as
+`_physical_backend`. Existing dispatch remains physical-backend-first for
+`get_all_live()` and actuator writes; HA REST is only the lease/read sidecar.
+The regression tests cover sidecar state reads plus physical telemetry,
+factory credential retention, and deferred lease binding with lease enforcement
+still enabled. HA URL selection was reviewed in `config.py`: `HA_LOCAL_URL` is
+used only when deployment configuration enables `HA_PREFER_LOCAL`; no runtime
+configuration or secret was changed.
+
+Software evidence on the local worktree: focused composition and edge-lease
+suites passed (`5` and `8` tests); `python -m compileall -q .` passed;
+`git diff --check` passed; complete unittest discovery passed (`1576` tests,
+`3` skipped) on local Python `3.14.0`. No physical acceptance, CI result,
+node104 modification, service restart, Output ON command, or node101 access is
+claimed.
+
+## 2026-10-10 native ESPHome safety-lease migration checkpoint
+
+The `esp_direct` physical connector now owns the lease read/command path through
+the native ESPHome Noise API. The six lease states are read from the subscribed
+native entities with source/type/freshness metadata, and the renew, disarm, and
+HANDS_OFF-release buttons are invoked by native ESPHome key/device identifiers.
+The existing lease authority still requires generation change, armed/tripped and
+quarantine checks, fresh direct Modbus age, and a replenished 900-second lease;
+renewal cadence remains 300 seconds. Missing, stale, unknown-type, disconnected,
+or rejected native state fails closed. HA REST is retained only as a compatibility
+sidecar when the selected connector does not provide native methods.
+
+Read-only node104 discovery confirmed the six states and three buttons on
+`192.168.1.28:6053`, with 66 entities and no services. Native readback was
+available for all six states; the observed state was unarmed, tripped, boot
+quarantine clear, generation 2, fresh Modbus telemetry, and zero remaining time.
+No lease button or actuator command was sent, no Output ON was attempted, and
+node104 was not restarted or modified. This is software CODE PASS plus native
+discovery evidence, not physical bench validation or production deployment
+acceptance; exact ESPHome compile/flash and the D061/D062 bench gate remain the
+next production prerequisite.
+
+## 2026-10-10 native safety-lease production acceptance — blocked before deployment
+
+PR #58 remained open at Python commit `65cf7ba86fbb52c4c912a5aa82a7cd1f97310e6b`;
+the branch was not merged or deployed. The canonical repository firmware target
+was compiled locally with ESPHome `2026.8.2` and the existing local secrets. The
+exact compile succeeded for ESP8266 `esp01_1m`; the resulting local binary was
+518688 bytes with SHA256
+`4EE6ACE28E9C916FCAB3D15FF6F7B37231D9AEA3D6F4D1761AC495A8CE916E86`.
+No flash or OTA was performed.
+
+The read-only native API identity of `192.168.1.28:6053` is
+`rd6018-controller`, MAC `C8:2B:96:30:FD:A5`, ESPHome `2026.8.2`, project
+`timspb.rd6018-pb-recovery-v2`, version `2.0-edge-adoption`, compilation time
+`2026-09-10 19:50:14 +1000`. The repository source currently declares project
+version `2.2-autonomous-authority`, so the compiled candidate is not evidence
+that the installed image is the same image. The installed node exposes 66
+entities and 0 services, including the lease, autonomous, protection and live-
+adoption contract entities.
+
+Independent read-only snapshots were taken from both HA `192.168.1.102:8123`
+and native ESPHome. They agreed on terminal Output OFF / 0 V / 0 A and native
+readback showed protection code `0`, lease unarmed, lease tripped, boot
+quarantine clear, generation `2`, fresh Modbus age about `6.1 s`, and remaining
+lease `0 s`. No lease button, actuator command, restart or flash was issued.
+The HA lease timestamps were stale relative to native ESP telemetry; this is
+expected evidence for the direct native path, not a physical D061/D062 pass.
+
+Production acceptance is blocked by two independently verified gates: the
+node104 service/deployed SHA could not be read because the available SSH
+authentication was rejected, and absence of a dangerous external load / safe
+bench authorization was not independently proven. Therefore no production
+deployment, Output ON, START/STOP, renew/disarm/HANDS_OFF operation, stale-data
+injection, or post-enable failure test was attempted. Node101 was not accessed.

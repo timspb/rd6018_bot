@@ -181,11 +181,38 @@ class EdgeSafetyLease:
         age = self.last_ack_age_s
         return age is None or age >= self.config.renew_interval_s
 
-    async def _state_value(self, entity_id: str) -> Any:
+    @staticmethod
+    def _native_expected_type(entity_id: str) -> str | None:
+        suffix = str(entity_id).rsplit(".", 1)[-1]
+        if suffix.endswith(("safety_lease_armed", "safety_lease_tripped", "safety_boot_quarantine")):
+            return "BinarySensorState"
+        if suffix.endswith(("safety_lease_generation", "safety_modbus_age", "safety_lease_remaining")):
+            return "SensorState"
+        return None
+
+    async def _state_with_attrs(self, entity_id: str) -> tuple[Any, dict[str, Any]]:
         get_state = getattr(self.hass, "get_state", None)
         if get_state is None:
             raise EdgeSafetyLeaseError("Home Assistant adapter cannot read lease entities")
-        state, _attrs = await get_state(entity_id)
+        state, raw_attrs = await get_state(entity_id)
+        attrs = dict(raw_attrs or {})
+        if attrs.get("source") == "esp_native_api":
+            age_s = _finite_float(attrs.get("age_s"))
+            if age_s is None or age_s > self.config.max_modbus_age_s:
+                raise EdgeSafetyLeaseError(
+                    f"native ESPHome edge state is stale/unavailable: {entity_id}"
+                )
+            expected = self._native_expected_type(entity_id)
+            actual = str(attrs.get("native_type") or attrs.get("entity_type") or "")
+            if expected and actual and expected != actual:
+                raise EdgeSafetyLeaseError(
+                    f"native ESPHome edge entity type is invalid: {entity_id} ({actual})"
+                )
+        return state, attrs
+
+    async def _state_value(self, entity_id: str) -> Any:
+        """Return the legacy scalar state while keeping native validation internal."""
+        state, _attrs = await self._state_with_attrs(entity_id)
         return state
 
     async def read_state(self) -> EdgeLeaseState:
@@ -197,19 +224,19 @@ class EdgeSafetyLease:
             modbus_age_raw,
             remaining_raw,
         ) = await asyncio.gather(
-            self._state_value(self.config.armed_entity),
-            self._state_value(self.config.tripped_entity),
-            self._state_value(self.config.boot_quarantine_entity),
-            self._state_value(self.config.generation_entity),
-            self._state_value(self.config.modbus_age_entity),
-            self._state_value(self.config.remaining_entity),
+            self._state_with_attrs(self.config.armed_entity),
+            self._state_with_attrs(self.config.tripped_entity),
+            self._state_with_attrs(self.config.boot_quarantine_entity),
+            self._state_with_attrs(self.config.generation_entity),
+            self._state_with_attrs(self.config.modbus_age_entity),
+            self._state_with_attrs(self.config.remaining_entity),
         )
-        armed = _bool_state(armed_raw)
-        tripped = _bool_state(tripped_raw)
-        boot_quarantine = _bool_state(boot_quarantine_raw)
-        generation_f = _finite_float(generation_raw)
-        modbus_age = _finite_float(modbus_age_raw)
-        remaining = _finite_float(remaining_raw)
+        armed = _bool_state(armed_raw[0])
+        tripped = _bool_state(tripped_raw[0])
+        boot_quarantine = _bool_state(boot_quarantine_raw[0])
+        generation_f = _finite_float(generation_raw[0])
+        modbus_age = _finite_float(modbus_age_raw[0])
+        remaining = _finite_float(remaining_raw[0])
         if (
             armed is None
             or tripped is None
