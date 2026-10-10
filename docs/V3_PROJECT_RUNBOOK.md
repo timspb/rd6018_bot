@@ -2168,3 +2168,37 @@ node104 was not restarted or modified. This is software CODE PASS plus native
 discovery evidence, not physical bench validation or production deployment
 acceptance; exact ESPHome compile/flash and the D061/D062 bench gate remain the
 next production prerequisite.
+
+## 2026-10-10 native safety-lease production acceptance — blocked before deployment
+
+PR #58 remained open at Python commit `65cf7ba86fbb52c4c912a5aa82a7cd1f97310e6b`;
+the branch was not merged or deployed. The canonical repository firmware target
+was compiled locally with ESPHome `2026.8.2` and the existing local secrets. The
+exact compile succeeded for ESP8266 `esp01_1m`; the resulting local binary was
+518688 bytes with SHA256
+`4EE6ACE28E9C916FCAB3D15FF6F7B37231D9AEA3D6F4D1761AC495A8CE916E86`.
+No flash or OTA was performed.
+
+The read-only native API identity of `192.168.1.28:6053` is
+`rd6018-controller`, MAC `C8:2B:96:30:FD:A5`, ESPHome `2026.8.2`, project
+`timspb.rd6018-pb-recovery-v2`, version `2.0-edge-adoption`, compilation time
+`2026-09-10 19:50:14 +1000`. The repository source currently declares project
+version `2.2-autonomous-authority`, so the compiled candidate is not evidence
+that the installed image is the same image. The installed node exposes 66
+entities and 0 services, including the lease, autonomous, protection and live-
+adoption contract entities.
+
+Independent read-only snapshots were taken from both HA `192.168.1.102:8123`
+and native ESPHome. They agreed on terminal Output OFF / 0 V / 0 A and native
+readback showed protection code `0`, lease unarmed, lease tripped, boot
+quarantine clear, generation `2`, fresh Modbus age about `6.1 s`, and remaining
+lease `0 s`. No lease button, actuator command, restart or flash was issued.
+The HA lease timestamps were stale relative to native ESP telemetry; this is
+expected evidence for the direct native path, not a physical D061/D062 pass.
+
+Production acceptance is blocked by two independently verified gates: the
+node104 service/deployed SHA could not be read because the available SSH
+authentication was rejected, and absence of a dangerous external load / safe
+bench authorization was not independently proven. Therefore no production
+deployment, Output ON, START/STOP, renew/disarm/HANDS_OFF operation, stale-data
+injection, or post-enable failure test was attempted. Node101 was not accessed.
