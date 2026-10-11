@@ -1,0 +1,58 @@
+name: RD6018 trusted self-hosted acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    # This runner is reserved for owner-triggered validation of published main.
+    # Keep this gate on the job: workflow_dispatch on an untrusted ref must not
+    # ever execute on the dedicated RD6018 runner.
+    if: github.actor == 'timspb' && github.ref == 'refs/heads/main'
+    runs-on: [rd6018-ci, rd6018-wsl2]
+    timeout-minutes: 30
+    env:
+      # Match hosted CI's test-only configuration. Every physical endpoint is
+      # loopback, and these values are non-live placeholders; no repository or
+      # runner secret is needed for acceptance tests.
+      TG_TOKEN: '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi'
+      HA_URL: 'http://127.0.0.1:8123'
+      HA_LOCAL_URL: 'http://127.0.0.1:8123'
+      HA_TOKEN: 'ci-test-token'
+      HA_PREFER_LOCAL: '0'
+      ESPHOME_API_HOST: '127.0.0.1'
+      ESPHOME_API_PORT: '6053'
+      ESPHOME_API_KEY: 'ci-test-key'
+      ALLOWED_CHAT_IDS: '1'
+      ALLOW_ALL_CHATS: '0'
+      DEEPSEEK_BASE_URL: 'http://127.0.0.1:9'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Compile
+        run: python -m compileall -q .
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
