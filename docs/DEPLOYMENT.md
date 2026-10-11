@@ -114,7 +114,7 @@ For the requested revision:
 ```bash
 git fetch origin
 # checkout/reset only after local operational files are protected
-git checkout refactor/pb-recovery-controller-v2
+git checkout --detach <requested-sha>
 git reset --hard <requested-sha>
 ```
 
@@ -157,8 +157,6 @@ Normal production deployment must not inject retired rollback flags.
 Normal:
 
 ```text
-V2_UI unset/true
-V2_AUTHORITATIVE unset/true
 RD6018_EDGE_LEASE_REQUIRED unset/true
 ```
 
@@ -167,7 +165,7 @@ RD6018_EDGE_LEASE_REQUIRED unset/true
 Rollback policy during modular V3 migration:
 
 - `V2_AUTHORITATIVE=0` is retired and must not be used to re-enable legacy Main/Mix authority.
-- `V2_UI=0` may be used only as the still-supported presentation compatibility switch while UI migration is incomplete; it does not alter charge authority.
+- UI compatibility flags are not an accepted method of restoring a previous execution owner.
 - Control/strategy rollback is an explicit deployment of a known-good commit after normal physical safety prechecks.
 
 For systemd, use the existing unit/environment mechanism; do not invent permanent overrides that resurrect retired owners.
@@ -266,7 +264,7 @@ If startup validation fails:
 5. verify service state and logs;
 6. report both failed and restored SHAs.
 
-If code rollback is unnecessary and only V2 presentation/authority must be disabled, use the rollback flags above first. Do not remove the edge lease merely to hide a charging-safety failure.
+Restore an approved previous revision using the documented rollback transaction; historical UI/authority flags are not an execution rollback. Do not remove the edge lease to hide a charging-safety failure.
 
 ## Expected deployment report
 
@@ -282,8 +280,7 @@ ESPHome lease package: compiled/flashed/not installed
 Lease entities: PASS/FAIL
 Direct Modbus freshness: <age/status>
 Edge failsafe hardware test: PASS/FAIL/not run
-V2_UI: enabled/disabled
-V2_AUTHORITATIVE: enabled/disabled
+Execution authority: canonical modular runtime
 RD6018_EDGE_LEASE_REQUIRED: enabled/disabled
 Startup logs: <important warnings/errors or none>
 Rollback: <previous SHA / backup path / command>
