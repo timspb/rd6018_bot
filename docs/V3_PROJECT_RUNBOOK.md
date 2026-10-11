@@ -2289,11 +2289,12 @@ autonomous/live-adoption entities were present. Candidate-only
 This is Native API connectivity/readback evidence, not a positive lease ACK or
 bench acceptance; the lease is not armed and is tripped.
 
-The same fresh native report said Output state `OFF` (`0`), but measured output
-voltage/current were `13.57 V` / `0.1 A`, not near zero. This conflicts with the
-earlier zero-output snapshot and may indicate an external voltage/load; API
-values cannot prove that no battery is connected. Treat load identity and
-physical safety as unverified and do not energize or issue lease commands.
+CORRECTION 2026-10-11: Output state was `OFF` (`0`). The 13.57 V / 0.10 A
+figures match documented *programmed charge setpoints* in the 2026-10-07
+controlled trial, not evidence of delivered current. The previous description
+of these numbers as independently measured OFF output was unsupported. The
+prior controlled test confirmed 0.00 A after OFF. Fresh independent output
+readback remains necessary at any actual deployment preflight.
 
 The installed firmware already exposes basic managed lease state/buttons,
 AUTONOMOUS state/buttons, and the D061 live-adoption button, so those entity
@@ -2358,8 +2359,9 @@ systemd/service identity, stopped active charging, Output OFF with independently
 measured near-zero V/I, edge-lease containment, `ProtectSystem=strict`, and a
 matched firmware identity/contract. The current read-only evidence cannot pass
 these gates: installed firmware is `2.0-edge-adoption`, while the candidate is
-`2.2-autonomous-authority`, and the recorded OFF readback included
-`13.57 V / 0.1 A`. Software preparation therefore does not authorize activation
+`2.2-autonomous-authority`. The historical `13.57 V / 0.10 A` values were
+programmed charge setpoints, not verified OFF output telemetry; they are
+not a separate safety blocker. Software preparation does not authorize activation
 or imply physical acceptance.
 
 The dependency order remains: prove the external load and zero-output state;
