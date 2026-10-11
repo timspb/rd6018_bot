@@ -20,6 +20,12 @@ class OperatorActionMatrixTests(unittest.TestCase):
         self.assertNotIn(OperatorAction.STOP_CHARGE, _actions(view))
         self.assertNotIn(OperatorAction.PAUSE_CHARGE, _actions(view))
 
+    def test_idle_keeps_charge_workspace_navigation_when_start_is_not_safe(self):
+        view = OperatorActionsView.for_state("IDLE", safety_allowed=False)
+        self.assertIn(OperatorAction.START_CHARGE, _actions(view))
+        self.assertEqual(view.reasons[OperatorAction.START_CHARGE.value], "start_requires_current_safety_preflight")
+        self.assertNotIn(OperatorAction.START_CHARGE, view.disabled_actions)
+
     def test_charging_offers_stop_pause_and_observation(self):
         view = OperatorActionsView.for_state("CHARGING", safety_allowed=True, pause_allowed=True)
         self.assertTrue({OperatorAction.STOP_CHARGE, OperatorAction.PAUSE_CHARGE,

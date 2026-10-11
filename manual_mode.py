@@ -137,6 +137,52 @@ class ManualChargeRequest:
         return "Ручной МИКС" if self.operation_mode == "mix" else "Ручной Основной"
 
 
+@dataclass(frozen=True)
+class ManualUIIntent:
+    """Validated operator intent produced by the Manual UI wizard."""
+
+    user_id: int
+    chat_id: int
+    voltage_v: float
+    current_a: float
+    delta: float
+    time_limit_hours: float
+    capacity_ah: float
+
+    def __post_init__(self) -> None:
+        values = (self.voltage_v, self.current_a, self.delta, self.time_limit_hours, self.capacity_ah)
+        if any(not math.isfinite(float(value)) for value in values):
+            raise ValueError("Manual UI values must be finite")
+        if not 12.0 <= float(self.voltage_v) <= 17.0:
+            raise ValueError("Manual UI voltage must be between 12 and 17 V")
+        if not 0.1 <= float(self.current_a) <= MAX_STAGE_CURRENT:
+            raise ValueError("Manual UI current is outside the safety envelope")
+        if not 0.005 <= float(self.delta) <= 0.1:
+            raise ValueError("Manual UI delta is outside the supported range")
+        if not 0.0 < float(self.time_limit_hours) <= 72.0:
+            raise ValueError("Manual UI time limit must be between 0 and 72 hours")
+        if not 10.0 <= float(self.capacity_ah) <= 300.0:
+            raise ValueError("Manual UI capacity must be between 10 and 300 Ah")
+
+    @classmethod
+    def from_dialog(cls, *, user_id: int, chat_id: int, params: dict[str, float]) -> "ManualUIIntent":
+        return cls(
+            user_id=int(user_id), chat_id=int(chat_id),
+            voltage_v=float(params["main_voltage"]), current_a=float(params["main_current"]),
+            delta=float(params["delta"]), time_limit_hours=float(params["time_limit"]),
+            capacity_ah=float(params["capacity"]),
+        )
+
+    def to_request(self) -> ManualChargeRequest:
+        return ManualChargeRequest(
+            voltage_v=self.voltage_v, current_a=self.current_a,
+            stop=ManualStopConditions(
+                max_active_seconds=self.time_limit_hours * 3600.0, delta=self.delta,
+            ),
+            capacity_ah=self.capacity_ah, notes="Manual UI request",
+        )
+
+
 class ManualSessionManager:
     """Explicit manual authority: operator rules + non-bypassable hard safety.
 
@@ -715,43 +761,3 @@ class ManualSessionManager:
             finally:
                 self._transition_state(ManualSessionState.FAILED, self.stop_reason)
                 self._persist()
-
-    async def start_from_legacy_ui(self, message: Any, user_id: int, params: dict[str, float]) -> None:
-        """Compatibility adapter for the existing 5-step Custom dialog.
-
-        The old dialog's delta/time values become explicit operator stop conditions;
-        they no longer grant chemistry/FSM authority.  A native V2 Manual UI can later
-        expose the same request model without the legacy dialog's 17.0 V presentation
-        limit.
-        """
-        self.app.last_chat_id = message.chat.id
-        self.app.last_user_id = message.from_user.id if message.from_user else user_id
-        request = ManualChargeRequest(
-            voltage_v=float(params["main_voltage"]),
-            current_a=float(params["main_current"]),
-            stop=ManualStopConditions(
-                max_active_seconds=float(params["time_limit"]) * 3600.0,
-                delta=float(params["delta"]),
-            ),
-            capacity_ah=float(params.get("capacity") or 0.0) or None,
-            notes="legacy Custom UI compatibility adapter",
-        )
-        try:
-            enabled = await self.start(request)
-        except (RuntimeError, ValueError) as exc:
-            await message.answer(f"❌ Ручной режим не запущен: {exc}")
-            return
-        if not enabled:
-            await message.answer(
-                "❌ Ручной режим не запущен: безопасное включение RD6018 не подтверждено."
-            )
-            return
-        await message.answer(
-            "<b>🛠 Ручной режим запущен</b>\n"
-            f"U = {request.voltage_v:.2f} V\n"
-            f"I = {request.current_a:.2f} A\n"
-            f"OVP = {request.ovp_v:.2f} V (рассчитано)\n"
-            f"OCP = {request.ocp_a:.2f} A (рассчитано)\n"
-            "Автоматическая химическая FSM отключена; действуют только заданные "
-            "условия остановки и неотключаемая безопасность.",
-        )

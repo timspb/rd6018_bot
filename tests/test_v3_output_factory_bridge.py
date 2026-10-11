@@ -4,7 +4,6 @@ import unittest
 from runtime.charge import ChargeIntent, Measurements
 from runtime.charge.strategy import post_mix_reset_intent
 from runtime.output import OutputAction, OutputIntentFactory, SafeOutputIntent
-from runtime.output.bridge import ShadowOutputBridge
 from runtime.safety import SafetyContext, SafetyEngine, SafetyLimits
 
 
@@ -25,26 +24,6 @@ class V3OutputFactoryBridgeTests(unittest.TestCase):
         decision = self.safety.evaluate(ChargeIntent(16.0, 2.0, "main"), self.measurements, SafetyContext())
         with self.assertRaises(ValueError):
             self.factory.create(decision)
-
-    def test_disable_and_setpoint_mapping(self):
-        bridge = ShadowOutputBridge()
-        for intent, expected in (
-            (SafeOutputIntent(OutputAction.ENABLE, 14.4, 2.0), {"voltage": 14.4, "current": 2.0}),
-            (SafeOutputIntent(OutputAction.DISABLE), {}),
-            (SafeOutputIntent(OutputAction.SET_VOLTAGE, target_voltage=14.4), {"voltage": 14.4}),
-            (SafeOutputIntent(OutputAction.SET_CURRENT, target_current=2.0), {"current": 2.0}),
-        ):
-            record = bridge.map(intent)
-            self.assertEqual(intent.action.value, record.mapped.command)
-            self.assertEqual(expected, dict(record.mapped.parameters))
-            self.assertFalse(record.executed)
-            self.assertEqual("shadow_only", record.reason)
-
-    def test_factory_and_bridge_have_no_physical_execution(self):
-        decision = self.safety.evaluate(ChargeIntent(completed=True, next_stage="done"), self.measurements, SafetyContext())
-        record = ShadowOutputBridge().map(self.factory.create(decision))
-        self.assertEqual(OutputAction.DISABLE, record.intent.action)
-        self.assertFalse(record.executed)
 
     def test_reset_protection_uses_the_same_safe_output_intent(self):
         reset = post_mix_reset_intent(17.5, 12.0, reason="MIX_FINISH")

@@ -46,13 +46,11 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertIn("не запускался", feedback)
 
     def test_production_profile_start_has_one_transactional_owner(self):
-        from application.start_transaction_service import start_profile_transactional
-
-        self.assertIs(production_bot_ui._start_profile, start_profile_transactional)
+        self.assertFalse(hasattr(production_bot_ui, "_start_profile"))
 
         handlers = runtime_app.router.observers["callback_query"].handlers
         names = [handler.callback.__name__ for handler in handlers]
-        self.assertEqual(names.count("_v2_battery_start_route"), 1)
+        self.assertEqual(names.count("_battery_start_route"), 1)
 
     def test_production_start_graph_has_no_legacy_runner_or_owner_import(self):
         root = pathlib.Path(__file__).parents[1]
@@ -67,10 +65,9 @@ class StartRouteIsolationTests(unittest.TestCase):
             "StartTransactionRunner",
             (root / "production_bootstrap.py").read_text(encoding="utf-8"),
         )
-        self.assertIn(
-            "start_transaction_service",
-            (root / "production_bootstrap.py").read_text(encoding="utf-8"),
-        )
+        bootstrap = (root / "production_bootstrap.py").read_text(encoding="utf-8")
+        self.assertIn("StartTransactionRunner", bootstrap)
+        self.assertIn("ProductionStartRouteAdapter", bootstrap)
 
     def test_production_charge_modes_do_not_expose_legacy_profile_callbacks(self):
         callbacks = _callbacks(runtime_app._build_charge_modes_keyboard())
@@ -89,12 +86,10 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertFalse((root / "v2_startup.py").exists())
         self.assertFalse((root / "application" / "v2_start_runner_adapter.py").exists())
 
-    def test_composed_custom_dialog_is_bound_to_manual_session_owner(self):
-        self.assertIs(runtime_app.start_custom_charge.__self__, runtime_app.manual_session_manager)
-        self.assertIs(
-            runtime_app.start_custom_charge.__func__,
-            runtime_app.manual_session_manager.start_from_legacy_ui.__func__,
-        )
+    def test_composed_custom_dialog_uses_typed_manual_route(self):
+        self.assertIs(runtime_app.manual_ui_route.manager, runtime_app.manual_session_manager)
+        self.assertFalse(hasattr(runtime_app, "start_custom_charge"))
+        self.assertFalse(hasattr(runtime_app.manual_session_manager, "start_from_legacy_ui"))
 
     def test_quick_start_callback_uses_v3_route_when_composed(self):
         source = (pathlib.Path(__file__).parents[1] / "production_bot_ui.py").read_text(encoding="utf-8")
@@ -102,6 +97,8 @@ class StartRouteIsolationTests(unittest.TestCase):
         end = source.index('F.data.startswith("v2_bat_intent_")', start)
         callback = source[start:end]
         self.assertIn("_v3_production_start_route", callback)
+        self.assertNotIn("_start_profile", callback)
+        self.assertNotIn("Compatibility/rollback compositions", callback)
         self.assertIn("await route.submit(intent)", callback)
         self.assertNotIn("app.charge_controller.start(", callback)
         self.assertNotIn("app.hass.turn_on(", callback)

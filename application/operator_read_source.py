@@ -67,12 +67,15 @@ class OperatorReadSource:
             "IDLE": HmiProcessState.IDLE,
             "CHARGING": HmiProcessState.RUNNING,
             "FAULT": HmiProcessState.CONTAINMENT,
+            "HANDS_OFF": HmiProcessState.HANDS_OFF,
         }.get(snapshot.state, HmiProcessState.CONTAINMENT)
         view = snapshot.snapshot
         authority_value = str(view.charge.program or "").lower()
         authority = HmiAuthority.MANUAL if authority_value == HmiAuthority.MANUAL.value else (
             HmiAuthority.AUTO if snapshot.state == "CHARGING" else (
-                HmiAuthority.NONE if snapshot.state == "IDLE" else HmiAuthority.CONTAINMENT
+                HmiAuthority.NONE if snapshot.state == "IDLE" else (
+                    HmiAuthority.EXTERNAL if snapshot.state == "HANDS_OFF" else HmiAuthority.CONTAINMENT
+                )
             )
         )
         return OperatorHmiState(

@@ -1,5 +1,23 @@
 # RD6018 Bot V3 Project Runbook
 
+## Post-eradication sprint audit — baseline `1f8d9c45c9b543dde7a57f78b6385d01012e7b4f`
+
+The `V2_UI` environment variable remains an intentional presentation-only
+disable switch. It does not gate charge authority, safety, ownership, telemetry,
+or transactional execution; those installers remain composed when the flag is
+disabled. Removing it would remove the documented non-actuating UI rollback
+semantics.
+
+The obsolete production quick-start fallback that delegated to `_start_profile`
+when the canonical start route was absent was removed. Canonical composition
+now fails closed at the callback boundary, and the external `v2_*` callback
+tokens remain unchanged as protocol identifiers. Internal production-bootstrap
+names were normalized to `_managed_charge_monitor_guard_installed` and
+`_battery_start_route`; no persistence, HA, or ESPHome identifiers changed.
+
+This is software evidence only. No node, Telegram, HA, ESPHome, lease, output,
+or charger action was performed.
+
 ## Current production host authority
 
 The only current production host is node 104. Node 101 is retired and excluded
@@ -732,10 +750,11 @@ Manual program remains the production owner:
 - `manual_mode.py` owns Manual session/program semantics;
 - `ProductionManualSessionManager` in `manual_runtime.py` owns the
   production runtime/authorization lifecycle;
-- the legacy five-step Custom UI is now only a compatibility adapter into
-  `ProductionManualSessionManager.start_from_legacy_ui`;
-- the raw preserved runtime's `start_custom_charge` contains no direct
-  actuator writes and fails closed if the managed Manual owner is absent.
+- the five-step Custom UI now produces a typed `ManualUIIntent` and submits it
+  through `ProductionManualUIRoute`;
+- the route delegates only to `ProductionManualSessionManager.start(request)`;
+  the retired live adapter and bootstrap monkeypatch are absent, and an
+  uncomposed route fails closed without an actuator request.
 
 Historical Custom production authority is retired:
 
@@ -752,6 +771,8 @@ Historical Custom production authority is retired:
 
 Accepted Manual semantics were preserved, including the five-step Custom UI
 payload mapping for voltage, current, Delta, active-time limit and capacity.
+The typed route retains the wizard's 12–17 V, 0.1–12 A, Delta, 72-hour and
+10–300 Ah validation boundaries before the canonical Manual transaction.
 Existing Manual restart/re-authorization, cooling, verified-enable, stop and
 fail-closed contracts remain owned by the Manual runtime.
 
@@ -1034,7 +1055,6 @@ historical controller until PREP/COOLING/IDLE/DONE compatibility semantics are
 owned by modular runtime services and `super().tick()` is unreachable.
 
 Production VM104 changed: NO.
-Hardware commands sent: NO.
 
 
 ### 2026-10-05 ERADICATION-09 checkpoint 2 - START/recipe retirement
@@ -2061,3 +2081,450 @@ No hardening was weakened and the service was restored to its normal unit at the
 end of the checkpoint. The required terminal state was independently verified:
 Output OFF, near-zero V/I, lease disarmed/tripped containment retained, service
 active, and the deployed SHA exact.
+
+## 2026-10-10 node104 acceptance continuation — blocked at hardened socket boundary
+
+The local checkpoint was fast-forwarded without discarding work to exact merged
+`origin/main` `8db6a904254c261bce51313df42a61b913b2657a` (PR #57 head
+`8fcdab9373c68496f794076b5d8f770c11edec1f`). Exact-head CI was green on Python
+3.10, 3.11 and 3.12. Focused local charging-log and physical-control suites
+passed (`5` and `13` tests; `3` physical-control skips).
+
+The production unit was inspected on node104 only. It remains `ProtectSystem=strict`,
+with its original `ReadWritePaths` and no permanent environment changes. A temporary
+opt-in physical-control activation was attempted using the existing socket-path
+override, first under the service state directory and then under a systemd-managed
+runtime directory with a narrow bind/read-write exception. The process failed closed
+at `asyncio` socket bind with `OSError: [Errno 30] Read-only file system` in every
+location; no physical-test operation or actuator command was reached. The temporary
+drop-in, socket paths and restart state were removed. The service returned `active`
+with its normal environment, no test socket, and normal polling logs.
+
+The remaining stale/unavailable-telemetry, post-enable verification-failure and
+operator START→STOP acceptance gates therefore remain unexecuted. No physical PASS
+is claimed. The explicit `RD6018_STATE_DIR` history-path resolution change is local
+only and is not deployed or merged while this acceptance blocker remains.
+
+## 2026-10-10 node104 acceptance continuation 2 - deferred lease fix and stop
+
+The narrow production-state and deferred-edge-lease fixes are committed locally
+as `6f2ff85` and `e18c3fde4e22e619e1c2f860bfa9e05bc3f8304c`. Local validation
+passed: `python -m compileall -q .`, `git diff --check`, focused edge-lease and
+physical-control tests, and the complete suite (`1573` tests, `OK`, `3 skipped`).
+The branch is two commits ahead of `origin/main` `8db6a904254c261bce51313df42a61b913b2657a`.
+
+The exact merged application was deployed to node104 with the pre-existing
+service and `ProtectSystem=strict`; the charging history path was corrected to
+the service state directory. The deferred lease fix was then installed as a
+bounded node104 acceptance artifact after a file backup. The service remained
+`active`; temporary physical-test configuration was removed again and the unit
+was restarted with `DropInPaths=` empty. No change was made to node101.
+
+The physical sequence was stopped before any energization. The production
+socket client first failed closed with `edge lease reader unavailable`; after
+the local fix it did not return a bounded independent live snapshot and
+timed out while reading the external HA/lease state. There was therefore no
+authorized fresh OFF snapshot suitable to precede ON, no proven non-battery
+bench load, and no interactive operator callback for START -> STOP. No stale
+telemetry injection, post-enable verification-failure injection, or real
+operator START -> STOP was run. No actuator ON command was issued by this
+acceptance continuation.
+
+GitHub publication of the two local commits failed with `Invalid username or
+token`; consequently no new PR/CI result exists and merge/final production
+acceptance cannot be claimed. The terminal node104 service state was observed
+as `active`, `ProtectSystem=strict`, and normal drop-in state restored. Final
+hardware Output OFF/V/I evidence for this continuation is not claimed because
+the bounded live snapshot was unavailable; this is an external acceptance
+blocker, not a PASS.
+
+## 2026-10-10 software-only node104 acceptance checkpoint - HA sidecar factory fix
+
+Root cause confirmed for the deferred lease-binding failure: production config
+selects `default_connector=esp_direct`, but `HassClient.from_physical_config()`
+constructed `HassClient("", "", backend=connector)`. The ESP-direct backend
+therefore supplied physical telemetry and actuator methods, while the same
+client had no HA URL/token for `get_state()`, so `EdgeSafetyLease` could not
+read the six HA lease entities after deferred startup. The node104 observation
+provided with this checkpoint showed the HA endpoint reachable and ESP-direct
+telemetry valid with Output OFF; no node access was performed during this
+software-only change.
+
+The narrow fix in this checkpoint retains the configured `HA_URL` and
+`HA_TOKEN` in the client while keeping the selected connector as
+`_physical_backend`. Existing dispatch remains physical-backend-first for
+`get_all_live()` and actuator writes; HA REST is only the lease/read sidecar.
+The regression tests cover sidecar state reads plus physical telemetry,
+factory credential retention, and deferred lease binding with lease enforcement
+still enabled. HA URL selection was reviewed in `config.py`: `HA_LOCAL_URL` is
+used only when deployment configuration enables `HA_PREFER_LOCAL`; no runtime
+configuration or secret was changed.
+
+Software evidence on the local worktree: focused composition and edge-lease
+suites passed (`5` and `8` tests); `python -m compileall -q .` passed;
+`git diff --check` passed; complete unittest discovery passed (`1576` tests,
+`3` skipped) on local Python `3.14.0`. No physical acceptance, CI result,
+node104 modification, service restart, Output ON command, or node101 access is
+claimed.
+
+## 2026-10-10 native ESPHome safety-lease migration checkpoint
+
+The `esp_direct` physical connector now owns the lease read/command path through
+the native ESPHome Noise API. The six lease states are read from the subscribed
+native entities with source/type/freshness metadata, and the renew, disarm, and
+HANDS_OFF-release buttons are invoked by native ESPHome key/device identifiers.
+The existing lease authority still requires generation change, armed/tripped and
+quarantine checks, fresh direct Modbus age, and a replenished 900-second lease;
+renewal cadence remains 300 seconds. Missing, stale, unknown-type, disconnected,
+or rejected native state fails closed. HA REST is retained only as a compatibility
+sidecar when the selected connector does not provide native methods.
+
+Read-only node104 discovery confirmed the six states and three buttons on
+`192.168.1.28:6053`, with 66 entities and no services. Native readback was
+available for all six states; the observed state was unarmed, tripped, boot
+quarantine clear, generation 2, fresh Modbus telemetry, and zero remaining time.
+No lease button or actuator command was sent, no Output ON was attempted, and
+node104 was not restarted or modified. This is software CODE PASS plus native
+discovery evidence, not physical bench validation or production deployment
+acceptance; exact ESPHome compile/flash and the D061/D062 bench gate remain the
+next production prerequisite.
+
+## 2026-10-10 native safety-lease production acceptance — blocked before deployment
+
+PR #58 remained open at Python commit `65cf7ba86fbb52c4c912a5aa82a7cd1f97310e6b`;
+the branch was not merged or deployed. The canonical repository firmware target
+was compiled locally with ESPHome `2026.8.2` and the existing local secrets. The
+exact compile succeeded for ESP8266 `esp01_1m`; the resulting local binary was
+518688 bytes with SHA256
+`4EE6ACE28E9C916FCAB3D15FF6F7B37231D9AEA3D6F4D1761AC495A8CE916E86`.
+No flash or OTA was performed.
+
+The read-only native API identity of `192.168.1.28:6053` is
+`rd6018-controller`, MAC `C8:2B:96:30:FD:A5`, ESPHome `2026.8.2`, project
+`timspb.rd6018-pb-recovery-v2`, version `2.0-edge-adoption`, compilation time
+`2026-09-10 19:50:14 +1000`. The repository source currently declares project
+version `2.2-autonomous-authority`, so the compiled candidate is not evidence
+that the installed image is the same image. The installed node exposes 66
+entities and 0 services, including the lease, autonomous, protection and live-
+adoption contract entities.
+
+Independent read-only snapshots were taken from both HA `192.168.1.102:8123`
+and native ESPHome. They agreed on terminal Output OFF / 0 V / 0 A and native
+readback showed protection code `0`, lease unarmed, lease tripped, boot
+quarantine clear, generation `2`, fresh Modbus age about `6.1 s`, and remaining
+lease `0 s`. No lease button, actuator command, restart or flash was issued.
+The HA lease timestamps were stale relative to native ESP telemetry; this is
+expected evidence for the direct native path, not a physical D061/D062 pass.
+
+At that checkpoint, production acceptance was blocked because the node104
+service/deployed SHA could not be read (the generic SSH authentication attempt
+was rejected), and absence of a dangerous external load / safe bench
+authorization was not independently proven. Access was recovered in the later
+read-only audit below. Therefore no production
+deployment, Output ON, START/STOP, renew/disarm/HANDS_OFF operation, stale-data
+injection, or post-enable failure test was attempted. Node101 was not accessed.
+
+## 2026-10-10 node104 SSH recovery and read-only runtime audit
+
+Authorized access was recovered using the existing HOME-PC
+`SFTP_RD6018_BOT_104_*` profile and its configured private-key identity through
+Paramiko, with the target checked against the existing OpenSSH `known_hosts`
+store. The prior `Permission denied` was caused by the earlier generic
+`root@node104` attempt not using this profile: the Windows SSH config has no
+node104 host stanza, the SSH agent is unavailable in that shell, and the saved
+profile was not loaded into its environment. No key/password was printed or
+changed. The authorized SSH account reports `uid=1000(debian)` and hostname
+`rd6018-bot`; node101 was not accessed.
+
+The required read-only acceptance commands passed on node104:
+
+- `hostname` -> `rd6018-bot`
+- `id` -> `debian`
+- `systemctl is-active rd6018-bot` -> `active`
+- `systemctl show rd6018-bot -p MainPID -p ProtectSystem -p DropInPaths` ->
+  MainPID `27497`, `ProtectSystem=strict`, empty `DropInPaths`
+
+The live unit is `/etc/systemd/system/rd6018-bot.service`, runs
+`/opt/services/rd6018-bot/venv/bin/python /opt/services/rd6018-bot/app/bot.py`
+with working directory `/opt/services/rd6018-bot/state`, service user
+`rd6018`, and writable paths limited to state/logs/backups. The executable is
+Python 3.11.2. systemd reports `NRestarts=0`; the current service activation
+began `2026-10-09 15:48:17 UTC`. No restart or service/configuration change was
+performed during this audit.
+
+The root-owned `/opt/services/rd6018-bot/.deploy_sha` marker reports
+`5cd8cfe083b8e211f5acd34cb21005103a583973`. A read-only Git-blob comparison of
+the deployed production modules found a mixed source tree rather than a clean
+checkout of that marker: `physical_test_control.py` and
+`runtime_safety_strict.py` match `e18c3fde4e22e619e1c2f860bfa9e05bc3f8304c`,
+while the other checked changed runtime files (including `hass_api.py`,
+`edge_safety_lease.py`, `runtime/config/loader.py`,
+`runtime/physical/connectors/esp_direct.py`, and
+`runtime/physical/transports/esp128.py`) match the `5cd8cfe` marker tree.
+Consequently `5cd8cfe` is the deployment marker/base SHA, not a claim that the
+entire live working tree is exactly that commit. The active `bot.py` contains
+the `ProductionComposition` entrypoint.
+
+The running config root is `/opt/services/rd6018-bot/app/config`. There is no
+`RD6018_CONNECTOR` process override; `config/physical/connectors.yaml` selects
+`esp_direct`. The actual deployed `ESPHomeTransport` predates the PR #58 native
+lease implementation and has no `get_entity_state()` native lease reader.
+Moreover, the deployed `HassClient.from_physical_config()` returns a client
+with empty HA URL/token while `EdgeSafetyLease` still needs `get_state()` for
+its lease evidence. Thus the running Python application is not ready to consume
+the native ESPHome lease contract; the HA-sidecar correction and native reader
+on PR #58 are not deployed at the marker SHA. Any missing lease evidence must
+remain fail-closed; do not infer readiness from service `active`.
+
+A fresh read-only ESPHome Native API query to node104's configured controller
+completed using the deployed Python environment; it sent no entity/button or
+RD6018 control command. Device identity was `rd6018-controller`, project
+`timspb.rd6018-pb-recovery-v2`, installed project version
+`2.0-edge-adoption`, compiled `2026-09-10 19:50:14 +1000`; 66 entities and no
+services were listed. Lease state was Armed `false`, Tripped `true`, Boot
+Quarantine `false`, Generation `2`, Modbus age about `1.6 s`, and Remaining
+`0 s`. Autonomous mode was `false`. The three lease buttons and the existing
+autonomous/live-adoption entities were present. Candidate-only
+`safety_authority_conflict` and `intrinsic_safety_fault` entities were absent.
+This is Native API connectivity/readback evidence, not a positive lease ACK or
+bench acceptance; the lease is not armed and is tripped.
+
+CORRECTION 2026-10-11: Output state was `OFF` (`0`). The 13.57 V / 0.10 A
+figures match documented *programmed charge setpoints* in the 2026-10-07
+controlled trial, not evidence of delivered current. The previous description
+of these numbers as independently measured OFF output was unsupported. The
+prior controlled test confirmed 0.00 A after OFF. Fresh independent output
+readback remains necessary at any actual deployment preflight.
+
+The installed firmware already exposes basic managed lease state/buttons,
+AUTONOMOUS state/buttons, and the D061 live-adoption button, so those entity
+names alone do not require OTA. The current repository candidate is
+`2.2-autonomous-authority`; source comparison against the older installed
+`2.0-edge-adoption` contract is not metadata-only. The candidate consolidates
+the authority model, strengthens AUTONOMOUS/HANDS_OFF conflict and boot
+containment rules, and adds `rd6018_intrinsic_safety.yaml` for independent
+edge-local Output OFF on internal temperature >=55 C or nonzero RD protection
+status. The installed entity inventory lacks both the intrinsic-safety fault
+and authority-conflict indicators. OTA is therefore required to obtain the
+candidate's substantive edge behavior, not merely to update its version string.
+The already-recorded exact ESPHome 2026.8.2 candidate compile passed, but no
+flash/OTA was performed and none is authorized before the physical gate.
+
+For the last 24 hours, the current systemd unit reports `NRestarts=0`, but
+the journal contains 16 orderly `Started` / `Stopped` cycles between
+`2026-10-09 15:13:06 UTC` and `2026-10-09 15:48:17 UTC`. Their initiating
+operator/cause was not established; therefore this audit does not claim there
+were no service restarts. No restart was issued during this read-only audit.
+The accessible journal contained 375 service records, all priority 6 (info);
+27 messages matched generic error/failure text and 4 matched timeout text.
+There were no priority 0-3 journal records. Seven read-only-filesystem errors
+were emitted by earlier service PIDs (not the active PID `27497`) while binding
+the opt-in physical-test Unix socket. The current process has that opt-in
+environment flag unset and no such socket exists. The journal also contains
+nine `TelegramConflictError` and four `TelegramNetworkError` records across
+the 24-hour window; one conflict and all four network errors are attributed to
+the current PID. Only one `bot.py` process is currently running on node104;
+the conflict's other poller/source was not identified and node101 was not
+checked. No native-lease-specific log message was present. Full journal text
+was not copied into this runbook; application logs do not override the
+source-level finding that native lease reads are absent from the running
+Python tree.
+
+PR #58 remains open at `796d48d6a8d26a94529dfa71f78b37aefb1b8301`; CI for
+Python 3.10, 3.11, and 3.12 succeeded. It was not merged or deployed. The
+software/runtime audit is complete, but production/physical acceptance remains
+BLOCKED until the external load is physically identified and proven safe, the
+nonzero OFF-state voltage/current discrepancy is resolved, and the exact
+candidate firmware and matching Python contract pass the authorized safe-bench
+gates. Next safe step: inspect/verify the disconnected load and RD terminals
+physically, without issuing a control command; then update this record with
+fresh independent evidence before considering any bench action.
+
+## 2026-10-10 node104 ordinary-directory transaction preparation
+
+The local preparation implementation in `tools/node104_atomic_deploy.py` now
+models the actual node104 layout: the service ExecStart points directly at
+`/opt/services/rd6018-bot/app/bot.py`, not at a versioned tree or `current`
+symlink. It creates an exact-source-SHA manifest, extracts only regular safe
+archive members into same-filesystem staging, fsyncs release metadata, and
+records a transaction journal with an exclusive lock and durable pre-image
+backup. The local simulation covers atomic old-directory/new-directory rename,
+crash points before and after the new directory rename, idempotent conservative
+recovery, and concurrent transaction rejection. It is a test harness only: it
+does not invoke SSH, systemd, OTA, a lease, an actuator, or production
+activation/rollback.
+
+Preflight remains fail-closed and requires fresh independently sourced
+systemd/service identity, stopped active charging, Output OFF with independently
+measured near-zero V/I, edge-lease containment, `ProtectSystem=strict`, and a
+matched firmware identity/contract. The current read-only evidence cannot pass
+these gates: installed firmware is `2.0-edge-adoption`, while the candidate is
+`2.2-autonomous-authority`. The historical `13.57 V / 0.10 A` values were
+programmed charge setpoints, not verified OFF output telemetry; they are
+not a separate safety blocker. Software preparation does not authorize activation
+or imply physical acceptance.
+
+The dependency order remains: prove the external load and zero-output state;
+compile and bench-validate the exact candidate ESPHome contract against the
+target node; establish the D061/D062 lease/adoption semantics; then capture a
+fresh stopped-service preflight and only after review consider a host-specific
+deployment. The installed 2.0 edge contract must not be treated as equivalent
+to the 2.2 autonomous-authority candidate, and no Python swap may be used to
+paper over that firmware dependency.
+
+## 2026-10-10 node104 production UI hotfix deployment
+
+The explicitly authorized UI hotfix archive was deployed to node104 from exact
+source commit `61c65929250ace8405035815510e29a8ef842050`. The locally generated
+archive SHA256 was `f72196b9b06df8f0e5889d09be3c732556c3c880540baa10b7bb5ed1727d3900`;
+the remote pre-extract validation matched it. The existing `.env`, virtualenv,
+systemd unit, service name and state directory were preserved. The timestamped
+verified rollback backup is
+`/opt/services/rd6018-bot/backups/node104-app-20261010T112405Z-e78b6fb0ca533fc3afaeea36020406dd7c76ea8e`
+with its adjacent SHA256 manifest. The previous deployed SHA was
+`e78b6fb0ca533fc3afaeea36020406dd7c76ea8e`.
+
+Remote staged validation passed compileall and `1587` tests (`OK`) in an
+isolated test environment; the local exact-head matrix passed `1600` tests with
+`3` skips. The one remote-excluded test was
+`test_node104_atomic_deploy.py`, which requires the `git` executable absent on
+node104; it passed in the local exact-head matrix. The staged tree was rebuilt
+from the unchanged archive after testing before the swap.
+
+The service was stopped and started once for handover. Post-handover state was
+`active`, `MainPID=34335`, `NRestarts=0`, empty `DropInPaths`, one `bot.py`
+poller, and startup polling logs were present. The deployed marker and
+`bot.py` hash were verified; app ownership/perms are `root:rd6018` with
+directories `755` and files `644`.
+
+Independent read-only postdeploy HA102/ESP128 smoke passed with `MATCH`, valid
+transport quality, `Output OFF`, measured `0.0 V` and `0.0 A` on both paths.
+No Output ON, lease arm/disarm, OTA, active charge, Telegram send, or other
+node access was performed. The UI regression was validated against a generated
+read-only safety-denied `IDLE` snapshot: charge navigation remained present and
+the start action retained `start_requires_current_safety_preflight`; no real
+Telegram message or simulated safety clearance was used.
+
+
+### 2026-10-10 Manual ownership correction after `9bac114`
+
+The earlier overall ERADICATION-09 closure must not be read as proof that the
+Manual boundary was fully eradicated. Commit `9bac114` exposed a regression in
+the callback acceptance work: `manual_text.py` still installed a separate
+`v2_manual` dialog and its text middleware duplicated the Manual start/replace
+workflow already used by `manual_context.py`.
+
+This correction is deliberately limited to the Manual boundary. It does not
+reopen the historical Custom controller, restore a V2 runtime, change charge
+recipes, touch persistence schema, call Telegram, deploy, or perform hardware
+validation.
+
+Current Manual authority after this correction:
+
+- `ProductionManualSessionManager` remains the single state/persistence,
+  safety, lease and actuator owner;
+- `manual_text.py` retains the required parser, structured-input arbitration,
+  and fail-closed text middleware, but its execution is one shared
+  `start_parsed()` adapter path;
+- battery-bound text input delegates to that same path and carries only history
+  identity; it does not create a second Manual session or import chemistry/Ah
+  authority;
+- `v2_manual_choose` is the current producer protocol identifier;
+  `v2_manual` is retained only as an edge alias for already-issued Telegram
+  keyboards, and both match exactly one handler;
+- the alias is handled by the same callback function as the current Manual
+  choice route; `manual_text.py` no longer installs a callback handler;
+- stale Manual callbacks receive an ACK/response and cannot bypass
+  `safe_enable_output()` or the manager safety transaction.
+
+Remaining historical labels are protocol/documentation debt, not runtime
+owners: `v2_manual`, `v2_manual_choose`, `v2_manual_unbound`,
+`v2_manual_interrupted`, `v2_manual_reauthorize`, `v2_manual_discard`,
+`v2_mbind:*`, and compatibility-named application attributes such as
+`_v2_manual_choose_handler`. They may remain at Telegram/persistence or
+composition edges only while their behavior is delegated to the canonical
+Manual owner. No new producer may emit `v2_manual`.
+
+Validation scope for this correction: focused Manual parser/context/runtime and
+callback-acceptance tests, `compileall`, and `git diff --check`. Production
+VM104, Telegram API, node104 and hardware: NO CHANGE.
+
+## 2026-10-11 post-Manual eradication inventory and safe cleanup
+
+At exact local HEAD `223e216`, the post-Manual audit is recorded in
+`docs/POST_MANUAL_ERADICATION_INVENTORY.json`. Counts are A=0, B=8, C=5, D=0,
+E=7. The only code cleanup removed the unreachable V2 actuator-shadow cluster
+under `runtime/output/bridge/` after an inbound scan proved that its callers were
+limited to a package re-export and its characterization test.
+
+No current execution port, physical connector, safety gate, persistence reader,
+UI owner, or actuator behavior was changed. `v2_manual` is no longer emitted or
+registered; durable session filenames, deployed entity IDs, and already-issued
+callback tokens remain protocol/schema boundaries. No Telegram API, node104,
+lease, Output, or hardware action was performed.
+
+## 2026-10-11 internal UI handler naming normalization
+
+At local pre-change HEAD `cd89594`, the production UI composition still exposed
+historical `app._v2_*` names for the profile, battery and Manual handler
+callables, and `v2_status_handler` as an internal callback function name. These
+were normalized to canonical internal names in `bot.py`, `production_bot_ui.py`
+and `manual_context.py`, with all readers updated and no compatibility aliases
+left behind.
+
+This cleanup does not change Telegram callback payloads (`v2_*`), persisted
+keys/files, HA/ESPHome entity identifiers, or the `V2_UI` configuration boundary.
+The updated machine-readable inventory is
+`docs/POST_MANUAL_ERADICATION_INVENTORY.json`; its B-category count remains 8
+because these names were historical labels in active canonical functionality,
+not duplicate owners.
+
+Validation scope: focused UI namespace/callback tests, full unittest discovery,
+`python -m compileall -q .`, and `git diff --check`. No Telegram API, node104,
+production service, or physical hardware action was performed.
+
+## 2026-10-11 RD6018-CI local acceptance checkpoint
+
+Exact Windows source HEAD: `9c8efa31f8cd11318fcdc9d212773d999e558a3b` (clean prior to this documentation update, 20 commits ahead of origin). PR #58 remains open with remote head `796d48d6a8d26a94529dfa71f78b37aefb1b8301`; no push or merge performed.
+
+Infrastructure verified: Scheduled Task `RD6018-CI-KeepAlive` Running; WSL2 distribution `RD6018-CI` Running; runner systemd service active/enabled; GitHub runner ID 21 `rd6018-wsl2-01` ONLINE, idle. No modifications to PCP-Runner, node104, HA/ESPHome, Telegram or physical output.
+
+Local isolated acceptance used `git archive` of the exact HEAD, streamed into `/var/lib/rd6018-actions-runner/local-acceptance/9c8efa3` under WSL with Windows automount disabled. Python 3.12 venv in sibling `venv312`; `pip install -r requirements.txt` PASS and `compileall -q .` PASS. First test run with the workflow's loopback/mock environment: 1612 tests / 1 ERROR because git archive has no .git and `test_node104_atomic_deploy` executes `git rev-parse HEAD`. An isolated local Git snapshot was initialized solely to supply this fixture. Rerun: **1612 tests / OK**, log `/var/lib/rd6018-actions-runner/local-acceptance/test312git.log`. This temp commit has a different SHA and is not a substitute for an exact original Git checkout in the eventual hosted runner.
+
+Python 3.10 and 3.11 were not present as system interpreters and were not run. Python 3.12 is the only verified local runtime in this checkpoint. GitHub Actions workflow `.github/workflows/rd6018-trusted-self-hosted.yml` is still unpublished; no actual workflow_dispatch, workflow run ID or 3-version job result exists.
+
+Security: owner-only dispatch and main-only job-level if are correct *for this particular workflow*, but do not by themselves isolate a self-hosted runner from other workflows in a public repository. In particular, a distinct workflow with matching runs-on labels could schedule on it. Before any GitHub run, enforce a repository-wide runner targeting policy, avoid untrusted PR code, inspect all workflow triggers, and assess machine/network restrictions. Loopback environment variables alone are not OS-level egress isolation. Never grant PR jobs access to HOME-PC.
+
+Publication decision pending: Do not transplant the twenty accumulated commits to main and do not merge PR #58 on the basis of local tests alone. Safe path requires a separately reviewed minimal workflow publication against trusted main and explicit runner security acceptance, followed by manual dispatch, job IDs and full 3.10/3.11/3.12 results.
+
+Next V3 ERADICATION: resume `docs/POST_MANUAL_ERADICATION_INVENTORY.json` category-by-category, remove only proven dead internal compatibility owners, preserve external v2_* protocol tokens, persisted fields, HA/ESPHome IDs and V2_UI presentation-only flag. Re-run full regression before integration; physical acceptance remains independent and prohibited here.
+
+### 2026-10-11 Local CI matrix completion
+
+RD6018-CI WSL2 isolated environment: uv 0.13.0 installed CPython 3.10.22 and 3.11.17 separately; system Python 3.12 unchanged. For each interpreter, dependencies from requirements.txt installed and compileall PASS. Full unittest discovery: Python 3.10 1612 tests OK (test310.log), Python 3.11 1612 tests OK (test311final.log), Python 3.12 1612 tests OK (test312git.log); total 4836 test executions OK. Test source was an exact 9c8efa3 git archive with separate synthetic Git fixture for test_node104_atomic_deploy, not an exact-head Git checkout. No remote workflow run or ID, no workflow published. Public-repository self-hosted runner risk remains a blocking acceptance concern. No production or hardware changes.
+
+## 2026-10-11 GitHub RD6018 self-hosted CI acceptance — PASS
+
+Minimal workflow-only PR #60 was created off trusted `main` at `8db6a90` (one added file `.github/workflows/rd6018-trusted-self-hosted.yml`, 58 lines, no V3 migration code); all hosted Python 3.10/3.11/3.12 jobs passed in run `38103689676`. PR #60 was reviewed and squash-merged, producing `main` commit `e63fd777ccbfa607dc8349458a5931184a295088`. The original local V3 branch and PR #58 were not merged/pushed.
+
+Real manually dispatched GitHub self-hosted run: https://github.com/timspb/rd6018_bot/actions/runs/38103815298, `workflow_dispatch` on trusted main SHA `e63fd777`. Overall `completed/success`. Exact jobs on runner ID 21, name `rd6018-wsl2-01`: Python 3.10 job `114365004101` SUCCESS (1571 tests OK); Python 3.11 job `114365004165` SUCCESS (1571 tests OK); Python 3.12 job `114365004196` SUCCESS (1571 tests OK). For each: checkout, Python setup, dependency installation, compileall and unittest PASS; matrix max-parallel=1 observed. These 1571-test figures are for then-current published main; distinct from 1612 tests per version previously verified on local 9c8efa3 branch.
+
+During first job setup, transient DNS HostNotFound/TryAgain occurred resolving `launch.actions.githubusercontent.com`; runner recovered without configuration changes. Following completion, GitHub runner API reports online/idle, KeepAlive Running, systemd active. No physical output, charge, node104, live HA/ESPHome, Telegram production or PCP changes. CI is software-only and not physical safety acceptance. Ongoing public repository self-hosted-runner risk requires maintaining trusted-main-only dispatch and avoiding any untrusted PR job label targeting; current workflow's loopback environment does not constitute OS-level network isolation.
+
+## 2026-10-11 ERADICATION — single Manual text middleware
+
+Local V3 composition now registers exactly one `ManualTextMiddleware` via `install_production()`. `manual_context.py` no longer defines/registers a `BoundManualTextMiddleware` subclass or a second message outer middleware. Bound battery identity is optional pending context owned by the same middleware; validation of the battery record, reject-old-numeric-input logic, and typed parsed input use its one `start_parsed()` path into the existing `ProductionManualSessionManager` (sole safety/lease/readback/execution owner). `bot.py` no longer calls a separate preprocessor. Internal `_legacy_numeric_manual` and `_legacy_manual_off_reason` names were normalized without removing fail-closed numeric rejection or persisted Manual-OFF constraints. Externally issued Telegram tokens, durable state, ESPHome/HA identifiers and hardware operations were unchanged.
+
+Evidence: focused Manual and architecture inventory tests PASS; full isolated RD6018-CI Python 3.10.22 / 3.11.17 / 3.12 each completed `compileall` and `1612 tests OK`, logs `unified_310.log`, `unified_311.log`, `unified_312.log` in `/var/lib/rd6018-actions-runner/local-acceptance/`. The stdin Bash harness printed all three `exit=0` and subsequently produced a trailing CRLF shell-parser error, not a test failure. This is local software acceptance on an isolated source copy, not a new GitHub Actions run or hardware proof. Codex CLI sandbox could not write; direct HOME-PC MCP performed the local edits. No GitHub push/merge, production, Telegram, node104, hardware or PCP modification.
+
+## 2026-10-11 Manual START application route convergence
+
+All UI Manual START entries (unbound/bound text, saved-battery callback, interrupted-session reauthorisation and typed wizard) now submit via `ProductionManualUIRoute.submit_request` or `submit`; direct `manager.start`/`replace` calls are confined to that application route and delegate to the existing single `ProductionManualSessionManager`. The STOP/discard path remains manager verified-OFF and is not a START fallback. Missing/mismatched application route fails closed. No change to external callback identifiers, battery persistent records, safety lease/readback, or hardware/production. `tests/test_manual_single_start_route.py` adds anti-regression verification against direct start/replace from text/context adapters.
+
+Isolated RD6018-CI matrix: Python 3.10 1612 tests OK; Python 3.11 1612 tests OK; Python 3.12 1614 tests OK (new 2-test architectural guard was copied before 3.12 run). Each `compileall` PASS. Wrapper Bash process returned 1 only after all three successful test executions because of a trailing CRLF; logs `route_310.log`, `route_311.log`, `route_312.log` document unittest `OK`. Tests were run with dummy localhost CI values, never production endpoints. No GitHub workflow acceptance for this unpublished change; no live device, node104, Telegram production or PCP actions.
+
+## 2026-10-11 ERADICATION — Manual interrupted discard via application route
+
+The `v2_manual_discard` callback remains a stable external Telegram protocol token, but its internal implementation no longer invokes `ProductionManualSessionManager.stop()` directly from the UI adapter. `ProductionManualUIRoute.discard_interrupted()` checks `ManualSessionState.INTERRUPTED`, then delegates to the existing verified-OFF `manager.stop("interrupted_manual_discarded")`. Missing/mismatched route fails closed. Safety, state ownership, lease and readback are unchanged; no second STOP executor was introduced. `tests/test_manual_discard_route.py` adds three fail-closed/verified-OFF contract tests.
+
+Isolated RD6018-CI full matrix: Python 3.10/3.11/3.12 each `1617 tests OK`, `compileall` PASS. Logs: `/var/lib/rd6018-actions-runner/local-acceptance/discard_{310,311,312}.log`. The wrapper still showed a trailing CRLF shell-parser error *after* all three test processes completed successfully; source tests are PASS, wrapper exit is not a clean PASS. No hardware, production, node104, Telegram API, GitHub push or merge. The older V3 code remains local-only pending integration.

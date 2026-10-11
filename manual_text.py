@@ -1,4 +1,5 @@
 from __future__ import annotations
+from battery_registry import get_battery
 
 import html
 import math
@@ -6,8 +7,8 @@ from pathlib import Path
 from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from aiogram import BaseMiddleware, F
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
+from aiogram import BaseMiddleware
+from aiogram.types import Message, TelegramObject
 
 import sg_ui
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
@@ -15,9 +16,8 @@ from runtime.safety.variables import MAX_STAGE_CURRENT_A
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
-from manual_runtime import ProductionManualSessionManager
+from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute, ProductionManualUIRoute
 from runtime.charge.profiles.manual import ManualChargeProfile, ManualStageProfile, load_manual_profile, save_manual_profile
-from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
@@ -253,7 +253,7 @@ def manual_help_text() -> str:
     )
 
 
-def _legacy_numeric_manual(text: str) -> bool:
+def _retired_numeric_manual_input(text: str) -> bool:
     parts = str(text or "").replace(",", ".").split()
     if len(parts) < 2:
         return False
@@ -331,6 +331,90 @@ class ManualTextMiddleware(BaseMiddleware):
     def __init__(self, app: Any) -> None:
         self.app = app
         self.pending_users: set[int] = set()
+        self.pending_battery: Dict[int, str] = {}
+
+    @staticmethod
+    def _carries_stop(parsed: ParsedManualCommand) -> bool:
+        stop = parsed.request.stop
+        return (
+            parsed.reach_voltage_v is not None
+            or parsed.reach_current_a is not None
+            or any(
+                value is not None
+                for value in (
+                    stop.max_active_seconds,
+                    stop.voltage_ge_v,
+                    stop.voltage_le_v,
+                    stop.current_ge_a,
+                    stop.current_le_a,
+                    stop.delta,
+                )
+            )
+        )
+
+    async def start_parsed(
+        self,
+        event: Message,
+        parsed: ParsedManualCommand,
+        *,
+        battery_id: str | None = None,
+    ) -> bool:
+        """Submit parsed text to the one production Manual session owner.
+
+        Text entry points are adapters only: all state, persistence, safety and
+        actuator authority remains in ``ProductionManualSessionManager``.
+        """
+        if battery_id is not None:
+            parsed = replace(parsed, request=replace(parsed.request, battery_id=battery_id))
+        if not await self.app._check_chat_and_respond(event):
+            return False
+
+        manager = getattr(self.app, "manual_session_manager", None)
+        if not isinstance(manager, ProductionManualSessionManager):
+            await event.answer("❌ Manual owner не инициализирован.")
+            return False
+
+        if self._carries_stop(parsed):
+            clear_overlay = getattr(self.app, "_clear_manual_off", None)
+            if callable(clear_overlay):
+                clear_overlay()
+
+        route = getattr(self.app, "manual_ui_route", None)
+        if not isinstance(route, ProductionManualUIRoute) or route.manager is not manager:
+            await event.answer("Manual application route unavailable.")
+            return False
+        replaced = manager.is_active
+        result = await route.submit_request(
+            parsed.request,
+            chat_id=event.chat.id,
+            user_id=event.from_user.id if event.from_user else 0,
+            reach_voltage_v=parsed.reach_voltage_v,
+            reach_current_a=parsed.reach_current_a,
+            replace_active=replaced,
+        )
+        enabled = result.accepted
+        if not enabled:
+            await event.answer(
+                "❌ Manual не запущен: безопасное программирование/включение RD6018 не подтверждено."
+            )
+            return False
+
+        user_id = event.from_user.id if event.from_user else 0
+        self.app.last_chat_id = event.chat.id
+        self.app.last_user_id = user_id
+        suffix = (
+            f"\nАКБ: <code>{html.escape(parsed.request.battery_id)}</code> (только history identity)"
+            if parsed.request.battery_id
+            else ""
+        )
+        await event.answer(_format_start(parsed, replaced=replaced) + suffix)
+        show_now = getattr(self.app, "_build_and_send_dashboard", None)
+        if callable(show_now):
+            await show_now(event.chat.id, user_id)
+        schedule = getattr(self.app, "schedule_dashboard_after_60", None)
+        if callable(schedule):
+            schedule(event.chat.id, user_id)
+        return True
 
     async def __call__(
         self,
@@ -345,12 +429,46 @@ class ManualTextMiddleware(BaseMiddleware):
         if text.startswith("/"):
             return await handler(event, data)
 
+        battery_id = self.pending_battery.get(user_id)
+        if battery_id:
+            if _retired_numeric_manual_input(event.text):
+                self.pending_battery.pop(user_id, None)
+                await event.answer(
+                    "❌ Старый формат Manual отключён. Используйте значения из конфигурации и отправьте "
+                    "<code>MANUAL</code>.\n" + manual_help_text()
+                )
+                return None
+
+            try:
+                parsed = parse_manual_command(event.text, battery_id=battery_id)
+            except ValueError as exc:
+                self.pending_battery.pop(user_id, None)
+                await event.answer(f"❌ {html.escape(str(exc))}\n\n{manual_help_text()}")
+                return None
+            if parsed is None:
+                self.pending_battery.pop(user_id, None)
+                await event.answer("❌ Не распознал параметры Manual.\n\n" + manual_help_text())
+                return None
+
+            self.pending_battery.pop(user_id, None)
+            if not await self.app._check_chat_and_respond(event):
+                return None
+            if await get_battery(battery_id) is None:
+                await event.answer(
+                    "❌ Выбранная сохранённая АКБ больше не найдена. "
+                    "Откройте Manual заново и выберите актуальную запись."
+                )
+                return None
+
+            await self.start_parsed(event, parsed, battery_id=battery_id)
+            return None
+
         # Structured multi-step inputs own their next message before the global Manual
         # quick-command parser. The native Manual prompt itself needs no dialog FSM.
         if _another_dialog_owns_text(self.app, user_id):
             return await handler(event, data)
 
-        if _legacy_numeric_manual(text):
+        if _retired_numeric_manual_input(text):
             self.pending_users.discard(user_id)
             await event.answer(
                 "❌ Старый формат Manual отключён. Используйте значения из конфигурации и отправьте "
@@ -389,96 +507,19 @@ class ManualTextMiddleware(BaseMiddleware):
         if not await self.app._check_chat_and_respond(event):
             return None
 
-        manager = getattr(self.app, "manual_session_manager", None)
-        if not isinstance(manager, ProductionManualSessionManager):
-            await event.answer("❌ V2 Manual runtime не инициализирован.")
-            return None
-
-        # Historic three-token commands replaced the old Manual-OFF condition. The new
-        # reach/timer lives inside ManualSession; clear the legacy overlay only when a
-        # direct command actually carries its own stop rule. Plain V I keeps any
-        # independently configured persistent Manual-OFF condition intact.
-        carries_stop = (
-            parsed.reach_voltage_v is not None
-            or parsed.reach_current_a is not None
-            or any(
-                value is not None
-                for value in (
-                    parsed.request.stop.max_active_seconds,
-                    parsed.request.stop.voltage_ge_v,
-                    parsed.request.stop.voltage_le_v,
-                    parsed.request.stop.current_ge_a,
-                    parsed.request.stop.current_le_a,
-                    parsed.request.stop.delta,
-                )
-            )
-        )
-        if carries_stop:
-            clear_overlay = getattr(self.app, "_clear_manual_off", None)
-            if callable(clear_overlay):
-                clear_overlay()
-
-        replaced = manager.is_active
-        try:
-            if replaced:
-                enabled = await manager.replace(
-                    parsed.request,
-                    reach_voltage_v=parsed.reach_voltage_v,
-                    reach_current_a=parsed.reach_current_a,
-                )
-            else:
-                enabled = await manager.start(
-                    parsed.request,
-                    reach_voltage_v=parsed.reach_voltage_v,
-                    reach_current_a=parsed.reach_current_a,
-                )
-        except (RuntimeError, ValueError) as exc:
-            await event.answer(f"❌ Manual не запущен: {html.escape(str(exc))}")
-            return None
-
-        if not enabled:
-            await event.answer(
-                "❌ Manual не запущен: безопасное программирование/включение RD6018 не подтверждено."
-            )
-            return None
-
-        self.app.last_chat_id = event.chat.id
-        self.app.last_user_id = user_id
-        await event.answer(_format_start(parsed, replaced=replaced))
-        show_now = getattr(self.app, "_build_and_send_dashboard", None)
-        if callable(show_now):
-            await show_now(event.chat.id, user_id)
-        schedule = getattr(self.app, "schedule_dashboard_after_60", None)
-        if callable(schedule):
-            schedule(event.chat.id, user_id)
+        await self.start_parsed(event, parsed)
         return None
 
 
 def install_manual_text(app: Any) -> ManualTextMiddleware:
-    existing = getattr(app, "_v2_manual_text_middleware", None)
+    existing = getattr(app, "_manual_text_middleware", None)
     if isinstance(existing, ManualTextMiddleware):
         return existing
 
     middleware = ManualTextMiddleware(app)
     # Outer middleware runs before the already-registered catch-all F.text handler, so
-    # legacy direct setpoint writes cannot bypass managed Manual authority in V2.
+    # direct setpoint writes cannot bypass the managed Manual owner.
     app.router.message.outer_middleware.register(middleware)
-    app._v2_manual_text_middleware = middleware
-
-    @app.router.callback_query(F.data == "v2_manual")
-    async def v2_manual_handler(call: CallbackQuery) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        await call.answer()
-        user_id = call.from_user.id if call.from_user else 0
-        middleware.pending_users.add(user_id)
-        await call.message.answer(
-            manual_help_text(),
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="⬅ К программам", callback_data=CHARGE_CALLBACK_DATA)]
-                ]
-            ),
-        )
+    app._manual_text_middleware = middleware
 
     return middleware

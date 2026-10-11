@@ -20,6 +20,13 @@ class _NumberState:
         self.state = state
 
 
+class _ButtonInfo:
+    def __init__(self, key, object_id, device_id=1):
+        self.key = key
+        self.object_id = object_id
+        self.device_id = device_id
+
+
 class _FakeClient:
     instances = []
     subscribe_calls = 0
@@ -34,6 +41,7 @@ class _FakeClient:
         self.connected = False
         self.disconnected = False
         self.closed_callbacks = set()
+        self.button_commands = []
         type(self).instances.append(self)
 
     async def connect(self, login=True):
@@ -57,6 +65,15 @@ class _FakeClient:
             SimpleNamespace(key=2, object_id="rd_current", device_id=1),
             SimpleNamespace(key=3, object_id="rd_output", device_id=1),
             SimpleNamespace(key=4, object_id="rd_set_voltage", device_id=1),
+            SimpleNamespace(key=10, object_id="safety_lease_armed", device_id=0),
+            SimpleNamespace(key=11, object_id="safety_lease_tripped", device_id=0),
+            SimpleNamespace(key=12, object_id="safety_boot_quarantine", device_id=0),
+            SimpleNamespace(key=13, object_id="safety_lease_generation", device_id=0),
+            SimpleNamespace(key=14, object_id="safety_modbus_age", device_id=0),
+            SimpleNamespace(key=15, object_id="safety_lease_remaining", device_id=0),
+            _ButtonInfo(16, "safety_lease_renew", 0),
+            _ButtonInfo(17, "safety_lease_disarm", 0),
+            _ButtonInfo(18, "safety_lease_release_to_hands_off", 0),
         ]
         return entities, []
 
@@ -70,6 +87,12 @@ class _FakeClient:
             callback(_SensorState(2, 0.0))
             callback(_SensorState(3, 0.0))
             callback(_NumberState(4, 14.7))
+            callback(_SensorState(10, 0.0))
+            callback(_SensorState(11, 0.0))
+            callback(_SensorState(12, 0.0))
+            callback(_SensorState(13, 2.0))
+            callback(_SensorState(14, 3.0))
+            callback(_SensorState(15, 0.0))
 
         def remove():
             type(self).remove_calls += 1
@@ -82,6 +105,9 @@ class _FakeClient:
 
     def handler_count(self):
         return len(self.callbacks)
+
+    def button_command(self, key, device_id):
+        self.button_commands.append((key, device_id))
 
 
 def _config():
@@ -96,6 +122,17 @@ def _config():
             "current": "rd_current",
             "output_state": "rd_output",
             "configured_voltage": "rd_set_voltage",
+        },
+        edge_entities={
+            "edge_lease_renew": "safety_lease_renew",
+            "edge_lease_disarm": "safety_lease_disarm",
+            "edge_lease_release_to_hands_off": "safety_lease_release_to_hands_off",
+            "edge_lease_armed": "safety_lease_armed",
+            "edge_lease_tripped": "safety_lease_tripped",
+            "edge_boot_quarantine": "safety_boot_quarantine",
+            "edge_lease_generation": "safety_lease_generation",
+            "edge_modbus_age": "safety_modbus_age",
+            "edge_lease_remaining": "safety_lease_remaining",
         },
     )
 
@@ -196,6 +233,46 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         live = await transport.get_live_values()
         self.assertIsNone(live["voltage"])
         self.assertEqual(live["_meta"]["voltage"]["status"], "unknown")
+        await transport.close()
+
+    async def test_native_edge_readback_returns_all_six_states_with_age_and_type(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        for entity_id in (
+            "binary_sensor.rd6018_rd_6018_safety_lease_armed",
+            "binary_sensor.rd6018_rd_6018_safety_lease_tripped",
+            "binary_sensor.rd6018_rd_6018_safety_boot_quarantine",
+            "sensor.rd6018_rd_6018_safety_lease_generation",
+            "sensor.rd6018_rd_6018_safety_modbus_age",
+            "sensor.rd6018_rd_6018_safety_lease_remaining",
+        ):
+            value, attrs = await transport.get_entity_state(entity_id)
+            self.assertIsNotNone(value)
+            self.assertEqual(attrs["source"], "esp_native_api")
+            self.assertLessEqual(attrs["age_s"], 20.0)
+        await transport.close()
+
+    async def test_native_missing_edge_entity_is_fail_closed(self):
+        config = _config()
+        config = PhysicalTransportConfig(
+            config.name, config.type, config.enabled, config.priority,
+            config.connection, config.entities,
+            {**config.edge_entities, "edge_lease_armed": "not_present"},
+        )
+        transport = ESPHomeTransport(config, RDConfig(60.0, 18.0, 1000.0))
+        value, attrs = await transport.get_entity_state(
+            "binary_sensor.rd6018_rd_6018_safety_lease_armed"
+        )
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "missing")
+        await transport.close()
+
+    async def test_native_button_path_does_not_use_home_assistant(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.discover()
+        self.assertTrue(await transport.press_button(
+            "button.rd6018_rd_6018_safety_lease_renew"
+        ))
+        self.assertEqual(_FakeClient.instances[0].button_commands, [(16, 0)])
         await transport.close()
 
     async def test_reconnects_when_cached_client_reports_disconnected(self):

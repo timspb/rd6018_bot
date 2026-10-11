@@ -1,4 +1,5 @@
 import os
+import pathlib
 import unittest
 
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
@@ -326,13 +327,22 @@ class V2EntrypointTests(unittest.TestCase):
     def test_saved_battery_start_route_precedes_generic_battery_selector(self):
         handlers = production_runtime.router.observers["callback_query"].handlers
         callback_names = [handler.callback.__name__ for handler in handlers]
-        self.assertIn("_v2_battery_start_route", callback_names)
+        self.assertIn("_battery_start_route", callback_names)
         self.assertIn("battery_select_handler", callback_names)
         self.assertLess(
-            callback_names.index("_v2_battery_start_route"),
+            callback_names.index("_battery_start_route"),
             callback_names.index("battery_select_handler"),
             "v2_battery_start must not be swallowed by the generic v2_battery_* selector",
         )
+
+    def test_ui_disable_switch_does_not_remove_safety_composition(self):
+        root = pathlib.Path(__file__).parents[1]
+        bot_source = (root / "bot.py").read_text(encoding="utf-8")
+        bootstrap_source = (root / "production_bootstrap.py").read_text(encoding="utf-8")
+        self.assertIn('_ui_support_enabled = _env_enabled("V2_UI", True)', bot_source)
+        self.assertIn("install_production(app, install_ui=_ui_support_enabled)", bot_source)
+        self.assertIn("install_managed_runtime_safety", bootstrap_source)
+        self.assertIn("install_rd_startup_authority_gate", bot_source)
 
     def test_diagnostic_action_journal_is_installed(self):
         self.assertIsInstance(production_runtime.diagnostic_action_journal, DiagnosticActionJournal)

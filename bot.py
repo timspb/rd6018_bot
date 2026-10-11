@@ -13,10 +13,7 @@ from application.operator_snapshot_provider import OperatorSnapshotProvider
 from application.operator_read_source import OperatorReadSource
 from application.operator_intent_factory import build_operator_intent_dispatcher
 from diagnostic_persistence import install_diagnostic_persistence
-from manual_context import (
-    install_manual_context_preprocessor,
-    install_manual_context_ui,
-)
+from manual_context import install_manual_context_ui
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
@@ -85,10 +82,8 @@ class ProductionComposition:
         if self.composed:
             return self
         app = self.runtime
-        # The battery-bound Manual preprocessor must be registered before the generic numeric
-        # Manual middleware installed by install_production(); this gives an explicitly selected
-        # physical battery ownership of the next numeric message without changing Manual V/I.
-        install_manual_context_preprocessor(app)
+        # install_production() registers the sole Manual text middleware.
+        # Optional battery identity is carried in that middleware, never in a second route.
 
         # Production controller + actuator safety are always installed. V2_UI controls only
         # presentation, exactly as documented; rolling the Telegram UI back must not remove
@@ -243,11 +238,11 @@ class ProductionComposition:
         if _ui_support_enabled:
             install_charge_program_screen(
                 app,
-                profile_selector=app._v2_select_quick_profile,
-                batteries_handler=app._v2_batteries_handler,
-                battery_add_handler=app._v2_battery_add_handler,
-                manual_handler=app._v2_manual_choose_handler,
-                interrupted_manual_handler=app._v2_manual_interrupted_handler,
+                profile_selector=app._select_quick_profile,
+                batteries_handler=app._batteries_handler,
+                battery_add_handler=app._battery_add_handler,
+                manual_handler=app._manual_choose_handler,
+                interrupted_manual_handler=app._manual_interrupted_handler,
                 interrupted_manual_provider=lambda: (
                     str(
                         getattr(

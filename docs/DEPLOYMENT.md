@@ -24,7 +24,7 @@ ProductionChargeController
   -> RD6018 via Home Assistant / direct local Modbus
 ```
 
-The production safety lease is a dead-man contract, not an optional dashboard feature. Before any controller-managed Output ON, the bot requires a positively acknowledged local lease. The normal contract is a 30-minute local TTL renewed every 10 minutes. If bot/HA/API communication disappears completely, the ESPHome node must be able to turn RD6018 Output OFF locally when that lease expires.
+The production safety lease is a dead-man contract, not an optional dashboard feature. Before any controller-managed Output ON, the bot requires a positively acknowledged local lease. The production contract is a 900-second local TTL renewed every 300 seconds. If bot/API communication disappears completely, the ESPHome node must be able to turn RD6018 Output OFF locally when that lease expires. With `esp_direct`, lease state and button commands use the native ESPHome Noise API directly; Home Assistant is not required for the lease path and remains only a compatibility sidecar when configured.
 
 See `docs/RD6018_FAILSAFE.md` and `esphome/rd6018_safety_lease.yaml`.
 
@@ -72,7 +72,7 @@ Before replacing the running bot:
 7. With RD6018 Output OFF, press Renew once and verify:
    - generation increments;
    - armed becomes ON;
-   - remaining jumps to approximately 1800 s;
+   - remaining jumps to approximately 900 s;
    - direct Modbus remains fresh.
 8. Press Disarm with Output still OFF and verify armed becomes OFF.
 
@@ -89,6 +89,24 @@ git status --short
 
 If the deployed tree contains local operational files or uncommitted configuration, back up the complete directory or the relevant local files before checkout/reset. Do not discard local `.env`, SQLite databases, session JSON or service overrides.
 
+## Offline node104 transaction-preparation harness
+
+`tools/node104_atomic_deploy.py` is an offline preparation and simulation tool;
+it does not activate production, invoke SSH/systemd, control the RD6018, or
+perform OTA/lease operations. Its simulator requires an initialized temporary
+simulation root and enforces root-contained ordinary directories on one
+filesystem. Release metadata and journal updates are written atomically;
+backup files and nested directories are flushed before the journal can mark the
+backup durable.
+
+Recovery is fail-closed. It takes an OS-held exclusive lock (including over a
+stale lock marker left by a crashed process), validates the journal identity,
+root-contained backup path, backup manifest, and filesystem state, then restores
+the pre-image idempotently. Missing/corrupt backups, path traversal, malformed
+journals, impossible rename states, and uninitialized or arbitrary CLI roots
+are blocked. Green simulation tests are software evidence only and do not
+authorize deployment or physical validation.
+
 ## Install requested revision
 
 For the requested revision:
@@ -96,7 +114,7 @@ For the requested revision:
 ```bash
 git fetch origin
 # checkout/reset only after local operational files are protected
-git checkout refactor/pb-recovery-controller-v2
+git checkout --detach <requested-sha>
 git reset --hard <requested-sha>
 ```
 
@@ -139,8 +157,6 @@ Normal production deployment must not inject retired rollback flags.
 Normal:
 
 ```text
-V2_UI unset/true
-V2_AUTHORITATIVE unset/true
 RD6018_EDGE_LEASE_REQUIRED unset/true
 ```
 
@@ -149,7 +165,7 @@ RD6018_EDGE_LEASE_REQUIRED unset/true
 Rollback policy during modular V3 migration:
 
 - `V2_AUTHORITATIVE=0` is retired and must not be used to re-enable legacy Main/Mix authority.
-- `V2_UI=0` may be used only as the still-supported presentation compatibility switch while UI migration is incomplete; it does not alter charge authority.
+- UI compatibility flags are not an accepted method of restoring a previous execution owner.
 - Control/strategy rollback is an explicit deployment of a known-good commit after normal physical safety prechecks.
 
 For systemd, use the existing unit/environment mechanism; do not invent permanent overrides that resurrect retired owners.
@@ -201,7 +217,7 @@ A physical charge is a separate controlled hardware-validation step.
 
 After non-actuating deployment passes, validate the dead-man path on a current-limited dummy load or other low-consequence load before any battery Mix/HV test.
 
-For this validation only, it is reasonable to temporarily use a much shorter edge TTL (for example 90 s with a 20--30 s renewal interval), provided bot and ESPHome configuration use the same test geometry and the production 30 min / 10 min values are restored afterwards.
+For this validation only, it is reasonable to temporarily use a much shorter edge TTL (for example 90 s with a 20--30 s renewal interval), provided bot and ESPHome configuration use the same test geometry and the production 900 s / 300 s values are restored afterwards.
 
 Prove each of these independently:
 
@@ -248,7 +264,7 @@ If startup validation fails:
 5. verify service state and logs;
 6. report both failed and restored SHAs.
 
-If code rollback is unnecessary and only V2 presentation/authority must be disabled, use the rollback flags above first. Do not remove the edge lease merely to hide a charging-safety failure.
+Restore an approved previous revision using the documented rollback transaction; historical UI/authority flags are not an execution rollback. Do not remove the edge lease to hide a charging-safety failure.
 
 ## Expected deployment report
 
@@ -264,8 +280,7 @@ ESPHome lease package: compiled/flashed/not installed
 Lease entities: PASS/FAIL
 Direct Modbus freshness: <age/status>
 Edge failsafe hardware test: PASS/FAIL/not run
-V2_UI: enabled/disabled
-V2_AUTHORITATIVE: enabled/disabled
+Execution authority: canonical modular runtime
 RD6018_EDGE_LEASE_REQUIRED: enabled/disabled
 Startup logs: <important warnings/errors or none>
 Rollback: <previous SHA / backup path / command>

@@ -16,6 +16,7 @@ from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from runtime.production_runtime import _build_dashboard_keyboard
 from application.operator_actions import OperatorAction, OperatorActionsView
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from application.operator_snapshot import snapshot_from_mapping
 
 
 class FakeObserver:
@@ -610,6 +611,12 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertEqual(available, {OperatorAction.START_CHARGE})
         self.assertIn(OperatorAction.SHOW_LOG, actions.disabled_actions)
         self.assertIn(OperatorAction.SHOW_DIAGNOSTICS, actions.disabled_actions)
+
+    def test_idle_safety_denial_does_not_hide_charge_workspace_navigation(self):
+        actions = OperatorActionsView.for_state("IDLE", safety_allowed=False)
+        keyboard = build_operator_keyboard(None, None, actions=actions)  # type: ignore[arg-type]
+        callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
 
     def test_paused_charge_has_resume_and_terminal_stop_side_by_side(self):
         app = FakeApp(observer=None, hands_off=False, controller_active=True)
