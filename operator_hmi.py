@@ -1087,7 +1087,7 @@ def install_operator_hmi(app: Any) -> None:
         if interface is None:
             raise RuntimeError("operator interface is not installed")
         snapshot = await interface.get_operator_snapshot()
-        actions = await interface.get_operator_actions()
+        actions = await interface.get_operator_actions(snapshot=snapshot)
         from application.operator_snapshot_provider import OperatorSnapshotProvider
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         text = render_operator_panel(state)

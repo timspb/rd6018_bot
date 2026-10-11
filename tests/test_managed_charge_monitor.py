@@ -109,7 +109,7 @@ class ManagedChargeMonitorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNot(guarded, original)
         self.assertIs(app.charge_monitor, guarded)
-        self.assertTrue(app._v2_managed_charge_monitor_guard_installed)
+        self.assertTrue(app._managed_charge_monitor_guard_installed)
 
 
 if __name__ == "__main__":

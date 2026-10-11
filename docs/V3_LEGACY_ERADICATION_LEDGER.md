@@ -848,3 +848,19 @@ historical states continue to fail closed; there is no fallback transition owner
 Operator/trace metadata reports `modular` authority. Historical persisted `v2_*`
 session keys remain temporarily readable/writable only as storage-schema
 compatibility and do not select runtime ownership.
+
+## 2026-10-11 post-Manual eradication audit at `223e216`
+
+The machine-readable inventory is `docs/POST_MANUAL_ERADICATION_INVENTORY.json`.
+It separates active canonical names (B), persisted/protocol boundaries (C), and
+docs/tests evidence (E) from obsolete owners/fallbacks (A) and dead code (D).
+
+Exact remaining counts in the audited production-reachable scope are A=0, B=8,
+C=5, D=0, E=7. One confirmed dead D cluster was removed without changing
+physical behavior: `runtime/output/bridge/shadow.py`, `mapping.py`, and
+`contract.py`. It had no production or operational inbound edge; only a package
+re-export and characterization test kept it alive.
+
+Persisted `v2_*` keys, `*.v2.json` files, deployed HA/ESPHome `*_v2` entity IDs,
+and already-issued Telegram callback tokens remain explicit unresolved
+boundaries. No node, Telegram API, lease, Output, or hardware action was taken.

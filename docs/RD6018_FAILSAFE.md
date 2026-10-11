@@ -13,15 +13,15 @@ naturally converges to local `Output OFF`.
 
 ## Production contract
 
-- Edge lease TTL: **30 minutes**.
-- Bot renewal cadence: **10 minutes**.
+- Edge lease TTL: **900 seconds (15 minutes)**.
+- Bot renewal cadence: **300 seconds (5 minutes)**.
 - Renewal is armed **before every controller-managed Output ON**.
 - A Home Assistant HTTP success is not sufficient acknowledgement.
 - Renewal succeeds only when:
   - the ESPHome lease generation changes;
   - `Safety Lease Armed` is ON;
   - the ESPHome node reports a direct RD6018 Modbus observation no older than 20 s;
-  - the reported remaining lease is effectively a freshly replenished 30-minute lease
+  - the reported remaining lease is effectively a freshly replenished 900-second lease
     (production ACK allows only a small telemetry/publication slack).
 - Between scheduled renewals the bot also rejects an unexpectedly short remaining lease.
 - A missed/invalid renewal while communication is still available immediately requests
@@ -39,6 +39,12 @@ naturally converges to local `Output OFF`.
   the boot quarantine and requires an explicit verified-OFF disarm before a new start.
 
 The ESPHome package is `esphome/rd6018_safety_lease.yaml`.
+
+The preferred application transport is the configured `esp_direct` connector. It reads
+the six lease states and presses the three lease buttons through the native ESPHome
+Noise API, with native type and freshness checks. HA REST is a compatibility sidecar,
+not a required dependency for this lease path. A native entity missing, stale, or of an
+unexpected type fails closed.
 
 `RD6018_EDGE_LEASE_REQUIRED=1` is the production default. Setting it to `0` is an
 explicit emergency rollback that removes this independent communication-loss boundary;

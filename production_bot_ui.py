@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -50,6 +51,46 @@ _battery_pages: Dict[int, list[BatteryRecord]] = {}
 _selected_battery: Dict[int, BatteryRecord] = {}
 _new_battery_input: set[int] = set()
 _installed = False
+
+
+def _battery_callback_token(battery_id: str) -> str:
+    """Return a short deterministic identity token safe for Telegram callbacks."""
+    return hashlib.sha256(str(battery_id).encode("utf-8")).hexdigest()[:12]
+
+
+def _battery_callback_data(record: BatteryRecord) -> str:
+    return f"v2_battery_id_{_battery_callback_token(record.identity.battery_id)}"
+
+
+def _battery_rows(records: list[BatteryRecord]) -> list[list[InlineKeyboardButton]]:
+    return [
+        [InlineKeyboardButton(text=battery_button_label(record), callback_data=_battery_callback_data(record))]
+        for record in records
+    ]
+
+
+async def _resolve_battery_callback(raw: str, user_id: int) -> Optional[BatteryRecord]:
+    """Resolve durable callbacks first; retain old page indexes for compatibility."""
+    if raw.startswith("id_"):
+        token = raw[3:]
+        records = await list_batteries(limit=200)
+        return next(
+            (
+                record
+                for record in records
+                if profile_for_chemistry(record.identity.chemistry)
+                and _battery_callback_token(record.identity.battery_id) == token
+            ),
+            None,
+        )
+    if not raw.isdigit():
+        return None
+    idx = int(raw)
+    records = _battery_pages.get(user_id) or []
+    if idx < 0 or idx >= len(records):
+        records = [r for r in await list_batteries(limit=200) if profile_for_chemistry(r.identity.chemistry)]
+        _battery_pages[user_id] = records
+    return records[idx] if 0 <= idx < len(records) else None
 
 
 def selected_battery_for_user(user_id: int) -> Optional[BatteryRecord]:
@@ -213,22 +254,11 @@ async def _refresh_dashboard_after_selection(app: Any, call: Any, user_id: int) 
         app.logger.debug("dashboard refresh after mode selection failed: %s", exc)
 
 
-async def _start_profile(app: Any, event: Any, pending: PendingStart) -> bool:
-    """Fail closed unless composition injects the canonical START owner."""
-    message = event.message if hasattr(event, "message") and event.message is not None else event
-    await message.answer(
-        "❌ START недоступен: production START owner не подключён. "
-        "Старый прямой UI→RD запуск отключён."
-    )
-    return False
-
-
 def install_ui_support(app: Any) -> None:
-    """Install the V2 Telegram presentation/workflow over the legacy monolithic bot.
+    """Install the Telegram operator presentation/workflow over the runtime substrate.
 
-    This transitional installer only replaces presentation functions and adds callback
-    handlers while modular UI migration is in progress. It must not become a physical
-    execution fallback; canonical START is injected explicitly by composition.
+    This installer owns presentation and callback composition only. Physical execution
+    is submitted through the canonical production start route.
     """
     global _installed
     if _installed:
@@ -248,9 +278,9 @@ def install_ui_support(app: Any) -> None:
 
     def charge_modes_text() -> str:
         return (
-            "<b>🧭 V2 · программа заряда</b>\n\n"
+            "<b>🧭 Программа заряда</b>\n\n"
             "Сначала выберите химию или сохранённую физическую батарею, затем <b>intent</b>.\n\n"
-            "⚡ Normal — полный штатный AUTO; Recovery/Mix включаются только по критериям V2.\n"
+            "⚡ Normal — полный штатный AUTO; Recovery/Mix включаются только по критериям стратегии.\n"
             "🛠 Recovery — восстановительный intent с HV только в разрешённом recipe/diagnostic envelope.\n"
             "🔄 Conditioning — сервисный режим в recipe envelope.\n"
             "🔬 Diagnostic — без автоматической HV-эскалации.\n\n"
@@ -270,7 +300,7 @@ def install_ui_support(app: Any) -> None:
                     InlineKeyboardButton(text="➕ АКБ", callback_data="v2_battery_add"),
                 ],
                 [
-                    InlineKeyboardButton(text="🛠 Ручной MAIN → MIX", callback_data="v2_manual"),
+                    InlineKeyboardButton(text="🛠 Ручной MAIN → MIX", callback_data="v2_manual_choose"),
                 ],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
             ]
@@ -347,10 +377,8 @@ def install_ui_support(app: Any) -> None:
         visible_records = [
             item for item in records if profile_for_chemistry(item.identity.chemistry)
         ]
-        rows = [
-            [InlineKeyboardButton(text=battery_button_label(item), callback_data=f"v2_battery_{idx}")]
-            for idx, item in enumerate(visible_records)
-        ]
+        _battery_pages[user_id] = visible_records
+        rows = _battery_rows(visible_records)
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
         rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
         text = (
@@ -371,7 +399,7 @@ def install_ui_support(app: Any) -> None:
     app.handle_dialog_mode = handle_dialog_mode
 
     @app.router.callback_query(F.data == "v2_status")
-    async def v2_status_handler(call: Any) -> None:
+    async def status_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
         await call.answer()
@@ -385,7 +413,7 @@ def install_ui_support(app: Any) -> None:
         )
         await _safe_answer(
             call,
-            f"<b>🧭 V2 controller</b>\n\n{text}\n\n"
+            f"<b>🧭 Контроллер заряда</b>\n\n{text}\n\n"
             f"Stage: <code>{html.escape(app.charge_controller.current_stage)}</code>",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="⬅️ Дашборд", callback_data=HOME_CALLBACK_DATA)]]
@@ -412,10 +440,7 @@ def install_ui_support(app: Any) -> None:
                 ),
             )
             return
-        rows = [
-            [InlineKeyboardButton(text=battery_button_label(record), callback_data=f"v2_battery_{idx}")]
-            for idx, record in enumerate(records)
-        ]
+        rows = _battery_rows(records)
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
         rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
         await _safe_answer(
@@ -424,7 +449,7 @@ def install_ui_support(app: Any) -> None:
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
-    app._v2_batteries_handler = batteries_handler
+    app._batteries_handler = batteries_handler
 
     @app.router.callback_query(F.data == "v2_battery_add")
     async def battery_add_handler(call: Any) -> None:
@@ -441,21 +466,53 @@ def install_ui_support(app: Any) -> None:
             "Например:\n<code>varta70 | AGM | 70 | Varta | Silver Dynamic AGM</code>",
         )
 
-    app._v2_battery_add_handler = battery_add_handler
+    app._battery_add_handler = battery_add_handler
 
-    @app.router.callback_query(F.data.startswith("v2_battery_") & ~F.data.in_({"v2_battery_add"}))
+    @app.router.callback_query(
+        F.data.startswith("v2_battery_")
+        & ~F.data.in_({"v2_battery_add", "v2_battery_start"})
+    )
     async def battery_select_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
         raw = (call.data or "").replace("v2_battery_", "", 1)
-        if not raw.isdigit():
+        if raw.startswith("id_"):
+            record = await _resolve_battery_callback(raw, user_id)
+            if record is None:
+                await _safe_answer(
+                    call,
+                    "<b>Список АКБ устарел.</b> Откройте раздел АКБ заново.",
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text="🔄 АКБ", callback_data="v2_batteries")],
+                            [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
+                        ]
+                    ),
+                )
+                return
+            records = [record]
+            idx = 0
+        elif raw.isdigit():
+            idx = int(raw)
+            records = _battery_pages.get(user_id) or []
+            if idx < 0 or idx >= len(records):
+                records = [r for r in await list_batteries(limit=200) if profile_for_chemistry(r.identity.chemistry)]
+                _battery_pages[user_id] = records
+        else:
             return
-        idx = int(raw)
-        records = _battery_pages.get(user_id) or []
         if idx < 0 or idx >= len(records):
-            await call.answer("Список устарел, откройте АКБ заново", show_alert=True)
+            await _safe_answer(
+                call,
+                "<b>Список АКБ устарел.</b> Откройте раздел АКБ заново.",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="🔄 АКБ", callback_data="v2_batteries")],
+                        [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
+                    ]
+                ),
+            )
             return
         record = records[idx]
         _selected_battery[user_id] = record
@@ -486,12 +543,12 @@ def install_ui_support(app: Any) -> None:
         _pending_profile[user_id] = profile
         await _safe_answer(
             call,
-            f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям V2.",
+            f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям стратегии.",
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
 
-    app._v2_select_quick_profile = _select_quick_profile
+    app._select_quick_profile = _select_quick_profile
 
     @app.router.callback_query(F.data.startswith("v2_profile_"))
     async def quick_profile_handler(call: Any) -> None:
@@ -553,10 +610,7 @@ def install_ui_support(app: Any) -> None:
         if trace is not None:
             trace.info("QUICK_START_TRACE route=%s", "FOUND" if route is not None else "MISSING")
         if route is None:
-            # Compatibility/rollback compositions without V3 retain the old
-            # owner; production bot.py always installs the route above.
-            if await _start_profile(app, call, pending):
-                _clear_pending_program_state(app, user_id)
+            await call.answer("START route is not installed", show_alert=True)
             return
         intent = OperatorIntent(
             OperatorIntentKind.START_CHARGE,

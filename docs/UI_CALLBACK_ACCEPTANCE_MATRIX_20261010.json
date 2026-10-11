@@ -1,0 +1,2830 @@
+{
+  "schema": "rd6018.ui.callback.acceptance.v1",
+  "scope": {
+    "head": "349b3a88955026196dc58ecdcadfcfc6a711139c",
+    "composition": "bot.ProductionComposition -> runtime.production_runtime.router",
+    "offline": true,
+    "telegram_messages": false,
+    "physical_rd_commands": false,
+    "output_on": false,
+    "lease_mutation": false,
+    "production_restart": false
+  },
+  "static_inventory": {
+    "path": "docs/UI_CALLBACK_STATIC_INVENTORY_20261010.json",
+    "button_declarations": 168,
+    "callback_declarations": 89,
+    "handler_files": {
+      "analysis.py": 2,
+      "charge.py": 6,
+      "custom.py": 1,
+      "details.py": 2,
+      "entities.py": 2,
+      "journal.py": 2,
+      "manual_context.py": 7,
+      "manual_text.py": 1,
+      "mix_mode.py": 4,
+      "off_conditions.py": 2,
+      "operator_hmi.py": 7,
+      "operator_managed_stop.py": 3,
+      "operator_navigation_recovery.py": 1,
+      "production_bootstrap.py": 1,
+      "production_bot_ui.py": 8,
+      "rd_autonomous_mode.py": 4,
+      "rd_control_mode.py": 3,
+      "rd_hands_off_release.py": 3,
+      "rd_live_adoption.py": 7,
+      "rd_managed_adoption.py": 5,
+      "rd_managed_mix_adoption.py": 9,
+      "rd_ownership_recovery.py": 3,
+      "service.py": 2,
+      "sg_ui.py": 4
+    },
+    "meaning": "declarations only; not execution coverage",
+    "buttons": [
+      {
+        "file": "manual_context.py",
+        "line": 216,
+        "text": "InlineKeyboardButton(text=button.text, callback_data=\"v2_manual_choose\")"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 225,
+        "text": "[InlineKeyboardButton(text=\"↻ Прерванный Manual\", callback_data=\"v2_manual_interrupted\")],"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 241,
+        "text": "rows = [[InlineKeyboardButton(text=\"Без привязки к АКБ\", callback_data=\"v2_manual_unbound\")]]"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 247,
+        "text": "rows.append([InlineKeyboardButton(text=label[:55], callback_data=f\"v2_mbind:{tok}\")])"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 248,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)])"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 352,
+        "text": "[InlineKeyboardButton(text=\"▶ Авторизовать заново\", callback_data=\"v2_manual_reauthorize\")],"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 353,
+        "text": "[InlineKeyboardButton(text=\"🗑 Отменить запрос\", callback_data=\"v2_manual_discard\")],"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 354,
+        "text": "[InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "manual_text.py",
+        "line": 479,
+        "text": "[InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)]"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 338,
+        "text": "callback_data=f\"v2_mix_bat_{idx}\","
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 345,
+        "text": "InlineKeyboardButton(text=\"Ca/Ca\", callback_data=\"v2_mix_profile_caca\"),"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 346,
+        "text": "InlineKeyboardButton(text=\"EFB\", callback_data=\"v2_mix_profile_efb\"),"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 347,
+        "text": "InlineKeyboardButton(text=\"AGM\", callback_data=\"v2_mix_profile_agm\"),"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 350,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)])"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 357,
+        "text": "[InlineKeyboardButton(text=\"▶ Запустить Auto Mix\", callback_data=\"v2_mix_start\")],"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 358,
+        "text": "[InlineKeyboardButton(text=\"⬅ Auto Mix\", callback_data=\"v2_mix\")],"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 384,
+        "text": "[InlineKeyboardButton(text=\"⚗ Авто Mix\", callback_data=\"v2_mix\")],"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 721,
+        "text": "control_buttons.append(InlineKeyboardButton(text=label[0], callback_data=label[1]))"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 739,
+        "text": "rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 741,
+        "text": "rows.append([InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\")])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 766,
+        "text": "InlineKeyboardButton(text=\"▶ Авторизовать\", callback_data=\"v2_manual_reauthorize\"),"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 767,
+        "text": "InlineKeyboardButton(text=\"🗑 Отказаться\", callback_data=\"v2_manual_discard\"),"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 769,
+        "text": "[InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\")],"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 999,
+        "text": "inline_keyboard=[[InlineKeyboardButton(text=\"⬅ К панели\", callback_data=\"operator_done\")]]"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1008,
+        "text": "return InlineKeyboardButton(text=f\"{marker}{text}\", callback_data=f\"operator_graph_{mode}\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1046,
+        "text": "rows = [[InlineKeyboardButton(text=\"🧠 AI анализ\", callback_data=ANALYSIS_CALLBACK_DATA)]]"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1048,
+        "text": "rows.append([InlineKeyboardButton(text=\"🛠 Ручной режим\", callback_data=\"v2_manual_choose\")])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1049,
+        "text": "rows.append([InlineKeyboardButton(text=\"🔋 АКБ\", callback_data=\"v2_batteries\")])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1051,
+        "text": "rows.append([InlineKeyboardButton(text=\"🧲 Статус Mix\", callback_data=\"rd_live_mix_status\")])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1053,
+        "text": "rows.append([InlineKeyboardButton(text=\"🔒 Вернуть Pb-контроль\", callback_data=\"rd_hands_off_disable\")])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1054,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅ К панели\", callback_data=\"operator_done\")])"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1284,
+        "text": "[InlineKeyboardButton(text=\"⏹ ОСТАНОВИТЬ\", callback_data=\"operator_adopted_stop_execute\")],"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1285,
+        "text": "[InlineKeyboardButton(text=\"Продолжить Mix\", callback_data=\"operator_done\")],"
+      },
+      {
+        "file": "operator_managed_stop.py",
+        "line": 51,
+        "text": "callback_data=STOP_CONFIRM_CALLBACK,"
+      },
+      {
+        "file": "operator_managed_stop.py",
+        "line": 247,
+        "text": "callback_data=STOP_EXECUTE_CALLBACK,"
+      },
+      {
+        "file": "operator_managed_stop.py",
+        "line": 253,
+        "text": "callback_data=STOP_CANCEL_CALLBACK,"
+      },
+      {
+        "file": "operator_output_truth.py",
+        "line": 173,
+        "text": "callback_data=\"rd_hands_off_output_off\","
+      },
+      {
+        "file": "operator_output_truth.py",
+        "line": 195,
+        "text": "callback_data=\"rd_ownership_output_off\","
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 41,
+        "text": "InlineKeyboardButton(text=\"Обычный\", callback_data=f\"{prefix}_normal\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 42,
+        "text": "InlineKeyboardButton(text=\"Восстановление\", callback_data=f\"{prefix}_recovery\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 45,
+        "text": "InlineKeyboardButton(text=\"Кондиционирование\", callback_data=f\"{prefix}_conditioning\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 46,
+        "text": "InlineKeyboardButton(text=\"Диагностика\", callback_data=f\"{prefix}_diagnostic\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 48,
+        "text": "[InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 56,
+        "text": "[InlineKeyboardButton(text=\"▶ Запустить программу\", callback_data=start_callback)],"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 57,
+        "text": "[InlineKeyboardButton(text=\"⬅ Изменить\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 79,
+        "text": "[InlineKeyboardButton(text=\"🔋 Мои аккумуляторы\", callback_data=\"v2_batteries\")],"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 81,
+        "text": "InlineKeyboardButton(text=\"Ca/Ca\", callback_data=\"v2_profile_caca\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 82,
+        "text": "InlineKeyboardButton(text=\"EFB\", callback_data=\"v2_profile_efb\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 83,
+        "text": "InlineKeyboardButton(text=\"AGM\", callback_data=\"v2_profile_agm\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 86,
+        "text": "InlineKeyboardButton(text=\"＋ Добавить АКБ\", callback_data=\"v2_battery_add\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 90,
+        "text": "InlineKeyboardButton(text=\"Ручной режим\", callback_data=\"v2_manual\"),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 91,
+        "text": "InlineKeyboardButton(text=\"Условие OFF\", callback_data=OFF_CALLBACK_DATA),"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 93,
+        "text": "[InlineKeyboardButton(text=\"⬅ К панели\", callback_data=HOME_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 67,
+        "text": "[InlineKeyboardButton(text=battery_button_label(record), callback_data=_battery_callback_data(record))]"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 149,
+        "text": "InlineKeyboardButton(text=\"⚡ Обычный\", callback_data=f\"{prefix}_normal\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 150,
+        "text": "InlineKeyboardButton(text=\"🛠 Recovery\", callback_data=f\"{prefix}_recovery\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 153,
+        "text": "InlineKeyboardButton(text=\"🔄 Condition\", callback_data=f\"{prefix}_conditioning\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 154,
+        "text": "InlineKeyboardButton(text=\"🔬 Диагностика\", callback_data=f\"{prefix}_diagnostic\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 156,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 164,
+        "text": "[InlineKeyboardButton(text=\"▶️ Запустить\", callback_data=start_callback)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 165,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 305,
+        "text": "InlineKeyboardButton(text=\"🟦 Ca/Ca\", callback_data=\"v2_profile_caca\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 306,
+        "text": "InlineKeyboardButton(text=\"🟧 EFB\", callback_data=\"v2_profile_efb\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 307,
+        "text": "InlineKeyboardButton(text=\"🟥 AGM\", callback_data=\"v2_profile_agm\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 310,
+        "text": "InlineKeyboardButton(text=\"🔋 Мои АКБ\", callback_data=\"v2_batteries\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 311,
+        "text": "InlineKeyboardButton(text=\"➕ АКБ\", callback_data=\"v2_battery_add\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 314,
+        "text": "InlineKeyboardButton(text=\"🛠 Ручной MAIN → MIX\", callback_data=\"v2_manual\"),"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 316,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Назад\", callback_data=HOME_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 393,
+        "text": "rows.append([InlineKeyboardButton(text=\"➕ Добавить АКБ\", callback_data=\"v2_battery_add\")])"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 394,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)])"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 430,
+        "text": "inline_keyboard=[[InlineKeyboardButton(text=\"⬅️ Дашборд\", callback_data=HOME_CALLBACK_DATA)]]"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 448,
+        "text": "[InlineKeyboardButton(text=\"➕ Добавить АКБ\", callback_data=\"v2_battery_add\")],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 449,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 455,
+        "text": "rows.append([InlineKeyboardButton(text=\"➕ Добавить АКБ\", callback_data=\"v2_battery_add\")])"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 456,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)])"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 500,
+        "text": "[InlineKeyboardButton(text=\"🔄 АКБ\", callback_data=\"v2_batteries\")],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 501,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 522,
+        "text": "[InlineKeyboardButton(text=\"🔄 АКБ\", callback_data=\"v2_batteries\")],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 523,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 534,
+        "text": "callback_data=\"v2_battery_manual\","
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 245,
+        "text": "callback_data=\"rd_autonomous_execute\","
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 249,
+        "text": "callback_data=\"rd_autonomous_cancel\","
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 367,
+        "text": "callback_data=\"rd_autonomous_exit\","
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 382,
+        "text": "callback_data=\"rd_autonomous_confirm\","
+      },
+      {
+        "file": "rd_control_mode.py",
+        "line": 440,
+        "text": "callback_data=\"rd_hands_off_enable\","
+      },
+      {
+        "file": "rd_control_mode.py",
+        "line": 456,
+        "text": "callback_data=\"rd_hands_off_output_off\","
+      },
+      {
+        "file": "rd_control_mode.py",
+        "line": 464,
+        "text": "callback_data=\"rd_hands_off_disable\","
+      },
+      {
+        "file": "rd_hands_off_release.py",
+        "line": 313,
+        "text": "callback_data=\"rd_hands_off_release_confirm\","
+      },
+      {
+        "file": "rd_hands_off_release.py",
+        "line": 352,
+        "text": "callback_data=\"rd_hands_off_release_execute\","
+      },
+      {
+        "file": "rd_hands_off_release.py",
+        "line": 358,
+        "text": "callback_data=\"rd_hands_off_release_cancel\","
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 623,
+        "text": "callback_data=("
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 687,
+        "text": "callback_data=f\"rd_live_mix_bat_{idx}\","
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 692,
+        "text": "rows.append([InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_live_mix_cancel\")])"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 730,
+        "text": "callback_data=\"rd_live_mix_start_observe\","
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 736,
+        "text": "callback_data=\"rd_live_mix_start_delta_off\","
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 739,
+        "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_live_mix_cancel\")],"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 806,
+        "text": "callback_data=\"rd_live_mix_stop_observer\","
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 752,
+        "text": "callback_data=\"rd_managed_adopt\","
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 812,
+        "text": "callback_data=f\"rd_managed_adopt_bat_{index}\","
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 817,
+        "text": "rows.append([InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_adopt_cancel\")])"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 861,
+        "text": "callback_data=\"rd_managed_adopt_confirm\","
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 864,
+        "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_adopt_cancel\")],"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 892,
+        "text": "callback_data=\"rd_managed_adopt_execute\","
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 895,
+        "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_adopt_cancel\")],"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 128,
+        "text": "callback_data=\"operator_managed_mix_stop\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 132,
+        "text": "InlineKeyboardButton(text=\"ℹ Подробнее\", callback_data=\"operator_details\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 133,
+        "text": "InlineKeyboardButton(text=\"📈 График\", callback_data=\"operator_graph\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 136,
+        "text": "InlineKeyboardButton(text=\"🔋 АКБ\", callback_data=\"v2_batteries\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 157,
+        "text": "callback_data=\"rd_managed_mix\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 208,
+        "text": "callback_data=\"rd_managed_mix_status\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 309,
+        "text": "callback_data=\"rd_managed_mix_confirm\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 312,
+        "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")],"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 366,
+        "text": "callback_data=f\"rd_managed_mix_bat_{idx}\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 371,
+        "text": "rows.append([InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")])"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 425,
+        "text": "InlineKeyboardButton(text=\"0ч точно\", callback_data=\"rd_managed_mix_age_zero\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 426,
+        "text": "InlineKeyboardButton(text=\"+30м\", callback_data=\"rd_managed_mix_age_0_5\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 429,
+        "text": "InlineKeyboardButton(text=\"+1ч\", callback_data=\"rd_managed_mix_age_1\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 430,
+        "text": "InlineKeyboardButton(text=\"+4ч\", callback_data=\"rd_managed_mix_age_4\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 433,
+        "text": "InlineKeyboardButton(text=\"Сброс\", callback_data=\"rd_managed_mix_age_reset\"),"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 436,
+        "text": "callback_data=\"rd_managed_mix_age_confirm\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 439,
+        "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")],"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 518,
+        "text": "callback_data=\"rd_managed_mix_execute\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 521,
+        "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")],"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 591,
+        "text": "callback_data=\"operator_managed_mix_stop_execute\","
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 594,
+        "text": "[InlineKeyboardButton(text=\"Продолжить Mix\", callback_data=\"operator_done\")],"
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 214,
+        "text": "callback_data=\"rd_ownership_hands_off\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 222,
+        "text": "callback_data=\"rd_hands_off_release_confirm\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 230,
+        "text": "callback_data=\"rd_hands_off_disable\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 240,
+        "text": "callback_data=\"rd_ownership_hands_off\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 258,
+        "text": "callback_data=\"rd_ownership_adopt\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 265,
+        "text": "callback_data=\"rd_ownership_hands_off\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 269,
+        "text": "callback_data=\"rd_ownership_output_off\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 282,
+        "text": "callback_data=\"rd_hands_off_disable\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 344,
+        "text": "callback_data=\"rd_managed_adopt\","
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 348,
+        "text": "callback_data=\"operator_refresh\","
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 151,
+        "text": "return InlineKeyboardButton(text=\"🧪 Плотность по банкам\", callback_data=\"v2_sg_menu\")"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 159,
+        "text": "rows.append([InlineKeyboardButton(text=label[:60], callback_data=f\"v2_sg_pick_{index}\")])"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 160,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)])"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 167,
+        "text": "[InlineKeyboardButton(text=\"✅ Банки доступны\", callback_data=\"v2_sg_access_serviceable\")],"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 168,
+        "text": "[InlineKeyboardButton(text=\"🚫 Банки недоступны\", callback_data=\"v2_sg_access_inaccessible\")],"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 169,
+        "text": "[InlineKeyboardButton(text=\"⬅ Назад\", callback_data=\"v2_sg_menu\")],"
+      },
+      {
+        "file": "telegram_panel.py",
+        "line": 370,
+        "text": "\"callback_data=%s handler=%s\","
+      },
+      {
+        "file": "telegram_panel.py",
+        "line": 387,
+        "text": "\"CALLBACK_TRACE exception update_id=%s callback_data=%s \""
+      },
+      {
+        "file": "telegram_panel.py",
+        "line": 397,
+        "text": "\"CALLBACK_TRACE exit update_id=%s callback_data=%s handler=%s \""
+      },
+      {
+        "file": "ui_polish.py",
+        "line": 197,
+        "text": "[InlineKeyboardButton(text=\"⬅️ К панели\", callback_data=HOME_CALLBACK_DATA)],"
+      },
+      {
+        "file": "ui_polish.py",
+        "line": 206,
+        "text": "return InlineKeyboardButton(text=f\"{selected}📈 {label}\", callback_data=f\"operator_graph_{mode}\")"
+      },
+      {
+        "file": "ui_polish.py",
+        "line": 212,
+        "text": "callback_data=STOP_CONFIRM_CALLBACK if active else CHARGE_CALLBACK_DATA,"
+      },
+      {
+        "file": "ui_polish.py",
+        "line": 216,
+        "text": "InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\"),"
+      },
+      {
+        "file": "ui_polish.py",
+        "line": 217,
+        "text": "InlineKeyboardButton(text=\"ℹ️ Подробнее\", callback_data=DETAILS_CALLBACK_DATA),"
+      },
+      {
+        "file": "ui_polish.py",
+        "line": 224,
+        "text": "[InlineKeyboardButton(text=\"📋 События\", callback_data=JOURNAL_CALLBACK_DATA)],"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 766,
+        "text": "callback_data=f\"operator_graph_{CHART_RANGE_30M}\","
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 770,
+        "text": "callback_data=f\"operator_graph_{CHART_RANGE_2H}\","
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 774,
+        "text": "callback_data=f\"operator_graph_{CHART_RANGE_SESSION}\","
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 780,
+        "text": "InlineKeyboardButton(text=\"📝 Логи\", callback_data=JOURNAL_CALLBACK_DATA),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 781,
+        "text": "InlineKeyboardButton(text=\"📋 Полная инфо\", callback_data=DETAILS_CALLBACK_DATA),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 784,
+        "text": "InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\"),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 785,
+        "text": "InlineKeyboardButton(text=\"🧠 AI анализ\", callback_data=ANALYSIS_CALLBACK_DATA),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 790,
+        "text": "callback_data=STOP_CONFIRM_CALLBACK if is_on else CHARGE_CALLBACK_DATA,"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 792,
+        "text": "InlineKeyboardButton(text=\"⚙️ Режимы\", callback_data=CHARGE_CALLBACK_DATA),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 796,
+        "text": "rows.append([InlineKeyboardButton(text=\"⬅️ К дашборду\", callback_data=HOME_CALLBACK_DATA)])"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 845,
+        "text": "InlineKeyboardButton(text=\"🟦 Ca/Ca\", callback_data=\"v2_profile_caca\"),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 846,
+        "text": "InlineKeyboardButton(text=\"🟧 EFB\", callback_data=\"v2_profile_efb\"),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 847,
+        "text": "InlineKeyboardButton(text=\"🟥 AGM\", callback_data=\"v2_profile_agm\"),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 850,
+        "text": "InlineKeyboardButton(text=\"🛠 Ручной режим\", callback_data=\"v2_manual\"),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 851,
+        "text": "InlineKeyboardButton(text=\"⏹ Off по условию\", callback_data=OFF_CALLBACK_DATA),"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 853,
+        "text": "[InlineKeyboardButton(text=\"⬅️ Назад\", callback_data=HOME_CALLBACK_DATA)],"
+      },
+      {
+        "file": "runtime\\production_runtime.py",
+        "line": 3403,
+        "text": "inline_keyboard=[[InlineKeyboardButton(text=\"❌ Отмена\", callback_data=CUSTOM_CANCEL_CALLBACK_DATA)]]"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\renderer.py",
+        "line": 56,
+        "text": "callback_data=callback_data_for(spec.action, spec.payload),"
+      }
+    ],
+    "callback_declarations_detail": [
+      {
+        "file": "manual_context.py",
+        "line": 234,
+        "text": "@app.router.callback_query(F.data.in_({\"v2_manual_choose\", \"v2_manual\"}))"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 258,
+        "text": "@app.router.callback_query(F.data == \"v2_manual_unbound\")"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 269,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_mbind:\"))"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 287,
+        "text": "@app.router.callback_query(F.data == \"v2_battery_manual\")"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 339,
+        "text": "@app.router.callback_query(F.data == \"v2_manual_interrupted\")"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 361,
+        "text": "@app.router.callback_query(F.data == \"v2_manual_reauthorize\")"
+      },
+      {
+        "file": "manual_context.py",
+        "line": 402,
+        "text": "@app.router.callback_query(F.data == \"v2_manual_discard\")"
+      },
+      {
+        "file": "manual_text.py",
+        "line": 468,
+        "text": "@app.router.callback_query(F.data == \"v2_manual\")"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 427,
+        "text": "@app.router.callback_query(F.data == \"v2_mix\")"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 448,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_mix_profile_\"))"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 465,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_mix_bat_\"))"
+      },
+      {
+        "file": "mix_mode.py",
+        "line": 493,
+        "text": "@app.router.callback_query(F.data == \"v2_mix_start\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1172,
+        "text": "@app.router.callback_query(F.data == \"operator_pause_toggle\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1209,
+        "text": "@app.router.callback_query(F.data == \"operator_graph\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1219,
+        "text": "@app.router.callback_query(F.data == \"operator_refresh\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1237,
+        "text": "@app.router.callback_query(F.data.startswith(\"operator_graph_\"))"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1250,
+        "text": "@app.router.callback_query(F.data == \"operator_more\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1270,
+        "text": "@app.router.callback_query(F.data == \"operator_adopted_stop\")"
+      },
+      {
+        "file": "operator_hmi.py",
+        "line": 1290,
+        "text": "@app.router.callback_query(F.data == \"operator_adopted_stop_execute\")"
+      },
+      {
+        "file": "operator_managed_stop.py",
+        "line": 215,
+        "text": "@app.router.callback_query(F.data == STOP_CONFIRM_CALLBACK)"
+      },
+      {
+        "file": "operator_managed_stop.py",
+        "line": 260,
+        "text": "@app.router.callback_query(F.data == STOP_CANCEL_CALLBACK)"
+      },
+      {
+        "file": "operator_managed_stop.py",
+        "line": 267,
+        "text": "@app.router.callback_query(F.data == STOP_EXECUTE_CALLBACK)"
+      },
+      {
+        "file": "operator_navigation_recovery.py",
+        "line": 19,
+        "text": "@app.router.callback_query(F.data == \"operator_done\")"
+      },
+      {
+        "file": "production_bootstrap.py",
+        "line": 212,
+        "text": "@app.router.callback_query(F.data == \"v2_battery_start\")"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 412,
+        "text": "@app.router.callback_query(F.data == \"v2_status\")"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 434,
+        "text": "@app.router.callback_query(F.data == \"v2_batteries\")"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 465,
+        "text": "@app.router.callback_query(F.data == \"v2_battery_add\")"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 482,
+        "text": "@app.router.callback_query("
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 564,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_profile_\"))"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 571,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_quick_intent_\"))"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 589,
+        "text": "@app.router.callback_query(F.data == \"v2_quick_start\")"
+      },
+      {
+        "file": "production_bot_ui.py",
+        "line": 693,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_bat_intent_\"))"
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 226,
+        "text": "@app.router.callback_query(F.data == \"rd_autonomous_confirm\")"
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 255,
+        "text": "@app.router.callback_query(F.data == \"rd_autonomous_cancel\")"
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 260,
+        "text": "@app.router.callback_query(F.data == \"rd_autonomous_execute\")"
+      },
+      {
+        "file": "rd_autonomous_mode.py",
+        "line": 280,
+        "text": "@app.router.callback_query(F.data == \"rd_autonomous_exit\")"
+      },
+      {
+        "file": "rd_control_mode.py",
+        "line": 497,
+        "text": "@app.router.callback_query(F.data == \"rd_hands_off_enable\")"
+      },
+      {
+        "file": "rd_control_mode.py",
+        "line": 520,
+        "text": "@app.router.callback_query(F.data == \"rd_hands_off_disable\")"
+      },
+      {
+        "file": "rd_control_mode.py",
+        "line": 537,
+        "text": "@app.router.callback_query(F.data == \"rd_hands_off_output_off\")"
+      },
+      {
+        "file": "rd_hands_off_release.py",
+        "line": 369,
+        "text": "@router.callback_query(F.data == \"rd_hands_off_release_confirm\")"
+      },
+      {
+        "file": "rd_hands_off_release.py",
+        "line": 373,
+        "text": "@router.callback_query(F.data == \"rd_hands_off_release_execute\")"
+      },
+      {
+        "file": "rd_hands_off_release.py",
+        "line": 411,
+        "text": "@router.callback_query(F.data == \"rd_hands_off_release_cancel\")"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 643,
+        "text": "@app.router.callback_query(F.data == \"rd_live_mix\")"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 701,
+        "text": "@app.router.callback_query(F.data.startswith(\"rd_live_mix_bat_\"))"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 774,
+        "text": "@app.router.callback_query(F.data == \"rd_live_mix_start_observe\")"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 778,
+        "text": "@app.router.callback_query(F.data == \"rd_live_mix_start_delta_off\")"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 782,
+        "text": "@app.router.callback_query(F.data == \"rd_live_mix_status\")"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 816,
+        "text": "@app.router.callback_query(F.data == \"rd_live_mix_stop_observer\")"
+      },
+      {
+        "file": "rd_live_adoption.py",
+        "line": 827,
+        "text": "@app.router.callback_query(F.data == \"rd_live_mix_cancel\")"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 773,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_adopt\")"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 826,
+        "text": "@app.router.callback_query(F.data.startswith(\"rd_managed_adopt_bat_\"))"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 869,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_adopt_confirm\")"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 900,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_adopt_execute\")"
+      },
+      {
+        "file": "rd_managed_adoption.py",
+        "line": 928,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_adopt_cancel\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 317,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_mix\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 380,
+        "text": "@app.router.callback_query(F.data.startswith(\"rd_managed_mix_bat_\"))"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 444,
+        "text": "@app.router.callback_query(F.data.startswith(\"rd_managed_mix_age_\"))"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 495,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_mix_confirm\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 526,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_mix_execute\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 554,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_mix_status\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 573,
+        "text": "@app.router.callback_query(F.data == \"operator_managed_mix_stop\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 599,
+        "text": "@app.router.callback_query(F.data == \"operator_managed_mix_stop_execute\")"
+      },
+      {
+        "file": "rd_managed_mix_adoption.py",
+        "line": 617,
+        "text": "@app.router.callback_query(F.data == \"rd_managed_mix_cancel\")"
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 291,
+        "text": "@app.router.callback_query(F.data == \"rd_ownership_hands_off\")"
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 322,
+        "text": "@app.router.callback_query(F.data == \"rd_ownership_adopt\")"
+      },
+      {
+        "file": "rd_ownership_recovery.py",
+        "line": 354,
+        "text": "@app.router.callback_query(F.data == \"rd_ownership_output_off\")"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 260,
+        "text": "@app.router.callback_query(F.data == \"v2_sg_menu\")"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 285,
+        "text": "@app.router.callback_query(F.data.startswith(\"v2_sg_pick_\"))"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 321,
+        "text": "@app.router.callback_query(F.data == \"v2_sg_access_serviceable\")"
+      },
+      {
+        "file": "sg_ui.py",
+        "line": 337,
+        "text": "@app.router.callback_query(F.data == \"v2_sg_access_inaccessible\")"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\analysis.py",
+        "line": 47,
+        "text": "@app.router.callback_query(F.data == ANALYSIS_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\analysis.py",
+        "line": 64,
+        "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\charge.py",
+        "line": 83,
+        "text": "@app.router.callback_query(F.data == CHARGE_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\charge.py",
+        "line": 90,
+        "text": "@app.router.callback_query(F.data.startswith(PROFILE_CALLBACK_PREFIX + \"?\"))"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\charge.py",
+        "line": 103,
+        "text": "@app.router.callback_query(F.data == BATTERIES_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\charge.py",
+        "line": 107,
+        "text": "@app.router.callback_query(F.data == BATTERY_ADD_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\charge.py",
+        "line": 111,
+        "text": "@app.router.callback_query(F.data == MANUAL_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\charge.py",
+        "line": 115,
+        "text": "@app.router.callback_query(F.data == INTERRUPTED_MANUAL_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\custom.py",
+        "line": 31,
+        "text": "@app.router.callback_query(F.data == CUSTOM_CANCEL_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\details.py",
+        "line": 38,
+        "text": "@app.router.callback_query(F.data == DETAILS_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\details.py",
+        "line": 67,
+        "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\entities.py",
+        "line": 36,
+        "text": "@app.router.callback_query(F.data == ENTITIES_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\entities.py",
+        "line": 67,
+        "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\journal.py",
+        "line": 39,
+        "text": "@app.router.callback_query(F.data == JOURNAL_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\journal.py",
+        "line": 95,
+        "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\off_conditions.py",
+        "line": 58,
+        "text": "@app.router.callback_query(F.data == OFF_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\off_conditions.py",
+        "line": 65,
+        "text": "@app.router.callback_query(F.data.startswith(OFF_PRESET_PREFIX + \"?\"))"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\service.py",
+        "line": 36,
+        "text": "@app.router.callback_query(F.data == SERVICE_CALLBACK_DATA)"
+      },
+      {
+        "file": "runtime\\ui\\telegram\\service.py",
+        "line": 64,
+        "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+      }
+    ]
+  },
+  "active_v3": {
+    "router_observer": "callback_query",
+    "installed_handlers": 85,
+    "static_matched_handlers": 68,
+    "actually_dispatched_handlers": 46,
+    "uncovered_handlers": 39,
+    "duplicate_or_not_installed_static_declarations": 4
+  },
+  "exercised_callbacks": [
+    {
+      "callback": "v2_status",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.v2_status_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_batteries",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.batteries_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_battery_add",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_add_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_battery_id_000000000000",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_select_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_profile_efb",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_profile_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_quick_intent_normal",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_quick_intent_recovery",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_quick_intent_conditioning",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_quick_intent_diagnostic",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_bat_intent_normal",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_bat_intent_recovery",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_bat_intent_conditioning",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_bat_intent_diagnostic",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_intent_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_manual",
+      "module": "manual_text",
+      "handler": "install_manual_text.<locals>.v2_manual_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_manual_choose",
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_choose",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_manual_unbound",
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_unbound",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_manual_interrupted",
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_interrupted",
+      "ack_count": 2,
+      "message_response_count": 0
+    },
+    {
+      "callback": "v2_quick_start",
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_start_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_battery_start",
+      "module": "production_bootstrap",
+      "handler": "install_production.<locals>._v2_battery_start_route",
+      "ack_count": 2,
+      "message_response_count": 0
+    },
+    {
+      "callback": "v2_sg_menu",
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_menu",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_sg_pick_0",
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_pick",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_sg_access_serviceable",
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_access_serviceable",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_sg_access_inaccessible",
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_access_inaccessible",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_mix",
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_menu_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_mix_profile_efb",
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_quick_profile_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "v2_mix_bat_0",
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_battery_handler",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "rd_hands_off_disable",
+      "module": "rd_control_mode",
+      "handler": "install_rd_control_mode.<locals>._disable_hands_off",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "rd_autonomous_cancel",
+      "module": "rd_autonomous_mode",
+      "handler": "install_rd_autonomous_mode.<locals>._cancel",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "operator_adopted_stop",
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_adopted_stop",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "operator_managed_mix_stop",
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_stop",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "rd_managed_mix_status",
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_status",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.charge",
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._charge_open",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:charge.select_profile?profile=EFB",
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._profile",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.batteries",
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._batteries",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.battery_add",
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._battery_add",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.manual",
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._manual",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.manual_interrupted",
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._manual_interrupted",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "ui:nav.diagnostics",
+      "module": "runtime.ui.telegram.details",
+      "handler": "install_operator_details_screen.<locals>._details",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.service",
+      "module": "runtime.ui.telegram.service",
+      "handler": "install_service_details_screen.<locals>._service",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:custom.cancel",
+      "module": "runtime.ui.telegram.custom",
+      "handler": "install_custom_cancel_route.<locals>._custom_cancel",
+      "ack_count": 2,
+      "message_response_count": 0
+    },
+    {
+      "callback": "ui:nav.home",
+      "module": "runtime.ui.telegram.journal",
+      "handler": "install_journal_screen.<locals>._home",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "ui:nav.journal",
+      "module": "runtime.ui.telegram.journal",
+      "handler": "install_journal_screen.<locals>._journal",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.off_conditions",
+      "module": "runtime.ui.telegram.off_conditions",
+      "handler": "install_off_conditions_screen.<locals>._off_open",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:charge.set_off_preset?preset=time_2h",
+      "module": "runtime.ui.telegram.off_conditions",
+      "handler": "install_off_conditions_screen.<locals>._off_preset",
+      "ack_count": 1,
+      "message_response_count": 2
+    },
+    {
+      "callback": "ui:nav.entities",
+      "module": "runtime.ui.telegram.entities",
+      "handler": "install_entities_screen.<locals>._entities",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "ui:nav.analysis",
+      "module": "runtime.ui.telegram.analysis",
+      "handler": "install_analysis_screen.<locals>._analysis",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "operator_done",
+      "module": "operator_navigation_recovery",
+      "handler": "install_operator_navigation_recovery.<locals>._operator_home",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "operator_graph",
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_graph",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "operator_graph_30m",
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_graph_range",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "operator_refresh",
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_refresh",
+      "ack_count": 1,
+      "message_response_count": 0
+    },
+    {
+      "callback": "operator_more",
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_more",
+      "ack_count": 1,
+      "message_response_count": 1
+    },
+    {
+      "callback": "operator_pause_toggle",
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_pause_toggle_handler",
+      "ack_count": 1,
+      "message_response_count": 0
+    }
+  ],
+  "hazardous_skipped": [
+    {
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_start_handler",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._start_saved_battery_manual",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_control_mode",
+      "handler": "install_rd_control_mode.<locals>._enable_hands_off",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_control_mode",
+      "handler": "install_rd_control_mode.<locals>._hands_off_output_off",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_autonomous_mode",
+      "handler": "install_rd_autonomous_mode.<locals>._execute",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_hands_off_release",
+      "handler": "_install_release_confirmation_ui.<locals>._confirm_active_release",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_hands_off_release",
+      "handler": "_install_release_confirmation_ui.<locals>._execute_active_release",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_hands_off_release",
+      "handler": "_install_release_confirmation_ui.<locals>._cancel_active_release",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._live_mix_menu",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._live_mix_battery",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._start_observe",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._start_delta_off",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._status",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._stop_observer",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._cancel_preview",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_menu",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_battery",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_confirm",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_execute",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_cancel",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_menu",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_battery",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_age",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_confirm",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_execute",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_stop_execute",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_cancel",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_adopted_stop_execute",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_ownership_recovery",
+      "handler": "install_rd_ownership_recovery.<locals>._ownership_hands_off",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_ownership_recovery",
+      "handler": "install_rd_ownership_recovery.<locals>._ownership_adopt",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "rd_ownership_recovery",
+      "handler": "install_rd_ownership_recovery.<locals>._ownership_output_off",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "operator_managed_stop",
+      "handler": "install_operator_managed_stop.<locals>._managed_stop_confirm",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "operator_managed_stop",
+      "handler": "install_operator_managed_stop.<locals>._managed_stop_cancel",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    },
+    {
+      "module": "operator_managed_stop",
+      "handler": "install_operator_managed_stop.<locals>._managed_stop_execute",
+      "reason": "hazardous output/lease/ownership transaction; covered only by FAKE safety-preflight tests"
+    }
+  ],
+  "handlers": [
+    {
+      "active_index": 0,
+      "module": "manual_text",
+      "handler": "install_manual_text.<locals>.v2_manual_handler",
+      "static_declarations_same_file": 1,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_manual"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 1,
+      "module": "production_bootstrap",
+      "handler": "install_production.<locals>._v2_battery_start_route",
+      "static_declarations_same_file": 1,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_battery_start"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 2,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.v2_status_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_status"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 3,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.batteries_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_batteries"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 4,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_add_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_battery_add"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 5,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_select_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_battery_id_000000000000"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 6,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_profile_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_profile_efb"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 7,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_intent_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_quick_intent_normal",
+        "v2_quick_intent_recovery",
+        "v2_quick_intent_conditioning",
+        "v2_quick_intent_diagnostic"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 8,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.quick_start_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_quick_start"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 9,
+      "module": "production_bot_ui",
+      "handler": "install_ui_support.<locals>.battery_intent_handler",
+      "static_declarations_same_file": 8,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_bat_intent_normal",
+        "v2_bat_intent_recovery",
+        "v2_bat_intent_conditioning",
+        "v2_bat_intent_diagnostic"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 10,
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_menu",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_sg_menu"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 11,
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_pick",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_sg_pick_0"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 12,
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_access_serviceable",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_sg_access_serviceable"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 13,
+      "module": "sg_ui",
+      "handler": "install_sg_ui.<locals>.sg_access_inaccessible",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_sg_access_inaccessible"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 14,
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_menu_handler",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_mix"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 15,
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_quick_profile_handler",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_mix_profile_efb"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 16,
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_battery_handler",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_mix_bat_0"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 17,
+      "module": "mix_mode",
+      "handler": "install_mix_only_mode.<locals>.mix_start_handler",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 18,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_choose",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_manual_choose"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 19,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_unbound",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_manual_unbound"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 20,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_bind",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 21,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._start_saved_battery_manual",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 22,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_interrupted",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "v2_manual_interrupted"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 23,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_reauthorize",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 24,
+      "module": "manual_context",
+      "handler": "install_manual_context_ui.<locals>._manual_discard",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 25,
+      "module": "rd_control_mode",
+      "handler": "install_rd_control_mode.<locals>._enable_hands_off",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 26,
+      "module": "rd_control_mode",
+      "handler": "install_rd_control_mode.<locals>._disable_hands_off",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "rd_hands_off_disable"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 27,
+      "module": "rd_control_mode",
+      "handler": "install_rd_control_mode.<locals>._hands_off_output_off",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 28,
+      "module": "rd_autonomous_mode",
+      "handler": "install_rd_autonomous_mode.<locals>._confirm",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 29,
+      "module": "rd_autonomous_mode",
+      "handler": "install_rd_autonomous_mode.<locals>._cancel",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "rd_autonomous_cancel"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 30,
+      "module": "rd_autonomous_mode",
+      "handler": "install_rd_autonomous_mode.<locals>._execute",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 31,
+      "module": "rd_autonomous_mode",
+      "handler": "install_rd_autonomous_mode.<locals>._exit",
+      "static_declarations_same_file": 4,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 32,
+      "module": "rd_hands_off_release",
+      "handler": "_install_release_confirmation_ui.<locals>._confirm_active_release",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 33,
+      "module": "rd_hands_off_release",
+      "handler": "_install_release_confirmation_ui.<locals>._execute_active_release",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 34,
+      "module": "rd_hands_off_release",
+      "handler": "_install_release_confirmation_ui.<locals>._cancel_active_release",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 35,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._live_mix_menu",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 36,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._live_mix_battery",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 37,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._start_observe",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 38,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._start_delta_off",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 39,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._status",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 40,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._stop_observer",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 41,
+      "module": "rd_live_adoption",
+      "handler": "install_rd_live_adoption.<locals>._cancel_preview",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 42,
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_menu",
+      "static_declarations_same_file": 5,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 43,
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_battery",
+      "static_declarations_same_file": 5,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 44,
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_confirm",
+      "static_declarations_same_file": 5,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 45,
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_execute",
+      "static_declarations_same_file": 5,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 46,
+      "module": "rd_managed_adoption",
+      "handler": "install_managed_live_adoption.<locals>._adopt_cancel",
+      "static_declarations_same_file": 5,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 47,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_menu",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 48,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_battery",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 49,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_age",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 50,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_confirm",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 51,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_execute",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 52,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_status",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "rd_managed_mix_status"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 53,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_stop",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_managed_mix_stop"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 54,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_stop_execute",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 55,
+      "module": "rd_managed_mix_adoption",
+      "handler": "install_managed_mix_adoption.<locals>.managed_mix_cancel",
+      "static_declarations_same_file": 9,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 56,
+      "module": "operator_navigation_recovery",
+      "handler": "install_operator_navigation_recovery.<locals>._operator_home",
+      "static_declarations_same_file": 1,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_done"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 57,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_pause_toggle_handler",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_pause_toggle"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 58,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_graph",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_graph"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 59,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_refresh",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_refresh"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 60,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_graph_range",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_graph_30m"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 61,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_more",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_more"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 62,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_adopted_stop",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "operator_adopted_stop"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 63,
+      "module": "operator_hmi",
+      "handler": "install_operator_hmi.<locals>._operator_adopted_stop_execute",
+      "static_declarations_same_file": 7,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 64,
+      "module": "rd_ownership_recovery",
+      "handler": "install_rd_ownership_recovery.<locals>._ownership_hands_off",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 65,
+      "module": "rd_ownership_recovery",
+      "handler": "install_rd_ownership_recovery.<locals>._ownership_adopt",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 66,
+      "module": "rd_ownership_recovery",
+      "handler": "install_rd_ownership_recovery.<locals>._ownership_output_off",
+      "static_declarations_same_file": 3,
+      "static_match": true,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 67,
+      "module": "operator_managed_stop",
+      "handler": "install_operator_managed_stop.<locals>._managed_stop_confirm",
+      "static_declarations_same_file": 3,
+      "static_match": false,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 68,
+      "module": "operator_managed_stop",
+      "handler": "install_operator_managed_stop.<locals>._managed_stop_cancel",
+      "static_declarations_same_file": 3,
+      "static_match": false,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 69,
+      "module": "operator_managed_stop",
+      "handler": "install_operator_managed_stop.<locals>._managed_stop_execute",
+      "static_declarations_same_file": 3,
+      "static_match": false,
+      "actually_dispatched": false,
+      "dispatch_scenarios": [],
+      "cause": "not exercised by offline safety-bounded scenario set; stateful/physical contract requires a dedicated fake"
+    },
+    {
+      "active_index": 70,
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._charge_open",
+      "static_declarations_same_file": 6,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.charge"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 71,
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._profile",
+      "static_declarations_same_file": 6,
+      "static_match": true,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:charge.select_profile?profile=EFB"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 72,
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._batteries",
+      "static_declarations_same_file": 6,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.batteries"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 73,
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._battery_add",
+      "static_declarations_same_file": 6,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.battery_add"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 74,
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._manual",
+      "static_declarations_same_file": 6,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.manual"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 75,
+      "module": "runtime.ui.telegram.charge",
+      "handler": "install_charge_program_screen.<locals>._manual_interrupted",
+      "static_declarations_same_file": 6,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.manual_interrupted"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 76,
+      "module": "runtime.ui.telegram.custom",
+      "handler": "install_custom_cancel_route.<locals>._custom_cancel",
+      "static_declarations_same_file": 1,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:custom.cancel"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 77,
+      "module": "runtime.ui.telegram.journal",
+      "handler": "install_journal_screen.<locals>._journal",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.journal"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 78,
+      "module": "runtime.ui.telegram.journal",
+      "handler": "install_journal_screen.<locals>._home",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.home"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 79,
+      "module": "runtime.ui.telegram.off_conditions",
+      "handler": "install_off_conditions_screen.<locals>._off_open",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.off_conditions"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 80,
+      "module": "runtime.ui.telegram.off_conditions",
+      "handler": "install_off_conditions_screen.<locals>._off_preset",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:charge.set_off_preset?preset=time_2h"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 81,
+      "module": "runtime.ui.telegram.details",
+      "handler": "install_operator_details_screen.<locals>._details",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.diagnostics"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 82,
+      "module": "runtime.ui.telegram.service",
+      "handler": "install_service_details_screen.<locals>._service",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.service"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 83,
+      "module": "runtime.ui.telegram.entities",
+      "handler": "install_entities_screen.<locals>._entities",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.entities"
+      ],
+      "cause": null
+    },
+    {
+      "active_index": 84,
+      "module": "runtime.ui.telegram.analysis",
+      "handler": "install_analysis_screen.<locals>._analysis",
+      "static_declarations_same_file": 2,
+      "static_match": false,
+      "actually_dispatched": true,
+      "dispatch_scenarios": [
+        "ui:nav.analysis"
+      ],
+      "cause": null
+    }
+  ]
+}

@@ -123,20 +123,18 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, callback)
 
-    def test_ui_support_default_start_helper_has_no_physical_fallback(self) -> None:
+    def test_ui_support_has_no_legacy_start_helper_or_physical_fallback(self) -> None:
         source = (ROOT / "production_bot_ui.py").read_text(encoding="utf-8")
-        start = source.index("async def _start_profile")
-        end = source.index("def install_ui_support", start)
-        helper = source[start:end]
-        self.assertIn("Старый прямой UI→RD запуск отключён", helper)
-        for forbidden in (
-            "charge_controller.start(",
-            "app.hass.set_voltage(",
-            "app.hass.set_current(",
-            "app.hass.turn_on(",
-            "app._apply_phase_protection(",
-        ):
-            self.assertNotIn(forbidden, helper)
+        self.assertNotIn("async def _start_profile", source)
+        self.assertNotIn("Compatibility/rollback compositions", source)
+        start = source.index('F.data == "v2_quick_start"')
+        end = source.index('F.data.startswith("v2_bat_intent_")', start)
+        callback = source[start:end]
+        self.assertIn('if route is None:', callback)
+        self.assertIn('show_alert=True', callback)
+        self.assertIn('await route.submit(intent)', callback)
+        for forbidden in ("charge_controller.start(", "app.hass.turn_on(", "app._apply_phase_protection("):
+            self.assertNotIn(forbidden, callback)
 
     def test_environment_cannot_reenable_legacy_transition_authority(self) -> None:
         source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")

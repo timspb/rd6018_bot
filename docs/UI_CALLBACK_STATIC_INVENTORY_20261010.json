@@ -1,0 +1,1292 @@
+{
+  "scope": "static declarations, NOT execution coverage",
+  "buttons": [
+    {
+      "file": "manual_context.py",
+      "line": 216,
+      "text": "InlineKeyboardButton(text=button.text, callback_data=\"v2_manual_choose\")"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 225,
+      "text": "[InlineKeyboardButton(text=\"↻ Прерванный Manual\", callback_data=\"v2_manual_interrupted\")],"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 241,
+      "text": "rows = [[InlineKeyboardButton(text=\"Без привязки к АКБ\", callback_data=\"v2_manual_unbound\")]]"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 247,
+      "text": "rows.append([InlineKeyboardButton(text=label[:55], callback_data=f\"v2_mbind:{tok}\")])"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 248,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)])"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 352,
+      "text": "[InlineKeyboardButton(text=\"▶ Авторизовать заново\", callback_data=\"v2_manual_reauthorize\")],"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 353,
+      "text": "[InlineKeyboardButton(text=\"🗑 Отменить запрос\", callback_data=\"v2_manual_discard\")],"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 354,
+      "text": "[InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "manual_text.py",
+      "line": 479,
+      "text": "[InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)]"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 338,
+      "text": "callback_data=f\"v2_mix_bat_{idx}\","
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 345,
+      "text": "InlineKeyboardButton(text=\"Ca/Ca\", callback_data=\"v2_mix_profile_caca\"),"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 346,
+      "text": "InlineKeyboardButton(text=\"EFB\", callback_data=\"v2_mix_profile_efb\"),"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 347,
+      "text": "InlineKeyboardButton(text=\"AGM\", callback_data=\"v2_mix_profile_agm\"),"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 350,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)])"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 357,
+      "text": "[InlineKeyboardButton(text=\"▶ Запустить Auto Mix\", callback_data=\"v2_mix_start\")],"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 358,
+      "text": "[InlineKeyboardButton(text=\"⬅ Auto Mix\", callback_data=\"v2_mix\")],"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 384,
+      "text": "[InlineKeyboardButton(text=\"⚗ Авто Mix\", callback_data=\"v2_mix\")],"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 721,
+      "text": "control_buttons.append(InlineKeyboardButton(text=label[0], callback_data=label[1]))"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 739,
+      "text": "rows.append([InlineKeyboardButton(text=label[0], callback_data=label[1])])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 741,
+      "text": "rows.append([InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\")])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 766,
+      "text": "InlineKeyboardButton(text=\"▶ Авторизовать\", callback_data=\"v2_manual_reauthorize\"),"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 767,
+      "text": "InlineKeyboardButton(text=\"🗑 Отказаться\", callback_data=\"v2_manual_discard\"),"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 769,
+      "text": "[InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\")],"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 999,
+      "text": "inline_keyboard=[[InlineKeyboardButton(text=\"⬅ К панели\", callback_data=\"operator_done\")]]"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1008,
+      "text": "return InlineKeyboardButton(text=f\"{marker}{text}\", callback_data=f\"operator_graph_{mode}\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1046,
+      "text": "rows = [[InlineKeyboardButton(text=\"🧠 AI анализ\", callback_data=ANALYSIS_CALLBACK_DATA)]]"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1048,
+      "text": "rows.append([InlineKeyboardButton(text=\"🛠 Ручной режим\", callback_data=\"v2_manual_choose\")])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1049,
+      "text": "rows.append([InlineKeyboardButton(text=\"🔋 АКБ\", callback_data=\"v2_batteries\")])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1051,
+      "text": "rows.append([InlineKeyboardButton(text=\"🧲 Статус Mix\", callback_data=\"rd_live_mix_status\")])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1053,
+      "text": "rows.append([InlineKeyboardButton(text=\"🔒 Вернуть Pb-контроль\", callback_data=\"rd_hands_off_disable\")])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1054,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅ К панели\", callback_data=\"operator_done\")])"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1284,
+      "text": "[InlineKeyboardButton(text=\"⏹ ОСТАНОВИТЬ\", callback_data=\"operator_adopted_stop_execute\")],"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1285,
+      "text": "[InlineKeyboardButton(text=\"Продолжить Mix\", callback_data=\"operator_done\")],"
+    },
+    {
+      "file": "operator_managed_stop.py",
+      "line": 51,
+      "text": "callback_data=STOP_CONFIRM_CALLBACK,"
+    },
+    {
+      "file": "operator_managed_stop.py",
+      "line": 247,
+      "text": "callback_data=STOP_EXECUTE_CALLBACK,"
+    },
+    {
+      "file": "operator_managed_stop.py",
+      "line": 253,
+      "text": "callback_data=STOP_CANCEL_CALLBACK,"
+    },
+    {
+      "file": "operator_output_truth.py",
+      "line": 173,
+      "text": "callback_data=\"rd_hands_off_output_off\","
+    },
+    {
+      "file": "operator_output_truth.py",
+      "line": 195,
+      "text": "callback_data=\"rd_ownership_output_off\","
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 41,
+      "text": "InlineKeyboardButton(text=\"Обычный\", callback_data=f\"{prefix}_normal\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 42,
+      "text": "InlineKeyboardButton(text=\"Восстановление\", callback_data=f\"{prefix}_recovery\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 45,
+      "text": "InlineKeyboardButton(text=\"Кондиционирование\", callback_data=f\"{prefix}_conditioning\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 46,
+      "text": "InlineKeyboardButton(text=\"Диагностика\", callback_data=f\"{prefix}_diagnostic\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 48,
+      "text": "[InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 56,
+      "text": "[InlineKeyboardButton(text=\"▶ Запустить программу\", callback_data=start_callback)],"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 57,
+      "text": "[InlineKeyboardButton(text=\"⬅ Изменить\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 79,
+      "text": "[InlineKeyboardButton(text=\"🔋 Мои аккумуляторы\", callback_data=\"v2_batteries\")],"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 81,
+      "text": "InlineKeyboardButton(text=\"Ca/Ca\", callback_data=\"v2_profile_caca\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 82,
+      "text": "InlineKeyboardButton(text=\"EFB\", callback_data=\"v2_profile_efb\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 83,
+      "text": "InlineKeyboardButton(text=\"AGM\", callback_data=\"v2_profile_agm\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 86,
+      "text": "InlineKeyboardButton(text=\"＋ Добавить АКБ\", callback_data=\"v2_battery_add\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 90,
+      "text": "InlineKeyboardButton(text=\"Ручной режим\", callback_data=\"v2_manual\"),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 91,
+      "text": "InlineKeyboardButton(text=\"Условие OFF\", callback_data=OFF_CALLBACK_DATA),"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 93,
+      "text": "[InlineKeyboardButton(text=\"⬅ К панели\", callback_data=HOME_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 67,
+      "text": "[InlineKeyboardButton(text=battery_button_label(record), callback_data=_battery_callback_data(record))]"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 149,
+      "text": "InlineKeyboardButton(text=\"⚡ Обычный\", callback_data=f\"{prefix}_normal\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 150,
+      "text": "InlineKeyboardButton(text=\"🛠 Recovery\", callback_data=f\"{prefix}_recovery\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 153,
+      "text": "InlineKeyboardButton(text=\"🔄 Condition\", callback_data=f\"{prefix}_conditioning\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 154,
+      "text": "InlineKeyboardButton(text=\"🔬 Диагностика\", callback_data=f\"{prefix}_diagnostic\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 156,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 164,
+      "text": "[InlineKeyboardButton(text=\"▶️ Запустить\", callback_data=start_callback)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 165,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 305,
+      "text": "InlineKeyboardButton(text=\"🟦 Ca/Ca\", callback_data=\"v2_profile_caca\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 306,
+      "text": "InlineKeyboardButton(text=\"🟧 EFB\", callback_data=\"v2_profile_efb\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 307,
+      "text": "InlineKeyboardButton(text=\"🟥 AGM\", callback_data=\"v2_profile_agm\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 310,
+      "text": "InlineKeyboardButton(text=\"🔋 Мои АКБ\", callback_data=\"v2_batteries\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 311,
+      "text": "InlineKeyboardButton(text=\"➕ АКБ\", callback_data=\"v2_battery_add\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 314,
+      "text": "InlineKeyboardButton(text=\"🛠 Ручной MAIN → MIX\", callback_data=\"v2_manual\"),"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 316,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Назад\", callback_data=HOME_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 393,
+      "text": "rows.append([InlineKeyboardButton(text=\"➕ Добавить АКБ\", callback_data=\"v2_battery_add\")])"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 394,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)])"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 430,
+      "text": "inline_keyboard=[[InlineKeyboardButton(text=\"⬅️ Дашборд\", callback_data=HOME_CALLBACK_DATA)]]"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 448,
+      "text": "[InlineKeyboardButton(text=\"➕ Добавить АКБ\", callback_data=\"v2_battery_add\")],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 449,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 455,
+      "text": "rows.append([InlineKeyboardButton(text=\"➕ Добавить АКБ\", callback_data=\"v2_battery_add\")])"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 456,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)])"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 500,
+      "text": "[InlineKeyboardButton(text=\"🔄 АКБ\", callback_data=\"v2_batteries\")],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 501,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 522,
+      "text": "[InlineKeyboardButton(text=\"🔄 АКБ\", callback_data=\"v2_batteries\")],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 523,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Режимы\", callback_data=CHARGE_CALLBACK_DATA)],"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 534,
+      "text": "callback_data=\"v2_battery_manual\","
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 245,
+      "text": "callback_data=\"rd_autonomous_execute\","
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 249,
+      "text": "callback_data=\"rd_autonomous_cancel\","
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 367,
+      "text": "callback_data=\"rd_autonomous_exit\","
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 382,
+      "text": "callback_data=\"rd_autonomous_confirm\","
+    },
+    {
+      "file": "rd_control_mode.py",
+      "line": 440,
+      "text": "callback_data=\"rd_hands_off_enable\","
+    },
+    {
+      "file": "rd_control_mode.py",
+      "line": 456,
+      "text": "callback_data=\"rd_hands_off_output_off\","
+    },
+    {
+      "file": "rd_control_mode.py",
+      "line": 464,
+      "text": "callback_data=\"rd_hands_off_disable\","
+    },
+    {
+      "file": "rd_hands_off_release.py",
+      "line": 313,
+      "text": "callback_data=\"rd_hands_off_release_confirm\","
+    },
+    {
+      "file": "rd_hands_off_release.py",
+      "line": 352,
+      "text": "callback_data=\"rd_hands_off_release_execute\","
+    },
+    {
+      "file": "rd_hands_off_release.py",
+      "line": 358,
+      "text": "callback_data=\"rd_hands_off_release_cancel\","
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 623,
+      "text": "callback_data=("
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 687,
+      "text": "callback_data=f\"rd_live_mix_bat_{idx}\","
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 692,
+      "text": "rows.append([InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_live_mix_cancel\")])"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 730,
+      "text": "callback_data=\"rd_live_mix_start_observe\","
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 736,
+      "text": "callback_data=\"rd_live_mix_start_delta_off\","
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 739,
+      "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_live_mix_cancel\")],"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 806,
+      "text": "callback_data=\"rd_live_mix_stop_observer\","
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 752,
+      "text": "callback_data=\"rd_managed_adopt\","
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 812,
+      "text": "callback_data=f\"rd_managed_adopt_bat_{index}\","
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 817,
+      "text": "rows.append([InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_adopt_cancel\")])"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 861,
+      "text": "callback_data=\"rd_managed_adopt_confirm\","
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 864,
+      "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_adopt_cancel\")],"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 892,
+      "text": "callback_data=\"rd_managed_adopt_execute\","
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 895,
+      "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_adopt_cancel\")],"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 128,
+      "text": "callback_data=\"operator_managed_mix_stop\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 132,
+      "text": "InlineKeyboardButton(text=\"ℹ Подробнее\", callback_data=\"operator_details\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 133,
+      "text": "InlineKeyboardButton(text=\"📈 График\", callback_data=\"operator_graph\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 136,
+      "text": "InlineKeyboardButton(text=\"🔋 АКБ\", callback_data=\"v2_batteries\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 157,
+      "text": "callback_data=\"rd_managed_mix\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 208,
+      "text": "callback_data=\"rd_managed_mix_status\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 309,
+      "text": "callback_data=\"rd_managed_mix_confirm\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 312,
+      "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")],"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 366,
+      "text": "callback_data=f\"rd_managed_mix_bat_{idx}\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 371,
+      "text": "rows.append([InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")])"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 425,
+      "text": "InlineKeyboardButton(text=\"0ч точно\", callback_data=\"rd_managed_mix_age_zero\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 426,
+      "text": "InlineKeyboardButton(text=\"+30м\", callback_data=\"rd_managed_mix_age_0_5\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 429,
+      "text": "InlineKeyboardButton(text=\"+1ч\", callback_data=\"rd_managed_mix_age_1\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 430,
+      "text": "InlineKeyboardButton(text=\"+4ч\", callback_data=\"rd_managed_mix_age_4\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 433,
+      "text": "InlineKeyboardButton(text=\"Сброс\", callback_data=\"rd_managed_mix_age_reset\"),"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 436,
+      "text": "callback_data=\"rd_managed_mix_age_confirm\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 439,
+      "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")],"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 518,
+      "text": "callback_data=\"rd_managed_mix_execute\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 521,
+      "text": "[InlineKeyboardButton(text=\"Отмена\", callback_data=\"rd_managed_mix_cancel\")],"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 591,
+      "text": "callback_data=\"operator_managed_mix_stop_execute\","
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 594,
+      "text": "[InlineKeyboardButton(text=\"Продолжить Mix\", callback_data=\"operator_done\")],"
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 214,
+      "text": "callback_data=\"rd_ownership_hands_off\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 222,
+      "text": "callback_data=\"rd_hands_off_release_confirm\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 230,
+      "text": "callback_data=\"rd_hands_off_disable\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 240,
+      "text": "callback_data=\"rd_ownership_hands_off\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 258,
+      "text": "callback_data=\"rd_ownership_adopt\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 265,
+      "text": "callback_data=\"rd_ownership_hands_off\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 269,
+      "text": "callback_data=\"rd_ownership_output_off\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 282,
+      "text": "callback_data=\"rd_hands_off_disable\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 344,
+      "text": "callback_data=\"rd_managed_adopt\","
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 348,
+      "text": "callback_data=\"operator_refresh\","
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 151,
+      "text": "return InlineKeyboardButton(text=\"🧪 Плотность по банкам\", callback_data=\"v2_sg_menu\")"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 159,
+      "text": "rows.append([InlineKeyboardButton(text=label[:60], callback_data=f\"v2_sg_pick_{index}\")])"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 160,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅ К программам\", callback_data=CHARGE_CALLBACK_DATA)])"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 167,
+      "text": "[InlineKeyboardButton(text=\"✅ Банки доступны\", callback_data=\"v2_sg_access_serviceable\")],"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 168,
+      "text": "[InlineKeyboardButton(text=\"🚫 Банки недоступны\", callback_data=\"v2_sg_access_inaccessible\")],"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 169,
+      "text": "[InlineKeyboardButton(text=\"⬅ Назад\", callback_data=\"v2_sg_menu\")],"
+    },
+    {
+      "file": "telegram_panel.py",
+      "line": 370,
+      "text": "\"callback_data=%s handler=%s\","
+    },
+    {
+      "file": "telegram_panel.py",
+      "line": 387,
+      "text": "\"CALLBACK_TRACE exception update_id=%s callback_data=%s \""
+    },
+    {
+      "file": "telegram_panel.py",
+      "line": 397,
+      "text": "\"CALLBACK_TRACE exit update_id=%s callback_data=%s handler=%s \""
+    },
+    {
+      "file": "ui_polish.py",
+      "line": 197,
+      "text": "[InlineKeyboardButton(text=\"⬅️ К панели\", callback_data=HOME_CALLBACK_DATA)],"
+    },
+    {
+      "file": "ui_polish.py",
+      "line": 206,
+      "text": "return InlineKeyboardButton(text=f\"{selected}📈 {label}\", callback_data=f\"operator_graph_{mode}\")"
+    },
+    {
+      "file": "ui_polish.py",
+      "line": 212,
+      "text": "callback_data=STOP_CONFIRM_CALLBACK if active else CHARGE_CALLBACK_DATA,"
+    },
+    {
+      "file": "ui_polish.py",
+      "line": 216,
+      "text": "InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\"),"
+    },
+    {
+      "file": "ui_polish.py",
+      "line": 217,
+      "text": "InlineKeyboardButton(text=\"ℹ️ Подробнее\", callback_data=DETAILS_CALLBACK_DATA),"
+    },
+    {
+      "file": "ui_polish.py",
+      "line": 224,
+      "text": "[InlineKeyboardButton(text=\"📋 События\", callback_data=JOURNAL_CALLBACK_DATA)],"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 766,
+      "text": "callback_data=f\"operator_graph_{CHART_RANGE_30M}\","
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 770,
+      "text": "callback_data=f\"operator_graph_{CHART_RANGE_2H}\","
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 774,
+      "text": "callback_data=f\"operator_graph_{CHART_RANGE_SESSION}\","
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 780,
+      "text": "InlineKeyboardButton(text=\"📝 Логи\", callback_data=JOURNAL_CALLBACK_DATA),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 781,
+      "text": "InlineKeyboardButton(text=\"📋 Полная инфо\", callback_data=DETAILS_CALLBACK_DATA),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 784,
+      "text": "InlineKeyboardButton(text=\"🔄 Обновить\", callback_data=\"operator_refresh\"),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 785,
+      "text": "InlineKeyboardButton(text=\"🧠 AI анализ\", callback_data=ANALYSIS_CALLBACK_DATA),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 790,
+      "text": "callback_data=STOP_CONFIRM_CALLBACK if is_on else CHARGE_CALLBACK_DATA,"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 792,
+      "text": "InlineKeyboardButton(text=\"⚙️ Режимы\", callback_data=CHARGE_CALLBACK_DATA),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 796,
+      "text": "rows.append([InlineKeyboardButton(text=\"⬅️ К дашборду\", callback_data=HOME_CALLBACK_DATA)])"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 845,
+      "text": "InlineKeyboardButton(text=\"🟦 Ca/Ca\", callback_data=\"v2_profile_caca\"),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 846,
+      "text": "InlineKeyboardButton(text=\"🟧 EFB\", callback_data=\"v2_profile_efb\"),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 847,
+      "text": "InlineKeyboardButton(text=\"🟥 AGM\", callback_data=\"v2_profile_agm\"),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 850,
+      "text": "InlineKeyboardButton(text=\"🛠 Ручной режим\", callback_data=\"v2_manual\"),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 851,
+      "text": "InlineKeyboardButton(text=\"⏹ Off по условию\", callback_data=OFF_CALLBACK_DATA),"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 853,
+      "text": "[InlineKeyboardButton(text=\"⬅️ Назад\", callback_data=HOME_CALLBACK_DATA)],"
+    },
+    {
+      "file": "runtime\\production_runtime.py",
+      "line": 3403,
+      "text": "inline_keyboard=[[InlineKeyboardButton(text=\"❌ Отмена\", callback_data=CUSTOM_CANCEL_CALLBACK_DATA)]]"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\renderer.py",
+      "line": 56,
+      "text": "callback_data=callback_data_for(spec.action, spec.payload),"
+    }
+  ],
+  "handlers": [
+    {
+      "file": "manual_context.py",
+      "line": 234,
+      "text": "@app.router.callback_query(F.data.in_({\"v2_manual_choose\", \"v2_manual\"}))"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 258,
+      "text": "@app.router.callback_query(F.data == \"v2_manual_unbound\")"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 269,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_mbind:\"))"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 287,
+      "text": "@app.router.callback_query(F.data == \"v2_battery_manual\")"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 339,
+      "text": "@app.router.callback_query(F.data == \"v2_manual_interrupted\")"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 361,
+      "text": "@app.router.callback_query(F.data == \"v2_manual_reauthorize\")"
+    },
+    {
+      "file": "manual_context.py",
+      "line": 402,
+      "text": "@app.router.callback_query(F.data == \"v2_manual_discard\")"
+    },
+    {
+      "file": "manual_text.py",
+      "line": 468,
+      "text": "@app.router.callback_query(F.data == \"v2_manual\")"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 427,
+      "text": "@app.router.callback_query(F.data == \"v2_mix\")"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 448,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_mix_profile_\"))"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 465,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_mix_bat_\"))"
+    },
+    {
+      "file": "mix_mode.py",
+      "line": 493,
+      "text": "@app.router.callback_query(F.data == \"v2_mix_start\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1172,
+      "text": "@app.router.callback_query(F.data == \"operator_pause_toggle\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1209,
+      "text": "@app.router.callback_query(F.data == \"operator_graph\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1219,
+      "text": "@app.router.callback_query(F.data == \"operator_refresh\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1237,
+      "text": "@app.router.callback_query(F.data.startswith(\"operator_graph_\"))"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1250,
+      "text": "@app.router.callback_query(F.data == \"operator_more\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1270,
+      "text": "@app.router.callback_query(F.data == \"operator_adopted_stop\")"
+    },
+    {
+      "file": "operator_hmi.py",
+      "line": 1290,
+      "text": "@app.router.callback_query(F.data == \"operator_adopted_stop_execute\")"
+    },
+    {
+      "file": "operator_managed_stop.py",
+      "line": 215,
+      "text": "@app.router.callback_query(F.data == STOP_CONFIRM_CALLBACK)"
+    },
+    {
+      "file": "operator_managed_stop.py",
+      "line": 260,
+      "text": "@app.router.callback_query(F.data == STOP_CANCEL_CALLBACK)"
+    },
+    {
+      "file": "operator_managed_stop.py",
+      "line": 267,
+      "text": "@app.router.callback_query(F.data == STOP_EXECUTE_CALLBACK)"
+    },
+    {
+      "file": "operator_navigation_recovery.py",
+      "line": 19,
+      "text": "@app.router.callback_query(F.data == \"operator_done\")"
+    },
+    {
+      "file": "production_bootstrap.py",
+      "line": 212,
+      "text": "@app.router.callback_query(F.data == \"v2_battery_start\")"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 412,
+      "text": "@app.router.callback_query(F.data == \"v2_status\")"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 434,
+      "text": "@app.router.callback_query(F.data == \"v2_batteries\")"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 465,
+      "text": "@app.router.callback_query(F.data == \"v2_battery_add\")"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 482,
+      "text": "@app.router.callback_query("
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 564,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_profile_\"))"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 571,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_quick_intent_\"))"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 589,
+      "text": "@app.router.callback_query(F.data == \"v2_quick_start\")"
+    },
+    {
+      "file": "production_bot_ui.py",
+      "line": 693,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_bat_intent_\"))"
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 226,
+      "text": "@app.router.callback_query(F.data == \"rd_autonomous_confirm\")"
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 255,
+      "text": "@app.router.callback_query(F.data == \"rd_autonomous_cancel\")"
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 260,
+      "text": "@app.router.callback_query(F.data == \"rd_autonomous_execute\")"
+    },
+    {
+      "file": "rd_autonomous_mode.py",
+      "line": 280,
+      "text": "@app.router.callback_query(F.data == \"rd_autonomous_exit\")"
+    },
+    {
+      "file": "rd_control_mode.py",
+      "line": 497,
+      "text": "@app.router.callback_query(F.data == \"rd_hands_off_enable\")"
+    },
+    {
+      "file": "rd_control_mode.py",
+      "line": 520,
+      "text": "@app.router.callback_query(F.data == \"rd_hands_off_disable\")"
+    },
+    {
+      "file": "rd_control_mode.py",
+      "line": 537,
+      "text": "@app.router.callback_query(F.data == \"rd_hands_off_output_off\")"
+    },
+    {
+      "file": "rd_hands_off_release.py",
+      "line": 369,
+      "text": "@router.callback_query(F.data == \"rd_hands_off_release_confirm\")"
+    },
+    {
+      "file": "rd_hands_off_release.py",
+      "line": 373,
+      "text": "@router.callback_query(F.data == \"rd_hands_off_release_execute\")"
+    },
+    {
+      "file": "rd_hands_off_release.py",
+      "line": 411,
+      "text": "@router.callback_query(F.data == \"rd_hands_off_release_cancel\")"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 643,
+      "text": "@app.router.callback_query(F.data == \"rd_live_mix\")"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 701,
+      "text": "@app.router.callback_query(F.data.startswith(\"rd_live_mix_bat_\"))"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 774,
+      "text": "@app.router.callback_query(F.data == \"rd_live_mix_start_observe\")"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 778,
+      "text": "@app.router.callback_query(F.data == \"rd_live_mix_start_delta_off\")"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 782,
+      "text": "@app.router.callback_query(F.data == \"rd_live_mix_status\")"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 816,
+      "text": "@app.router.callback_query(F.data == \"rd_live_mix_stop_observer\")"
+    },
+    {
+      "file": "rd_live_adoption.py",
+      "line": 827,
+      "text": "@app.router.callback_query(F.data == \"rd_live_mix_cancel\")"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 773,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_adopt\")"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 826,
+      "text": "@app.router.callback_query(F.data.startswith(\"rd_managed_adopt_bat_\"))"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 869,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_adopt_confirm\")"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 900,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_adopt_execute\")"
+    },
+    {
+      "file": "rd_managed_adoption.py",
+      "line": 928,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_adopt_cancel\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 317,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_mix\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 380,
+      "text": "@app.router.callback_query(F.data.startswith(\"rd_managed_mix_bat_\"))"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 444,
+      "text": "@app.router.callback_query(F.data.startswith(\"rd_managed_mix_age_\"))"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 495,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_mix_confirm\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 526,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_mix_execute\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 554,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_mix_status\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 573,
+      "text": "@app.router.callback_query(F.data == \"operator_managed_mix_stop\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 599,
+      "text": "@app.router.callback_query(F.data == \"operator_managed_mix_stop_execute\")"
+    },
+    {
+      "file": "rd_managed_mix_adoption.py",
+      "line": 617,
+      "text": "@app.router.callback_query(F.data == \"rd_managed_mix_cancel\")"
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 291,
+      "text": "@app.router.callback_query(F.data == \"rd_ownership_hands_off\")"
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 322,
+      "text": "@app.router.callback_query(F.data == \"rd_ownership_adopt\")"
+    },
+    {
+      "file": "rd_ownership_recovery.py",
+      "line": 354,
+      "text": "@app.router.callback_query(F.data == \"rd_ownership_output_off\")"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 260,
+      "text": "@app.router.callback_query(F.data == \"v2_sg_menu\")"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 285,
+      "text": "@app.router.callback_query(F.data.startswith(\"v2_sg_pick_\"))"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 321,
+      "text": "@app.router.callback_query(F.data == \"v2_sg_access_serviceable\")"
+    },
+    {
+      "file": "sg_ui.py",
+      "line": 337,
+      "text": "@app.router.callback_query(F.data == \"v2_sg_access_inaccessible\")"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\analysis.py",
+      "line": 47,
+      "text": "@app.router.callback_query(F.data == ANALYSIS_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\analysis.py",
+      "line": 64,
+      "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\charge.py",
+      "line": 83,
+      "text": "@app.router.callback_query(F.data == CHARGE_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\charge.py",
+      "line": 90,
+      "text": "@app.router.callback_query(F.data.startswith(PROFILE_CALLBACK_PREFIX + \"?\"))"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\charge.py",
+      "line": 103,
+      "text": "@app.router.callback_query(F.data == BATTERIES_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\charge.py",
+      "line": 107,
+      "text": "@app.router.callback_query(F.data == BATTERY_ADD_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\charge.py",
+      "line": 111,
+      "text": "@app.router.callback_query(F.data == MANUAL_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\charge.py",
+      "line": 115,
+      "text": "@app.router.callback_query(F.data == INTERRUPTED_MANUAL_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\custom.py",
+      "line": 31,
+      "text": "@app.router.callback_query(F.data == CUSTOM_CANCEL_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\details.py",
+      "line": 38,
+      "text": "@app.router.callback_query(F.data == DETAILS_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\details.py",
+      "line": 67,
+      "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\entities.py",
+      "line": 36,
+      "text": "@app.router.callback_query(F.data == ENTITIES_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\entities.py",
+      "line": 67,
+      "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\journal.py",
+      "line": 39,
+      "text": "@app.router.callback_query(F.data == JOURNAL_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\journal.py",
+      "line": 95,
+      "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\off_conditions.py",
+      "line": 58,
+      "text": "@app.router.callback_query(F.data == OFF_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\off_conditions.py",
+      "line": 65,
+      "text": "@app.router.callback_query(F.data.startswith(OFF_PRESET_PREFIX + \"?\"))"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\service.py",
+      "line": 36,
+      "text": "@app.router.callback_query(F.data == SERVICE_CALLBACK_DATA)"
+    },
+    {
+      "file": "runtime\\ui\\telegram\\service.py",
+      "line": 64,
+      "text": "@app.router.callback_query(F.data == HOME_CALLBACK_DATA)"
+    }
+  ]
+}

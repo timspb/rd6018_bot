@@ -26,8 +26,10 @@ class V3ProfileRouteRetirementTests(unittest.TestCase):
         end = source.index("def _build_trend_summary(", start)
         body = source[start:end]
 
-        for callback in ("v2_profile_caca", "v2_profile_efb", "v2_profile_agm", "v2_manual"):
+        for callback in ("v2_profile_caca", "v2_profile_efb", "v2_profile_agm"):
             self.assertIn(f'callback_data="{callback}"', body)
+        self.assertIn('callback_data="v2_manual_choose"', body)
+        self.assertNotIn('callback_data="v2_manual"', body)
         for callback in ("profile_caca", "profile_efb", "profile_agm", "profile_custom"):
             self.assertNotIn(f'callback_data="{callback}"', body)
 

@@ -12,7 +12,14 @@ from typing import Any, Optional
 
 from time_utils import format_datetime_user_tz
 
-LOG_FILE = "charging_history.log"
+def _default_log_file() -> str:
+    """Resolve persistent history from the explicit service state directory."""
+
+    state_dir = os.getenv("RD6018_STATE_DIR", "").strip()
+    return os.path.join(state_dir, "charging_history.log") if state_dir else "charging_history.log"
+
+
+LOG_FILE = _default_log_file()
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 МБ
 LOG_RETENTION_DAYS = 30  # хранить события не старше 30 дней
 LOG_ROTATE_KEEP_ARCHIVES = 10

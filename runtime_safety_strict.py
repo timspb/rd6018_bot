@@ -53,7 +53,31 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             production_adapter or explicit_lease is not None
         )
 
+    def ensure_edge_safety_lease(self) -> Optional[EdgeSafetyLease]:
+        """Bind the production lease after a deferred HA client becomes live.
+
+        Production composition intentionally constructs the runtime before the
+        deferred HA client is bound. Keep the import-time fail-closed state, but
+        make the lease reader/actuator available once startup has completed the
+        explicit client bind.
+        """
+
+        if self.edge_safety_lease is not None:
+            return self.edge_safety_lease
+        production_adapter = (
+            callable(getattr(self.hass, "get_state", None))
+            and bool(getattr(self.hass, "base_url", None))
+        )
+        if not production_adapter:
+            return None
+        lease = EdgeSafetyLease(self.hass)
+        self.edge_safety_lease = lease
+        self.app.edge_safety_lease = lease
+        self.edge_lease_enforced = _env_enabled("RD6018_EDGE_LEASE_REQUIRED", True)
+        return lease
+
     async def _arm_edge_lease(self) -> None:
+        self.ensure_edge_safety_lease()
         if not self.edge_lease_enforced:
             return
         if self.edge_safety_lease is None:
@@ -64,6 +88,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             raise RuntimeSafetyError(f"edge safety lease arm failed: {exc}") from exc
 
     async def _renew_edge_lease_or_fail(self, *, output_state: bool) -> None:
+        self.ensure_edge_safety_lease()
         if not self.edge_lease_enforced:
             return
         if self.edge_safety_lease is None:
@@ -82,6 +107,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             )
 
     async def _disarm_edge_lease_best_effort(self) -> None:
+        self.ensure_edge_safety_lease()
         if self.edge_safety_lease is None:
             return
         try:

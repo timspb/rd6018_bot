@@ -75,6 +75,7 @@ from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
 from pb_domain import BatteryCondition, ChargeIntent
+from manual_mode import ManualUIIntent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -847,7 +848,7 @@ def _build_charge_modes_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🟥 AGM", callback_data="v2_profile_agm"),
             ],
             [
-                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual"),
+                InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose"),
                 InlineKeyboardButton(text="⏹ Off по условию", callback_data=OFF_CALLBACK_DATA),
             ],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=HOME_CALLBACK_DATA)],
@@ -3568,30 +3569,36 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
         del custom_mode_data[user_id]
         custom_mode_confirm.pop(user_id, None)  # Очищаем подтверждение если было
         
-        # Запускаем заряд
-        await start_custom_charge(message, user_id, data)
-
-
-async def start_custom_charge(message: Message, user_id: int, params: Dict[str, float]) -> None:
-    """Compatibility entrypoint for the retired historical Custom controller.
-
-    Production composition replaces this module attribute with
-    ProductionManualSessionManager.start_from_legacy_ui. If the raw preserved
-    runtime is imported without that composition, fail closed unless an explicit
-    managed Manual owner is present. This function never writes RD6018 actuators.
-    """
-
-    manager = globals().get("manual_session_manager")
-    route = getattr(manager, "start_from_legacy_ui", None)
-    if not callable(route):
-        logger.error(
-            "Historical Custom START rejected: managed Manual owner is unavailable"
-        )
+        route = globals().get("manual_ui_route")
+        if route is None or not callable(getattr(route, "submit", None)):
+            logger.error("Manual UI START rejected: typed Manual route is unavailable")
+            await message.answer("❌ Ручной режим недоступен: Manual-маршрут не инициализирован.")
+            return
+        try:
+            intent = ManualUIIntent.from_dialog(
+                user_id=user_id,
+                chat_id=message.chat.id,
+                params=data,
+            )
+            result = await route.submit(intent)
+        except (KeyError, TypeError, ValueError) as exc:
+            await message.answer(f"❌ Ручной режим не запущен: {exc}")
+            return
+        if not result.accepted:
+            await message.answer(
+                f"❌ Ручной режим не запущен: {result.reason or 'безопасное включение не подтверждено.'}"
+            )
+            return
+        request = result.request
         await message.answer(
-            "❌ Ручной режим недоступен: безопасный Manual-контроллер не инициализирован."
+            "<b>🛠 Ручной режим запущен</b>\n"
+            f"U = {request.voltage_v:.2f} V\n"
+            f"I = {request.current_a:.2f} A\n"
+            f"OVP = {request.ovp_v:.2f} V (рассчитано)\n"
+            f"OCP = {request.ocp_a:.2f} A (рассчитано)\n"
+            "Автоматическая химическая FSM отключена; действуют только заданные условия "
+            "остановки и неотключаемая безопасность."
         )
-        return
-    await route(message, user_id, params)
 
 
 def _cancel_custom_mode_state(user_id: int) -> None:

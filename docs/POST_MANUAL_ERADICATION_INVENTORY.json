@@ -1,0 +1,142 @@
+{
+  "schema": "rd6018.post_manual_eradication_inventory.v1",
+  "baseline_sha": "1f8d9c45c9b543dde7a57f78b6385d01012e7b4f",
+  "scope": "production-reachable Python plus explicitly retained protocol/schema boundaries; docs/tests are listed separately",
+  "hardware_or_external_actions": false,
+  "counts": {
+    "A_obsolete_behavioral_fallback_or_duplicate_owner": 1,
+    "B_historical_name_in_active_canonical_functionality": 8,
+    "C_persisted_or_protocol_schema_boundary": 5,
+    "D_dead_or_unreachable_code_remaining": 0,
+    "E_tests_or_docs_only": 7
+  },
+  "production_reachable": [
+    {
+      "id": "A-001",
+      "category": "A",
+      "paths": ["production_bot_ui.py"],
+      "identifiers": ["route-is-missing -> _start_profile"],
+      "owner": "removed obsolete compatibility branch",
+      "reason_removed": "Canonical bot.py composition always installs _v3_production_start_route; the fallback was the only production-reachable alternate START owner and was not required for historical Telegram messages."
+    },
+    {
+      "id": "B-001",
+      "category": "B",
+      "paths": ["bot.py"],
+      "identifiers": ["_select_quick_profile", "_batteries_handler", "_battery_add_handler", "_manual_choose_handler", "_manual_interrupted_handler"],
+      "owner": "canonical runtime/UI composition",
+      "reason_retained": "Current handler attributes are consumed by the canonical Telegram screen installers; they do not select a second runtime."
+    },
+    {
+      "id": "B-002",
+      "category": "B",
+      "paths": ["production_bootstrap.py"],
+      "identifiers": ["_managed_charge_monitor_guard_installed", "_battery_start_route"],
+      "owner": "ProductionManualSessionManager and canonical production bootstrap",
+      "reason_retained": "These are neutral internal composition/adapter names at the Manual and Telegram edges; the manager remains the sole execution owner."
+    },
+    {
+      "id": "B-003",
+      "category": "B",
+      "paths": ["production_bot_ui.py"],
+      "identifiers": ["install_ui_support", "status_handler", "_select_quick_profile"],
+      "owner": "canonical operator UI module",
+      "reason_retained": "The module is live UI composition, not a legacy runtime owner; its historical labels are handled at the protocol edge."
+    },
+    {
+      "id": "B-004",
+      "category": "B",
+      "paths": ["manual_context.py"],
+      "identifiers": ["_manual_context_ui_installed", "_manual_choose_handler", "_manual_interrupted_handler"],
+      "owner": "shared Manual callback/context path",
+      "reason_retained": "The commit under audit removed the old v2_manual producer and fallback handler; these attributes now point only to the one current handler path."
+    },
+    {
+      "id": "B-005",
+      "category": "B",
+      "paths": ["manual_text.py"],
+      "identifiers": ["_retired_numeric_manual_input"],
+      "owner": "fail-closed Manual parser",
+      "reason_retained": "One canonical ManualTextMiddleware rejects retired numeric text and owns optional battery identity; no second middleware executes."
+    },
+    {
+      "id": "B-006",
+      "category": "B",
+      "paths": ["manual_mode.py", "runtime/production_runtime.py"],
+      "identifiers": ["ManualUIIntent", "ProductionManualUIRoute", "manual_ui_route"],
+      "owner": "ProductionManualSessionManager via typed Manual UI route",
+      "reason_retained": "The five-step UI produces a validated typed intent; the route delegates only to the canonical Manual start transaction."
+    },
+    {
+      "id": "B-007",
+      "category": "B",
+      "paths": ["manual_runtime.py"],
+      "identifiers": ["legacy-entry compatibility", "_persisted_manual_off_reason"],
+      "owner": "ProductionManualSessionManager",
+      "reason_retained": "Persisted operator OFF conditions remain fail-closed safety checks; safety, lease and actuator ownership remain in this manager."
+    },
+    {
+      "id": "B-008",
+      "category": "B",
+      "paths": ["runtime/production_runtime.py"],
+      "identifiers": ["recovery_shadow"],
+      "owner": "canonical evidence/trace runtime",
+      "reason_retained": "Despite the historical name, this is a live modular evidence record used by charge_controller and cooling_runtime; it is not an actuator fallback."
+    }
+  ],
+  "schema_or_protocol_boundaries": [
+    {
+      "id": "C-001",
+      "category": "C",
+      "paths": ["charge_controller.py"],
+      "identifiers": ["v2_trace_session_id", "v2_battery_id", "v2_intent", "v2_condition_before", "v2_recovery_safe_wait", "v2_final_safe_wait", "*.v2.tmp"],
+      "reason_retained": "Restart/persistence schema. Rename requires explicit fail-closed migration and is outside textual cleanup."
+    },
+    {
+      "id": "C-002",
+      "category": "C",
+      "paths": ["manual_mode.py", "manual_runtime.py"],
+      "identifiers": ["manual_session_v2.json"],
+      "reason_retained": "Durable Manual session filename; changing it would alter restore behavior."
+    },
+    {
+      "id": "C-003",
+      "category": "C",
+      "paths": ["diagnostic_persistence.py"],
+      "identifiers": ["diagnostic_actions_v2.json"],
+      "reason_retained": "Durable diagnostic journal filename; migration is not implied by namespace cleanup."
+    },
+    {
+      "id": "C-004",
+      "category": "C",
+      "paths": ["config.py", "config/physical/esp128.yaml", "config/physical/ha102.yaml", "esphome/packages/rd6018_telemetry_v2.yaml"],
+      "identifiers": ["*_v2 telemetry entity ids", "rd6018_telemetry_v2.yaml"],
+      "reason_retained": "Deployed HA/ESPHome entity and package protocol identifiers; no blind rename is safe."
+    },
+    {
+      "id": "C-005",
+      "category": "C",
+      "paths": ["production_bootstrap.py", "production_bot_ui.py", "manual_context.py"],
+      "identifiers": ["v2_batteries", "v2_profile_*", "v2_battery_*", "v2_manual_choose", "v2_manual_interrupted", "v2_mbind:*"],
+      "reason_retained": "Telegram callback protocol tokens already issued to operators; current code emits only the canonical Manual producer token and routes accepted tokens through one owner."
+    }
+  ],
+  "non_production_tests_or_docs_only": [
+    {"id": "E-001", "category": "E", "paths": ["docs/ERADICATION_09_COMPATIBILITY_REFERENCE.md"], "reason_retained": "immutable source-reference ledger"},
+    {"id": "E-002", "category": "E", "paths": ["docs/V3_LEGACY_ERADICATION_LEDGER.md", "docs/V3_PROJECT_RUNBOOK.md"], "reason_retained": "historical eradication evidence and current boundaries"},
+    {"id": "E-003", "category": "E", "paths": ["tests/test_v3_legacy_inventory.py", "tests/test_production_module_namespace.py"], "reason_retained": "absence and anti-resurrection guards"},
+    {"id": "E-004", "category": "E", "paths": ["tests/test_deployed_v2_entity_namespace.py", "tests/test_esphome_telemetry_v2_contract.py"], "reason_retained": "deployed protocol/entity contract tests"},
+    {"id": "E-005", "category": "E", "paths": ["tests/test_hass_fallback_freshness.py", "tests/test_operator_graph_fallback.py"], "reason_retained": "named fallback behavior tests for fail-safe read paths"},
+    {"id": "E-006", "category": "E", "paths": [".github/workflows/esphome.yml", ".github/workflows/release.yml", "RELEASES.md"], "reason_retained": "release/build version labels, not runtime owners"},
+    {"id": "E-007", "category": "E", "paths": [".gitignore", "docs/assistant", "docs/RD6018_*"], "reason_retained": "historical artifact names and migration evidence"}
+  ],
+  "removed_confirmed_dead_surfaces": [
+    {"category": "D", "paths": ["runtime/output/bridge/shadow.py", "runtime/output/bridge/mapping.py", "runtime/output/bridge/contract.py"], "proof": "No production or operational imports; only package re-export and characterization test callers.", "replacement": "runtime.output physical bridge contracts and production execution port"}
+  ],
+  "unresolved_boundaries": [
+    "Do not rename persisted v2_* session keys or *.v2.json files without a fail-closed migration.",
+    "Do not rename deployed HA/ESPHome *_v2 entity IDs or callback tokens without a protocol rollout.",
+    "Software inventory does not prove ESPHome compilation, flashing, bench validation, production readiness or physical safety.",
+    "V2_UI remains a presentation-only disable switch; production bootstrap internals now use neutral names, while callback tokens and persisted identifiers remain protocol/state boundaries."
+  ]
+}

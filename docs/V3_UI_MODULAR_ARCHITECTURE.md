@@ -107,6 +107,14 @@ It must not require editing the charge FSM or runtime monolith.
 The application/read-model layer determines what actions are available for the
 current state. UI renders those capabilities.
 
+The idle charge button is a read-only navigation capability: it opens the
+charge-mode/profile workspace and must remain visible even when the current
+safety snapshot would reject a physical start. Physical start is independently
+re-authorized by the current preflight/execution boundary; UI visibility never
+grants Output ON authority. Home text and idle actions must be derived from the
+same operator snapshot so a telemetry refresh race cannot produce a normal
+status with a fault-only keyboard.
+
 A button must never remain enabled merely because an old Telegram message
 contains its callback. The routed action is re-authorized against current state.
 

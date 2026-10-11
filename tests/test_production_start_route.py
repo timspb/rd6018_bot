@@ -86,7 +86,8 @@ class ProductionStartRouteTests(unittest.TestCase):
         self.assertNotIn("V2StartRunnerAdapter", source)
         self.assertNotIn("from v2_startup import", source)
         self.assertIn("StartTransactionRunner", source)
-        self.assertIn("application.start_transaction_service", source)
+        self.assertIn("application.start_transaction_runner", source)
+        self.assertIn("application.production_start_route", source)
 
     def test_composed_dry_run_keeps_runner_boundary_non_actuating(self):
         composed_port = runtime_app._v3_production_start_route.port

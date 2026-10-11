@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ class PhysicalTransportConfig:
     priority: int
     connection: ConnectionConfig
     entities: dict[str, str]
+    edge_entities: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

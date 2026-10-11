@@ -19,7 +19,7 @@ RETIRED_COMPATIBILITY_MODULES = {
 
 CORE_DOMAIN_COMPONENTS = {
     "install_diagnostic_persistence",
-    "install_manual_context_preprocessor",
+
     "install_manual_context_ui",
     "install_mix_only_mode",
     "install_production",

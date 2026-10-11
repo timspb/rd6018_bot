@@ -22,6 +22,8 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.services: tuple[Any, ...] = ()
         self._entities_by_key: dict[int, list[Any]] = {}
         self._state_cache: dict[str, dict[str, Any]] = {}
+        self._state_updated_at: dict[str, float] = {}
+        self._state_types: dict[str, str] = {}
         self._state_subscription_remover: Callable[[], None] | None = None
         self._connection_closed_remover: Callable[[], None] | None = None
         self._state_subscription_lock = asyncio.Lock()
@@ -44,6 +46,8 @@ class ESPHomeTransport(ReadOnlyTransport):
         """Invalidate the cached subscription when aioesphomeapi loses the link."""
         self._state_subscription_remover = None
         self._state_cache.clear()
+        self._state_updated_at.clear()
+        self._state_types.clear()
 
     async def _ensure_connected(self) -> None:
         client = self.client
@@ -63,6 +67,81 @@ class ESPHomeTransport(ReadOnlyTransport):
         for entity in self._entities_by_key.get(int(key), ()):
             object_id = str(entity.object_id)
             self._state_cache.setdefault(object_id, {})[state_type] = value
+            self._state_updated_at[object_id] = time.monotonic()
+            self._state_types[object_id] = state_type
+
+    def _edge_object_id(self, entity_id: str) -> str | None:
+        """Resolve a HA-shaped lease ID to the configured native object ID."""
+        configured = self.config.edge_entities
+        for object_id in configured.values():
+            if entity_id == object_id or entity_id.endswith(f".{object_id}"):
+                return object_id
+        suffix = str(entity_id).rsplit(".", 1)[-1]
+        if suffix in {
+            "safety_lease_armed",
+            "safety_lease_tripped",
+            "safety_boot_quarantine",
+            "safety_lease_generation",
+            "safety_modbus_age",
+            "safety_lease_remaining",
+        }:
+            return configured.get(
+                {
+                    "safety_lease_armed": "edge_lease_armed",
+                    "safety_lease_tripped": "edge_lease_tripped",
+                    "safety_boot_quarantine": "edge_boot_quarantine",
+                    "safety_lease_generation": "edge_lease_generation",
+                    "safety_modbus_age": "edge_modbus_age",
+                    "safety_lease_remaining": "edge_lease_remaining",
+                }[suffix],
+                suffix,
+            )
+        for key, object_id in configured.items():
+            if entity_id.endswith(str(object_id)):
+                return object_id
+        return None
+
+    async def get_entity_state(self, entity_id: str) -> tuple[Any, dict[str, Any]]:
+        """Read one native state with its source type and monotonic age."""
+        await self._ensure_state_subscription()
+        await asyncio.sleep(0.5)
+        object_id = self._edge_object_id(entity_id)
+        entity = next((item for item in self.entities if str(item.object_id) == object_id), None)
+        base = {"source": "esp_native_api", "object_id": object_id}
+        if entity is None or object_id is None:
+            return None, {**base, "status": "missing", "age_s": None}
+        values = self._state_cache.get(object_id, {})
+        if not values:
+            return None, {
+                **base,
+                "status": "unknown",
+                "native_type": type(entity).__name__,
+                "age_s": None,
+            }
+        value = next(reversed(values.values()))
+        updated = self._state_updated_at.get(object_id)
+        age_s = None if updated is None else max(0.0, time.monotonic() - updated)
+        return value, {
+            **base,
+            "status": "ok",
+            "native_type": self._state_types.get(object_id, ""),
+            "entity_type": type(entity).__name__,
+            "age_s": age_s,
+            "key": int(entity.key),
+            "device_id": int(entity.device_id),
+        }
+
+    async def press_button(self, entity_id: str) -> bool:
+        """Invoke one explicitly mapped native ESPHome button."""
+        await self._ensure_connected()
+        object_id = self._edge_object_id(entity_id)
+        entity = next((item for item in self.entities if str(item.object_id) == object_id), None)
+        if entity is None or self.client is None:
+            raise RuntimeError(f"ESPHome edge button is not available: {entity_id}")
+        if "button" not in type(entity).__name__.lower():
+            raise RuntimeError(f"ESPHome edge entity is not a button: {entity_id}")
+        self.client.button_command(int(entity.key), int(entity.device_id))
+        return True
 
     async def _ensure_state_subscription(self) -> None:
         """Connect and install at most one state subscription per connection."""
@@ -72,6 +151,8 @@ class ESPHomeTransport(ReadOnlyTransport):
                 return
 
             self._state_cache.clear()
+            self._state_updated_at.clear()
+            self._state_types.clear()
             remover = self.client.subscribe_states(self._on_state)
             # Some aioesphomeapi versions return an unsubscribe callable and
             # others keep this subscription until APIConnection.disconnect().
@@ -137,6 +218,8 @@ class ESPHomeTransport(ReadOnlyTransport):
         remover = self._state_subscription_remover
         self._state_subscription_remover = None
         self._state_cache.clear()
+        self._state_updated_at.clear()
+        self._state_types.clear()
         self.entities = ()
         self.services = ()
         self._entities_by_key.clear()

@@ -13,7 +13,7 @@ import production_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from diagnostic_controller import DiagnosticProductionChargeController
-from manual_runtime import ProductionManualSessionManager
+from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute
 from manual_text import install_manual_text
 from pb_domain import ChargeIntent
 from managed_runtime_safety import install_managed_runtime_safety
@@ -23,7 +23,6 @@ from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import install_panel_last
 from battery_input import parse_battery_spec
 from sg_ui import install_sg_ui, sg_menu_button
-from application.start_transaction_service import start_profile_transactional
 from ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
 from application.execution_port import get_or_create_execution_port
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -87,7 +86,7 @@ def _operator_modes_keyboard() -> InlineKeyboardMarkup:
                 sg_menu_button(),
             ],
             [
-                InlineKeyboardButton(text="Ручной режим", callback_data="v2_manual"),
+                InlineKeyboardButton(text="Ручной режим", callback_data="v2_manual_choose"),
                 InlineKeyboardButton(text="Условие OFF", callback_data=OFF_CALLBACK_DATA),
             ],
             [InlineKeyboardButton(text="⬅ К панели", callback_data=HOME_CALLBACK_DATA)],
@@ -131,7 +130,7 @@ async def _managed_aware_charge_monitor_poll(app: Any) -> None:
 
 
 def _install_managed_charge_monitor_guard(app: Any) -> None:
-    if getattr(app, "_v2_managed_charge_monitor_guard_installed", False):
+    if getattr(app, "_managed_charge_monitor_guard_installed", False):
         return
     async def managed_aware_charge_monitor() -> None:
         while True:
@@ -144,7 +143,7 @@ def _install_managed_charge_monitor_guard(app: Any) -> None:
                 app.logger.error("charge_monitor (network/error): %s", exc)
                 await asyncio.sleep(60)
     app.charge_monitor = managed_aware_charge_monitor
-    app._v2_managed_charge_monitor_guard_installed = True
+    app._managed_charge_monitor_guard_installed = True
 
 
 def install_production(app: Any, *, install_ui: bool = True) -> None:
@@ -153,7 +152,7 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
     get_or_create_execution_port(app)
     if not isinstance(getattr(app, "manual_session_manager", None), ProductionManualSessionManager):
         app.manual_session_manager = ProductionManualSessionManager(app)
-    app.start_custom_charge = app.manual_session_manager.start_from_legacy_ui
+    app.manual_ui_route = ProductionManualUIRoute(app.manual_session_manager)
     install_managed_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
     install_manual_text(app)
@@ -165,7 +164,6 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
         await registry_upsert_battery(identity, lifecycle, updated_at=time.time())
 
     production_bot_ui.upsert_battery = _upsert_from_ui
-    production_bot_ui._start_profile = start_profile_transactional
     production_bot_ui.parse_battery_spec = parse_battery_spec
     original_safe_answer = production_bot_ui._safe_answer
 
@@ -210,7 +208,7 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
     )
 
     @app.router.callback_query(F.data == "v2_battery_start")
-    async def _v2_battery_start_route(call: Any) -> None:
+    async def _battery_start_route(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
         await call.answer()

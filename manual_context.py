@@ -5,156 +5,24 @@ import html
 from dataclasses import replace
 from typing import Any, Awaitable, Callable, Dict
 
-from aiogram import BaseMiddleware, F
+from aiogram import F
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
 from battery_registry import get_battery
 from manual_mode import ManualChargeRequest, ManualSessionState
-from manual_runtime import ProductionManualSessionManager
-from manual_text import MANUAL_PROFILE_PATH, ParsedManualCommand, _format_start, _legacy_numeric_manual, manual_help_text, parse_manual_command
+from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute
+from manual_text import (
+    MANUAL_PROFILE_PATH,
+    install_manual_text,
+    ParsedManualCommand,
+    _format_start,
+    manual_help_text,
+    parse_manual_command,
+)
 from runtime.charge.profiles.manual import load_manual_profile
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from production_bot_ui import selected_battery_for_user
 from battery_catalog import list_batteries
-
-
-class BoundManualTextMiddleware(BaseMiddleware):
-    """Own the next Manual text when the operator selected a physical battery first.
-
-    Battery identity is longitudinal metadata only. It never imports chemistry targets,
-    capacity-derived current, intent, or any other AUTO authority into Manual.
-    """
-
-    def __init__(self, app: Any) -> None:
-        self.app = app
-        self.pending_battery: Dict[int, str] = {}
-
-    @staticmethod
-    def _carries_stop(parsed: ParsedManualCommand) -> bool:
-        stop = parsed.request.stop
-        return (
-            parsed.reach_voltage_v is not None
-            or parsed.reach_current_a is not None
-            or any(
-                value is not None
-                for value in (
-                    stop.max_active_seconds,
-                    stop.voltage_ge_v,
-                    stop.voltage_le_v,
-                    stop.current_ge_a,
-                    stop.current_le_a,
-                    stop.delta,
-                )
-            )
-        )
-
-    async def __call__(
-        self,
-        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
-        data: Dict[str, Any],
-    ) -> Any:
-        if not isinstance(event, Message) or not event.text:
-            return await handler(event, data)
-        user_id = event.from_user.id if event.from_user else 0
-        battery_id = self.pending_battery.get(user_id)
-        if not battery_id:
-            return await handler(event, data)
-        if event.text.strip().startswith("/"):
-            return await handler(event, data)
-        if _legacy_numeric_manual(event.text):
-            self.pending_battery.pop(user_id, None)
-            await event.answer(
-                "❌ Старый формат Manual отключён. Используйте значения из конфигурации и отправьте "
-                "<code>MANUAL</code>.\n" + manual_help_text()
-            )
-            return None
-
-        try:
-            parsed = parse_manual_command(event.text, battery_id=battery_id)
-        except ValueError as exc:
-            self.pending_battery.pop(user_id, None)
-            await event.answer(f"❌ {html.escape(str(exc))}\n\n{manual_help_text()}")
-            return None
-        if parsed is None:
-            self.pending_battery.pop(user_id, None)
-            await event.answer("❌ Не распознал параметры Manual.\n\n" + manual_help_text())
-            return None
-
-        self.pending_battery.pop(user_id, None)
-        if not await self.app._check_chat_and_respond(event):
-            return None
-        if await get_battery(battery_id) is None:
-            await event.answer(
-                "❌ Выбранная сохранённая АКБ больше не найдена. "
-                "Откройте Manual заново и выберите актуальную запись."
-            )
-            return None
-
-        manager = getattr(self.app, "manual_session_manager", None)
-        if not isinstance(manager, ProductionManualSessionManager):
-            await event.answer("❌ V2 Manual runtime не инициализирован.")
-            return None
-
-        bound_request = replace(parsed.request, battery_id=battery_id)
-        bound = ParsedManualCommand(
-            request=bound_request,
-            reach_voltage_v=parsed.reach_voltage_v,
-            reach_current_a=parsed.reach_current_a,
-        )
-        if self._carries_stop(bound):
-            clear_overlay = getattr(self.app, "_clear_manual_off", None)
-            if callable(clear_overlay):
-                clear_overlay()
-
-        replaced_active = manager.is_active
-        try:
-            if replaced_active:
-                enabled = await manager.replace(
-                    bound.request,
-                    reach_voltage_v=bound.reach_voltage_v,
-                    reach_current_a=bound.reach_current_a,
-                )
-            else:
-                enabled = await manager.start(
-                    bound.request,
-                    reach_voltage_v=bound.reach_voltage_v,
-                    reach_current_a=bound.reach_current_a,
-                )
-        except (RuntimeError, ValueError) as exc:
-            await event.answer(f"❌ Manual не запущен: {html.escape(str(exc))}")
-            return None
-        if not enabled:
-            await event.answer(
-                "❌ Manual не запущен: безопасное программирование/включение RD6018 не подтверждено."
-            )
-            return None
-
-        self.app.last_chat_id = event.chat.id
-        self.app.last_user_id = user_id
-        await event.answer(
-            _format_start(bound, replaced=replaced_active)
-            + f"\nАКБ: <code>{html.escape(battery_id)}</code> (только history identity)"
-        )
-        show_now = getattr(self.app, "_build_and_send_dashboard", None)
-        if callable(show_now):
-            await show_now(event.chat.id, user_id)
-        schedule = getattr(self.app, "schedule_dashboard_after_60", None)
-        if callable(schedule):
-            schedule(event.chat.id, user_id)
-        return None
-
-
-def install_manual_context_preprocessor(app: Any) -> BoundManualTextMiddleware:
-    existing = getattr(app, "_v2_bound_manual_middleware", None)
-    if isinstance(existing, BoundManualTextMiddleware):
-        return existing
-    middleware = BoundManualTextMiddleware(app)
-    # Must be registered before manual_text so a battery-bound request owns its
-    # numeric payload before the generic Manual parser sees the same message.
-    app.router.message.outer_middleware.register(middleware)
-    app._v2_bound_manual_middleware = middleware
-    return middleware
 
 
 def _token(battery_id: str) -> str:
@@ -198,9 +66,9 @@ def _manual_request_summary(manager: ProductionManualSessionManager) -> str:
 
 
 def install_manual_context_ui(app: Any) -> None:
-    if getattr(app, "_v2_manual_context_ui_installed", False):
+    if getattr(app, "_manual_context_ui_installed", False):
         return
-    middleware = install_manual_context_preprocessor(app)
+    middleware = install_manual_text(app)
     token_map: Dict[tuple[int, str], str] = {}
 
     base_builder = app._build_charge_modes_keyboard
@@ -211,12 +79,7 @@ def install_manual_context_ui(app: Any) -> None:
         for row in markup.inline_keyboard:
             replaced_row = []
             for button in row:
-                if button.callback_data == "v2_manual":
-                    replaced_row.append(
-                        InlineKeyboardButton(text=button.text, callback_data="v2_manual_choose")
-                    )
-                else:
-                    replaced_row.append(button)
+                replaced_row.append(button)
             rows.append(replaced_row)
         manager = getattr(app, "manual_session_manager", None)
         if isinstance(manager, ProductionManualSessionManager) and manager.state is ManualSessionState.INTERRUPTED:
@@ -228,10 +91,7 @@ def install_manual_context_ui(app: Any) -> None:
 
     app._build_charge_modes_keyboard = _build_modes_with_manual_context
 
-    # Keep the historical Auto Mix callback readable for already-sent Telegram
-    # keyboards. New keyboards use v2_manual_choose directly; this alias does not
-    # reintroduce the Auto Mix button or create a second Manual workflow.
-    @app.router.callback_query(F.data.in_({"v2_manual_choose", "v2_manual"}))
+    @app.router.callback_query(F.data == "v2_manual_choose")
     async def _manual_choose(call: CallbackQuery) -> None:
         if not await app._check_chat_and_respond(call):
             return
@@ -253,7 +113,7 @@ def install_manual_context_ui(app: Any) -> None:
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
-    app._v2_manual_choose_handler = _manual_choose
+    app._manual_choose_handler = _manual_choose
 
     @app.router.callback_query(F.data == "v2_manual_unbound")
     async def _manual_unbound(call: CallbackQuery) -> None:
@@ -261,7 +121,7 @@ def install_manual_context_ui(app: Any) -> None:
             return
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
-        generic = getattr(app, "_v2_manual_text_middleware", None)
+        generic = getattr(app, "_manual_text_middleware", None)
         if generic is not None:
             generic.pending_users.add(user_id)
         await call.message.answer(manual_help_text())
@@ -304,17 +164,18 @@ def install_manual_context_ui(app: Any) -> None:
         if not isinstance(manager, ProductionManualSessionManager):
             await call.message.answer("❌ V2 Manual runtime не инициализирован.")
             return
-        try:
-            enabled = await manager.start(
-                ManualChargeRequest.from_profile(
-                    profile,
-                    battery_id=battery_id,
-                    capacity_ah=record.identity.nominal_capacity_ah,
-                )
-            )
-        except (RuntimeError, ValueError) as exc:
-            await call.message.answer(f"❌ Manual не запущен: {html.escape(str(exc))}")
+        route = getattr(app, "manual_ui_route", None)
+        if not isinstance(route, ProductionManualUIRoute) or route.manager is not manager:
+            await call.message.answer("Manual application route unavailable.")
             return
+        request = ManualChargeRequest.from_profile(
+            profile, battery_id=battery_id,
+            capacity_ah=record.identity.nominal_capacity_ah,
+        )
+        result = await route.submit_request(
+            request, chat_id=call.message.chat.id, user_id=user_id
+        )
+        enabled = result.accepted
         if not enabled:
             await call.message.answer("❌ Manual не запущен: safety/readback transaction не подтверждён.")
             return
@@ -356,7 +217,7 @@ def install_manual_context_ui(app: Any) -> None:
             ),
         )
 
-    app._v2_manual_interrupted_handler = _manual_interrupted
+    app._manual_interrupted_handler = _manual_interrupted
 
     @app.router.callback_query(F.data == "v2_manual_reauthorize")
     async def _manual_reauthorize(call: CallbackQuery) -> None:
@@ -377,15 +238,18 @@ def install_manual_context_ui(app: Any) -> None:
                 "Создайте новый Manual без привязки либо выберите актуальную АКБ."
             )
             return
-        try:
-            enabled = await manager.start(
-                request,
-                reach_voltage_v=manager.reach_voltage_v,
-                reach_current_a=manager.reach_current_a,
-            )
-        except (RuntimeError, ValueError) as exc:
-            await call.message.answer(f"❌ Manual не возобновлён: {html.escape(str(exc))}")
+        route = getattr(app, "manual_ui_route", None)
+        if not isinstance(route, ProductionManualUIRoute) or route.manager is not manager:
+            await call.message.answer("Manual application route unavailable.")
             return
+        result = await route.submit_request(
+            request,
+            chat_id=call.message.chat.id,
+            user_id=call.from_user.id if call.from_user else 0,
+            reach_voltage_v=manager.reach_voltage_v,
+            reach_current_a=manager.reach_current_a,
+        )
+        enabled = result.accepted
         if not enabled:
             await call.message.answer(
                 "❌ Manual не возобновлён: fresh safety/readback transaction не подтверждён."
@@ -408,11 +272,15 @@ def install_manual_context_ui(app: Any) -> None:
         if not isinstance(manager, ProductionManualSessionManager) or manager.state is not ManualSessionState.INTERRUPTED:
             await call.answer("Прерванного запроса больше нет", show_alert=True)
             return
-        confirmed = await manager.stop("interrupted_manual_discarded")
+        route = getattr(app, "manual_ui_route", None)
+        if not isinstance(route, ProductionManualUIRoute) or route.manager is not manager:
+            await call.message.answer("Manual application route unavailable.")
+            return
+        confirmed = await route.discard_interrupted()
         await call.message.answer(
             "🗑 Прерванный Manual отменён; Output подтверждён OFF."
             if confirmed
             else "⚠️ Запрос отменён, но подтверждение Output OFF не получено — проверьте RD6018."
         )
 
-    app._v2_manual_context_ui_installed = True
+    app._manual_context_ui_installed = True

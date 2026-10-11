@@ -1,18 +1,54 @@
 import json
+import asyncio
 import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 import bot  # compose production runtime
 from runtime import production_runtime as runtime_app
-from manual_context import BoundManualTextMiddleware
+from manual_context import install_manual_context_ui
 from manual_mode import ManualSessionState
 from manual_runtime import ProductionManualSessionManager
 from manual_text import ManualTextMiddleware
+
+
+class _CallbackMessage:
+    def __init__(self) -> None:
+        self.chat = SimpleNamespace(id=104)
+        self.answers = []
+
+    async def answer(self, text="", **kwargs):
+        self.answers.append((str(text), kwargs))
+        return self
+
+
+class _Callback:
+    def __init__(self, data: str) -> None:
+        self.data = data
+        self.from_user = SimpleNamespace(id=104)
+        self.message = _CallbackMessage()
+        self.answers = []
+
+    async def answer(self, *args, **kwargs):
+        self.answers.append((args, kwargs))
+
+
+async def _installed_callback_handler(data: str):
+    matches = []
+    probe = _Callback(data)
+    for handler in runtime_app.router.observers["callback_query"].handlers:
+        matched, _ = await handler.check(probe)
+        if matched:
+            matches.append(handler)
+    if len(matches) != 1:
+        raise AssertionError(f"expected one installed handler for {data!r}, got {len(matches)}")
+    return matches[0]
 
 
 class ManualContextEntrypointTests(unittest.TestCase):
@@ -25,7 +61,7 @@ class ManualContextEntrypointTests(unittest.TestCase):
             if button.callback_data
         }
         self.assertIn("v2_manual_choose", callbacks)
-        self.assertNotIn("v2_manual", callbacks)
+        self.assertEqual(callbacks & {"v2_manual", "v2_manual_choose"}, {"v2_manual_choose"})
 
     def test_context_callbacks_are_registered(self) -> None:
         handlers = runtime_app.router.observers["callback_query"].handlers
@@ -36,22 +72,77 @@ class ManualContextEntrypointTests(unittest.TestCase):
         self.assertIn("_manual_reauthorize", names)
         self.assertIn("_manual_discard", names)
 
-    def test_battery_bound_manual_middleware_precedes_generic_numeric_parser(self) -> None:
-        manager = runtime_app.router.observers["message"].outer_middleware
-        middlewares = list(manager._middlewares)
-        bound_index = next(
-            index for index, middleware in enumerate(middlewares)
-            if isinstance(middleware, BoundManualTextMiddleware)
+    def test_old_manual_callback_is_unregistered_and_no_legacy_producer_or_fallback_exists(self) -> None:
+        old_matches = []
+        current_matches = []
+        for handler in runtime_app.router.observers["callback_query"].handlers:
+            if asyncio.run(handler.check(_Callback("v2_manual")))[0]:
+                old_matches.append(handler)
+            if asyncio.run(handler.check(_Callback("v2_manual_choose")))[0]:
+                current_matches.append(handler)
+        self.assertEqual(old_matches, [])
+        self.assertEqual(len(current_matches), 1)
+        self.assertEqual(current_matches[0].callback.__name__, "_manual_choose")
+
+        production = Path(__file__).resolve().parents[1]
+        sources = [
+            path.read_text(encoding="utf-8")
+            for path in production.rglob("*.py")
+            if "tests" not in path.parts
+        ]
+        self.assertFalse(any('callback_data="v2_manual"' in source for source in sources))
+        self.assertFalse(any("_v2_manual_text_middleware" in source for source in sources))
+
+    def test_single_manual_middleware_owns_bound_and_unbound_inputs(self) -> None:
+        manager = runtime_app.router.observers['message'].outer_middleware
+        middlewares = [m for m in manager._middlewares if type(m) is ManualTextMiddleware]
+        self.assertEqual(len(middlewares), 1)
+        self.assertIs(middlewares[0], runtime_app._manual_text_middleware)
+        self.assertIsInstance(middlewares[0].pending_battery, dict)
+        self.assertIsInstance(middlewares[0].pending_users, set)
+
+
+class ManualCallbackOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.chat_guard = patch.object(
+            runtime_app, "_check_chat_and_respond", new=AsyncMock(return_value=True)
         )
-        generic_index = next(
-            index for index, middleware in enumerate(middlewares)
-            if isinstance(middleware, ManualTextMiddleware)
-        )
-        self.assertLess(
-            bound_index,
-            generic_index,
-            "battery-bound Manual must own the numeric payload before generic V I parsing",
-        )
+        self.chat_guard.start()
+        self.addCleanup(self.chat_guard.stop)
+        self.addAsyncCleanup(self._cancel_pending_tasks)
+
+    async def _cancel_pending_tasks(self) -> None:
+        current = asyncio.current_task()
+        pending = [task for task in asyncio.all_tasks() if task is not current and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=2)
+
+    async def test_manual_callbacks_are_unique_acknowledged_and_non_actuating(self) -> None:
+        import manual_context
+
+        deny_output = AsyncMock(side_effect=AssertionError("manual callback touched output"))
+        with patch.object(
+            manual_context, "list_batteries", new=AsyncMock(return_value=[])
+        ), patch.object(runtime_app.hass, "safe_enable_output", new=deny_output):
+            for data in ("v2_manual_choose",):
+                handler = await _installed_callback_handler(data)
+                call = _Callback(data)
+                await asyncio.wait_for(handler.callback(call), timeout=2)
+                self.assertTrue(call.answers or call.message.answers, data)
+                self.assertEqual(
+                    len(
+                        [
+                            candidate
+                            for candidate in runtime_app.router.observers["callback_query"].handlers
+                            if (await candidate.check(_Callback(data)))[0]
+                        ]
+                    ),
+                    1,
+                    data,
+                )
+        deny_output.assert_not_awaited()
 
 
 class _FakeHass:

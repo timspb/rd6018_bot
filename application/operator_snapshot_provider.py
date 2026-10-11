@@ -117,7 +117,30 @@ class OperatorSnapshotProvider:
             heartbeat=str(live.get("last_reported") or live.get("last_updated") or "—"),
         )
 
-    async def get_operator_actions(self) -> OperatorActionsView:
+    async def get_operator_actions(self, *, snapshot: OperatorSnapshot | None = None) -> OperatorActionsView:
+        # Reuse the complete home read model for every state.  A second live
+        # read can otherwise change ownership between the text and keyboard;
+        # HANDS_OFF must never be remapped to a safety fault in that gap.
+        if snapshot is not None:
+            if snapshot.state == "HANDS_OFF":
+                output_on = bool(snapshot.snapshot.output.get("enabled"))
+                if output_on:
+                    return self._actions(
+                        (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT),
+                        (),
+                        "hands_off",
+                    )
+                return self._actions(
+                    (OperatorAction.START_CHARGE, OperatorAction.RETURN_PB_CONTROL),
+                    (OperatorAction.SELECT_PROFILE,),
+                    "hands_off",
+                )
+            return OperatorActionsView.for_state(
+                snapshot.state,
+                safety_allowed=snapshot.snapshot.safety.allowed,
+                pause_allowed=False,
+            )
+
         live = await self._source.read_live()
         hmi = self._source.hmi_state(live)
         if hmi.process_state is HmiProcessState.ADOPTED_MIX:
@@ -127,7 +150,7 @@ class OperatorSnapshotProvider:
             available = (OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
             return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "interrupted")
         if hmi.process_state is HmiProcessState.HANDS_OFF:
-            available = (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT) if hmi.output_on else (OperatorAction.SELECT_PROFILE, OperatorAction.SHOW_DIAGNOSTICS)
+            available = (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT) if hmi.output_on else (OperatorAction.START_CHARGE, OperatorAction.RETURN_PB_CONTROL)
             return self._actions(available, (), "hands_off")
         if hmi.process_state is HmiProcessState.STORAGE:
             return self._actions((OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS), (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "storage")
@@ -256,7 +279,9 @@ class OperatorSnapshotProvider:
         process = getattr(hmi, "process_state", None)
         if process in {HmiProcessState.RUNNING, HmiProcessState.PAUSED, HmiProcessState.STORAGE, HmiProcessState.ADOPTED_MIX}:
             return "CHARGING"
-        if process in {HmiProcessState.CONTAINMENT, HmiProcessState.HANDS_OFF, HmiProcessState.INTERRUPTED} or not fresh:
+        if process is HmiProcessState.HANDS_OFF:
+            return "HANDS_OFF"
+        if process in {HmiProcessState.CONTAINMENT, HmiProcessState.INTERRUPTED} or not fresh:
             return "FAULT"
         if str(getattr(hmi, "attention", "normal")) == "alarm":
             return "FAULT"
@@ -288,6 +313,8 @@ class OperatorSnapshotProvider:
     def _snapshot_actions(state: str, fresh: bool, output_on: bool) -> tuple[str, ...]:
         if state == "CHARGING":
             return ("stop_charge", "show_journal", "show_graph", "refresh")
+        if state == "HANDS_OFF":
+            return (("adopt_mix", "disable_output") if output_on else ("start_charge", "return_pb_control", "refresh"))
         if state == "IDLE" and fresh and not output_on:
             return ("start_charge", "show_journal", "show_diagnostics", "refresh")
         return ("show_diagnostics", "show_journal", "refresh")

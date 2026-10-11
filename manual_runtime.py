@@ -6,12 +6,14 @@ import math
 import os
 import sqlite3
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from manual_mode import (
     MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A,
     MANUAL_POLL_SEC,
     ManualChargeRequest,
+    ManualUIIntent,
     ManualSessionManager,
     ManualSessionState,
 )
@@ -22,6 +24,70 @@ from application.execution_intent.models import ExecutionIntent, SafetyContext
 
 
 MANUAL_REACH_EPS = 0.02
+
+
+@dataclass(frozen=True)
+class ManualUIResult:
+    accepted: bool
+    request: Optional[ManualChargeRequest] = None
+    reason: str = ""
+
+
+class ProductionManualUIRoute:
+    """Typed Manual UI boundary with one explicit session owner."""
+
+    def __init__(self, manager: "ProductionManualSessionManager") -> None:
+        self.manager = manager
+
+    async def discard_interrupted(self) -> bool:
+        """Discard an interrupted Manual session through the verified-OFF owner."""
+        if self.manager.state is not ManualSessionState.INTERRUPTED:
+            return False
+        return await self.manager.stop("interrupted_manual_discarded")
+
+    async def submit_request(
+        self,
+        request: ManualChargeRequest,
+        *,
+        chat_id: int,
+        user_id: int,
+        reach_voltage_v: Optional[float] = None,
+        reach_current_a: Optional[float] = None,
+        replace_active: bool = False,
+    ) -> ManualUIResult:
+        """Single application entry for all parsed Manual START intents."""
+        try:
+            if replace_active:
+                accepted = await self.manager.replace(
+                    request,
+                    reach_voltage_v=reach_voltage_v,
+                    reach_current_a=reach_current_a,
+                )
+            else:
+                if reach_voltage_v is None and reach_current_a is None:
+                    accepted = await self.manager.start(request)
+                else:
+                    accepted = await self.manager.start(
+                        request,
+                        reach_voltage_v=reach_voltage_v,
+                        reach_current_a=reach_current_a,
+                    )
+        except (RuntimeError, ValueError) as exc:
+            return ManualUIResult(False, request, str(exc))
+        if not accepted:
+            return ManualUIResult(False, request, "safe_enable_failed")
+        self.manager.app.last_chat_id = chat_id
+        self.manager.app.last_user_id = user_id
+        return ManualUIResult(True, request, "started")
+
+    async def submit(self, intent: ManualUIIntent) -> ManualUIResult:
+        try:
+            request = intent.to_request()
+            return await self.submit_request(
+                request, chat_id=intent.chat_id, user_id=intent.user_id
+            )
+        except (RuntimeError, ValueError) as exc:
+            return ManualUIResult(False, locals().get("request"), str(exc))
 
 
 def _finite_optional(value: Any) -> Optional[float]:
@@ -275,7 +341,7 @@ class ProductionManualSessionManager(ManualSessionManager):
             return "manual_current_reached"
         return None
 
-    def _legacy_manual_off_reason(
+    def _persisted_manual_off_reason(
         self,
         *,
         voltage: float,
@@ -330,7 +396,7 @@ class ProductionManualSessionManager(ManualSessionManager):
             reason = self._reach_reason(float(voltage), float(current))
             legacy_manual_off_fired = False
             if reason is None:
-                reason = self._legacy_manual_off_reason(
+                reason = self._persisted_manual_off_reason(
                     voltage=float(voltage),
                     current=float(current),
                     now=now,
