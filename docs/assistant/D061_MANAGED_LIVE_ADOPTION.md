@@ -275,3 +275,8 @@ The edge primitive is now physically proven, but the **complete bot-level D061 t
 17. [ ] Only after the complete bot-level D061 gate passes may D062 `MIX_ADOPTED` be called fully physical-validated.
 
 Current claim boundary: **software PASS + exact-head CI PASS + original edge primitive PHYSICAL PASS + first bot preflight physical FAIL/read-only containment evidence**. Positive complete D061 production validation remains pending.
+
+## 2026-10-13 supervised transient endurance result
+
+The isolated, guarded 900-second physical transient completed successfully: 449 live samples across an 899-second first-to-last span, 0.09 A, battery temperature at most 24 °C, raw protection NORMAL, final independent HA/ESP Output OFF, lease disarmed and original production service restored. **This proves the timed transient/lease window only, not the complete bot-level D061 takeover.** The corrected exact firmware and staged positive D061 takeover/fault matrix remain OPEN. See [the bounded physical evidence checkpoint](D061_SUPERVISED_TRANSIENT_900S_2026-10-13.md).
+
