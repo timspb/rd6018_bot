@@ -136,7 +136,7 @@ class Client:
 
 class TakeoverTests(unittest.IsolatedAsyncioTestCase):
     def make(self, *, release_ok=True, adoption_ok=True, state_ok=True, stop_ok=True,
-             adopted_status=False):
+             adopted_status=False, fault_response=None):
         events = []
         clock = [0.0]
         client = Client(events)
@@ -151,7 +151,8 @@ class TakeoverTests(unittest.IsolatedAsyncioTestCase):
                 return {'ok': True, 'result': {
                     'rd_control_mode': 'pb_managed', **lifecycle,
                     'output': 'on' if client.enabled else 'off',
-                    'output_state_code_v2': 1 if client.enabled else 0}}
+                    'output_state_code_v2': 1 if client.enabled else 0,
+                    'edge_lease': {'armed': lease.armed, 'generation': lease.generation}}}
             if op == 'd061_verified_stop':
                 if stop_ok:
                     client.enabled = False
@@ -164,6 +165,13 @@ class TakeoverTests(unittest.IsolatedAsyncioTestCase):
             if op == 'd061_verified_stop':
                 return ({'ok': True, 'result': {'stopped': True, 'output': 'off'}} if stop_ok else
                         {'ok': False, 'error': {'code': 'STOP_REJECTED', 'detail': 'test'}})
+            if op == 'd061_fault_raw_protection_unavailable':
+                client.enabled = False
+                lease.armed = False
+                lifecycle.update(adoption_state='completed', manual_state='stopped')
+                return fault_response or {'ok': True, 'result': {
+                    'contained': True, 'output': 'off', 'lease_armed': False,
+                    'adoption_state': 'completed'}, 'operation': op}
             return {'ok': True}
         async def verify(target):
             events.append(('verify state', dict(target)))
@@ -306,6 +314,97 @@ class TakeoverTests(unittest.IsolatedAsyncioTestCase):
             'd061_verified_stop': {'ok': True, 'result': {'stopped': True, 'output': 'off'}},
         })
 
+    async def test_opt_in_raw_protection_fault_runs_once_after_full_proof(self):
+        tx, events, _ = self.make()
+        tx.fault_operation = tx.FAULT_OPERATION
+        self.assertTrue(await tx.run())
+        self.assertEqual(events.count((tx.FAULT_OPERATION, {})), 1)
+        self.assertLess(events.index(('verify state', dict(TARGET))),
+                        events.index((tx.FAULT_OPERATION, {})))
+        self.assertNotIn(('d061_verified_stop', {}), events)
+        self.assertEqual(tx.evidence['scenario'], 'INJECTED RAW PROTECTION EVIDENCE LOSS')
+        self.assertTrue(tx.ownership_safe)
+        self.assertTrue(tx.restored)
+
+    async def test_fault_rejects_malformed_success_ack(self):
+        op = D061TakeoverSmoke.FAULT_OPERATION
+        cases = [
+            {'ok': True, 'result': {'contained': True, 'output': 'off', 'lease_armed': False}},
+            {'ok': True, 'operation': 'wrong-operation', 'result': {
+                'contained': True, 'output': 'off', 'lease_armed': False}},
+            {'ok': True, 'operation': op, 'result': {
+                'contained': False, 'output': 'off', 'lease_armed': False}},
+            {'ok': True, 'operation': op, 'result': {
+                'contained': True, 'output': 'on', 'lease_armed': False}},
+            {'ok': True, 'operation': op, 'result': {
+                'contained': True, 'output': 'off', 'lease_armed': True}},
+            {'ok': True, 'operation': op, 'result': {'contained': True}},
+            {'ok': True, 'operation': op},
+        ]
+        for reply in cases:
+            with self.subTest(reply=reply):
+                tx, events, _ = self.make(fault_response=reply)
+                tx.fault_operation = op
+                with self.assertRaisesRegex(RuntimeError,
+                                            'raw-protection containment result incomplete'):
+                    await tx.run()
+                self.assertEqual(events.count((op, {})), 1)
+                self.assertIn('canonical off', events)
+                self.assertTrue(tx.output_off_proven)
+                self.assertTrue(tx.lease_disarmed)
+
+    async def test_fault_generation_mismatch_never_passes(self):
+        tx, events, _ = self.make()
+        tx.fault_operation = tx.FAULT_OPERATION
+        original = tx.control
+        fault_invoked = [False]
+
+        async def altered_status(op, **kwargs):
+            result = await original(op, **kwargs)
+            if op == tx.FAULT_OPERATION:
+                fault_invoked[0] = True
+            if op == 'status' and fault_invoked[0]:
+                result['result']['edge_lease']['generation'] += 1
+            return result
+
+        tx.control = altered_status
+        with self.assertRaisesRegex(RuntimeError,
+                                    'fault containment generation, state, or ownership proof failed'):
+            await tx.run()
+        self.assertIn((tx.FAULT_OPERATION, {}), events)
+        self.assertIn('canonical off', events)
+
+    async def test_fault_independent_off_loss_prevents_production_restore(self):
+        tx, events, _ = self.make()
+        tx.fault_operation = tx.FAULT_OPERATION
+        checks = [0]
+
+        async def unsafe_off():
+            checks[0] += 1
+            return checks[0] == 1
+
+        tx.independent_off = unsafe_off
+        with self.assertRaisesRegex(RuntimeError, 'D061 containment is unresolved'):
+            await tx.run()
+        self.assertIn((tx.FAULT_OPERATION, {}), events)
+        self.assertNotIn('restore production', events)
+        self.assertFalse(tx.restored)
+
+    async def test_fault_error_ack_never_passes(self):
+        tx, events, _ = self.make(fault_response={'ok': False, 'error': {'code': 'injected'}})
+        tx.fault_operation = tx.FAULT_OPERATION
+        with self.assertRaisesRegex(RuntimeError, 'typed D061 raw-protection containment'):
+            await tx.run()
+        self.assertIn('canonical off', events)
+
+    async def test_invalid_fault_operation_rejected_before_transaction(self):
+        with self.assertRaisesRegex(ValueError, 'unsupported D061 fault operation'):
+            D061TakeoverSmoke(client=None, lease=None, stop_production=None,
+                verify_stopped=None, bootstrap_hands_off=None, start_acceptance=None,
+                control=None, locate_battery=None, verify_state=None,
+                stop_acceptance=None, independent_off=None, restore_production=None,
+                fault_operation='d061_fault_ambiguous_edge_ack')
+
     async def test_typed_stop_failure_contains_before_restore(self):
         tx, events, _ = self.make(stop_ok=False)
         with self.assertRaisesRegex(RuntimeError, 'typed D061 verified stop failed'):
@@ -444,6 +543,12 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('/tmp/stage/state', command)
         self.assertIn('run_node104', command)
         self.assertNotIn('telegram', command.lower())
+        fault_command = runner.remote_takeover_command(
+            '/tmp/stage', 'd061_fault_raw_protection_unavailable')
+        self.assertIn('fault_operation=', fault_command)
+        self.assertIn('d061_fault_raw_protection_unavailable', fault_command)
+        with self.assertRaisesRegex(ValueError, 'unsupported D061 fault operation'):
+            runner.remote_takeover_command('/tmp/stage', 'd061_fault_ambiguous_edge_ack')
 
     def test_cli_failure_retains_recovery_stage_and_archives(self):
         calls = []

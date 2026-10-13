@@ -108,3 +108,45 @@ voltage for this Leoch Ca/Ca window is limited to 14.7 V. OVP must remain above
 the target and at or below 15.5 V. Ordinary transitions retain the guard's 12
 second fresh report dwell; emergency OFF remains immediate. Calling `run()`
 does not replace any physical gate or constitute physical validation.
+
+## D061 first guarded negative scenario — synthetic protection evidence loss
+
+The existing **positive** D061 takeover is unchanged and remains the default.
+A separate, explicitly selected negative acceptance mode is available:
+
+```
+python tools/run_d061_takeover_smoke.py --physical-ready --fault-operation d061_fault_raw_protection_unavailable
+```
+
+This is **a real electrical ON/OFF acceptance window** if executed on node104.
+Never run it without the same current supervised bench, physical emergency cutoff,
+independent HA102/ESP128 OFF proof, root-owned exclusive D061 lock, and verified
+production handover required by the positive scenario. Keep the hardware output
+and service untouched during offline tests and CI.
+
+The mode performs the same canonical safe enable, lease release, typed battery
+adoption and positive post-adoption proof. It then injects **only an in-process
+unavailable raw-protection evidence response** through the existing typed
+`PhysicalTestControl`. It does **not** modify the real RD6018 register 16,
+assert OVP/OCP/OPP, alter sensor timestamps, or program different V/I/OVP/OCP.
+After the typed fault, a PASS requires all of the following:
+
+- An explicit typed acknowledgement of containment and Output OFF, with the
+  edge lease reported disarmed; the fault is called exactly once.
+- Fresh independently sourced HA and native ESP Output OFF plus physical
+  output voltage/current converged to zero, a fresh normal raw protection code,
+  and preserved V/I/OVP/OCP programmed readback.
+- Canonical adoption/manual ownership retirement and a coherent lease
+  generation; stopped acceptance runtime; restored original single-owner
+  production service.
+
+Any invalid or ambiguous response, remaining Output ON, stale/unknown source,
+armed lease, unresolved ownership, failed cleanup or incomplete production
+restoration is FAIL/HOLD, **never PASS**. The global owner lock remains held
+through the entire negative test and its failure containment. Retain on-node
+root-owned evidence when cleanup is unresolved.
+
+**Do not interpret a PASS for this mode as physical OVP, OCP or OPP trip
+acceptance.** Those hardware-register assertions, out-of-band authority
+changes, and adopted-bot kill/restart need separate physically reviewed
+procedures tracked in issue #68.
