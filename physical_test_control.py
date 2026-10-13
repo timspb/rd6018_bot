@@ -372,13 +372,20 @@ class PhysicalTestControl:
         before = await lease.read_state()
         guard = coordinator.guard
         original_raw = guard._raw_live
+        injection_task = asyncio.current_task()
         read_count = 0
+        mutation_observed = False
 
         async def injected_raw_live() -> Dict[str, Any]:
-            nonlocal read_count
+            nonlocal read_count, mutation_observed
             live = await original_raw()
+            # Background managed pollers run concurrently; they must receive
+            # the real telemetry and never consume a one-shot test mutation.
+            if asyncio.current_task() is not injection_task:
+                return live
             read_count += 1
             if read_count == 2:
+                mutation_observed = True
                 mutated = dict(live)
                 try:
                     mutated["set_voltage"] = max(0.1, float(live["set_voltage"]) - 0.20)
@@ -394,6 +401,13 @@ class PhysicalTestControl:
             try:
                 await coordinator.adopt(preview)
             except Exception as exc:
+                if not mutation_observed or not (
+                    isinstance(exc, RuntimeError)
+                    and "live RD setpoints changed during adoption" in str(exc)
+                ):
+                    raise PhysicalTestControlError(
+                        "TOCTOU fingerprint mutation was not proven to cause rejection"
+                    ) from exc
                 if bool(getattr(edge, "command_may_have_executed", False)):
                     raise PhysicalTestControlError(
                         "TOCTOU injection crossed the edge-command boundary"
@@ -440,20 +454,23 @@ class PhysicalTestControl:
         before = await lease.read_state()
         original_press = lease._press
         original_read_state = lease.read_state
+        injection_task = asyncio.current_task()
         command_sent = False
         hidden_reads = 0
 
         async def injected_press(entity_id: str) -> bool:
             nonlocal command_sent, hidden_reads
             accepted = bool(await original_press(entity_id))
-            if entity_id == edge.config.entity and accepted:
+            if (asyncio.current_task() is injection_task
+                    and entity_id == edge.config.entity and accepted):
                 command_sent = True
                 hidden_reads = max(1, int(lease.config.ack_attempts))
             return accepted
 
         async def injected_read_state() -> Any:
             nonlocal hidden_reads
-            if command_sent and hidden_reads > 0:
+            if (asyncio.current_task() is injection_task
+                    and command_sent and hidden_reads > 0):
                 hidden_reads -= 1
                 return before
             return await original_read_state()
@@ -464,9 +481,10 @@ class PhysicalTestControl:
             try:
                 await coordinator.adopt(preview)
             except Exception as exc:
-                if not command_sent or not bool(getattr(edge, "command_may_have_executed", False)):
+                if (not command_sent or hidden_reads != 0
+                        or not bool(getattr(edge, "command_may_have_executed", False))):
                     raise PhysicalTestControlError(
-                        "ambiguous-ACK injection did not cross the edge-command boundary"
+                        "ambiguous-ACK injection did not exhaust its guarded ACK window"
                     ) from exc
                 live_after = await self._raw_live()
                 lease_after = await original_read_state()

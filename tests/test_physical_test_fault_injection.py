@@ -92,6 +92,8 @@ class FakeCoordinator:
         self.current_authority = None
         self.poll_s = -1.0
         self.adopt_mode = "toctou"
+        self.interleave_background_reads = False
+        self.background_readbacks = []
 
     @staticmethod
     def fingerprint_from_live(live):
@@ -106,6 +108,9 @@ class FakeCoordinator:
         if self.adopt_mode == "toctou":
             first = self.fingerprint_from_live(await self.guard._raw_live())
             self.assert_same(preview.fingerprint, first)
+            if self.interleave_background_reads:
+                background = await asyncio.create_task(self.guard._raw_live())
+                self.background_readbacks.append(background)
             second = self.fingerprint_from_live(await self.guard._raw_live())
             self.assert_same(preview.fingerprint, second)
             raise AssertionError("TOCTOU test did not inject a mismatch")
@@ -116,6 +121,9 @@ class FakeCoordinator:
             accepted = await self.edge.lease._press(self.edge.config.entity)
             if not accepted:
                 raise RuntimeError("synthetic edge command rejected")
+            if self.interleave_background_reads:
+                background = await asyncio.create_task(self.edge.lease.read_state())
+                self.background_readbacks.append(background)
             for _ in range(int(self.edge.lease.config.ack_attempts)):
                 latest = await self.edge.lease.read_state()
                 if latest.generation != before.generation:
@@ -275,6 +283,56 @@ class PhysicalTestFaultInjectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.runtime_safety_guard.live["set_current"], 0.2)
         self.assertEqual(app.runtime_safety_guard.live["ovp"], 13.8)
         self.assertEqual(app.runtime_safety_guard.live["ocp"], 0.4)
+
+    async def test_toctou_one_shot_not_consumed_by_background_observer(self):
+        app = FakeApp()
+        coordinator = app.rd_managed_live_adoption
+        coordinator.interleave_background_reads = True
+        control = PhysicalTestControl(app, enabled=True)
+        with patch("physical_test_control.get_battery", new=AsyncMock(return_value=battery_record())):
+            response = await control.dispatch({
+                "op": "d061_fault_toctou_precommand",
+                "battery_id": "varta_agm80_a0019828108",
+            })
+        self.assertTrue(response["ok"], response)
+        self.assertTrue(response["result"]["rejected"])
+        self.assertIn("live RD setpoints changed", response["result"]["reason"])
+        self.assertEqual(len(coordinator.background_readbacks), 1)
+        self.assertEqual(coordinator.background_readbacks[0]["set_voltage"], 13.6)
+        self.assertEqual(app.runtime_safety_guard.edge_safety_lease.presses, [])
+
+    async def test_toctou_rejects_unrelated_exception_as_fault_test_pass(self):
+        app = FakeApp()
+        control = PhysicalTestControl(app, enabled=True)
+        with patch("physical_test_control.get_battery", new=AsyncMock(return_value=battery_record())), patch.object(
+            app.rd_managed_live_adoption, "adopt", new=AsyncMock(side_effect=RuntimeError("socket outage"))
+        ):
+            response = await control.dispatch({
+                "op": "d061_fault_toctou_precommand",
+                "battery_id": "varta_agm80_a0019828108",
+            })
+        self.assertFalse(response["ok"])
+        self.assertIn("fingerprint mutation was not proven", response["error"])
+
+    async def test_ambiguous_ack_one_shot_not_consumed_by_background_observer(self):
+        app = FakeApp()
+        coordinator = app.rd_managed_live_adoption
+        coordinator.adopt_mode = "ambiguous"
+        coordinator.interleave_background_reads = True
+        control = PhysicalTestControl(app, enabled=True)
+        with patch("physical_test_control.get_battery", new=AsyncMock(return_value=battery_record())):
+            response = await control.dispatch({
+                "op": "d061_fault_ambiguous_edge_ack",
+                "battery_id": "varta_agm80_a0019828108",
+            })
+        self.assertTrue(response["ok"], response)
+        self.assertTrue(response["result"]["contained"])
+        self.assertEqual(len(coordinator.background_readbacks), 1)
+        self.assertEqual(coordinator.background_readbacks[0].generation, 11)
+        self.assertEqual(response["result"]["generation_before"], 10)
+        self.assertEqual(response["result"]["generation_after"], 11)
+        self.assertFalse(response["result"]["lease_armed"])
+        self.assertEqual(response["result"]["output"], "off")
 
     async def test_raw_protection_unavailable_uses_existing_gate_and_retires_off(self):
         app = FakeApp(raw_protection=True)

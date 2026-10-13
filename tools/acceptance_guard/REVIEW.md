@@ -1,7 +1,11 @@
 # Acceptance integration review
 
-Scope: supplemental D061 sink gating paired with unchanged canonical SHA
-`19577fcaa220cafbc90fa69611ac925b7c47c21d`. Production `8b75cca` is untouched.
+Scope: supplemental D061 sink gating paired with pinned canonical source
+`594a386e2b9fdd6bde9ebb15a5dfab30155291d6` (875-file manifest).
+The earlier successful 2026-10-13 physical smoke used exact source `19577fc`
+with its separately reviewed overlay; that historical evidence is not a
+physical revalidation of every later `main` commit. Production is not mutated
+by importing or testing this acceptance package.
 These subclasses are acceptance dependencies, not a replacement runtime or
 production entrypoint. No production file imports this package. `assemble`
 binds the existing deferred client before canonical bot.py composes its owners;
@@ -20,8 +24,10 @@ and observation gaps and no future/stale/invalid/cached report credit. Delayed
 initial reports cannot backdate the observed stability window. Reading a
 cache never counts as a new report. Native reports come from the canonical
 subscription callback and invalidate on disconnect. HA reports require advancing
-last_reported. Canonical native get_live_values metadata is deliberately ignored
-because it describes fetch time. No additional poller is created.
+last_reported. Since #65, canonical native `get_live_values` includes
+actual subscription callback timestamps, not synthetic cache-read freshness.
+The guarded native sink observes the callback directly; reading cached state
+does not grant additional dwell. No additional poller is created.
 
 Voltage <=15.5 V remains mandatory; this Leoch Ca/Ca D061 pairing conservatively
 uses <=14.7 V ordinary recipe authority. Original safe_enable_output and
