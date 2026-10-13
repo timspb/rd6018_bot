@@ -26,6 +26,8 @@ jobs:
       ALLOWED_CHAT_IDS: '1'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # D061 pinned exact-source archive test needs base commit
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -36,3 +38,5 @@ jobs:
         run: python -m compileall -q .
       - name: Unit tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: D061 guarded acceptance sink tests
+        run: python -m unittest tools.acceptance_guard.test_transient tools.acceptance_guard.test_sinks -v

@@ -1,0 +1,110 @@
+# Acceptance integration review
+
+Scope: supplemental D061 sink gating paired with unchanged canonical SHA
+`19577fcaa220cafbc90fa69611ac925b7c47c21d`. Production `8b75cca` is untouched.
+These subclasses are acceptance dependencies, not a replacement runtime or
+production entrypoint. No production file imports this package. `assemble`
+binds the existing deferred client before canonical bot.py composes its owners;
+`ProductionComposition.run` receives the guarded control server through its
+existing lifecycle argument. The original server is never started.
+
+Sink review: Hass switch ON/OFF and voltage, HA connector ON/voltage, native
+connector ON/voltage are all intercepted before the original method calls I/O.
+HA/native ordinary OFF is also gated. Nested client/backend dispatch uses a
+task-bound permit for one operation, preventing duplicate gates and preventing
+child tasks inheriting authority. Exceptions, False delivery and cancellation
+retain pending ambiguity. Only a new post-command target report clears it.
+
+Dwell is last distinct report minus first actual observation >=12 s, with <=8 s source
+and observation gaps and no future/stale/invalid/cached report credit. Delayed
+initial reports cannot backdate the observed stability window. Reading a
+cache never counts as a new report. Native reports come from the canonical
+subscription callback and invalidate on disconnect. HA reports require advancing
+last_reported. Canonical native get_live_values metadata is deliberately ignored
+because it describes fetch time. No additional poller is created.
+
+Voltage <=15.5 V remains mandatory; this Leoch Ca/Ca D061 pairing conservatively
+uses <=14.7 V ordinary recipe authority. Original safe_enable_output and
+SafeOutputCoordinator policy/readback/ownership checks remain installed. No
+raw connector enable operation is exposed through the control server.
+
+The canonical turn_off API does not encode ordinary versus fault reasons.
+Its containment semantics must remain immediate, including real D061 coordinator
+fault cleanup through the execution port. GuardedD061Control marks
+only the typed d061_verified_stop operation as ordinary, checking dwell before
+the coordinator persists OFF_PENDING. Direct supplemental low-level OFF is
+ordinary by default. Canonical turn_off, safe_enable_output failure rollback,
+and turn_on post-verification rollback
+carry task-local fault-OFF scope and do no clock, dwell, journal, filesystem or
+telemetry work before invoking the original OFF sink. A containment OFF latches
+the acceptance guard against subsequent ON/voltage writes. This pairing is
+limited to D061. An acceptance outer middleware on the existing Dispatcher
+does not dispatch Telegram updates during the monitored window. Only the typed
+D061 socket operations are available; this server has no arbitrary AUTO/Manual
+start or reconfiguration and no D062 extensions. The unchanged canonical runtime
+keeps its one poller and all background fault protections.
+GuardedRuntimeSafety is installed using the canonical owner install contract,
+before bot.py composition. It adds scopes only: explicit ordinary stops retain
+their permit through verification/retries; direct canonical fault cleanup has
+no acceptance clock or dwell dependency. Explicit HANDS_OFF operator OFF is
+ordinary unless already executing fault containment. Extending the procedure
+requires further typed operation classification and tests. This is not a claim
+of unrestricted Telegram/AUTO acceptance.
+Adoption/fault socket operations carry fault-OFF scope so ambiguous edge cleanup
+also remains immediate when the durable ownership is still HANDS_OFF.
+
+Physical launch gates: current present monitor, operable emergency power cutoff,
+identified Leoch_72Ah Ca/Ca battery and sensor placement, and exact compiled/flashed
+D061 firmware identification. The real-node live-adoption/900 s/raw-protection
+bench cases are the acceptance target, not a prerequisite PASS invented from
+these tests. Production deployment still requires their physical evidence.
+Firmware version or unit PASS alone cannot establish those gates. Stop actuation
+when any physical prerequisite is missing; read-only inspection can continue.
+
+Handover remains the prior transient-unit procedure: verify the original
+production backup, stop production only for a ready supervised window, prove
+zero bot processes, use isolated state, launch this dependency pairing through
+the exact bot.py composition, then prove independent startup OFF. Exactly one
+poller. No change to production tree, marker, environment or service unit.
+The launch library independently checks stopped production, absence of bot.py
+processes and the isolated state directory, then holds an exclusive OS poller
+lock through canonical lifecycle execution. Caller readiness booleans cannot
+bypass a running production service.
+External ON setup still requires its own canonical-policy-approved guarded
+procedure; it is not an API in this package. No hardware ON is authorized by
+calling assemble or by passing software tests. Final OFF/lease/ownership proof
+is required before restoring the original production service.
+
+## Approved transient executor
+
+The live entrypoint is `python3 -m tools.acceptance_guard.transient` from the
+deployment checkout. It builds the existing guarded production connector and
+`EdgeSafetyLease`; the reusable executor API is `TransientAcceptance.run()`.
+The command requires safe target/duration arguments and explicit current
+physical readiness acknowledgements. It performs fresh dual-source OFF
+preflight, arms rollback before calling
+the production stop callback, verifies service stop and sole poller ownership,
+then arms the existing edge lease. Programming and ON use only guarded
+canonical `HassClient.safe_enable_output()`. Every exit attempts immediate
+canonical OFF, independently proves OFF, disarms the lease only after proof,
+and restores production only after OFF and lease-release proof. A failed stop
+is not followed by an attempted service restart. The API exposes no direct
+HA/ESP ON or force-on route.
+
+Example command (the operator selects the current target and duration):
+
+```bash
+python3 -m tools.acceptance_guard.transient \
+  --voltage-v 14.4 --current-a 0.2 --ovp-v 15.0 --ocp-a 0.4 --duration-s 60 \
+  --confirm-physical-preflight --confirm-cutoff-tested \
+  --confirm-temperature-sensor --confirm-supervised
+```
+
+This command was not run as part of software implementation; it stops the
+production service and can energize the physical output after all gates pass.
+
+The absolute programmed-voltage ceiling is 15.5 V; the programmed battery
+voltage for this Leoch Ca/Ca window is limited to 14.7 V. OVP must remain above
+the target and at or below 15.5 V. Ordinary transitions retain the guard's 12
+second fresh report dwell; emergency OFF remains immediate. Calling `run()`
+does not replace any physical gate or constitute physical validation.
