@@ -59,6 +59,17 @@ class FakeHass:
         return True
 
 
+class NativeButtonHass(FakeHass):
+    def __init__(self, info):
+        super().__init__()
+        self.info = info
+        self.inventory_calls = []
+
+    async def get_button_info(self, entity_id):
+        self.inventory_calls.append(entity_id)
+        return self.info
+
+
 class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_adoption_has_distinct_positive_ack(self):
         hass = FakeHass()
@@ -86,6 +97,48 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared.generation, 21)
         self.assertEqual(hass.pressed, [])
+
+    async def test_native_button_info_without_state_passes_read_only_preflight(self):
+        hass = NativeButtonHass({"status": "ok", "exists": True,
+                                 "native_type": "ButtonInfo"})
+        hass.states.pop(hass.adopt_config.entity)
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        prepared = await adoption.prepare()
+
+        self.assertEqual(prepared.generation, 21)
+        self.assertEqual(hass.inventory_calls, [hass.adopt_config.entity])
+        self.assertEqual(hass.pressed, [])
+
+    async def test_native_missing_or_wrong_type_fails_closed(self):
+        for info in (
+            {"status": "missing", "exists": False, "native_type": None},
+            {"status": "ok", "exists": True, "native_type": "SwitchInfo"},
+        ):
+            hass = NativeButtonHass(info)
+            lease = EdgeSafetyLease(hass, hass.lease_config)
+            adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+            with self.assertRaisesRegex(EdgeSafetyLeaseError, "native button"):
+                await adoption.prepare()
+            self.assertEqual(hass.pressed, [])
+            self.assertFalse(adoption.command_may_have_executed)
+
+    async def test_native_inventory_error_fails_closed(self):
+        hass = NativeButtonHass(None)
+
+        async def fail(_entity_id):
+            raise OSError("disconnected")
+
+        hass.get_button_info = fail
+        lease = EdgeSafetyLease(hass, hass.lease_config)
+        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "inventory is unavailable"):
+            await adoption.prepare()
+        self.assertEqual(hass.pressed, [])
+        self.assertFalse(adoption.command_may_have_executed)
 
     async def test_autonomous_mode_blocks_live_adoption_before_command(self):
         hass = FakeHass()

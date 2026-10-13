@@ -184,9 +184,9 @@ class EdgeSafetyLease:
     @staticmethod
     def _native_expected_type(entity_id: str) -> str | None:
         suffix = str(entity_id).rsplit(".", 1)[-1]
-        if suffix.endswith(("safety_lease_armed", "safety_lease_tripped", "safety_boot_quarantine")):
+        if suffix.endswith(("safety_lease_armed", "safety_lease_tripped", "safety_boot_quarantine", "safety_autonomous_mode")):
             return "BinarySensorState"
-        if suffix.endswith(("safety_lease_generation", "safety_modbus_age", "safety_lease_remaining")):
+        if suffix.endswith(("safety_lease_generation", "safety_modbus_age", "safety_lease_remaining", "safety_lease_ttl", "protection_status_code")):
             return "SensorState"
         return None
 
@@ -197,17 +197,23 @@ class EdgeSafetyLease:
         state, raw_attrs = await get_state(entity_id)
         attrs = dict(raw_attrs or {})
         if attrs.get("source") == "esp_native_api":
-            age_s = _finite_float(attrs.get("age_s"))
-            if age_s is None or age_s > self.config.max_modbus_age_s:
-                raise EdgeSafetyLeaseError(
-                    f"native ESPHome edge state is stale/unavailable: {entity_id}"
-                )
             expected = self._native_expected_type(entity_id)
             actual = str(attrs.get("native_type") or attrs.get("entity_type") or "")
-            if expected and actual and expected != actual:
+            if expected and expected != actual:
                 raise EdgeSafetyLeaseError(
                     f"native ESPHome edge entity type is invalid: {entity_id} ({actual})"
                 )
+            # ESPHome template sensors publish on a one-second cadence, so their
+            # native report age proves the lease snapshot is live. Binary sensors
+            # publish changes only; an unchanged state can legitimately be old.
+            # Their type/value remain validated, while the sensor heartbeats in
+            # read_state provide the independent liveness proof.
+            if expected == "SensorState":
+                age_s = _finite_float(attrs.get("age_s"))
+                if age_s is None or age_s < 0 or age_s > self.config.max_modbus_age_s:
+                    raise EdgeSafetyLeaseError(
+                        f"native ESPHome edge state is stale/unavailable: {entity_id}"
+                    )
         return state, attrs
 
     async def _state_value(self, entity_id: str) -> Any:
@@ -439,11 +445,27 @@ class EdgeSafetyLease:
                 raise EdgeSafetyLeaseError(
                     "HANDS_OFF release preparation requires suspended renewals"
                 )
-            button_state = await self._state_value(self.config.hands_off_release_entity)
-            if button_state is None or str(button_state).strip().lower() == "unavailable":
-                raise EdgeSafetyLeaseError(
-                    "edge HANDS_OFF release entity is missing/unavailable"
-                )
+            native_button_info = getattr(self.hass, "get_button_info", None)
+            if callable(native_button_info):
+                try:
+                    info = await native_button_info(self.config.hands_off_release_entity)
+                except Exception as exc:
+                    raise EdgeSafetyLeaseError(
+                        "edge HANDS_OFF release button inventory is unavailable"
+                    ) from exc
+                if (not isinstance(info, dict) or info.get("status") != "ok"
+                        or info.get("exists") is not True
+                        or info.get("native_type") != "ButtonInfo"):
+                    raise EdgeSafetyLeaseError(
+                        "edge HANDS_OFF release entity is missing/unavailable or not a native button"
+                    )
+            else:
+                # Legacy/HA-only adapters expose button existence as a state.
+                button_state = await self._state_value(self.config.hands_off_release_entity)
+                if button_state is None or str(button_state).strip().lower() == "unavailable":
+                    raise EdgeSafetyLeaseError(
+                        "edge HANDS_OFF release entity is missing/unavailable"
+                    )
             state = await self.read_state()
             self._assert_armable(state)
             if not state.armed:

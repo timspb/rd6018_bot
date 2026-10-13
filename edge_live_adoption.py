@@ -123,14 +123,28 @@ class EdgeLiveAdoption:
         return bool(self._command_may_have_executed)
 
     async def _require_entity(self) -> None:
-        state = await self.lease._state_value(self.config.entity)
-        # Home Assistant button entities normally expose state ``unknown``; unlike a
-        # sensor, that is not evidence that the entity is missing. ``None`` means no
-        # entity was returned and ``unavailable`` means the node/entity cannot serve it.
-        if state is None or str(state).strip().lower() == "unavailable":
-            raise EdgeSafetyLeaseError(
-                "edge live-adoption entity is missing/unavailable"
-            )
+        native_button_info = getattr(self.lease.hass, "get_button_info", None)
+        if callable(native_button_info):
+            try:
+                info = await native_button_info(self.config.entity)
+            except Exception as exc:
+                raise EdgeSafetyLeaseError(
+                    "edge live-adoption button inventory is unavailable"
+                ) from exc
+            if (not isinstance(info, dict) or info.get("status") != "ok"
+                    or info.get("exists") is not True
+                    or info.get("native_type") != "ButtonInfo"):
+                raise EdgeSafetyLeaseError(
+                    "edge live-adoption entity is missing/unavailable or not a native button"
+                )
+        else:
+            # HA-only adapters expose button existence as a state. Unknown is
+            # normal for buttons; absent and unavailable states fail closed.
+            state = await self.lease._state_value(self.config.entity)
+            if state is None or str(state).strip().lower() == "unavailable":
+                raise EdgeSafetyLeaseError(
+                    "edge live-adoption entity is missing/unavailable"
+                )
 
     async def _require_not_autonomous(self) -> None:
         raw = await self.lease._state_value(self.config.autonomous_entity)
@@ -208,6 +222,29 @@ class EdgeLiveAdoption:
             )
 
         metadata = attrs if isinstance(attrs, dict) else {}
+        if metadata.get("source") == "esp_native_api":
+            actual = str(metadata.get("native_type") or metadata.get("entity_type") or "")
+            if actual != "SensorState":
+                raise EdgeSafetyLeaseError(
+                    f"native ESPHome protection entity type is invalid: {actual}"
+                )
+            native_entity_type = metadata.get("entity_type")
+            if native_entity_type is not None and native_entity_type != "SensorInfo":
+                raise EdgeSafetyLeaseError(
+                    f"native ESPHome protection inventory type is invalid: {native_entity_type}"
+                )
+            age = metadata.get("age_s")
+            if isinstance(age, bool):
+                age = None
+            try:
+                age = float(age)
+            except (TypeError, ValueError, OverflowError):
+                age = math.inf
+            if not math.isfinite(age) or age < 0 or age > float(self.lease.config.max_modbus_age_s):
+                raise EdgeSafetyLeaseError(
+                    f"raw RD6018 protection status is stale ({age:.1f}s)"
+                )
+            return
         timestamp = self._timestamp(metadata.get("_ha_last_reported"))
         if timestamp is None:
             timestamp = self._timestamp(metadata.get("_ha_last_updated"))
