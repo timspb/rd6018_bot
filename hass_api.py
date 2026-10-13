@@ -47,6 +47,15 @@ class HassClient:
         self._programming_state: Dict[str, Tuple[float, float]] = {}
         self._safety_supervisor = SafetySupervisor()
         self._physical_backend = backend
+        # Preserve the native read-only button inventory capability only for a
+        # backend that actually implements it. HA-only adapters keep the legacy
+        # state/existence preflight used by EdgeSafetyLease.
+        native_button_info = getattr(backend, "get_button_info", None)
+        if not callable(native_button_info):
+            native_button_info = getattr(getattr(backend, "transport", None),
+                                         "get_button_info", None)
+        if callable(native_button_info):
+            self.get_button_info = native_button_info
 
     @classmethod
     def from_physical_config(cls, root: str | None = None) -> "HassClient":

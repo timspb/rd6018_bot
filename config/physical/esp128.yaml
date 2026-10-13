@@ -48,9 +48,11 @@ edge_entities:
   edge_lease_renew: safety_lease_renew
   edge_lease_disarm: safety_lease_disarm
   edge_lease_release_to_hands_off: safety_lease_release_to_hands_off
+  edge_lease_adopt_live_output: safety_lease_adopt_live_output
   edge_lease_armed: safety_lease_armed
   edge_lease_tripped: safety_lease_tripped
   edge_boot_quarantine: safety_boot_quarantine
   edge_lease_generation: safety_lease_generation
   edge_modbus_age: safety_modbus_age
   edge_lease_remaining: safety_lease_remaining
+  edge_lease_ttl: safety_lease_ttl

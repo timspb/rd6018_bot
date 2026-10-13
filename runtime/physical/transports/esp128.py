@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import asyncio
+from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any
 
@@ -23,6 +24,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._entities_by_key: dict[int, list[Any]] = {}
         self._state_cache: dict[str, dict[str, Any]] = {}
         self._state_updated_at: dict[str, float] = {}
+        self._state_reported_at: dict[str, float] = {}
         self._state_types: dict[str, str] = {}
         self._state_subscription_remover: Callable[[], None] | None = None
         self._connection_closed_remover: Callable[[], None] | None = None
@@ -47,6 +49,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_subscription_remover = None
         self._state_cache.clear()
         self._state_updated_at.clear()
+        self._state_reported_at.clear()
         self._state_types.clear()
 
     async def _ensure_connected(self) -> None:
@@ -68,6 +71,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             object_id = str(entity.object_id)
             self._state_cache.setdefault(object_id, {})[state_type] = value
             self._state_updated_at[object_id] = time.monotonic()
+            self._state_reported_at[object_id] = time.time()
             self._state_types[object_id] = state_type
 
     def _edge_object_id(self, entity_id: str) -> str | None:
@@ -101,11 +105,67 @@ class ESPHomeTransport(ReadOnlyTransport):
                 return object_id
         return None
 
+    def _read_object_id(self, entity_id: str) -> str | None:
+        """Resolve reads only through explicitly configured entity mappings.
+
+        Reads may cover ordinary configured sensors as well as edge entities, but
+        native inventory remains closed: a caller cannot probe an arbitrary object.
+        Keep this separate from _edge_object_id so the button write whitelist does
+        not expand with the read mappings.
+        """
+        candidate = str(entity_id)
+        configured_ids = set(map(str, self.config.entities.values()))
+        configured_ids.update(map(str, self.config.edge_entities.values()))
+        for object_id in configured_ids:
+            # HA may include a registry/device prefix before the ESPHome object ID.
+            # This suffix match remains safe because object_id came from the explicit
+            # configuration whitelist above.
+            if (candidate == object_id or candidate.endswith("." + object_id)
+                    or candidate.endswith("_" + object_id)):
+                return object_id
+        return None
+
     async def get_entity_state(self, entity_id: str) -> tuple[Any, dict[str, Any]]:
         """Read one native state with its source type and monotonic age."""
         await self._ensure_state_subscription()
         await asyncio.sleep(0.5)
-        object_id = self._edge_object_id(entity_id)
+        object_id = self._read_object_id(entity_id)
+        return self._read_subscribed_state(object_id)
+
+    async def get_button_info(self, entity_id: str) -> dict[str, Any]:
+        """Read native inventory for one explicitly configured edge button.
+
+        This deliberately uses entity inventory only: it does not subscribe to
+        state and cannot invoke a command. Restrict resolution to configured
+        ``edge_*`` button mappings so preflight cannot probe arbitrary objects.
+        """
+        configured_ids = {
+            str(object_id) for key, object_id in self.config.edge_entities.items()
+            if str(key).startswith("edge_") and str(object_id)
+        }
+        candidate = str(entity_id)
+        object_id = next((item for item in configured_ids
+                          if candidate == "button." + item
+                          or candidate.endswith("." + item)
+                          or candidate.endswith("_" + item)), None)
+        if not str(entity_id).startswith("button.") or object_id is None:
+            return {"status": "missing", "object_id": None, "native_type": None}
+        await self._ensure_connected()
+        entity = next((item for item in self.entities
+                       if str(item.object_id) == object_id), None)
+        if entity is None:
+            return {"status": "missing", "object_id": object_id, "native_type": None}
+        native_type = type(entity).__name__
+        return {
+            "status": "ok" if native_type == "ButtonInfo" else "wrong_type",
+            "exists": True,
+            "object_id": object_id,
+            "native_type": native_type,
+            "key": int(entity.key),
+            "device_id": int(entity.device_id),
+        }
+
+    def _read_subscribed_state(self, object_id: str | None) -> tuple[Any, dict[str, Any]]:
         entity = next((item for item in self.entities if str(item.object_id) == object_id), None)
         base = {"source": "esp_native_api", "object_id": object_id}
         if entity is None or object_id is None:
@@ -118,18 +178,49 @@ class ESPHomeTransport(ReadOnlyTransport):
                 "native_type": type(entity).__name__,
                 "age_s": None,
             }
-        value = next(reversed(values.values()))
+        state_type = self._state_types.get(object_id, "")
+        value = values.get(state_type)
         updated = self._state_updated_at.get(object_id)
         age_s = None if updated is None else max(0.0, time.monotonic() - updated)
         return value, {
             **base,
             "status": "ok",
-            "native_type": self._state_types.get(object_id, ""),
+            "native_type": state_type,
             "entity_type": type(entity).__name__,
             "age_s": age_s,
+            "subscription_timestamp_monotonic": updated,
             "key": int(entity.key),
             "device_id": int(entity.device_id),
         }
+
+    async def get_physical_output_report(self) -> tuple[Any, dict[str, Any]]:
+        """Read the configured physical output sensor from the native subscription.
+
+        This is deliberately separate from lease-edge lookup: it is read-only and
+        cannot expand the object whitelist used by press_button().
+        """
+        await self._ensure_state_subscription()
+        await asyncio.sleep(0.5)
+        object_id = self.config.entities.get("output_state")
+        value, meta = self._read_subscribed_state(object_id)
+        if meta.get("status") != "ok":
+            return value, meta
+        if meta.get("native_type") != "SensorState":
+            return None, {**meta, "status": "wrong_type", "expected_native_type": "SensorState"}
+        updated = meta.get("subscription_timestamp_monotonic")
+        age_s = (time.monotonic() - updated
+                 if isinstance(updated, (int, float)) and not isinstance(updated, bool) else None)
+        if age_s is None or not 0 <= age_s <= 8:
+            return None, {**meta, "status": "stale", "age_s": age_s}
+        if isinstance(value, bool):
+            return None, {**meta, "status": "invalid_value", "expected_values": [0, 1]}
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None, {**meta, "status": "invalid_value", "expected_values": [0, 1]}
+        if numeric not in (0.0, 1.0):
+            return None, {**meta, "status": "invalid_value", "expected_values": [0, 1]}
+        return value, meta
 
     async def press_button(self, entity_id: str) -> bool:
         """Invoke one explicitly mapped native ESPHome button."""
@@ -152,6 +243,7 @@ class ESPHomeTransport(ReadOnlyTransport):
 
             self._state_cache.clear()
             self._state_updated_at.clear()
+            self._state_reported_at.clear()
             self._state_types.clear()
             remover = self.client.subscribe_states(self._on_state)
             # Some aioesphomeapi versions return an unsubscribe callable and
@@ -195,8 +287,50 @@ class ESPHomeTransport(ReadOnlyTransport):
         result["temp_int_v2"] = result.get("temp_int")
         result["temp_ext_v2"] = result.get("temp_ext")
         result["power_v2"] = result.get("power")
-        now = time.time()
-        result["_meta"] = {key: {"status": "ok" if item is not None else "unknown", "age_s": 0.0, "fetched_at": now} for key, item in result.items() if key != "_meta"}
+        # Native state-cache read time is not an ESP sensor heartbeat.
+        # The canonical verified-OFF path requires an actual post-command
+        # output_state_code_v2 update. Preserve the monotonic subscription
+        # timestamp of every source (including derived aliases) instead of
+        # advertising every cache read as age=0 / freshly reported.
+        aliases = {
+            "output_state_code_v2": "output_state",
+            "switch": "output_state",
+            "set_voltage_readback_v2": "configured_voltage",
+            "set_current_readback_v2": "configured_current",
+            "ovp_readback_v2": "ovp",
+            "ocp_readback_v2": "ocp",
+            "temp_int_v2": "temp_int",
+            "temp_ext_v2": "temp_ext",
+            "power_v2": "power",
+        }
+        monotonic_now = time.monotonic()
+        wall_now = time.time()
+        meta = {}
+        for name, item in result.items():
+            source = aliases.get(name, name)
+            object_id = self.config.entities.get(source)
+            updated = self._state_updated_at.get(str(object_id))
+            age = (monotonic_now - updated
+                   if isinstance(updated, (float, int))
+                   and not isinstance(updated, bool) else None)
+            valid_age = (age is not None and 0 <= age < float('inf'))
+            report = {
+                "status": "ok" if item is not None and valid_age else "unknown",
+                "age_s": age if valid_age else None,
+                "fetched_at": wall_now,
+                "source_key": "output_state_code_v2" if source == "output_state" else source,
+            }
+            # A stored native callback timestamp must not drift on subsequent
+            # cache reads. Otherwise tiny clock-conversion jitter could forge
+            # a post-command heartbeat even when the sensor never updated.
+            reported_at = self._state_reported_at.get(str(object_id))
+            if (valid_age and isinstance(reported_at, (float, int))
+                    and not isinstance(reported_at, bool)
+                    and 0 < reported_at < float('inf')):
+                report["last_reported"] = datetime.fromtimestamp(
+                    reported_at, timezone.utc).isoformat()
+            meta[name] = report
+        result["_meta"] = meta
         return result
 
     async def disable_output(self) -> None:
@@ -219,6 +353,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_subscription_remover = None
         self._state_cache.clear()
         self._state_updated_at.clear()
+        self._state_reported_at.clear()
         self._state_types.clear()
         self.entities = ()
         self.services = ()

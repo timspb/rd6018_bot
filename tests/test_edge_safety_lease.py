@@ -79,9 +79,10 @@ class DelayedDisarmHass(FakeHass):
 
 
 class NativeHass(FakeHass):
-    def __init__(self, *, age_s=1.0, native_type_overrides=None):
+    def __init__(self, *, age_s=1.0, age_overrides=None, native_type_overrides=None):
         super().__init__()
         self.age_s = age_s
+        self.age_overrides = age_overrides or {}
         self.native_type_overrides = native_type_overrides or {}
 
     async def get_state(self, entity_id):
@@ -98,7 +99,10 @@ class NativeHass(FakeHass):
         return self.states.get(entity_id), {
             "source": "esp_native_api",
             "status": "ok",
-            "age_s": self.age_s,
+            "age_s": self.age_overrides.get(
+                next((name for name in self.age_overrides if suffix.endswith(name)), None),
+                self.age_s,
+            ),
             "native_type": native_type,
         }
 
@@ -200,6 +204,33 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(EdgeSafetyLeaseError, "native ESPHome edge state"):
             await lease.arm()
         self.assertEqual(hass.presses, [])
+
+    async def test_native_binary_state_may_be_old_when_sensor_heartbeats_are_fresh(self):
+        hass = NativeHass(
+            age_overrides={
+                "safety_lease_armed": 60.0,
+                "safety_lease_tripped": 60.0,
+                "safety_boot_quarantine": 60.0,
+                "safety_lease_generation": 1.0,
+                "safety_modbus_age": 1.0,
+                "safety_lease_remaining": 1.0,
+            }
+        )
+        hass.states[f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"] = "on"
+        _hass, _clock, lease = self._lease(hass)
+
+        state = await lease.read_state()
+
+        self.assertTrue(state.armed)
+        self.assertFalse(state.tripped)
+        self.assertFalse(state.boot_quarantine)
+
+    async def test_native_dynamic_sensor_heartbeat_must_be_fresh(self):
+        hass = NativeHass(age_overrides={"safety_lease_generation": 60.0})
+        _hass, _clock, lease = self._lease(hass)
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "native ESPHome edge state"):
+            await lease.read_state()
 
     async def test_native_edge_state_type_mismatch_fails_closed(self):
         hass, _clock, lease = self._lease(

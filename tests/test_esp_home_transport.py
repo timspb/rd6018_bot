@@ -14,6 +14,10 @@ class _SensorState:
         self.state = state
 
 
+class SensorState(_SensorState):
+    pass
+
+
 class _NumberState:
     def __init__(self, key, state):
         self.key = key
@@ -25,6 +29,10 @@ class _ButtonInfo:
         self.key = key
         self.object_id = object_id
         self.device_id = device_id
+
+
+class ButtonInfo(_ButtonInfo):
+    pass
 
 
 class _FakeClient:
@@ -71,9 +79,10 @@ class _FakeClient:
             SimpleNamespace(key=13, object_id="safety_lease_generation", device_id=0),
             SimpleNamespace(key=14, object_id="safety_modbus_age", device_id=0),
             SimpleNamespace(key=15, object_id="safety_lease_remaining", device_id=0),
-            _ButtonInfo(16, "safety_lease_renew", 0),
-            _ButtonInfo(17, "safety_lease_disarm", 0),
-            _ButtonInfo(18, "safety_lease_release_to_hands_off", 0),
+            ButtonInfo(16, "safety_lease_renew", 0),
+            ButtonInfo(17, "safety_lease_disarm", 0),
+            ButtonInfo(18, "safety_lease_release_to_hands_off", 0),
+            ButtonInfo(19, "safety_lease_adopt_live_output", 0),
         ]
         return entities, []
 
@@ -85,7 +94,7 @@ class _FakeClient:
         if type(self).emit_initial:
             callback(_SensorState(1, 12.7))
             callback(_SensorState(2, 0.0))
-            callback(_SensorState(3, 0.0))
+            callback(SensorState(3, 0.0))
             callback(_NumberState(4, 14.7))
             callback(_SensorState(10, 0.0))
             callback(_SensorState(11, 0.0))
@@ -127,12 +136,14 @@ def _config():
             "edge_lease_renew": "safety_lease_renew",
             "edge_lease_disarm": "safety_lease_disarm",
             "edge_lease_release_to_hands_off": "safety_lease_release_to_hands_off",
+            "edge_lease_adopt_live_output": "safety_lease_adopt_live_output",
             "edge_lease_armed": "safety_lease_armed",
             "edge_lease_tripped": "safety_lease_tripped",
             "edge_boot_quarantine": "safety_boot_quarantine",
             "edge_lease_generation": "safety_lease_generation",
             "edge_modbus_age": "safety_modbus_age",
             "edge_lease_remaining": "safety_lease_remaining",
+            "edge_lease_ttl": "safety_lease_ttl",
         },
     )
 
@@ -169,6 +180,44 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_FakeClient.subscribe_calls, 1)
         self.assertEqual(live["voltage"], 12.7)
         self.assertEqual(live["configured_voltage"], 14.7)
+        await transport.close()
+
+    async def test_output_heartbeat_is_native_callback_not_cache_fetch_time(self):
+        import time
+        from runtime_safety import RuntimeSafetyGuard
+
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        first = await transport.get_live_values()
+        source = first["_meta"]["output_state_code_v2"]
+        self.assertEqual(source["status"], "ok")
+        self.assertEqual(source["source_key"], "output_state_code_v2")
+        self.assertEqual(source["last_reported"], first["_meta"]["switch"]["last_reported"])
+        self.assertLess(source["age_s"], 8.0)
+
+        # A cache read alone is NOT a new sensor heartbeat.
+        guard = RuntimeSafetyGuard.__new__(RuntimeSafetyGuard)
+        before = guard._output_evidence(first)
+        command_epoch = time.time()
+        repeated = await transport.get_live_values()
+        unchanged = guard._output_evidence(repeated)
+        self.assertEqual(before.heartbeat_epoch, unchanged.heartbeat_epoch)
+        self.assertFalse(guard._is_post_command(unchanged, before, command_epoch))
+
+        # Only the actual native SensorState callback advances the heartbeat.
+        transport._on_state(SensorState(3, 0.0))
+        updated = guard._output_evidence(await transport.get_live_values())
+        self.assertGreater(updated.heartbeat_epoch, before.heartbeat_epoch)
+        self.assertTrue(guard._is_post_command(updated, before, command_epoch))
+        await transport.close()
+
+    async def test_stale_native_output_age_not_advertised_fresh(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        transport._state_updated_at["rd_output"] -= 30.0
+        live = await transport.get_live_values()
+        self.assertGreaterEqual(live["_meta"]["output_state_code_v2"]["age_s"], 30.0)
+        self.assertEqual(live["_meta"]["output_state_code_v2"]["last_reported"],
+                         live["_meta"]["switch"]["last_reported"])
         await transport.close()
 
     async def test_repeated_reads_do_not_accumulate_handlers(self):
@@ -266,6 +315,77 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attrs["status"], "missing")
         await transport.close()
 
+    async def test_physical_output_report_uses_configured_sensor_not_edge_whitelist(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        value, attrs = await transport.get_physical_output_report()
+        self.assertEqual(value, 0.0)
+        self.assertEqual(attrs["native_type"], "SensorState")
+        self.assertIsInstance(attrs["subscription_timestamp_monotonic"], float)
+        self.assertLessEqual(attrs["age_s"], 8.0)
+        edge_value, edge_attrs = await transport.get_entity_state("sensor.arbitrary_native_output")
+        self.assertIsNone(edge_value)
+        self.assertEqual(edge_attrs["status"], "missing")
+        await transport.close()
+
+    async def test_native_read_resolution_is_config_whitelisted_and_button_write_stays_edge_only(self):
+        config = _config()
+        config.entities.update({
+            "autonomous_mode": "safety_autonomous_mode",
+            "protection_code": "protection_status_code",
+        })
+        transport = ESPHomeTransport(config, RDConfig(60.0, 18.0, 1000.0))
+        self.assertEqual(transport._read_object_id(
+            "binary_sensor.rd6018_safety_autonomous_mode"), "safety_autonomous_mode")
+        value, attrs = await transport.get_entity_state("sensor.unconfigured_native_object")
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "missing")
+        # Ordinary configured read mappings must not become write authority.
+        self.assertIsNone(transport._edge_object_id("button.safety_autonomous_mode"))
+        with self.assertRaisesRegex(RuntimeError, "not available"):
+            await transport.press_button("button.safety_autonomous_mode")
+        self.assertEqual(_FakeClient.instances[0].button_commands, [])
+        await transport.close()
+
+    async def test_physical_output_report_fails_closed_for_unknown_stale_and_wrong_type(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        _FakeClient.emit_initial = False
+        value, attrs = await transport.get_physical_output_report()
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "unknown")
+        await transport.close()
+
+        _FakeClient.emit_initial = True
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport._ensure_state_subscription()
+        transport._state_updated_at["rd_output"] -= 9.0
+        value, attrs = await transport.get_physical_output_report()
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "stale")
+        self.assertGreater(attrs["age_s"], 8.0)
+        await transport.close()
+
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport._ensure_state_subscription()
+        transport._on_state(_NumberState(3, 0.0))
+        value, attrs = await transport.get_physical_output_report()
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "wrong_type")
+        self.assertEqual(attrs["expected_native_type"], "SensorState")
+        transport._on_state(SensorState(3, 1.0))
+        value, attrs = await transport.get_physical_output_report()
+        self.assertEqual(value, 1.0)
+        self.assertEqual(attrs["native_type"], "SensorState")
+        await transport.close()
+
+    async def test_physical_output_report_rejects_non_binary_sensor_values(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport._ensure_state_subscription()
+        transport._on_state(SensorState(3, 2.0))
+        value, attrs = await transport.get_physical_output_report()
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "invalid_value")
+        await transport.close()
+
     async def test_native_button_path_does_not_use_home_assistant(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         await transport.discover()
@@ -273,6 +393,57 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
             "button.rd6018_rd_6018_safety_lease_renew"
         ))
         self.assertEqual(_FakeClient.instances[0].button_commands, [(16, 0)])
+        await transport.close()
+
+    async def test_button_inventory_is_read_only_and_restricted_to_configured_button(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        info = await transport.get_button_info(
+            "button.rd6018_rd_6018_safety_lease_release_to_hands_off"
+        )
+        self.assertEqual(info["status"], "ok")
+        self.assertEqual(info["native_type"], "ButtonInfo")
+        self.assertEqual(info["key"], 18)
+        self.assertEqual(_FakeClient.instances[0].button_commands, [])
+        missing = await transport.get_button_info("button.arbitrary_button")
+        self.assertEqual(missing["status"], "missing")
+        await transport.close()
+
+    async def test_live_adoption_button_requires_explicit_mapping_and_uses_native_inventory(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        entity_id = "button.rd6018_rd_6018_safety_lease_adopt_live_output"
+        info = await transport.get_button_info(entity_id)
+        self.assertEqual(info["status"], "ok")
+        self.assertEqual(info["native_type"], "ButtonInfo")
+        self.assertEqual(info["object_id"], "safety_lease_adopt_live_output")
+        self.assertEqual(info["key"], 19)
+        self.assertEqual(_FakeClient.instances[0].button_commands, [])
+        self.assertTrue(await transport.press_button(entity_id))
+        self.assertEqual(_FakeClient.instances[0].button_commands, [(19, 0)])
+        await transport.close()
+
+    async def test_live_adoption_button_missing_mapping_or_wrong_native_type_fails_closed(self):
+        config = _config()
+        config.edge_entities.pop("edge_lease_adopt_live_output")
+        transport = ESPHomeTransport(config, RDConfig(60.0, 18.0, 1000.0))
+        missing = await transport.get_button_info(
+            "button.rd6018_rd_6018_safety_lease_adopt_live_output")
+        self.assertEqual(missing["status"], "missing")
+        await transport.close()
+
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        original = _FakeClient.list_entities_services
+
+        async def wrong_type(client):
+            entities, services = await original(client)
+            entities[-1] = SimpleNamespace(key=19,
+                object_id="safety_lease_adopt_live_output", device_id=0)
+            return entities, services
+
+        with patch.object(_FakeClient, "list_entities_services", wrong_type):
+            wrong = await transport.get_button_info(
+                "button.rd6018_rd_6018_safety_lease_adopt_live_output")
+        self.assertEqual(wrong["status"], "wrong_type")
+        self.assertEqual(wrong["native_type"], "SimpleNamespace")
         await transport.close()
 
     async def test_reconnects_when_cached_client_reports_disconnected(self):
