@@ -33,7 +33,7 @@ OVERLAY_SHA256 = {
     "adapters.py": "d0f8a85772833e81e68c2c3291415beb7b9a9c02aa0b0d849e0acec84923e66c",
     "transient.py": "99abd8ea5b97abbed02f9a3b367b55d4cb0da3044984b0fcfcc5e62a7a74abff",
     "pairing.py": "4907ad353badb1d5a35c4e9a4ab6d83c5eb9d2ce830195994f0c28fd752d2ba9",
-    "takeover.py": "87cc30bd959f6e90e027df2d186a67592191ebec3d81851bbe16a5eb64596f2e",
+    "takeover.py": "2a8eb1ac9062d88d62ff0d4a247c5b71af2f31fbf6c65212fb8b6b2d3dfeb889",
 }
 RESULT_PATH = Path(os.environ.get("RD6018_D061_RESULT", "d061-takeover-result.json"))
 EVIDENCE_DIR = Path(os.environ.get("RD6018_D061_EVIDENCE_DIR", "d061-takeover-evidence"))
@@ -178,16 +178,22 @@ def normalize_git_archive(archive_bytes: bytes, manifest_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
-def remote_takeover_command(stage: str) -> str:
+FAULT_OPERATION = "d061_fault_raw_protection_unavailable"
+
+
+def remote_takeover_command(stage: str, fault_operation: str | None = None) -> str:
     """Launch the reviewed transaction through an isolated node104 Python."""
     # The remote entry module owns the canonical API wiring; Telegram dispatch
     # is suppressed by acceptance_guard.pairing and only typed socket ops mutate.
+    if fault_operation not in (None, FAULT_OPERATION):
+        raise ValueError("unsupported D061 fault operation")
+    fault_arg = "" if fault_operation is None else ", fault_operation=" + repr(fault_operation)
     code = (
         "import asyncio, os, sys; "
         "from pathlib import Path; "
         "sys.path.insert(0, " + repr(stage) + "); "
         "from tools.acceptance_guard.takeover import run_node104; "
-        "asyncio.run(run_node104(Path(" + repr(stage) + ")))"
+        "asyncio.run(run_node104(Path(" + repr(stage) + ")" + fault_arg + "))"
     )
     return "sudo -n sh -c " + shlex.quote(
         "set -a; . " + shlex.quote(staging.PRODUCTION_ENV) + "; set +a; "
@@ -263,6 +269,8 @@ def cleanup_remote_staging(client, stage, archives, *, completed):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--physical-ready", action="store_true", help="physical preflight, cutoff, sensor, supervision and exact firmware are confirmed")
+    parser.add_argument("--fault-operation", choices=(FAULT_OPERATION,), default=None,
+                        help="explicitly inject synthetic raw-protection evidence loss after D061 proof")
     args = parser.parse_args()
     if not args.physical_ready:
         parser.error("--physical-ready is required for this supervised physical smoke")
@@ -270,7 +278,9 @@ def main() -> int:
     stage = archive_remote = overlay_remote = None
     completed = False
     evidence = {
-        "operation": "D061 positive takeover only",
+        "operation": ("D061 positive takeover only" if args.fault_operation is None
+                      else "D061 INJECTED RAW PROTECTION EVIDENCE LOSS"),
+        "fault_operation": args.fault_operation,
         "node": "node104",
         "candidate_sha": staging.SHA,
         "manifest_sha256": MANIFEST_SHA256,
@@ -303,7 +313,7 @@ def main() -> int:
         stage, archive_remote, overlay_remote = stage_candidate(client, archive_bytes, overlay_bytes)
         evidence["stage_path"] = stage
         evidence["overlay_archive_sha256"] = hashlib.sha256(overlay_bytes).hexdigest()
-        print(staging.remote_exec(client, remote_takeover_command(stage), timeout=900))
+        print(staging.remote_exec(client, remote_takeover_command(stage, args.fault_operation), timeout=900))
         evidence["transaction"] = read_root_owned_transaction(client, stage)
         after = staging.service_state(client)
         evidence["production_service_after"] = after
@@ -338,11 +348,12 @@ def main() -> int:
             client.close()
         EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
         stamp = __import__("datetime").datetime.now().strftime("%Y%m%d-%H%M%S")
-        evidence_file = EVIDENCE_DIR / ("d061-positive-" + stamp + ".json")
+        prefix = "d061-positive-" if args.fault_operation is None else "d061-fault-raw-protection-"
+        evidence_file = EVIDENCE_DIR / (prefix + stamp + ".json")
         evidence_file.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n",
                                  encoding="utf-8")
         RESULT_PATH.write_text(
-            "D061 positive takeover result: " + str(evidence.get("result")) + "\n"
+            str(evidence.get("operation")) + " result: " + str(evidence.get("result")) + "\n"
             + "Evidence: " + str(evidence_file) + "\n"
             + json.dumps({key: evidence.get(key) for key in
                           ("candidate_sha", "manifest_sha256", "overlay_archive_sha256",

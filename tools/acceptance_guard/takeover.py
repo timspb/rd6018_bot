@@ -146,6 +146,7 @@ async def independent_output_off(ha, esp, ha_entity, *, wall_time=time.time,
 
 
 class D061TakeoverSmoke:
+    FAULT_OPERATION = 'd061_fault_raw_protection_unavailable'
     @staticmethod
     def _temperature_ok(live, *, pre_enable=False):
         meta = live.get('_meta') or {}
@@ -177,7 +178,10 @@ class D061TakeoverSmoke:
                  bootstrap_hands_off, start_acceptance, control,
                  locate_battery, verify_state, stop_acceptance,
                  independent_off, restore_production, sleep=asyncio.sleep,
-                 duration_s=20, monotonic=None, recover_off_pending=None):
+                 duration_s=20, monotonic=None, recover_off_pending=None,
+                 fault_operation=None):
+        if fault_operation not in (None, self.FAULT_OPERATION):
+            raise ValueError('unsupported D061 fault operation')
         self.client = client
         self.lease = lease
         self.stop_production = stop_production
@@ -194,6 +198,7 @@ class D061TakeoverSmoke:
         self.sleep = sleep
         self.monotonic = monotonic
         self.duration_s = float(duration_s)
+        self.fault_operation = fault_operation
         self.production_stopped = False
         self.acceptance_started = False
         self.restored = False
@@ -661,13 +666,51 @@ class D061TakeoverSmoke:
                     'temp_ext_battery_c': live.get('temp_ext'),
                 })
                 next_live_check = clock() + 4.0
-            stopped = await self.control('d061_verified_stop')
-            self.evidence['typed_responses']['d061_verified_stop'] = stopped
-            payload = stopped.get('result') if isinstance(stopped, dict) else None
-            if (not isinstance(stopped, dict) or stopped.get('ok') is not True
-                    or not isinstance(payload, dict)
-                    or payload.get('stopped') is not True):
-                raise RuntimeError('typed D061 verified stop failed or incomplete: adopted Manual authority not retired')
+            if self.fault_operation is None:
+                stopped = await self.control('d061_verified_stop')
+                self.evidence['typed_responses']['d061_verified_stop'] = stopped
+                payload = stopped.get('result') if isinstance(stopped, dict) else None
+                if (not isinstance(stopped, dict) or stopped.get('ok') is not True
+                        or not isinstance(payload, dict)
+                        or payload.get('stopped') is not True):
+                    raise RuntimeError('typed D061 verified stop failed or incomplete: adopted Manual authority not retired')
+            else:
+                self.evidence['scenario'] = 'INJECTED RAW PROTECTION EVIDENCE LOSS'
+                faulted = await self.control(self.fault_operation)
+                self.evidence['typed_responses'][self.fault_operation] = faulted
+                payload = faulted.get('result') if isinstance(faulted, dict) else None
+                if (not isinstance(faulted, dict) or faulted.get('ok') is not True
+                        or faulted.get('operation') != self.fault_operation
+                        or not isinstance(payload, dict)
+                        or payload.get('contained') is not True
+                        or payload.get('output') != 'off'
+                        or payload.get('lease_armed') is not False):
+                    raise RuntimeError('typed D061 raw-protection containment result incomplete')
+                fault_status = await self.control('status')
+                status = fault_status.get('result') if isinstance(fault_status, dict) else None
+                edge = status.get('edge_lease') if isinstance(status, dict) else None
+                lease_state = await self.lease.read_state()
+                generation = getattr(lease_state, 'generation', None)
+                status_generation = edge.get('generation') if isinstance(edge, dict) else None
+                if (fault_status.get('ok') is not True or not isinstance(status, dict)
+                        or status.get('rd_control_mode') != 'pb_managed'
+                        or status.get('adoption_state') not in ('completed', 'interrupted', 'failed')
+                        or payload.get('adoption_state') != status.get('adoption_state')
+                        or status.get('manual_state') not in ('stopped', 'failed', 'idle')
+                        or str(status.get('output', '')).lower() != 'off'
+                        or str(status.get('output_state_code_v2', '')).strip() not in ('0', '0.0')
+                        or not isinstance(edge, dict) or edge.get('armed') is not False
+                        or isinstance(generation, bool) or not isinstance(generation, int)
+                        or status_generation != generation):
+                    raise RuntimeError('fault containment generation, state, or ownership proof failed')
+                self.evidence['fault_retirement_status'] = {
+                    'rd_control_mode': status.get('rd_control_mode'),
+                    'adoption_state': status.get('adoption_state'),
+                    'manual_state': status.get('manual_state'),
+                    'output': status.get('output'),
+                    'generation': generation,
+                    'edge_lease_armed': edge.get('armed'),
+                }
             if await self.independent_off() is not True:
                 raise RuntimeError('independent OFF proof failed after typed stop')
             self.output_off_proven = True
@@ -756,17 +799,21 @@ async def run_d061_takeover_smoke(**dependencies):
     return await D061TakeoverSmoke(**dependencies).run()
 
 
-async def run_node104(stage, *, hooks=None):
+async def run_node104(stage, *, hooks=None, fault_operation=None):
     """Node-wide arbitration wraps the entire real physical acceptance lifecycle."""
+    if fault_operation not in (None, D061TakeoverSmoke.FAULT_OPERATION):
+        raise ValueError('unsupported D061 fault operation')
     if hooks is not None:
         # The injected hooks are hardware-free unit-test fixtures.
-        return await _run_node104_unlocked(stage, hooks=hooks)
+        return await _run_node104_unlocked(stage, hooks=hooks,
+                                           fault_operation=fault_operation)
     from .pairing import node104_acceptance_gate
     with node104_acceptance_gate():
-        return await _run_node104_unlocked(stage, hooks=None)
+        return await _run_node104_unlocked(stage, hooks=None,
+                                           fault_operation=fault_operation)
 
 
-async def _run_node104_unlocked(stage, *, hooks=None):
+async def _run_node104_unlocked(stage, *, hooks=None, fault_operation=None):
     """Wire the reviewed transaction to the isolated, staged node104 runtime.
 
     ``hooks`` exists for focused, hardware-free tests. Production callers use
@@ -782,7 +829,8 @@ async def _run_node104_unlocked(stage, *, hooks=None):
     state = stage / 'state'
     state.mkdir(mode=0o700, exist_ok=True)
     if hooks is not None:
-        return await _run_node104_hooks(stage, manifest, hooks)
+        return await _run_node104_hooks(stage, manifest, hooks,
+                                        fault_operation=fault_operation)
 
     from .transient import require_node104
     require_node104()
@@ -1003,7 +1051,8 @@ async def _run_node104_unlocked(stage, *, hooks=None):
         control=typed, locate_battery=locate_battery, verify_state=verify_state,
         stop_acceptance=stop_acceptance, independent_off=independent_off,
         restore_production=restore_production,
-        recover_off_pending=recover_off_pending)
+        recover_off_pending=recover_off_pending,
+        fault_operation=fault_operation)
     evidence_path = state / 'd061-takeover-result.json'
     def persist_evidence(result, error_type=None):
         evidence = {
@@ -1038,7 +1087,7 @@ async def _run_node104_unlocked(stage, *, hooks=None):
             await stop_acceptance()
 
 
-async def _run_node104_hooks(stage, manifest, hooks):
+async def _run_node104_hooks(stage, manifest, hooks, *, fault_operation=None):
     """Test seam which still requires the exact pairing assembly call."""
     state_path = seed_isolated_hands_off_state(Path(stage) / 'state')
     assemble = hooks['assemble']
@@ -1048,4 +1097,7 @@ async def _run_node104_hooks(stage, manifest, hooks):
     manager = getattr(assembled, 'rd_control_mode_manager', None)
     if manager is not None:
         require_hands_off_manager(manager)
-    return await hooks['run'](stage, manifest, assembled)
+    if fault_operation is None:
+        return await hooks['run'](stage, manifest, assembled)
+    return await hooks['run'](stage, manifest, assembled,
+                              fault_operation=fault_operation)
