@@ -1,6 +1,6 @@
 # D061 — managed adoption of an already-ON RD6018
 
-Status: **software contract implemented; edge ownership primitive physically validated; first bot preflight physically exercised read-only but positive takeover remains pending after a source-heartbeat defect was found.**
+Status: **bounded bot-level HANDS_OFF → PB_MANAGED → verified OFF physical PASS on 2026-10-13; full hardware fault/restart matrix OPEN.** See [physical checkpoint](D061_POSITIVE_BOT_TAKEOVER_2026-10-13.md). Historical descriptions below document earlier attempts.
 
 D061 is intentionally different from the existing HANDS_OFF observer. The observer can watch an already-running external program and, if explicitly authorized, perform a future verified OFF while low-level ownership remains HANDS_OFF. D061 actually transfers an already-ON output into `PB_MANAGED` ownership.
 
@@ -259,11 +259,11 @@ The edge primitive is now physically proven, but the **complete bot-level D061 t
 1. [x] Exact original full node configuration compiles/runs and the original V2 edge contract is physically deployed.
 2. [x] Boot/restart quarantine forces and proves Output OFF at the deployed edge smoke boundary.
 3. [x] Published `Safety Lease TTL` reports `900 s`.
-4. [ ] Deploy and physically verify the corrected force-updated critical telemetry / `Output State Code V2` source-heartbeat contract.
+4. [x] Corrected V2 Output/critical heartbeat physically observed on 2026-10-13; the post-command Output OFF callback was accepted.
 5. [ ] Inject/verify every raw register-16 NORMAL/OVP/OCP/OPP mapping on hardware; NORMAL has been observed, but OVP/OCP/OPP fault injection is still pending.
 6. [ ] Force stale/nonzero direct internal register-16 evidence and prove live-adopt rejection physically.
 7. [x] Run the bot D061 first preflight on real hardware and prove pre-command rejection is read-only; the 2026-09-03 run rejected stale `battery_voltage` before any edge command or actuator write.
-8. [ ] Repeat the short positive bot D061 takeover after corrected firmware + matching bot deployment.
+8. [x] Short positive bot-level D061 takeover physically PASS with isolated exact candidate; original production bot restored (no full deployment).
 9. [x] Edge live-adopt preserves Output/V/I/OVP/OCP.
 10. [x] Edge adoption arms a healthy near-full 900 s lease with fresh Modbus and generation advancement.
 11. [ ] Inject generation race / ambiguous ACK through the bot and prove containment.
@@ -274,7 +274,7 @@ The edge primitive is now physically proven, but the **complete bot-level D061 t
 16. [ ] Kill/restart the bot process while adopted; prove no live-authority resume and verified-OFF containment.
 17. [ ] Only after the complete bot-level D061 gate passes may D062 `MIX_ADOPTED` be called fully physical-validated.
 
-Current claim boundary: **software PASS + exact-head CI PASS + original edge primitive PHYSICAL PASS + first bot preflight physical FAIL/read-only containment evidence**. Positive complete D061 production validation remains pending.
+Current claim boundary (2026-10-13): **bounded positive bot-level D061 physical PASS**, including typed verified Stop and independent final OFF. Full hardware-negative fault/restart matrix and production rollout are still OPEN. See `D061_POSITIVE_BOT_TAKEOVER_2026-10-13.md`.
 
 ## 2026-10-13 supervised transient endurance result
 
