@@ -156,3 +156,17 @@ root-owned evidence when cleanup is unresolved.
 acceptance.** Those hardware-register assertions, out-of-band authority
 changes, and adopted-bot kill/restart need separate physically reviewed
 procedures tracked in issue #68.
+
+## D061 negative matrix candidate gate (2026-10-14)
+
+The two deterministic hooks `d061_fault_toctou_precommand` and
+`d061_fault_ambiguous_edge_ack` exist in `PhysicalTestControl`, but are not
+enabled by the supervised launcher. Its accepted takeover overlay and exact
+source are byte-pinned. Keep those positive/raw-protection pins unchanged;
+the current launcher must reject any altered supplemental bytes. Supporting
+these two scenarios requires a separate reviewed candidate SHA and explicit
+overlay attestation, with offline fake-backed tests for the complete
+containment/restore path. Do not use working-tree source as an implicit
+overlay or report a test-only result as physical acceptance. The detailed
+expected acknowledgements and remaining physical matrix are recorded in
+`../../docs/assistant/D061_NEGATIVE_MATRIX_ENGINEERING_2026-10-14.md`.
