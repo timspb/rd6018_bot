@@ -158,3 +158,18 @@ physical-test injected raw RD6018 protection-code unavailable
 
 These hooks are validation-only. Disable `RD6018_PHYSICAL_TEST_CONTROL` and
 remove the Unix socket after each physical test batch.
+
+## Supervised-runner availability
+
+As of 2026-10-14, the two hooks above are **not** selectable through
+`tools/run_d061_takeover_smoke.py`. That launcher is byte-pinned to a reviewed
+candidate/overlay and intentionally rejects altered `takeover.py` bytes. Do
+not call either hook in production or treat direct socket access as an
+acceptance workflow. The next software candidate must add an explicit reviewed
+candidate SHA/attestation while preserving the existing positive and
+synthetic-raw-protection pins, and must prove canonical guarded OFF,
+independent HA/ESP OFF plus 0V/0A, lease disarm, ownership retirement,
+acceptance stop, and safe production restore in offline fake-backed tests.
+The TOCTOU external Output ON is an intentional intermediate condition and is
+never a PASS. The complete engineering and physical blocker matrix is in
+`D061_NEGATIVE_MATRIX_ENGINEERING_2026-10-14.md`.
