@@ -1,0 +1,308 @@
+{
+  "candidate_sha": "aecf602f521025cc4ce1348e96a79bf4548e6f19",
+  "fault_operation": "d061_oob_voltage_raise",
+  "manifest_sha256": "46c890c70c57e2e665e9fd732d8b357ab557468c192a396d1eb7d39c78c4dc68",
+  "node": "node104",
+  "operation": "D061 REAL OUT-OF-BAND VOLTAGE INCREASE",
+  "overlay_archive_sha256": "8a444525afacd83ddfbe4663457801ec6c28feb47242a74abfbd2d7d3f8cc06e",
+  "production_service_after": {
+    "ActiveState": "active",
+    "MainPID": "57607",
+    "NRestarts": "0"
+  },
+  "production_service_before": {
+    "ActiveState": "active",
+    "MainPID": "57146",
+    "NRestarts": "0"
+  },
+  "result": "PASS",
+  "stage_path": "/tmp/rd6018-d061-takeover-972143f2e60943cabd92acf07488b08a",
+  "transaction": {
+    "acceptance_poller_stopped": true,
+    "battery_id": "Leoch_72Ah",
+    "containment_complete": true,
+    "edge_lease_disarmed": true,
+    "error_type": null,
+    "events": [
+      {
+        "event": "preflight-confirmed",
+        "monotonic_s": 1585496.377705537
+      },
+      {
+        "event": "lease-preflight-clear",
+        "generation": 37,
+        "monotonic_s": 1585496.879376027,
+        "remaining_s": 0
+      },
+      {
+        "event": "lease-armed",
+        "generation": 38,
+        "monotonic_s": 1585499.740205262,
+        "remaining_s": 899.2429809570312
+      },
+      {
+        "event": "hands-off-release-ack",
+        "generation": 39,
+        "monotonic_s": 1585520.397067771,
+        "remaining_s": 0
+      },
+      {
+        "event": "real-out-of-band-vset-raise",
+        "monotonic_s": 1585534.818186018
+      },
+      {
+        "event": "physical-off-independently-confirmed",
+        "monotonic_s": 1585549.152355378
+      },
+      {
+        "acknowledged": true,
+        "event": "lease-disarm-readback",
+        "generation": 40,
+        "monotonic_s": 1585550.156047643,
+        "remaining_s": 0
+      }
+    ],
+    "hands_off_release": {
+      "armed": false,
+      "boot_quarantine": false,
+      "generation": 39,
+      "remaining_s": 0,
+      "tripped": false
+    },
+    "independent_output_off": true,
+    "lease_armed": {
+      "armed": true,
+      "boot_quarantine": false,
+      "generation": 38,
+      "modbus_age_s": 2.3959999084472656,
+      "remaining_s": 899.2429809570312,
+      "tripped": false
+    },
+    "lease_disarmed": {
+      "acknowledged": true,
+      "armed": false,
+      "boot_quarantine": false,
+      "generation": 40,
+      "modbus_age_s": 3.23799991607666,
+      "remaining_s": 0,
+      "tripped": false
+    },
+    "lease_preflight": {
+      "armed": false,
+      "boot_quarantine": false,
+      "generation": 37,
+      "modbus_age_s": 5.464000225067139,
+      "remaining_s": 0,
+      "tripped": false
+    },
+    "live_samples": [],
+    "monotonic_unit": "seconds from process monotonic clock",
+    "oob_external_write": {
+      "after_v": 13.67,
+      "before_v": 13.57,
+      "verified": true
+    },
+    "oob_observer_status": {
+      "adoption_state": "failed",
+      "current_authority": {
+        "ocp_a": 0.19999998807907104,
+        "ovp_v": 14.069999694824219,
+        "set_current_a": 0.09999999403953552,
+        "set_voltage_v": 13.569999694824219
+      },
+      "edge_lease": {
+        "armed": false,
+        "boot_quarantine": false,
+        "generation": 40,
+        "modbus_age_s": 2.5460000038146973,
+        "remaining_s": 0,
+        "tripped": false,
+        "ttl_s": 900
+      },
+      "fingerprint": {
+        "ocp_a": 0.19999998807907104,
+        "ovp_v": 14.069999694824219,
+        "set_current_a": 0.09999999403953552,
+        "set_voltage_v": 13.569999694824219
+      },
+      "freshness": {
+        "output_age_s": 2.467699535191059,
+        "output_source_key": "output_state_code_v2"
+      },
+      "manual_state": "failed",
+      "output": "off",
+      "output_state_code_v2": 0,
+      "protection": {
+        "age_s": 2.4677131311036646,
+        "code": 0,
+        "status": "normal"
+      },
+      "rd_control_mode": "pb_managed",
+      "signal_analyzer": {
+        "available": false,
+        "cc": {
+          "delta_reference_v": null,
+          "voltage_max_time": null,
+          "voltage_max_v": null,
+          "voltage_reversal_confirmations": 0,
+          "voltage_reversal_emitted": false
+        },
+        "cv": {
+          "current_min_a": null,
+          "current_min_time": null,
+          "current_reversal_confirmations": 0,
+          "current_reversal_emitted": false,
+          "delta_reference_a": null
+        },
+        "last_sample": null,
+        "mode": null,
+        "runtime_evidence_available": false,
+        "session_id": null
+      }
+    },
+    "oob_restored": true,
+    "ownership_safe": true,
+    "physical_off": {
+      "monotonic_s": 1585549.152350607,
+      "ocp_a": 0.19999998807907104,
+      "output_current_a": 0,
+      "output_state": 0,
+      "output_voltage_v": 0,
+      "ovp_v": 14.069999694824219,
+      "raw_protection_code": 0,
+      "set_current_a": 0.09999999403953552,
+      "set_voltage_v": 13.569999694824219,
+      "source": "fresh HA voltage/current + HA SensorState + native ESP SensorState",
+      "temp_ext_battery_c": 23,
+      "temp_int_psu_c": 30
+    },
+    "physical_on": {
+      "monotonic_s": 1585518.391336236,
+      "ocp_a": 0.19999998807907104,
+      "output_current_a": 0.08999999612569809,
+      "output_state": 1,
+      "output_voltage_v": 13.09000015258789,
+      "ovp_v": 14.069999694824219,
+      "raw_protection_code": 0,
+      "set_current_a": 0.09999999403953552,
+      "set_voltage_v": 13.569999694824219,
+      "temp_ext_battery_c": 23,
+      "temp_int_psu_c": 29
+    },
+    "post_adoption_proof": {
+      "checks": {
+        "adoption_active": true,
+        "edge_lease_armed": true,
+        "edge_lease_not_quarantined": true,
+        "edge_lease_not_tripped": true,
+        "fingerprint_within_tolerance": true,
+        "guard_fresh": true,
+        "lease_armed": true,
+        "lease_modbus_fresh": true,
+        "lease_not_quarantined": true,
+        "lease_not_tripped": true,
+        "lease_remaining_fresh": true,
+        "output_on_dual_source": true,
+        "pb_managed": true,
+        "raw_protection_normal": true,
+        "safe_temperature": true,
+        "setpoint_readback_current_a": true,
+        "setpoint_readback_ocp_a": true,
+        "setpoint_readback_ovp_v": true,
+        "setpoint_readback_voltage_v": true
+      },
+      "failed_predicates": [],
+      "guard_last_report_age_s": 2.3260414011310786,
+      "guard_state": true,
+      "lease_state": {
+        "armed": true,
+        "boot_quarantine": false,
+        "modbus_age_s": 2.194999933242798,
+        "remaining_s": 896.8619995117188,
+        "tripped": false
+      },
+      "live_output": {
+        "output_state_code_v2": 1,
+        "switch": "on"
+      },
+      "live_setpoints": {
+        "ocp_readback_v2": 0.19999998807907104,
+        "ovp_readback_v2": 14.069999694824219,
+        "set_current_readback_v2": 0.09999999403953552,
+        "set_voltage_readback_v2": 13.569999694824219
+      },
+      "typed_status": {
+        "adoption_state": "active",
+        "edge_lease": {
+          "armed": true,
+          "boot_quarantine": false,
+          "generation": 40,
+          "modbus_age_s": 1.1950000524520874,
+          "remaining_s": 897.8619995117188,
+          "tripped": false,
+          "ttl_s": 900
+        },
+        "fingerprint": {
+          "ocp_a": 0.19999998807907104,
+          "ovp_v": 14.069999694824219,
+          "set_current_a": 0.09999999403953552,
+          "set_voltage_v": 13.569999694824219
+        },
+        "manual_state": "active",
+        "output": "on",
+        "output_state_code_v2": 1,
+        "protection": {
+          "age_s": 0.8209331249818206,
+          "code": 0,
+          "status": "normal"
+        },
+        "rd_control_mode": "pb_managed"
+      }
+    },
+    "preflight": {
+      "ocp_a": 0.19999998807907104,
+      "output_current_a": 0,
+      "output_state": 0,
+      "output_voltage_v": 0,
+      "ovp_v": 14.069999694824219,
+      "raw_protection_code": 0,
+      "set_current_a": 0.09999999403953552,
+      "set_voltage_v": 13.569999694824219,
+      "source_ages_s": {
+        "current": 0.4057545429095626,
+        "ocp_readback_v2": 0.2515275399200618,
+        "output_state_code_v2": 0.45875627687200904,
+        "ovp_readback_v2": 0.2515488949138671,
+        "protection_code": 0.4587968229316175,
+        "set_current_readback_v2": 0.45887240092270076,
+        "set_voltage_readback_v2": 0.4588915470521897,
+        "switch": 0.45875627687200904,
+        "temp_ext": 0.45872558397240937,
+        "temp_int": 0.4588267388753593,
+        "voltage": 0.405785677023232
+      },
+      "temp_ext_battery_c": 23,
+      "temp_int_psu_c": 29
+    },
+    "production_restored": true,
+    "recorded_at_utc": "2026-10-14T12:40:33.295082+00:00",
+    "result": "PASS",
+    "scenario": "REAL OOB +0.10 V -> ADOPTED MONITOR VERIFIED OFF",
+    "typed_responses": {
+      "d061_adopt_battery": {
+        "ok": true,
+        "operation": "d061_adopt_battery",
+        "result": {
+          "adopted": true,
+          "authority": {
+            "ocp_a": 0.19999998807907104,
+            "ovp_v": 14.069999694824219,
+            "set_current_a": 0.09999999403953552,
+            "set_voltage_v": 13.569999694824219
+          },
+          "battery_id": "Leoch_72Ah"
+        }
+      }
+    }
+  }
+}
