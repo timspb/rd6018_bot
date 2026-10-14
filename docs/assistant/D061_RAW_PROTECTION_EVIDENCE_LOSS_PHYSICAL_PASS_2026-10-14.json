@@ -1,0 +1,95 @@
+{
+  "schema": "rd6018.d061.physical_acceptance.v1",
+  "scenario": "d061_fault_raw_protection_unavailable",
+  "scenario_class": "in-process synthetic loss of raw-protection evidence",
+  "hardware_register_16_asserted": false,
+  "physically_energized": true,
+  "physical_pass": true,
+  "recorded_at_utc": "2026-10-14T09:01:39.831793+00:00",
+  "acceptance": {
+    "candidate_commit": "594a386e2b9fdd6bde9ebb15a5dfab30155291d6",
+    "canonical_file_count": 875,
+    "manifest_sha256": "8e31b6d11c1fa2c9acbf038cd79e4f0adee7c011f8026656987c8891651ca288",
+    "initial_mode": "HANDS_OFF",
+    "adopted_mode": "PB_MANAGED",
+    "post_adoption_predicates": {
+      "passed": 19,
+      "total": 19
+    },
+    "injection_count": 1,
+    "fault_ack": {
+      "ok": true,
+      "contained": true,
+      "output": "off",
+      "lease_armed": false,
+      "adoption_state": "completed"
+    },
+    "independently_confirmed_off": true,
+    "final_output": {
+      "voltage_v": 0,
+      "current_a": 0
+    },
+    "software_ownership_retired": true,
+    "acceptance_poller_stopped": true,
+    "production_restored": true,
+    "runner_exit_code": 0
+  },
+  "physical": {
+    "battery": "Leoch Ca/Ca 72 Ah",
+    "programmed": {
+      "voltage_v": 13.57,
+      "current_a": 0.1,
+      "ovp_v": 14.07,
+      "ocp_a": 0.2
+    },
+    "on": {
+      "voltage_v": 13.09,
+      "current_a": 0.09,
+      "battery_temp_c": 23,
+      "psu_temp_c": 29
+    },
+    "off": {
+      "voltage_v": 0,
+      "current_a": 0,
+      "battery_temp_c": 23,
+      "psu_temp_c": 30,
+      "raw_protection_code": 0
+    },
+    "v_i_ovp_ocp_preserved": true
+  },
+  "lease_generations": {
+    "initial": 26,
+    "armed": 27,
+    "hands_off_release": 28,
+    "disarmed": 29
+  },
+  "post_run": {
+    "production_pid_before": 55291,
+    "production_pid_after": 56233,
+    "service_active": true,
+    "nrestarts": 0,
+    "acceptance_pids": 0,
+    "lease_disarmed": true,
+    "ha_esp_off": true,
+    "raw_protection_normal": true,
+    "global_lock_owner": "root",
+    "global_lock_mode": "0600"
+  },
+  "evidence": {
+    "original_json_sha256": "c50cb4186ad4a52aa68b01cc7b33a247ac844ad4a331090e5f373a5881ab77c2",
+    "post_run_readonly_audit_sha256": "0baddbee47be77e56b8b0b055e5b9c8c67f68603137d688256af0d5263408030",
+    "retained_on_home_pc": "E:\\CODEX\\RD6018_V3_SAFE_ACCEPTANCE_LUNA_EVIDENCE\\D061_RAW_PROTECTION_PHYSICAL_PASS_20261014.json",
+    "issue_comment": "https://github.com/timspb/rd6018_bot/issues/68#issuecomment-6164823094"
+  },
+  "out_of_scope_open": [
+    "real RD6018 register-16 OVP assertion",
+    "real register-16 OCP assertion",
+    "real register-16 OPP assertion",
+    "other stale/unknown protection-source variants",
+    "ACK/generation races",
+    "out-of-band upward setpoint mutation",
+    "adopted-bot kill/restart"
+  ],
+  "firmware_ota_performed": false,
+  "endurance_repeat_performed": false
+}
