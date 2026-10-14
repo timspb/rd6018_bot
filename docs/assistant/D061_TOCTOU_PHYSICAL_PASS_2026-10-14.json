@@ -1,0 +1,180 @@
+{
+  "candidate_sha": "aecf602f521025cc4ce1348e96a79bf4548e6f19",
+  "fault_operation": "d061_fault_toctou_precommand",
+  "manifest_sha256": "46c890c70c57e2e665e9fd732d8b357ab557468c192a396d1eb7d39c78c4dc68",
+  "node": "node104",
+  "operation": "D061 GUARDED PRE-ADOPTION ACK RACE",
+  "overlay_archive_sha256": "92cc995ccfa3300c8bbdea2e3bf6d1266742d2c78914d38261c399182b1f1fb4",
+  "production_service_after": {
+    "ActiveState": "active",
+    "MainPID": "57027",
+    "NRestarts": "0"
+  },
+  "production_service_before": {
+    "ActiveState": "active",
+    "MainPID": "56767",
+    "NRestarts": "0"
+  },
+  "result": "PASS",
+  "stage_path": "/tmp/rd6018-d061-takeover-65440c29a310488fa242aeb2a361fa4c",
+  "transaction": {
+    "acceptance_poller_stopped": true,
+    "battery_id": "Leoch_72Ah",
+    "containment_complete": true,
+    "edge_lease_disarmed": true,
+    "error_type": null,
+    "events": [
+      {
+        "event": "preflight-confirmed",
+        "monotonic_s": 1582103.354147495
+      },
+      {
+        "event": "lease-preflight-clear",
+        "generation": 32,
+        "monotonic_s": 1582103.855374123,
+        "remaining_s": 0
+      },
+      {
+        "event": "lease-armed",
+        "generation": 33,
+        "monotonic_s": 1582105.987482493,
+        "remaining_s": 899.7940063476562
+      },
+      {
+        "event": "hands-off-release-ack",
+        "generation": 34,
+        "monotonic_s": 1582130.398959319,
+        "remaining_s": 0
+      },
+      {
+        "event": "canonical-fault-off-after-toctou",
+        "monotonic_s": 1582138.736934219
+      },
+      {
+        "event": "physical-off-independently-confirmed",
+        "monotonic_s": 1582140.729440151
+      },
+      {
+        "acknowledged": true,
+        "event": "lease-disarm-readback",
+        "generation": 34,
+        "monotonic_s": 1582141.732259713,
+        "remaining_s": 0
+      }
+    ],
+    "hands_off_release": {
+      "armed": false,
+      "boot_quarantine": false,
+      "generation": 34,
+      "remaining_s": 0,
+      "tripped": false
+    },
+    "independent_output_off": true,
+    "lease_armed": {
+      "armed": true,
+      "boot_quarantine": false,
+      "generation": 33,
+      "modbus_age_s": 5.111000061035156,
+      "remaining_s": 899.7940063476562,
+      "tripped": false
+    },
+    "lease_disarmed": {
+      "acknowledged": true,
+      "armed": false,
+      "boot_quarantine": false,
+      "generation": 34,
+      "modbus_age_s": 3.630000114440918,
+      "remaining_s": 0,
+      "tripped": false
+    },
+    "lease_preflight": {
+      "armed": false,
+      "boot_quarantine": false,
+      "generation": 32,
+      "modbus_age_s": 3.1110000610351562,
+      "remaining_s": 0,
+      "tripped": false
+    },
+    "live_samples": [],
+    "monotonic_unit": "seconds from process monotonic clock",
+    "ownership_safe": true,
+    "physical_off": {
+      "monotonic_s": 1582140.729434606,
+      "ocp_a": 0.19999998807907104,
+      "output_current_a": 0,
+      "output_state": 0,
+      "output_voltage_v": 0,
+      "ovp_v": 14.069999694824219,
+      "raw_protection_code": 0,
+      "set_current_a": 0.09999999403953552,
+      "set_voltage_v": 13.569999694824219,
+      "source": "fresh HA voltage/current + HA SensorState + native ESP SensorState",
+      "temp_ext_battery_c": 23,
+      "temp_int_psu_c": 29
+    },
+    "physical_on": {
+      "monotonic_s": 1582127.63992036,
+      "ocp_a": 0.19999998807907104,
+      "output_current_a": 0.08999999612569809,
+      "output_state": 1,
+      "output_voltage_v": 13.09000015258789,
+      "ovp_v": 14.069999694824219,
+      "raw_protection_code": 0,
+      "set_current_a": 0.09999999403953552,
+      "set_voltage_v": 13.569999694824219,
+      "temp_ext_battery_c": 23,
+      "temp_int_psu_c": 29
+    },
+    "preflight": {
+      "ocp_a": 0.19999998807907104,
+      "output_current_a": 0,
+      "output_state": 0,
+      "output_voltage_v": 0,
+      "ovp_v": 14.069999694824219,
+      "raw_protection_code": 0,
+      "set_current_a": 0.09999999403953552,
+      "set_voltage_v": 13.569999694824219,
+      "source_ages_s": {
+        "current": 0.4037031789775938,
+        "ocp_readback_v2": 0.45938993617892265,
+        "output_state_code_v2": 0.4593566411640495,
+        "ovp_readback_v2": 0.4593967259861529,
+        "protection_code": 0.4593697930686176,
+        "set_current_readback_v2": 0.45940386317670345,
+        "set_voltage_readback_v2": 0.45941275311633945,
+        "switch": 0.4593566411640495,
+        "temp_ext": 0.2500755100045353,
+        "temp_int": 0.25009119510650635,
+        "voltage": 0.4037334050517529
+      },
+      "temp_ext_battery_c": 23,
+      "temp_int_psu_c": 29
+    },
+    "production_restored": true,
+    "race_proof": {
+      "command_may_have_executed": false,
+      "edge_armed": false,
+      "generation_after": 34,
+      "generation_before": 34,
+      "operation": "d061_fault_toctou_precommand"
+    },
+    "recorded_at_utc": "2026-10-14T11:43:44.865348+00:00",
+    "result": "PASS",
+    "scenario": "PRE-COMMAND TOCTOU REJECTION + GUARDED FAULT OFF",
+    "typed_responses": {
+      "d061_fault_toctou_precommand": {
+        "ok": true,
+        "operation": "d061_fault_toctou_precommand",
+        "result": {
+          "command_may_have_executed": false,
+          "generation_after": 34,
+          "generation_before": 34,
+          "hardware_writes_injected": 0,
+          "output": "on",
+          "reason": "RuntimeSafetyError: live RD setpoints changed during adoption; authority was not transferred",
+          "rejected": true
+        }
+      }
+    }
+  }
+}
