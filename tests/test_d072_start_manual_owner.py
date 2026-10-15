@@ -7,6 +7,7 @@ import unittest
 
 from application.execution_port import get_or_create_execution_port
 from application.start_transaction_service import start_profile_transactional
+from manual_runtime import _serialized_manual_normal_action
 
 
 class FakeOwner:
@@ -78,6 +79,38 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
             ("voltage_start", 14.4), ("emergency_off",),
             ("voltage_end", 14.4), ("current", 4.0), ("current", 3.0),
         ])
+
+    async def test_manual_start_preflight_uses_same_lock_as_auto_start(self):
+        entered = []
+        class ManualProbe:
+            def __init__(self, app):
+                self.app = app
+
+            @_serialized_manual_normal_action
+            async def start(self):
+                entered.append("manual-entered")
+                return True
+
+        probe = ManualProbe(self.app)
+        async with self.port._guard_owner_lock:
+            action = asyncio.create_task(probe.start())
+            await asyncio.sleep(0)
+            self.assertFalse(action.done())
+            self.assertEqual(entered, [])
+        self.assertTrue(await asyncio.wait_for(action, timeout=1))
+        self.assertEqual(entered, ["manual-entered"])
+
+    def test_manual_lifecycle_methods_are_explicitly_serialized(self):
+        path = Path(__file__).resolve().parents[1] / "manual_runtime.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        manual = next(
+            node for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "ProductionManualSessionManager"
+        )
+        for method in ("start", "replace", "_resume_after_cooling"):
+            fn = next(n for n in manual.body if isinstance(n, ast.AsyncFunctionDef) and n.name == method)
+            self.assertIn("_serialized_manual_normal_action",
+                          [ast.unparse(d) for d in fn.decorator_list])
 
     async def test_manual_pair_uses_one_production_port_owner(self):
         self.owner.release_voltage.set()
