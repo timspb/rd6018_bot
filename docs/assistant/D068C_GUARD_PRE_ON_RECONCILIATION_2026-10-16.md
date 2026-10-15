@@ -3,7 +3,7 @@
 Source-only, non-actuating, and NOT wired into any production startup/restore/START/Telegram route. Completes the pure admission-evidence contract for a FUTURE implementation; does not itself authorize Output ON.
 
 A guarded EFB/Ca/Ca MAIN session may be marked RECONCILED only if:
-- real controller has restored its bound Guard, and exactly matching signed/checksummed canonical charge_session.json identity and revision can be read;
+- real controller has restored its bound Guard, and exactly matching integrity-checked canonical charge_session.json identity and revision can be read;
 - original session, battery, stage, capacity, recipe current, segment, committed ceiling and sequence agree; no pending proposal, fault or ambiguous restart;
 - active execution owner and independent Edge Safety Lease have current positive proof;
 - canonical Output register-18 is fresh OFF, protection register NORMAL, and native programmed V2 Iset/OCP are fresh, time-coherent and match the proposed resume current;
