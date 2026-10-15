@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from charge_controller import ManagedChargeController
 from runtime.charge.persistence import restore_session
@@ -91,14 +92,14 @@ class GuardedLegacyRestoreHoldTests(unittest.TestCase):
     def test_unguarded_expired_session_retains_legacy_expiry_behavior(self):
         self.write(self.document(guarded=False, seconds_old=3 * 86400))
         controller = ManagedChargeController(None)
-        ok, _ = restore_session(
-            controller, 12.4, 0.0, 1.0,
-            session_file=str(self.session_file),
-        )
+        with patch.object(controller, "_clear_session_file") as clear:
+            ok, _ = restore_session(
+                controller, 12.4, 0.0, 1.0,
+                session_file=str(self.session_file),
+            )
         self.assertFalse(ok)
-        # Do not assert the global path used by the historical controller's
-        # _clear_session_file here; this test protects ordinary non-guard paths
-        # from acquiring an unintended Guard hold.
+        clear.assert_called_once()
+        # Existing unguarded expiry semantics must not be altered.
 
 if __name__ == "__main__":
     unittest.main()
