@@ -3168,8 +3168,9 @@ async def text_message_handler(message: Message) -> None:
         if three is not None:
             v_set, i_set = three["v"], three["i"]
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
-                ok_v = await _runtime_execution_port().program_voltage(v_set)
-                ok_i = await _runtime_execution_port().program_current(_cap_current(i_set))
+                ok_v, ok_i = await _runtime_execution_port().program_voltage_current(
+                    v_set, _cap_current(i_set)
+                )
                 manual_off_voltage = None
                 manual_off_voltage_le = None
                 manual_off_current = None
@@ -3217,8 +3218,9 @@ async def text_message_handler(message: Message) -> None:
         if parsed is not None:
             v_set, i_set = parsed
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
-                ok_v = await _runtime_execution_port().program_voltage(v_set)
-                ok_i = await _runtime_execution_port().program_current(_cap_current(i_set))
+                ok_v, ok_i = await _runtime_execution_port().program_voltage_current(
+                    v_set, _cap_current(i_set)
+                )
                 if not ok_v or not ok_i:
                     await message.answer(
                         f"⚠️ Ошибка отправки в HA: напряжение — {'ок' if ok_v else 'ошибка'}, ток — {'ок' if ok_i else 'ошибка'}. Проверьте связь с Home Assistant.",
