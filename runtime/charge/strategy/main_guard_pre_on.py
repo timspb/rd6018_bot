@@ -113,7 +113,9 @@ def assess_main_guard_before_output_on(
             or saved.segment_id != restored_guard.segment_id
             or saved.proposal_sequence != restored_guard.proposal_sequence
             or abs(saved.hardware_limit_a - restored_guard.hardware_limit_a) > 1e-9
-            or abs(saved.initial_limit_a - restored_guard.initial_limit_a) > 1e-9):
+            or abs(saved.initial_limit_a - restored_guard.initial_limit_a) > 1e-9
+            or abs(saved.capacity_ah - restored_guard.capacity_ah) > 1e-9
+            or abs(saved.recipe_initial_current_a - restored_guard.recipe_initial_current_a) > 1e-9):
         return blocked("live_guard_and_canonical_journal_disagree")
     if proposed > saved.hardware_limit_a + READBACK_TOLERANCE_A:
         return blocked("restore_target_exceeds_saved_main_ceiling")
