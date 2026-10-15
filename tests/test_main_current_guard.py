@@ -12,8 +12,15 @@ class MainCurrentGuardTests(unittest.TestCase):
                                       capacity_ah=capacity, recipe_initial_current_a=recipe, **kw)
 
     def due(self, state, current=4.0):
-        state, _ = state.observe(now_s=0, output_on=True, measured_current_a=current, fresh=True)
-        return state.observe(now_s=1800, output_on=True, measured_current_a=current, fresh=True)
+        start = state.last_observed_at_s if state.last_observed_at_s is not None else 0
+        proposal = None
+        for step in range(61):
+            state, proposal = state.observe(
+                now_s=start + 30 * step, output_on=True,
+                measured_current_a=current, fresh=True)
+            if proposal is not None:
+                break
+        return state, proposal
 
     def ack(self, state, proposal, now=1801, *, current=4, ocp=None, fresh=True,
             current_readback_fresh=True, ocp_fresh=True):
@@ -43,15 +50,28 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertEqual(p.target_limit_a, 5)
         self.assertEqual(state.hardware_limit_a, 7.2)
 
-    def test_3600s_accumulates_and_only_one_proposal_pending(self):
+    def test_long_gap_cannot_be_counted_as_3600s_main(self):
         s = self.make()
         s, _ = s.observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
         s, p = s.observe(now_s=3600, output_on=True, measured_current_a=4, fresh=True)
-        self.assertEqual(p.target_limit_a, 5)
+        self.assertIsNone(p)
         self.assertEqual(s.accrued_output_on_s, 0)
-        s, again = s.observe(now_s=3610, output_on=True, measured_current_a=3, fresh=True)
+        self.assertEqual(s.hardware_limit_a, 7.2)
+        for ts in range(3630, 5401, 30):
+            s, p = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True)
+        self.assertIsNotNone(p)
+        self.assertEqual(p.target_limit_a, 5)
+        s, again = s.observe(now_s=5410, output_on=True, measured_current_a=3, fresh=True)
         self.assertIsNone(again)
         self.assertEqual(s.pending, p)
+
+    def test_90_second_bounded_gap_counts_but_91_seconds_does_not(self):
+        bounded, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
+        bounded, _ = bounded.observe(now_s=90, output_on=True, measured_current_a=4, fresh=True)
+        self.assertEqual(bounded.accrued_output_on_s, 90)
+        unbounded, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
+        unbounded, _ = unbounded.observe(now_s=91, output_on=True, measured_current_a=4, fresh=True)
+        self.assertEqual(unbounded.accrued_output_on_s, 0)
 
     def test_rising_current_cannot_raise_limit(self):
         s, p = self.due(self.make(), current=4)
@@ -62,35 +82,42 @@ class MainCurrentGuardTests(unittest.TestCase):
 
     def test_repeated_samples_do_not_double_count_elapsed_interval(self):
         s = self.make()
-        s, _ = s.observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-        s, _ = s.observe(now_s=600, output_on=True, measured_current_a=4, fresh=True)
-        s, _ = s.observe(now_s=1200, output_on=True, measured_current_a=4, fresh=True)
-        s, p = s.observe(now_s=1800, output_on=True, measured_current_a=4, fresh=True)
+        p = None
+        for ts in range(0, 1801, 30):
+            s, p = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True)
+            if ts == 300:
+                s, duplicate = s.observe(
+                    now_s=ts, output_on=True, measured_current_a=4, fresh=True)
+                self.assertIsNone(duplicate)
         self.assertIsNotNone(p)
 
     def test_cooling_off_pauses_accrual(self):
-        s, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-        s, _ = s.observe(now_s=900, output_on=True, measured_current_a=4, fresh=True)
+        s = self.make()
+        for ts in range(0, 901, 30):
+            s, _ = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True)
         s, _ = s.observe(now_s=5000, output_on=False, measured_current_a=None, fresh=False)
         s, _ = s.observe(now_s=9000, output_on=True, measured_current_a=4, fresh=True)
         self.assertEqual(s.accrued_output_on_s, 900)
 
     def test_agm_stage_change_preserves_cap_and_elapsed(self):
-        s, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True, stage="MAIN")
-        s, _ = s.observe(now_s=600, output_on=True, measured_current_a=4, fresh=True, stage="MAIN")
+        s = self.make()
+        for ts in range(0, 601, 30):
+            s, _ = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True, stage="MAIN")
         self.assertEqual(s.hardware_limit_a, 7.2)
         self.assertEqual(s.accrued_output_on_s, 600)
 
     def test_intermediate_desulfation_live_time_never_counts_as_main(self):
-        s, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=3, fresh=True)
-        s, _ = s.observe(now_s=300, output_on=True, measured_current_a=3, fresh=True)
+        s = self.make()
+        for ts in range(0, 301, 30):
+            s, _ = s.observe(now_s=ts, output_on=True, measured_current_a=3, fresh=True)
         s, _ = s.observe(now_s=3600, output_on=True, measured_current_a=3,
                          fresh=True, stage="DESULFATION")
         s, _ = s.observe(now_s=3800, output_on=True, measured_current_a=3,
                          fresh=True, stage="MAIN")
         self.assertEqual(s.accrued_output_on_s, 300)
-        s, p = s.observe(now_s=5300, output_on=True, measured_current_a=3,
-                         fresh=True, stage="MAIN")
+        for ts in range(3830, 5301, 30):
+            s, p = s.observe(now_s=ts, output_on=True, measured_current_a=3,
+                             fresh=True, stage="MAIN")
         self.assertIsNotNone(p)
 
     def test_bogus_output_on_or_fresh_types_do_not_accrue(self):
@@ -99,8 +126,9 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertEqual(s.fault, "untrusted_output_or_freshness_type")
 
     def test_remaining_main_deadline_is_consistent(self):
-        s, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=3, fresh=True)
-        s, _ = s.observe(now_s=400, output_on=True, measured_current_a=3, fresh=True)
+        s = self.make()
+        for ts in range(0, 401, 20):
+            s, _ = s.observe(now_s=ts, output_on=True, measured_current_a=3, fresh=True)
         self.assertEqual(s.next_deadline_s, 1400)
 
     def test_only_explicit_desulf_return_resets_segment_limit(self):
@@ -171,22 +199,24 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertEqual(s.accrued_output_on_s, 0)
 
     def test_stale_midpoint_breaks_active_main_time_accounting(self):
-        s, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-        s, _ = s.observe(now_s=600, output_on=True, measured_current_a=4, fresh=True)
+        s = self.make()
+        for ts in range(0, 601, 30):
+            s, _ = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True)
         s, _ = s.observe(now_s=900, output_on=True, measured_current_a=4, fresh=False)
         self.assertEqual(s.accrued_output_on_s, 600)
         self.assertFalse(s.last_output_on)
-        # The return of fresh evidence does not fill the unverified gap.
         s, p = s.observe(now_s=1800, output_on=True, measured_current_a=4, fresh=True)
         self.assertIsNone(p)
         self.assertEqual(s.accrued_output_on_s, 600)
-        s, p = s.observe(now_s=3000, output_on=True, measured_current_a=4, fresh=True)
+        for ts in range(1830, 3001, 30):
+            s, p = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True)
         self.assertIsNotNone(p)
         self.assertEqual(p.target_limit_a, 5)
 
     def test_missing_current_breaks_accounting_even_with_fresh_output(self):
-        s, _ = self.make().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-        s, _ = s.observe(now_s=300, output_on=True, measured_current_a=4, fresh=True)
+        s = self.make()
+        for ts in range(0, 301, 30):
+            s, _ = s.observe(now_s=ts, output_on=True, measured_current_a=4, fresh=True)
         s, _ = s.observe(now_s=600, output_on=True, measured_current_a=None, fresh=True)
         self.assertEqual(s.accrued_output_on_s, 300)
         self.assertFalse(s.last_output_on)
