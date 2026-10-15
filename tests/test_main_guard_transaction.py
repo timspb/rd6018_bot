@@ -70,7 +70,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         if self.fail_commit and snapshot["pending"] is None:
             raise OSError("forced durable commit failure")
 
-    async def run(self, **overrides):
+    async def transact(self, **overrides):
         args = dict(
             guard=self.guard, proposal=self.proposal,
             persist=self.save, execution_lock=self.lock, now=lambda: 1801.0,
@@ -81,7 +81,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         return await self.port.execute_main_current_guard_reduction(**args)
 
     async def test_positive_protected_downward_order_and_journal(self):
-        result = await self.run()
+        result = await self.transact()
         self.assertTrue(result.verified)
         self.assertEqual(result.guard.hardware_limit_a, 5)
         self.assertIsNone(result.guard.pending)
@@ -92,7 +92,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_fresh_output_evidence_forces_off_before_write(self):
         self.owner.live["_meta"]["output_state_code_v2"]["age_s"] = 60
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events, [("OFF",)])
@@ -101,30 +101,30 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
     async def test_legacy_value_never_replaces_missing_v2_current(self):
         del self.owner.live["_meta"]["set_current_readback_v2"]
         self.owner.live["set_current"] = 7.2
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_stale_ocp_or_unknown_protection_rejects(self):
         self.owner.live["_meta"]["ocp_readback_v2"]["status"] = "stale"
-        self.assertFalse((await self.run()).verified)
+        self.assertFalse((await self.transact()).verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_wrong_preflight_programmed_current_rejects(self):
         self.owner.live["set_current_readback_v2"] = 5.0
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_wrong_ocp_margin_rejects_before_any_write(self):
         self.owner.live["ocp_readback_v2"] = 12
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_unconfirmed_setter_fail_closed_and_no_commit(self):
         self.owner.mirror = False
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events,
@@ -134,7 +134,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_persistence_failure_after_hardware_ack_forces_off(self):
         self.fail_commit = True
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events[-1], ("OFF",))
@@ -143,36 +143,36 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
     async def test_persistence_failure_before_write_forces_off(self):
         async def fail_before(_):
             raise OSError("disk failure")
-        result = await self.run(persist=fail_before)
+        result = await self.transact(persist=fail_before)
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_expired_proposal_fails_closed(self):
-        result = await self.run(now=lambda: 2200)
+        result = await self.transact(now=lambda: 2200)
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_no_valid_identity_or_pending_refuses_current_write(self):
-        result = await self.run(guard=replace(self.guard, pending=None))
+        result = await self.transact(guard=replace(self.guard, pending=None))
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_unverified_off_is_not_misreported_as_contained(self):
         self.owner.refuse_off = True
         self.owner.mirror = False
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertFalse(result.off_confirmed)
         self.assertEqual(self.owner.events[-1], ("OFF",))
 
     async def test_missing_shared_lock_fails_before_hardware(self):
         with self.assertRaises(TypeError):
-            await self.run(execution_lock=None)
+            await self.transact(execution_lock=None)
         self.assertEqual(self.owner.events, [])
 
     async def test_output_on_value_must_be_known_v2_register(self):
         self.owner.live["output_state_code_v2"] = None
-        result = await self.run()
+        result = await self.transact()
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [("OFF",)])
 
