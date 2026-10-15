@@ -167,6 +167,17 @@ class ExecutionPort:
         return bool(await self.execution_owner.set_current(float(value_a)))
 
     @_serialized_normal_execution
+    async def program_voltage_current(self, voltage_v: float, current_a: float) -> tuple[bool, bool]:
+        """Keep manual V/I pair indivisible against other normal port calls.
+
+        This is NOT a new Output ON authority. Uses existing setters and
+        intentionally preserves their ordering and failure results.
+        """
+        ok_v = await self.program_voltage(voltage_v)
+        ok_i = await self.program_current(current_a)
+        return ok_v, ok_i
+
+    @_serialized_normal_execution
     async def program_ovp(self, value_v: float) -> bool:
         return bool(await self.execution_owner.set_ovp(float(value_v)))
 

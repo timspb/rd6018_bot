@@ -2587,72 +2587,139 @@ async def data_logger() -> None:
                 await asyncio.sleep(30)
                 continue
 
-            # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В
-            # (battery_mode не требуем — после потери связи мы сами выключили
-            # выход).  An active in-memory session is resumed in place; only an
-            # IDLE session goes through persisted-session reconstruction.
-            if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
+            # All normal restore/state changes and subsequent tick/action
+            # share the same app owner. Verified emergency OFF remains outside.
+            async with _runtime_execution_port()._guard_owner_lock:
+                # Восстановление после потери связи: нет OVP/OCP, вход ≥ 60 В
+                # (battery_mode не требуем — после потери связи мы сами выключили
+                # выход).  An active in-memory session is resumed in place; only an
+                # IDLE session goes through persisted-session reconstruction.
+                if temp_ext is not None and temp_ext not in ("unavailable", "unknown", ""):
+                    if (
+                        charge_controller._was_unavailable
+                        and charge_controller.current_stage not in {
+                            charge_controller.STAGE_IDLE,
+                            charge_controller.STAGE_DONE,
+                            getattr(charge_controller, "STAGE_COOLING", "__no_cooling__"),
+                        }
+                        and not output_on
+                        and not ovp_triggered
+                        and not ocp_triggered
+                        and input_voltage >= MIN_INPUT_VOLTAGE
+                    ):
+                        uv, ui = charge_controller._get_target_v_i(t)
+                        await _apply_phase_protection(uv, ui)
+                        await _runtime_execution_port().program_voltage(uv)
+                        await _runtime_execution_port().program_current(_cap_current(ui))
+                        enabled = await _runtime_execution_port().request_verified_on()
+                        if enabled:
+                            output_on = True
+                            charge_controller._last_known_output_on = True
+                            _apply_restore_time_corrections(charge_controller, live)
+                            last_checkpoint_time = time.time()
+                            log_event(charge_controller.current_stage, battery_v, i, t, ah, "RESTORE")
+                            _charge_notify(
+                                "✅ Связь восстановлена, заряд продолжен с текущего этапа.",
+                                critical=False,
+                            )
+                            logger.info(
+                                "Active session resumed after link recovery: %s",
+                                charge_controller.current_stage,
+                            )
+                        else:
+                            logger.warning("Active session restore blocked: Output ON was not confirmed")
+                    elif charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
+                        ok, msg = charge_controller.try_restore_session(
+                            battery_v, i, ah, output_is_on=output_on,
+                            is_cv=is_cv, is_cc=is_cc,
+                        )
+                        if ok and msg:
+                            _apply_restore_time_corrections(charge_controller, live)
+                            last_checkpoint_time = time.time()
+                            allow_turn_on = (
+                                _restore_allows_auto_enable(charge_controller)
+                                and
+                                not ovp_triggered
+                                and not ocp_triggered
+                                and input_voltage >= MIN_INPUT_VOLTAGE
+                            )
+                            if allow_turn_on:
+                                if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
+                                    uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
+                                    await _apply_phase_protection(uv, ui)
+                                    await _runtime_execution_port().program_voltage(uv)
+                                    await _runtime_execution_port().program_current(_cap_current(ui))
+                                    await _runtime_execution_port().request_verified_off()
+                                else:
+                                    uv, ui = charge_controller._get_target_v_i(t)
+                                    await _apply_phase_protection(uv, ui)
+                                    await _runtime_execution_port().program_voltage(uv)
+                                    await _runtime_execution_port().program_current(_cap_current(ui))
+                                    await _runtime_execution_port().request_verified_on()
+                                log_event(
+                                    charge_controller.current_stage,
+                                    battery_v,
+                                    i,
+                                    t,
+                                    ah,
+                                    "RESTORE",
+                                )
+                                _charge_notify("✅ Связь восстановлена, заряд снова под управлением бота.\n" + (msg or ""), critical=False)
+                                logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+                            else:
+                                if ovp_triggered or ocp_triggered:
+                                    _charge_notify(
+                                        "⚠️ Недавно сработала защита OVP/OCP. "
+                                        "Включите заряд вручную после проверки."
+                                    )
+                                elif input_voltage < MIN_INPUT_VOLTAGE:
+                                    _charge_notify(
+                                        f"⚠️ Низкое входное напряжение ({input_voltage:.0f} В < {MIN_INPUT_VOLTAGE:.0f} В). "
+                                        "Включите заряд вручную после проверки питания."
+                                    )
+                                logger.info("Restore skipped: protections or input_voltage")
+                        else:
+                            # Нет файла сессии или старше 24 ч — выход может быть всё ещё вкл
+                            if output_on and i > 0.05:
+                                _charge_notify(
+                                    "⚠️ Связь восстановлена, но сессии нет (или старше 24 ч). "
+                                    f"Выход включён ({i:.2f} А). Нажмите Остановить или запустите заряд заново."
+                                )
+                                logger.warning("Link restored but no session; output still on I=%.2fA", i)
+
+                # Выход уже включён, но бот в IDLE (перезапуск бота или ручное включение) — подхватываем сессию без turn_on
                 if (
-                    charge_controller._was_unavailable
-                    and charge_controller.current_stage not in {
-                        charge_controller.STAGE_IDLE,
-                        charge_controller.STAGE_DONE,
-                        getattr(charge_controller, "STAGE_COOLING", "__no_cooling__"),
-                    }
-                    and not output_on
-                    and not ovp_triggered
-                    and not ocp_triggered
-                    and input_voltage >= MIN_INPUT_VOLTAGE
+                    temp_ext is not None
+                    and temp_ext not in ("unavailable", "unknown", "")
+                    and not charge_controller._was_unavailable
+                    and charge_controller.current_stage == charge_controller.STAGE_IDLE
+                    and output_on
+                    and i > 0.05
                 ):
-                    uv, ui = charge_controller._get_target_v_i(t)
-                    await _apply_phase_protection(uv, ui)
-                    await _runtime_execution_port().program_voltage(uv)
-                    await _runtime_execution_port().program_current(_cap_current(ui))
-                    enabled = await _runtime_execution_port().request_verified_on()
-                    if enabled:
-                        output_on = True
-                        charge_controller._last_known_output_on = True
-                        _apply_restore_time_corrections(charge_controller, live)
-                        last_checkpoint_time = time.time()
-                        log_event(charge_controller.current_stage, battery_v, i, t, ah, "RESTORE")
-                        _charge_notify(
-                            "✅ Связь восстановлена, заряд продолжен с текущего этапа.",
-                            critical=False,
-                        )
-                        logger.info(
-                            "Active session resumed after link recovery: %s",
-                            charge_controller.current_stage,
-                        )
-                    else:
-                        logger.warning("Active session restore blocked: Output ON was not confirmed")
-                elif charge_controller._was_unavailable and charge_controller.current_stage == charge_controller.STAGE_IDLE:
                     ok, msg = charge_controller.try_restore_session(
                         battery_v, i, ah, output_is_on=output_on,
                         is_cv=is_cv, is_cc=is_cc,
                     )
                     if ok and msg:
                         _apply_restore_time_corrections(charge_controller, live)
-                        last_checkpoint_time = time.time()
-                        allow_turn_on = (
+                        allow = (
                             _restore_allows_auto_enable(charge_controller)
                             and
                             not ovp_triggered
                             and not ocp_triggered
                             and input_voltage >= MIN_INPUT_VOLTAGE
                         )
-                        if allow_turn_on:
+                        if allow:
+                            last_checkpoint_time = time.time()
                             if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                                 await _apply_phase_protection(uv, ui)
-                                await _runtime_execution_port().program_voltage(uv)
-                                await _runtime_execution_port().program_current(_cap_current(ui))
                                 await _runtime_execution_port().request_verified_off()
                             else:
                                 uv, ui = charge_controller._get_target_v_i(t)
                                 await _apply_phase_protection(uv, ui)
-                                await _runtime_execution_port().program_voltage(uv)
-                                await _runtime_execution_port().program_current(_cap_current(ui))
-                                await _runtime_execution_port().request_verified_on()
+                            await _runtime_execution_port().program_voltage(uv)
+                            await _runtime_execution_port().program_current(_cap_current(ui))
                             log_event(
                                 charge_controller.current_stage,
                                 battery_v,
@@ -2661,159 +2728,99 @@ async def data_logger() -> None:
                                 ah,
                                 "RESTORE",
                             )
-                            _charge_notify("✅ Связь восстановлена, заряд снова под управлением бота.\n" + (msg or ""), critical=False)
-                            logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+                            _charge_notify("✅ Заряд подхвачен, бот снова управляет.", critical=False)
+                            logger.info("Session restored (output was already on): %s", charge_controller.current_stage)
                         else:
-                            if ovp_triggered or ocp_triggered:
-                                _charge_notify(
-                                    "⚠️ Недавно сработала защита OVP/OCP. "
-                                    "Включите заряд вручную после проверки."
-                                )
-                            elif input_voltage < MIN_INPUT_VOLTAGE:
-                                _charge_notify(
-                                    f"⚠️ Низкое входное напряжение ({input_voltage:.0f} В < {MIN_INPUT_VOLTAGE:.0f} В). "
-                                    "Включите заряд вручную после проверки питания."
-                                )
-                            logger.info("Restore skipped: protections or input_voltage")
+                            logger.debug("Restore (output on, idle) skipped: allow=%s ovp=%s ocp=%s input_v=%.0f", allow, ovp_triggered, ocp_triggered, input_voltage)
                     else:
-                        # Нет файла сессии или старше 24 ч — выход может быть всё ещё вкл
-                        if output_on and i > 0.05:
-                            _charge_notify(
-                                "⚠️ Связь восстановлена, но сессии нет (или старше 24 ч). "
-                                f"Выход включён ({i:.2f} А). Нажмите Остановить или запустите заряд заново."
-                            )
-                            logger.warning("Link restored but no session; output still on I=%.2fA", i)
+                        logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
 
-            # Выход уже включён, но бот в IDLE (перезапуск бота или ручное включение) — подхватываем сессию без turn_on
-            if (
-                temp_ext is not None
-                and temp_ext not in ("unavailable", "unknown", "")
-                and not charge_controller._was_unavailable
-                and charge_controller.current_stage == charge_controller.STAGE_IDLE
-                and output_on
-                and i > 0.05
-            ):
-                ok, msg = charge_controller.try_restore_session(
-                    battery_v, i, ah, output_is_on=output_on,
-                    is_cv=is_cv, is_cc=is_cc,
-                )
-                if ok and msg:
-                    _apply_restore_time_corrections(charge_controller, live)
-                    allow = (
-                        _restore_allows_auto_enable(charge_controller)
-                        and
-                        not ovp_triggered
-                        and not ocp_triggered
-                        and input_voltage >= MIN_INPUT_VOLTAGE
+                now_ts = time.time()
+                # Hold the same app-wide normal execution owner from the
+                # controller decision/session checkpoint through the resulting
+                # physical action. Emergency verified OFF remains independent.
+                async with _runtime_execution_port()._guard_owner_lock:
+                    prev_stage = charge_controller.current_stage
+                    actions = await charge_controller.tick(
+                        battery_v, i, temp_ext, is_cv, ah, output_switch,
+                        manual_off_active=_has_manual_off_condition(),
+                        is_cc=is_cc,
+                        manual_active=manual_active,
                     )
-                    if allow:
-                        last_checkpoint_time = time.time()
-                        if charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT:
-                            uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                            await _apply_phase_protection(uv, ui)
-                            await _runtime_execution_port().request_verified_off()
-                        else:
-                            uv, ui = charge_controller._get_target_v_i(t)
-                            await _apply_phase_protection(uv, ui)
-                        await _runtime_execution_port().program_voltage(uv)
-                        await _runtime_execution_port().program_current(_cap_current(ui))
+                    if actions.get("notify"):
+                        _charge_notify(str(actions["notify"]))
+                    if prev_stage != charge_controller.current_stage:
                         log_event(
                             charge_controller.current_stage,
                             battery_v,
                             i,
                             t,
                             ah,
-                            "RESTORE",
+                            f"STAGE_CHANGE | {prev_stage} -> {charge_controller.current_stage}",
                         )
-                        _charge_notify("✅ Заряд подхвачен, бот снова управляет.", critical=False)
-                        logger.info("Session restored (output was already on): %s", charge_controller.current_stage)
-                    else:
-                        logger.debug("Restore (output on, idle) skipped: allow=%s ovp=%s ocp=%s input_v=%.0f", allow, ovp_triggered, ocp_triggered, input_voltage)
-                else:
-                    logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
 
-            now_ts = time.time()
-            prev_stage = charge_controller.current_stage
-            actions = await charge_controller.tick(
-                battery_v, i, temp_ext, is_cv, ah, output_switch,
-                manual_off_active=_has_manual_off_condition(),
-                is_cc=is_cc,
-                manual_active=manual_active,
-            )
-            if actions.get("notify"):
-                _charge_notify(str(actions["notify"]))
-            if prev_stage != charge_controller.current_stage:
-                log_event(
-                    charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t,
-                    ah,
-                    f"STAGE_CHANGE | {prev_stage} -> {charge_controller.current_stage}",
-                )
+                    end = actions.get("log_event_end")
+                    if end:
+                        log_stage_end(
+                            end["stage"],
+                            end["v"],
+                            end["i"],
+                            end["t"],
+                            end["ah"],
+                            end["time_sec"],
+                            end["ah_on_stage"],
+                            end["trigger"],
+                        )
+                    if actions.get("log_event_sub"):
+                        log_event(
+                            end["stage"] if end else charge_controller.current_stage,
+                            battery_v,
+                            i,
+                            t,
+                            ah,
+                            actions["log_event_sub"],
+                        )
+                    if actions.get("log_event"):
+                        event_name = str(actions["log_event"])
+                        if not _should_skip_noisy_log_event(charge_controller.current_stage, event_name, now_ts):
+                            log_event(
+                                charge_controller.current_stage,
+                                battery_v,
+                                i,
+                                t,
+                                ah,
+                                event_name,
+                            )
 
-            end = actions.get("log_event_end")
-            if end:
-                log_stage_end(
-                    end["stage"],
-                    end["v"],
-                    end["i"],
-                    end["t"],
-                    end["ah"],
-                    end["time_sec"],
-                    end["ah_on_stage"],
-                    end["trigger"],
-                )
-            if actions.get("log_event_sub"):
-                log_event(
-                    end["stage"] if end else charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t,
-                    ah,
-                    actions["log_event_sub"],
-                )
-            if actions.get("log_event"):
-                event_name = str(actions["log_event"])
-                if not _should_skip_noisy_log_event(charge_controller.current_stage, event_name, now_ts):
-                    log_event(
-                        charge_controller.current_stage,
-                        battery_v,
-                        i,
-                        t,
-                        ah,
-                        event_name,
-                    )
+                    if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
+                        log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
+                        last_checkpoint_time = now_ts
+                    
+                    # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)
+                    if now_ts - last_cleanup_time >= 86400:  # 24 часа
+                        await cleanup_old_records()
+                        try:
+                            rotate_if_needed()
+                            trim_log_older_than_days(30)
+                        except Exception as ex:
+                            logger.warning("trim_log_older_than_days: %s", ex)
+                        last_cleanup_time = now_ts
 
-            if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
-                log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
-                last_checkpoint_time = now_ts
-            
-            # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)
-            if now_ts - last_cleanup_time >= 86400:  # 24 часа
-                await cleanup_old_records()
-                try:
-                    rotate_if_needed()
-                    trim_log_older_than_days(30)
-                except Exception as ex:
-                    logger.warning("trim_log_older_than_days: %s", ex)
-                last_cleanup_time = now_ts
-
-            if actions.get("emergency_stop"):
-                await _runtime_execution_port().request_verified_off()
-                await _apply_idle_protection()
-                if actions.get("full_reset"):
-                    charge_controller.full_reset()
-                # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
-            elif charge_controller.is_active:
-                await _apply_controller_output_actions(
-                    actions,
-                    live,
-                    battery_v=battery_v,
-                    current=i,
-                    temp=t,
-                    ah=ah,
-                )
+                    if actions.get("emergency_stop"):
+                        await _runtime_execution_port().request_verified_off()
+                        await _apply_idle_protection()
+                        if actions.get("full_reset"):
+                            charge_controller.full_reset()
+                        # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
+                    elif charge_controller.is_active:
+                        await _apply_controller_output_actions(
+                            actions,
+                            live,
+                            battery_v=battery_v,
+                            current=i,
+                            temp=t,
+                            ah=ah,
+                        )
 
         except Exception as ex:
             err_str = str(ex).lower()
@@ -3168,8 +3175,9 @@ async def text_message_handler(message: Message) -> None:
         if three is not None:
             v_set, i_set = three["v"], three["i"]
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
-                ok_v = await _runtime_execution_port().program_voltage(v_set)
-                ok_i = await _runtime_execution_port().program_current(_cap_current(i_set))
+                ok_v, ok_i = await _runtime_execution_port().program_voltage_current(
+                    v_set, _cap_current(i_set)
+                )
                 manual_off_voltage = None
                 manual_off_voltage_le = None
                 manual_off_current = None
@@ -3217,8 +3225,9 @@ async def text_message_handler(message: Message) -> None:
         if parsed is not None:
             v_set, i_set = parsed
             if 12.0 <= v_set <= 17.0 and 0.1 <= i_set <= MAX_STAGE_CURRENT:
-                ok_v = await _runtime_execution_port().program_voltage(v_set)
-                ok_i = await _runtime_execution_port().program_current(_cap_current(i_set))
+                ok_v, ok_i = await _runtime_execution_port().program_voltage_current(
+                    v_set, _cap_current(i_set)
+                )
                 if not ok_v or not ok_i:
                     await message.answer(
                         f"⚠️ Ошибка отправки в HA: напряжение — {'ок' if ok_v else 'ошибка'}, ток — {'ок' if ok_i else 'ошибка'}. Проверьте связь с Home Assistant.",
