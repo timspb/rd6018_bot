@@ -4,6 +4,7 @@ from dataclasses import replace
 import unittest
 
 from application.execution_port import ExecutionPort
+from application.main_guard_transaction import MainGuardAuthority
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 
 
@@ -73,6 +74,11 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
     async def transact(self, **overrides):
         args = dict(
             guard=self.guard, proposal=self.proposal,
+            authority=MainGuardAuthority(
+                session_id="real-session", battery_id="bat", segment_id="main-1",
+                profile="EFB", stage="Main Charge",
+                lease_armed=True, owner_authorized=True,
+            ),
             persist=self.save, execution_lock=self.lock, now=lambda: 1801.0,
             max_stage_current_a=12.0, ocp_offset_a=0.1,
             stabilize_delay_s=0.0,
@@ -169,6 +175,26 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await self.transact(execution_lock=None)
         self.assertEqual(self.owner.events, [])
+
+    async def test_session_identity_stage_lease_and_owner_gates(self):
+        original = MainGuardAuthority(
+            session_id="real-session", battery_id="bat", segment_id="main-1",
+            profile="EFB", stage="Main Charge",
+            lease_armed=True, owner_authorized=True,
+        )
+        for patch in (
+            {"session_id": "wrong"}, {"battery_id": "wrong"},
+            {"segment_id": "wrong"}, {"profile": "AGM"},
+            {"stage": "Mix Mode"}, {"lease_armed": False},
+            {"owner_authorized": False},
+        ):
+            with self.subTest(patch=patch):
+                self.owner.events.clear()
+                result = await self.transact(authority=replace(original, **patch))
+                self.assertFalse(result.verified)
+                self.assertTrue(result.off_confirmed)
+                self.assertEqual(self.owner.events, [("OFF",)])
+                self.owner.live["output_state_code_v2"] = 1
 
     async def test_output_on_value_must_be_known_v2_register(self):
         self.owner.live["output_state_code_v2"] = None
