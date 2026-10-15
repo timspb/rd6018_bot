@@ -338,6 +338,24 @@ def restore_session(
         except (OSError, json.JSONDecodeError):
             return False, None
 
+        if not isinstance(data, dict):
+            return False, None
+        # Guarded MAIN snapshots carry monotone electrical authority. The
+        # current runtime has NOT yet established a shared all-path Output
+        # owner lock, restore-before-ON reconciliation and hardware Iset/OCP
+        # receipt. Refuse legacy restore *before* any controller mutation or
+        # age-based file deletion; never silently replace the guard with I0.
+        from runtime.charge.strategy.main_guard_session import GUARD_KEY
+        if GUARD_KEY in data:
+            logger.error(
+                "Guarded session restore held: canonical owner-wide "
+                "execution and native pre-ON reconciliation are not installed"
+            )
+            return False, (
+                "MAIN Current Guard session is held for owner/readback "
+                "reconciliation; automatic resume is disabled."
+            )
+
         saved_at = data.get("saved_at", 0)
         if time.time() - saved_at > SESSION_MAX_AGE:
             host._clear_session_file()
