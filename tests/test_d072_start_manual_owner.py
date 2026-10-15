@@ -163,6 +163,29 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.port.program_voltage_current(13.8, 2.0), (True, True))
         self.assertFalse(self.port._guard_owner_lock.locked())
 
+    def test_link_recovery_and_in_memory_restore_are_locked_with_tick(self):
+        path = Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py"
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        data_logger = next(n for n in ast.walk(module)
+                           if isinstance(n, ast.AsyncFunctionDef) and n.name == "data_logger")
+        candidates = []
+        for node in ast.walk(data_logger):
+            if not isinstance(node, ast.AsyncWith):
+                continue
+            if not any("_runtime_execution_port()._guard_owner_lock" in ast.unparse(item.context_expr)
+                       for item in node.items):
+                continue
+            calls = [
+                ast.unparse(child.func)
+                for stmt in node.body for child in ast.walk(stmt)
+                if isinstance(child, ast.Call)
+            ]
+            if ("charge_controller.tick" in calls and
+                calls.count("charge_controller.try_restore_session") >= 2 and
+                "_runtime_execution_port().request_verified_on" in calls):
+                candidates.append(node)
+        self.assertEqual(len(candidates), 1)
+
     def test_periodic_tick_and_physical_action_share_one_owner_scope(self):
         """AST coverage gate: neither stage checkpoint nor output batch can bypass lock."""
         path = Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py"
