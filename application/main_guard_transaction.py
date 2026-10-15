@@ -21,6 +21,17 @@ MAX_READBACK_AGE_S = 10.0
 
 
 @dataclass(frozen=True)
+class MainGuardAuthority:
+    session_id: str
+    battery_id: str
+    segment_id: str
+    profile: str
+    stage: str
+    lease_armed: bool
+    owner_authorized: bool
+
+
+@dataclass(frozen=True)
 class MainGuardExecutionResult:
     guard: MainCurrentGuard
     verified: bool
@@ -67,6 +78,7 @@ async def execute_main_guard_reduction(
     port: Any, *,
     guard: MainCurrentGuard,
     proposal: PendingProposal,
+    authority: MainGuardAuthority,
     persist: SaveSnapshot,
     execution_lock: asyncio.Lock,
     now: Now,
@@ -86,6 +98,16 @@ async def execute_main_guard_reduction(
         raise TypeError("shared owner execution lock required")
     async with execution_lock:
         try:
+            if (
+                authority.session_id != guard.session_id
+                or authority.battery_id != guard.battery_id
+                or authority.segment_id != guard.segment_id
+                or str(authority.profile).upper() not in ("EFB", "CA/CA")
+                or authority.stage != "Main Charge"
+                or authority.lease_armed is not True
+                or authority.owner_authorized is not True
+            ):
+                raise MainGuardExecutionFault("main_session_owner_lease_unproven")
             if (
                 guard.fault or guard.pending != proposal
                 or not guard.session_id or not guard.battery_id
@@ -158,6 +180,6 @@ async def execute_main_guard_reduction(
 
 
 __all__ = [
-    "MainGuardExecutionFault", "MainGuardExecutionResult",
+    "MainGuardAuthority", "MainGuardExecutionFault", "MainGuardExecutionResult",
     "MAX_READBACK_AGE_S", "execute_main_guard_reduction",
 ]
