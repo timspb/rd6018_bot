@@ -110,6 +110,17 @@ class MainGuardSessionContractTests(unittest.TestCase):
         self.assertEqual(read_guard(next_doc, session_id="sid",
                                     battery_id="bat", now_s=1804)[0].hardware_limit_a, 5)
 
+    def test_pending_substitution_and_sequence_rollback_refused(self):
+        from dataclasses import replace
+        g, pending = proposed()
+        doc = attach_guard(identity(), g, now_s=1801, expected_revision=0)
+        altered = replace(g, pending=replace(pending, target_limit_a=3))
+        with self.assertRaisesRegex(GuardJournalError, "substitution"):
+            attach_guard(doc, altered, now_s=1802, expected_revision=1)
+        rewind = replace(g, proposal_sequence=0)
+        with self.assertRaisesRegex(GuardJournalError, "rollback"):
+            attach_guard(doc, rewind, now_s=1802, expected_revision=1)
+
     def test_crash_restart_preserves_monotone_cap_and_pending(self):
         g, pending = proposed()
         doc = attach_guard(identity(), g, now_s=1801, expected_revision=0)
