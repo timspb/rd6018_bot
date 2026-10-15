@@ -208,6 +208,7 @@ def save_session(host: Any, voltage: float, current: float, ah: float, *, sessio
                 except (OSError, json.JSONDecodeError, TypeError, ValueError):
                     pass
         previous_terminal_metadata = {}
+        previous_document = {}
         if os.path.exists(session_file):
             try:
                 with open(session_file, "r", encoding="utf-8") as f:
@@ -299,9 +300,21 @@ def save_session(host: Any, voltage: float, current: float, ah: float, *, sessio
                 },
             } if terminal else None,
         }
+        # The trace identity and optional MAIN Guard checkpoint must be in
+        # the *same atomic write*, never a later independent patch of this JSON.
+        # GuardJournalError is intentionally not swallowed: unsafe loss of a
+        # prior guarded checkpoint must reach the owner's fail-closed path.
+        from runtime.charge.session_atomic import (
+            atomic_session_write, complete_session_document,
+        )
+        data = complete_session_document(
+            host, data, previous=previous_document, now_s=saved_at,
+        )
         try:
-            with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            atomic_session_write(
+                session_file, data,
+                allow_nan=getattr(host, "_main_current_guard", None) is None,
+            )
         except OSError as ex:
             logger.warning("Could not save session: %s", ex)
 
