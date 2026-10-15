@@ -1,5 +1,6 @@
 """D072 source-only shared owner admission for automatic START and manual V/I."""
 import asyncio
+import ast
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -84,6 +85,34 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(self.app.guard_execution_owner_lock, self.port._guard_owner_lock)
         self.assertEqual(await self.port.program_voltage_current(13.8, 2.0), (True, True))
         self.assertFalse(self.port._guard_owner_lock.locked())
+
+    def test_periodic_tick_and_physical_action_share_one_owner_scope(self):
+        """AST coverage gate: neither stage checkpoint nor output batch can bypass lock."""
+        path = Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        loggers = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "data_logger"
+        ]
+        self.assertEqual(len(loggers), 1)
+        locked = []
+        for node in ast.walk(loggers[0]):
+            if not isinstance(node, ast.AsyncWith):
+                continue
+            guard = " ".join(ast.unparse(item.context_expr) for item in node.items)
+            if "_runtime_execution_port()._guard_owner_lock" not in guard:
+                continue
+            calls = {
+                ast.unparse(n.func) for stmt in node.body for n in ast.walk(stmt)
+                if isinstance(n, ast.Call)
+            }
+            if {"charge_controller.tick", "_apply_controller_output_actions"} <= calls:
+                locked.append(node)
+        self.assertEqual(len(locked), 1)
+        # Guard state is still software only: locking cannot be mistaken for a
+        # runtime call to execute_main_current_guard_reduction.
+        self.assertNotIn("execute_main_current_guard_reduction(",
+                         path.read_text(encoding="utf-8"))
 
     def test_both_legacy_manual_text_formats_use_atomic_port_pair(self):
         runtime_path = Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py"
