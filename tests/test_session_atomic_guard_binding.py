@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import charge_controller
 from charge_controller import ManagedChargeController
+from production_controller import ProductionChargeController
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 from runtime.charge.strategy.main_guard_session import (
     GUARD_KEY, GuardJournalError, read_guard
@@ -93,6 +94,71 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
             self.save_without_readback(controller)
         self.assertEqual(json.loads(self.path.read_text(encoding="utf-8")), original)
         self.assertFalse(list(self.path.parent.glob(".charge-session-*.tmp")))
+
+    def test_production_continuation_metadata_is_in_one_atomic_write(self):
+        controller = ProductionChargeController(None, battery_id="battery-actual")
+        controller.battery_type = "EFB"
+        controller.ah_capacity = 60
+        controller.current_stage = controller.STAGE_MAIN
+        controller.stage_start_time = self.now - 500
+        controller.total_start_time = self.now - 1000
+        controller._v2_trace_session_id = "verified-sid"
+        controller._v2_trace_started_at = self.now - 1000
+        controller._v2_battery_id = "battery-actual"
+        controller._v2_cooling_pause = {"source_stage": controller.STAGE_MAIN}
+        with patch.object(charge_controller, "SESSION_FILE", str(self.path)), \
+             patch("runtime.charge.session_atomic.atomic_session_write", wraps=__import__(
+                 "runtime.charge.session_atomic", fromlist=["atomic_session_write"]
+             ).atomic_session_write) as writer:
+            controller._save_session(14.4, 0.8, 10.0)
+        self.assertEqual(writer.call_count, 1)
+        document = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(document["v2_cooling_pause"], controller._v2_cooling_pause)
+        self.assertEqual(document["v2_trace_session_id"], "verified-sid")
+
+    def test_real_production_mix_runtime_and_delta_metadata(self):
+        controller = ProductionChargeController(None, battery_id="battery-actual")
+        controller.battery_type = "EFB"
+        controller.ah_capacity = 60
+        controller.current_stage = controller.STAGE_MIX
+        controller._v2_trace_session_id = "verified-sid"
+        controller._delta_reported = True
+        controller._delta_trigger_mode = "CV"
+        controller.finish_timer_start = self.now - 30
+        controller._v2_session_signal_context = {
+            "stage": controller.STAGE_MIX, "session_id": "verified-sid",
+            "mode": "CV", "output_on": True, "telemetry_valid": True,
+            "cv_state": True, "current_min_a": 0.4,
+        }
+        controller._finish_evidence = {
+            "version": 1, "mode": "CV", "session_id": "verified-sid",
+            "reference_value": 0.4, "accepted_delta": 0.1,
+            "accepted_at": self.now - 30,
+        }
+        mixed = controller._session_document_extensions({})
+        self.assertEqual(mixed["delta_reported"], True)
+        self.assertEqual(mixed["delta_trigger_mode"], "CV")
+        self.assertEqual(mixed["runtime_signal"]["mode"], "CV")
+        self.assertEqual(mixed["finish_evidence"]["accepted_delta"], 0.1)
+        controller.current_stage = controller.STAGE_MAIN
+        cleared = controller._session_document_extensions(mixed)
+        self.assertNotIn("delta_reported", cleared)
+        self.assertNotIn("runtime_signal", cleared)
+        self.assertNotIn("finish_evidence", cleared)
+
+    def test_invalid_output_signal_does_not_persist_as_mix_proof(self):
+        controller = ProductionChargeController(None, battery_id="battery-actual")
+        controller.current_stage = controller.STAGE_MIX
+        controller._v2_trace_session_id = "verified-sid"
+        controller._v2_session_signal_context = {
+            "stage": controller.STAGE_MIX, "session_id": "verified-sid",
+            "mode": "CV", "output_on": None, "telemetry_valid": True,
+            "cv_state": True, "current_min_a": 0.4,
+        }
+        self.assertNotIn(
+            "runtime_signal",
+            controller._session_document_extensions({"runtime_signal": {"stale": True}}),
+        )
 
     def save_without_readback(self, controller):
         with patch.object(charge_controller, "SESSION_FILE", str(self.path)):
