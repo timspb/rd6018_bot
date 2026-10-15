@@ -7,10 +7,24 @@ existing recovery order and delegates to those owners.
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Any
 
 from application.execution_port import get_or_create_execution_port
 from diagnostic_persistence import recover_diagnostic_persistence
+
+
+def _serialized_deferred_restore(operation):
+    """Protect restore state and normal physical reenable as one owner action."""
+    @wraps(operation)
+    async def wrapped(self):
+        port = get_or_create_execution_port(self.app)
+        lock = port._guard_owner_lock
+        if lock is None:
+            raise RuntimeError("deferred restore lacks canonical execution owner")
+        async with lock:
+            return await operation(self)
+    return wrapped
 
 
 class StartupRecovery:
@@ -30,6 +44,7 @@ class StartupRecovery:
         await recover_diagnostic_persistence(self.app)
         return True
 
+    @_serialized_deferred_restore
     async def replay_deferred_startup_restore(self) -> None:
         """Replay deferred managed restore through the canonical safe owner."""
         app = self.app
