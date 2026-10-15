@@ -1,0 +1,27 @@
+[Unit]
+Description=RD6018 passive EFB/Ca-Ca SAFE_WAIT voltage-relaxation observer
+After=network-online.target rd6018-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rd6018
+Group=rd6018
+WorkingDirectory=/opt/services/rd6018-bot/state
+EnvironmentFile=/opt/services/rd6018-bot/.env
+Environment=PYTHONPATH=/opt/services/rd6018-bot/app
+ExecStart=/opt/services/rd6018-bot/venv/bin/python -B /opt/services/rd6018-bot/optional/voltage_relaxation/sidecar.py
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/services/rd6018-bot/state
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
