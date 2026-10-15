@@ -370,9 +370,63 @@ class ProductionChargeController(ManagedChargeController):
 
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
         super()._save_session(voltage, current, ah)
-        self._write_cooling_pause_to_session_file()
-        self._write_runtime_signal_to_session_file()
-        self._write_finish_state_to_session_file()
+
+    def _session_document_extensions(self, document: Dict[str, Any]) -> Dict[str, Any]:
+        """Return V2 continuation metadata for the canonical atomic session write."""
+        result: Dict[str, Any] = {}
+        if self._v2_cooling_pause is not None:
+            result["v2_cooling_pause"] = self._v2_cooling_pause
+        else:
+            result.pop("v2_cooling_pause", None)
+
+        context = self._v2_session_signal_context
+        mode = context.get("mode") if isinstance(context, dict) else None
+        runtime_valid = (
+            self.current_stage == self.STAGE_MIX
+            and isinstance(context, dict)
+            and mode in {"CV", "CC"}
+            and context.get("stage") == self.STAGE_MIX
+            and context.get("session_id") == self._v2_trace_session_id
+            and context.get("output_on") is True
+            and context.get("telemetry_valid") is True
+            and ((mode == "CV" and context.get("cv_state") is True and context.get("current_min_a") is not None)
+                 or (mode == "CC" and context.get("cc_state") is True and context.get("voltage_max_v") is not None))
+        )
+        if runtime_valid:
+            result["runtime_signal"] = {"version": 2, **context}
+        else:
+            result.pop("runtime_signal", None)
+
+        try:
+            timer = float(self.finish_timer_start)
+            timer_valid = math.isfinite(timer) and timer > 0.0
+        except (TypeError, ValueError, OverflowError):
+            timer_valid = False
+        finish_valid = (
+            self.current_stage == self.STAGE_MIX and timer_valid
+            and self._delta_reported is True
+            and self._delta_trigger_mode in {"CV", "CC"}
+            and bool(self._v2_trace_session_id)
+        )
+        if finish_valid:
+            result.update({
+                "delta_state_version": 1,
+                "delta_session_id": self._v2_trace_session_id,
+                "delta_reported": True,
+                "delta_trigger_mode": self._delta_trigger_mode,
+            })
+            evidence = self._finish_evidence
+            if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode):
+                result["finish_evidence"] = dict(evidence)
+            else:
+                result.pop("finish_evidence", None)
+        else:
+            for key in (
+                "delta_state_version", "delta_session_id", "delta_reported",
+                "delta_trigger_mode", "finish_evidence",
+            ):
+                result.pop(key, None)
+        return result
 
     def _write_finish_state_to_session_file(self) -> None:
         document = self._read_legacy_session_document()
@@ -815,11 +869,29 @@ class ProductionChargeController(ManagedChargeController):
 
         self._reset_continuous_tail_hold()
 
+        # A persisted Guard is authority-bearing state. Restore it from the
+        # exact canonical session identity before any caller can consider an
+        # automatic continuation; never reconstruct a missing checkpoint.
+        from runtime.charge.strategy.main_guard_session import GUARD_KEY, read_guard
+        self._main_current_guard = None
+        self._main_current_guard_revision = None
+        if GUARD_KEY in document:
+            guard, revision = read_guard(
+                document,
+                session_id=str(self._v2_trace_session_id or ""),
+                battery_id=str(self._v2_battery_id or ""),
+                now_s=float(time.time()),
+            )
+            self._main_current_guard = guard
+            self._main_current_guard_revision = revision
+
         if not document.get("v2_intent"):
             self._v2_intent = ChargeIntent.NORMAL
             self._v2_condition_before = BatteryCondition.UNKNOWN
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
-            self._write_trace_identity_to_session_file()
+            # Migration and trace identity now enter the same canonical atomic
+            # document as the restored charge state and all continuation data.
+            self._save_session(float(voltage), float(current), float(ah))
 
         if self.current_stage == self.STAGE_MIX:
             self._restore_finish_state(document)
