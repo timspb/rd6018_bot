@@ -9,7 +9,9 @@ from dataclasses import dataclass
 import math
 from typing import Any, Awaitable, Callable, Mapping
 
-from rd6018_telemetry import canonical_programmed_readback, finite_float
+from rd6018_telemetry import (
+    canonical_programmed_readback, finite_float, telemetry_freshness,
+)
 from runtime.charge.strategy.main_current_guard import (
     EXPECTED_OCP_HEADROOM_A, HARDWARE_CURRENT_FLOOR_A,
     READBACK_TOLERANCE_A, MainCurrentGuard, PendingProposal,
@@ -43,25 +45,29 @@ class MainGuardExecutionFault(RuntimeError):
     pass
 
 
-def _fresh(live: Mapping[str, Any], name: str) -> bool:
+_REQUIRED_NATIVE_KEYS = (
+    "output_state_code_v2", "current", "set_current_readback_v2",
+    "ocp_readback_v2", "protection_code",
+)
+
+
+def _native_freshness(live: Mapping[str, Any]) -> bool:
+    # Unlike the generic compatibility function, Guard MUST have source
+    # metadata. Use real HA last_reported/last_updated or verified age_s,
+    # and bound skew across all 5 independent native observations.
     meta = live.get("_meta")
     if not isinstance(meta, Mapping):
         return False
-    item = meta.get(name)
-    if not isinstance(item, Mapping) or item.get("status") != "ok":
-        return False
-    age = finite_float(item.get("age_s"))
-    return age is not None and 0 <= age <= MAX_READBACK_AGE_S
+    return telemetry_freshness(
+        live, _REQUIRED_NATIVE_KEYS,
+        max_age_s=MAX_READBACK_AGE_S, max_skew_s=MAX_READBACK_AGE_S,
+    ).valid
 
 
 def _positive_on_snapshot(live: Mapping[str, Any]) -> tuple[float, float, float]:
     """Require canonical Output ON, protection clear, and hardware readbacks."""
-    for name in (
-        "output_state_code_v2", "current", "set_current_readback_v2",
-        "ocp_readback_v2", "protection_code",
-    ):
-        if not _fresh(live, name):
-            raise MainGuardExecutionFault("stale_or_missing_" + name)
+    if not _native_freshness(live):
+        raise MainGuardExecutionFault("stale_or_skewed_native_evidence")
     output = finite_float(live.get("output_state_code_v2"))
     protect = finite_float(live.get("protection_code"))
     actual_i = finite_float(live.get("current"))
@@ -94,8 +100,12 @@ async def execute_main_guard_reduction(
 
     All failures request verified OFF; failed OFF is never reported as success.
     """
-    if not isinstance(execution_lock, asyncio.Lock):
-        raise TypeError("shared owner execution lock required")
+    # Never accept a random lock: it could only serialize this one Guard call,
+    # while the real controller, manual commands and startup race around it.
+    bound_lock = getattr(port, "_guard_owner_lock", None)
+    if (not isinstance(execution_lock, asyncio.Lock)
+            or bound_lock is None or execution_lock is not bound_lock):
+        raise TypeError("canonical owner lifecycle lock is not bound")
     async with execution_lock:
         try:
             if (
