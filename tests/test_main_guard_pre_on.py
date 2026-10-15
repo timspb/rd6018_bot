@@ -187,7 +187,11 @@ class MainGuardPreOnTests(unittest.TestCase):
                     snapshot["_meta"]["set_current_readback_v2"]["age_s"] = 55
                     expected = "native_sources_stale_or_skewed"
                 elif mutation == "skew":
-                    snapshot["_meta"]["ocp_readback_v2"]["age_s"] = 10
+                    from datetime import datetime, timezone, timedelta
+                    snapshot["_meta"]["ocp_readback_v2"].pop("age_s")
+                    snapshot["_meta"]["ocp_readback_v2"]["last_reported"] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=30)
+                    ).isoformat()
                     expected = "native_sources_stale_or_skewed"
                 else:
                     snapshot["_meta"]["output_state_code_v2"]["status"] = "unavailable"
