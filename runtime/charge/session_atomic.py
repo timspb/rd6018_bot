@@ -60,6 +60,16 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
     to erase its journal. Caller must fail closed and reconcile hardware.
     """
     result = dict(data)
+    # ProductionChargeController metadata must be included before the single
+    # canonical replace. This hook is pure: it may amend the document, never
+    # write charge_session.json itself.
+    extensions = getattr(host, "_session_document_extensions", None)
+    if callable(extensions):
+        extra = extensions(dict(result))
+        if extra is not None:
+            if not isinstance(extra, Mapping):
+                raise TypeError("session document extension must return a mapping")
+            result.update(extra)
     session_id = getattr(host, "_v2_trace_session_id", None)
     started = getattr(host, "_v2_trace_started_at", None)
     battery_id = getattr(host, "_v2_battery_id", None)
