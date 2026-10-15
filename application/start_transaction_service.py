@@ -7,6 +7,7 @@ is retained only as a compatibility import facade during ERADICATION-09.
 from __future__ import annotations
 
 import html
+from functools import wraps
 from types import SimpleNamespace
 from typing import Any
 
@@ -128,6 +129,24 @@ def _select_initial_auto_target(
     return float(target_v), float(target_i), True
 
 
+def _serialized_charge_start(operation):
+    """Hold one app-scoped owner across START preflight, state and output ON.
+
+    Emergency verified OFF retains its independent execution route.
+    Nested ExecutionPort calls reuse the same task-owned lock.
+    """
+    @wraps(operation)
+    async def wrapped(app: Any, event: Any, pending: Any) -> bool:
+        port = get_or_create_execution_port(app)
+        lock = port._guard_owner_lock
+        if lock is None:
+            raise RuntimeError("START cannot run without canonical owner lock")
+        async with lock:
+            return await operation(app, event, pending)
+    return wrapped
+
+
+@_serialized_charge_start
 async def start_profile_transactional(app: Any, event: Any, pending: Any) -> bool:
     """Start one profile only through the recipe-aware safe output coordinator."""
     message = event.message if hasattr(event, "message") and event.message is not None else event
