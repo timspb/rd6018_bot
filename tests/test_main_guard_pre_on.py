@@ -23,6 +23,16 @@ def memory():
     )
 
 
+def observed_pending(initial, *, current=4.0):
+    state = initial
+    proposal = None
+    for ts in range(0, 1801, 30):
+        state, proposal = state.observe(
+            now_s=ts, output_on=True, measured_current_a=current, fresh=True
+        )
+    return state, proposal
+
+
 def live(current=6.0, ocp=6.1):
     state = {
         "output_state_code_v2": 0, "protection_code": 0,
@@ -100,12 +110,7 @@ class MainGuardPreOnTests(unittest.TestCase):
         )
 
     def test_unresolved_pending_guard_blocks_restart(self):
-        g, _ = self.guard.observe(
-            now_s=0, output_on=True, measured_current_a=4, fresh=True
-        )
-        g, proposal = g.observe(
-            now_s=1800, output_on=True, measured_current_a=4, fresh=True
-        )
+        g, proposal = observed_pending(self.guard)
         self.assertIsNotNone(proposal)
         doc = attach_guard(canonical(), g, now_s=self.now, expected_revision=0)
         self.assertEqual(
@@ -140,10 +145,7 @@ class MainGuardPreOnTests(unittest.TestCase):
         )
 
     def test_real_persisted_reduced_ceiling_never_reverts_to_initial(self):
-        g = self.guard
-        g, _ = g.observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-        g, pending = g.observe(now_s=1800, output_on=True,
-                               measured_current_a=4, fresh=True)
+        g, pending = observed_pending(self.guard)
         reduced = g.commit(
             proposal_id=pending.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,

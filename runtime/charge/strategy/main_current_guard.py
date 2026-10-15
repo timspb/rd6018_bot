@@ -16,6 +16,10 @@ SCHEMA_VERSION = 1
 HARDWARE_CURRENT_FLOOR_A = 0.1
 SOFTWARE_CURRENT_MAX_A = 12.0
 RATCHET_INTERVAL_S = 1800.0
+# Main production telemetry is polled on a 30s cycle. A gap spanning more
+# than three expected polls is not positive evidence of continuous charging.
+# This conservative source-only bound must be calibrated before activation.
+MAX_CONTINUOUS_SAMPLE_GAP_S = 90.0
 CURRENT_HEADROOM_A = 1.0
 EXPECTED_OCP_HEADROOM_A = 0.1
 READBACK_TOLERANCE_A = 0.02
@@ -99,7 +103,11 @@ class MainCurrentGuard:
         elapsed = 0.0
         if (self.last_observed_at_s is not None and self.last_output_on
                 and self.last_stage_main and main_stage and evidenced_on):
-            elapsed = now - self.last_observed_at_s
+            observed_gap = now - self.last_observed_at_s
+            if observed_gap <= MAX_CONTINUOUS_SAMPLE_GAP_S:
+                elapsed = observed_gap
+            # Otherwise the interval is unobserved, not accrued. This also
+            # breaks evidence continuity without clearing the tighter Iset cap.
         accrued = self.accrued_output_on_s + elapsed
         state = replace(self, accrued_output_on_s=accrued, last_observed_at_s=now,
                         last_output_on=evidenced_on, last_stage_main=main_stage)
@@ -274,4 +282,5 @@ def _time(value: Any) -> float:
 
 
 __all__ = ["ACK_TIMEOUT_S", "CURRENT_HEADROOM_A", "HARDWARE_CURRENT_FLOOR_A", "MainCurrentGuard",
-           "PendingProposal", "RATCHET_INTERVAL_S", "SCHEMA_VERSION", "SOFTWARE_CURRENT_MAX_A", "GuardError"]
+           "PendingProposal", "RATCHET_INTERVAL_S", "MAX_CONTINUOUS_SAMPLE_GAP_S", "SCHEMA_VERSION",
+    "SOFTWARE_CURRENT_MAX_A", "GuardError"]
