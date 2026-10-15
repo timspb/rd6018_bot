@@ -107,6 +107,16 @@ class ExecutionPort:
         except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
             return self._result(intent, identity, "setpoints", False, False, type(exc).__name__)
 
+    async def execute_main_current_guard_reduction(self, **transaction: Any) -> Any:
+        """Opt-in MAIN Guard current/OCP transaction on the same execution owner.
+
+        No production caller is installed. Persist/lock/readback authority must
+        be supplied by the canonical runtime before enabling this path.
+        """
+        from .main_guard_transaction import execute_main_guard_reduction
+
+        return await execute_main_guard_reduction(self, **transaction)
+
     async def request_verified_off(self) -> bool:
         """Delegate one verified Output-OFF transaction to the production owner."""
         return bool(await self.execution_owner.turn_off())
