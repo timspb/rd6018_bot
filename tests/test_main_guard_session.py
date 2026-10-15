@@ -28,8 +28,12 @@ def guard():
 
 
 def proposed():
-    g, _ = guard().observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-    return g.observe(now_s=1800, output_on=True, measured_current_a=4, fresh=True)
+    g = guard()
+    proposal = None
+    for ts in range(0, 1801, 30):
+        g, proposal = g.observe(
+            now_s=ts, output_on=True, measured_current_a=4, fresh=True)
+    return g, proposal
 
 
 class MainGuardSessionContractTests(unittest.TestCase):
