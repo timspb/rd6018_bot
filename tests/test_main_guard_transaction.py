@@ -53,8 +53,11 @@ def pending():
         session_id="real-session", battery_id="bat", segment_id="main-1",
         capacity_ah=72, recipe_initial_current_a=12
     )
-    state, _ = state.observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
-    return state.observe(now_s=1800, output_on=True, measured_current_a=4, fresh=True)
+    proposal = None
+    for ts in range(0, 1801, 30):
+        state, proposal = state.observe(
+            now_s=ts, output_on=True, measured_current_a=4, fresh=True)
+    return state, proposal
 
 
 class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
