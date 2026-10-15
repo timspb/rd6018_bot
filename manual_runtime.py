@@ -7,6 +7,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any, Optional
 
 from manual_mode import (
@@ -21,9 +22,27 @@ from battery_registry import get_battery
 from runtime.charge.evidence.first_stage import tail_current_threshold_a
 from rd6018_telemetry import as_bool, finite_float
 from application.execution_intent.models import ExecutionIntent, SafetyContext
+from application.execution_port import get_or_create_execution_port
 
 
 MANUAL_REACH_EPS = 0.02
+
+
+def _serialized_manual_normal_action(operation):
+    """Protect Manual state/preflight/enable with the same app execution owner.
+
+    Urgent verified OFF/Edge lease containment must remain independently
+    callable; this decorator is for normal Manual lifecycle actions only.
+    """
+    @wraps(operation)
+    async def wrapped(self, *args, **kwargs):
+        port = get_or_create_execution_port(self.app)
+        lock = port._guard_owner_lock
+        if lock is None:
+            raise RuntimeError("Manual requires canonical application execution lock")
+        async with lock:
+            return await operation(self, *args, **kwargs)
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -207,6 +226,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         self._persist()
         return False
 
+    @_serialized_manual_normal_action
     async def start(
         self,
         request: ManualChargeRequest,
@@ -267,6 +287,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         except asyncio.CancelledError:
             pass
 
+    @_serialized_manual_normal_action
     async def replace(
         self,
         request: ManualChargeRequest,
@@ -316,6 +337,7 @@ class ProductionManualSessionManager(ManualSessionManager):
             self.state = ManualSessionState.ARMING
             self._persist()
 
+    @_serialized_manual_normal_action
     async def _resume_after_cooling(self) -> None:
         try:
             await super()._resume_after_cooling()
