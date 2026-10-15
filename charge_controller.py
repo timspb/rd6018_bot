@@ -759,8 +759,9 @@ class ManagedChargeController:
         clear_session_file(self, session_file=SESSION_FILE)
 
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
+        # save_session atomically writes the charge, V2 trace and optional MAIN
+        # Guard journal in ONE document; no second independent rewrite here.
         save_session(self, voltage, current, ah, session_file=SESSION_FILE)
-        self._write_trace_identity_to_session_file()
 
     def _restore_desulfation_stage_clock(self, document: Dict[str, Any]) -> None:
         """Keep the persisted active DESULFATION clock authoritative across restart."""
