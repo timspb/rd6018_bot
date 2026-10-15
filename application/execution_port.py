@@ -53,6 +53,22 @@ class ExecutionPort:
     def __init__(self, execution_owner: Any) -> None:
         self.execution_owner = execution_owner
         self.audit: list[ExecutionPortAudit] = []
+        # UNBOUND by default: a stand-alone Guard transaction cannot grant
+        # itself an independent lock and pretend it protects all output paths.
+        self._guard_owner_lock: asyncio.Lock | None = None
+
+    def bind_guard_owner_lock(self, lock: asyncio.Lock) -> None:
+        """Bind the proven app-wide lifecycle lock before Guard activation.
+
+        Integration must separately prove that controller/START/manual/recovery,
+        physical writes and journal commits ALL participate in this lock.
+        Binding alone does not provide that proof or activate MAIN Guard.
+        """
+        if not isinstance(lock, asyncio.Lock):
+            raise TypeError("owner lock must be asyncio.Lock")
+        if self._guard_owner_lock is not None and self._guard_owner_lock is not lock:
+            raise RuntimeError("guard owner lock already bound to a different lock")
+        self._guard_owner_lock = lock
 
     async def enable(
         self,

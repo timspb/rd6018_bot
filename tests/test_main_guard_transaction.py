@@ -65,6 +65,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.snapshots = []
         self.fail_commit = False
         self.lock = asyncio.Lock()
+        self.port.bind_guard_owner_lock(self.lock)
 
     async def save(self, snapshot):
         self.snapshots.append(snapshot)
@@ -175,6 +176,44 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await self.transact(execution_lock=None)
         self.assertEqual(self.owner.events, [])
+
+    async def test_unrelated_lock_does_not_simulate_owner_serialization(self):
+        with self.assertRaisesRegex(TypeError, "not bound"):
+            await self.transact(execution_lock=asyncio.Lock())
+        self.assertEqual(self.owner.events, [])
+
+    async def test_guard_transaction_refuses_unbound_port(self):
+        self.port = ExecutionPort(self.owner)
+        with self.assertRaisesRegex(TypeError, "not bound"):
+            await self.transact()
+        self.assertEqual(self.owner.events, [])
+
+    async def test_owner_lock_cannot_be_silently_replaced(self):
+        with self.assertRaises(RuntimeError):
+            self.port.bind_guard_owner_lock(asyncio.Lock())
+        self.port.bind_guard_owner_lock(self.lock)
+
+    async def test_fresh_ha_last_reported_metadata_without_age_s(self):
+        from datetime import datetime, timezone
+        stamp = datetime.now(timezone.utc).isoformat()
+        for entry in self.owner.live["_meta"].values():
+            entry.pop("age_s", None)
+            entry["last_reported"] = stamp
+        result = await self.transact()
+        self.assertTrue(result.verified)
+
+    async def test_stale_last_reported_and_skewed_heartbeat_rejected(self):
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        for entry in self.owner.live["_meta"].values():
+            entry.pop("age_s", None)
+            entry["last_reported"] = now.isoformat()
+        self.owner.live["_meta"]["ocp_readback_v2"]["last_reported"] = (
+            now - timedelta(seconds=25)
+        ).isoformat()
+        result = await self.transact()
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
 
     async def test_session_identity_stage_lease_and_owner_gates(self):
         original = MainGuardAuthority(
