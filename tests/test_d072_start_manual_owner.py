@@ -8,6 +8,7 @@ import unittest
 from application.execution_port import get_or_create_execution_port
 from application.start_transaction_service import start_profile_transactional
 from manual_runtime import _serialized_manual_normal_action
+from runtime.startup_recovery import StartupRecovery
 
 
 class FakeOwner:
@@ -15,6 +16,10 @@ class FakeOwner:
         self.events = []
         self.entered = asyncio.Event()
         self.release_voltage = asyncio.Event()
+
+    async def get_all_live(self):
+        self.events.append(("get_live",))
+        return {}
 
     async def set_voltage(self, value):
         self.events.append(("voltage_start", float(value)))
@@ -99,6 +104,45 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(entered, [])
         self.assertTrue(await asyncio.wait_for(action, timeout=1))
         self.assertEqual(entered, ["manual-entered"])
+
+    async def test_deferred_restore_waits_for_same_owner_lock(self):
+        self.app._operator_pause_active = lambda: True
+        self.app.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+        coordinator = StartupRecovery(self.app, None, None)
+        async with self.port._guard_owner_lock:
+            task = asyncio.create_task(coordinator.replay_deferred_startup_restore())
+            await asyncio.sleep(0)
+            self.assertFalse(task.done())
+            self.assertEqual(self.owner.events, [])
+        await asyncio.wait_for(task, timeout=1)
+        self.assertEqual(self.owner.events, [("get_live",)])
+
+    def test_initial_restore_and_shutdown_journal_use_one_owner_scope(self):
+        path = Path(__file__).resolve().parents[1] / "runtime" / "production_lifecycle.py"
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        cls = next(
+            n for n in module.body
+            if isinstance(n, ast.ClassDef) and n.name == "ProductionRuntimeLifecycle"
+        )
+        for method, required_calls in (
+            ("run", ("controller.try_restore_session", "execution_port.request_verified_on")),
+            ("on_shutdown", ("app.charge_controller._save_session",)),
+        ):
+            fn = next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == method)
+            owners = []
+            for n in ast.walk(fn):
+                if not isinstance(n, ast.AsyncWith):
+                    continue
+                if not any("_guard_owner_lock" in ast.unparse(item.context_expr) for item in n.items):
+                    continue
+                calls = {
+                    ast.unparse(x.func)
+                    for statement in n.body for x in ast.walk(statement)
+                    if isinstance(x, ast.Call)
+                }
+                if all(call in calls for call in required_calls):
+                    owners.append(n)
+            self.assertEqual(len(owners), 1, method)
 
     def test_manual_lifecycle_methods_are_explicitly_serialized(self):
         path = Path(__file__).resolve().parents[1] / "manual_runtime.py"
