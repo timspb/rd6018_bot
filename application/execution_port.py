@@ -8,6 +8,7 @@ existing execution owner, verifies readback, and records the correlation envelop
 from __future__ import annotations
 
 import asyncio
+from functools import wraps
 from dataclasses import dataclass
 from time import time
 from typing import Any, Mapping, Optional
@@ -16,6 +17,18 @@ from protection_utils import should_delay_current_ramp, should_use_startup_settl
 from rd6018_telemetry import canonical_programmed_readback, finite_float
 
 from .execution_intent.models import ExecutionIntent
+from .guard_execution_owner_lock import GuardExecutionOwnerLock
+
+
+def _serialized_normal_execution(method):
+    """Serialize normal port work when this port has its production app lock."""
+    @wraps(method)
+    async def wrapped(self, *args, **kwargs):
+        lock = self._guard_owner_lock
+        if lock is None:
+            return await method(self, *args, **kwargs)
+        return await lock.run(lambda: method(self, *args, **kwargs))
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -57,19 +70,20 @@ class ExecutionPort:
         # itself an independent lock and pretend it protects all output paths.
         self._guard_owner_lock: asyncio.Lock | None = None
 
-    def bind_guard_owner_lock(self, lock: asyncio.Lock) -> None:
+    def bind_guard_owner_lock(self, lock: GuardExecutionOwnerLock) -> None:
         """Bind the proven app-wide lifecycle lock before Guard activation.
 
         Integration must separately prove that controller/START/manual/recovery,
         physical writes and journal commits ALL participate in this lock.
         Binding alone does not provide that proof or activate MAIN Guard.
         """
-        if not isinstance(lock, asyncio.Lock):
-            raise TypeError("owner lock must be asyncio.Lock")
         if self._guard_owner_lock is not None and self._guard_owner_lock is not lock:
             raise RuntimeError("guard owner lock already bound to a different lock")
+        if not isinstance(lock, GuardExecutionOwnerLock):
+            raise TypeError("owner lock must be GuardExecutionOwnerLock")
         self._guard_owner_lock = lock
 
+    @_serialized_normal_execution
     async def enable(
         self,
         intent: ExecutionIntent,
@@ -97,6 +111,7 @@ class ExecutionPort:
             # for enable exceptions; do not hide the exception here.
             raise
 
+    @_serialized_normal_execution
     async def apply_intent(self, intent: ExecutionIntent, *, identity: Any) -> ExecutionPortResult:
         if not self._identity_valid(identity):
             return self._result(intent, identity, "setpoints", False, False, "identity_required")
@@ -123,6 +138,7 @@ class ExecutionPort:
         except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
             return self._result(intent, identity, "setpoints", False, False, type(exc).__name__)
 
+    @_serialized_normal_execution
     async def execute_main_current_guard_reduction(self, **transaction: Any) -> Any:
         """Opt-in MAIN Guard current/OCP transaction on the same execution owner.
 
@@ -137,22 +153,28 @@ class ExecutionPort:
         """Delegate one verified Output-OFF transaction to the production owner."""
         return bool(await self.execution_owner.turn_off())
 
+    @_serialized_normal_execution
     async def request_verified_on(self) -> bool:
         """Delegate one guarded/verified Output-ON transaction to the V2 owner."""
         return bool(await self.execution_owner.turn_on())
 
+    @_serialized_normal_execution
     async def program_voltage(self, value_v: float) -> bool:
         return bool(await self.execution_owner.set_voltage(float(value_v)))
 
+    @_serialized_normal_execution
     async def program_current(self, value_a: float) -> bool:
         return bool(await self.execution_owner.set_current(float(value_a)))
 
+    @_serialized_normal_execution
     async def program_ovp(self, value_v: float) -> bool:
         return bool(await self.execution_owner.set_ovp(float(value_v)))
 
+    @_serialized_normal_execution
     async def program_ocp(self, value_a: float) -> bool:
         return bool(await self.execution_owner.set_ocp(float(value_a)))
 
+    @_serialized_normal_execution
     async def apply_phase_protection(
         self,
         *,
@@ -170,6 +192,7 @@ class ExecutionPort:
             current = min(float(max_stage_current_a), max(0.1, float(target_current_a)))
             await self.execution_owner.set_ocp(current + float(ocp_offset_a))
 
+    @_serialized_normal_execution
     async def apply_current_with_ocp(
         self,
         *,
@@ -206,6 +229,7 @@ class ExecutionPort:
             await self.execution_owner.set_ocp(target_ocp)
             await self.execution_owner.set_current(target_i)
 
+    @_serialized_normal_execution
     async def apply_current_with_startup_settle(
         self,
         *,
@@ -256,6 +280,7 @@ class ExecutionPort:
             await self.execution_owner.set_current(target_i)
         return None
 
+    @_serialized_normal_execution
     async def reset_idle_protection(
         self,
         *,
@@ -269,6 +294,7 @@ class ExecutionPort:
         if has_ocp:
             await self.execution_owner.set_ocp(float(idle_safe_ocp_a))
 
+    @_serialized_normal_execution
     async def execute_controller_actions(
         self,
         actions: Mapping[str, Any],
@@ -413,8 +439,18 @@ def get_or_create_execution_port(app: Any) -> ExecutionPort:
     owner = getattr(app, "hass", None)
     existing = getattr(app, "execution_port", None)
     if isinstance(existing, ExecutionPort) and existing.execution_owner is owner:
+        lock = getattr(app, "guard_execution_owner_lock", None)
+        if lock is None:
+            lock = GuardExecutionOwnerLock()
+            setattr(app, "guard_execution_owner_lock", lock)
+        existing.bind_guard_owner_lock(lock)
         return existing
     port = ExecutionPort(owner)
+    lock = getattr(app, "guard_execution_owner_lock", None)
+    if lock is None:
+        lock = GuardExecutionOwnerLock()
+        setattr(app, "guard_execution_owner_lock", lock)
+    port.bind_guard_owner_lock(lock)
     setattr(app, "execution_port", port)
     return port
 

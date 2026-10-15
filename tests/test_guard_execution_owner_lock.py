@@ -111,6 +111,55 @@ class GuardOwnerLockTests(unittest.IsolatedAsyncioTestCase):
         port.bind_guard_owner_lock(self.lock)
         with self.assertRaises(RuntimeError):
             port.bind_guard_owner_lock(GuardExecutionOwnerLock())
+        with self.assertRaises(RuntimeError):
+            port.bind_guard_owner_lock(asyncio.Lock())
+
+    async def test_execution_port_serializes_nested_setters_and_allows_emergency_off(self):
+        events = []
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        class Owner:
+            async def set_current(self, value):
+                events.append(("current_start", value))
+                entered.set()
+                await release.wait()
+                events.append(("current_end", value))
+                return True
+            async def set_voltage(self, value):
+                events.append(("voltage", value))
+                return True
+            async def turn_off(self):
+                events.append(("OFF", None))
+                return True
+
+        port = ExecutionPort(Owner())
+        port.bind_guard_owner_lock(self.lock)
+        first = asyncio.create_task(port.apply_current_with_ocp(
+            target_current_a=2.0, current_set_a=1.0, target_ocp_a=None,
+            max_stage_current_a=12.0, ocp_offset_a=1.0, has_ocp=False,
+            stabilize_delay_s=0,
+        ))
+        await asyncio.wait_for(entered.wait(), 1)
+        second = asyncio.create_task(port.program_voltage(14.4))
+        await asyncio.sleep(0)
+        self.assertEqual(events, [("current_start", 2.0)])
+        await port.request_verified_off()
+        self.assertEqual(events[-1], ("OFF", None))
+        release.set()
+        await asyncio.wait_for(asyncio.gather(first, second), 1)
+        self.assertEqual(events[1:], [("OFF", None), ("current_end", 2.0), ("voltage", 14.4)])
+
+    async def test_production_factory_reuses_one_app_port_and_lock(self):
+        from application.execution_port import get_or_create_execution_port
+        class App:
+            hass = object()
+        app = App()
+        port = get_or_create_execution_port(app)
+        lock = app.guard_execution_owner_lock
+        self.assertIs(get_or_create_execution_port(app), port)
+        self.assertIs(app.guard_execution_owner_lock, lock)
+        self.assertIs(port._guard_owner_lock, lock)
 
     async def test_emergency_off_does_not_depend_on_owner_waiters(self):
         """Prove architecture contract with fake OFF, not a hardware watchdog."""

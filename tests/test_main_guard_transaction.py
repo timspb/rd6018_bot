@@ -4,6 +4,7 @@ from dataclasses import replace
 import unittest
 
 from application.execution_port import ExecutionPort
+from application.guard_execution_owner_lock import GuardExecutionOwnerLock
 from application.main_guard_transaction import MainGuardAuthority
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 
@@ -67,7 +68,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.guard, self.proposal = pending()
         self.snapshots = []
         self.fail_commit = False
-        self.lock = asyncio.Lock()
+        self.lock = GuardExecutionOwnerLock()
         self.port.bind_guard_owner_lock(self.lock)
 
     async def save(self, snapshot):
