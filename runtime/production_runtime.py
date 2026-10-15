@@ -2733,87 +2733,91 @@ async def data_logger() -> None:
                     logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
 
             now_ts = time.time()
-            prev_stage = charge_controller.current_stage
-            actions = await charge_controller.tick(
-                battery_v, i, temp_ext, is_cv, ah, output_switch,
-                manual_off_active=_has_manual_off_condition(),
-                is_cc=is_cc,
-                manual_active=manual_active,
-            )
-            if actions.get("notify"):
-                _charge_notify(str(actions["notify"]))
-            if prev_stage != charge_controller.current_stage:
-                log_event(
-                    charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t,
-                    ah,
-                    f"STAGE_CHANGE | {prev_stage} -> {charge_controller.current_stage}",
+            # Hold the same app-wide normal execution owner from the
+            # controller decision/session checkpoint through the resulting
+            # physical action. Emergency verified OFF remains independent.
+            async with _runtime_execution_port()._guard_owner_lock:
+                prev_stage = charge_controller.current_stage
+                actions = await charge_controller.tick(
+                    battery_v, i, temp_ext, is_cv, ah, output_switch,
+                    manual_off_active=_has_manual_off_condition(),
+                    is_cc=is_cc,
+                    manual_active=manual_active,
                 )
-
-            end = actions.get("log_event_end")
-            if end:
-                log_stage_end(
-                    end["stage"],
-                    end["v"],
-                    end["i"],
-                    end["t"],
-                    end["ah"],
-                    end["time_sec"],
-                    end["ah_on_stage"],
-                    end["trigger"],
-                )
-            if actions.get("log_event_sub"):
-                log_event(
-                    end["stage"] if end else charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t,
-                    ah,
-                    actions["log_event_sub"],
-                )
-            if actions.get("log_event"):
-                event_name = str(actions["log_event"])
-                if not _should_skip_noisy_log_event(charge_controller.current_stage, event_name, now_ts):
+                if actions.get("notify"):
+                    _charge_notify(str(actions["notify"]))
+                if prev_stage != charge_controller.current_stage:
                     log_event(
                         charge_controller.current_stage,
                         battery_v,
                         i,
                         t,
                         ah,
-                        event_name,
+                        f"STAGE_CHANGE | {prev_stage} -> {charge_controller.current_stage}",
                     )
 
-            if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
-                log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
-                last_checkpoint_time = now_ts
-            
-            # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)
-            if now_ts - last_cleanup_time >= 86400:  # 24 часа
-                await cleanup_old_records()
-                try:
-                    rotate_if_needed()
-                    trim_log_older_than_days(30)
-                except Exception as ex:
-                    logger.warning("trim_log_older_than_days: %s", ex)
-                last_cleanup_time = now_ts
+                end = actions.get("log_event_end")
+                if end:
+                    log_stage_end(
+                        end["stage"],
+                        end["v"],
+                        end["i"],
+                        end["t"],
+                        end["ah"],
+                        end["time_sec"],
+                        end["ah_on_stage"],
+                        end["trigger"],
+                    )
+                if actions.get("log_event_sub"):
+                    log_event(
+                        end["stage"] if end else charge_controller.current_stage,
+                        battery_v,
+                        i,
+                        t,
+                        ah,
+                        actions["log_event_sub"],
+                    )
+                if actions.get("log_event"):
+                    event_name = str(actions["log_event"])
+                    if not _should_skip_noisy_log_event(charge_controller.current_stage, event_name, now_ts):
+                        log_event(
+                            charge_controller.current_stage,
+                            battery_v,
+                            i,
+                            t,
+                            ah,
+                            event_name,
+                        )
 
-            if actions.get("emergency_stop"):
-                await _runtime_execution_port().request_verified_off()
-                await _apply_idle_protection()
-                if actions.get("full_reset"):
-                    charge_controller.full_reset()
-                # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
-            elif charge_controller.is_active:
-                await _apply_controller_output_actions(
-                    actions,
-                    live,
-                    battery_v=battery_v,
-                    current=i,
-                    temp=t,
-                    ah=ah,
-                )
+                if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
+                    log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
+                    last_checkpoint_time = now_ts
+                
+                # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)
+                if now_ts - last_cleanup_time >= 86400:  # 24 часа
+                    await cleanup_old_records()
+                    try:
+                        rotate_if_needed()
+                        trim_log_older_than_days(30)
+                    except Exception as ex:
+                        logger.warning("trim_log_older_than_days: %s", ex)
+                    last_cleanup_time = now_ts
+
+                if actions.get("emergency_stop"):
+                    await _runtime_execution_port().request_verified_off()
+                    await _apply_idle_protection()
+                    if actions.get("full_reset"):
+                        charge_controller.full_reset()
+                    # иначе контроллер уже сделал stop(clear_session=False) — сессия сохранена для restore при возврате связи
+                elif charge_controller.is_active:
+                    await _apply_controller_output_actions(
+                        actions,
+                        live,
+                        battery_v=battery_v,
+                        current=i,
+                        temp=t,
+                        ah=ah,
+                    )
 
         except Exception as ex:
             err_str = str(ex).lower()
