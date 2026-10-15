@@ -108,6 +108,10 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
             raise GuardJournalError("new_main_epoch_requires_owner_receipt")
         if guard.hardware_limit_a > old.hardware_limit_a + READBACK_TOLERANCE_A:
             raise GuardJournalError("guard_ceiling_cannot_be_enlarged")
+        if guard.proposal_sequence < old.proposal_sequence:
+            raise GuardJournalError("proposal_sequence_rollback")
+        if old.pending is not None and guard.pending is not None and guard.pending != old.pending:
+            raise GuardJournalError("pending_proposal_substitution")
         if old.pending is not None and guard.pending is None:
             valid_committed = (
                 guard.hardware_limit_a <= old.pending.target_limit_a + READBACK_TOLERANCE_A
