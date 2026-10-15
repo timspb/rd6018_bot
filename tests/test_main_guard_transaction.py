@@ -1,0 +1,181 @@
+"""Offline execution-port MAIN Guard transaction: no real hardware or HA."""
+import asyncio
+from dataclasses import replace
+import unittest
+
+from application.execution_port import ExecutionPort
+from runtime.charge.strategy.main_current_guard import MainCurrentGuard
+
+
+class FakeOwner:
+    def __init__(self):
+        self.live = {
+            "output_state_code_v2": 1, "current": 4.0,
+            "set_current_readback_v2": 7.2, "ocp_readback_v2": 7.3,
+            "protection_code": 0,
+        }
+        self.live["_meta"] = {
+            key: {"status": "ok", "age_s": 0.1}
+            for key in ("output_state_code_v2", "current",
+                        "set_current_readback_v2", "ocp_readback_v2",
+                        "protection_code")
+        }
+        self.events = []
+        self.mirror = True
+        self.refuse_off = False
+
+    async def get_all_live(self):
+        return dict(self.live, _meta={k: dict(v) for k, v in self.live["_meta"].items()})
+
+    async def set_current(self, value):
+        self.events.append(("set_current", round(value, 3)))
+        if self.mirror:
+            self.live["set_current_readback_v2"] = value
+        return True
+
+    async def set_ocp(self, value):
+        self.events.append(("set_ocp", round(value, 3)))
+        if self.mirror:
+            self.live["ocp_readback_v2"] = value
+        return True
+
+    async def turn_off(self):
+        self.events.append(("OFF",))
+        if self.refuse_off:
+            return False
+        self.live["output_state_code_v2"] = 0
+        return True
+
+
+def pending():
+    state = MainCurrentGuard.start(
+        session_id="real-session", battery_id="bat", segment_id="main-1",
+        capacity_ah=72, recipe_initial_current_a=12
+    )
+    state, _ = state.observe(now_s=0, output_on=True, measured_current_a=4, fresh=True)
+    return state.observe(now_s=1800, output_on=True, measured_current_a=4, fresh=True)
+
+
+class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.owner = FakeOwner()
+        self.port = ExecutionPort(self.owner)
+        self.guard, self.proposal = pending()
+        self.snapshots = []
+        self.fail_commit = False
+        self.lock = asyncio.Lock()
+
+    async def save(self, snapshot):
+        self.snapshots.append(snapshot)
+        if self.fail_commit and snapshot["pending"] is None:
+            raise OSError("forced durable commit failure")
+
+    async def run(self, **overrides):
+        args = dict(
+            guard=self.guard, proposal=self.proposal,
+            persist=self.save, execution_lock=self.lock, now=lambda: 1801.0,
+            max_stage_current_a=12.0, ocp_offset_a=0.1,
+            stabilize_delay_s=0.0,
+        )
+        args.update(overrides)
+        return await self.port.execute_main_current_guard_reduction(**args)
+
+    async def test_positive_protected_downward_order_and_journal(self):
+        result = await self.run()
+        self.assertTrue(result.verified)
+        self.assertEqual(result.guard.hardware_limit_a, 5)
+        self.assertIsNone(result.guard.pending)
+        self.assertEqual(self.owner.events, [("set_current", 5.0), ("set_ocp", 5.1)])
+        self.assertEqual(len(self.snapshots), 2)
+        self.assertIsNotNone(self.snapshots[0]["pending"])
+        self.assertIsNone(self.snapshots[1]["pending"])
+
+    async def test_missing_fresh_output_evidence_forces_off_before_write(self):
+        self.owner.live["_meta"]["output_state_code_v2"]["age_s"] = 60
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertTrue(result.off_confirmed)
+        self.assertEqual(self.owner.events, [("OFF",)])
+        self.assertEqual(self.snapshots, [])
+
+    async def test_legacy_value_never_replaces_missing_v2_current(self):
+        del self.owner.live["_meta"]["set_current_readback_v2"]
+        self.owner.live["set_current"] = 7.2
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_stale_ocp_or_unknown_protection_rejects(self):
+        self.owner.live["_meta"]["ocp_readback_v2"]["status"] = "stale"
+        self.assertFalse((await self.run()).verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_wrong_preflight_programmed_current_rejects(self):
+        self.owner.live["set_current_readback_v2"] = 5.0
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_wrong_ocp_margin_rejects_before_any_write(self):
+        self.owner.live["ocp_readback_v2"] = 12
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_unconfirmed_setter_fail_closed_and_no_commit(self):
+        self.owner.mirror = False
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertTrue(result.off_confirmed)
+        self.assertEqual(self.owner.events,
+                         [("set_current", 5.0), ("set_ocp", 5.1), ("OFF",)])
+        self.assertEqual(len(self.snapshots), 1)
+        self.assertIsNotNone(self.snapshots[0]["pending"])
+
+    async def test_persistence_failure_after_hardware_ack_forces_off(self):
+        self.fail_commit = True
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertTrue(result.off_confirmed)
+        self.assertEqual(self.owner.events[-1], ("OFF",))
+        self.assertEqual(len(self.snapshots), 2)
+
+    async def test_persistence_failure_before_write_forces_off(self):
+        async def fail_before(_):
+            raise OSError("disk failure")
+        result = await self.run(persist=fail_before)
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_expired_proposal_fails_closed(self):
+        result = await self.run(now=lambda: 2200)
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_no_valid_identity_or_pending_refuses_current_write(self):
+        result = await self.run(guard=replace(self.guard, pending=None))
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+    async def test_unverified_off_is_not_misreported_as_contained(self):
+        self.owner.refuse_off = True
+        self.owner.mirror = False
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertFalse(result.off_confirmed)
+        self.assertEqual(self.owner.events[-1], ("OFF",))
+
+    async def test_missing_shared_lock_fails_before_hardware(self):
+        with self.assertRaises(TypeError):
+            await self.run(execution_lock=None)
+        self.assertEqual(self.owner.events, [])
+
+    async def test_output_on_value_must_be_known_v2_register(self):
+        self.owner.live["output_state_code_v2"] = None
+        result = await self.run()
+        self.assertFalse(result.verified)
+        self.assertEqual(self.owner.events, [("OFF",)])
+
+
+if __name__ == "__main__":
+    unittest.main()
