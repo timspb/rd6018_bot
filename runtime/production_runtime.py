@@ -46,6 +46,7 @@ from runtime.charge.persistence import (
     paused_done_resume_is_authorized,
     restore_allows_auto_enable,
 )
+from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
 from runtime.safety.variables import (
     HIGH_V_FAST_TIMEOUT_S,
     HIGH_V_THRESHOLD_V,
@@ -70,7 +71,7 @@ from application.execution_port import get_or_create_execution_port
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
-from rd6018_telemetry import as_bool
+from rd6018_telemetry import as_bool, telemetry_freshness, finite_float
 from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -314,6 +315,7 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
 
 
 charge_controller = ManagedChargeController(hass, notify_cb=_charge_notify)
+_main_guard_shadow = MainGuardShadow()
 
 
 def initialize_runtime() -> None:
@@ -2741,6 +2743,38 @@ async def data_logger() -> None:
                 # physical action. Emergency verified OFF remains independent.
                 async with _runtime_execution_port()._guard_owner_lock:
                     prev_stage = charge_controller.current_stage
+                    # Observation-only D073 hook. Session identity is supplied
+                    # only by an explicit accepted-session owner; absent that
+                    # proof this is a no-op and never creates a journal.
+                    # The UI/legacy switch is not authoritative Guard
+                    # evidence. Require real native Output register 18 and
+                    # measured current with independent fresh source metadata.
+                    native_guard_fresh = (
+                        isinstance(live.get("_meta"), dict)
+                        and telemetry_freshness(
+                            live, ("output_state_code_v2", "current"),
+                            max_age_s=10.0, max_skew_s=10.0,
+                        ).valid
+                    )
+                    native_output_code = finite_float(live.get("output_state_code_v2"))
+                    native_current = finite_float(live.get("current"))
+                    native_on = (
+                        (native_output_code == 1)
+                        if native_guard_fresh and native_output_code in (0, 1)
+                        else None
+                    )
+                    _main_guard_shadow.observe(
+                        now_s=time.monotonic(),
+                        session_id=getattr(charge_controller, "_accepted_guard_session_id", None),
+                        battery_id=getattr(charge_controller, "_accepted_guard_battery_id", None),
+                        chemistry=str(getattr(charge_controller, "battery_type", "")),
+                        capacity_ah=getattr(charge_controller, "ah_capacity", 0),
+                        recipe_current_a=getattr(charge_controller, "_recipe_initial_current_a", 0),
+                        stage=("MAIN" if charge_controller.current_stage == charge_controller.STAGE_MAIN else "OTHER"),
+                        output_on=native_on,
+                        output_current_a=native_current if native_guard_fresh else None,
+                        fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
+                    )
                     actions = await charge_controller.tick(
                         battery_v, i, temp_ext, is_cv, ah, output_switch,
                         manual_off_active=_has_manual_off_condition(),
