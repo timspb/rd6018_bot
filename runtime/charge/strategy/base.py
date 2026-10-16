@@ -9,6 +9,7 @@ from ..intent import ChargeIntent
 from ..measurements import Measurements
 from .main import MainPolicy, MainFallbackPolicy
 from .mix import MixPolicy
+from .mix_current_evidence import MixClipEvidence
 from .recovery import RecoveryPolicy
 
 if TYPE_CHECKING:
@@ -40,11 +41,25 @@ class ChargeStrategy:
         self.battery = battery
         self.recipe = recipe
 
-    def evaluate(self, state: StrategyRuntimeState, measurements: Measurements, *, mix_mode: str | None = None) -> ChargeIntent:
+    def evaluate(
+        self, state: StrategyRuntimeState, measurements: Measurements, *,
+        mix_mode: str | None = None, current_limit_clipped: bool = False,
+        mix_clip_evidence: MixClipEvidence | None = None,
+        adaptive_ratchet_active: bool = False,
+    ) -> ChargeIntent:
         if state.stage_started_at is None:
             state.stage_started_at = measurements.time
         if mix_mode is not None or state.stage == self.recipe.mix.config.cc.active_stage:
-            result = self.recipe.mix.evaluate(mix_mode or "CV", measurements)
+            # A genuine lower adaptive cap without reliable current evidence
+            # must censor *unconfirmed* CC Delta, not declare ordinary CC.
+            censor = bool(current_limit_clipped) or (
+                mix_clip_evidence.censor_cc_delta(adaptive_ratchet_active=adaptive_ratchet_active)
+                if mix_clip_evidence is not None else bool(adaptive_ratchet_active)
+            )
+            result = self.recipe.mix.evaluate(
+                mix_mode or "CV", measurements,
+                current_limit_clipped=censor,
+            )
         elif state.stage == self.recipe.recovery.config.recovery_stage:
             result = self.recipe.recovery.return_to_main(self.recipe.main.config.target_voltage, self.recipe.main.config.target_current)
         else:
