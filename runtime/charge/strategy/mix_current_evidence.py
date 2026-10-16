@@ -87,10 +87,12 @@ def classify_mix_current_clip(
     battery_id: str,
     chemistry: str,
     now_epoch_s: float,
+    previous_report_epoch_s: float | None = None,
 ) -> MixClipEvidence:
     """Classify genuine native CC at a committed LOWER MIX Iset authority.
 
-    Requires fresh post-commit raw register 17, 18, 9 and current measurements.
+    Requires fresh post-commit raw register 17, 18, 9 and current measurements,
+    and a previous report cursor to reject repeated heartbeats.
     Uses no UI flags and does not equate ordinary CC with adaptive clipping.
     An invalid or untrusted receipt is UNKNOWN, never an automatic authority.
     """
@@ -113,6 +115,11 @@ def classify_mix_current_clip(
     cap = _number(receipt.acknowledged_limit_a)
     accepted_at = _number(receipt.acknowledged_at_epoch_s)
     now = _number(now_epoch_s)
+    last_seen = _number(previous_report_epoch_s)
+    if last_seen is None:
+        return unknown("no_previous_native_report_cursor")
+    if now is None or last_seen > now or last_seen <= 0:
+        return unknown("invalid_native_report_cursor")
     if (initial is None or cap is None or accepted_at is None or now is None
             or initial <= 0 or cap <= 0 or accepted_at <= 0
             or accepted_at > now
@@ -148,6 +155,8 @@ def classify_mix_current_clip(
             return unknown(f"native_last_reported_missing:{key}")
         if stamp > now + 1.0 or now - stamp > _EVIDENCE_MAX_AGE_S:
             return unknown(f"native_stale_or_future:{key}")
+        if stamp <= last_seen:
+            return unknown(f"native_report_replayed:{key}")
         samples[key] = stamp
     if max(samples.values()) - min(samples.values()) > _EVIDENCE_MAX_SKEW_S:
         return unknown("native_epoch_skew")
