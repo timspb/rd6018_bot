@@ -54,6 +54,18 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.service.reenable_active(14.4, 12.0))
         self.assertEqual([call[0] for call in self.port.calls], ["voltage", "current", "on"])
 
+    async def test_active_route_rejected_setter_never_requests_output_on(self):
+        for setter in ("voltage", "current"):
+            with self.subTest(setter=setter):
+                self.port.calls.clear()
+                self.port.reject = {setter}
+                self.assertFalse(await self.service.reenable_active(14.4, 2.0))
+                calls = [c[0] for c in self.port.calls]
+                self.assertNotIn("on", calls)
+                self.assertEqual(calls, ["voltage"] if setter == "voltage"
+                                 else ["voltage", "current"])
+        self.port.reject.clear()
+
     async def test_route_b_safe_wait_and_normal_results(self):
         result = await self.service.restore_idle_link(13.5, 2.0, safe_wait=True)
         self.assertTrue(result.confirmed)
