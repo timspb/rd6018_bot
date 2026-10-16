@@ -104,9 +104,16 @@ class CCMixExitPolicy:
     def __init__(self, config: CCMixExitConfig, state: MixExitRuntimeState | None = None) -> None:
         self.config, self.state = config, state or MixExitRuntimeState()
 
-    def evaluate(self, measurements: Measurements) -> ChargeIntent:
+    def evaluate(self, measurements: Measurements, *, current_limit_clipped: bool = False) -> ChargeIntent:
         if measurements.voltage is None or measurements.current is None:
             return ChargeIntent(None, None, "stopped", True, "MIX_CC_EVIDENCE_INVALID")
+        if current_limit_clipped and self.state.phase in {"unarmed", "tracking"}:
+            # A forced CC segment contaminates the voltage maximum too. Require
+            # a fresh, UNCLIPPED Vmax before interpreting subsequent voltage sag.
+            self.state.phase = "unarmed"
+            self.state.observed_vmax = None
+            self.state.confirmation_count = 0
+            return self._active("MIX_CC_DELTA_CENSORED_CURRENT_LIMIT")
         if self.state.phase == "unarmed":
             if measurements.voltage < self.config.vmax_voltage:
                 return self._active("MIX_CC_WAIT_VMAX")
@@ -183,12 +190,14 @@ class MixPolicy:
         self.cv = CVMixExitPolicy(config.cv)
         self.authority = authority or MixAuthorityState(session_id=config.session_id)
 
-    def evaluate(self, mode: str, measurements: Measurements) -> ChargeIntent:
+    def evaluate(
+        self, mode: str, measurements: Measurements, *, current_limit_clipped: bool = False
+    ) -> ChargeIntent:
         self._account_authority(measurements)
         if self.authority.exhausted:
             return ChargeIntent(None, None, "stopped", True, "MIX_TIMEOUT")
         if mode == "CC":
-            return self.cc.evaluate(measurements)
+            return self.cc.evaluate(measurements, current_limit_clipped=current_limit_clipped)
         if mode == "CV":
             intent = self.cv.evaluate(measurements)
             return self._apply_cv_containment(intent, measurements)
@@ -202,6 +211,13 @@ class MixPolicy:
         elapsed Mix time and is refreshed on the configured cadence.  A
         refresh can only lower the already-issued domain setpoint.
         """
+        containment = self.cv.state.containment
+        if self.cv.state.phase in {"hold", "complete"}:
+            # Delta is sticky. Keep any already-issued cap, without advancing
+            # containment bookkeeping or re-expanding to the recipe target.
+            if containment.fixed_limit is not None and intent.target_current is not None:
+                return self._with_current(intent, containment.fixed_limit)
+            return intent
         if (
             intent.completed
             or
@@ -214,7 +230,6 @@ class MixPolicy:
         elapsed = measurements.time - self.authority.started_at
         if elapsed < self.cv.config.containment_start_seconds:
             return intent
-        containment = self.cv.state.containment
         last = containment.last_recalculation
         if last is not None and measurements.time - last < self.cv.config.containment_recalc_seconds:
             if containment.fixed_limit is None:
