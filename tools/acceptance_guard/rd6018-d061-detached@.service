@@ -1,0 +1,43 @@
+[Unit]
+Description=Opt-in D061 detached physical acceptance supervisor (%i)
+After=network.target
+OnFailureJobMode=replace-irreversibly
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+Environment=D061_ACCEPTANCE_OPT_IN=YES_I_HAVE_REVIEWED_BENCH_GATES
+Environment=D061_OFF_ADAPTER_OPT_IN=YES_I_HAVE_REVIEWED_BENCH_GATES
+Environment=D061_ACCEPTANCE_RUN_ID=%i
+EnvironmentFile=/opt/services/rd6018-bot/.env
+Environment=PYTHONPATH=/opt/services/rd6018-bot/d061-acceptance-bundle:/opt/services/rd6018-bot/app
+WorkingDirectory=/opt/services/rd6018-bot/d061-acceptance-bundle
+ReadWritePaths=/run/lock
+WatchdogSec=10s
+RuntimeMaxSec=90s
+Restart=no
+ExecStart=/opt/services/rd6018-bot/venv/bin/python -m tools.acceptance_guard.detached_launcher --enable -- /opt/services/rd6018-bot/venv/bin/python -m tools.acceptance_guard.acceptance_child %i
+ExecStopPost=/opt/services/rd6018-bot/venv/bin/python -m tools.acceptance_guard.stop_off --enable --source=node104-deployed --run-id=%i
+TimeoutStopSec=25s
+KillMode=control-group
+SendSIGKILL=yes
+
+# Template is not installed or enabled by this change. An operator must stage
+# an explicit acceptance_child adapter and separately review systemd hardening.
+# systemd kills the whole unit cgroup before ExecStopPost attempts independent
+# hardware OFF, preventing an unmanaged live child after supervisor failure.
+# KillMode=process is intentionally excluded because it leaves that child alive.
