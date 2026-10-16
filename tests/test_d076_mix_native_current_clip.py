@@ -51,6 +51,7 @@ def classify(live=None, cap=None, **kw):
         receipt=receipt() if cap is None else cap,
         session_id="session-1", battery_id="battery-1",
         chemistry="EFB", now_epoch_s=NOW,
+        previous_report_epoch_s=NOW - 4.0,
     )
     params.update(kw)
     return classify_mix_current_clip(**params)
@@ -97,6 +98,12 @@ class MixNativeClipEvidenceTests(unittest.TestCase):
             with self.subTest(override=override):
                 self.assertEqual(ClipStatus.UNKNOWN, classify(**override).status)
         self.assertEqual(ClipStatus.NOT_CLIPPED, classify(chemistry="AGM").status)
+
+    def test_missing_or_replayed_heartbeat_cursor_does_not_confirm_clip(self):
+        self.assertEqual(ClipStatus.UNKNOWN, classify(previous_report_epoch_s=None).status)
+        self.assertEqual(ClipStatus.UNKNOWN, classify(previous_report_epoch_s=NOW - 2.0).status)
+        self.assertEqual(ClipStatus.UNKNOWN, classify(previous_report_epoch_s=NOW + 1.0).status)
+        self.assertEqual(ClipStatus.PROVED_CLIPPED, classify(previous_report_epoch_s=NOW - 3.0).status)
 
     def test_no_native_metadata_or_legacy_alias_cannot_prove(self):
         self.assertEqual(

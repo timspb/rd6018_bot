@@ -16,7 +16,9 @@ Positive `proved_clipped` requires ALL of the following:
   **CC**, and register-9 **Iset** matching that acknowledged lower limit;
 - fresh native measured current, explicit HA `last_reported` per source
   (raw metadata, not the legacy switch / `is_cc` compatibility view);
-- no contradictory source identity/status, skew, stale or pre-commit sample.
+- no contradictory source identity/status, skew, stale or pre-commit sample;
+- a positively advanced native heartbeat relative to the last consumed native
+  report timestamp, preventing repeated snapshots from accumulating Delta proofs.
 
 A native **CV** observation with the same validated cap is `not_clipped`.
 Absent, inconsistent or stale authority is `unknown`. An **active** adaptive

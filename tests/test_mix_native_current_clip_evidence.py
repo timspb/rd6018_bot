@@ -55,6 +55,7 @@ def classify(live=None, receipt=None, **override):
     params = {
         "session_id": "mix-epoch-1", "battery_id": "battery-EFB-70",
         "chemistry": "EFB", "now_epoch_s": NOW,
+        "previous_report_epoch_s": NOW - 2.0,
     }
     params.update(override)
     return classify_mix_current_clip(
@@ -75,6 +76,17 @@ class NativeClipEvidenceTests(unittest.TestCase):
         self.assertEqual(ClipStatus.PROVED_CLIPPED, result.status)
         self.assertEqual("native_cc_at_committed_iset", result.reason)
         self.assertTrue(result.censor_cc_delta(adaptive_ratchet_active=True))
+
+    def test_consumed_native_cursor_prevents_replaying_one_heartbeat(self):
+        self.assertEqual(ClipStatus.PROVED_CLIPPED, classify().status)
+        self.assertEqual(
+            ClipStatus.UNKNOWN,
+            classify(previous_report_epoch_s=NOW - 1.0).status,
+        )
+        self.assertEqual(
+            ClipStatus.UNKNOWN,
+            classify(previous_report_epoch_s=None).status,
+        )
 
     def test_no_receipt_is_not_a_false_negative_when_ratchet_is_active(self):
         result = classify_mix_current_clip(
