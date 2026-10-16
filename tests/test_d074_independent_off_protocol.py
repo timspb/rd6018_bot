@@ -82,6 +82,24 @@ class D074IndependentOffProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt.reason, "off_report_sources_not_independent")
         self.assertNotIn("disarm", [x[0] for x in self.actions])
 
+    async def test_missing_report_identity_and_non_native_sources_hold(self):
+        a = self.adapters()
+        original = a.native_read_b
+        async def blank_report(bound):
+            record = await original(bound)
+            return replace(record, report=replace(record.report, report_id=""))
+        receipt = await independent_off_then_disarm(replace(a, native_read_b=blank_report))
+        self.assertEqual(receipt.outcome, OffOutcome.HOLD)
+        self.assertNotIn("disarm", [x[0] for x in self.actions])
+
+        self.actions.clear()
+        async def proxy_report(bound):
+            record = await original(bound)
+            return replace(record, native=False)
+        receipt = await independent_off_then_disarm(replace(a, native_read_b=proxy_report))
+        self.assertEqual(receipt.outcome, OffOutcome.HOLD)
+        self.assertNotIn("disarm", [x[0] for x in self.actions])
+
     async def test_output_on_or_stale_native_readback_is_hold(self):
         for opts in ({"output": True}, {"stale": True}):
             with self.subTest(opts=opts):
