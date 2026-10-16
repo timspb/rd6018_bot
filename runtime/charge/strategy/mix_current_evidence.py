@@ -104,6 +104,7 @@ def classify_mix_current_clip(
         return unknown("uncommitted_cap")
     if (not session_id or not battery_id
             or receipt.session_id != session_id or receipt.battery_id != battery_id
+            or not isinstance(receipt.chemistry, str)
             or receipt.chemistry.strip().upper() != chem):
         return unknown("session_or_battery_mismatch")
     initial = _number(receipt.initial_ceiling_a)
@@ -120,6 +121,7 @@ def classify_mix_current_clip(
     if not isinstance(meta, Mapping):
         return unknown("native_metadata_missing")
     samples: dict[str, float] = {}
+    identities: set[str] = set()
     for key in _NATIVE:
         entry = meta.get(key)
         if not isinstance(entry, Mapping):
@@ -130,6 +132,14 @@ def classify_mix_current_clip(
         # MUST identify the same native register; legacy aliases cannot pass.
         if "source_key" in entry and entry["source_key"] != key:
             return unknown(f"native_source_mismatch:{key}")
+        # HA readbacks contain an entity_id; raw Modbus aliases may add
+        # source_key. A mapped UI proxy or duplicated producer is not proof.
+        identity = entry.get("entity_id") or entry.get("source_key")
+        if not isinstance(identity, str) or not identity.strip():
+            return unknown(f"native_identity_missing:{key}")
+        if identity in identities:
+            return unknown("native_producer_duplicate")
+        identities.add(identity)
         stamp = _timestamp(entry.get("last_reported"))
         if stamp is None:
             return unknown(f"native_last_reported_missing:{key}")
@@ -147,7 +157,7 @@ def classify_mix_current_clip(
         return unknown("regulation_not_native")
     readback = _number(live.get("set_current_readback_v2"))
     measured = _number(live.get("current"))
-    if readback is None or measured is None or measured < 0:
+    if readback is None or measured is None or measured <= 0:
         return unknown("current_or_iset_missing")
     if abs(readback - cap) > _REGISTER_TOLERANCE_A + 1e-9:
         return unknown("iset_not_at_committed_cap")
