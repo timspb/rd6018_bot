@@ -10,6 +10,7 @@ from .program import ChargeProgram
 from .registry import ProgramRegistry
 from .state import ChargeState
 from .strategy import ChargeStrategy, StrategyRuntimeState
+from .strategy.mix_current_evidence import MixClipEvidence
 
 
 class ChargeEngine:
@@ -43,6 +44,8 @@ class ChargeEngine:
     def evaluate(
         self, state: ChargeState, measurements: Measurements, *,
         mix_mode: str | None = None, current_limit_clipped: bool = False,
+        mix_clip_evidence: MixClipEvidence | None = None,
+        adaptive_ratchet_active: bool = False,
     ) -> ChargeIntent:
         """Return the program's intent for the supplied data snapshots."""
         if self.strategy is not None:
@@ -51,9 +54,12 @@ class ChargeEngine:
             result = self.strategy.evaluate(
                 state, measurements, mix_mode=mix_mode,
                 current_limit_clipped=current_limit_clipped,
+                mix_clip_evidence=mix_clip_evidence,
+                adaptive_ratchet_active=adaptive_ratchet_active,
             )
         else:
-            if current_limit_clipped or mix_mode is not None:
+            if (current_limit_clipped or mix_mode is not None
+                    or mix_clip_evidence is not None or adaptive_ratchet_active):
                 raise ValueError("MIX evidence requires the pure ChargeStrategy owner")
             result = self.program.evaluate(state, measurements)
         if result.next_stage is not None:
