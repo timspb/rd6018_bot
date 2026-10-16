@@ -115,7 +115,8 @@ def classify_mix_current_clip(
     now = _number(now_epoch_s)
     if (initial is None or cap is None or accepted_at is None or now is None
             or initial <= 0 or cap <= 0 or accepted_at <= 0
-            or accepted_at > now or cap >= initial - _REGISTER_TOLERANCE_A):
+            or accepted_at > now
+            or initial - cap <= _REGISTER_TOLERANCE_A + 1e-9):
         return unknown("cap_not_verified_tighter")
     if not isinstance(live, Mapping):
         return unknown("native_snapshot_missing")
