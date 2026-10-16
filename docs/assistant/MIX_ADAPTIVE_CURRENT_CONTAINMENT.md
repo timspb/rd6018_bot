@@ -2,7 +2,7 @@
 
 Status: **ACCEPTED / SOFTWARE RATCHET IMPLEMENTED / ACTUATOR AUTHORITY CALIBRATION-GATED**
 
-This note records the accepted safety mechanism for V2 Mix. The non-actuating ratchet/persistence machinery now exists in `mix_current_containment.py`; no production headroom, measurement-floor or current-write authority has been enabled because those values still require real RD6018/battery characterization.
+This note records the accepted safety mechanism for Mix. The non-actuating ratchet/persistence machinery now exists in `mix_current_containment.py`; no production headroom, measurement-floor or current-write authority has been enabled because those values still require real RD6018/battery characterization. The V3 pure MIX domain also now preserves an existing CV current cap through the sticky Delta hold and accepts explicit current-limit-clipped evidence to censor CC voltage-drop confirmations. These are software-domain safeguards only.
 
 ## Purpose
 
@@ -83,6 +83,14 @@ CURRENT_CEILING_REACHED
 
 must **not** be interpreted as `current stopped rising`, `flat current`, or failure to confirm reversal. It means only that battery acceptance reached at least the allowed ceiling.
 
+The pure V3 `MixPolicy.evaluate(..., current_limit_clipped=True)` keyword is an
+independent positive-evidence input. Only a caller that has positively
+confirmed the active current ceiling/CC clipping may set it; measured current
+being near `Iset` is not sufficient. While true during CC tracking it clears
+pending voltage-drop confirmations and excludes that sample from Delta
+evidence. The default is false to preserve ordinary CC chemistry evidence.
+No production caller or calibrated clipping threshold is introduced here.
+
 ## Protection sequencing
 
 When actuator integration is eventually enabled, OCP/readback sequencing must preserve the existing actuator-safety rules. The software must not create an OCP value so close to the current setpoint that normal noise causes nuisance trips, and it must not weaken any existing protection.
@@ -136,3 +144,21 @@ Before wiring the ratchet to RD6018 actuator writes, establish on the real bench
 7. fault-injection proof that network/control loss cannot restore a larger current ceiling.
 
 Until those gates are calibrated and tested, the durable ratchet is implemented software infrastructure, not production current-write authority.
+
+## Source-only change boundary (2026-10-16)
+
+The corresponding source change does not set a numerical current headroom,
+write Iset/OCP, modify voltage/AGM behavior, or activate production
+containment. No node, HA, ESPHome, hardware, or physical experiment is part of
+this change. The physical clipping threshold and evidence source remain
+unresolved and require separately authorized bench characterization.
+
+The pure V3 MIX CC policy accepts an explicit `current_limit_clipped=True`
+evidence flag. While this flag is true, its unconfirmed Vmax/Delta observation
+window is discarded, and future CC Delta requires reacquiring Vmax without
+clipping. It never infers clipping from Imeasured≈Iset and does not cancel a
+Delta hold that was already positively accepted. For CV, the pure policy freezes
+any previously established monotone Iset cap throughout the two-hour post-Delta
+hold and completion; no new tightening or relaxation is proposed during hold.
+The production MIX path does not yet supply an authenticated clipping signal
+or activate adaptive Iset writes.

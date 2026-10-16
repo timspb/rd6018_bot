@@ -86,6 +86,26 @@ class V3ChargeStrategyTests(unittest.TestCase):
         result = self.strategy.evaluate(state, Measurements(16.46, 2.0, 25.0, 12.0), mix_mode="CC")
         self.assertTrue(result.completed)
 
+    def test_mix_cc_censors_only_explicitly_clipped_voltage_drop(self):
+        mix = self.strategy.recipe.mix
+        mix.evaluate("CC", Measurements(16.5, 2.0, 25.0, 0.0))
+        clipped = mix.evaluate("CC", Measurements(16.46, 2.0, 25.0, 1.0), current_limit_clipped=True)
+        self.assertEqual("MIX_CC_DELTA_CENSORED_CURRENT_LIMIT", clipped.reason)
+        self.assertEqual("unarmed", mix.cc.state.phase)
+        self.assertIsNone(mix.cc.state.observed_vmax)
+        self.assertEqual(0, mix.cc.state.confirmation_count)
+        self.assertEqual(
+            "MIX_CC_WAIT_VMAX",
+            mix.evaluate("CC", Measurements(16.46, 2.0, 25.0, 2.0)).reason,
+        )
+        self.assertEqual(
+            "MIX_CC_VMAX_CONFIRMED",
+            mix.evaluate("CC", Measurements(16.5, 2.0, 25.0, 3.0)).reason,
+        )
+        mix.evaluate("CC", Measurements(16.46, 2.0, 25.0, 4.0))
+        result = mix.evaluate("CC", Measurements(16.46, 2.0, 25.0, 5.0))
+        self.assertEqual("MIX_CC_DELTA_CONFIRMED", result.reason)
+
     def test_mix_cv_imin_delta_hold_exit(self):
         state = StrategyRuntimeState(stage="mix")
         self.strategy.evaluate(state, Measurements(16.5, 0.4, 25.0, 0.0), mix_mode="CV")
@@ -95,7 +115,7 @@ class V3ChargeStrategyTests(unittest.TestCase):
         self.assertTrue(self.strategy.evaluate(state, Measurements(16.5, 0.5, 25.0, 12.0), mix_mode="CV").completed)
 
     def test_mix_cv_current_containment_starts_after_mix_delay(self):
-        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0)
+        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0, confirmations_required=10)
         mix = MixPolicy(MixPolicyConfig(10000.0, self.strategy.recipe.mix.config.cc, cv))
         mix.evaluate("CV", Measurements(16.5, 0.4, 25.0, 0.0))
         mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 1.0))
@@ -108,7 +128,7 @@ class V3ChargeStrategyTests(unittest.TestCase):
         self.assertAlmostEqual(after_delay.target_current, 0.9)
 
     def test_mix_cv_current_containment_does_not_follow_rising_current(self):
-        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0)
+        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0, confirmations_required=10)
         mix = MixPolicy(MixPolicyConfig(10000.0, self.strategy.recipe.mix.config.cc, cv))
         mix.evaluate("CV", Measurements(16.5, 0.4, 25.0, 0.0))
         mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 1.0))
@@ -118,6 +138,32 @@ class V3ChargeStrategyTests(unittest.TestCase):
         later = mix.evaluate("CV", Measurements(16.5, 1.8, 25.0, 2400.0))
         self.assertAlmostEqual(first.target_current, 0.9)
         self.assertAlmostEqual(later.target_current, 0.9)
+
+    def test_mix_cv_hold_preserves_existing_cap_and_timer_without_recalculation(self):
+        cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0, confirmations_required=4)
+        mix = MixPolicy(MixPolicyConfig(20000.0, self.strategy.recipe.mix.config.cc, cv))
+        mix.evaluate("CV", Measurements(16.5, 0.4, 25.0, 0.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 1.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 2.0))
+        mix.evaluate("CV", Measurements(16.5, 0.5, 25.0, 1800.0))
+        state = mix.cv.state.containment
+        state.fixed_limit = 0.7
+        state.last_recalculation = 1800.0
+        state.reduction_count = 3
+        confirmed = mix.evaluate("CV", Measurements(16.5, 0.6, 25.0, 2400.0))
+        self.assertEqual("MIX_CV_DELTA_CONFIRMED", confirmed.reason)
+        self.assertEqual(2400.0, mix.cv.state.hold_started_at)
+        self.assertEqual(0.7, confirmed.target_current)
+        hold = mix.evaluate("CV", Measurements(16.5, 0.9, 25.0, 3600.0))
+        self.assertEqual("MIX_CV_HOLD", hold.reason)
+        self.assertEqual(0.7, hold.target_current)
+        self.assertEqual((1800.0, 3), (state.last_recalculation, state.reduction_count))
+        self.assertEqual(7200.0, cv.hold_seconds)
+        complete = mix.evaluate("CV", Measurements(16.5, 0.9, 25.0, 9600.0))
+        self.assertEqual("MIX_CV_HOLD_COMPLETE", complete.reason)
+        self.assertTrue(complete.completed)
+        self.assertEqual(0.7, complete.target_current)
+        self.assertEqual((1800.0, 3), (state.last_recalculation, state.reduction_count))
 
     def test_strategy_domain_has_no_infrastructure_imports(self):
         root = pathlib.Path(__file__).parents[1] / "runtime" / "charge" / "strategy"

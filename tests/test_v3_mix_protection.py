@@ -22,7 +22,7 @@ def _temp(value: float, second: int) -> dict:
 class V3MixProtectionTests(unittest.TestCase):
     def _mix(self) -> MixPolicy:
         cc = CCMixExitConfig(16.5, 0.03, 2, 7200.0, 16.5, 2.0)
-        cv = CVMixExitConfig(0.4, 0.1, 2, 7200.0, 16.5, 2.0)
+        cv = CVMixExitConfig(0.4, 0.1, 10, 7200.0, 16.5, 2.0)
         return MixPolicy(MixPolicyConfig(10000.0, cc, cv))
 
     def test_containment_state_is_explicit_and_not_timer_data(self):
