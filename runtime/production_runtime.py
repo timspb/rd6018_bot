@@ -78,6 +78,7 @@ from config import (
 )
 from application.execution_port import get_or_create_execution_port
 from application.session_recovery_service import SessionRecoveryService
+from application.recovery_containment import RecoveryContainment
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
@@ -2440,6 +2441,7 @@ async def data_logger() -> None:
     """Фоновая задача: опрос HA каждые 30с, сохранение в DB, ChargeController tick, проверка безопасности."""
     global last_chat_id, last_ha_ok_time, last_checkpoint_time, link_lost_alert_sent, link_failure_streak, last_live_context, soft_watchdog_outage_reported
     last_cleanup_time = 0.0
+    recovery_containment = RecoveryContainment()
     
     while True:
         # A dead command path cannot be made safer by sending the same STOP
@@ -2608,6 +2610,13 @@ async def data_logger() -> None:
                 await asyncio.sleep(30)
                 continue
 
+            # An unconfirmed restore is quarantined across polling iterations:
+            # keep telemetry and independent protections live, but admit no
+            # automatic restore or normal tick/physical actions.
+            if recovery_containment.blocked:
+                await asyncio.sleep(30)
+                continue
+
             # All normal restore/state changes and subsequent tick/action
             # share the same app owner. Verified emergency OFF remains outside.
             async with _runtime_execution_port()._guard_owner_lock:
@@ -2662,6 +2671,9 @@ async def data_logger() -> None:
                             charge_controller.current_stage,
                         )
                     else:
+                        recovery_containment = recovery_containment.deny(
+                            recovery_route, "verified_on"
+                        )
                         logger.warning("Active session restore blocked: Output ON was not confirmed")
                 elif recovery_route is RecoveryRoute.IDLE_LINK:
                     ok, msg = charge_controller.try_restore_session(
@@ -2688,6 +2700,9 @@ async def data_logger() -> None:
                                 uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
                             )
                             if not result.confirmed:
+                                recovery_containment = recovery_containment.deny(
+                                    recovery_route, result.failed_step
+                                )
                                 logger.warning(
                                     "Session restore execution was not confirmed (%s); "
                                     "physical Output state is unknown",
@@ -2757,6 +2772,9 @@ async def data_logger() -> None:
                                 uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
                             )
                             if not result.confirmed:
+                                recovery_containment = recovery_containment.deny(
+                                    recovery_route, result.failed_step
+                                )
                                 logger.warning(
                                     "Already-on session restore was not confirmed (%s); "
                                     "physical Output state is unknown",
@@ -2787,6 +2805,14 @@ async def data_logger() -> None:
                             logger.debug("Restore (output on, idle) skipped: allow=%s ovp=%s ocp=%s input_v=%.0f", action is not RecoveryAction.SKIP, ovp_triggered, ocp_triggered, input_voltage)
                     else:
                         logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
+
+                # The denial happened under this same execution-owner lock.
+                # Unwind the lock immediately; do not run a tick or perform
+                # ordinary Output writes after an ambiguous restore. The next
+                # poll reaches the quarantine check above and sleeps outside
+                # the lock; emergency OFF remains independently available.
+                if recovery_containment.blocked:
+                    continue
 
                 now_ts = time.time()
                 # Hold the same app-wide normal execution owner from the
