@@ -40,11 +40,17 @@ class ChargeStrategy:
         self.battery = battery
         self.recipe = recipe
 
-    def evaluate(self, state: StrategyRuntimeState, measurements: Measurements, *, mix_mode: str | None = None) -> ChargeIntent:
+    def evaluate(
+        self, state: StrategyRuntimeState, measurements: Measurements, *,
+        mix_mode: str | None = None, current_limit_clipped: bool = False,
+    ) -> ChargeIntent:
         if state.stage_started_at is None:
             state.stage_started_at = measurements.time
         if mix_mode is not None or state.stage == self.recipe.mix.config.cc.active_stage:
-            result = self.recipe.mix.evaluate(mix_mode or "CV", measurements)
+            result = self.recipe.mix.evaluate(
+                mix_mode or "CV", measurements,
+                current_limit_clipped=current_limit_clipped,
+            )
         elif state.stage == self.recipe.recovery.config.recovery_stage:
             result = self.recipe.recovery.return_to_main(self.recipe.main.config.target_voltage, self.recipe.main.config.target_current)
         else:
