@@ -91,6 +91,26 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(app.events), 1)
         self.assertEqual(len(app.logger.critical_messages), 1)
 
+    async def test_malformed_heartbeat_and_timeout_cannot_suppress_stale_on_stop(self):
+        for heartbeat, timeout in ((float("nan"), 180.0), (100.0, float("nan")), (100.0, 0.0)):
+            with self.subTest(heartbeat=heartbeat, timeout=timeout):
+                app = DummyApp(output_on=True)
+                app.last_ha_ok_time = heartbeat
+                app.SOFT_WATCHDOG_TIMEOUT = timeout
+                await soft_watchdog_poll_once(app, SoftWatchdogIncident(), now=400.0)
+                self.assertEqual(app.hard_stop_calls, 1)
+
+    async def test_unconfigured_heartbeat_zero_does_not_stop_and_hands_off_suspends(self):
+        app = DummyApp(output_on=True)
+        app.last_ha_ok_time = 0.0
+        await soft_watchdog_poll_once(app, SoftWatchdogIncident(), now=400.0)
+        self.assertEqual(app.hard_stop_calls, 0)
+
+        app.last_ha_ok_time = 100.0
+        app.rd_control_mode_manager.hands_off = True
+        await soft_watchdog_poll_once(app, SoftWatchdogIncident(), now=400.0)
+        self.assertEqual(app.hard_stop_calls, 0)
+
     async def test_failed_remote_stop_retries_only_at_bounded_cadence(self):
         app = DummyApp(output_on=True)
         app.fail_hard_stop = True
