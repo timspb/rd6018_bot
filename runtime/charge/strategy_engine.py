@@ -17,6 +17,12 @@ class StrategyEngine:
             raise ValueError("StrategyEngine requires a validated recipe")
         self.strategy = ChargeStrategy(battery, battery.recipe)
 
-    def evaluate(self, state: ChargeState | StrategyRuntimeState, measurements: Measurements, *, mix_mode: str | None = None) -> ChargeIntent:
+    def evaluate(
+        self, state: ChargeState | StrategyRuntimeState, measurements: Measurements, *,
+        mix_mode: str | None = None, current_limit_clipped: bool = False,
+    ) -> ChargeIntent:
         runtime_state = state if isinstance(state, StrategyRuntimeState) else StrategyRuntimeState(stage=state.stage or "main")
-        return self.strategy.evaluate(runtime_state, measurements, mix_mode=mix_mode)
+        return self.strategy.evaluate(
+            runtime_state, measurements, mix_mode=mix_mode,
+            current_limit_clipped=current_limit_clipped,
+        )
