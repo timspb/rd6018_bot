@@ -10,7 +10,8 @@ import math
 from typing import Any, Awaitable, Callable, Mapping
 
 from rd6018_telemetry import (
-    canonical_programmed_readback, finite_float, telemetry_freshness,
+    canonical_programmed_readback, decode_protection_code, finite_float,
+    telemetry_freshness,
 )
 from runtime.charge.strategy.main_current_guard import (
     EXPECTED_OCP_HEADROOM_A, HARDWARE_CURRENT_FLOOR_A,
@@ -45,6 +46,10 @@ class MainGuardExecutionFault(RuntimeError):
     pass
 
 
+class _ConfirmedPrewriteFault(MainGuardExecutionFault):
+    """Fresh native evidence proves an active fault requiring containment."""
+
+
 _REQUIRED_NATIVE_KEYS = (
     "output_state_code_v2", "current", "set_current_readback_v2",
     "ocp_readback_v2", "protection_code",
@@ -69,12 +74,16 @@ def _positive_on_snapshot(live: Mapping[str, Any]) -> tuple[float, float, float]
     if not _native_freshness(live):
         raise MainGuardExecutionFault("stale_or_skewed_native_evidence")
     output = finite_float(live.get("output_state_code_v2"))
-    protect = finite_float(live.get("protection_code"))
+    protection = decode_protection_code(live.get("protection_code"))
     actual_i = finite_float(live.get("current"))
     programmed_i = canonical_programmed_readback(live, "set_current")
     programmed_ocp = canonical_programmed_readback(live, "ocp")
-    if output != 1 or protect != 0:
-        raise MainGuardExecutionFault("output_not_proven_on_or_protection_fault")
+    if output != 1:
+        raise MainGuardExecutionFault("output_not_proven_on")
+    if protection.code is None or protection.unknown:
+        raise MainGuardExecutionFault("protection_code_unavailable_or_unknown")
+    if protection.tripped:
+        raise _ConfirmedPrewriteFault("confirmed_native_protection_trip")
     if actual_i is None or actual_i < 0 or programmed_i is None or programmed_ocp is None:
         raise MainGuardExecutionFault("canonical_readback_unavailable")
     return actual_i, programmed_i, programmed_ocp
@@ -98,7 +107,9 @@ async def execute_main_guard_reduction(
     checkpoint writer, with a shared lifecycle/execution lock. Without this
     integration the boundary must NOT be connected to production.
 
-    All failures request verified OFF; failed OFF is never reported as success.
+    Preflight and durable-pending failures are DENY decisions and stay read-only.
+    Once a hardware setter has been invoked, a failure is physically ambiguous
+    and requests verified OFF; failed OFF is never reported as success.
     """
     # Never accept a random lock: it could only serialize this one Guard call,
     # while the real controller, manual commands and startup race around it.
@@ -107,6 +118,7 @@ async def execute_main_guard_reduction(
             or bound_lock is None or execution_lock is not bound_lock):
         raise TypeError("canonical owner lifecycle lock is not bound")
     async with execution_lock:
+        hardware_write_invoked = False
         try:
             if (
                 authority.session_id != guard.session_id
@@ -146,11 +158,20 @@ async def execute_main_guard_reduction(
             if not isinstance(before, Mapping):
                 raise MainGuardExecutionFault("preflight_unavailable")
             _, previous_i, previous_ocp = _positive_on_snapshot(before)
+            if previous_i > guard.hardware_limit_a + READBACK_TOLERANCE_A:
+                raise _ConfirmedPrewriteFault("preflight_current_above_persisted_guard")
+            expected_ocp = guard.hardware_limit_a + EXPECTED_OCP_HEADROOM_A
+            if previous_ocp > expected_ocp + READBACK_TOLERANCE_A:
+                raise _ConfirmedPrewriteFault("preflight_ocp_above_persisted_guard")
             if abs(previous_i - guard.hardware_limit_a) > READBACK_TOLERANCE_A:
                 raise MainGuardExecutionFault("preflight_current_ceiling_disagrees_with_journal")
             if abs(previous_ocp - previous_i - EXPECTED_OCP_HEADROOM_A) > READBACK_TOLERANCE_A:
                 raise MainGuardExecutionFault("preflight_ocp_disagrees_with_journal")
             await persist(guard.snapshot())  # durable pending before hardware
+            # From this point a setter may have reached the RD even if its call
+            # raises or returns an uncertain result. Only this ambiguity enters
+            # physical containment; stale/preflight uncertainty remains DENY.
+            hardware_write_invoked = True
             await port.apply_current_with_ocp(
                 target_current_a=current_target,
                 current_set_a=previous_i,
@@ -175,14 +196,25 @@ async def execute_main_guard_reduction(
             await persist(updated.snapshot())  # post-ACK durable commit
             return MainGuardExecutionResult(updated, True, "readback_and_journal_verified")
         except asyncio.CancelledError:
-            await port.request_verified_off()
+            if hardware_write_invoked:
+                await port.request_verified_off()
             raise
-        except Exception as exc:
-            off_confirmed = False
+        except _ConfirmedPrewriteFault as exc:
             try:
                 off_confirmed = bool(await port.request_verified_off())
             except Exception:
-                pass
+                off_confirmed = False
+            return MainGuardExecutionResult(
+                guard, False, type(exc).__name__ + ":" + str(exc),
+                off_confirmed=off_confirmed,
+            )
+        except Exception as exc:
+            off_confirmed = False
+            if hardware_write_invoked:
+                try:
+                    off_confirmed = bool(await port.request_verified_off())
+                except Exception:
+                    pass
             return MainGuardExecutionResult(
                 guard, False, type(exc).__name__ + ":" + str(exc),
                 off_confirmed=off_confirmed,
