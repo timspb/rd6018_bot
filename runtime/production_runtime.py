@@ -77,6 +77,7 @@ from config import (
     TG_TOKEN,
 )
 from application.execution_port import get_or_create_execution_port
+from application.session_recovery_service import SessionRecoveryService
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
@@ -2626,6 +2627,13 @@ async def data_logger() -> None:
                         temp_ext is not None and temp_ext not in ("unavailable", "unknown", "")
                     ),
                 ))
+                # Resolve the current app-scoped port only for a recovery action
+                # and inside the same lock as the controller/session transition.
+                # Do not cache it across a later physical owner rebind.
+                if recovery_route is not RecoveryRoute.NONE:
+                    recovery_execution = SessionRecoveryService(
+                        _runtime_execution_port(), _apply_phase_protection, _cap_current
+                    )
                 if recovery_route is RecoveryRoute.ACTIVE_LINK and authorize_recovery_action(
                     RecoveryAuthorizationInput(
                         route=recovery_route,
@@ -2638,10 +2646,7 @@ async def data_logger() -> None:
                     )
                 ) is RecoveryAction.REENABLE_ACTIVE:
                     uv, ui = charge_controller._get_target_v_i(t)
-                    await _apply_phase_protection(uv, ui)
-                    await _runtime_execution_port().program_voltage(uv)
-                    await _runtime_execution_port().program_current(_cap_current(ui))
-                    enabled = await _runtime_execution_port().request_verified_on()
+                    enabled = await recovery_execution.reenable_active(uv, ui)
                     if enabled:
                         output_on = True
                         charge_controller._last_known_output_on = True
@@ -2678,16 +2683,11 @@ async def data_logger() -> None:
                         if action is not RecoveryAction.SKIP:
                             if action is RecoveryAction.SAFE_WAIT_OFF:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                                await _apply_phase_protection(uv, ui)
-                                await _runtime_execution_port().program_voltage(uv)
-                                await _runtime_execution_port().program_current(_cap_current(ui))
-                                await _runtime_execution_port().request_verified_off()
                             else:
                                 uv, ui = charge_controller._get_target_v_i(t)
-                                await _apply_phase_protection(uv, ui)
-                                await _runtime_execution_port().program_voltage(uv)
-                                await _runtime_execution_port().program_current(_cap_current(ui))
-                                await _runtime_execution_port().request_verified_on()
+                            await recovery_execution.restore_idle_link(
+                                uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
+                            )
                             log_event(
                                 charge_controller.current_stage,
                                 battery_v,
@@ -2740,13 +2740,11 @@ async def data_logger() -> None:
                             last_checkpoint_time = time.time()
                             if action is RecoveryAction.SAFE_WAIT_OFF:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                                await _apply_phase_protection(uv, ui)
-                                await _runtime_execution_port().request_verified_off()
                             else:
                                 uv, ui = charge_controller._get_target_v_i(t)
-                                await _apply_phase_protection(uv, ui)
-                            await _runtime_execution_port().program_voltage(uv)
-                            await _runtime_execution_port().program_current(_cap_current(ui))
+                            await recovery_execution.restore_output_on(
+                                uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
+                            )
                             log_event(
                                 charge_controller.current_stage,
                                 battery_v,

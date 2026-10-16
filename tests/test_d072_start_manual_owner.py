@@ -180,11 +180,45 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
                 for stmt in node.body for child in ast.walk(stmt)
                 if isinstance(child, ast.Call)
             ]
+            recovery_effects = {
+                "recovery_execution.reenable_active",
+                "recovery_execution.restore_idle_link",
+                "recovery_execution.restore_output_on",
+            }
             if ("charge_controller.tick" in calls and
                 calls.count("charge_controller.try_restore_session") >= 2 and
-                "_runtime_execution_port().request_verified_on" in calls):
+                recovery_effects <= set(calls)):
                 candidates.append(node)
         self.assertEqual(len(candidates), 1)
+        # D082 relocates execution, not the shared owner lock. Validate the
+        # application use cases still dispatch only through the canonical port.
+        service_path = path.parent.parent / "application" / "session_recovery_service.py"
+        service_tree = ast.parse(service_path.read_text(encoding="utf-8"))
+        service = next(
+            n for n in service_tree.body
+            if isinstance(n, ast.ClassDef) and n.name == "SessionRecoveryService"
+        )
+        expected = {
+            "reenable_active": {"self._apply_phase_protection", "self._port.program_voltage",
+                                "self._port.program_current", "self._port.request_verified_on"},
+            "restore_idle_link": {"self._apply_phase_protection", "self._port.program_voltage",
+                                  "self._port.program_current", "self._port.request_verified_off",
+                                  "self._port.request_verified_on"},
+            "restore_output_on": {"self._apply_phase_protection", "self._port.program_voltage",
+                                  "self._port.program_current", "self._port.request_verified_off"},
+        }
+        for name, required in expected.items():
+            method = next(
+                n for n in service.body
+                if isinstance(n, ast.AsyncFunctionDef) and n.name == name
+            )
+            calls = {
+                ast.unparse(n.func)
+                for n in ast.walk(method) if isinstance(n, ast.Call)
+            }
+            self.assertTrue(required <= calls, name)
+            if name == "restore_output_on":
+                self.assertNotIn("self._port.request_verified_on", calls)
 
     def test_periodic_tick_and_physical_action_share_one_owner_scope(self):
         """AST coverage gate: neither stage checkpoint nor output batch can bypass lock."""
