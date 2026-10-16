@@ -7,7 +7,21 @@ execution port while its caller holds the production owner lock.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Awaitable, Callable, Protocol
+
+
+@dataclass(frozen=True)
+class RecoveryExecutionResult:
+    """Explicit result for the physical prerequisites of one restore route.
+
+    ``output_confirmed`` is None when the route deliberately did not verify
+    Output (route C normal); an earlier telemetry observation is not proof.
+    """
+
+    confirmed: bool
+    failed_step: str | None = None
+    output_confirmed: bool | None = None
 
 
 class SessionRecoveryPort(Protocol):
@@ -37,26 +51,33 @@ class SessionRecoveryService:
 
     async def restore_idle_link(
         self, voltage_v: float, current_a: float, *, safe_wait: bool
-    ) -> None:
-        """Restore lost-link IDLE; preserve legacy ignored execution results."""
+    ) -> RecoveryExecutionResult:
+        """Restore lost-link IDLE only through positively accepted prerequisites."""
         await self._apply_phase_protection(voltage_v, current_a)
-        await self._port.program_voltage(voltage_v)
-        await self._port.program_current(self._cap_current(current_a))
+        if not await self._port.program_voltage(voltage_v):
+            return RecoveryExecutionResult(False, "voltage")
+        if not await self._port.program_current(self._cap_current(current_a)):
+            return RecoveryExecutionResult(False, "current")
         if safe_wait:
-            await self._port.request_verified_off()
-        else:
-            # Historical route B did not branch on this result.
-            await self._port.request_verified_on()
+            off = await self._port.request_verified_off()
+            return RecoveryExecutionResult(bool(off), None if off else "verified_off", False if off else None)
+        on = await self._port.request_verified_on()
+        return RecoveryExecutionResult(bool(on), None if on else "verified_on", bool(on) if on else None)
 
     async def restore_output_on(
         self, voltage_v: float, current_a: float, *, safe_wait: bool
-    ) -> None:
-        """Adopt restored setpoints while Output is already ON; never request ON."""
+    ) -> RecoveryExecutionResult:
+        """Restore setpoints without treating prior Output telemetry as confirmation."""
         await self._apply_phase_protection(voltage_v, current_a)
         if safe_wait:
-            await self._port.request_verified_off()
-        await self._port.program_voltage(voltage_v)
-        await self._port.program_current(self._cap_current(current_a))
+            off = await self._port.request_verified_off()
+            if not off:
+                return RecoveryExecutionResult(False, "verified_off")
+        if not await self._port.program_voltage(voltage_v):
+            return RecoveryExecutionResult(False, "voltage", False if safe_wait else None)
+        if not await self._port.program_current(self._cap_current(current_a)):
+            return RecoveryExecutionResult(False, "current", False if safe_wait else None)
+        return RecoveryExecutionResult(True, output_confirmed=False if safe_wait else None)
 
 
-__all__ = ["SessionRecoveryService"]
+__all__ = ["RecoveryExecutionResult", "SessionRecoveryService"]

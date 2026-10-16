@@ -2670,7 +2670,6 @@ async def data_logger() -> None:
                     )
                     if ok and msg:
                         _apply_restore_time_corrections(charge_controller, live)
-                        last_checkpoint_time = time.time()
                         action = authorize_recovery_action(RecoveryAuthorizationInput(
                             route=recovery_route,
                             restored=True,
@@ -2685,19 +2684,32 @@ async def data_logger() -> None:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                             else:
                                 uv, ui = charge_controller._get_target_v_i(t)
-                            await recovery_execution.restore_idle_link(
+                            result = await recovery_execution.restore_idle_link(
                                 uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
                             )
-                            log_event(
-                                charge_controller.current_stage,
-                                battery_v,
-                                i,
-                                t,
-                                ah,
-                                "RESTORE",
-                            )
-                            _charge_notify("✅ Связь восстановлена, заряд снова под управлением бота.\n" + (msg or ""), critical=False)
-                            logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+                            if not result.confirmed:
+                                logger.warning(
+                                    "Session restore execution was not confirmed (%s); "
+                                    "physical Output state is unknown",
+                                    result.failed_step,
+                                )
+                                _charge_notify(
+                                    "⚠️ Действие восстановления не подтверждено "
+                                    f"({result.failed_step}); состояние Output неизвестно. "
+                                    "Проверьте состояние оборудования."
+                                )
+                            else:
+                                last_checkpoint_time = time.time()
+                                log_event(
+                                    charge_controller.current_stage,
+                                    battery_v,
+                                    i,
+                                    t,
+                                    ah,
+                                    "RESTORE",
+                                )
+                                _charge_notify("✅ Связь восстановлена, действие подтверждено.\n" + (msg or ""), critical=False)
+                                logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
                         else:
                             if ovp_triggered or ocp_triggered:
                                 _charge_notify(
@@ -2737,24 +2749,40 @@ async def data_logger() -> None:
                             input_voltage_ok=input_voltage >= MIN_INPUT_VOLTAGE,
                         ))
                         if action is not RecoveryAction.SKIP:
-                            last_checkpoint_time = time.time()
                             if action is RecoveryAction.SAFE_WAIT_OFF:
                                 uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
                             else:
                                 uv, ui = charge_controller._get_target_v_i(t)
-                            await recovery_execution.restore_output_on(
+                            result = await recovery_execution.restore_output_on(
                                 uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
                             )
-                            log_event(
-                                charge_controller.current_stage,
-                                battery_v,
-                                i,
-                                t,
-                                ah,
-                                "RESTORE",
-                            )
-                            _charge_notify("✅ Заряд подхвачен, бот снова управляет.", critical=False)
-                            logger.info("Session restored (output was already on): %s", charge_controller.current_stage)
+                            if not result.confirmed:
+                                logger.warning(
+                                    "Already-on session restore was not confirmed (%s); "
+                                    "physical Output state is unknown",
+                                    result.failed_step,
+                                )
+                                _charge_notify(
+                                    "⚠️ Действие восстановления не подтверждено "
+                                    f"({result.failed_step}); состояние Output неизвестно. "
+                                    "Проверьте состояние оборудования."
+                                )
+                            else:
+                                last_checkpoint_time = time.time()
+                                log_event(
+                                    charge_controller.current_stage,
+                                    battery_v,
+                                    i,
+                                    t,
+                                    ah,
+                                    "RESTORE",
+                                )
+                                _charge_notify(
+                                    "✅ Сессия восстановлена; параметры применены. "
+                                    "Output ON отдельно не подтверждался.",
+                                    critical=False,
+                                )
+                                logger.info("Session restore parameters applied (Output was not re-confirmed): %s", charge_controller.current_stage)
                         else:
                             logger.debug("Restore (output on, idle) skipped: allow=%s ovp=%s ocp=%s input_v=%.0f", action is not RecoveryAction.SKIP, ovp_triggered, ocp_triggered, input_voltage)
                     else:
