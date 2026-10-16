@@ -40,13 +40,21 @@ class ChargeEngine:
             program = registry.create(program_name, battery, program_config)
         self.program = program
 
-    def evaluate(self, state: ChargeState, measurements: Measurements) -> ChargeIntent:
+    def evaluate(
+        self, state: ChargeState, measurements: Measurements, *,
+        mix_mode: str | None = None, current_limit_clipped: bool = False,
+    ) -> ChargeIntent:
         """Return the program's intent for the supplied data snapshots."""
         if self.strategy is not None:
             if not isinstance(state, StrategyRuntimeState):
                 raise TypeError("ChargeStrategy execution requires StrategyRuntimeState")
-            result = self.strategy.evaluate(state, measurements)
+            result = self.strategy.evaluate(
+                state, measurements, mix_mode=mix_mode,
+                current_limit_clipped=current_limit_clipped,
+            )
         else:
+            if current_limit_clipped or mix_mode is not None:
+                raise ValueError("MIX evidence requires the pure ChargeStrategy owner")
             result = self.program.evaluate(state, measurements)
         if result.next_stage is not None:
             current = str(state.stage or "idle").strip().lower()
