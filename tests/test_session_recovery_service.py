@@ -9,11 +9,14 @@ class FakePort:
         self.calls = []
         self.enabled = enabled
         self.fail_on = None
+        self.reject = set()
 
     async def _call(self, name, value=None):
         self.calls.append((name, value) if value is not None else (name,))
         if self.fail_on == name:
             raise RuntimeError(name)
+        if name in self.reject:
+            return False
         return self.enabled if name == "on" else True
 
     async def program_voltage(self, value_v):
@@ -51,13 +54,96 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.service.reenable_active(14.4, 12.0))
         self.assertEqual([call[0] for call in self.port.calls], ["voltage", "current", "on"])
 
-    async def test_route_b_safe_wait_and_normal(self):
-        await self.service.restore_idle_link(13.5, 2.0, safe_wait=True)
+    async def test_route_b_safe_wait_and_normal_results(self):
+        result = await self.service.restore_idle_link(13.5, 2.0, safe_wait=True)
+        self.assertTrue(result.confirmed)
+        self.assertFalse(result.output_confirmed)
         self.assertEqual(self.port.calls, [("voltage", 13.5), ("current", 2.0), ("off",)])
         self.port.calls.clear()
-        self.port.enabled = False  # Legacy route ignores false ON result.
-        await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
+        self.port.enabled = True
+        result = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
+        self.assertTrue(result.confirmed)
+        self.assertTrue(result.output_confirmed)
         self.assertEqual(self.port.calls, [("voltage", 14.4), ("current", 2.0), ("on",)])
+
+    async def test_route_b_denials_short_circuit_and_retry_without_duplicate_on(self):
+        self.port.enabled = False
+        first = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
+        self.assertFalse(first.confirmed)
+        self.assertEqual(first.failed_step, "verified_on")
+        self.assertEqual([c[0] for c in self.port.calls], ["voltage", "current", "on"])
+        self.port.calls.clear()
+        self.port.enabled = True
+        second = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
+        self.assertTrue(second.confirmed)
+        self.assertEqual([c[0] for c in self.port.calls], ["voltage", "current", "on"])
+
+        for setter in ("voltage", "current"):
+            self.port.calls.clear()
+            self.port.reject = {setter}
+            result = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
+            self.assertFalse(result.confirmed)
+            self.assertEqual(result.failed_step, setter)
+            self.assertNotIn("on", [c[0] for c in self.port.calls])
+        self.port.reject.clear()
+
+    async def test_safe_wait_off_denials_are_not_success(self):
+        for method in (self.service.restore_idle_link, self.service.restore_output_on):
+            self.port.calls.clear()
+            self.port.reject = {"off"}
+            result = await method(13.5, 2.0, safe_wait=True)
+            self.assertFalse(result.confirmed)
+            self.assertEqual(result.failed_step, "verified_off")
+            self.assertNotIn("on", [c[0] for c in self.port.calls])
+            if method == self.service.restore_output_on:
+                self.assertEqual([c[0] for c in self.port.calls], ["off"])
+        self.port.reject.clear()
+
+    async def test_route_c_normal_never_confirms_prior_output_observation(self):
+        result = await self.service.restore_output_on(14.4, 2.0, safe_wait=False)
+        self.assertTrue(result.confirmed)
+        self.assertIsNone(result.output_confirmed)
+        self.assertNotIn("on", [c[0] for c in self.port.calls])
+
+    async def test_route_c_setter_denials_do_not_issue_later_commands(self):
+        for setter in ("voltage", "current"):
+            with self.subTest(setter=setter):
+                self.port.calls.clear()
+                self.port.reject = {setter}
+                result = await self.service.restore_output_on(14.4, 2.0, safe_wait=False)
+                self.assertFalse(result.confirmed)
+                self.assertEqual(result.failed_step, setter)
+                self.assertNotIn("on", [c[0] for c in self.port.calls])
+                self.assertEqual([c[0] for c in self.port.calls],
+                                 ["voltage"] if setter == "voltage" else ["voltage", "current"])
+        self.port.reject.clear()
+
+    async def test_route_c_safe_wait_setter_denial_stops_after_rejected_setter(self):
+        for setter in ("voltage", "current"):
+            with self.subTest(setter=setter):
+                self.port.calls.clear()
+                self.port.reject = {setter}
+                result = await self.service.restore_output_on(13.5, 2.0, safe_wait=True)
+                self.assertFalse(result.confirmed)
+                self.assertEqual(result.failed_step, setter)
+                self.assertNotIn("on", [c[0] for c in self.port.calls])
+                self.assertEqual([c[0] for c in self.port.calls],
+                                 ["off", "voltage"] if setter == "voltage"
+                                 else ["off", "voltage", "current"])
+        self.port.reject.clear()
+
+    async def test_execution_exceptions_propagate_to_runtime_warning_boundary(self):
+        for failed in ("voltage", "current", "off", "on"):
+            with self.subTest(failed=failed):
+                self.port.calls.clear()
+                self.port.fail_on = failed
+                with self.assertRaisesRegex(RuntimeError, failed):
+                    await self.service.restore_idle_link(
+                        13.5 if failed == "off" else 14.4,
+                        2.0,
+                        safe_wait=failed == "off",
+                    )
+        self.port.fail_on = None
 
     async def test_route_c_safe_wait_and_normal_never_request_on(self):
         await self.service.restore_output_on(13.5, 2.0, safe_wait=True)
@@ -100,6 +186,23 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("recovery_execution.reenable_active(", recovery)
         self.assertIn("recovery_execution.restore_idle_link(", recovery)
         self.assertIn("recovery_execution.restore_output_on(", recovery)
+        self.assertIn("if not result.confirmed:", recovery)
+        self.assertNotIn("charge_controller.stop(", recovery)
+        self.assertNotIn("charge_controller._was_unavailable =", recovery)
+        self.assertNotIn("clear_session=False", recovery)
+        self.assertNotIn("except Exception", recovery)
+        denied_b = recovery[recovery.index("if not result.confirmed:"):recovery.index("else:", recovery.index("if not result.confirmed:"))]
+        self.assertNotIn('"RESTORE"', denied_b)
+        self.assertNotIn("last_checkpoint_time =", denied_b)
+        self.assertIn("состояние Output неизвестно", denied_b)
+        self.assertNotIn("Заряд остановлен", denied_b)
+        denied_c_start = recovery.index("if not result.confirmed:", recovery.index("restore_output_on("))
+        denied_c = recovery[denied_c_start:recovery.index("else:", denied_c_start)]
+        self.assertNotIn('"RESTORE"', denied_c)
+        self.assertNotIn("last_checkpoint_time =", denied_c)
+        self.assertIn("состояние Output неизвестно", denied_c)
+        self.assertNotIn("Заряд остановлен", denied_c)
+        self.assertIn("Output ON отдельно не подтверждался.", recovery)
         self.assertNotIn("await _apply_phase_protection(uv, ui)", recovery)
         self.assertNotIn("program_voltage(uv)", recovery)
         self.assertNotIn("program_current(_cap_current(ui))", recovery)
