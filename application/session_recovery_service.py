@@ -45,8 +45,10 @@ class SessionRecoveryService:
     async def reenable_active(self, voltage_v: float, current_a: float) -> bool:
         """Reapply a lost active session; success means verified ON."""
         await self._apply_phase_protection(voltage_v, current_a)
-        await self._port.program_voltage(voltage_v)
-        await self._port.program_current(self._cap_current(current_a))
+        if not await self._port.program_voltage(voltage_v):
+            return False
+        if not await self._port.program_current(self._cap_current(current_a)):
+            return False
         return await self._port.request_verified_on()
 
     async def restore_idle_link(
