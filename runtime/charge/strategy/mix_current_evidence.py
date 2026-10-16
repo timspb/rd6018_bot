@@ -99,7 +99,9 @@ def classify_mix_current_clip(
     if chem not in {"EFB", "CA/CA", "CA_CA"}:
         return MixClipEvidence(ClipStatus.NOT_CLIPPED, "chemistry_out_of_scope")
     if receipt is None:
-        return MixClipEvidence(ClipStatus.NOT_CLIPPED, "no_committed_adaptive_cap")
+        # Absence of a trusted owner receipt cannot be evidence of ordinary CC
+        # when an adaptive ratchet was previously active.
+        return unknown("no_committed_adaptive_cap")
     if not isinstance(receipt, CommittedMixCurrentCap) or receipt.committed is not True:
         return unknown("uncommitted_cap")
     if (not session_id or not battery_id
@@ -113,7 +115,8 @@ def classify_mix_current_clip(
     now = _number(now_epoch_s)
     if (initial is None or cap is None or accepted_at is None or now is None
             or initial <= 0 or cap <= 0 or accepted_at <= 0
-            or accepted_at > now or cap >= initial - _REGISTER_TOLERANCE_A):
+            or accepted_at > now
+            or initial - cap <= _REGISTER_TOLERANCE_A + 1e-9):
         return unknown("cap_not_verified_tighter")
     if not isinstance(live, Mapping):
         return unknown("native_snapshot_missing")

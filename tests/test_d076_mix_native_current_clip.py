@@ -68,8 +68,9 @@ class MixNativeClipEvidenceTests(unittest.TestCase):
             snapshot(), receipt=None, session_id="session-1",
             battery_id="battery-1", chemistry="EFB", now_epoch_s=NOW,
         )
-        self.assertEqual(ClipStatus.NOT_CLIPPED, value.status)
+        self.assertEqual(ClipStatus.UNKNOWN, value.status)
         self.assertFalse(value.censor_cc_delta(adaptive_ratchet_active=False))
+        self.assertTrue(value.censor_cc_delta(adaptive_ratchet_active=True))
 
     def test_explicit_native_cv_is_not_current_clipped(self):
         live = snapshot()
