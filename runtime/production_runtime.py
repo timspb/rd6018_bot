@@ -56,6 +56,7 @@ from runtime.safety.variables import (
     WATCHDOG_TIMEOUT_S,
 )
 from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
+from runtime.safety.live_protection import evaluate_live_protection
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from charge_controller import ManagedChargeController
 from config import (
@@ -2514,18 +2515,27 @@ async def data_logger() -> None:
                 allow_init=False,
             )
             
-            # Реакция на срабатывание OVP/OCP: лог, уведомление, выключение
-            if charge_controller.is_active and (ovp_triggered or ocp_triggered):
-                if ovp_triggered:
-                    log_event(charge_controller.current_stage, battery_v, i, t, ah, "OVP_TRIGGERED")
-                    _charge_notify("🛑 Сработала защита OVP (перенапряжение). Выход выключен.")
-                if ocp_triggered:
-                    log_event(charge_controller.current_stage, battery_v, i, t, ah, "OCP_TRIGGERED")
-                    _charge_notify("🛑 Сработала защита OCP (переток). Выход выключен.")
+            # Protection policy owns the trip decision; this runtime only
+            # dispatches the established journal, notification and OFF effects.
+            protection_decision = evaluate_live_protection(
+                charge_active=charge_controller.is_active,
+                output_on=output_on,
+                ovp_triggered=ovp_triggered,
+                ocp_triggered=ocp_triggered,
+                internal_temperature_c=temp_int,
+                precritical_temperature_c=TEMP_INT_PRECRITICAL,
+            )
+            if "OVP_TRIGGERED" in protection_decision.triggers:
+                log_event(charge_controller.current_stage, battery_v, i, t, ah, "OVP_TRIGGERED")
+                _charge_notify("🛑 Сработала защита OVP (перенапряжение). Выход выключен.")
+            if "OCP_TRIGGERED" in protection_decision.triggers:
+                log_event(charge_controller.current_stage, battery_v, i, t, ah, "OCP_TRIGGERED")
+                _charge_notify("🛑 Сработала защита OCP (переток). Выход выключен.")
+            if ("OVP_TRIGGERED" in protection_decision.triggers
+                    or "OCP_TRIGGERED" in protection_decision.triggers):
                 await _hard_stop_charge()
-            
-            # Предкритическая температура блока: выключение выхода
-            if (output_on or charge_controller.is_active) and temp_int >= TEMP_INT_PRECRITICAL:
+
+            if "TEMP_INT_PRECRITICAL" in protection_decision.triggers:
                 log_event(
                     charge_controller.current_stage,
                     battery_v,
@@ -2539,7 +2549,7 @@ async def data_logger() -> None:
                     "Выход выключен для защиты БП."
                 )
                 await _hard_stop_charge()
-            
+
             # Команда off: выключить по напряжению / току / таймеру (защиты не отключаются)
             if output_on and _has_manual_off_condition():
                 now_ts = time.time()
