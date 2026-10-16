@@ -90,6 +90,8 @@ def _distinct_reports(a: NativeEvidence, b: NativeEvidence) -> bool:
         and a.native is True and b.native is True
         and bool(a.physical_producer_id) and bool(b.physical_producer_id)
         and bool(a.path_id) and bool(b.path_id)
+        and bool(a.report.source) and bool(b.report.source)
+        and bool(a.report.report_id) and bool(b.report.report_id)
         and a.physical_producer_id != b.physical_producer_id
         and a.path_id != b.path_id
     )
@@ -100,6 +102,7 @@ def _third_source(lease: IndependentLeaseEvidence, a: NativeEvidence, b: NativeE
         isinstance(lease, IndependentLeaseEvidence)
         and lease.native is True
         and bool(lease.physical_producer_id) and bool(lease.path_id)
+        and bool(lease.report.source) and bool(lease.report.report_id)
         and lease.physical_producer_id not in {a.physical_producer_id, b.physical_producer_id}
         and lease.path_id not in {a.path_id, b.path_id}
         and lease.report.source not in {a.report.source, b.report.source}
