@@ -14,7 +14,7 @@ Only after independent OFF proof may the edge lease be disarmed. A third indepen
 
 ## Actual physical blockers
 
-Historical docs/V3_LIVE_TRANSPORT_SMOKE_TEST.md identified HA102 REST 192.168.1.102:8123 and ESP128 native API 192.168.1.28:6053, with unavailable HA states and unreachable direct ESP in the previous smoke. This is not current node104 connectivity proof. A new network-only node104 endpoint check was denied by remote command policy (exit 126); no workaround was attempted.
+Historical docs/V3_LIVE_TRANSPORT_SMOKE_TEST.md identified HA102 REST 192.168.1.102:8123 and ESP128 native API 192.168.1.28:6053, with unavailable HA states and unreachable direct ESP in the previous smoke. This is not current node104 connectivity proof. A network-only check from node104 was denied by its remote execution policy (exit 126); no workaround was attempted. A separate read-only Windows HOME-PC Test-NetConnection on October 16 returned TRUE for both HA102 TCP/8123 and ESP128 TCP/6053. This improves HOME-PC transport reachability evidence, but it is NOT proof of native API authentication, valid RD6018 readbacks, transport independence, node104-to-ESP access or hardware OFF operation.
 
 Current read-only node104 shows root-owned 0600 global D061 acceptance lock, but NO independent supervisor unit/process. The normal bot and D063 observer remain active. The missing separately credentialed native OFF command/readback route is therefore a HARD HOLD before any real adopted PB_MANAGED child SIGKILL with Output ON.
 
