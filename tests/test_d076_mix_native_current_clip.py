@@ -108,6 +108,18 @@ class MixNativeClipEvidenceTests(unittest.TestCase):
         live["_meta"]["set_current_readback_v2"]["status"] = "unavailable"
         self.assertEqual(ClipStatus.UNKNOWN, classify(live).status)
 
+    def test_native_metadata_must_identify_distinct_producers(self):
+        live = snapshot()
+        for key in KEYS:
+            live["_meta"][key]["entity_id"] = "sensor." + key
+            live["_meta"][key].pop("source_key")
+        self.assertEqual(ClipStatus.PROVED_CLIPPED, classify(live).status)
+        live["_meta"]["regulation_code"]["entity_id"] = live["_meta"]["current"]["entity_id"]
+        self.assertEqual(ClipStatus.UNKNOWN, classify(live).status)
+        live = snapshot()
+        live["_meta"]["regulation_code"].pop("source_key")
+        self.assertEqual(ClipStatus.UNKNOWN, classify(live).status)
+
     def test_stale_skewed_missing_future_and_precommit_registers(self):
         def stale(live):
             live["_meta"]["regulation_code"]["last_reported"] = iso(NOW - 30)
@@ -136,6 +148,7 @@ class MixNativeClipEvidenceTests(unittest.TestCase):
             ("set_current_readback_v2", None),
             ("current", None),
             ("current", -1),
+            ("current", 0),
         ):
             with self.subTest(key=key, bad=bad):
                 live = snapshot()
