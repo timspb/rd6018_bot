@@ -6,8 +6,12 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-
-SOFT_WATCHDOG_RETRY_S = 60.0
+from runtime.safety.watchdog_policy import (
+    SOFT_WATCHDOG_RETRY_S,
+    WatchdogIncidentState,
+    WatchdogSnapshot,
+    decide_watchdog,
+)
 
 
 @dataclass
@@ -92,23 +96,38 @@ async def soft_watchdog_poll_once(
     """Apply bounded software-watchdog containment for one observation cycle."""
 
     current = time.time() if now is None else float(now)
-    last_ok = float(getattr(app, "last_ha_ok_time", 0.0) or 0.0)
-    timeout = float(getattr(app, "SOFT_WATCHDOG_TIMEOUT", 180.0))
-
-    if last_ok <= 0.0 or current - last_ok < timeout:
+    try:
+        last_ok = float(getattr(app, "last_ha_ok_time", 0.0) or 0.0)
+    except (TypeError, ValueError, OverflowError):
+        last_ok = float("nan")
+    try:
+        timeout = float(getattr(app, "SOFT_WATCHDOG_TIMEOUT", 180.0))
+    except (TypeError, ValueError, OverflowError):
+        timeout = float("nan")
+    decision = decide_watchdog(
+        WatchdogSnapshot(
+            now=current,
+            last_heartbeat_at=last_ok,
+            timeout_s=timeout,
+            authority_suspended=_pb_watchdog_suspended(app),
+            managed_authority_active=_managed_authority_active(app),
+        ),
+        WatchdogIncidentState(
+            active=incident.active,
+            logged=incident.logged,
+            shutdown_complete=incident.shutdown_complete,
+            last_attempt_at=incident.last_attempt_at,
+        ),
+    )
+    if not decision.incident.active:
         incident.reset()
         return
 
-    if _pb_watchdog_suspended(app):
-        incident.reset()
-        return
-
-    incident.active = True
-    if not _managed_authority_active(app):
-        return
-
-    if not incident.logged:
-        incident.logged = True
+    incident.active = decision.incident.active
+    incident.logged = decision.incident.logged
+    incident.shutdown_complete = decision.incident.shutdown_complete
+    incident.last_attempt_at = decision.incident.last_attempt_at
+    if decision.log_incident:
         logger = getattr(app, "logger", None)
         if logger is not None:
             logger.critical(
@@ -116,17 +135,8 @@ async def soft_watchdog_poll_once(
                 "requesting bounded Output OFF containment."
             )
         _log_watchdog_incident(app)
-
-    if incident.shutdown_complete:
+    if not decision.attempt_shutdown:
         return
-
-    if (
-        incident.last_attempt_at > 0.0
-        and current - incident.last_attempt_at < SOFT_WATCHDOG_RETRY_S
-    ):
-        return
-
-    incident.last_attempt_at = current
     try:
         await app._hard_stop_charge()
     except Exception as exc:
