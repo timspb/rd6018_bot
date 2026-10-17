@@ -2634,7 +2634,14 @@ async def data_logger() -> None:
                     recovery_execution = SessionRecoveryService(
                         _runtime_execution_port(), _apply_phase_protection, _cap_current
                     )
-                if recovery_route is RecoveryRoute.ACTIVE_LINK and authorize_recovery_action(
+                recovery_guard = _runtime_execution_port().session_recovery_guard
+                if recovery_guard.quarantined:
+                    logger.warning(
+                        "D084 session recovery quarantine remains active (%s); "
+                        "automatic restore and controller tick are suppressed",
+                        recovery_guard.state.reason,
+                    )
+                elif recovery_route is RecoveryRoute.ACTIVE_LINK and authorize_recovery_action(
                     RecoveryAuthorizationInput(
                         route=recovery_route,
                         restored=True,
@@ -2662,8 +2669,16 @@ async def data_logger() -> None:
                             charge_controller.current_stage,
                         )
                     else:
-                        logger.warning("Active session restore blocked: Output ON was not confirmed")
-                elif recovery_route is RecoveryRoute.IDLE_LINK:
+                        reason = recovery_guard.state.reason or "verified_on"
+                        logger.warning(
+                            "D084 quarantined active session restore (%s); physical Output state is unknown",
+                            reason,
+                        )
+                        _charge_notify(
+                            "⚠️ Восстановление не подтверждено; автоматическое управление "
+                            "приостановлено, состояние Output неизвестно. Проверьте оборудование."
+                        )
+                elif not recovery_guard.quarantined and recovery_route is RecoveryRoute.IDLE_LINK:
                     ok, msg = charge_controller.try_restore_session(
                         battery_v, i, ah, output_is_on=output_on,
                         is_cv=is_cv, is_cc=is_cc,
@@ -2732,7 +2747,7 @@ async def data_logger() -> None:
                             logger.warning("Link restored but no session; output still on I=%.2fA", i)
 
                 # Выход уже включён, но бот в IDLE (перезапуск бота или ручное включение) — подхватываем сессию без turn_on
-                if recovery_route is RecoveryRoute.IDLE_OUTPUT_ON:
+                if not recovery_guard.quarantined and recovery_route is RecoveryRoute.IDLE_OUTPUT_ON:
                     ok, msg = charge_controller.try_restore_session(
                         battery_v, i, ah, output_is_on=output_on,
                         is_cv=is_cv, is_cc=is_cc,
@@ -2826,12 +2841,12 @@ async def data_logger() -> None:
                         output_current_a=native_current if native_guard_fresh else None,
                         fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
                     )
-                    actions = await charge_controller.tick(
+                    actions = (await charge_controller.tick(
                         battery_v, i, temp_ext, is_cv, ah, output_switch,
                         manual_off_active=_has_manual_off_condition(),
                         is_cc=is_cc,
                         manual_active=manual_active,
-                    )
+                    ) if _runtime_execution_port().session_recovery_guard.may_run_automatic_control() else {})
                     if actions.get("notify"):
                         _charge_notify(str(actions["notify"]))
                     if prev_stage != charge_controller.current_stage:
