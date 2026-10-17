@@ -565,6 +565,24 @@ any edge command and did not alter the external HANDS_OFF program.
 validated.** CI compile must not be reported as production deployment or as proof that
 an arbitrary load will remain powered through reboot/network loss.
 
+### D091 node104 evidence correction (2026-10-17)
+
+The preceding sentence describes the branch's acceptance evidence and remains true:
+the D065 autonomous and intrinsic-safety bench gates below are still OPEN. A later
+read-only node104 observation identified the firmware currently installed on the
+physical node as native ESPHome 2026.8.2, project version
+`2.2-autonomous-authority`, compiled 2026-10-11 22:40:30 +1000. This corrects the
+older implication that the node still runs the pre-D065 image; it does **not** prove
+that this exact image passed D065 or any reboot, network-loss, raw-protection, or
+thermal-injection bench case. See
+`docs/assistant/D091_LIVE_ESP_MANAGED_EVIDENCE_2026-10-17.md`.
+
+The D091 collector requires fresh typed `SensorState` callbacks for measured
+R18/voltage/current. `output_voltage` and `output_current` can also report
+programmable `NumberState` setpoints; those values and their object-ID freshness
+timestamps do not prove physical output measurements. HA REST source reads occur
+after the native callback wait.
+
 The historical detailed evidence record is:
 
 `docs/assistant/PHYSICAL_EDGE_VALIDATION_2026-09-02.md`

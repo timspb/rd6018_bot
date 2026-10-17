@@ -36,7 +36,7 @@ PHASES = ('PREPARED', 'STOPPED', 'BACKUP_DURABLE', 'CANDIDATE_READY',
 # Must be set from the separately captured and reviewed exact installed app
 # inventory. The old source tree is absent locally, so D090 leaves this OPEN.
 PREIMAGE_APP_INVENTORY_SHA256: str | None = 'ef24cf5a66abe0991e4e5ceb04988c25806ee9a74d9025ebde00bf3161919171'
-READ_ONLY_PROOF_COLLECTOR_SHA256: str | None = None
+READ_ONLY_PROOF_COLLECTOR_SHA256: str | None = 'c6bf8f456c06da75816976946a9129ccd7619237b6e482874c25a4aa9951ace8'
 
 
 class TransactionError(RuntimeError):
