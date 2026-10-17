@@ -98,6 +98,9 @@ class TrialLifecycleTests(unittest.TestCase):
         faults=(
             "trial-after-journal-prepared",
             "after-journal-stopped",
+            "trial-after-backup-mkdir-before-copy",
+            "trial-after-backup-copy-before-journal",
+            "trial-after-backup-flush-before-journal",
             "after-journal-backup_durable",
             "trial-before-swap",
             "trial-after-old-app-rename-before-journal",
@@ -119,6 +122,18 @@ class TrialLifecycleTests(unittest.TestCase):
                     self.trial(name)
                 self.assert_old()
                 self.assertEqual("TRIAL_RESTORED",self.recover()["phase"])
+
+    def test_unsealed_backup_is_never_trusted_and_terminal_is_idempotent(self):
+        point="trial-after-backup-copy-before-journal"
+        with self.assertRaisesRegex(RuntimeError,"injected:"):
+            self.trial(point)
+        rec=json.loads(self.tx.journal.read_text())
+        self.assertEqual("TRIAL_RESTORED",rec["phase"])
+        self.assertTrue(rec["rollback_without_backup"])
+        self.assertTrue(rec["ignored_unsealed_backup"])
+        self.assertTrue((self.root/"backups"/rec["backup"]).is_dir())
+        self.assert_old()
+        self.assertEqual("TRIAL_RESTORED",self.recover()["phase"])
 
     def test_failed_edge_observer_fails_before_any_stop(self):
         self.tx.trial_edge_proof = None

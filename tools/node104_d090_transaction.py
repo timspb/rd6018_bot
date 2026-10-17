@@ -624,14 +624,17 @@ class D090Transaction:
             self._assert_baseline(baseline)
             backup = self.backup_root / record["backup"]
             backup.mkdir(mode=0o700)
+            self.failpoint("trial-after-backup-mkdir-before-copy")
             for name in ("app", "state", "venv"):
                 shutil.copytree(self.root / name, backup / name, symlinks=True)
             for name in (".env", MARKER):
                 shutil.copy2(self.root / name, backup / name)
             shutil.copy2(self._unit_path(), backup / "service.unit")
+            self.failpoint("trial-after-backup-copy-before-journal")
             record["backup_inventory"] = inventory(backup)
             _durable_tree(backup)
             _sync_dir(self.backup_root)
+            self.failpoint("trial-after-backup-flush-before-journal")
             self._phase(record, "BACKUP_DURABLE")
             self._assert_baseline(baseline)
             self.failpoint("trial-before-swap")
@@ -693,7 +696,9 @@ class D090Transaction:
         expected = record.get("backup_inventory")
         if record["phase"] == TRIAL_FINAL_PHASE:
             if record.get("rollback_without_backup") is True:
-                if backup.exists() or backup.is_symlink():
+                if (backup.is_symlink() or (backup.exists()
+                        and (not backup.is_dir()
+                             or record.get("ignored_unsealed_backup") is not True))):
                     raise TransactionError("terminal trial backup identity changed")
             elif (backup.is_symlink() or not backup.is_dir() or type(expected) is not dict
                   or inventory(backup) != expected):
@@ -707,6 +712,11 @@ class D090Transaction:
         # rename boundary must never have been crossed. Demand exact original
         # pre-image and fresh OFF proof before a restart.
         if record["phase"] in ("PREPARED", "STOPPED"):
+            # A crash can leave a partial/unsealed backup before its durable
+            # journal phase. It is NOT valid rollback material; the unchanged
+            # live preimage must instead be authenticated independently.
+            if backup.is_symlink() or (backup.exists() and not backup.is_dir()):
+                raise TransactionError("unsafe unsealed trial backup path")
             self._trial_read_proofs(reference=edges,
                                     service_stopped=self.service.main_pid() == 0)
             self._assert_baseline(baseline)
@@ -716,6 +726,7 @@ class D090Transaction:
                 raise TransactionError("trial original preimage not stable")
             self._trial_read_proofs(reference=edges, service_stopped=False)
             record["rollback_without_backup"] = True
+            record["ignored_unsealed_backup"] = backup.is_dir()
             self._phase(record, TRIAL_FINAL_PHASE)
             return record
         # All other phases require a completely recorded *durable* backup.

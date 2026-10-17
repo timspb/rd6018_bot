@@ -58,6 +58,10 @@ unchanged.
   shutdown or restoration during an energized/ambiguous authority state.
 - Every simulated fault around journal, app/venv rename, startup and restore
   must either restore exact old source or stay contained without blind restart.
+  A crash **after partial backup creation but before durable BACKUP_DURABLE journal**
+  is recovered from the independently verified unchanged live preimage; the
+  unsealed backup is explicitly marked ignored and retained only for inspection,
+  never accepted as rollback evidence.
   Corrupt backup, tampered source/preimage, stale evidence, unsafe autonomous
   state and changed setpoints cause explicit rejection.
 - `trial_socket_ready` is required to prove the *production coordinator*
@@ -87,11 +91,11 @@ stage, not unlocked by changing `offline` or rewriting D090 pins.
 
 ## Software evidence
 
-- Focused D090/D102/D105 test matrix: **56/56 PASS**.
+- Focused D090/D102/D105 test matrix: **57/57 PASS**.
 - Real reviewed D103 archive conversion and D102 1027-file source verification:
   **PASS**.
-- Full WSL suite using the existing project Python 3.12 venv: **2169 tests OK, 2 skipped**; log `E:\CODEX\RD6018_D105_FULL_SUITE_20261018.log`.
-- D105 source-stage converter negative tests and D090/D102/D105 focused tests: **56/56 PASS**.
+- Full WSL suite using the existing project Python 3.12 venv: **2170 tests OK, 2 skipped**; log `E:\CODEX\RD6018_D105_FULL_SUITE_FINAL_20261018.log`.
+- D105 source-stage converter negative tests and D090/D102/D105 focused tests: **57/57 PASS**.
 - The GitHub CI matrix remains a separate integration check before merge.
 
 Physical D097 Enter/Exit, D065 energized outage/reboot/fault injection,
