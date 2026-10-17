@@ -77,7 +77,7 @@ class ReleaseVerification(unittest.TestCase):
             with self.assertRaisesRegex(M.GateError, "archive"):
                 M.verify_staged_release(stage)
 
-    def test_physical_gate_requires_fresh_two_source_off_zero_and_stopped(self):
+    def test_physical_gate_requires_fresh_native_off_zero_and_stopped(self):
         now = time.time()
         proof = M.PhysicalOffProof(now, M.MACHINE_ID, 0, True, 0.0, 0.0,
                                    True, 0.0, 0.0, True, False, False, 1,
@@ -88,13 +88,32 @@ class ReleaseVerification(unittest.TestCase):
             replace(proof, host_machine_id="wrong"),
             replace(proof, service_main_pid=123),
             replace(proof, esp128_output_off=False),
-            replace(proof, ha102_current_a=0.2),
+            replace(proof, esp128_current_a=0.2),
             replace(proof, edge_lease_armed=True),
             replace(proof, active_session=True),
             replace(proof, source_nonces=("same", "same")),
         ):
             with self.subTest(proof=altered), self.assertRaises(M.GateError):
                 M.validate_physical_off(altered, now=now)
+
+    def test_native_authority_survives_missing_stale_or_disagreeing_ha(self):
+        now = time.time()
+        proof = M.PhysicalOffProof(now, M.MACHINE_ID, 0, True, 0.0, 0.0,
+                                   True, 0.0, 0.0, True, False, False, 1,
+                                   False, ("native:1", "ha:1"))
+        for advisory in (
+            (None, None, None),
+            (False, 0.6, 0.2),
+            (True, 0.0, 0.0),
+        ):
+            with self.subTest(advisory=advisory):
+                altered = replace(proof, ha102_output_off=advisory[0],
+                                  ha102_voltage_v=advisory[1],
+                                  ha102_current_a=advisory[2])
+                M.validate_physical_off(altered, now=now)
+        M.validate_physical_off(replace(proof, ha102_output_off=None), now=now)
+        M.validate_physical_off(replace(proof, ha102_output_off=1,
+            ha102_voltage_v="unknown", ha102_current_a=object()), now=now)
 
     def test_d089_or_software_ci_record_cannot_satisfy_physical_acceptance(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -108,7 +127,7 @@ class ReleaseVerification(unittest.TestCase):
         proof = M.PhysicalOffProof(now, M.MACHINE_ID, 0, True, 0.0, 0.0,
                                    True, 0.0, 0.0, True, False, False, 1,
                                    False, ("ha:nonce1", "esp:nonce2"))
-        for altered in (replace(proof, ha102_output_off=1),
+        for altered in (replace(proof, esp128_output_off=1),
                         replace(proof, active_session=0),
                         replace(proof, physical_node_owner_count=True),
                         replace(proof, service_main_pid=False),

@@ -118,6 +118,23 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual("COMMITTED", result["phase"])
         self.assertEqual(release.SOURCE_SHA, (self.root / ".deploy_sha").read_text().strip())
 
+    def test_ha_cache_outage_mid_transaction_does_not_change_native_baseline(self):
+        original = self.tx.proof
+        counter = 0
+        def alternating_ha():
+            nonlocal counter
+            counter += 1
+            proof = original()
+            if counter % 2 == 0:
+                return replace(proof, ha102_output_off=None,
+                               ha102_voltage_v=None, ha102_current_a=None)
+            return replace(proof, ha102_output_off=False,
+                           ha102_voltage_v=0.6, ha102_current_a=0.5)
+        self.tx.proof = alternating_ha
+        result = self._run()
+        self.assertEqual("COMMITTED", result["phase"])
+        self.assertGreater(counter, 2)
+
     def test_faults_at_journal_and_swap_boundaries_recover_idempotently(self):
         points = (
             'after-journal-stopped', 'after-journal-backup_durable', 'before-swap',

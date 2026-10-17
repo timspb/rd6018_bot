@@ -1,6 +1,6 @@
 # Используемый физический транспорт по умолчанию
 # Default physical transport
-default_transport: ha102
+default_transport: esp128
 
 transports:
   # Транспорт через Home Assistant
@@ -11,7 +11,7 @@ transports:
     enabled: true
     # Порядок предпочтения, без единиц измерения
     # Selection priority, unitless
-    priority: 10
+    priority: 20
     # Имя профиля подключения
     # Connection profile name
     profile: ha102
@@ -23,7 +23,7 @@ transports:
     enabled: true
     # Порядок предпочтения, без единиц измерения
     # Selection priority, unitless
-    priority: 20
+    priority: 10
     # Имя профиля подключения
     # Connection profile name
     profile: esp128

@@ -172,9 +172,9 @@ class PhysicalOffProof:
     captured_at_epoch: float
     host_machine_id: str
     service_main_pid: int
-    ha102_output_off: bool
-    ha102_voltage_v: float
-    ha102_current_a: float
+    ha102_output_off: bool | None
+    ha102_voltage_v: float | None
+    ha102_current_a: float | None
     esp128_output_off: bool
     esp128_voltage_v: float
     esp128_current_a: float
@@ -188,7 +188,7 @@ class PhysicalOffProof:
 
 def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
                           require_service_stopped: bool = True) -> None:
-    """Validate fresh, independent, post-stop evidence; never reads hardware."""
+    """Validate post-stop ESP Native API proof; HA is optional cached advisory."""
     now = time.time() if now is None else now
     if not isinstance(proof, PhysicalOffProof):
         raise GateError("unknown physical proof type")
@@ -200,20 +200,23 @@ def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
         raise GateError("service MainPID must be a nonnegative integer")
     if require_service_stopped and proof.service_main_pid != 0:
         raise GateError("service is not confirmed stopped")
-    if any(type(value) is not bool for value in (proof.ha102_output_off, proof.esp128_output_off,
-                                                   proof.native_sensor_state_fresh,
-                                                   proof.edge_lease_armed, proof.edge_boot_quarantine,
-                                                   proof.active_session)):
-        raise GateError("physical proof flags must be booleans")
-    if not proof.ha102_output_off or not proof.esp128_output_off or not proof.native_sensor_state_fresh:
-        raise GateError("fresh independent HA/native ESP Output OFF proof required")
+    if any(type(value) is not bool for value in (proof.esp128_output_off,
+            proof.native_sensor_state_fresh, proof.edge_lease_armed,
+            proof.edge_boot_quarantine, proof.active_session)):
+        raise GateError("native physical proof flags must be booleans")
+    if not proof.esp128_output_off or not proof.native_sensor_state_fresh:
+        raise GateError("fresh authoritative Native ESP Output OFF proof required")
     if (type(proof.source_nonces) is not tuple or len(proof.source_nonces) != 2
             or any(type(value) is not str or not value for value in proof.source_nonces)
             or len(set(proof.source_nonces)) != 2):
-        raise GateError("independent source challenge identifiers missing/reused")
-    for voltage, current in ((proof.ha102_voltage_v, proof.ha102_current_a), (proof.esp128_voltage_v, proof.esp128_current_a)):
-        if not _num(voltage) or not _num(current) or abs(voltage) > .05 or abs(current) > .05:
-            raise GateError("both independent output voltage/current readings must be zero")
+        raise GateError("distinct capture-path identifiers missing/reused")
+    # Both API paths terminate in the SAME ESP. HA is diagnostic only:
+    # missing, stale, contradictory or malformed HA data cannot modify
+    # Native API physical admission. These legacy HA fields are not used
+    # for any D090 safety decision or immutable baseline fingerprint.
+    for value in (proof.esp128_voltage_v, proof.esp128_current_a):
+        if not _num(value) or abs(value) > .05:
+            raise GateError("authoritative native output voltage/current must be zero")
     if proof.edge_lease_armed or proof.edge_boot_quarantine:
         raise GateError("edge lease must be disarmed and boot quarantine clear")
     if type(proof.physical_node_owner_count) is not int or proof.physical_node_owner_count != 1 or proof.active_session:

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only node104 D090 physical OFF proof collector.
+"""Read-only node104 D090 native-authoritative physical OFF proof collector.
 
-This module has no actuator, service control, or filesystem mutation path. The
-pure snapshot assembler is intentionally separate from the live I/O adapter.
+The physical source is ESP128. Native API is authoritative; HA REST only
+observes the same ESP through a cached alternate route, not an independent
+sensor. This module never performs actuator or service mutations.
 """
 from __future__ import annotations
 
@@ -163,23 +164,46 @@ def assemble_proof(snapshot: dict[str, Any]) -> dict[str, Any]:
         raise ProofError('ESPHome device identity/project does not match reviewed node')
 
     ha, esp = snapshot.get('ha'), snapshot.get('esp')
-    if type(ha) is not dict or type(esp) is not dict:
-        raise ProofError('independent HA and native ESP snapshots required')
-    for source_name, source in (('HA102', ha), ('ESP128', esp)):
-        if source.get('output_state') != 0 or type(source.get('output_state')) is bool:
-            raise ProofError(f'{source_name} physical R18 is not strict numeric OFF')
-        voltage, current = _number(source.get('voltage')), _number(source.get('current'))
-        if abs(voltage) > .05 or abs(current) > .05:
-            raise ProofError(f'{source_name} physical V/I exceeds OFF tolerance: V={voltage:.4f} I={current:.4f}')
-    _ha_freshness(ha.get('output_entity', {}), now)
-    for key in ('voltage_entity', 'current_entity'):
-        _ha_freshness(ha.get(key, {}), now)
-    native = esp.get('output_meta')
-    _fresh(native, native=True)
-    if type(native.get('age_s')) not in (int, float) or native['age_s'] > MAX_SOURCE_AGE_S:
-        raise ProofError('native R18 callback is stale')
-    for key in ('voltage_meta', 'current_meta'):
-        _fresh(esp.get(key, {}), native=True)
+    if type(esp) is not dict:
+        raise ProofError('native ESP128 snapshot is required')
+    if esp.get('output_state') != 0 or type(esp.get('output_state')) is bool:
+        raise ProofError('native physical R18 is not strict numeric OFF')
+    voltage, current = _number(esp.get('voltage')), _number(esp.get('current'))
+    if abs(voltage) > .05 or abs(current) > .05:
+        raise ProofError('native physical V/I exceeds OFF tolerance')
+    # Measured callback metadata must identify the actual native producer.
+    # A typed HA/cache-shaped object must not be relabelled as fresh ESP data.
+    for key, expected_id in (
+            ('output_meta', 'output_state_code_v2'),
+            ('voltage_meta', 'output_voltage'),
+            ('current_meta', 'output_current')):
+        meta = esp.get(key, {})
+        _fresh(meta, native=True)
+        if (meta.get('source') != 'esp_native_api'
+                or meta.get('object_id') != expected_id):
+            raise ProofError('measured sensor source/object identity mismatch: ' + key)
+
+    # HA is advisory, never mandatory. A stale or unavailable HA record is
+    # represented as None and is not forged into a healthy OFF measurement.
+    # A fresh but contradictory HA cache can be reported without overruling
+    # direct Native API physical state.
+    ha_output, ha_voltage, ha_current = None, None, None
+    if ha is not None:
+        if type(ha) is not dict:
+            ha = None
+        else:
+            try:
+                for key in ('output_entity', 'voltage_entity', 'current_entity'):
+                    _ha_freshness(ha.get(key, {}), snapshot['captured_at_epoch'])
+                ha_output = bool(ha.get('output_state') == 0) if (
+                    type(ha.get('output_state')) in (int, float)
+                    and math.isfinite(ha['output_state'])) else None
+                ha_voltage = _number(ha.get('voltage'))
+                ha_current = _number(ha.get('current'))
+                if ha_output is None:
+                    raise ProofError('HA advisory register not numeric')
+            except (ProofError, TypeError, KeyError):
+                ha_output, ha_voltage, ha_current = None, None, None
 
     edge = snapshot.get('edge')
     if type(edge) is not dict:
@@ -205,10 +229,10 @@ def assemble_proof(snapshot: dict[str, Any]) -> dict[str, Any]:
         raise ProofError('quarantine journal is active or uncertain')
     nonces = snapshot.get('source_nonces')
     if type(nonces) is not tuple or len(nonces) != 2 or any(type(n) is not str or not n for n in nonces) or len(set(nonces)) != 2:
-        raise ProofError('independent source read identifiers missing/reused')
+        raise ProofError('distinct capture-path identifiers missing/reused')
     return {
         'captured_at_epoch': float(now), 'host_machine_id': machine, 'service_main_pid': pid,
-        'ha102_output_off': True, 'ha102_voltage_v': float(ha['voltage']), 'ha102_current_a': float(ha['current']),
+        'ha102_output_off': ha_output, 'ha102_voltage_v': ha_voltage, 'ha102_current_a': ha_current,
         'esp128_output_off': True, 'esp128_voltage_v': float(esp['voltage']), 'esp128_current_a': float(esp['current']),
         'native_sensor_state_fresh': True, 'edge_lease_armed': False, 'edge_boot_quarantine': False,
         'physical_node_owner_count': 1, 'active_session': False, 'source_nonces': list(nonces),
@@ -374,11 +398,18 @@ async def collect_live() -> dict[str, Any]:
     if config.default_connector != 'esp_direct':
         raise ProofError('configured connector is not esp_direct')
     ha_config, esp_config = config.transports.get('ha102'), config.transports.get('esp128')
-    if ha_config is None or esp_config is None:
-        raise ProofError('independent HA102 and ESP128 transports are not configured')
+    if esp_config is None:
+        raise ProofError('authoritative native ESP128 transport is not configured')
     if esp_config.connection.host and esp_config.connection.host != EXPECTED_ESP_HOST:
         raise ProofError('configured native ESP host does not match reviewed node identity')
-    ha, esp = HA102Transport(ha_config, config.rd), ESPHomeTransport(esp_config, config.rd)
+    esp = ESPHomeTransport(esp_config, config.rd)
+    ha = None
+    if ha_config is not None:
+        try:
+            ha = HA102Transport(ha_config, config.rd)
+        except Exception:
+            # Optional HA configuration must not veto direct native proof.
+            ha = None
     try:
         # Native discover/subscription is strictly observational.
         await asyncio.wait_for(esp.discover(), timeout=8)
@@ -408,21 +439,29 @@ async def collect_live() -> dict[str, Any]:
         for key, object_id in EXPECTED_EDGE.items():
             value, meta = _cached_native_state(esp, inventory, object_id)
             edge[key] = {'value': value, 'meta': meta}
-        # HA REST reads occur after the native wait so last_reported remains
-        # current when the independent source snapshot is assembled.
-        ha_entities = {}
-        for key in MEASURED_SENSOR_KEYS:
-            entity_id = ha_config.entities.get(key)
-            if not entity_id:
-                raise ProofError('required HA read-only entity mapping missing')
-            ha_entities[key] = await asyncio.wait_for(ha._get(entity_id), timeout=5)
-        ha_snapshot = {
-            'output_state': _ha_number(ha_entities['output_state'].get('state')),
-            'voltage': _ha_number(ha_entities['voltage'].get('state')),
-            'current': _ha_number(ha_entities['current'].get('state')),
-            'output_entity': ha_entities['output_state'], 'voltage_entity': ha_entities['voltage'],
-            'current_entity': ha_entities['current'],
-        }
+        # HA may be unavailable or have an old last_reported timestamp for an
+        # unchanged entity. Read concurrently, never delay/deny direct authority.
+        ha_snapshot = None
+        if ha is not None:
+            async def read_ha(key):
+                entity_id = ha_config.entities.get(key)
+                if not entity_id:
+                    raise ProofError('HA advisory entity mapping absent')
+                return await asyncio.wait_for(ha._get(entity_id), timeout=2)
+            try:
+                fetched = await asyncio.gather(*(read_ha(key) for key in MEASURED_SENSOR_KEYS))
+                ha_entities = dict(zip(MEASURED_SENSOR_KEYS, fetched))
+                ha_snapshot = {
+                    'output_state': _ha_number(ha_entities['output_state'].get('state')),
+                    'voltage': _ha_number(ha_entities['voltage'].get('state')),
+                    'current': _ha_number(ha_entities['current'].get('state')),
+                    'output_entity': ha_entities['output_state'],
+                    'voltage_entity': ha_entities['voltage'],
+                    'current_entity': ha_entities['current'],
+                }
+            except Exception:
+                # Absence is explicit; no HA measurements may be fabricated.
+                ha_snapshot = None
         session_path = Path(os.getenv('RD6018_STATE_DIR', str(ROOT / 'state'))) / 'charge_session.json'
         journal_path = session_path.parent / 'session_recovery_quarantine.json'
         snapshot = {
@@ -436,7 +475,8 @@ async def collect_live() -> dict[str, Any]:
         _journal_state(journal_path)
         return snapshot
     finally:
-        await asyncio.gather(ha.close(), esp.close(), return_exceptions=True)
+        await asyncio.gather(*(c.close() for c in (ha, esp) if c is not None),
+                             return_exceptions=True)
 
 
 def main() -> int:

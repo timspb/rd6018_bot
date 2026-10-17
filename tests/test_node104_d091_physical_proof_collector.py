@@ -32,7 +32,9 @@ def snapshot():
             'ha': {'output_state': 0, 'voltage': 0.0, 'current': 0.0,
                    'output_entity': ha_entity, 'voltage_entity': ha_entity, 'current_entity': ha_entity},
             'esp': {'output_state': 0, 'voltage': 0.0, 'current': 0.0,
-                    'output_meta': native_meta, 'voltage_meta': native_meta, 'current_meta': native_meta},
+                    'output_meta': native_meta,
+                    'voltage_meta': dict(native_meta, object_id='output_voltage'),
+                    'current_meta': dict(native_meta, object_id='output_current')},
             'edge': edge, 'active_session': False, 'journal_clear': True,
             'source_nonces': ('ha-unique', 'esp-unique')}
 
@@ -57,16 +59,44 @@ class CollectorProofTests(unittest.TestCase):
         self.assert_rejected(lambda s: s['esp']['output_meta'].__setitem__('status', 'unknown'))
         self.assert_rejected(lambda s: s['esp']['output_meta'].__setitem__('native_type', 'NumberState'))
 
-    def test_ha_stale_and_missing_metadata_fail(self):
-        self.assert_rejected(lambda s: s['ha']['output_entity'].__setitem__('last_reported', '2000-01-01T00:00:00+00:00'))
-        self.assert_rejected(lambda s: s['ha']['voltage_entity'].pop('attributes'))
+    def test_native_sensor_origin_and_object_id_required(self):
+        for key in ('output_meta', 'voltage_meta', 'current_meta'):
+            with self.subTest(meta=key):
+                self.assert_rejected(lambda s, k=key:
+                    s['esp'][k].__setitem__('source', 'ha102_rest'))
+                self.assert_rejected(lambda s, k=key:
+                    s['esp'][k].__setitem__('object_id', 'wrong-entity'))
 
-    def test_any_output_on_or_nonzero_or_invalid_vi_fails(self):
-        for key in ('ha', 'esp'):
-            self.assert_rejected(lambda s, k=key: s[k].__setitem__('output_state', 1))
-            self.assert_rejected(lambda s, k=key: s[k].__setitem__('voltage', .1))
-            self.assert_rejected(lambda s, k=key: s[k].__setitem__('current', math.nan))
-        self.assert_rejected(lambda s: s['ha'].__setitem__('output_state', True))
+    def test_ha_stale_missing_or_contradictory_never_veto_fresh_native(self):
+        cases = (
+            lambda s: s['ha']['output_entity'].__setitem__(
+                'last_reported', '2000-01-01T00:00:00+00:00'),
+            lambda s: s['ha']['voltage_entity'].pop('attributes'),
+            lambda s: s.__setitem__('ha', None),
+            lambda s: s['ha'].__setitem__('output_state', 1),
+            lambda s: s['ha'].__setitem__('voltage', .1),
+            lambda s: s['ha'].__setitem__('current', math.nan),
+            lambda s: s['ha'].__setitem__('output_state', True),
+        )
+        for edit in cases:
+            snap = snapshot()
+            edit(snap)
+            with self.subTest(ha=snap['ha']):
+                result = M.assemble_proof(snap)
+                self.assertTrue(result['esp128_output_off'])
+                self.assertEqual(0, result['esp128_voltage_v'])
+        snap = snapshot()
+        snap['ha']['output_entity']['last_reported'] = '2000-01-01T00:00:00+00:00'
+        out = M.assemble_proof(snap)
+        self.assertIsNone(out['ha102_output_off'])
+        self.assertIsNone(out['ha102_voltage_v'])
+
+    def test_native_output_on_nonzero_or_invalid_vi_fails_with_healthy_ha(self):
+        for name, bad in (('output_state', 1), ('voltage', .1), ('current', math.nan),
+                          ('output_state', True)):
+            with self.subTest(name=name, bad=bad):
+                self.assert_rejected(lambda s, n=name, value=bad:
+                                     s['esp'].__setitem__(n, value))
 
     def test_edge_authorities_lease_and_faults_fail_closed(self):
         for key in ('edge_lease_armed', 'edge_lease_tripped', 'edge_boot_quarantine',

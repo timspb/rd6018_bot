@@ -98,7 +98,7 @@ class TrialOffProof(NamedTuple):
                 or not 0 <= self.modbus_age_s <= 20
                 or not 0 <= self.set_voltage_v <= 15.5
                 or self.set_current_a < 0 or self.ovp_v < self.set_voltage_v
-                or self.ocp_a < 0):
+                or self.ocp_a < 0 or self.set_current_a > self.ocp_a):
             raise TransactionError("trial edge state is not safe OFF/unmanaged")
 
 
@@ -338,7 +338,7 @@ class D090Transaction:
         # Recovery is separate from candidate enablement. A missing optional
         # activation socket MUST NOT prevent exact preimage restoration.
         # The locked recover() path still requires pinned journal/node identity,
-        # complete backup and fresh actual HA/native/edge OFF evidence.
+        # complete backup and fresh authoritative native ESP/edge OFF evidence.
         if self.trial_edge_proof is None:
             raise TransactionError("trial recovery requires independent edge proof")
 
@@ -464,8 +464,8 @@ class D090Transaction:
         # limits on every fresh proof. Exact float equality across polls would
         # turn harmless ADC jitter into a spurious rollback; fingerprint the
         # stable ownership/containment invariants, not sampled analog values.
-        observer = [proof.ha102_output_off, proof.esp128_output_off,
-                    proof.native_sensor_state_fresh, proof.edge_lease_armed,
+        observer = [proof.esp128_output_off, proof.native_sensor_state_fresh,
+                    proof.edge_lease_armed,
                     proof.edge_boot_quarantine, proof.physical_node_owner_count,
                     proof.active_session]
         return {'app': inventory(self.root / 'app'), 'state': inventory(self.root / 'state'),
@@ -488,7 +488,7 @@ class D090Transaction:
                  prepared: dict[str, object] | None = None) -> dict[str, object]:
         prepared = prepared or self.prepare(staged_release, acceptance_record=acceptance_record, evidence_dir=evidence_dir)
         self._layout()
-        # Physical acceptance and a fresh independent pre-stop observation are
+        # Physical acceptance and a fresh authoritative native pre-stop observation are
         # rechecked immediately before authorizing the service stop.
         manifest = release.verify_staged_release(staged_release)
         if manifest['source_sha'] != release.SOURCE_SHA:
@@ -593,7 +593,7 @@ class D090Transaction:
 
         Only the existing D090 owner changes fake service/app/venv/state. No
         production CLI route is exposed and a live trial is deliberately gated.
-        All trial transitions require independent physical + native edge proofs.
+        All trial transitions require fresh native physical + edge proofs.
         """
         self._trial_gate()
         self._layout()
