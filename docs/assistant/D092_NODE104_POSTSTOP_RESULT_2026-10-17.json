@@ -1,0 +1,60 @@
+{
+  "after_restart_proof": {
+    "active_session": false,
+    "captured_at_epoch": 1792227275.5835962,
+    "edge_lease_armed": false,
+    "esp128_current_a": 0.0,
+    "esp128_output_off": true,
+    "esp128_voltage_v": 0.0,
+    "ha102_current_a": 0.0,
+    "ha102_output_off": true,
+    "ha102_voltage_v": 0.0,
+    "native_sensor_state_fresh": true,
+    "service_main_pid": 68224
+  },
+  "end_utc": "2026-10-17T08:54:35Z",
+  "events": [
+    "fresh independent pre-stop OFF PASS",
+    "fresh independent post-stop OFF PASS; service PID 0",
+    "old source service restored"
+  ],
+  "initial_proof": {
+    "active_session": false,
+    "captured_at_epoch": 1792227270.7352474,
+    "edge_lease_armed": false,
+    "esp128_current_a": 0.0,
+    "esp128_output_off": true,
+    "esp128_voltage_v": 0.0,
+    "ha102_current_a": 0.0,
+    "ha102_output_off": true,
+    "ha102_voltage_v": 0.0,
+    "native_sensor_state_fresh": true,
+    "service_main_pid": 59725
+  },
+  "observer_unchanged": true,
+  "old_service_restored": true,
+  "operation": "D092_VERIFIED_OFF_ONLY_POSTSTOP",
+  "physical_commands": false,
+  "poststop_proof": {
+    "active_session": false,
+    "captured_at_epoch": 1792227273.2329838,
+    "edge_lease_armed": false,
+    "esp128_current_a": 0.0,
+    "esp128_output_off": true,
+    "esp128_voltage_v": 0.0,
+    "ha102_current_a": 0.0,
+    "ha102_output_off": true,
+    "ha102_voltage_v": 0.0,
+    "native_sensor_state_fresh": true,
+    "service_main_pid": 0
+  },
+  "production_swap": false,
+  "result": "PASS",
+  "service": {
+    "active_state": "active",
+    "n_restarts": "0",
+    "new_main_pid": 68224,
+    "old_main_pid": 59725
+  },
+  "service_stop_requested": true
+}
