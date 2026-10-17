@@ -18,6 +18,24 @@ follow-up design. See `docs/assistant/D084_RECOVERY_QUARANTINE_2026-10-17.md`.
 Software tests are not physical validation; edge/PSU bench acceptance remains
 outstanding. No hardware, deployment, or credential was used for D084.
 
+## D087 operator recovery clearance — 2026-10-17
+
+The D086 coordinator is now connected to production through the existing
+ExecutionPort, controller-owned session persistence, durable quarantine
+journal, and a private Telegram two-step route (only when `V2_UI` is enabled).
+Clearance requires a nonempty explicit `ALLOWED_CHAT_IDS` allowlist and a
+private chat whose sender and chat IDs match; `ALLOW_ALL_CHATS` grants nothing.
+The exact incident/session/battery identity is checked before verified OFF.
+The post-OFF receipt requires a fresh native register-18 Output=OFF report.
+The controller persists a terminal retired-session marker before the journal
+tombstone, and the RAM guard releases last. Retired sessions cannot restore and
+never auto-start a new charge. See
+`docs/assistant/D087_OPERATOR_RECOVERY_CLEARANCE_IMPLEMENTATION_2026-10-17.md`.
+
+This is software implementation evidence only. No hardware, HA/ESPHome, PSU,
+Output ON, or deployment was used. The exact node/firmware and native
+register-18 contract remain subject to physical bench acceptance.
+
 ## Post-eradication sprint audit — baseline `1f8d9c45c9b543dde7a57f78b6385d01012e7b4f`
 
 The `V2_UI` environment variable remains an intentional presentation-only

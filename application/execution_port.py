@@ -18,6 +18,7 @@ from rd6018_telemetry import canonical_programmed_readback, finite_float
 
 from .execution_intent.models import ExecutionIntent
 from .guard_execution_owner_lock import GuardExecutionOwnerLock
+from .operator_recovery_clearance import VerifiedOffEvidence
 from .session_recovery_guard import SessionRecoveryGuard
 
 
@@ -163,6 +164,35 @@ class ExecutionPort:
     async def request_verified_off(self) -> bool:
         """Delegate one verified Output-OFF transaction to the production owner."""
         return bool(await self.execution_owner.turn_off())
+
+    @_serialized_normal_execution
+    async def request_verified_off_evidence(self) -> VerifiedOffEvidence | None:
+        """Clearance-only OFF proof: existing transaction plus fresh native R18 read."""
+        import math
+        import time
+        from rd6018_telemetry import telemetry_freshness
+
+        if not await self.request_verified_off():
+            return None
+        # This is a new owner read after turn_off() completed. Legacy switch state
+        # alone is deliberately insufficient for destructive quarantine release.
+        live = await self.execution_owner.get_all_live()
+        code = live.get("output_state_code_v2")
+        try:
+            value = float(code)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(value) or value != 0.0:
+            return None
+        meta = live.get("_meta")
+        source = meta.get("output_state_code_v2") if isinstance(meta, dict) else None
+        if not isinstance(source, dict) or str(source.get("status", "ok")).lower() != "ok":
+            return None
+        if not any(source.get(key) is not None for key in ("last_reported", "last_updated", "age_s")):
+            return None
+        if not telemetry_freshness(live, ["output_state_code_v2"], max_age_s=20.0).valid:
+            return None
+        return VerifiedOffEvidence(f"execution-port-off:{time.time_ns()}", time.monotonic())
 
     @_serialized_normal_execution
     async def request_verified_on(self) -> bool:
