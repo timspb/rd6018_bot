@@ -419,17 +419,21 @@ class D090Transaction:
             self.failpoint('before-swap')
             (self.root / 'app').rename(self.root / ('old-app-' + transaction))
             _sync_dir(self.root)
+            self.failpoint('after-old-app-rename-before-journal')
             self._phase(record, 'OLD_APP_RENAMED')
             self.failpoint('after-old-app-rename')
             (candidate / 'app').rename(self.root / 'app')
             _sync_dir(self.root)
+            self.failpoint('after-new-app-rename-before-journal')
             self._phase(record, 'NEW_APP_RENAMED')
             self.failpoint('after-new-app-rename')
             (self.root / 'venv').rename(self.root / ('old-venv-' + transaction))
             _sync_dir(self.root)
+            self.failpoint('after-old-venv-rename-before-journal')
             self._phase(record, 'OLD_VENV_RENAMED')
             (candidate / 'venv').rename(self.root / 'venv')
             _sync_dir(self.root)
+            self.failpoint('after-new-venv-rename-before-journal')
             self._phase(record, 'NEW_VENV_RENAMED')
             self.service.start()
             self._phase(record, 'STARTED')
@@ -485,10 +489,13 @@ class D090Transaction:
             raise TransactionError('journal backup identity invalid; remain contained')
         backup = self.backup_root / str(record.get('backup'))
         expected = record.get('backup_inventory')
-        if record['phase'] == 'PREPARED' and not backup.exists() and not backup.is_symlink():
+        if (record['phase'] in ('PREPARED', 'STOPPED')
+                and not backup.exists() and not backup.is_symlink()):
             # No backup means the transaction has not crossed any app/venv
-            # rename boundary. Verify the complete pre-image before resuming
-            # its existing service, or leave it stopped if evidence is absent.
+            # rename boundary. A crash can occur after STOPPED was journaled
+            # but before backup creation. Verify the complete pre-image and
+            # fresh OFF proof before resuming the old service; otherwise remain
+            # contained with the service stopped.
             baseline = record.get('baseline')
             if type(baseline) is not dict:
                 raise TransactionError('pre-backup journal lacks baseline; remain contained')
@@ -499,10 +506,22 @@ class D090Transaction:
             if not self.service.active() or not self.service.stable(release.OLD_SHA):
                 raise TransactionError('pre-image service not positively stable; remain contained')
             self._read_proof(require_service_stopped=False)
+            record['rollback_without_backup'] = True
             record['phase'] = 'ROLLED_BACK'
             _atomic_json(self.journal, record)
             return record
         if record['phase'] in ('COMMITTED', 'ROLLED_BACK'):
+            if (record['phase'] == 'ROLLED_BACK'
+                    and record.get('rollback_without_backup') is True
+                    and not backup.exists() and not backup.is_symlink()):
+                baseline = record.get('baseline')
+                if type(baseline) is not dict:
+                    raise TransactionError('pre-backup rollback lacks baseline; operator review required')
+                self._assert_baseline(baseline)
+                if not self.service.active() or not self.service.stable(release.OLD_SHA):
+                    raise TransactionError('pre-image service is not stable after pre-backup rollback')
+                self._read_proof(require_service_stopped=False)
+                return record
             if not backup.is_dir() or backup.is_symlink() or type(expected) is not dict or inventory(backup) != expected:
                 raise TransactionError('backup missing/corrupt; terminal transaction requires operator review')
             return record

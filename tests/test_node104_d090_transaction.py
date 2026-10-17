@@ -119,8 +119,15 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(release.SOURCE_SHA, (self.root / ".deploy_sha").read_text().strip())
 
     def test_faults_at_journal_and_swap_boundaries_recover_idempotently(self):
-        points = ('after-journal-backup_durable', 'before-swap', 'after-old-app-rename',
-                  'after-new-app-rename', 'post-start')
+        points = (
+            'after-journal-stopped', 'after-journal-backup_durable', 'before-swap',
+            'after-old-app-rename-before-journal', 'after-journal-old_app_renamed',
+            'after-old-app-rename', 'after-new-app-rename-before-journal',
+            'after-journal-new_app_renamed', 'after-new-app-rename',
+            'after-old-venv-rename-before-journal', 'after-journal-old_venv_renamed',
+            'after-new-venv-rename-before-journal', 'after-journal-new_venv_renamed',
+            'after-journal-started', 'post-start',
+        )
         for point in points:
             with self.subTest(point=point):
                 self.tearDown()
@@ -140,6 +147,39 @@ class D090TransactionTests(unittest.TestCase):
         self.assertTrue(self.service.running)
         self.assertEqual('old-app', (self.root / 'app' / 'version').read_text())
         self.assertEqual('ROLLED_BACK', json.loads(self.tx.journal.read_text())['phase'])
+
+    def test_post_stop_prebackup_preimage_tamper_never_restarts_old_service(self):
+        def break_preimage_at_stopped(point):
+            if point == 'after-journal-stopped':
+                (self.root / 'app' / 'version').write_text('unexpected-local-mutation')
+                raise RuntimeError('injected prebackup mutation')
+        self.tx.failpoint = break_preimage_at_stopped
+        with self.assertRaisesRegex(TX.TransactionError, 'baseline changed'):
+            self._run()
+        self.assertFalse(self.service.running)
+        self.assertEqual(0, self.service.starts)
+        record = json.loads(self.tx.journal.read_text())
+        self.assertEqual('STOPPED', record['phase'])
+        with self.assertRaisesRegex(TX.TransactionError, 'baseline changed'):
+            self.tx.recover()
+        self.assertFalse(self.service.running)
+
+    def test_post_stop_prebackup_stale_proof_never_restarts_old_service(self):
+        original = self.tx.proof
+        def stale_only_when_stopped():
+            value = original()
+            if not self.service.running:
+                return replace(value, captured_at_epoch=time.time() - 45)
+            return value
+        self.tx.proof = stale_only_when_stopped
+        with self.assertRaisesRegex(release.GateError, 'expired'):
+            self._run()
+        self.assertFalse(self.service.running)
+        self.assertEqual(0, self.service.starts)
+        self.assertEqual('STOPPED', json.loads(self.tx.journal.read_text())['phase'])
+        with self.assertRaisesRegex(release.GateError, 'expired'):
+            self.tx.recover()
+        self.assertFalse(self.service.running)
 
     def test_backup_corruption_blocks_recovery_and_leaves_service_stopped(self):
         with self.assertRaisesRegex(RuntimeError, 'injected fault'):
