@@ -208,6 +208,33 @@ class PhysicalTestPbModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.rd_autonomous_mode.enter_calls, 0)
         self.assertEqual(app.rd_autonomous_mode.exit_calls, 0)
 
+    async def test_autonomous_status_resolves_deferred_production_coordinator(self):
+        app = FakeApp(mode=Mode.PB_MANAGED)
+        coordinator = app.rd_autonomous_mode
+        coordinator.edge = None
+        attempts = []
+
+        def bind_after_runtime_ready():
+            attempts.append(True)
+            coordinator.edge = FakeAutonomousEdge()
+            return coordinator.edge
+
+        coordinator._require_edge = bind_after_runtime_ready
+        response = await self._control(app).dispatch({"op": "autonomous_status"})
+        self.assertTrue(response["ok"], response)
+        self.assertEqual(attempts, [True])
+        self.assertEqual(response["result"]["rd_control_mode"], "pb_managed")
+        self.assertFalse(response["result"]["edge_autonomous"])
+
+    async def test_autonomous_status_denies_unbound_edge_without_hardware_writes(self):
+        app = FakeApp(mode=Mode.PB_MANAGED)
+        app.rd_autonomous_mode.edge = None
+        response = await self._control(app).dispatch({"op": "autonomous_status"})
+        self.assertFalse(response["ok"])
+        self.assertIn("unavailable", response["error"])
+        self.assertEqual(app.rd_autonomous_mode.enter_calls, 0)
+        self.assertEqual(app.rd_autonomous_mode.exit_calls, 0)
+
     async def test_autonomous_entry_delegates_production_coordinator_off_only(self):
         app = FakeApp(mode=Mode.PB_MANAGED)
         control = self._control(app)

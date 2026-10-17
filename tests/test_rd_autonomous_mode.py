@@ -106,6 +106,39 @@ class RdAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
         coordinator.edge = FakeEdge()
         return manager, coordinator
 
+    async def test_deferred_runtime_lease_is_bound_on_first_use(self):
+        manager = DummyManager()
+        guard = manager.guard
+        guard.edge_lease_enforced = False
+        guard.edge_safety_lease = None
+        attempts = []
+
+        def bind_runtime_lease():
+            attempts.append(True)
+            guard.edge_safety_lease = DummyLease()
+            guard.edge_lease_enforced = True
+            return guard.edge_safety_lease
+
+        guard.ensure_edge_safety_lease = bind_runtime_lease
+        coordinator = RdAutonomousModeCoordinator(types.SimpleNamespace(), manager)
+        self.assertIsNone(coordinator.edge)
+        resolved = coordinator._require_edge()
+        self.assertIs(resolved, coordinator.edge)
+        self.assertIs(resolved.lease, guard.edge_safety_lease)
+        self.assertIs(coordinator._require_edge(), resolved)
+        self.assertEqual(attempts, [True])
+
+    async def test_deferred_lease_never_bypasses_disabled_enforcement(self):
+        manager = DummyManager()
+        manager.guard.edge_lease_enforced = False
+        manager.guard.edge_safety_lease = None
+        manager.guard.ensure_edge_safety_lease = lambda: DummyLease()
+        coordinator = RdAutonomousModeCoordinator(types.SimpleNamespace(), manager)
+        with self.assertRaisesRegex(RuntimeSafetyError, "configured edge firmware authority"):
+            coordinator._require_edge()
+        self.assertIsNone(coordinator.edge)
+        self.assertEqual(manager.enter_calls, 0)
+
     async def test_enter_crosses_hands_off_before_edge_autonomous(self):
         manager, coordinator = self.make()
         self.assertTrue(await coordinator.enter())
