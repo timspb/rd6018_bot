@@ -35,7 +35,7 @@ PHASES = ('PREPARED', 'STOPPED', 'BACKUP_DURABLE', 'CANDIDATE_READY',
           'NEW_VENV_RENAMED', 'STARTED', 'COMMITTED', 'ROLLED_BACK')
 # Must be set from the separately captured and reviewed exact installed app
 # inventory. The old source tree is absent locally, so D090 leaves this OPEN.
-PREIMAGE_APP_INVENTORY_SHA256: str | None = None
+PREIMAGE_APP_INVENTORY_SHA256: str | None = 'ef24cf5a66abe0991e4e5ceb04988c25806ee9a74d9025ebde00bf3161919171'
 READ_ONLY_PROOF_COLLECTOR_SHA256: str | None = None
 
 

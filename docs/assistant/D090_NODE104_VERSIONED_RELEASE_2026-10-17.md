@@ -68,8 +68,7 @@ required to be stopped at the swap boundary.
 
 The old marker alone does not authenticate the installed source bytes. The
 executor also requires `PREIMAGE_APP_INVENTORY_SHA256`, a reviewed hash of the
-captured installed app inventory. That pin is currently `None`, because the
-old tree has not been captured from node104; production prepare therefore
+captured installed app inventory. That pin is now `ef24cf5a66abe0991e4e5ceb04988c25806ee9a74d9025ebde00bf3161919171`, captured twice through the pinned read-only node104 SSH route (2026-10-17T07:27:10Z and 07:30:18Z) with identical 1,584-entry file/directory/symlink inventories (1,486 regular files). The prior Git object is still absent locally; production prepare therefore
 fails closed even if the marker still says the expected old SHA.
 
 Preparation builds the exact staged app and a separate Python 3.11 candidate
@@ -125,3 +124,21 @@ validation, pre-stop versus post-stop evidence, successful fake transaction,
 backup digests, staged SHA/host/stale-evidence blocks, secret/observer
 preservation, injected journal/swap/start faults, idempotent recovery, and
 corrupt-backup containment. These are offline gates, not physical proof.
+
+## Live pre-image read-only binding (2026-10-17)
+
+Two independently executed root read-only walks of installed node104 app
+(at 07:27:10 UTC and 07:30:18 UTC) reported the same 1,584-entry
+inventory SHA256 `ef24cf5a66abe0991e4e5ceb04988c25806ee9a74d9025ebde00bf3161919171`.
+The hash follows the exact `inventory()` canonical JSON digest algorithm,
+including permissions and symlink destinations; no file bytes or secrets were
+copied or printed. The deployed marker remains `8b75cca1...`, service
+PID 59725 NRestarts 0, observer PID 62502 NRestarts 0. Unit SHA256
+`74146a925d8c80a6a240f78877e76e060e674f6928f748db43891e7ff1b0e068`
+and environment SHA256
+`3ca2c77f25c0cde39d5c405114220dc6135197e1f68f3371e9ba8b7ff473a185`
+match existing pins. Filesystem free 4,964,286,464 bytes; app 11.59 MB,
+venv 250.27 MB, state 28.44 MB and existing backups 152.13 MB.
+This closes the pre-image **inventory pin** gap, not full durable backup or
+bench/firmware/signed-proof acceptance. Live tree mutation (e.g. pycache)
+requires a fresh reviewed hash; do not override digest mismatch.

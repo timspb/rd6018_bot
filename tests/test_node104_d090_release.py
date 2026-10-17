@@ -1,12 +1,16 @@
 from dataclasses import replace
+from contextlib import contextmanager
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import shutil
 import sys
+import tarfile
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("d090", Path(__file__).parents[1] / "tools/node104_d090_release.py")
 M = importlib.util.module_from_spec(SPEC)
@@ -15,7 +19,41 @@ SPEC.loader.exec_module(M)
 STAGING = Path("/tmp/rd6018-d089-20261017-staging/release-d29db790bf7140932bc005bddf6bd5988041bfc0-ukm77bsk")
 
 
+@contextmanager
+def staged_fixture():
+    # CI must reconstruct its own release; never rely on a developer's /tmp.
+    with tempfile.TemporaryDirectory() as temp:
+        stage = Path(temp) / "release"
+        tree = stage / "tree"
+        tree.mkdir(parents=True)
+        source = tree / "module.py"
+        data = b"RELEASE_FIXTURE = 'test-only'\n"
+        source.write_bytes(data)
+        archive = stage / "source.tar"
+        with tarfile.open(archive, "w") as bundle:
+            bundle.add(source, arcname="module.py")
+        tarhash = M.sha256_file(archive)
+        manifest = {
+            "source_sha": M.SOURCE_SHA, "node": M.NODE,
+            "service": "rd6018-bot", "archive_sha256": tarhash,
+            "files": [{"path": "module.py", "size": len(data),
+                       "sha256": hashlib.sha256(data).hexdigest()}],
+        }
+        manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
+        manifesthash = hashlib.sha256(manifest_bytes).hexdigest()
+        (stage / "RELEASE_MANIFEST.json").write_bytes(manifest_bytes)
+        (stage / "STAGED_OK").write_text(json.dumps({
+            "manifest_sha256": manifesthash, "tree_verified": True,
+            "directory_fsync": True,
+        }))
+        pins = replace(M.PINNED, staging_manifest_sha256=manifesthash,
+                       source_archive_sha256=tarhash)
+        with patch.object(M, "PINNED", pins):
+            yield stage
+
+
 class ReleaseVerification(unittest.TestCase):
+    @unittest.skipUnless(STAGING.is_dir(), "pinned 1003-file stage available only on WSL2 release host")
     def test_exact_supplied_staging_passes_integrity(self):
         manifest = M.verify_staged_release(STAGING)
         self.assertEqual(manifest["source_sha"], M.SOURCE_SHA)
@@ -24,14 +62,20 @@ class ReleaseVerification(unittest.TestCase):
         self.assertFalse(report["activation_authorized"])
         self.assertTrue(report["blockers"])
 
+    def test_portable_fixture_exact_archive_tree_passes(self):
+        with staged_fixture() as stage:
+            manifest = M.verify_staged_release(stage)
+            self.assertEqual(M.SOURCE_SHA, manifest["source_sha"])
+            report = M.preflight_report(stage)
+            self.assertEqual("PREPARE_ONLY_PASS", report["decision"])
+            self.assertFalse(report["activation_authorized"])
+
     def test_archive_corruption_and_traversal_rejected(self):
-        with tempfile.TemporaryDirectory() as temp:
-            clone = Path(temp) / "release"
-            shutil.copytree(STAGING, clone)
-            with (clone / "source.tar").open("ab") as stream:
+        with staged_fixture() as stage:
+            with (stage / "source.tar").open("ab") as stream:
                 stream.write(b"tamper")
             with self.assertRaisesRegex(M.GateError, "archive"):
-                M.verify_staged_release(clone)
+                M.verify_staged_release(stage)
 
     def test_physical_gate_requires_fresh_two_source_off_zero_and_stopped(self):
         now = time.time()
@@ -82,15 +126,19 @@ class ReleaseVerification(unittest.TestCase):
             M.validate_physical_off(proof, now=now)
 
     def test_wrong_staging_sha_manifest_and_symlink_rejected(self):
-        with tempfile.TemporaryDirectory() as temp:
-            clone = Path(temp) / "release"
-            shutil.copytree(STAGING, clone)
-            manifest_path = clone / "RELEASE_MANIFEST.json"
+        with staged_fixture() as stage:
+            manifest_path = stage / "RELEASE_MANIFEST.json"
             manifest = json.loads(manifest_path.read_text())
             manifest["source_sha"] = "0" * 40
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
             with self.assertRaisesRegex(M.GateError, "manifest digest"):
-                M.verify_staged_release(clone)
+                M.verify_staged_release(stage)
+        with staged_fixture() as stage:
+            file = stage / "tree" / "module.py"
+            file.unlink()
+            file.symlink_to(stage / "RELEASE_MANIFEST.json")
+            with self.assertRaisesRegex(M.GateError, "staged tree contains unsupported"):
+                M.verify_staged_release(stage)
 
 
 if __name__ == "__main__":
