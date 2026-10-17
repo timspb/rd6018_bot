@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import shutil
 import tempfile
 import time
 import unittest
@@ -48,6 +49,10 @@ class Node104TransactionTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(RuntimeError):
                 MODULE._safe_relative(name)
 
+    @unittest.skipUnless(
+        shutil.which("git") is not None and (Path(__file__).parents[1] / ".git").exists(),
+        "Git stage test requires VCS checkout (runs in CI; source.tar has no .git)",
+    )
     def test_stage_is_exact_sha_and_digest_verified(self):
         repo = Path(__file__).parents[1]
         sha = MODULE.run("git", "-C", str(repo), "rev-parse", "HEAD")
