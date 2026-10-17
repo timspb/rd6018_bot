@@ -28,8 +28,10 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
             def __init__(self): self.off_calls = 0
             async def turn_off(self): self.off_calls += 1; return True
             async def get_all_live(self):
-                stamp = datetime.now(timezone.utc).isoformat()
-                return {"output_state_code_v2": 0, "_meta": {"output_state_code_v2": {"status": "ok", "last_reported": stamp}}}
+                raise AssertionError("cached live state must not prove native OFF")
+            async def get_native_physical_output_report(self):
+                return 0, {"native_type": "SensorState", "status": "ok", "age_s": 0.1,
+                           "subscription_timestamp_monotonic": time.monotonic()}
         with tempfile.TemporaryDirectory() as temp:
             session_file, journal_file = Path(temp) / "charge_session.json", Path(temp) / "quarantine.json"
             session_file.write_text(json.dumps({"stage": "MAIN", "v2_trace_session_id": "S1", "v2_battery_id": "B1"}))
@@ -162,20 +164,77 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
 
     def test_clearance_off_receipt_requires_fresh_native_register_18(self):
         class Owner:
-            def __init__(self, live): self.live = live
+            def __init__(self, report): self.report = report; self.off_calls = 0; self.reports = 0
+            async def turn_off(self):
+                self.off_calls += 1
+                return True
+            async def get_all_live(self):
+                raise AssertionError("D087 proof must not use cached live state")
+            async def get_native_physical_output_report(self):
+                self.reports += 1
+                return self.report() if callable(self.report) else self.report
+
+        def native(value=0, *, timestamp=None, age=0.1, native_type="SensorState", status="ok"):
+            return value, {"subscription_timestamp_monotonic": time.monotonic() if timestamp is None else timestamp,
+                           "age_s": age, "native_type": native_type, "status": status}
+
+        owner = Owner(lambda: native())
+        self.assertIsNotNone(asyncio.run(ExecutionPort(owner).request_verified_off_evidence()))
+        self.assertEqual((owner.off_calls, owner.reports), (1, 1))
+
+    def test_stale_native_callback_is_rejected_even_when_report_says_recent(self):
+        class Owner:
             async def turn_off(self): return True
-            async def get_all_live(self): return self.live
-        timestamp = datetime.now(timezone.utc).isoformat()
-        fresh = {"output_state_code_v2": 0, "_meta": {"output_state_code_v2": {
-            "status": "ok", "last_reported": timestamp}}}
-        self.assertIsNotNone(asyncio.run(ExecutionPort(Owner(fresh)).request_verified_off_evidence()))
-        for invalid in (
-            {"switch": "off"},
-            {"output_state_code_v2": 0},
-            {"output_state_code_v2": 1, "_meta": fresh["_meta"]},
-            {"output_state_code_v2": 0, "_meta": {"output_state_code_v2": {"status": "unavailable", "last_reported": timestamp}}},
-        ):
-            self.assertIsNone(asyncio.run(ExecutionPort(Owner(invalid)).request_verified_off_evidence()))
+            async def get_native_physical_output_report(self):
+                return 0, {"subscription_timestamp_monotonic": time.monotonic() - 1,
+                           "age_s": 0.1, "native_type": "SensorState", "status": "ok"}
+        with patch("application.execution_port.NATIVE_OFF_EVIDENCE_TIMEOUT_S", 0):
+            self.assertIsNone(asyncio.run(ExecutionPort(Owner()).request_verified_off_evidence()))
+
+    def test_native_off_evidence_rejects_invalid_and_missing_sources(self):
+        class Owner:
+            async def turn_off(self): return True
+            async def get_native_physical_output_report(self): return self.report
+        cases = [
+            (True, {"native_type": "SensorState", "status": "ok", "age_s": 0.1,
+                    "subscription_timestamp_monotonic": time.monotonic()}),
+            (0, {"native_type": "BinarySensorState", "status": "ok", "age_s": 0.1,
+                 "subscription_timestamp_monotonic": time.monotonic()}),
+            (0, {"native_type": "SensorState", "status": "ok", "age_s": 0.1,
+                 "subscription_timestamp_monotonic": "bad"}),
+        ]
+        for report in cases:
+            owner = Owner(); owner.report = report
+            with patch("application.execution_port.NATIVE_OFF_EVIDENCE_TIMEOUT_S", 0):
+                self.assertIsNone(asyncio.run(ExecutionPort(owner).request_verified_off_evidence()))
+        class Missing:
+            async def turn_off(self): return True
+            async def get_all_live(self): return {"output_state_code_v2": 0}
+        self.assertIsNone(asyncio.run(ExecutionPort(Missing()).request_verified_off_evidence()))
+
+    def test_off_false_does_not_read_or_issue_another_off(self):
+        class Owner:
+            def __init__(self): self.off_calls = self.read_calls = 0
+            async def turn_off(self): self.off_calls += 1; return False
+            async def get_native_physical_output_report(self): self.read_calls += 1
+        owner = Owner()
+        self.assertIsNone(asyncio.run(ExecutionPort(owner).request_verified_off_evidence()))
+        self.assertEqual((owner.off_calls, owner.read_calls), (1, 0))
+
+    def test_evidence_transaction_is_serialized_without_reentrant_deadlock(self):
+        class Owner:
+            async def turn_off(self): return True
+            async def get_native_physical_output_report(self):
+                return 0, {"native_type": "SensorState", "status": "ok", "age_s": 0.1,
+                           "subscription_timestamp_monotonic": time.monotonic()}
+        async def exercise():
+            port = ExecutionPort(Owner())
+            lock = GuardExecutionOwnerLock()
+            port.bind_guard_owner_lock(lock)
+            result = await asyncio.wait_for(port.request_verified_off_evidence(), timeout=1)
+            self.assertIsNotNone(result)
+            self.assertFalse(lock.locked())
+        asyncio.run(exercise())
 
 
 if __name__ == "__main__":

@@ -34,6 +34,10 @@ class ESPDirectConnector(IndependentPhysicalConnector):
         """Read an edge entity directly from the ESPHome native state stream."""
         return await self.transport.get_entity_state(entity_id)
 
+    async def get_physical_output_report(self) -> tuple[Any, dict[str, Any]]:
+        """Expose the read-only native ESPHome SensorState output report."""
+        return await self.transport.get_physical_output_report()
+
     async def press_button(self, entity_id: str) -> bool:
         """Invoke an explicitly mapped edge button through native API."""
         return await self.transport.press_button(entity_id)

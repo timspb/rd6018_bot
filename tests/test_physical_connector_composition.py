@@ -111,8 +111,35 @@ class PhysicalConnectorCompositionTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_native_physical_output_report_delegates_only_to_selected_backend(self):
         import asyncio
+        class Backend:
+            def __init__(self): self.calls = 0
+            async def get_physical_output_report(self):
+                self.calls += 1
+                return 0, {"native_type": "SensorState", "status": "ok"}
+        async def exercise():
+            backend = Backend()
+            client = HassClient("http://ha.example:8123", "secret", backend=backend)
+            self.assertEqual((0, {"native_type": "SensorState", "status": "ok"}),
+                             await client.get_native_physical_output_report())
+            self.assertEqual(backend.calls, 1)
+            ha_only = HassClient("http://ha.example:8123", "secret")
+            ha_only.get_state = AsyncMock(side_effect=AssertionError("no HA fallback"))
+            self.assertIsNone(await ha_only.get_native_physical_output_report())
+            ha_only.get_state.assert_not_awaited()
         asyncio.run(exercise())
+
+    def test_esp_direct_output_report_delegates_to_transport(self):
+        import asyncio
+        from runtime.physical.connectors.esp_direct import ESPDirectConnector
+        class Transport:
+            async def get_physical_output_report(self):
+                return 0, {"native_type": "SensorState", "subscription_timestamp_monotonic": 12.0}
+        connector = ESPDirectConnector.__new__(ESPDirectConnector)
+        connector.transport = Transport()
+        self.assertEqual((0, {"native_type": "SensorState", "subscription_timestamp_monotonic": 12.0}),
+                         asyncio.run(connector.get_physical_output_report()))
 
     def test_from_physical_config_preserves_ha_sidecar_credentials(self):
         marker = object()

@@ -32,6 +32,20 @@ tombstone, and the RAM guard releases last. Retired sessions cannot restore and
 never auto-start a new charge. See
 `docs/assistant/D087_OPERATOR_RECOVERY_CLEARANCE_IMPLEMENTATION_2026-10-17.md`.
 
+## D089 native post-OFF receipt hardening — 2026-10-17
+
+D087 clearance proof now requires a post-completion native ESPHome `SensorState`
+callback from the already-selected physical backend. HA REST/live snapshots and
+pre-command cached reports cannot certify OFF. The subscription timestamp must
+be monotonic and strictly later than the existing verified-OFF transaction,
+with numeric zero and callback age no greater than eight seconds; polling is
+bounded to ten seconds. Missing native reporting fails closed and leaves
+quarantine/session state intact. The boolean OFF API, emergency OFF path, and
+actuator write count are unchanged. See
+`docs/assistant/D089_NATIVE_POST_OFF_RECEIPT_2026-10-17.md`. This is offline
+software evidence only; node104 deployment and physical acceptance were not
+performed.
+
 This is software implementation evidence only. No hardware, HA/ESPHome, PSU,
 Output ON, or deployment was used. The exact node/firmware and native
 register-18 contract remain subject to physical bench acceptance.

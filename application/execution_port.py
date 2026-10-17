@@ -11,6 +11,7 @@ import asyncio
 from functools import wraps
 from dataclasses import dataclass
 from time import time
+import time as _time
 from typing import Any, Mapping, Optional
 
 from protection_utils import should_delay_current_ramp, should_use_startup_settle
@@ -20,6 +21,10 @@ from .execution_intent.models import ExecutionIntent
 from .guard_execution_owner_lock import GuardExecutionOwnerLock
 from .operator_recovery_clearance import VerifiedOffEvidence
 from .session_recovery_guard import SessionRecoveryGuard
+
+
+NATIVE_OFF_EVIDENCE_TIMEOUT_S = 10.0
+NATIVE_OFF_EVIDENCE_POLL_INTERVAL_S = 0.20
 
 
 def _serialized_normal_execution(method):
@@ -167,32 +172,52 @@ class ExecutionPort:
 
     @_serialized_normal_execution
     async def request_verified_off_evidence(self) -> VerifiedOffEvidence | None:
-        """Clearance-only OFF proof: existing transaction plus fresh native R18 read."""
+        """Clearance-only proof from a post-completion native ESPHome callback."""
         import math
-        import time
-        from rd6018_telemetry import telemetry_freshness
-
         if not await self.request_verified_off():
             return None
-        # This is a new owner read after turn_off() completed. Legacy switch state
-        # alone is deliberately insufficient for destructive quarantine release.
-        live = await self.execution_owner.get_all_live()
-        code = live.get("output_state_code_v2")
-        try:
-            value = float(code)
-        except (TypeError, ValueError, OverflowError):
+        off_completed_at = _time.monotonic()
+        reader = getattr(self.execution_owner, "get_native_physical_output_report", None)
+        if not callable(reader):
             return None
-        if not math.isfinite(value) or value != 0.0:
-            return None
-        meta = live.get("_meta")
-        source = meta.get("output_state_code_v2") if isinstance(meta, dict) else None
-        if not isinstance(source, dict) or str(source.get("status", "ok")).lower() != "ok":
-            return None
-        if not any(source.get(key) is not None for key in ("last_reported", "last_updated", "age_s")):
-            return None
-        if not telemetry_freshness(live, ["output_state_code_v2"], max_age_s=20.0).valid:
-            return None
-        return VerifiedOffEvidence(f"execution-port-off:{time.time_ns()}", time.monotonic())
+        deadline = asyncio.get_running_loop().time() + NATIVE_OFF_EVIDENCE_TIMEOUT_S
+        while True:
+            try:
+                report = await reader()
+            except Exception:
+                report = None
+            if isinstance(report, tuple) and len(report) == 2:
+                value, meta = report
+                if isinstance(meta, Mapping):
+                    timestamp = meta.get("subscription_timestamp_monotonic")
+                    age = meta.get("age_s")
+                    def finite_number(candidate: Any) -> float | None:
+                        if isinstance(candidate, bool) or not isinstance(candidate, (int, float)):
+                            return None
+                        try:
+                            number = float(candidate)
+                        except (TypeError, ValueError, OverflowError):
+                            return None
+                        return number if math.isfinite(number) else None
+
+                    timestamp_value = finite_number(timestamp)
+                    age_value = finite_number(age)
+                    output_value = finite_number(value)
+                    valid_timestamp = (
+                        timestamp_value is not None and timestamp_value > off_completed_at
+                    )
+                    valid_age = age_value is not None and 0 <= age_value <= 8.0
+                    fresh_by_clock = (valid_timestamp and
+                                      0 <= _time.monotonic() - timestamp_value <= 8.0)
+                    valid_value = output_value == 0.0
+                    if (valid_value and valid_timestamp and fresh_by_clock and valid_age
+                            and meta.get("native_type") == "SensorState"
+                            and str(meta.get("status", "")).lower() == "ok"):
+                        return VerifiedOffEvidence(f"execution-port-off:{_time.time_ns()}", _time.monotonic())
+            if asyncio.get_running_loop().time() >= deadline:
+                return None
+            await asyncio.sleep(min(NATIVE_OFF_EVIDENCE_POLL_INTERVAL_S,
+                                    max(0.0, deadline - asyncio.get_running_loop().time())))
 
     @_serialized_normal_execution
     async def request_verified_on(self) -> bool:

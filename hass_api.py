@@ -165,6 +165,19 @@ class HassClient:
             logger.error("HA get_state %s: %s", entity_id, ex)
             return None, {}
 
+    async def get_native_physical_output_report(self) -> Tuple[Any, Dict[str, Any]] | None:
+        """Read native output evidence from the selected physical backend only.
+
+        HA REST state is not a native ESPHome callback and is never a fallback
+        for this authority-sensitive read.
+        """
+        if self._physical_backend is None:
+            return None
+        reader = getattr(self._physical_backend, "get_physical_output_report", None)
+        if not callable(reader):
+            return None
+        return await reader()
+
     async def get_states(self, entity_ids: List[str]) -> Dict[str, Tuple[Any, Dict]]:
         async def _get_one(eid: str) -> Tuple[str, Tuple[Any, Dict]]:
             return eid, await self.get_state(eid)
