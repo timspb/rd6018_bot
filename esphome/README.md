@@ -516,7 +516,7 @@ D061/D062 workflows. Current physical status is tracked explicitly:
 - [x] adopted managed lease expiry -> local Output OFF;
 - [x] live-adopt command rejected while Output is already OFF;
 - [x] first real bot D061 preflight rejected stale HA battery-voltage source evidence read-only, before any edge command or actuator write;
-- [ ] corrected force-updated source heartbeat + `Output State Code V2` physically deployed/verified;
+- [x] corrected force-updated source heartbeat + `Output State Code V2` physically deployed/verified (D093, 2026-10-17: 8/8 independently advancing HA `last_reported` timestamps over 49 s, native ESP R18 fresh and OFF);
 - [ ] D064 55 C intrinsic local cutoff physically injected/verified;
 - [ ] D064 raw register-16 nonzero intrinsic local OFF physically injected/verified;
 - [ ] D065 explicit AUTONOMOUS enter/exit positive ACK on the exact firmware;

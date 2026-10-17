@@ -1,0 +1,81 @@
+{
+  "bot_pid": "68224",
+  "duration_s": 49,
+  "nominal_interval_s": 7,
+  "result": {
+    "battery_voltage": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 4.5,
+      "max_reported_age_s": 4.6,
+      "sample_values": [
+        "13.0599994659424"
+      ],
+      "samples": 8
+    },
+    "current": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 0.2,
+      "max_reported_age_s": 4.4,
+      "sample_values": [
+        "0.0"
+      ],
+      "samples": 8
+    },
+    "output_state": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 5.2,
+      "max_reported_age_s": 5.2,
+      "sample_values": [
+        "0.0"
+      ],
+      "samples": 8
+    },
+    "protection_code": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 5.2,
+      "max_reported_age_s": 5.2,
+      "sample_values": [
+        "0.0"
+      ],
+      "samples": 8
+    },
+    "regulation_code": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 5.2,
+      "max_reported_age_s": 5.2,
+      "sample_values": [
+        "0.0"
+      ],
+      "samples": 8
+    },
+    "temp_ext": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 2.1,
+      "max_reported_age_s": 5.0,
+      "sample_values": [
+        "23.0"
+      ],
+      "samples": 8
+    },
+    "temp_int": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 2.1,
+      "max_reported_age_s": 5.0,
+      "sample_values": [
+        "29.0"
+      ],
+      "samples": 8
+    },
+    "voltage": {
+      "distinct_reported_timestamps": 8,
+      "last_reported_age_s": 0.2,
+      "max_reported_age_s": 4.4,
+      "sample_values": [
+        "0.0"
+      ],
+      "samples": 8
+    }
+  },
+  "samples_per_entity": 8,
+  "type": "read_only_source_heartbeat"
+}
