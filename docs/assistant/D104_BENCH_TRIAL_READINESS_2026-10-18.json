@@ -1,0 +1,72 @@
+{
+  "checks": {
+    "autonomous_lease_contract": "disarmed, remaining=0, configured managed TTL=900s",
+    "compileall": "PASS",
+    "d090_prebackup_recovery_gap": "FIXED_AND_TESTED",
+    "d090_rename_journal_fault_matrix": "PASS",
+    "d097_enter_exit": "NOT_ATTEMPTED",
+    "d097_status_request": "SOCKET_NOT_FOUND_READ_ONLY",
+    "focused_d090_d102_tests": "PASS_25_OF_25",
+    "focused_test_count": 25,
+    "full_suite": "PASS_PROJECT_WSL_VENV",
+    "full_suite_discovered": 2138,
+    "full_suite_errors": 0,
+    "full_suite_failures": 0,
+    "full_suite_log": "E:\\CODEX\\RD6018_D104_FULL_SUITE_20261018.log",
+    "full_suite_python": "project venv Python 3.12.3",
+    "full_suite_skipped": 2,
+    "ha102_native_agreement": true,
+    "ha_autonomous_mode_fresh": false,
+    "initial_system_python_suite": "FAIL_ENVIRONMENT_ONLY: 1153 discovered; 175 errors; 2 failures",
+    "local_code_changes": [
+      "tools/node104_d090_transaction.py",
+      "tests/test_node104_d090_transaction.py",
+      "docs/assistant/D104_BENCH_TRIAL_READINESS_2026-10-18.md",
+      "docs/assistant/D104_BENCH_TRIAL_READINESS_2026-10-18.json"
+    ],
+    "measured_current_a": 0.0,
+    "measured_voltage_v": 0.0,
+    "missing_imports_observed": [
+      "aiohttp",
+      "aiogram"
+    ],
+    "native_autonomous_mode": false,
+    "native_lease_armed": false,
+    "native_lease_generation": 61,
+    "native_lease_remaining_s": 0.0,
+    "node_deploy_marker": "8b75cca153f00847d84396aba392472bb7552ad4",
+    "node_environment_sha256": "3ca2c77f25c0cde39d5c405114220dc6135197e1f68f3371e9ba8b7ff473a185",
+    "node_main_pid": 69648,
+    "node_nrestarts": 0,
+    "node_or_firmware_mutation": "NONE",
+    "node_read_only_refresh": "PASS_SAFE_IDLE; HA_AUTONOMOUS_MODE_ENTITY_STALE",
+    "node_unit_sha256": "74146a925d8c80a6a240f78877e76e060e674f6928f748db43891e7ff1b0e068",
+    "output_off": true,
+    "physical_test_socket": "ABSENT",
+    "post_stopped_tampered_preimage_and_stale_proof": "FAIL_CLOSED_NEGATIVE_TESTS_PASS",
+    "programmed_current_a": 0.1,
+    "programmed_ocp_a": 0.2,
+    "programmed_ovp_v": 14.07,
+    "programmed_voltage_v": 13.57,
+    "protection_register_16": 0,
+    "rd_output_actuation": "NONE",
+    "trial_activation": "NOT_ATTEMPTED"
+  },
+  "d065_fault_scenarios": "OPEN_NOT_IN_SCOPE",
+  "d090_trial_lifecycle": "NOT_IMPLEMENTED",
+  "date": "2026-10-18",
+  "last_documented_node_sample": {
+    "fresh_for_this_run": false,
+    "source": "D103 result dated 2026-10-17"
+  },
+  "production_pins_changed": false,
+  "schema": 1,
+  "status": "BLOCKED_TOOL_SAFETY",
+  "task": "RD6018 D104 controlled bench trial readiness",
+  "workspace": {
+    "clean_at_start": true,
+    "head": "ca77b2f48e5517a18a4a798110672cbdce09dd5f",
+    "path": "/home/home-pc/rd6018-safety-arch-20261016",
+    "tree": "36a54a52624d0d06ad0f4a2db4ff9bcf739183dd"
+  }
+}
