@@ -35,6 +35,8 @@ class StartupRecovery:
         self.live_observer = live_observer
 
     async def recover_managed_startup_authority(self) -> bool:
+        if not get_or_create_execution_port(self.app).session_recovery_guard.may_run_automatic_control():
+            return False
         if not await self.managed_mix.recover_startup():
             return False
         if not await self.managed_live.recover_startup():
@@ -48,8 +50,10 @@ class StartupRecovery:
     async def replay_deferred_startup_restore(self) -> None:
         """Replay deferred managed restore through the canonical safe owner."""
         app = self.app
-        controller = app.charge_controller
         execution_port = get_or_create_execution_port(app)
+        if not execution_port.session_recovery_guard.may_run_automatic_control():
+            return
+        controller = app.charge_controller
         live = await app.hass.get_all_live()
 
         if not bool(getattr(controller, "is_active", False)):

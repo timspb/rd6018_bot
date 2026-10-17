@@ -17,8 +17,11 @@ class RecoveryGuardState:
 
 
 class SessionRecoveryGuard:
-    def __init__(self) -> None:
-        self._state = RecoveryGuardState()
+    def __init__(self, *, persist_incident=None, durable: bool = False,
+                 initial_state: RecoveryGuardState | None = None) -> None:
+        self._state = initial_state or RecoveryGuardState()
+        self._persist_incident = persist_incident
+        self._durable = bool(durable)
 
     @property
     def state(self) -> RecoveryGuardState:
@@ -31,6 +34,10 @@ class SessionRecoveryGuard:
     def quarantine(self, reason: str) -> RecoveryGuardState:
         if not self._state.quarantined:
             self._state = RecoveryGuardState(True, str(reason))
+            if self._persist_incident is not None:
+                # Latch RAM first; persistence failure propagates while the
+                # same process remains blocked.
+                self._persist_incident(self._state.reason or "unknown")
         return self._state
 
     def may_run_automatic_control(self) -> bool:
@@ -38,6 +45,8 @@ class SessionRecoveryGuard:
 
     def operator_rearm(self, *, confirmed_output_off: bool) -> bool:
         """Clear only on an explicit operator action with positive OFF proof."""
+        if self._durable:
+            return False
         if not confirmed_output_off:
             return False
         self._state = RecoveryGuardState()

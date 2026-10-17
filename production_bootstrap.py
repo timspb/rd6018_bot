@@ -25,6 +25,8 @@ from battery_input import parse_battery_spec
 from sg_ui import install_sg_ui, sg_menu_button
 from ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
 from application.execution_port import get_or_create_execution_port
+from application.session_recovery_guard import SessionRecoveryGuard
+from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal, default_journal_path
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
 from application.production_start_runner import ProductionStartRunner
@@ -149,6 +151,21 @@ def _install_managed_charge_monitor_guard(app: Any) -> None:
 def install_production(app: Any, *, install_ui: bool = True) -> None:
     if not isinstance(app.charge_controller, DiagnosticProductionChargeController):
         app.charge_controller = DiagnosticProductionChargeController(app.hass, notify_cb=app._charge_notify)
+    # Restore the durable interlock before constructing the canonical port.
+    # This happens during composition, before lifecycle startup can restore.
+    if not getattr(app, "_recovery_quarantine_journal_configured", False):
+        journal = RecoveryQuarantineJournal(default_journal_path(), app)
+        prior_guard = getattr(app, "session_recovery_guard", None)
+        loaded_state = journal.load()
+        if (not loaded_state.quarantined and isinstance(prior_guard, SessionRecoveryGuard)
+                and prior_guard.quarantined):
+            journal.persist(prior_guard.state.reason or "unknown")
+            loaded_state = prior_guard.state
+        app.recovery_quarantine_journal = journal
+        app.session_recovery_guard = SessionRecoveryGuard(
+            persist_incident=journal.persist, durable=True, initial_state=loaded_state
+        )
+        app._recovery_quarantine_journal_configured = True
     get_or_create_execution_port(app)
     if not isinstance(getattr(app, "manual_session_manager", None), ProductionManualSessionManager):
         app.manual_session_manager = ProductionManualSessionManager(app)

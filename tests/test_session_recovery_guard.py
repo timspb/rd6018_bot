@@ -25,6 +25,25 @@ class SessionRecoveryGuardTests(unittest.TestCase):
         guard.quarantine("verified_on")
         self.assertEqual(guard.state.reason, "current")
 
+    def test_durable_guard_persists_first_reason_and_disables_ram_only_rearm(self):
+        calls = []
+        guard = SessionRecoveryGuard(persist_incident=calls.append, durable=True)
+        guard.quarantine("voltage")
+        guard.quarantine("verified_on")
+        self.assertEqual(calls, ["voltage"])
+        self.assertFalse(guard.operator_rearm(confirmed_output_off=True))
+        self.assertTrue(guard.quarantined)
+
+    def test_durable_persist_fault_propagates_and_ram_stays_quarantined(self):
+        def fail(_reason):
+            raise OSError("disk unavailable")
+
+        guard = SessionRecoveryGuard(persist_incident=fail, durable=True)
+        with self.assertRaises(OSError):
+            guard.quarantine("execution_exception")
+        self.assertTrue(guard.quarantined)
+        self.assertFalse(guard.may_run_automatic_control())
+
     def test_canonical_start_rejects_quarantine_before_live_io_or_rollback(self):
         source = Path("application/start_transaction_service.py").read_text(encoding="utf-8")
         start = source.index("async def start_profile_transactional")
