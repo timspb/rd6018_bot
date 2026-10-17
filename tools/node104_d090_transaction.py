@@ -22,6 +22,9 @@ import subprocess
 import tempfile
 import time
 import uuid
+from typing import NamedTuple
+
+import node104_d102_bench_admission as d102
 import fcntl
 from typing import Callable, Protocol
 
@@ -37,6 +40,66 @@ PHASES = ('PREPARED', 'STOPPED', 'BACKUP_DURABLE', 'CANDIDATE_READY',
 # inventory. The old source tree is absent locally, so D090 leaves this OPEN.
 PREIMAGE_APP_INVENTORY_SHA256: str | None = 'ef24cf5a66abe0991e4e5ceb04988c25806ee9a74d9025ebde00bf3161919171'
 READ_ONLY_PROOF_COLLECTOR_SHA256: str | None = 'c6bf8f456c06da75816976946a9129ccd7619237b6e482874c25a4aa9951ace8'
+
+# Reviewed D103 *test candidate*, never a D090 production release pin.
+# The D104 trial has no production CLI entry point until a separately reviewed
+# live trial observer / temporary socket lifecycle can be bound to this owner.
+TRIAL_SOURCE_SHA = "b3cd0174a2918dbbc2ee3f9c908fa14d15089a29"
+TRIAL_PIN = d102.SourcePin(
+    TRIAL_SOURCE_SHA,
+    "410af38f6a8ec059560aa1bc351b00a572a96121c3d93a216cbe86a433e84ae4",
+    "f9c5725638b77a6e76e52cb7269b2e95f1fdbeda8b442d6c6b9811e347947575",
+)
+TRIAL_PURPOSE = "D104_OFF_ONLY_BENCH_TRIAL"
+TRIAL_SCHEMA = 2
+TRIAL_PHASES = ("PREPARED", "STOPPED", "BACKUP_DURABLE",
+                "OLD_APP_RENAMED", "NEW_APP_RENAMED", "OLD_VENV_RENAMED",
+                "NEW_VENV_RENAMED", "TRIAL_RUNNING", "TRIAL_STOPPED",
+                "TRIAL_RESTORING", "TRIAL_RESTORED")
+TRIAL_FINAL_PHASE = "TRIAL_RESTORED"
+
+
+class TrialOffProof(NamedTuple):
+    """Extra independent physical authority proof; never a device action.
+
+    D090 PhysicalOffProof alone does not contain the autonomous mode,
+    protection R16, lease remaining, or programmed limits. The trial requires
+    these fields from a separately reviewed observer even when offline.
+    """
+    captured_at_epoch: float
+    autonomous: bool
+    lease_armed: bool
+    lease_remaining_s: float
+    lease_ttl_s: int
+    protection_code: int
+    modbus_age_s: float
+    set_voltage_v: float
+    set_current_a: float
+    ovp_v: float
+    ocp_a: float
+    challenge: str
+
+    def validate(self) -> None:
+        import math
+        numbers = (self.captured_at_epoch, self.lease_remaining_s,
+                   self.modbus_age_s, self.set_voltage_v, self.set_current_a,
+                   self.ovp_v, self.ocp_a)
+        if any(type(x) not in (int, float) or not math.isfinite(x) for x in numbers):
+            raise TransactionError("trial proof has invalid numeric readings")
+        if (type(self.autonomous) is not bool or type(self.lease_armed) is not bool
+                or type(self.lease_ttl_s) is not int
+                or type(self.protection_code) is not int
+                or type(self.challenge) is not str or len(self.challenge) < 16):
+            raise TransactionError("trial proof has invalid edge types/challenge")
+        if not (0 <= time.time() - self.captured_at_epoch <= 30):
+            raise TransactionError("trial edge proof stale or in the future")
+        if (self.autonomous or self.lease_armed or self.lease_remaining_s != 0
+                or self.lease_ttl_s != 900 or self.protection_code != 0
+                or not 0 <= self.modbus_age_s <= 20
+                or not 0 <= self.set_voltage_v <= 15.5
+                or self.set_current_a < 0 or self.ovp_v < self.set_voltage_v
+                or self.ocp_a < 0):
+            raise TransactionError("trial edge state is not safe OFF/unmanaged")
 
 
 class TransactionError(RuntimeError):
@@ -201,7 +264,9 @@ class D090Transaction:
                  venv_builder: Callable[[Path, Path], None], failpoint: Callable[[str], None] | None = None,
                  space_check: Callable[[int], None] | None = None,
                  candidate_validate: Callable[[Path, Path], None] | None = None,
-                 offline: bool = False):
+                 offline: bool = False,
+                 trial_edge_proof: Callable[[], TrialOffProof] | None = None,
+                 trial_socket_ready: Callable[[], bool] | None = None):
         self.root = root
         self.service = service
         self.proof = proof
@@ -214,6 +279,9 @@ class D090Transaction:
         self.offline = offline
         self._lock_depth = 0
         self._proof_nonces: set[str] = set()
+        self.trial_edge_proof = trial_edge_proof
+        self.trial_socket_ready = trial_socket_ready
+        self._trial_challenges: set[str] = set()
 
     def _read_proof(self, *, require_service_stopped: bool) -> release.PhysicalOffProof:
         proof = self.proof()
@@ -222,6 +290,34 @@ class D090Transaction:
             raise TransactionError('physical proof challenge reused within transaction')
         self._proof_nonces.update(proof.source_nonces)
         return proof
+
+    def _trial_read_proofs(self, reference: dict[str, object] | None = None,
+                           *, service_stopped: bool) -> TrialOffProof:
+        self._read_proof(require_service_stopped=service_stopped)
+        if self.trial_edge_proof is None:
+            raise TransactionError("trial independent edge observer not installed")
+        value = self.trial_edge_proof()
+        if not isinstance(value, TrialOffProof):
+            raise TransactionError("trial observer returned unsupported proof type")
+        value.validate()
+        if value.challenge in self._trial_challenges:
+            raise TransactionError("trial edge challenge replay")
+        self._trial_challenges.add(value.challenge)
+        if reference is not None:
+            for field in ("set_voltage_v", "set_current_a", "ovp_v", "ocp_a"):
+                expected = reference.get(field)
+                if type(expected) not in (int, float) or abs(getattr(value, field) - expected) > .02:
+                    raise TransactionError("trial programmed setpoints/protections changed")
+        return value
+
+    def _trial_gate(self) -> None:
+        # The current release is an offline, fake-service transaction rehearsal.
+        # Node104 trial execution is NOT wired to an actual actuator-capable CLI.
+        if (not self.offline or self.root == Path(release.ROOT)
+                or isinstance(self.service, SystemdService)):
+            raise TransactionError("D104 production trial is not authorized by offline owner")
+        if self.trial_edge_proof is None or self.trial_socket_ready is None:
+            raise TransactionError("trial edge proof and socket readiness must be supplied")
 
     @contextmanager
     def _locked(self):
@@ -469,6 +565,229 @@ class D090Transaction:
             raise TransactionError('prepared candidate changed')
 
     @_transaction_locked
+    def begin_trial(self, staged_release: Path) -> dict[str, object]:
+        """D104 OFF-only *offline* trial; never a permanent D090 commit.
+
+        Only the existing D090 owner changes fake service/app/venv/state. No
+        production CLI route is exposed and a live trial is deliberately gated.
+        All trial transitions require independent physical + native edge proofs.
+        """
+        self._trial_gate()
+        self._layout()
+        d102.verify_source(staged_release, pin=TRIAL_PIN)
+        if not self.service.active() or self.service.main_pid() <= 0:
+            raise TransactionError("trial requires stable original service")
+        if not self.service.stable(release.OLD_SHA):
+            raise TransactionError("trial original service identity not stable")
+        edge = self._trial_read_proofs(service_stopped=False)
+        baseline = self._baseline()
+        ident = uuid.uuid4().hex
+        candidate = self.root / ("candidate-" + ident)
+        candidate.mkdir(mode=0o700)
+        try:
+            shutil.copytree(staged_release / "tree", candidate / "app")
+            self.venv_builder(candidate / "venv", candidate / "app")
+            self.candidate_validate(candidate / "venv" / "bin" / "python", candidate / "app")
+            if inventory(candidate / "app") != inventory(staged_release / "tree"):
+                raise TransactionError("trial prepared candidate differs from reviewed source")
+            _durable_tree(candidate)
+            _sync_dir(self.root)
+            self.space_check(sum(x.stat().st_size for x in self.root.rglob("*") if x.is_file()))
+            self._trial_read_proofs(reference=edge._asdict(), service_stopped=False)
+            self._assert_baseline(baseline)
+        except BaseException:
+            # Before journaling and stopping the service, the candidate is
+            # disposable; service and production app are unchanged.
+            if candidate.is_dir() and not candidate.is_symlink():
+                shutil.rmtree(candidate)
+            raise
+        record: dict[str, object] = {
+            "schema": TRIAL_SCHEMA, "purpose": TRIAL_PURPOSE, "node": release.NODE,
+            "transaction": ident, "source_sha": TRIAL_SOURCE_SHA,
+            "old_sha": release.OLD_SHA, "manifest_sha256": TRIAL_PIN.manifest_sha256,
+            "archive_sha256": TRIAL_PIN.archive_sha256, "phase": "PREPARED",
+            "candidate": candidate.name, "backup": "d104-" + ident,
+            "baseline": baseline, "candidate_inventory": inventory(candidate),
+            "edge_setpoints": {field: getattr(edge, field) for field in
+                               ("set_voltage_v", "set_current_a", "ovp_v", "ocp_a")},
+        }
+        _atomic_json(self.journal, record)
+        try:
+            self.failpoint("trial-after-journal-prepared")
+            self._trial_read_proofs(reference=record["edge_setpoints"], service_stopped=False)
+            self._assert_baseline(baseline)
+            self.service.stop()
+            if self.service.main_pid() != 0:
+                raise TransactionError("trial existing owner did not stop")
+            self._phase(record, "STOPPED")
+            self._trial_read_proofs(reference=record["edge_setpoints"], service_stopped=True)
+            self._assert_baseline(baseline)
+            backup = self.backup_root / record["backup"]
+            backup.mkdir(mode=0o700)
+            self.failpoint("trial-after-backup-mkdir-before-copy")
+            for name in ("app", "state", "venv"):
+                shutil.copytree(self.root / name, backup / name, symlinks=True)
+            for name in (".env", MARKER):
+                shutil.copy2(self.root / name, backup / name)
+            shutil.copy2(self._unit_path(), backup / "service.unit")
+            self.failpoint("trial-after-backup-copy-before-journal")
+            record["backup_inventory"] = inventory(backup)
+            _durable_tree(backup)
+            _sync_dir(self.backup_root)
+            self.failpoint("trial-after-backup-flush-before-journal")
+            self._phase(record, "BACKUP_DURABLE")
+            self._assert_baseline(baseline)
+            self.failpoint("trial-before-swap")
+            for name in ("app", "venv"):
+                old_name = "old-" + name + "-" + ident
+                (self.root / name).rename(self.root / old_name)
+                _sync_dir(self.root)
+                self.failpoint("trial-after-old-" + name + "-rename-before-journal")
+                self._phase(record, "OLD_" + name.upper() + "_RENAMED")
+                (candidate / name).rename(self.root / name)
+                _sync_dir(self.root)
+                self.failpoint("trial-after-new-" + name + "-rename-before-journal")
+                self._phase(record, "NEW_" + name.upper() + "_RENAMED")
+            _atomic_text(self.root / MARKER, TRIAL_SOURCE_SHA)
+            self.failpoint("trial-before-start")
+            self.service.start()
+            if not self.service.stable(TRIAL_SOURCE_SHA):
+                raise TransactionError("trial candidate service did not become stable")
+            # An enabled physical-test AF_UNIX endpoint belongs to the SAME
+            # production composition; no second Telegram polling instance.
+            if not self.trial_socket_ready():
+                raise TransactionError("trial production coordinator socket not ready")
+            self._trial_read_proofs(reference=record["edge_setpoints"], service_stopped=False)
+            self._phase(record, "TRIAL_RUNNING")
+            return record
+        except BaseException:
+            # Shared D090 owner restores the verified old preimage and does
+            # not authorize a new release after a failed trial.
+            self.recover()
+            raise
+
+    @_transaction_locked
+    def finish_trial(self) -> dict[str, object]:
+        """Restore exact old app/venv/state/environment after OFF-only trial."""
+        self._trial_gate()
+        return self.recover()
+
+    def _recover_trial(self, record: dict[str, object]) -> dict[str, object]:
+        """Only D090's locked recover() dispatch calls this schema-2 branch."""
+        self._trial_gate()
+        ident = record.get("transaction")
+        if (record.get("purpose") != TRIAL_PURPOSE or record.get("node") != release.NODE
+                or record.get("source_sha") != TRIAL_SOURCE_SHA
+                or record.get("old_sha") != release.OLD_SHA
+                or record.get("manifest_sha256") != TRIAL_PIN.manifest_sha256
+                or record.get("archive_sha256") != TRIAL_PIN.archive_sha256
+                or type(ident) is not str or len(ident) != 32
+                or any(c not in "0123456789abcdef" for c in ident)
+                or record.get("phase") not in TRIAL_PHASES
+                or record.get("candidate") != "candidate-" + ident
+                or record.get("backup") != "d104-" + ident):
+            raise TransactionError("trial journal identity invalid; remain contained")
+        baseline = record.get("baseline")
+        edges = record.get("edge_setpoints")
+        if type(baseline) is not dict or type(edges) is not dict or set(edges) != {
+                "set_voltage_v", "set_current_a", "ovp_v", "ocp_a"}:
+            raise TransactionError("trial preimage/edge identity missing")
+        backup = self.backup_root / str(record["backup"])
+        expected = record.get("backup_inventory")
+        if record["phase"] == TRIAL_FINAL_PHASE:
+            if record.get("rollback_without_backup") is True:
+                if (backup.is_symlink() or (backup.exists()
+                        and (not backup.is_dir()
+                             or record.get("ignored_unsealed_backup") is not True))):
+                    raise TransactionError("terminal trial backup identity changed")
+            elif (backup.is_symlink() or not backup.is_dir() or type(expected) is not dict
+                  or inventory(backup) != expected):
+                raise TransactionError("terminal trial backup missing/corrupt")
+            self._assert_baseline(baseline)
+            self._trial_read_proofs(reference=edges, service_stopped=False)
+            if not self.service.active() or not self.service.stable(release.OLD_SHA):
+                raise TransactionError("restored old service no longer stable")
+            return record
+        # If a complete backup has not been durably journaled, the app/venv
+        # rename boundary must never have been crossed. Demand exact original
+        # pre-image and fresh OFF proof before a restart.
+        if record["phase"] in ("PREPARED", "STOPPED"):
+            # A crash can leave a partial/unsealed backup before its durable
+            # journal phase. It is NOT valid rollback material; the unchanged
+            # live preimage must instead be authenticated independently.
+            if backup.is_symlink() or (backup.exists() and not backup.is_dir()):
+                raise TransactionError("unsafe unsealed trial backup path")
+            self._trial_read_proofs(reference=edges,
+                                    service_stopped=self.service.main_pid() == 0)
+            self._assert_baseline(baseline)
+            if self.service.main_pid() == 0:
+                self.service.start()
+            if not self.service.active() or not self.service.stable(release.OLD_SHA):
+                raise TransactionError("trial original preimage not stable")
+            self._trial_read_proofs(reference=edges, service_stopped=False)
+            record["rollback_without_backup"] = True
+            record["ignored_unsealed_backup"] = backup.is_dir()
+            self._phase(record, TRIAL_FINAL_PHASE)
+            return record
+        # All other phases require a completely recorded *durable* backup.
+        if (backup.is_symlink() or not backup.is_dir()
+                or type(expected) is not dict or inventory(backup) != expected):
+            raise TransactionError("trial backup missing/corrupt; remain contained")
+        for name in ("app", "state", "venv"):
+            if inventory(backup / name) != baseline.get(name):
+                raise TransactionError("trial saved preimage is corrupted")
+        if (digest(backup / ".env") != baseline.get("env")
+                or digest(backup / MARKER) != baseline.get("marker")
+                or digest(backup / "service.unit") != baseline.get("unit")):
+            raise TransactionError("trial saved configuration differs from preimage")
+        if (digest(self.root / ".env") != baseline.get("env")
+                or self._unit_digest() != baseline.get("unit")):
+            raise TransactionError("trial live configuration changed")
+        if self.root.joinpath(MARKER).is_symlink():
+            raise TransactionError("trial marker symlink is unsafe")
+        if digest(self.root / MARKER) not in (
+                baseline["marker"], hashlib.sha256((TRIAL_SOURCE_SHA + "\n").encode()).hexdigest()):
+            raise TransactionError("trial deployment marker is not an accepted value")
+        # Never stop an autonomous or energized PSU in order to restore code.
+        self._trial_read_proofs(reference=edges, service_stopped=self.service.main_pid() == 0)
+        if self.service.main_pid() != 0:
+            self.service.stop()
+        if self.service.main_pid() != 0:
+            raise TransactionError("trial process still active; cannot restore")
+        self._phase(record, "TRIAL_STOPPED")
+        self._trial_read_proofs(reference=edges, service_stopped=True)
+        self._phase(record, "TRIAL_RESTORING")
+        for name in ("app", "state", "venv"):
+            target = self.root / name
+            replacement = self.root / ("trial-restore-" + name + "-" + ident)
+            failed = self.root / ("trial-displaced-" + name + "-" + ident)
+            if replacement.is_symlink() or failed.is_symlink() or target.is_symlink():
+                raise TransactionError("trial restore path is a symlink")
+            if replacement.exists():
+                shutil.rmtree(replacement)
+            shutil.copytree(backup / name, replacement, symlinks=True)
+            _durable_tree(replacement)
+            if target.exists():
+                if failed.exists():
+                    shutil.rmtree(failed)
+                os.replace(target, failed)
+            os.replace(replacement, target)
+            _sync_dir(self.root)
+            self.failpoint("trial-restore-" + name)
+        _atomic_copy(backup / ".env", self.root / ".env")
+        _atomic_copy(backup / MARKER, self.root / MARKER)
+        # Verify byte-level original app, venv and persistent state BEFORE
+        # restarting old bot, plus independent fresh, unarmed, OFF proof.
+        self._assert_baseline(baseline)
+        self._trial_read_proofs(reference=edges, service_stopped=True)
+        self.service.start()
+        if not self.service.stable(release.OLD_SHA):
+            raise TransactionError("restored old service unstable")
+        self._trial_read_proofs(reference=edges, service_stopped=False)
+        self._phase(record, TRIAL_FINAL_PHASE)
+        return record
+
+    @_transaction_locked
     def recover(self) -> dict[str, object]:
         if not self.offline and (self.root != Path(release.ROOT) or self.host_check is not production_host_check):
             raise TransactionError('production recovery requires the pinned root and node identity verifier')
@@ -479,6 +798,8 @@ class D090Transaction:
             raise TransactionError('journal missing/corrupt; remain contained')
         try: record = json.loads(self.journal.read_text(encoding='utf-8'))
         except (OSError, json.JSONDecodeError) as exc: raise TransactionError('journal corrupt; remain contained') from exc
+        if isinstance(record, dict) and record.get("schema") == TRIAL_SCHEMA:
+            return self._recover_trial(record)
         if (type(record) is not dict or type(record.get('schema')) is not int or record.get('schema') != 1 or record.get('node') != release.NODE
                 or record.get('source_sha') != release.SOURCE_SHA or record.get('old_sha') != release.OLD_SHA
                 or type(record.get('transaction')) is not str or len(record['transaction']) != 32
