@@ -232,8 +232,23 @@ class SystemdService:
         return all(item in value for item in required)
 
     def stable(self, expected_sha: str) -> bool:
+        # Permanent D090 release admission never accepts a D104 trial source.
         if expected_sha not in (release.SOURCE_SHA, release.OLD_SHA):
             return False
+        return self._stable_process(expected_sha)
+
+    def stable_trial(self, expected_sha: str) -> bool:
+        # Exact trial-only check, not a widened permanent release pin.
+        if expected_sha != TRIAL_SOURCE_SHA:
+            return False
+        if not self.layout_valid():
+            return False
+        marker = Path(release.ROOT) / MARKER
+        if marker.is_symlink() or not marker.is_file() or marker.read_text().strip() != TRIAL_SOURCE_SHA:
+            return False
+        return self._stable_process(expected_sha)
+
+    def _stable_process(self, expected_sha: str) -> bool:
         if not self.active() or self.main_pid() <= 0:
             return False
         if self._run('systemctl', 'show', release.SERVICE, '-p', 'NRestarts', '--value') != '0':
@@ -318,6 +333,14 @@ class D090Transaction:
             raise TransactionError("D104 production trial is not authorized by offline owner")
         if self.trial_edge_proof is None or self.trial_socket_ready is None:
             raise TransactionError("trial edge proof and socket readiness must be supplied")
+
+    def _trial_recovery_gate(self) -> None:
+        # Recovery is separate from candidate enablement. A missing optional
+        # activation socket MUST NOT prevent exact preimage restoration.
+        # The locked recover() path still requires pinned journal/node identity,
+        # complete backup and fresh actual HA/native/edge OFF evidence.
+        if self.trial_edge_proof is None:
+            raise TransactionError("trial recovery requires independent edge proof")
 
     @contextmanager
     def _locked(self):
@@ -651,7 +674,12 @@ class D090Transaction:
             _atomic_text(self.root / MARKER, TRIAL_SOURCE_SHA)
             self.failpoint("trial-before-start")
             self.service.start()
-            if not self.service.stable(TRIAL_SOURCE_SHA):
+            candidate_stable = (
+                self.service.stable_trial(TRIAL_SOURCE_SHA)
+                if isinstance(self.service, SystemdService)
+                else self.service.stable(TRIAL_SOURCE_SHA)
+            )
+            if not candidate_stable:
                 raise TransactionError("trial candidate service did not become stable")
             # An enabled physical-test AF_UNIX endpoint belongs to the SAME
             # production composition; no second Telegram polling instance.
@@ -669,12 +697,12 @@ class D090Transaction:
     @_transaction_locked
     def finish_trial(self) -> dict[str, object]:
         """Restore exact old app/venv/state/environment after OFF-only trial."""
-        self._trial_gate()
+        self._trial_recovery_gate()
         return self.recover()
 
     def _recover_trial(self, record: dict[str, object]) -> dict[str, object]:
         """Only D090's locked recover() dispatch calls this schema-2 branch."""
-        self._trial_gate()
+        self._trial_recovery_gate()
         ident = record.get("transaction")
         if (record.get("purpose") != TRIAL_PURPOSE or record.get("node") != release.NODE
                 or record.get("source_sha") != TRIAL_SOURCE_SHA
@@ -774,12 +802,15 @@ class D090Transaction:
             os.replace(replacement, target)
             _sync_dir(self.root)
             self.failpoint("trial-restore-" + name)
+        self.failpoint("trial-restore-after-three-components-before-config")
         _atomic_copy(backup / ".env", self.root / ".env")
         _atomic_copy(backup / MARKER, self.root / MARKER)
+        self.failpoint("trial-restore-after-marker-before-verify")
         # Verify byte-level original app, venv and persistent state BEFORE
         # restarting old bot, plus independent fresh, unarmed, OFF proof.
         self._assert_baseline(baseline)
         self._trial_read_proofs(reference=edges, service_stopped=True)
+        self.failpoint("trial-restore-before-old-start")
         self.service.start()
         if not self.service.stable(release.OLD_SHA):
             raise TransactionError("restored old service unstable")
