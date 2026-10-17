@@ -16,6 +16,15 @@ from tools.acceptance_guard import pairing
 ROOT=Path(__file__).resolve().parents[1]
 
 
+# These archive-reconstruction tests require the Git object database of the
+# historical D061 commit. The production D090 source.tar intentionally contains
+# only tracked source bytes, not .git. Git checkout CI must still execute all
+# of these tests; a byte-verified release archive must not fail merely because
+# it lacks its repository history or the Git executable.
+@unittest.skipUnless(
+    (ROOT / ".git").exists() and shutil.which("git") is not None,
+    "historical D061 git-archive pairing requires a VCS checkout (runs in CI)",
+)
 class D061StagePairingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
