@@ -408,6 +408,53 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(missing["status"], "missing")
         await transport.close()
 
+    async def test_native_autonomous_buttons_use_explicit_recipe_and_buttoninfo(self):
+        from pathlib import Path
+        import yaml
+        recipe = yaml.safe_load(Path("config/physical/esp128.yaml").read_text())
+        self.assertEqual(recipe["edge_entities"]["edge_autonomous_enter"], "safety_enter_autonomous")
+        self.assertEqual(recipe["edge_entities"]["edge_autonomous_exit"], "safety_exit_autonomous")
+        config = _config()
+        config.edge_entities.update({
+            "edge_autonomous_enter": "safety_enter_autonomous",
+            "edge_autonomous_exit": "safety_exit_autonomous",
+        })
+        original = _FakeClient.list_entities_services
+
+        async def with_autonomous(client):
+            entities, services = await original(client)
+            entities.extend([ButtonInfo(20, "safety_enter_autonomous", 0),
+                             ButtonInfo(21, "safety_exit_autonomous", 0)])
+            return entities, services
+
+        with patch.object(_FakeClient, "list_entities_services", with_autonomous):
+            transport = ESPHomeTransport(config, RDConfig(60.0, 18.0, 1000.0))
+            enter = "button.rd6018_rd_6018_safety_enter_autonomous"
+            exit_ = "button.rd6018_rd_6018_safety_exit_autonomous"
+            self.assertEqual((await transport.get_button_info(enter))["native_type"], "ButtonInfo")
+            self.assertEqual((await transport.get_button_info(exit_))["native_type"], "ButtonInfo")
+            self.assertTrue(await transport.press_button(enter))
+            self.assertTrue(await transport.press_button(exit_))
+            self.assertEqual(_FakeClient.instances[0].button_commands, [(20, 0), (21, 0)])
+            await transport.close()
+
+    async def test_autonomous_button_without_recipe_mapping_fails_closed(self):
+        original = _FakeClient.list_entities_services
+
+        async def with_autonomous(client):
+            entities, services = await original(client)
+            entities.append(ButtonInfo(20, "safety_enter_autonomous", 0))
+            return entities, services
+
+        with patch.object(_FakeClient, "list_entities_services", with_autonomous):
+            transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+            button = "button.rd6018_rd_6018_safety_enter_autonomous"
+            self.assertEqual((await transport.get_button_info(button))["status"], "missing")
+            with self.assertRaisesRegex(RuntimeError, "not available"):
+                await transport.press_button(button)
+            self.assertEqual(_FakeClient.instances[0].button_commands, [])
+            await transport.close()
+
     async def test_live_adoption_button_requires_explicit_mapping_and_uses_native_inventory(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         entity_id = "button.rd6018_rd_6018_safety_lease_adopt_live_output"

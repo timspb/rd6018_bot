@@ -70,6 +70,39 @@ class EdgeAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.generation, 11)
         self.assertEqual(hass.pressed, [hass.exit])
 
+    async def test_native_autonomous_buttons_require_inventory_not_button_state(self):
+        class NativeHass(FakeHass):
+            def __init__(self):
+                super().__init__()
+                self.lookups = []
+
+            async def get_state(self, entity_id):
+                if entity_id in {self.enter, self.exit}:
+                    raise AssertionError("native ButtonInfo has no state callback")
+                return await super().get_state(entity_id)
+
+            async def get_button_info(self, entity_id):
+                self.lookups.append(entity_id)
+                return {"status": "ok", "native_type": "ButtonInfo", "exists": True}
+
+        hass = NativeHass()
+        authority = EdgeAutonomousAuthority(EdgeSafetyLease(hass, hass.config))
+        self.assertEqual((await authority.enter()).generation, 11)
+        self.assertEqual((await authority.exit()).generation, 12)
+        self.assertEqual(hass.lookups, [hass.enter, hass.exit])
+        self.assertEqual(hass.pressed, [hass.enter, hass.exit])
+
+    async def test_native_autonomous_wrong_or_missing_button_is_fail_closed(self):
+        class NativeHass(FakeHass):
+            async def get_button_info(self, entity_id):
+                return {"status": "wrong_type", "native_type": "SensorInfo", "exists": True}
+
+        hass = NativeHass()
+        authority = EdgeAutonomousAuthority(EdgeSafetyLease(hass, hass.config))
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "ButtonInfo missing/invalid"):
+            await authority.enter()
+        self.assertEqual(hass.pressed, [])
+
     async def test_managed_lease_must_be_unarmed_before_autonomous_entry(self):
         hass = FakeHass()
         hass.states[hass.config.armed_entity] = "on"

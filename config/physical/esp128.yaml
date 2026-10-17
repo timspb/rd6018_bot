@@ -49,6 +49,8 @@ edge_entities:
   edge_lease_disarm: safety_lease_disarm
   edge_lease_release_to_hands_off: safety_lease_release_to_hands_off
   edge_lease_adopt_live_output: safety_lease_adopt_live_output
+  edge_autonomous_enter: safety_enter_autonomous
+  edge_autonomous_exit: safety_exit_autonomous
   edge_lease_armed: safety_lease_armed
   edge_lease_tripped: safety_lease_tripped
   edge_boot_quarantine: safety_boot_quarantine
