@@ -52,5 +52,9 @@ class SessionRecoveryGuard:
         self._state = RecoveryGuardState()
         return True
 
+    def _release_after_durable_retirement(self) -> None:
+        """Coordinator-only final step after controller and journal commits."""
+        self._state = RecoveryGuardState()
+
 
 __all__ = ["RecoveryGuardState", "SessionRecoveryGuard"]
