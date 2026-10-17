@@ -519,7 +519,8 @@ D061/D062 workflows. Current physical status is tracked explicitly:
 - [x] corrected force-updated source heartbeat + `Output State Code V2` physically deployed/verified (D093, 2026-10-17: 8/8 independently advancing HA `last_reported` timestamps over 49 s, native ESP R18 fresh and OFF);
 - [ ] D064 55 C intrinsic local cutoff physically injected/verified;
 - [ ] D064 raw register-16 nonzero intrinsic local OFF physically injected/verified;
-- [ ] D065 explicit AUTONOMOUS enter/exit positive ACK on the exact firmware;
+- [x] D065 edge-level AUTONOMOUS enter/exit positive ACK on the installed firmware (D095, 2026-10-17; bot coordinator ownership is a separate OPEN gate);
+- [x] D065 real OFF-only edge authority negative matrix: Renew/Disarm do not affect AUTONOMOUS and managed armed lease blocks autonomous entry (D096, 2026-10-17);
 - [ ] D065 AUTONOMOUS Output remains energized beyond 900 s with Wi-Fi/HA absent on a safe bench load;
 - [ ] D065 managed mode still trips/turns OFF after lease loss on the same firmware;
 - [ ] D065 autonomous ESP-only reboot with RD continuously powered and safe Output initially ON;
