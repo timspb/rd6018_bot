@@ -70,8 +70,20 @@ class PhysicalTestControlPbMode:
 
     def _autonomous_coordinator(self) -> Any:
         coordinator = getattr(self.app, "rd_autonomous_mode", None)
-        edge = getattr(coordinator, "edge", None)
-        if coordinator is None or edge is None:
+        if coordinator is None:
+            raise PhysicalTestControlError("AUTONOMOUS production coordinator unavailable")
+        # Resolve the *composed* coordinator after the runtime client is bound.
+        # The coordinator is created before initialize_runtime(), so merely
+        # inspecting .edge would permanently reject an otherwise valid lease.
+        resolver = getattr(coordinator, "_require_edge", None)
+        if callable(resolver):
+            try:
+                resolver()
+            except RuntimeError as exc:
+                raise PhysicalTestControlError(
+                    "AUTONOMOUS production coordinator unavailable: " + str(exc)
+                ) from exc
+        if getattr(coordinator, "edge", None) is None:
             raise PhysicalTestControlError("AUTONOMOUS production coordinator unavailable")
         return coordinator
 

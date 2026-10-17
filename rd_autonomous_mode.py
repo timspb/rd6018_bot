@@ -35,6 +35,17 @@ class RdAutonomousModeCoordinator:
         self._transition_lock = asyncio.Lock()
 
     def _require_edge(self) -> EdgeAutonomousAuthority:
+        # The canonical runtime binds its deferred HassClient only after the
+        # application composition has created this coordinator. Resolve the
+        # existing production lease lazily; never create an independent lease
+        # or authorize AUTONOMOUS if edge enforcement is disabled.
+        if self.edge is None:
+            ensure = getattr(self.guard, "ensure_edge_safety_lease", None)
+            if callable(ensure):
+                ensure()
+            lease = getattr(self.guard, "edge_safety_lease", None)
+            if bool(getattr(self.guard, "edge_lease_enforced", False)) and lease is not None:
+                self.edge = EdgeAutonomousAuthority(lease)
         if self.edge is None:
             raise RuntimeSafetyError(
                 "AUTONOMOUS unavailable: configured edge firmware authority is required"
