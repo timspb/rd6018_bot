@@ -43,7 +43,11 @@ class D106SocketStatusTests(unittest.TestCase):
             (["result", "edge_lease", "remaining_s"], 1),
             (["result", "edge_lease", "modbus_age_s"], 25),
             (["result", "programmed_values", "set_voltage"], 17.3),
+            (["result", "programmed_values", "set_current"], .9),
+            (["result", "programmed_values", "ocp"], .01),
             (["result", "rd_actuator_writes_injected"], 1),
+            (["result", "rd_actuator_writes_injected"], False),
+            (["result", "rd_actuator_writes_injected"], 0.0),
         ):
             with self.subTest(path=path):
                 change(path,bad)

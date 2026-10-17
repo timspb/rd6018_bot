@@ -198,6 +198,82 @@ class D090TransactionTests(unittest.TestCase):
             self.tx.recover()
         self.assertFalse(self.service.running)
 
+    def test_d108_systemd_dropins_are_exact_not_prefix_matches(self):
+        svc = TX.SystemdService()
+        base = (
+            f"WorkingDirectory={release.ROOT}/state\n"
+            "ProtectSystem=strict\n"
+            f"ExecStart={{ path={release.ROOT}/venv/bin/python ; "
+            f"argv[]={release.ROOT}/app/bot.py ; }}\n"
+        )
+        with patch.object(svc, '_run', return_value=base + "DropInPaths=\n"):
+            self.assertTrue(svc.layout_valid())
+            self.assertFalse(svc.layout_valid(trial=True))
+        import node104_d108_socket_lease as d108
+        path = str(d108.CANONICAL_DROPIN_DIR / d108.DROPIN_NAME)
+        with patch.object(svc, '_reviewed_trial_dropin', return_value=True):
+            with patch.object(svc, '_run', return_value=base + f"DropInPaths={path}\n"):
+                self.assertFalse(svc.layout_valid())
+                self.assertTrue(svc.layout_valid(trial=True))
+            with patch.object(svc, '_run', return_value=base + "DropInPaths=/evil/override.conf\n"):
+                self.assertFalse(svc.layout_valid())
+                self.assertFalse(svc.layout_valid(trial=True))
+            with patch.object(svc, '_run', return_value=base + f"DropInPaths={path} /evil/override.conf\n"):
+                self.assertFalse(svc.layout_valid())
+                self.assertFalse(svc.layout_valid(trial=True))
+        with patch.object(svc, '_reviewed_trial_dropin', return_value=False):
+            with patch.object(svc, '_run', return_value=base + f"DropInPaths={path}\n"):
+                self.assertFalse(svc.layout_valid(trial=True))
+
+    def test_d108_unsealed_partial_prebackup_is_ignored_and_original_recovers(self):
+        def crash(point):
+            if point == 'after-journal-stopped':
+                journal = json.loads(self.tx.journal.read_text())
+                unsealed = self.root / 'backups' / journal['backup']
+                unsealed.mkdir()
+                (unsealed / 'partial.tmp').write_text('untrusted fragment')
+                raise RuntimeError('partial backup crash')
+        self.tx.failpoint = crash
+        with self.assertRaisesRegex(RuntimeError, 'partial backup crash'):
+            self._run()
+        record = json.loads(self.tx.journal.read_text())
+        self.assertEqual('ROLLED_BACK', record['phase'])
+        self.assertTrue(record['rollback_without_backup'])
+        self.assertTrue(record['ignored_unsealed_backup'])
+        self.assertEqual('old-app', (self.root / 'app' / 'version').read_text())
+        self.assertEqual('old-venv', (self.root / 'venv' / 'runtime').read_text())
+        self.assertTrue(self.service.running)
+        self.assertEqual('ROLLED_BACK', self.tx.recover()['phase'])
+
+    def test_d108_corrupted_preimage_with_unsealed_backup_fails_closed(self):
+        def crash(point):
+            if point == 'after-journal-stopped':
+                journal = json.loads(self.tx.journal.read_text())
+                unsealed = self.root / 'backups' / journal['backup']
+                unsealed.mkdir()
+                (unsealed / 'partial.tmp').write_text('untrusted fragment')
+                (self.root / 'app' / 'version').write_text('tampered')
+                raise RuntimeError('preimage changed during backup')
+        self.tx.failpoint = crash
+        with self.assertRaisesRegex(TX.TransactionError, 'baseline changed'):
+            self._run()
+        self.assertFalse(self.service.running)
+        self.assertEqual(0, self.service.starts)
+        self.assertEqual('STOPPED', json.loads(self.tx.journal.read_text())['phase'])
+
+    def test_d108_unsealed_backup_symlink_is_never_accepted(self):
+        def crash(point):
+            if point == 'after-journal-stopped':
+                journal = json.loads(self.tx.journal.read_text())
+                unsealed = self.root / 'backups' / journal['backup']
+                unsealed.symlink_to(self.root / 'app', target_is_directory=True)
+                raise RuntimeError('untrusted symlink')
+        self.tx.failpoint = crash
+        with self.assertRaisesRegex(TX.TransactionError, 'unsafe unsealed'):
+            self._run()
+        self.assertFalse(self.service.running)
+        self.assertEqual('STOPPED', json.loads(self.tx.journal.read_text())['phase'])
+
     def test_backup_corruption_blocks_recovery_and_leaves_service_stopped(self):
         with self.assertRaisesRegex(RuntimeError, 'injected fault'):
             self._run(failpoint='before-swap')

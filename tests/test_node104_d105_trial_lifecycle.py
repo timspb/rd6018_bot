@@ -123,6 +123,48 @@ class TrialLifecycleTests(unittest.TestCase):
                 self.assert_old()
                 self.assertEqual("TRIAL_RESTORED",self.recover()["phase"])
 
+    def _d108_socket_lease(self):
+        from tools.node104_d108_socket_lease import TemporarySocketLease
+        directory = self.root / 'simulated-systemd' / 'rd6018-bot.service.d'
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        run = self.root / 'simulated-run'
+        run.mkdir(exist_ok=True)
+        lease = TemporarySocketLease(
+            dropin_dir=directory, socket=run / 'physical.sock',
+            main_pid=self.service.main_pid, daemon_reload=lambda: None,
+            offline=True)
+        self.tx.trial_socket_install = lease.install
+        self.tx.trial_socket_cleanup = lease.cleanup
+        self.tx.trial_socket_ready = lambda: lease.dropin.is_file()
+        return lease
+
+    def test_d108_socket_lease_is_owned_by_trial_and_recovered(self):
+        lease = self._d108_socket_lease()
+        record = self.trial()
+        self.assertEqual("TRIAL_RUNNING", record["phase"])
+        self.assertTrue(lease.dropin.is_file())
+        self.assertEqual("TRIAL_RESTORED", self.finish()["phase"])
+        self.assertFalse(lease.dropin.exists())
+        self.assert_old()
+        self.assertEqual("TRIAL_RESTORED", self.recover()["phase"])
+
+    def test_d108_prepared_crash_does_not_touch_active_original_service(self):
+        lease = self._d108_socket_lease()
+        with self.assertRaisesRegex(RuntimeError, "trial-after-journal-prepared"):
+            self.trial("trial-after-journal-prepared")
+        self.assertFalse(lease.dropin.exists())
+        self.assertTrue(self.service.running)
+        self.assertEqual(0, self.service.stops)
+        self.assert_old()
+
+    def test_d108_crash_after_socket_install_recovers_original_without_lease(self):
+        lease = self._d108_socket_lease()
+        with self.assertRaisesRegex(RuntimeError, "trial-after-socket-install-before-start"):
+            self.trial("trial-after-socket-install-before-start")
+        self.assertFalse(lease.dropin.exists())
+        self.assert_old()
+        self.assertEqual("TRIAL_RESTORED", self.recover()["phase"])
+
     def test_unsealed_backup_is_never_trusted_and_terminal_is_idempotent(self):
         point="trial-after-backup-copy-before-journal"
         with self.assertRaisesRegex(RuntimeError,"injected:"):

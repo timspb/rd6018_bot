@@ -223,13 +223,34 @@ class SystemdService:
     def start(self) -> None:
         self._run('systemctl', 'start', release.SERVICE)
 
-    def layout_valid(self) -> bool:
+    @staticmethod
+    def _reviewed_trial_dropin() -> bool:
+        import stat
+        import node104_d108_socket_lease as d108
+        path = d108.CANONICAL_DROPIN_DIR / d108.DROPIN_NAME
+        if path.is_symlink() or not path.is_file():
+            return False
+        item = path.stat()
+        return (item.st_uid == 0 and stat.S_IMODE(item.st_mode) == 0o600
+                and path.read_bytes() == d108.DROPIN_BYTES)
+
+    def layout_valid(self, *, trial: bool = False) -> bool:
         value = self._run('systemctl', 'show', release.SERVICE, '-p', 'WorkingDirectory',
                           '-p', 'ProtectSystem', '-p', 'ExecStart', '-p', 'DropInPaths')
-        required = ('WorkingDirectory=' + str(Path(release.ROOT) / 'state'),
-                    'ProtectSystem=strict', str(Path(release.ROOT) / 'venv' / 'bin' / 'python'),
-                    str(Path(release.ROOT) / 'app' / 'bot.py'), 'DropInPaths=')
-        return all(item in value for item in required)
+        props = dict(line.partition('=')[::2] for line in value.splitlines()
+                     if '=' in line)
+        command = props.get('ExecStart', '')
+        if (props.get('WorkingDirectory') != str(Path(release.ROOT) / 'state')
+                or props.get('ProtectSystem') != 'strict'
+                or str(Path(release.ROOT) / 'venv' / 'bin' / 'python') not in command
+                or str(Path(release.ROOT) / 'app' / 'bot.py') not in command):
+            return False
+        drops = props.get('DropInPaths')
+        if not trial:
+            return drops == ''
+        import node104_d108_socket_lease as d108
+        return (drops == str(d108.CANONICAL_DROPIN_DIR / d108.DROPIN_NAME)
+                and self._reviewed_trial_dropin())
 
     def stable(self, expected_sha: str) -> bool:
         # Permanent D090 release admission never accepts a D104 trial source.
@@ -241,7 +262,7 @@ class SystemdService:
         # Exact trial-only check, not a widened permanent release pin.
         if expected_sha != TRIAL_SOURCE_SHA:
             return False
-        if not self.layout_valid():
+        if not self.layout_valid(trial=True):
             return False
         marker = Path(release.ROOT) / MARKER
         if marker.is_symlink() or not marker.is_file() or marker.read_text().strip() != TRIAL_SOURCE_SHA:
@@ -281,7 +302,9 @@ class D090Transaction:
                  candidate_validate: Callable[[Path, Path], None] | None = None,
                  offline: bool = False,
                  trial_edge_proof: Callable[[], TrialOffProof] | None = None,
-                 trial_socket_ready: Callable[[], bool] | None = None):
+                 trial_socket_ready: Callable[[], bool] | None = None,
+                 trial_socket_install: Callable[[], None] | None = None,
+                 trial_socket_cleanup: Callable[[], None] | None = None):
         self.root = root
         self.service = service
         self.proof = proof
@@ -296,6 +319,10 @@ class D090Transaction:
         self._proof_nonces: set[str] = set()
         self.trial_edge_proof = trial_edge_proof
         self.trial_socket_ready = trial_socket_ready
+        # The transaction owner alone brackets a temporary candidate socket.
+        # Hooks are injected for offline rehearsal; no production trial CLI.
+        self.trial_socket_install = trial_socket_install
+        self.trial_socket_cleanup = trial_socket_cleanup
         self._trial_challenges: set[str] = set()
 
     def _read_proof(self, *, require_service_stopped: bool) -> release.PhysicalOffProof:
@@ -333,6 +360,9 @@ class D090Transaction:
             raise TransactionError("D104 production trial is not authorized by offline owner")
         if self.trial_edge_proof is None or self.trial_socket_ready is None:
             raise TransactionError("trial edge proof and socket readiness must be supplied")
+        if ((self.trial_socket_install is None) !=
+                (self.trial_socket_cleanup is None)):
+            raise TransactionError("trial socket install/cleanup must share one owner")
 
     def _trial_recovery_gate(self) -> None:
         # Recovery is separate from candidate enablement. A missing optional
@@ -672,6 +702,9 @@ class D090Transaction:
                 self.failpoint("trial-after-new-" + name + "-rename-before-journal")
                 self._phase(record, "NEW_" + name.upper() + "_RENAMED")
             _atomic_text(self.root / MARKER, TRIAL_SOURCE_SHA)
+            if self.trial_socket_install is not None:
+                self.trial_socket_install()
+            self.failpoint("trial-after-socket-install-before-start")
             self.failpoint("trial-before-start")
             self.service.start()
             candidate_stable = (
@@ -749,7 +782,11 @@ class D090Transaction:
                                     service_stopped=self.service.main_pid() == 0)
             self._assert_baseline(baseline)
             if self.service.main_pid() == 0:
+                if self.trial_socket_cleanup is not None:
+                    self.trial_socket_cleanup()
                 self.service.start()
+            # During PREPARED the original service can still be running.
+            # No trial drop-in was installed before the durable backup/swap.
             if not self.service.active() or not self.service.stable(release.OLD_SHA):
                 raise TransactionError("trial original preimage not stable")
             self._trial_read_proofs(reference=edges, service_stopped=False)
@@ -810,6 +847,8 @@ class D090Transaction:
         # restarting old bot, plus independent fresh, unarmed, OFF proof.
         self._assert_baseline(baseline)
         self._trial_read_proofs(reference=edges, service_stopped=True)
+        if self.trial_socket_cleanup is not None:
+            self.trial_socket_cleanup()
         self.failpoint("trial-restore-before-old-start")
         self.service.start()
         if not self.service.stable(release.OLD_SHA):
@@ -841,13 +880,14 @@ class D090Transaction:
             raise TransactionError('journal backup identity invalid; remain contained')
         backup = self.backup_root / str(record.get('backup'))
         expected = record.get('backup_inventory')
-        if (record['phase'] in ('PREPARED', 'STOPPED')
-                and not backup.exists() and not backup.is_symlink()):
-            # No backup means the transaction has not crossed any app/venv
-            # rename boundary. A crash can occur after STOPPED was journaled
-            # but before backup creation. Verify the complete pre-image and
-            # fresh OFF proof before resuming the old service; otherwise remain
-            # contained with the service stopped.
+        if record['phase'] in ('PREPARED', 'STOPPED'):
+            # The durable backup phase is NOT journaled yet. A crash may
+            # leave an incomplete/unsealed directory: never trust or restore
+            # from it. Only the untouched, independently verified original
+            # app/state/venv/env/unit/marker and fresh native OFF evidence
+            # can authorize restarting the original service.
+            if backup.is_symlink() or (backup.exists() and not backup.is_dir()):
+                raise TransactionError('unsafe unsealed pre-backup path; remain contained')
             baseline = record.get('baseline')
             if type(baseline) is not dict:
                 raise TransactionError('pre-backup journal lacks baseline; remain contained')
@@ -859,13 +899,19 @@ class D090Transaction:
                 raise TransactionError('pre-image service not positively stable; remain contained')
             self._read_proof(require_service_stopped=False)
             record['rollback_without_backup'] = True
+            record['ignored_unsealed_backup'] = backup.is_dir()
             record['phase'] = 'ROLLED_BACK'
             _atomic_json(self.journal, record)
             return record
         if record['phase'] in ('COMMITTED', 'ROLLED_BACK'):
             if (record['phase'] == 'ROLLED_BACK'
-                    and record.get('rollback_without_backup') is True
-                    and not backup.exists() and not backup.is_symlink()):
+                    and record.get('rollback_without_backup') is True):
+                if backup.is_symlink() or (backup.exists() and (
+                        not backup.is_dir()
+                        or record.get('ignored_unsealed_backup') is not True)):
+                    raise TransactionError('terminal unsealed backup path changed')
+                if not backup.exists() and record.get('ignored_unsealed_backup') is True:
+                    raise TransactionError('terminal unsealed backup disappeared')
                 baseline = record.get('baseline')
                 if type(baseline) is not dict:
                     raise TransactionError('pre-backup rollback lacks baseline; operator review required')

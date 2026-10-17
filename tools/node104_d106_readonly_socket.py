@@ -42,6 +42,7 @@ def validate_status(envelope: object) -> dict:
             or result["edge_autonomous"] is not False
             or _number(result["output_state_code_v2"]) != 0
             or _number(result["protection_code"]) != 0
+            or type(result["rd_actuator_writes_injected"]) is not int
             or result["rd_actuator_writes_injected"] != 0):
         raise StatusError("status disagrees with PB-managed OFF condition")
     values = result["programmed_values"]
@@ -49,7 +50,8 @@ def validate_status(envelope: object) -> dict:
         raise StatusError("missing programmed readback")
     set_v, set_i = _number(values["set_voltage"]), _number(values["set_current"])
     ovp, ocp = _number(values["ovp"]), _number(values["ocp"])
-    if not (0 <= set_v <= 15.5 and set_i >= 0 and ovp >= set_v and ocp >= 0):
+    if not (0 <= set_v <= 15.5 and set_i >= 0 and ovp >= set_v
+            and ocp >= set_i):
         raise StatusError("unsafe status setpoints")
     lease = result["edge_lease"]
     required_edge = {"armed", "tripped", "boot_quarantine", "remaining_s", "modbus_age_s"}
