@@ -76,6 +76,16 @@ class RecoveryQuarantineJournal:
         return result
 
     def persist(self, reason: str) -> None:
+        if self.path.exists():
+            try:
+                with self.path.open("r", encoding="utf-8") as stream:
+                    current = json.load(stream)
+                if (isinstance(current, dict) and current.get("owner") == OWNER
+                        and current.get("schema_version") == RETIREMENT_SCHEMA_VERSION
+                        and current.get("state") == "retired"):
+                    raise RuntimeError("recovery retirement tombstone is immutable")
+            except json.JSONDecodeError:
+                pass
         existing = self._read_incident()
         # Preserve the original incident binding while the sticky incident is active.
         incident_id = existing.get("incident_id") if existing else str(uuid.uuid4())
@@ -130,12 +140,27 @@ class RecoveryQuarantineJournal:
             },
         }, allow_nan=False)
 
+    def incident_binding(self) -> dict[str, Any]:
+        """Return strict active incident identity for pre-actuation admission."""
+        incident = self._read_incident()
+        if incident is None:
+            raise ValueError("active quarantine incident is unavailable or invalid")
+        identity = incident.get("identity")
+        if (not isinstance(incident.get("incident_id"), str) or not incident["incident_id"].strip()
+                or not isinstance(identity, dict)
+                or not isinstance(identity.get("session_id"), str) or not identity["session_id"].strip()
+                or not isinstance(incident.get("reason"), str) or not incident["reason"].strip()):
+            raise ValueError("quarantine incident lacks strict identity; manual review required")
+        return {"incident_id": incident["incident_id"], "reason": incident["reason"],
+                "session_id": identity["session_id"], "battery_id": identity.get("battery_id")}
+
     def _read_incident(self) -> dict[str, Any] | None:
         """Strict schema-1 incident read used only by this persistence owner."""
         try:
             with self.path.open("r", encoding="utf-8") as stream:
                 doc = json.load(stream)
             if (not isinstance(doc, dict) or doc.get("owner") != OWNER
+                    or set(doc) != {"owner", "schema_version", "quarantined", "reason", "incident_utc", "incident_id", "identity"}
                     or doc.get("schema_version") != SCHEMA_VERSION
                     or doc.get("quarantined") is not True
                     or not isinstance(doc.get("reason"), str) or not doc["reason"].strip()
@@ -143,6 +168,8 @@ class RecoveryQuarantineJournal:
                     or not isinstance(doc.get("identity"), dict)):
                 return None
             identity = doc["identity"]
+            if not set(identity).issubset({"session_id", "battery_id"}):
+                return None
             if any(not isinstance(value, str) or not value.strip() for value in identity.values()):
                 return None
             return doc

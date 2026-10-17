@@ -70,8 +70,17 @@ class OperatorRecoveryClearanceService:
                 session_id = None
             if not isinstance(session_id, str) or not session_id.strip():
                 return RecoveryClearanceResult(False, "session_identity_unavailable")
+            # Bind exact incident and persisted session before any physical call.
             try:
-                evidence = await self._port.request_verified_off()
+                binding = self._journal.incident_binding()
+                if binding["session_id"] != session_id or not self._retire_session.validate(binding):
+                    return RecoveryClearanceResult(False, "incident_session_identity_mismatch")
+                if getattr(operator_context, "incident_id", None) != binding["incident_id"]:
+                    return RecoveryClearanceResult(False, "confirmation_incident_mismatch")
+            except Exception:
+                return RecoveryClearanceResult(False, "incident_identity_unavailable")
+            try:
+                evidence = await self._port.request_verified_off_evidence()
             except Exception:
                 return RecoveryClearanceResult(False, "verified_off_failed")
             now = time.monotonic()
@@ -83,7 +92,7 @@ class OperatorRecoveryClearanceService:
                     or now - evidence.issued_monotonic > 30.0):
                 return RecoveryClearanceResult(False, "fresh_off_evidence_unavailable")
             try:
-                retired = retire_fn(session_id)
+                retired = retire_fn(session_id, binding=binding, off_evidence=evidence)
             except Exception:
                 return RecoveryClearanceResult(False, "session_retirement_failed")
             if not isinstance(retired, RetiredControllerSession) or retired.session_id != session_id:
@@ -93,6 +102,12 @@ class OperatorRecoveryClearanceService:
                                      confirmed_off_evidence=evidence.transaction_id)
             except Exception:
                 return RecoveryClearanceResult(False, "durable_retirement_failed")
+            finalize = getattr(self._retire_session, "finalize", None)
+            try:
+                if callable(finalize):
+                    finalize(session_id)
+            except Exception:
+                return RecoveryClearanceResult(False, "durable_retirement_finalize_failed")
             guard._release_after_durable_retirement()
             return RecoveryClearanceResult(True, "cleared")
 

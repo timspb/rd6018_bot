@@ -7,6 +7,8 @@ import logging
 import math
 import os
 import time
+from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Optional, Tuple
 
 from charging_log import log_session_header
@@ -15,6 +17,7 @@ from runtime.charge.strategy.main_variables import AGM_STAGE_VOLTAGES_V
 from runtime.charge.strategy.mix_variables import mix_finish_hold_seconds
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
 from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
+from runtime.charge.session_atomic import atomic_session_write
 
 
 logger = logging.getLogger("rd6018")
@@ -142,8 +145,65 @@ def clear_session_file(host: Any, *, session_file: str = SESSION_FILE) -> None:
         except OSError:
             pass
 
+
+def retire_controller_session(host: Any, *, session_id: str, battery_id: str | None,
+                              off_transaction_id: str,
+                              session_file: str = SESSION_FILE) -> bool:
+    """Durably replace the exact active session with a non-restorable tombstone.
+
+    Called only by explicit recovery clearance after verified OFF and under the
+    app owner lock. The controller is made IDLE only after file+directory fsync.
+    """
+    path = Path(session_file)
+    with path.open("r", encoding="utf-8") as stream:
+        current = json.load(stream)
+    if not isinstance(current, dict) or current.get("state") == "retired":
+        return False
+    if not isinstance(off_transaction_id, str) or not off_transaction_id.strip():
+        return False
+    if (current.get("v2_trace_session_id") != session_id
+            or current.get("v2_battery_id") != battery_id
+            or current.get("stage") in (None, host.STAGE_IDLE)):
+        return False
+    current_stage = getattr(host, "current_stage", host.STAGE_IDLE)
+    if current_stage != host.STAGE_IDLE and (
+            current.get("stage") != current_stage
+            or getattr(host, "_v2_trace_session_id", None) != session_id
+            or getattr(host, "_v2_battery_id", None) != battery_id):
+        return False
+    tombstone = {
+        "owner": "runtime.charge.persistence",
+        "schema_version": 1,
+        "state": "retired",
+        "stage": "RETIRED",
+        "retirement_kind": "operator_recovery_clearance",
+        "output_intent": "verified_off",
+        "verified_off_transaction_id": off_transaction_id.strip(),
+        "verified_off_recorded_utc": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "battery_id": battery_id,
+        "retired_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    # Fence any same-process save/shutdown path before the durable replacement.
+    # If a crash or fsync error occurs at a cut point, no later save may put the
+    # old active document back over a possibly committed retirement marker.
+    host._recovery_session_retirement_pending = True
+    atomic_session_write(path, tombstone, allow_nan=False)
+    with path.open("r", encoding="utf-8") as stream:
+        written = json.load(stream)
+    if written != tombstone:
+        return False
+    host._recovery_session_retired_id = session_id
+    if current_stage != host.STAGE_IDLE:
+        host.current_stage = host.STAGE_IDLE
+        host._clear_restored_targets()
+    return True
+
 def save_session(host: Any, voltage: float, current: float, ah: float, *, session_file: str = SESSION_FILE) -> None:
         """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
+        if bool(getattr(host, "_recovery_session_retirement_pending", False)):
+            logger.error("Session save blocked while recovery retirement outcome is uncertain")
+            return
         if host.current_stage == host.STAGE_IDLE:
             return
 
@@ -340,6 +400,17 @@ def restore_session(
 
         if not isinstance(data, dict):
             return False, None
+        # A recovery-retired record is terminal evidence, never an old session.
+        # Reject before mutating any controller fields.
+        if data.get("owner") == "runtime.charge.persistence" and data.get("state") == "retired":
+            if (data.get("schema_version") == 1 and data.get("stage") == "RETIRED"
+                    and data.get("retirement_kind") == "operator_recovery_clearance"
+                    and data.get("output_intent") == "verified_off"
+                    and data.get("verified_off_transaction_id")
+                    and data.get("verified_off_recorded_utc")
+                    and data.get("session_id") and "battery_id" in data and data.get("retired_utc")):
+                return False, "This charge session was explicitly retired; start a fresh session."
+            return False, "Retired session record is invalid; automatic restore is disabled."
         # Guarded MAIN snapshots carry monotone electrical authority. The
         # current runtime has NOT yet established a shared all-path Output
         # owner lock, restore-before-ON reconciliation and hardware Iset/OCP

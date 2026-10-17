@@ -26,9 +26,10 @@ class Authority:
 
 class Retirement:
     def __init__(self, result=True):
-        self.result, self.calls = result, []
+        self.result, self.calls, self.valid = result, [], True
     def session_id(self): return "session-A"
-    def retire(self, session_id):
+    def validate(self, binding): return self.valid and binding["session_id"] == "session-A"
+    def retire(self, session_id, *, binding, off_evidence):
         self.calls.append(session_id)
         return RetiredControllerSession(session_id) if self.result else False
 
@@ -37,7 +38,7 @@ class Port:
     def __init__(self, guard, evidence=None, raises=False):
         self.session_recovery_guard, self._guard_owner_lock = guard, Lock()
         self.evidence, self.raises, self.calls = evidence, raises, 0
-    async def request_verified_off(self):
+    async def request_verified_off_evidence(self):
         self.calls += 1
         if self.raises: raise RuntimeError("OFF failed")
         return self.evidence
@@ -96,11 +97,14 @@ class ClearanceServiceTests(unittest.TestCase):
         port = Port(guard, evidence, raises)
         retire = Retirement(retirement)
         service = OperatorRecoveryClearanceService(execution_port=port,
-            journal=journal or SimpleNamespace(retire=lambda **kwargs: None),
+            journal=journal or SimpleNamespace(retire=lambda **kwargs: None,
+                incident_binding=lambda: {"incident_id": "incident-A", "session_id": "session-A", "battery_id": "battery-A"}),
             operator_authority=authority, session_retirement=retire)
         return service, guard, port, retire
 
-    def call(self, service, context=object()): return asyncio.run(service.clear(context))
+    def call(self, service, context=None):
+        incident_id = service._journal.incident_binding()["incident_id"]
+        return asyncio.run(service.clear(context or SimpleNamespace(incident_id=incident_id)))
 
     def test_rejections_precede_hardware_for_authority_or_retirement_gap(self):
         service, guard, port, retire = self.make(authority=None, evidence=VerifiedOffEvidence("x", time.monotonic()))
@@ -110,6 +114,16 @@ class ClearanceServiceTests(unittest.TestCase):
         self.assertFalse(self.call(service).cleared); self.assertEqual(port.calls, 0)
         service, guard, port, retire = self.make(authority=Authority(True), evidence=VerifiedOffEvidence("x", time.monotonic()))
         self.assertFalse(self.call(service).cleared); self.assertEqual(port.calls, 0)
+
+    def test_stale_controller_identity_rejects_before_output_off(self):
+        service, guard, port, retire = self.make(
+            authority=Authority(AuthorizedRecoveryOperator("op")),
+            evidence=VerifiedOffEvidence("x", time.monotonic()))
+        retire.valid = False
+        result = self.call(service)
+        self.assertFalse(result.cleared)
+        self.assertEqual(result.reason, "incident_session_identity_mismatch")
+        self.assertEqual(port.calls, 0)
 
     def test_verified_off_failure_and_stale_or_untyped_evidence_fail_closed(self):
         auth = Authority(AuthorizedRecoveryOperator("op"))
@@ -124,7 +138,8 @@ class ClearanceServiceTests(unittest.TestCase):
         service, guard, port, retire = self.make(authority=auth, retirement=False, evidence=proof)
         self.assertFalse(self.call(service).cleared); self.assertTrue(guard.quarantined)
         def fail(**kwargs): raise OSError("disk")
-        service, guard, port, retire = self.make(authority=auth, evidence=proof, journal=SimpleNamespace(retire=fail))
+        service, guard, port, retire = self.make(authority=auth, evidence=proof, journal=SimpleNamespace(
+            retire=fail, incident_binding=lambda: {"incident_id": "incident-A", "session_id": "session-A", "battery_id": "battery-A"}))
         self.assertFalse(self.call(service).cleared); self.assertEqual(retire.calls, ["session-A"]); self.assertTrue(guard.quarantined)
 
     def test_success_stages_off_retirement_tombstone_then_ram_release(self):
@@ -143,6 +158,10 @@ class ClearanceServiceTests(unittest.TestCase):
             # Simulate the ordered controller-owned retirement surviving cold boot.
             retired_controller_sessions = {"session-A"}
             self.assertIn(json.loads(journal.path.read_text())["retirement"]["session_id"], retired_controller_sessions)
+            tombstone = journal.path.read_text()
+            with self.assertRaises(RuntimeError):
+                journal.persist("must not overwrite retirement")
+            self.assertEqual(journal.path.read_text(), tombstone)
 
 
 if __name__ == "__main__": unittest.main()

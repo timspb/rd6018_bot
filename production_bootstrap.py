@@ -27,12 +27,17 @@ from ui_polish import build_operator_dashboard_keyboard, install_dashboard_polis
 from application.execution_port import get_or_create_execution_port
 from application.session_recovery_guard import SessionRecoveryGuard
 from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal, default_journal_path
+from application.operator_recovery_clearance import (
+    OperatorRecoveryClearanceService,
+)
+from runtime.ui.telegram.recovery_clearance import TelegramRecoveryAuthority, install_recovery_clearance_route
 from application.intents import OperatorIntent, OperatorIntentKind
 from application.production_start_execution_port import ProductionStartExecutionPort
 from application.production_start_runner import ProductionStartRunner
 from application.production_start_route import ProductionStartRouteAdapter
 from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
 from application.start_transaction_adapter import StartTransactionAdapter
+from application.controller_session_retirement import _ControllerSessionRetirement
 
 
 def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -167,6 +172,19 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
         )
         app._recovery_quarantine_journal_configured = True
     get_or_create_execution_port(app)
+    if install_ui and not getattr(app, "_recovery_clearance_service_installed", False):
+        authority = TelegramRecoveryAuthority()
+        service = OperatorRecoveryClearanceService(
+            execution_port=app.execution_port,
+            journal=app.recovery_quarantine_journal,
+            operator_authority=authority,
+            session_retirement=_ControllerSessionRetirement(app),
+        )
+        install_recovery_clearance_route(app, service=service,
+                                         journal=app.recovery_quarantine_journal,
+                                         authority=authority)
+        app.operator_recovery_clearance = service
+        app._recovery_clearance_service_installed = True
     if not isinstance(getattr(app, "manual_session_manager", None), ProductionManualSessionManager):
         app.manual_session_manager = ProductionManualSessionManager(app)
     app.manual_ui_route = ProductionManualUIRoute(app.manual_session_manager)
