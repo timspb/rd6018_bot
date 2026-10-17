@@ -2,6 +2,7 @@ import asyncio
 import types
 import unittest
 from unittest import mock
+from pathlib import Path
 
 from runtime.startup_recovery import StartupRecovery
 
@@ -17,6 +18,16 @@ class _Managed:
 
 
 class StartupRecoveryTests(unittest.TestCase):
+    def test_startup_and_deferred_restore_barriers_precede_restore(self):
+        lifecycle = Path("runtime/production_lifecycle.py").read_text(encoding="utf-8")
+        guard_check = lifecycle.index("may_run_automatic_control()")
+        restore = lifecycle.index("controller.try_restore_session")
+        self.assertLess(guard_check, restore)
+        deferred = Path("runtime/startup_recovery.py").read_text(encoding="utf-8")
+        guard_check = deferred.index("may_run_automatic_control()")
+        restore = deferred.index("controller.try_restore_session")
+        self.assertLess(guard_check, restore)
+
     def test_recovery_order_is_managed_mix_then_live_then_observer(self):
         events = []
 
@@ -51,6 +62,16 @@ class StartupRecoveryTests(unittest.TestCase):
         self.assertFalse(asyncio.run(coordinator.recover_managed_startup_authority()))
         self.assertEqual(mix.calls, 1)
         self.assertEqual(live.calls, 0)
+
+    def test_durable_quarantine_blocks_all_startup_authority_recovery(self):
+        from application.session_recovery_guard import SessionRecoveryGuard
+        app = types.SimpleNamespace(hass=object(), session_recovery_guard=SessionRecoveryGuard())
+        app.session_recovery_guard.quarantine("prior_incident")
+        mix = _Managed(True)
+        live = _Managed(True)
+        coordinator = StartupRecovery(app, mix, live)
+        self.assertFalse(asyncio.run(coordinator.recover_managed_startup_authority()))
+        self.assertEqual((mix.calls, live.calls), (0, 0))
 
 
 if __name__ == "__main__":

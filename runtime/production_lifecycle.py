@@ -75,60 +75,64 @@ class ProductionRuntimeLifecycle:
         # Serialize startup journal/controller restore and subsequent physical
         # setpoints under the same owner as runtime tick and START.
         async with execution_port._guard_owner_lock:
-            try:
-                live = await app.hass.get_all_live()
-                battery_v = app._safe_float(live.get("battery_voltage"))
-                current = app._safe_float(live.get("current"))
-                ah = app._safe_float(live.get("ah"))
-                ovp_triggered = as_bool(live.get("ovp_triggered")) is True
-                ocp_triggered = as_bool(live.get("ocp_triggered")) is True
-                input_voltage = app._safe_float(live.get("input_voltage"), 0.0)
-                controller = app.charge_controller
-                ok, msg = controller.try_restore_session(
-                    battery_v,
-                    current,
-                    ah,
-                    output_is_on=(str(live.get("switch", "")).lower() == "on"),
-                    is_cv=as_bool(live.get("is_cv")) is True,
-                    is_cc=as_bool(live.get("is_cc")) is True,
-                )
-                if ok and msg:
-                    app._apply_restore_time_corrections(controller, live)
-                    app.last_checkpoint_time = app.time.time()
-                    temp_ext = app._safe_float(live.get("temp_ext"))
-                    allow_turn_on = (
-                        app._restore_allows_auto_enable(controller)
-                        and not ovp_triggered
-                        and not ocp_triggered
-                        and input_voltage >= app.MIN_INPUT_VOLTAGE
+            if not execution_port.session_recovery_guard.may_run_automatic_control():
+                app.logger.error("Startup session restore blocked by durable recovery quarantine: %s",
+                                 execution_port.session_recovery_guard.state.reason)
+            else:
+                try:
+                    live = await app.hass.get_all_live()
+                    battery_v = app._safe_float(live.get("battery_voltage"))
+                    current = app._safe_float(live.get("current"))
+                    ah = app._safe_float(live.get("ah"))
+                    ovp_triggered = as_bool(live.get("ovp_triggered")) is True
+                    ocp_triggered = as_bool(live.get("ocp_triggered")) is True
+                    input_voltage = app._safe_float(live.get("input_voltage"), 0.0)
+                    controller = app.charge_controller
+                    ok, msg = controller.try_restore_session(
+                        battery_v,
+                        current,
+                        ah,
+                        output_is_on=(str(live.get("switch", "")).lower() == "on"),
+                        is_cv=as_bool(live.get("is_cv")) is True,
+                        is_cc=as_bool(live.get("is_cc")) is True,
                     )
-                    if app._operator_pause_active():
-                        app.logger.info("Auto-resume skipped: operator pause is active")
-                    elif allow_turn_on:
-                        if controller.current_stage == controller.STAGE_SAFE_WAIT:
-                            uv, ui = controller._safe_wait_target_v, controller._safe_wait_target_i
-                            await app._apply_phase_protection(uv, ui)
-                            await execution_port.program_voltage(uv)
-                            await execution_port.program_current(app._cap_current(ui))
-                            await execution_port.request_verified_off()
-                        else:
-                            uv, ui = controller._get_target_v_i(temp_ext)
-                            await app._apply_phase_protection(uv, ui)
-                            await execution_port.program_voltage(uv)
-                            await execution_port.program_current(app._cap_current(ui))
-                            await execution_port.request_verified_on()
-                        app.log_event(controller.current_stage, battery_v, current, temp_ext, ah, "RESTORE")
-                        app._charge_notify(msg)
-                        app.logger.info("Session restored: %s", controller.current_stage)
-                    else:
-                        app.logger.info(
-                            "Auto-resume skipped: ovp=%s ocp=%s input_v=%.0f",
-                            ovp_triggered,
-                            ocp_triggered,
-                            input_voltage,
+                    if ok and msg:
+                        app._apply_restore_time_corrections(controller, live)
+                        app.last_checkpoint_time = app.time.time()
+                        temp_ext = app._safe_float(live.get("temp_ext"))
+                        allow_turn_on = (
+                            app._restore_allows_auto_enable(controller)
+                            and not ovp_triggered
+                            and not ocp_triggered
+                            and input_voltage >= app.MIN_INPUT_VOLTAGE
                         )
-            except Exception as ex:
-                app.logger.warning("Auto-resume check failed: %s", ex)
+                        if app._operator_pause_active():
+                            app.logger.info("Auto-resume skipped: operator pause is active")
+                        elif allow_turn_on:
+                            if controller.current_stage == controller.STAGE_SAFE_WAIT:
+                                uv, ui = controller._safe_wait_target_v, controller._safe_wait_target_i
+                                await app._apply_phase_protection(uv, ui)
+                                await execution_port.program_voltage(uv)
+                                await execution_port.program_current(app._cap_current(ui))
+                                await execution_port.request_verified_off()
+                            else:
+                                uv, ui = controller._get_target_v_i(temp_ext)
+                                await app._apply_phase_protection(uv, ui)
+                                await execution_port.program_voltage(uv)
+                                await execution_port.program_current(app._cap_current(ui))
+                                await execution_port.request_verified_on()
+                            app.log_event(controller.current_stage, battery_v, current, temp_ext, ah, "RESTORE")
+                            app._charge_notify(msg)
+                            app.logger.info("Session restored: %s", controller.current_stage)
+                        else:
+                            app.logger.info(
+                                "Auto-resume skipped: ovp=%s ocp=%s input_v=%.0f",
+                                ovp_triggered,
+                                ocp_triggered,
+                                input_voltage,
+                            )
+                except Exception as ex:
+                    app.logger.warning("Auto-resume check failed: %s", ex)
 
         app.dp.include_router(app.router)
         await app.configure_commands(self.telegram_runtime)
