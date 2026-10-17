@@ -18,6 +18,7 @@ from rd6018_telemetry import canonical_programmed_readback, finite_float
 
 from .execution_intent.models import ExecutionIntent
 from .guard_execution_owner_lock import GuardExecutionOwnerLock
+from .session_recovery_guard import SessionRecoveryGuard
 
 
 def _serialized_normal_execution(method):
@@ -63,12 +64,16 @@ class ControllerActionExecutionResult:
 class ExecutionPort:
     """production physical port; never selects a phase or creates targets."""
 
-    def __init__(self, execution_owner: Any) -> None:
+    def __init__(self, execution_owner: Any, session_recovery_guard: SessionRecoveryGuard | None = None) -> None:
         self.execution_owner = execution_owner
         self.audit: list[ExecutionPortAudit] = []
         # UNBOUND by default: a stand-alone Guard transaction cannot grant
         # itself an independent lock and pretend it protects all output paths.
         self._guard_owner_lock: asyncio.Lock | None = None
+        self.session_recovery_guard = session_recovery_guard or SessionRecoveryGuard()
+
+    def _recovery_quarantined(self) -> bool:
+        return self.session_recovery_guard.quarantined
 
     def bind_guard_owner_lock(self, lock: GuardExecutionOwnerLock) -> None:
         """Bind the proven app-wide lifecycle lock before Guard activation.
@@ -93,6 +98,8 @@ class ExecutionPort:
         ocp_a: float,
         recipe_voltage_ceiling_v: float,
     ) -> ExecutionPortResult:
+        if self._recovery_quarantined():
+            return self._result(intent, identity, "enable", False, False, "session_recovery_quarantined")
         try:
             result = await self.execution_owner.safe_enable_output(
                 voltage_v=float(intent.requested_voltage_v),
@@ -113,6 +120,8 @@ class ExecutionPort:
 
     @_serialized_normal_execution
     async def apply_intent(self, intent: ExecutionIntent, *, identity: Any) -> ExecutionPortResult:
+        if self._recovery_quarantined():
+            return self._result(intent, identity, "setpoints", False, False, "session_recovery_quarantined")
         if not self._identity_valid(identity):
             return self._result(intent, identity, "setpoints", False, False, "identity_required")
         try:
@@ -145,6 +154,8 @@ class ExecutionPort:
         No production caller is installed. Persist/lock/readback authority must
         be supplied by the canonical runtime before enabling this path.
         """
+        if self._recovery_quarantined():
+            return None
         from .main_guard_transaction import execute_main_guard_reduction
 
         return await execute_main_guard_reduction(self, **transaction)
@@ -156,14 +167,20 @@ class ExecutionPort:
     @_serialized_normal_execution
     async def request_verified_on(self) -> bool:
         """Delegate one guarded/verified Output-ON transaction to the V2 owner."""
+        if self._recovery_quarantined():
+            return False
         return bool(await self.execution_owner.turn_on())
 
     @_serialized_normal_execution
     async def program_voltage(self, value_v: float) -> bool:
+        if self._recovery_quarantined():
+            return False
         return bool(await self.execution_owner.set_voltage(float(value_v)))
 
     @_serialized_normal_execution
     async def program_current(self, value_a: float) -> bool:
+        if self._recovery_quarantined():
+            return False
         return bool(await self.execution_owner.set_current(float(value_a)))
 
     @_serialized_normal_execution
@@ -173,16 +190,22 @@ class ExecutionPort:
         This is NOT a new Output ON authority. Uses existing setters and
         intentionally preserves their ordering and failure results.
         """
+        if self._recovery_quarantined():
+            return False, False
         ok_v = await self.program_voltage(voltage_v)
         ok_i = await self.program_current(current_a)
         return ok_v, ok_i
 
     @_serialized_normal_execution
     async def program_ovp(self, value_v: float) -> bool:
+        if self._recovery_quarantined():
+            return False
         return bool(await self.execution_owner.set_ovp(float(value_v)))
 
     @_serialized_normal_execution
     async def program_ocp(self, value_a: float) -> bool:
+        if self._recovery_quarantined():
+            return False
         return bool(await self.execution_owner.set_ocp(float(value_a)))
 
     @_serialized_normal_execution
@@ -197,6 +220,8 @@ class ExecutionPort:
         has_ovp: bool,
         has_ocp: bool,
     ) -> None:
+        if self._recovery_quarantined():
+            return
         if has_ovp:
             await self.execution_owner.set_ovp(float(target_voltage_v) + float(ovp_offset_v))
         if has_ocp:
@@ -215,6 +240,8 @@ class ExecutionPort:
         has_ocp: bool,
         stabilize_delay_s: float,
     ) -> None:
+        if self._recovery_quarantined():
+            return
         target_i = min(float(max_stage_current_a), max(0.1, float(target_current_a)))
         if target_ocp_a is None or not has_ocp:
             await self.execution_owner.set_current(target_i)
@@ -254,6 +281,8 @@ class ExecutionPort:
         has_ocp: bool,
         stabilize_delay_s: float,
     ) -> Optional[float]:
+        if self._recovery_quarantined():
+            return None
         target_i = min(float(max_stage_current_a), max(0.1, float(target_current_a)))
         if target_ocp_a is None or not has_ocp:
             await self.execution_owner.set_current(target_i)
@@ -300,6 +329,8 @@ class ExecutionPort:
         has_ovp: bool,
         has_ocp: bool,
     ) -> None:
+        if self._recovery_quarantined():
+            return
         if has_ovp:
             await self.execution_owner.set_ovp(float(idle_safe_ovp_v))
         if has_ocp:
@@ -320,6 +351,12 @@ class ExecutionPort:
         has_ocp: bool,
     ) -> ControllerActionExecutionResult:
         """Execute an already-decided controller action batch without stage logic."""
+
+        if self._recovery_quarantined():
+            # Preserve an explicit OFF action, then suppress every other write.
+            if actions.get("turn_off"):
+                await self.request_verified_off()
+            return ControllerActionExecutionResult(enabled=False if actions.get("turn_on") else None)
 
         if actions.get("turn_off"):
             await self.request_verified_off()
@@ -447,16 +484,21 @@ class ExecutionPort:
 
 def get_or_create_execution_port(app: Any) -> ExecutionPort:
     """Return the one application-scoped port bound to the current execution owner."""
+    recovery_guard = getattr(app, "session_recovery_guard", None)
+    if not isinstance(recovery_guard, SessionRecoveryGuard):
+        recovery_guard = SessionRecoveryGuard()
+        setattr(app, "session_recovery_guard", recovery_guard)
     owner = getattr(app, "hass", None)
     existing = getattr(app, "execution_port", None)
     if isinstance(existing, ExecutionPort) and existing.execution_owner is owner:
+        existing.session_recovery_guard = recovery_guard
         lock = getattr(app, "guard_execution_owner_lock", None)
         if lock is None:
             lock = GuardExecutionOwnerLock()
             setattr(app, "guard_execution_owner_lock", lock)
         existing.bind_guard_owner_lock(lock)
         return existing
-    port = ExecutionPort(owner)
+    port = ExecutionPort(owner, recovery_guard)
     lock = getattr(app, "guard_execution_owner_lock", None)
     if lock is None:
         lock = GuardExecutionOwnerLock()

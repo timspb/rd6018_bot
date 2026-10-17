@@ -1,5 +1,23 @@
 # RD6018 Bot V3 Project Runbook
 
+## D084 recovery quarantine — 2026-10-17
+
+An ambiguous false result in link-session restoration now enters a sticky,
+process-lifetime `SessionRecoveryGuard`. It blocks another automatic restore and
+the controller tick for that cycle and later cycles, while the canonical
+`ExecutionPort` also denies automatic ON and non-OFF programming paths. The
+managed session remains intact; normal live reads, lease renewal, safety
+observations, and verified OFF remain available. Existing OVP/OCP, internal
+temperature, and operator-configured OFF handling runs before the quarantine.
+
+This is not durable across process restart and has no operator UI clearance
+workflow yet. No poll or peer reconnect clears it. An explicit guard rearm API
+requires confirmed Output OFF, but production does not currently expose a
+caller. Persistent recovery authority and an operator workflow remain a
+follow-up design. See `docs/assistant/D084_RECOVERY_QUARANTINE_2026-10-17.md`.
+Software tests are not physical validation; edge/PSU bench acceptance remains
+outstanding. No hardware, deployment, or credential was used for D084.
+
 ## Post-eradication sprint audit — baseline `1f8d9c45c9b543dde7a57f78b6385d01012e7b4f`
 
 The `V2_UI` environment variable remains an intentional presentation-only

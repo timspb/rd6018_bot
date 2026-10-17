@@ -52,7 +52,21 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.port.calls.clear()
         self.port.enabled = False
         self.assertFalse(await self.service.reenable_active(14.4, 12.0))
+        self.assertTrue(self.service._guard.quarantined)
         self.assertEqual([call[0] for call in self.port.calls], ["voltage", "current", "on"])
+
+    async def test_route_a_setter_denials_quarantine_without_later_writes(self):
+        for setter in ("voltage", "current"):
+            with self.subTest(setter=setter):
+                self.service._guard.operator_rearm(confirmed_output_off=True)
+                self.port.calls.clear()
+                self.port.reject = {setter}
+                self.assertFalse(await self.service.reenable_active(14.4, 2.0))
+                self.assertTrue(self.service._guard.quarantined)
+                names = [name for name, *_ in self.port.calls]
+                self.assertNotIn("on", names)
+                self.assertEqual(names[-1], setter)
+        self.port.reject.clear()
 
     async def test_route_b_safe_wait_and_normal_results(self):
         result = await self.service.restore_idle_link(13.5, 2.0, safe_wait=True)
@@ -66,7 +80,7 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.output_confirmed)
         self.assertEqual(self.port.calls, [("voltage", 14.4), ("current", 2.0), ("on",)])
 
-    async def test_route_b_denials_short_circuit_and_retry_without_duplicate_on(self):
+    async def test_route_b_denial_quarantines_and_suppresses_every_retry(self):
         self.port.enabled = False
         first = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
         self.assertFalse(first.confirmed)
@@ -75,12 +89,14 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.port.calls.clear()
         self.port.enabled = True
         second = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
-        self.assertTrue(second.confirmed)
-        self.assertEqual([c[0] for c in self.port.calls], ["voltage", "current", "on"])
+        self.assertFalse(second.confirmed)
+        self.assertEqual(second.failed_step, "session_recovery_quarantined")
+        self.assertEqual(self.port.calls, [])
 
         for setter in ("voltage", "current"):
             self.port.calls.clear()
             self.port.reject = {setter}
+            self.service._guard.operator_rearm(confirmed_output_off=True)
             result = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
             self.assertFalse(result.confirmed)
             self.assertEqual(result.failed_step, setter)
@@ -90,9 +106,11 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_safe_wait_off_denials_are_not_success(self):
         for method in (self.service.restore_idle_link, self.service.restore_output_on):
             self.port.calls.clear()
+            self.service._guard.operator_rearm(confirmed_output_off=True)
             self.port.reject = {"off"}
             result = await method(13.5, 2.0, safe_wait=True)
             self.assertFalse(result.confirmed)
+            self.assertTrue(self.service._guard.quarantined)
             self.assertEqual(result.failed_step, "verified_off")
             self.assertNotIn("on", [c[0] for c in self.port.calls])
             if method == self.service.restore_output_on:
@@ -109,9 +127,11 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         for setter in ("voltage", "current"):
             with self.subTest(setter=setter):
                 self.port.calls.clear()
+                self.service._guard.operator_rearm(confirmed_output_off=True)
                 self.port.reject = {setter}
                 result = await self.service.restore_output_on(14.4, 2.0, safe_wait=False)
                 self.assertFalse(result.confirmed)
+                self.assertTrue(self.service._guard.quarantined)
                 self.assertEqual(result.failed_step, setter)
                 self.assertNotIn("on", [c[0] for c in self.port.calls])
                 self.assertEqual([c[0] for c in self.port.calls],
@@ -122,9 +142,11 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         for setter in ("voltage", "current"):
             with self.subTest(setter=setter):
                 self.port.calls.clear()
+                self.service._guard.operator_rearm(confirmed_output_off=True)
                 self.port.reject = {setter}
                 result = await self.service.restore_output_on(13.5, 2.0, safe_wait=True)
                 self.assertFalse(result.confirmed)
+                self.assertTrue(self.service._guard.quarantined)
                 self.assertEqual(result.failed_step, setter)
                 self.assertNotIn("on", [c[0] for c in self.port.calls])
                 self.assertEqual([c[0] for c in self.port.calls],
@@ -136,6 +158,7 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         for failed in ("voltage", "current", "off", "on"):
             with self.subTest(failed=failed):
                 self.port.calls.clear()
+                self.service._guard.operator_rearm(confirmed_output_off=True)
                 self.port.fail_on = failed
                 with self.assertRaisesRegex(RuntimeError, failed):
                     await self.service.restore_idle_link(
@@ -143,6 +166,7 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
                         2.0,
                         safe_wait=failed == "off",
                     )
+                self.assertTrue(self.service._guard.quarantined)
         self.port.fail_on = None
 
     async def test_route_c_safe_wait_and_normal_never_request_on(self):
@@ -157,11 +181,14 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         for failed in ("voltage", "current"):
             with self.subTest(failed=failed):
                 self.port.calls.clear()
+                self.service._guard.operator_rearm(confirmed_output_off=True)
                 self.port.fail_on = failed
                 with self.assertRaisesRegex(RuntimeError, failed):
                     await self.service.reenable_active(14.4, 2.0)
+                self.assertTrue(self.service._guard.quarantined)
                 self.port.fail_on = None
         self.port.calls.clear()
+        self.service._guard.operator_rearm(confirmed_output_off=True)
         self.port.fail_on = "protection"
         async def broken_protection(_v, _i):
             raise RuntimeError("protection")
@@ -206,6 +233,18 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("await _apply_phase_protection(uv, ui)", recovery)
         self.assertNotIn("program_voltage(uv)", recovery)
         self.assertNotIn("program_current(_cap_current(ui))", recovery)
+        self.assertIn("recovery_guard.quarantined", recovery)
+        self.assertIn("may_run_automatic_control()", source)
+
+    async def test_explicit_rearm_requires_positive_output_off_evidence(self):
+        self.port.reject = {"on"}
+        result = await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
+        self.assertFalse(result.confirmed)
+        self.assertTrue(self.service._guard.quarantined)
+        self.assertFalse(self.service._guard.operator_rearm(confirmed_output_off=False))
+        self.assertTrue(self.service._guard.quarantined)
+        self.assertTrue(self.service._guard.operator_rearm(confirmed_output_off=True))
+        self.assertFalse(self.service._guard.quarantined)
 
 
 if __name__ == "__main__":

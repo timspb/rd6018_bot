@@ -165,6 +165,13 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         await message.answer("⚠️ Сначала остановите текущую программу.")
         return False
 
+    if get_or_create_execution_port(app).session_recovery_guard.quarantined:
+        await message.answer(
+            "⚠️ Запуск заблокирован после неподтверждённого восстановления. "
+            "Сначала требуется отдельное операторское восстановление при подтверждённом Output OFF."
+        )
+        return False
+
     live = await app.hass.get_all_live()
     snapshot = snapshot_from_live(live)
     if snapshot is None:
