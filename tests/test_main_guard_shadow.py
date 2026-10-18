@@ -51,6 +51,57 @@ class MainGuardShadowTests(unittest.TestCase):
         self.sample(h, 0, chemistry="AGM")
         self.assertIsNone(h.guard)
 
+    def test_pending_proposal_is_not_disclosed_outside_exact_main_context(self):
+        h = MainGuardShadow()
+        self.sample(h, 0)
+        for t in range(30, 1801, 30):
+            pending = self.sample(h, t)
+        self.assertIsNotNone(pending)
+        cap = h.guard.hardware_limit_a
+        for changes in (
+            {"chemistry": "AGM"},
+            {"chemistry": "UNKNOWN"},
+            {"stage": "COOLING"},
+            {"session_id": "another-session"},
+            {"battery_id": "another-battery"},
+            {"session_id": None},
+            {"output_on": None},
+        ):
+            with self.subTest(changes=changes):
+                self.assertIsNone(self.sample(h, 1802, **changes))
+                self.assertEqual(h.guard.hardware_limit_a, cap)
+        self.assertEqual(h.guard.pending, pending)
+
+    def test_pending_expiry_revokes_stale_proposal_not_current_ceiling(self):
+        h = MainGuardShadow()
+        self.sample(h, 0)
+        for t in range(30, 1801, 30):
+            pending = self.sample(h, t)
+        self.assertIsNotNone(pending)
+        self.assertIsNone(self.sample(h, 2000))
+        self.assertIsNone(h.proposal)
+        self.assertIsNone(h.guard.pending)
+        self.assertEqual(h.guard.fault, "proposal_ack_timeout")
+        self.assertEqual(h.guard.hardware_limit_a, 7.2)
+
+    def test_false_string_freshness_cannot_accrue_main_time(self):
+        h = MainGuardShadow()
+        self.sample(h, 0)
+        self.assertIsNone(self.sample(h, 30, fresh="false"))
+        self.assertEqual(h.guard.accrued_output_on_s, 0)
+        self.assertIsNone(self.sample(h, 60))
+        self.assertEqual(h.guard.accrued_output_on_s, 0)
+        self.assertIsNone(h.proposal)
+
+    def test_malformed_current_sample_faults_shadow_without_leaking_proposal(self):
+        h = MainGuardShadow()
+        self.sample(h, 0)
+        self.assertIsNone(self.sample(h, 30, output_current_a="not-a-current"))
+        self.assertEqual(h.guard.fault, "untrusted_main_current_sample")
+        self.assertIsNone(h.proposal)
+        self.assertIsNone(self.sample(h, 60))
+        self.assertEqual(h.guard.hardware_limit_a, 7.2)
+
     def test_restart_keeps_pending_proposal(self):
         h = MainGuardShadow()
         self.sample(h, 0)
