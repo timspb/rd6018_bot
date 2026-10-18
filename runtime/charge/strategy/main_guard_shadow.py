@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .main_current_guard import MainCurrentGuard, PendingProposal
+from .main_current_guard import GuardError, MainCurrentGuard, PendingProposal
 
 
 @dataclass
@@ -33,7 +33,9 @@ class MainGuardShadow:
         """Observe one accepted MAIN sample; never actuates or writes by default."""
         chem = str(chemistry).strip().upper()
         if chem not in {"EFB", "CA/CA", "CA_CA"}:
-            return self.proposal
+            # A proposal belongs to its original EFB/Ca/Ca MAIN session.
+            # Never expose it when observing AGM or an unknown chemistry.
+            return None
         # Record every non-MAIN observation in an already-bound epoch so that
         # even a short cooling/desulfation excursion breaks active-time
         # continuity. Never create a guard outside MAIN.
@@ -44,7 +46,7 @@ class MainGuardShadow:
                     measured_current_a=output_current_a, fresh=bool(fresh) and type(output_on) is bool,
                     stage=stage, battery_id=battery_id,
                 )
-            return self.proposal
+            return None
         # A genuine accepted session identity is mandatory. Missing identity is
         # a no-op; never synthesize IDs or silently start a new epoch.
         if not session_id or not battery_id or output_on is None:
@@ -55,7 +57,7 @@ class MainGuardShadow:
                     now_s=now_s, output_on=False, measured_current_a=None,
                     fresh=False, stage=stage, battery_id=battery_id,
                 )
-            return self.proposal
+            return None
         if self.guard is None:
             try:
                 self.guard = MainCurrentGuard.start(
@@ -64,16 +66,23 @@ class MainGuardShadow:
                     recipe_initial_current_a=recipe_current_a, now_s=now_s,
                 )
             except (TypeError, ValueError):
-                return self.proposal
+                return None
         elif self.guard.session_id != session_id or self.guard.battery_id != battery_id:
-            # Do not silently reinitialize across a session boundary.
-            return self.proposal
-        self.guard, proposed = self.guard.observe(
-            now_s=now_s, output_on=output_on, measured_current_a=output_current_a,
-            fresh=bool(fresh), stage=stage, battery_id=battery_id,
-        )
-        if proposed is not None:
-            self.proposal = proposed
+            # Do not silently reinitialize or disclose the old pending
+            # proposal across a session/battery boundary.
+            return None
+        try:
+            self.guard, proposed = self.guard.observe(
+                now_s=now_s, output_on=output_on, measured_current_a=output_current_a,
+                fresh=fresh is True, stage=stage, battery_id=battery_id,
+            )
+        except (GuardError, TypeError, ValueError):
+            # A bad physical-current sample is never an actuator proposal or
+            # permission to reset a previously tightened current ceiling.
+            self.guard = self.guard._faulted("untrusted_main_current_sample")
+            self.proposal = None
+            return None
+        self.proposal = self.guard.pending if self.guard.fault is None else None
         # No production owner currently grants journal-write permission. Keep
         # the explicit hook inert unless a future caller supplies an owner.
         if owner_allows_persistence and persistence is not None:
