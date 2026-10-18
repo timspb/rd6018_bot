@@ -113,6 +113,19 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
             raise GuardJournalError("stale_guard_from_different_session")
         result[GUARD_KEY] = saved
         expected_revision = saved.get("revision")
+    # Persisting a guarded MAIN session with a wider target would let a later
+    # normal stage tick reprogram Iset above the physical ratchet. Reject the
+    # entire document, including every unrelated periodic save, rather than
+    # silently blessing a conflicting current setpoint.
+    if result.get("stage") == getattr(host, "STAGE_MAIN", None):
+        try:
+            target_i = float(result["target_current"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise GuardJournalError("guarded_main_target_unavailable") from None
+        from math import isfinite
+        if (not isfinite(target_i) or target_i <= 0
+                or target_i > current.hardware_limit_a + 0.02):
+            raise GuardJournalError("guarded_main_target_exceeds_ratchet")
     return attach_guard(result, current, now_s=now_s,
                         expected_revision=expected_revision)
 

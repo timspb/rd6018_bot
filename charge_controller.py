@@ -343,9 +343,22 @@ class ManagedChargeController:
             capacity_ah=float(self.ah_capacity),
             agm_stage_idx=int(self._agm_stage_idx),
         )
+        current_target = target.current_a
+        # A verified, session-bound MAIN Guard ceiling is monotone. After
+        # physical ACK it must also constrain the controller's next tick:
+        # otherwise the legacy recipe would undo the lower Iset immediately.
+        guard = getattr(self, "_main_current_guard", None)
+        if guard is not None and self.battery_type in (self.PROFILE_EFB, self.PROFILE_CA):
+            if (guard.session_id != self._v2_trace_session_id
+                    or guard.battery_id != self._v2_battery_id
+                    or abs(guard.capacity_ah - self.ah_capacity) > 1e-6
+                    or guard.hardware_limit_a > guard.initial_limit_a):
+                from runtime.charge.strategy.main_guard_session import GuardJournalError
+                raise GuardJournalError("main_guard_identity_or_ceiling_disagrees")
+            current_target = min(current_target, guard.hardware_limit_a)
         return (
             self._apply_temperature_compensation(target.voltage_v, temp_c),
-            target.current_a,
+            current_target,
         )
 
     def _get_profile_target_v_i(
@@ -368,8 +381,20 @@ class ManagedChargeController:
 
     def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         if self._restored_target_v > 0 and self._restored_target_i > 0:
-            return (self._restored_target_v, self._restored_target_i)
-        return self._get_profile_target_v_i(temp_c)
+            target_v, target_i = self._restored_target_v, self._restored_target_i
+        else:
+            target_v, target_i = self._get_profile_target_v_i(temp_c)
+        # Even an earlier remembered (restored) target cannot widen the
+        # acknowledged Guard current ceiling on a continuing MAIN session.
+        guard = getattr(self, "_main_current_guard", None)
+        if (guard is not None and self.current_stage == self.STAGE_MAIN
+                and self.battery_type in (self.PROFILE_EFB, self.PROFILE_CA)):
+            if (guard.session_id != self._v2_trace_session_id
+                    or guard.battery_id != self._v2_battery_id):
+                from runtime.charge.strategy.main_guard_session import GuardJournalError
+                raise GuardJournalError("main_guard_restored_target_identity_disagrees")
+            target_i = min(target_i, guard.hardware_limit_a)
+        return target_v, target_i
 
     def _post_charge_profile_params(self) -> Dict[str, Any]:
         return post_charge_profile_params(self.battery_type)

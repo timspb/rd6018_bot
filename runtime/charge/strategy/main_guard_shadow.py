@@ -25,6 +25,23 @@ class MainGuardShadow:
         )
         return cls(guard=guard, proposal=guard.pending)
 
+    def bind_new_canonical_session(self, *, session_id: str, battery_id: str,
+                                   unguarded_document_proven: bool) -> bool:
+        """Explicit owner-only epoch boundary for a genuinely NEW session.
+
+        Call only after read-only admission checked the current durable
+        session and proved it has no Guard journal/in-memory cap. This is
+        not a way to reset the current ratchet or clear a pending ACK.
+        """
+        if (unguarded_document_proven is not True or not session_id
+                or not battery_id or self.guard is None
+                or (self.guard.session_id == session_id
+                    and self.guard.battery_id == battery_id)):
+            return False
+        self.guard = None
+        self.proposal = None
+        return True
+
     def invalidate_evidence(self, *, now_s: float) -> None:
         """Break ON continuity if durable identity or native evidence is missing."""
         self.proposal = None

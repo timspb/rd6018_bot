@@ -102,6 +102,25 @@ class MainGuardShadowTests(unittest.TestCase):
         self.assertIsNone(self.sample(h, 60))
         self.assertEqual(h.guard.hardware_limit_a, 7.2)
 
+    def test_new_accepted_unguarded_session_can_start_new_epoch(self):
+        h=MainGuardShadow()
+        self.sample(h,0)
+        for t in range(30,1801,30):
+            pending=self.sample(h,t)
+        self.assertIsNotNone(pending)
+        self.assertFalse(h.bind_new_canonical_session(
+            session_id="another",battery_id="bat2",
+            unguarded_document_proven=False))
+        self.assertIsNone(self.sample(h,1802,session_id="another",battery_id="bat2"))
+        self.assertTrue(h.bind_new_canonical_session(
+            session_id="another",battery_id="bat2",
+            unguarded_document_proven=True))
+        self.assertIsNone(h.guard)
+        self.assertIsNone(h.proposal)
+        self.sample(h,1803,session_id="another",battery_id="bat2")
+        self.assertEqual(h.guard.session_id,"another")
+        self.assertEqual(h.guard.battery_id,"bat2")
+
     def test_restart_keeps_pending_proposal(self):
         h = MainGuardShadow()
         self.sample(h, 0)
