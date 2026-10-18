@@ -82,10 +82,31 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
             return
         if self.edge_safety_lease is None:
             raise RuntimeSafetyError("edge safety lease is required but unavailable")
+        task = asyncio.current_task()
+        logger.info(
+            "Edge lease START arm begin: task=%s suspended_before=%s",
+            task.get_name() if task is not None else None,
+            getattr(self.edge_safety_lease, "renewals_suspended", None),
+        )
         try:
-            await self.edge_safety_lease.arm()
+            state = await self.edge_safety_lease.arm()
         except Exception as exc:
+            logger.exception(
+                "Edge lease START arm failed: task=%s suspended_after=%s",
+                task.get_name() if task is not None else None,
+                getattr(self.edge_safety_lease, "renewals_suspended", None),
+            )
             raise RuntimeSafetyError(f"edge safety lease arm failed: {exc}") from exc
+        logger.info(
+            "Edge lease START arm acknowledged: task=%s armed=%s generation=%s "
+            "remaining_s=%s modbus_age_s=%s suspended_after=%s",
+            task.get_name() if task is not None else None,
+            getattr(state, "armed", None),
+            getattr(state, "generation", None),
+            getattr(state, "remaining_s", None),
+            getattr(state, "modbus_age_s", None),
+            getattr(self.edge_safety_lease, "renewals_suspended", None),
+        )
 
     async def _renew_edge_lease_or_fail(self, *, output_state: bool) -> None:
         self.ensure_edge_safety_lease()
@@ -100,6 +121,16 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         try:
             await self.edge_safety_lease.renew_if_due()
         except Exception as exc:
+            task = asyncio.current_task()
+            logger.exception(
+                "Edge lease live-read renewal failed: task=%s output_state=%s "
+                "controller_active=%s suspended=%s lease_type=%s",
+                task.get_name() if task is not None else None,
+                output_state,
+                self.controller_active,
+                getattr(self.edge_safety_lease, "renewals_suspended", None),
+                type(self.edge_safety_lease).__name__,
+            )
             await self._fail_closed(
                 "edge_lease_lost",
                 f"локальный RD6018 safety lease не подтверждён ({exc})",
