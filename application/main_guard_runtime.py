@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, Callable
 
 from application.main_guard_transaction import MainGuardAuthority, MainGuardExecutionResult
 from runtime.charge.strategy.main_guard_admission import MainGuardAdmission
@@ -21,6 +21,7 @@ async def execute_due_main_guard(
     *, app: Any, port: Any, admission: MainGuardAdmission,
     shadow: MainGuardShadow, proposal: PendingProposal,
     session_path: str = "charge_session.json",
+    clock: Callable[[], float] = time.monotonic,
 ) -> MainGuardExecutionResult | None:
     """Return None for missing authority; only a genuine accepted lease writes.
 
@@ -61,6 +62,7 @@ async def execute_due_main_guard(
 
     writer = CanonicalMainGuardCheckpoint(
         controller=controller, owner_lock=lock, path=session_path,
+        monotonic_now=clock,
     )
     result = await port.execute_main_current_guard_reduction(
         guard=shadow.guard, proposal=proposal,
@@ -71,7 +73,7 @@ async def execute_due_main_guard(
             lease_armed=True, owner_authorized=True,
         ),
         persist=writer.persist, execution_lock=lock,
-        now=time.monotonic, max_stage_current_a=12.0,
+        now=clock, max_stage_current_a=12.0,
         ocp_offset_a=0.1, stabilize_delay_s=0.0,
     )
     if result is None:

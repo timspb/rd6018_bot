@@ -49,13 +49,13 @@ class D109RuntimeBridgeTests(D109CanonicalGuardIntegration):
         self.shadow.guard=guard
         self.shadow.proposal=proposal
         self.assertIsNotNone(proposal)
-        with patch("application.main_guard_runtime.time.monotonic",return_value=1801.0):
-            async with self.lock:
-                return await execute_due_main_guard(
-                    app=self.app,port=self.port,admission=admission,
-                    shadow=self.shadow,proposal=proposal,
-                    session_path=str(self.path),
-                )
+        async with self.lock:
+            return await execute_due_main_guard(
+                app=self.app,port=self.port,admission=admission,
+                shadow=self.shadow,proposal=proposal,
+                session_path=str(self.path),
+                clock=lambda:1801.0,
+            )
 
     async def test_native_lease_positive_changes_current_and_persists(self):
         self.setup_app()
