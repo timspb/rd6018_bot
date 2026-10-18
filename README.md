@@ -1,5 +1,16 @@
 # RD6018 Telegram Bot — modular production controller
 
+## Physical observations: live ESP Native first
+
+**Always read current RD6018 physical state directly from ESP Native API**
+(`esp_direct` / `aioesphomeapi`), not HA102 cache or historical reports.
+This applies to every preflight, START/STOP, lease diagnosis, deployment,
+post-stop confirmation, and MAIN Guard test. HA102 is a secondary
+ESP-mediated path, not the authority for physical readbacks. See
+`docs/ESP_NATIVE_LIVE_EVIDENCE.md`. If direct ESP access fails, report
+`ESP ACCESS BLOCKED`, never invent fresh OFF proof.
+
+
 This repository contains the current modular production controller for an RD6018 power supply used for evidence-driven lead-acid charging/recovery and explicit general-purpose PSU ownership.
 
 The software is safety-critical: it can command real voltage/current to physical hardware. Production behavior is fail-closed and separates operator UI, charge-domain decisions, telemetry evidence, safety/execution policy, ownership/session state, persistence, and physical execution.

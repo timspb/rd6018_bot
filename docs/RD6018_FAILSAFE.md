@@ -1,5 +1,20 @@
 # RD6018 communication-loss failsafe
 
+## Live physical-state authority: direct ESP Native, not HA cache
+
+For all operational checks **actively collect fresh ESP Native API callbacks
+first** (`docs/ESP_NATIVE_LIVE_EVIDENCE.md`). R18 Output, measured U/I, R16,
+Vset/Iset, OVP/OCP, armed/generation/remaining, Modbus age and boot/trip state
+must come from the actual ESP with verified identity, provenance, callback
+type and timestamp. HA102 is a secondary route via the ESP; its REST state
+cannot substitute for direct native proof. A previously saved ESP snapshot
+is also insufficient. Never turn a missing Native reading into guessed OFF.
+
+The standard 900-second edge deadman and 300-second renew interval remain
+unchanged. Native observational reads do not authorize direct lease-button
+or Modbus writes; use the single existing execution authority for actuation.
+
+
 ## Safety objective
 
 A controller-managed charge must not be able to remain energized indefinitely when

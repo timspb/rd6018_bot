@@ -1,5 +1,24 @@
 # Deployment and rollback runbook
 
+## Mandatory live-node preflight — direct ESP first
+
+**Always obtain NEW, CURRENT physical data directly from ESP Native API**;
+see `docs/ESP_NATIVE_LIVE_EVIDENCE.md`. Before any node104 service stop,
+prepare/activate/recover, or START, obtain direct ESP R18, measured U/I,
+battery voltage, setpoints, R16/OVP/OCP, armed/generation/remaining,
+trip/quarantine/autonomous and Modbus age. Use the existing ESP-direct
+collector with source/type/device-identity/timestamp checks. Do not use
+HA102 readings or an old saved report in place of fresh native callbacks.
+
+When stopping the service for a versioned release, reacquire **a distinct
+post-stop fresh Native ESP OFF proof**, in addition to the pre-stop proof,
+as required by the pinned transaction owner. HA102 may corroborate but is
+never the authoritative physical source. TCP connectivity is not telemetry.
+Native acquisition failure means `ESP ACCESS BLOCKED`, not permission to
+deploy without fresh ESP evidence. Read-only Native API diagnostics are not
+hardware writes; all changes remain under the single existing ExecutionPort.
+
+
 This document is for replacing the bot on an existing node. It intentionally does not prescribe a new service layout: discover and preserve the node's current runtime, virtualenv and service manager.
 
 ## Production model

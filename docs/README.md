@@ -14,6 +14,7 @@ Use these first:
 - `RD6018_COMPOSITION_ROOT_MODEL.md` — current single-root composition contract.
 - `DEPLOYMENT.md` — deployment and rollback procedure.
 - `RD6018_FAILSAFE.md` — physical/edge fail-safe rules.
+- `ESP_NATIVE_LIVE_EVIDENCE.md` — **required current ESP Native API readback authority** for ALL node104 physical checks.
 - `V3_START_PRODUCTION_ROUTE_WIRING.md` and `V3_START_BENCH_READINESS_REVIEW.md` — current START path.
 - `V3_BENCH_VALIDATION_PROTOCOL.md` and physical evidence files — bench safety/evidence.
 
