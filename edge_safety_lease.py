@@ -345,6 +345,10 @@ class EdgeSafetyLease:
 
         if not force and not self.renewal_due():
             state = await self.read_state()
+            if self._renewals_suspended:
+                raise EdgeSafetyLeaseError(
+                    "edge lease renewal is suspended for ownership transfer"
+                )
             if state.boot_quarantine:
                 raise EdgeSafetyLeaseError("edge safety boot quarantine is active")
             if state.tripped:
@@ -359,6 +363,12 @@ class EdgeSafetyLease:
 
         before = await self.read_state()
         self._assert_armable(before)
+        # STOP may revoke authority while read_state awaits Native telemetry.
+        # Never send a new renewal command after that revocation.
+        if self._renewals_suspended:
+            raise EdgeSafetyLeaseError(
+                "edge lease renewal is suspended for ownership transfer"
+            )
         if not await self._press(self.config.renew_entity):
             raise EdgeSafetyLeaseError("edge lease renew command was rejected")
 
@@ -376,6 +386,14 @@ class EdgeSafetyLease:
                 and self._fresh_modbus(latest)
                 and self._full_lease_ack(latest)
             ):
+                # suspend_renewals() is intentionally synchronous and may run
+                # while a START/heartbeat is awaiting its native edge ACK.
+                # STOP wins: do not return a positive arm/renewal to an
+                # in-flight START after ownership was revoked.
+                if self._renewals_suspended:
+                    raise EdgeSafetyLeaseError(
+                        "edge lease renewal is suspended for ownership transfer"
+                    )
                 self._last_ack_monotonic = self._monotonic()
                 return latest
 
