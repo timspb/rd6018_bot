@@ -113,8 +113,7 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         if not self.edge_lease_enforced:
             return
         if self.edge_safety_lease is None:
-            await self._fail_closed(
-                "edge_lease_missing",
+            await self._contain_edge_lease_loss(
                 "локальный RD6018 safety lease обязателен, но недоступен",
                 output_state=output_state,
             )
@@ -131,11 +130,34 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
                 getattr(self.edge_safety_lease, "renewals_suspended", None),
                 type(self.edge_safety_lease).__name__,
             )
-            await self._fail_closed(
-                "edge_lease_lost",
+            await self._contain_edge_lease_loss(
                 f"локальный RD6018 safety lease не подтверждён ({exc})",
                 output_state=output_state,
             )
+
+    async def _contain_edge_lease_loss(self, reason: str, *, output_state: Optional[bool]) -> None:
+        """Verified-OFF containment for lease loss, then retire its live session.
+
+        This path is deliberately independent of the ordinary START owner lock:
+        OFF must preempt an in-flight START. Session invalidation happens only
+        after OFF was confirmed, so an ambiguous Output state keeps the existing
+        conservative active-session containment intact.
+        """
+        self._notify(
+            "edge_lease_lost",
+            f"🛑 <b>Защита RD6018:</b> {reason}. Output будет выключен; сессия не будет продолжена.",
+        )
+        if output_state is True or (output_state is None and self.controller_active):
+            confirmed = await self._ensure_output_off(reason)
+            if not confirmed:
+                raise RuntimeSafetyError(f"{reason}; Output OFF was not confirmed")
+            await self._disarm_edge_lease_best_effort()
+            controller = getattr(self.app, "charge_controller", None)
+            stop = getattr(controller, "stop", None)
+            if callable(stop) and self.controller_active:
+                stop(clear_session=True)
+                logger.error("ChargeController session retired after verified edge lease-loss OFF")
+        raise RuntimeSafetyError(reason)
 
     async def _disarm_edge_lease_best_effort(self) -> None:
         self.ensure_edge_safety_lease()

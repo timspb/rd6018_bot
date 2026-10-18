@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -38,6 +39,8 @@ from application.production_start_route import ProductionStartRouteAdapter
 from application.start_transaction_runner import StartTransactionRunner, build_start_event_context
 from application.start_transaction_adapter import StartTransactionAdapter
 from application.controller_session_retirement import _ControllerSessionRetirement
+
+logger = logging.getLogger("rd6018")
 
 
 def _operator_intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -246,11 +249,26 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
     async def _battery_start_route(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
+        # Callback queries expire while the transactional preflight and native
+        # lease acknowledgement are in flight. Acknowledge exactly once here;
+        # deliver the durable result through the source message below.
         await call.answer()
+        message = getattr(call, "message", None)
+
+        async def _send_result(text: str) -> None:
+            answer = getattr(message, "answer", None)
+            if not callable(answer):
+                logger.error("START result could not be delivered: callback has no source message")
+                return
+            try:
+                await answer(text)
+            except Exception:
+                logger.exception("START result message delivery failed")
+
         user_id = call.from_user.id if call.from_user else 0
         pending = production_bot_ui._pending_start.get(user_id)
         if pending is None:
-            await call.answer("Предпросмотр устарел — выберите АКБ заново", show_alert=True)
+            await _send_result("Предпросмотр устарел — выберите АКБ заново")
             return
         intent = OperatorIntent(
             OperatorIntentKind.START_CHARGE,
@@ -267,12 +285,9 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
         )
         result = await app._v3_production_start_route.submit(intent)
         if not result.accepted:
-            await call.answer(f"START отклонён: {result.reason}", show_alert=True)
+            await _send_result(f"START отклонён: {result.reason}")
             return
-        await call.answer(
-            production_bot_ui.format_start_feedback(result),
-            show_alert=True,
-        )
+        await _send_result(production_bot_ui.format_start_feedback(result))
 
     production_bot_ui.install_ui_support(app)
     install_sg_ui(app)

@@ -194,6 +194,16 @@ class _DeferredHassClient:
         if self.is_bound and object.__getattribute__(self, "_client") is not client:
             raise RuntimeError("HassClient is already bound to another runtime client")
         object.__setattr__(self, "_client", client)
+        # ProductionComposition installs the managed guard before startup binds
+        # this deferred handle. Rebind it to the live adapter so the internal
+        # SafeOutputCoordinator path also crosses the guarded turn_on boundary.
+        guard = object.__getattribute__(self, "__dict__").get("_runtime_safety_guard")
+        bind_adapter = getattr(guard, "bind_adapter", None)
+        if callable(bind_adapter):
+            bind_adapter(client)
+            bridge = getattr(guard, "_install_last_reported_metadata_bridge", None)
+            if callable(bridge):
+                bridge()
 
     def set_initializer(self, initializer: Any) -> None:
         object.__setattr__(self, "_initializer", initializer)

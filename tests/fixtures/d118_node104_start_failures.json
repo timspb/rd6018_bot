@@ -1,0 +1,17 @@
+{
+  "source": "node104 journal/native evidence supplied for D118; replay fixtures contain no live commands",
+  "scenarios": [
+    {
+      "id": "2026-10-18T18:03:14Z",
+      "name": "main-start-lease-arm-no-ack",
+      "events": ["controller_start", "edge_renew_ack_rejected", "verified_output_off", "start_cancelled"],
+      "expected": {"edge_armed": false, "output_on": false, "session_active": false}
+    },
+    {
+      "id": "2026-10-18T18:05:24Z",
+      "name": "main-start-output-on-during-suspended-renewals",
+      "events": ["controller_start", "native_r18_on", "lease_renewal_suspended", "renewal_rejected", "verified_output_off", "start_cancelled"],
+      "expected": {"edge_armed": false, "output_on": false, "session_active": false}
+    }
+  ]
+}

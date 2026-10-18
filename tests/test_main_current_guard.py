@@ -224,6 +224,18 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertIsNone(p)
         self.assertEqual(s.accrued_output_on_s, 300)
 
+    def test_zero_amp_samples_do_not_record_main_time_or_propose_a_ratchet(self):
+        s = self.make()
+        proposal = None
+        for ts in range(0, 3601, 30):
+            s, proposal = s.observe(
+                now_s=ts, output_on=True, measured_current_a=0.0,
+                fresh=True, stage="MAIN",
+            )
+            self.assertIsNone(proposal)
+        self.assertEqual(s.accrued_output_on_s, 0)
+        self.assertEqual(s.hardware_limit_a, 7.2)
+
     def test_fault_fails_closed_and_sticks(self):
         s, _ = self.make().observe(now_s=1, output_on=True, measured_current_a=4, fresh=True, fault="thermal")
         self.assertEqual(s.fault, "external_fault:thermal")

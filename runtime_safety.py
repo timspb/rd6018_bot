@@ -132,6 +132,30 @@ class RuntimeSafetyGuard:
         self.hass._runtime_safety_guard = self
         return self
 
+    def bind_adapter(self, adapter: Any) -> "RuntimeSafetyGuard":
+        """Move the guard from a deferred composition handle onto its live client.
+
+        Composition installs safety before ``initialize_runtime`` binds the
+        physical client. Methods such as ``HassClient.safe_enable_output`` run
+        on the bound client and create their coordinator with that client as the
+        adapter, so the client itself must carry the guarded actuator methods.
+        """
+        if adapter is self.hass:
+            return self
+        existing = getattr(adapter, "_runtime_safety_guard", None)
+        if existing is not None and existing is not self:
+            raise RuntimeError("live HassClient already has a different runtime safety guard")
+        self.hass = adapter
+        self._raw_get_all_live = adapter.get_all_live
+        self._raw_turn_on = adapter.turn_on
+        self._raw_turn_off = adapter.turn_off
+        self._raw_set_voltage = adapter.set_voltage
+        self._raw_set_current = adapter.set_current
+        self._raw_set_ovp = adapter.set_ovp
+        self._raw_set_ocp = adapter.set_ocp
+        self.install()
+        return self
+
     @property
     def controller_active(self) -> bool:
         return bool(getattr(self.app.charge_controller, "is_active", False))

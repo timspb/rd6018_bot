@@ -99,7 +99,15 @@ class MainCurrentGuard:
         # Freshness is part of the ON-time proof, not merely a prerequisite
         # for making a proposal. A stale/unknown interval must break accrual.
         # Do not treat a remembered Output ON as evidence of current activity.
-        evidenced_on = bool(output_on and fresh and measured_current_a is not None)
+        current_evidence = None
+        if output_on and fresh and measured_current_a is not None:
+            current_evidence = _finite(measured_current_a, "measured current")
+            if current_evidence < 0:
+                return self._faulted("invalid_measured_current"), None
+        # A fresh zero-amp sample is not evidence of active MAIN charging.
+        # It must break continuity so a failed/just-started Output cannot earn
+        # Current Guard time or propose an artificial 1 A ratchet.
+        evidenced_on = bool(current_evidence is not None and current_evidence > 0)
         elapsed = 0.0
         if (self.last_observed_at_s is not None and self.last_output_on
                 and self.last_stage_main and main_stage and evidenced_on):
@@ -117,11 +125,9 @@ class MainCurrentGuard:
             return state._faulted("desulfation_return_requires_verified_hardware_restore"), None
         if str(stage).upper() != "MAIN" or not output_on or not fresh:
             return state, None
-        if measured_current_a is None:
+        if current_evidence is None or current_evidence <= 0:
             return state, None
-        current = _finite(measured_current_a, "measured current")
-        if current < 0:
-            return state._faulted("invalid_measured_current"), None
+        current = current_evidence
         if accrued < RATCHET_INTERVAL_S:
             return state, None
         target = min(self.hardware_limit_a, current + CURRENT_HEADROOM_A, self.initial_limit_a)
