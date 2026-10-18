@@ -175,8 +175,10 @@ class StrictRuntimeSafetyGuard(RuntimeSafetyGuard):
         return live
 
     async def turn_on(self, entity_id: Optional[str] = None) -> bool:
-        if self._off_unconfirmed:
-            return await super().turn_on(entity_id)
+        # Never use the base Output-ON path without arming the edge lease.
+        # The parent still handles an unconfirmed prior OFF and prevents
+        # enabling unless that state can be reconciled; it must run only
+        # AFTER a positively acknowledged lease arm.
         if not self.controller_active:
             state = await self._output_state_raw()
             if state is True:

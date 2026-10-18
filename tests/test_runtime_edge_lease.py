@@ -185,6 +185,30 @@ class RuntimeEdgeLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hass.turn_on_calls, 1)
         self.assertEqual(app.hass.live["switch"], "on")
 
+    async def test_recovered_unconfirmed_off_still_arms_lease_before_output_on(self):
+        # The base turn_on may clear an OFF-unconfirmed latch after a fresh OFF
+        # report, but must never bypass the strict lease arm to do so.
+        app = FakeApp(state=live_state(switch="off", current=0.0))
+        guard = self._guard(app)
+        guard._off_unconfirmed = True
+
+        self.assertTrue(await app.hass.turn_on())
+        self.assertEqual(app.edge_safety_lease.arm_calls, 1)
+        self.assertEqual(app.hass.turn_on_calls, 1)
+        self.assertEqual(app.hass.live["switch"], "on")
+
+    async def test_unconfirmed_off_failing_arm_must_not_enable_output(self):
+        app = FakeApp(state=live_state(switch="off", current=0.0))
+        app.edge_safety_lease.fail_arm = True
+        guard = self._guard(app)
+        guard._off_unconfirmed = True
+
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.turn_on()
+        self.assertEqual(app.edge_safety_lease.arm_calls, 1)
+        self.assertEqual(app.hass.turn_on_calls, 0)
+        self.assertEqual(app.hass.live["switch"], "off")
+
     async def test_failed_edge_arm_blocks_physical_on(self):
         app = FakeApp(state=live_state(switch="off", current=0.0))
         app.edge_safety_lease.fail_arm = True
