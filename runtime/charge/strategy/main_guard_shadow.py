@@ -25,6 +25,17 @@ class MainGuardShadow:
         )
         return cls(guard=guard, proposal=guard.pending)
 
+    def invalidate_evidence(self, *, now_s: float) -> None:
+        """Break ON continuity if durable identity or native evidence is missing."""
+        self.proposal = None
+        if self.guard is not None:
+            self.guard, _ = self.guard.observe(
+                now_s=now_s, output_on=False, measured_current_a=None,
+                fresh=False, stage="OTHER", battery_id=self.guard.battery_id,
+            )
+            # Revoking an externally visible proposal never clears a
+            # pending hardware acknowledgement or expands the old ceiling.
+
     def observe(self, *, now_s: float, session_id: str | None, battery_id: str | None,
                 chemistry: str, capacity_ah: float, recipe_current_a: float,
                 stage: str, output_on: bool | None, output_current_a: float | None,

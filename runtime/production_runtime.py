@@ -55,6 +55,10 @@ from runtime.charge.link_session_recovery import (
     choose_recovery_route,
 )
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
+from runtime.charge.strategy.main_guard_admission import (
+    admit_main_guard_shadow, read_canonical_session,
+)
+from runtime.charge.persistence import SESSION_FILE
 from runtime.safety.variables import (
     HIGH_V_FAST_TIMEOUT_S,
     HIGH_V_THRESHOLD_V,
@@ -2829,18 +2833,29 @@ async def data_logger() -> None:
                         if native_guard_fresh and native_output_code in (0, 1)
                         else None
                     )
-                    _main_guard_shadow.observe(
-                        now_s=time.monotonic(),
-                        session_id=getattr(charge_controller, "_accepted_guard_session_id", None),
-                        battery_id=getattr(charge_controller, "_accepted_guard_battery_id", None),
-                        chemistry=str(getattr(charge_controller, "battery_type", "")),
-                        capacity_ah=getattr(charge_controller, "ah_capacity", 0),
-                        recipe_current_a=getattr(charge_controller, "_recipe_initial_current_a", 0),
-                        stage=("MAIN" if charge_controller.current_stage == charge_controller.STAGE_MAIN else "OTHER"),
-                        output_on=native_on,
-                        output_current_a=native_current if native_guard_fresh else None,
-                        fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
+                    # Accepted MAIN identity is not a runtime-private hint:
+                    # compare the canonical durable session, its recipe and
+                    # fresh physical Iset/OCP while holding the common owner.
+                    admission = admit_main_guard_shadow(
+                        controller=charge_controller,
+                        session_document=read_canonical_session(SESSION_FILE),
+                        live=live, now_epoch_s=now_ts,
                     )
+                    if admission is None:
+                        _main_guard_shadow.invalidate_evidence(now_s=time.monotonic())
+                    else:
+                        _main_guard_shadow.observe(
+                            now_s=time.monotonic(),
+                            session_id=admission.session_id,
+                            battery_id=admission.battery_id,
+                            chemistry=str(charge_controller.battery_type),
+                            capacity_ah=admission.capacity_ah,
+                            recipe_current_a=admission.recipe_initial_current_a,
+                            stage="MAIN",
+                            output_on=native_on,
+                            output_current_a=native_current if native_guard_fresh else None,
+                            fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
+                        )
                     actions = (await charge_controller.tick(
                         battery_v, i, temp_ext, is_cv, ah, output_switch,
                         manual_off_active=_has_manual_off_condition(),
