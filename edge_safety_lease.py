@@ -345,6 +345,10 @@ class EdgeSafetyLease:
 
         if not force and not self.renewal_due():
             state = await self.read_state()
+            if self._renewals_suspended:
+                raise EdgeSafetyLeaseError(
+                    "edge lease renewal is suspended for ownership transfer"
+                )
             if state.boot_quarantine:
                 raise EdgeSafetyLeaseError("edge safety boot quarantine is active")
             if state.tripped:
@@ -359,6 +363,12 @@ class EdgeSafetyLease:
 
         before = await self.read_state()
         self._assert_armable(before)
+        # STOP may revoke authority while read_state awaits Native telemetry.
+        # Never send a new renewal command after that revocation.
+        if self._renewals_suspended:
+            raise EdgeSafetyLeaseError(
+                "edge lease renewal is suspended for ownership transfer"
+            )
         if not await self._press(self.config.renew_entity):
             raise EdgeSafetyLeaseError("edge lease renew command was rejected")
 
