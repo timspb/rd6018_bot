@@ -376,6 +376,14 @@ class EdgeSafetyLease:
                 and self._fresh_modbus(latest)
                 and self._full_lease_ack(latest)
             ):
+                # suspend_renewals() is intentionally synchronous and may run
+                # while a START/heartbeat is awaiting its native edge ACK.
+                # STOP wins: do not return a positive arm/renewal to an
+                # in-flight START after ownership was revoked.
+                if self._renewals_suspended:
+                    raise EdgeSafetyLeaseError(
+                        "edge lease renewal is suspended for ownership transfer"
+                    )
                 self._last_ack_monotonic = self._monotonic()
                 return latest
 
