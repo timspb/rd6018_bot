@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -665,6 +666,23 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
                     output_state=True,
                 )
 
+            if self.edge_safety_lease is not None and getattr(
+                self.edge_safety_lease, "renewals_suspended", False
+            ):
+                task = asyncio.current_task()
+                meta = live.get("_meta") if isinstance(live, dict) else None
+                output_meta = None
+                if isinstance(meta, dict):
+                    output_meta = meta.get("output_state_code_v2") or meta.get("switch")
+                logger.warning(
+                    "Managed live read requests edge renewal while suspended: "
+                    "task=%s switch=%r native_output=%r output_meta=%r",
+                    task.get_name() if task is not None else None,
+                    live.get("switch"),
+                    live.get("output_state_code_v2"),
+                    output_meta,
+                    stack_info=True,
+                )
             await self._renew_edge_lease_or_fail(output_state=True)
 
         self._clear_telemetry_grace()

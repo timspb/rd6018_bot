@@ -4,12 +4,14 @@ Reuses real lease and managed-runtime safety guard classes with test-only fake
 physical I/O. No hardware, network, native button or production control.
 """
 import unittest
+from datetime import datetime, timezone
 
 from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
 from managed_runtime_safety import install_managed_runtime_safety
 from runtime_safety import RuntimeSafetyError
 from tests.test_edge_safety_lease import FakeHass as FakeEdge
 from tests.test_runtime_edge_lease import FakeApp, live_state
+from tests.test_managed_runtime_safety import V2RuntimeSafetyTests
 
 
 class StartAfterDisarmTests(unittest.IsolatedAsyncioTestCase):
@@ -62,6 +64,40 @@ class StartAfterDisarmTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.lease.read_state()).generation, generation_before)
         self.assertEqual(self.edge.presses.count(self.lease.config.renew_entity),
                          count_before)
+
+    async def test_managed_live_read_surfaces_suspended_renewal_and_contains_output(self):
+        """Pin the production call path named by the node's START journal error."""
+        self.lease.suspend_renewals()
+        self.assertTrue(self.lease.renewals_suspended)
+        self.guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+        self.guard.OFF_CONFIRMATION_POLL_S = 0.0
+        self.app.hass.live = V2RuntimeSafetyTests._with_freshness(
+            V2RuntimeSafetyTests._live()
+        )
+        raw_turn_off = self.guard._raw_turn_off
+
+        async def turn_off_with_fresh_readback(entity_id=None):
+            result = await raw_turn_off(entity_id)
+            reported = datetime.now(timezone.utc).isoformat()
+            self.app.hass.live["_meta"]["switch"].update(
+                last_reported=reported, last_updated=reported
+            )
+            return result
+
+        self.app.hass.turn_off = turn_off_with_fresh_readback
+        self.guard._raw_turn_off = turn_off_with_fresh_readback
+
+        with self.assertLogs("rd6018", level="WARNING") as captured:
+            with self.assertRaisesRegex(RuntimeSafetyError, "suspended"):
+                await self.app.hass.get_all_live()
+
+        self.assertTrue(any(
+            "Managed live read requests edge renewal while suspended" in line
+            for line in captured.output
+        ), captured.output)
+        self.assertEqual(self.app.hass.live["switch"], "off")
+        self.assertTrue(self.lease.renewals_suspended)
+        self.assertNotIn(self.lease.config.renew_entity, self.edge.presses)
 
 
 if __name__ == "__main__":
