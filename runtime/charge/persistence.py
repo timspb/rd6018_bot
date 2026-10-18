@@ -375,6 +375,14 @@ def save_session(host: Any, voltage: float, current: float, ah: float, *, sessio
                 session_file, data,
                 allow_nan=getattr(host, "_main_current_guard", None) is None,
             )
+            guard_record = data.get("main_current_guard_v1")
+            if (getattr(host, "_main_current_guard", None) is not None
+                    and isinstance(guard_record, dict)
+                    and type(guard_record.get("revision")) is int):
+                # Keep the in-memory concurrency token aligned with this same
+                # atomic canonical replacement. MAIN Guard admission uses it
+                # to reject a stale owner if a newer ACK is already durable.
+                host._main_current_guard_revision = guard_record["revision"]
         except OSError as ex:
             logger.warning("Could not save session: %s", ex)
 

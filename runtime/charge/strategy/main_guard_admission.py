@@ -27,6 +27,7 @@ class MainGuardAdmission:
     battery_id: str
     capacity_ah: float
     recipe_initial_current_a: float
+    guard_revision: int | None = None
 
 
 def read_canonical_session(path: str | Path) -> Mapping[str, Any] | None:
@@ -107,12 +108,13 @@ def admit_main_guard_shadow(
     if not math.isfinite(recipe) or baseline < .1 or recipe > baseline + READBACK_MARGIN_A:
         return None
     expected_hardware_i = recipe
+    guard_revision = None
     if GUARD_KEY in session_document:
         remembered = getattr(controller, "_main_current_guard", None)
         if remembered is None:
             return None
         try:
-            durable, _ = read_guard(
+            durable, guard_revision = read_guard(
                 session_document, session_id=session_id, battery_id=battery_id,
                 now_s=now,
             )
@@ -125,6 +127,8 @@ def admit_main_guard_shadow(
                 or abs(durable.initial_limit_a - baseline) > 1e-9
                 or abs(durable.recipe_initial_current_a - recipe) > 1e-9):
             return None
+        if getattr(controller, "_main_current_guard_revision", None) != guard_revision:
+            return None
         expected_hardware_i = durable.hardware_limit_a
     elif getattr(controller, "_main_current_guard", None) is not None:
         # A guarded process must never silently discard its durable journal.
@@ -136,6 +140,16 @@ def admit_main_guard_shadow(
     if not isinstance(meta, Mapping):
         return None
     keys = ("output_state_code_v2", "current", "set_current_readback_v2", "ocp_readback_v2")
+    # MAIN Guard is based on direct ESP Native callbacks only. HA's REST
+    # adapter can report age=0 at fetch time; that is not a Native receipt.
+    for key in keys:
+        item = meta.get(key)
+        if (not isinstance(item, Mapping)
+                or item.get("source") != "esp_native_api"
+                or item.get("native_type") != "SensorState"
+                or isinstance(item.get("subscription_timestamp_monotonic"), bool)
+                or not isinstance(item.get("subscription_timestamp_monotonic"), (int, float))):
+            return None
     if not telemetry_freshness(
         live, keys, max_age_s=MAX_NATIVE_AGE_S, max_skew_s=MAX_NATIVE_AGE_S,
         now_epoch_s=now
@@ -151,7 +165,7 @@ def admit_main_guard_shadow(
             or programmed > baseline + READBACK_MARGIN_A
             or abs(ocp-programmed-0.1) > READBACK_MARGIN_A):
         return None
-    return MainGuardAdmission(session_id, battery_id, capacity, recipe)
+    return MainGuardAdmission(session_id, battery_id, capacity, recipe, guard_revision)
 
 
 __all__ = ["MainGuardAdmission", "admit_main_guard_shadow", "read_canonical_session"]

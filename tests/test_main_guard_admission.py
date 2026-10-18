@@ -36,7 +36,9 @@ class MainGuardAdmissionTests(unittest.TestCase):
             "set_current_readback_v2": 7.0, "ocp_readback_v2": 7.1,
         }
         self.live["_meta"] = {
-            key: {"status": "ok", "age_s": 0.2}
+            key: {"status": "ok", "age_s": 0.2,
+                  "source": "esp_native_api", "native_type": "SensorState",
+                  "subscription_timestamp_monotonic": 100.0}
             for key in self.live
         }
 
@@ -98,6 +100,16 @@ class MainGuardAdmissionTests(unittest.TestCase):
                 self.assertIsNone(self.admit())
                 self.live["_meta"][key]=original
         self.live.pop("_meta")
+        self.assertIsNone(self.admit())
+
+    def test_fresh_ha_metadata_cannot_authorize_main_guard(self):
+        for key in ("output_state_code_v2", "current", "set_current_readback_v2", "ocp_readback_v2"):
+            original = self.live["_meta"][key]
+            self.live["_meta"][key] = {"status": "ok", "age_s": 0.0}
+            self.assertIsNone(self.admit(), key)
+            self.live["_meta"][key] = original
+        original = self.live["_meta"]["current"]
+        self.live["_meta"]["current"] = {**original, "native_type": "BinarySensorState"}
         self.assertIsNone(self.admit())
 
     def test_missing_file_corrupt_file_and_symlink_do_not_create_identity(self):

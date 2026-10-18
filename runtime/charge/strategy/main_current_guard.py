@@ -252,8 +252,10 @@ class MainCurrentGuard:
                 raise GuardError("invalid saved stage/output state")
             if state.hardware_limit_a < HARDWARE_CURRENT_FLOOR_A:
                 raise GuardError("snapshot below hardware floor")
-            # A process restart creates an unknown interval. Preserve accrued
-            # time and cap, but require a fresh observation before accruing again.
+            # Snapshot last_output_on describes the previous admitted sample;
+            # it is not a read of current R18. A restart creates an unknown
+            # interval: preserve elapsed accrual and the ceiling, but require a
+            # new fresh Native sample before accrual can resume.
             return replace(state, last_output_on=False)
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, GuardError):

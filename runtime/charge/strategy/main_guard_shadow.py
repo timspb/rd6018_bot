@@ -1,11 +1,12 @@
 """Production-owned, observation-only holder for the MAIN current guard.
 
-This adapter deliberately has no hardware or filesystem dependencies. Persistence
-is left to a future session owner with an explicit authorization boundary.
+This adapter deliberately has no hardware or filesystem dependencies. The
+existing charge-session owner may reconcile its clock snapshot while holding
+the ExecutionPort owner lock; all writes stay in the canonical session writer.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .main_current_guard import GuardError, MainCurrentGuard, PendingProposal
@@ -52,6 +53,69 @@ class MainGuardShadow:
             )
             # Revoking an externally visible proposal never clears a
             # pending hardware acknowledgement or expands the old ceiling.
+
+    def seed_from_controller(self, controller: Any, *, session_id: str,
+                             battery_id: str) -> bool:
+        """Resume this process-local observer from the canonical owner state.
+
+        Restored guards intentionally have ``last_output_on=False``. Copying
+        that state keeps prior accrued time while requiring a fresh Native
+        sample to establish a new continuity interval.
+        """
+        if self.guard is not None:
+            return self.guard.session_id == session_id and self.guard.battery_id == battery_id
+        guard = getattr(controller, "_main_current_guard", None)
+        if (guard is None or guard.session_id != session_id
+                or guard.battery_id != battery_id or guard.pending is not None
+                or guard.fault is not None):
+            return False
+        self.guard = guard
+        self.proposal = None
+        return True
+
+    def reconcile_checkpoint(self, controller: Any, *, session_id: str,
+                             battery_id: str,
+                             persisted_revision: int | None = None) -> bool:
+        """Publish safe shadow clock state to the existing session writer.
+
+        Caller holds the common ExecutionPort owner lock and has admitted the
+        canonical session plus current Native Iset/OCP preimage. This never
+        changes the ratcheted ceiling or moves a pending/faulted transaction.
+        """
+        shadow = self.guard
+        current = getattr(controller, "_main_current_guard", None)
+        if (shadow is None or shadow.session_id != session_id
+                or shadow.battery_id != battery_id or shadow.pending is not None
+                or shadow.fault is not None):
+            return False
+        if current is not None:
+            if (current.session_id != session_id or current.battery_id != battery_id
+                    or current.segment_id != shadow.segment_id
+                    or current.pending is not None or current.fault is not None
+                    or current.proposal_sequence != shadow.proposal_sequence
+                    or current.hardware_limit_a != shadow.hardware_limit_a
+                    or current.initial_limit_a != shadow.initial_limit_a
+                    or current.recipe_initial_current_a != shadow.recipe_initial_current_a
+                    or current.capacity_ah != shadow.capacity_ah
+                    or persisted_revision != getattr(controller, "_main_current_guard_revision", None)
+                    or (current.last_observed_at_s is not None
+                        and (shadow.last_observed_at_s is None
+                             or shadow.last_observed_at_s < current.last_observed_at_s))):
+                return False
+        # The controller owner receives the exact observed clock fields, while
+        # immutable identity and ceiling remain those already owned by it.
+        if current is not None:
+            shadow = replace(
+                shadow, session_id=current.session_id, battery_id=current.battery_id,
+                segment_id=current.segment_id, capacity_ah=current.capacity_ah,
+                recipe_initial_current_a=current.recipe_initial_current_a,
+                initial_limit_a=current.initial_limit_a,
+                hardware_limit_a=current.hardware_limit_a,
+                proposal_sequence=current.proposal_sequence,
+            )
+            self.guard = shadow
+        controller._main_current_guard = shadow
+        return True
 
     def observe(self, *, now_s: float, session_id: str | None, battery_id: str | None,
                 chemistry: str, capacity_ah: float, recipe_current_a: float,

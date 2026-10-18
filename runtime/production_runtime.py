@@ -1653,11 +1653,12 @@ async def _operator_pause_toggle(call: Any) -> str:
         after = await hass.get_all_live()
         if str(after.get("switch", "")).lower() == "on":
             return "Пауза не включена: Output не подтверждён OFF"
-        charge_controller._save_session(
-            _safe_float(after.get("battery_voltage")),
-            _safe_float(after.get("current")),
-            _safe_float(after.get("ah")),
-        )
+        async with _runtime_execution_port()._guard_owner_lock:
+            charge_controller._save_session(
+                _safe_float(after.get("battery_voltage")),
+                _safe_float(after.get("current")),
+                _safe_float(after.get("ah")),
+            )
         operator_pause_started_at = time.time()
         _save_operator_pause_state()
         log_event(
@@ -2847,13 +2848,41 @@ async def data_logger() -> None:
                     # Accepted MAIN identity is not a runtime-private hint:
                     # compare the canonical durable session, its recipe and
                     # fresh physical Iset/OCP while holding the common owner.
+                    canonical_main_session = read_canonical_session(SESSION_FILE)
                     admission = admit_main_guard_shadow(
                         controller=charge_controller,
-                        session_document=read_canonical_session(SESSION_FILE),
+                        session_document=canonical_main_session,
                         live=live, now_epoch_s=now_ts,
                     )
                     if admission is None:
                         _main_guard_shadow.invalidate_evidence(now_s=time.monotonic())
+                        # Persist only a conservative continuity break when
+                        # this is still the exact guarded MAIN epoch. The
+                        # reconciliation rejects pending/faulted or mismatched
+                        # guard state, so missing/foreign telemetry cannot
+                        # reset the session or broaden its Iset ceiling.
+                        if (charge_controller.current_stage == charge_controller.STAGE_MAIN
+                                and str(charge_controller.battery_type).strip().upper()
+                                in ("EFB", "CA/CA")):
+                            persisted_revision = None
+                            if (isinstance(canonical_main_session, dict)
+                                    and "main_current_guard_v1" in canonical_main_session):
+                                try:
+                                    from runtime.charge.strategy.main_guard_session import read_guard
+                                    _, persisted_revision = read_guard(
+                                        canonical_main_session,
+                                        session_id=str(getattr(charge_controller, "_v2_trace_session_id", "")),
+                                        battery_id=str(getattr(charge_controller, "_v2_battery_id", "")),
+                                        now_s=time.monotonic(),
+                                    )
+                                except (ValueError, TypeError):
+                                    persisted_revision = None
+                            _main_guard_shadow.reconcile_checkpoint(
+                                charge_controller,
+                                session_id=getattr(charge_controller, "_v2_trace_session_id", None),
+                                battery_id=getattr(charge_controller, "_v2_battery_id", None),
+                                persisted_revision=persisted_revision,
+                            )
                     else:
                         _main_guard_shadow.bind_new_canonical_session(
                             session_id=admission.session_id,
@@ -2861,6 +2890,11 @@ async def data_logger() -> None:
                             unguarded_document_proven=(
                                 getattr(charge_controller, "_main_current_guard", None) is None
                             ),
+                        )
+                        _main_guard_shadow.seed_from_controller(
+                            charge_controller,
+                            session_id=admission.session_id,
+                            battery_id=admission.battery_id,
                         )
                         main_proposal = _main_guard_shadow.observe(
                             now_s=time.monotonic(),
@@ -2874,6 +2908,13 @@ async def data_logger() -> None:
                             output_current_a=native_current if native_guard_fresh else None,
                             fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
                         )
+                        if main_proposal is None:
+                            _main_guard_shadow.reconcile_checkpoint(
+                                charge_controller,
+                                session_id=admission.session_id,
+                                battery_id=admission.battery_id,
+                                persisted_revision=admission.guard_revision,
+                            )
                         if (main_proposal is not None and not manual_active
                                 and not _has_manual_off_condition()):
                             outcome = await execute_due_main_guard(

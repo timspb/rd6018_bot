@@ -17,7 +17,9 @@ class FakeOwner:
             "protection_code": 0,
         }
         self.live["_meta"] = {
-            key: {"status": "ok", "age_s": 0.1}
+            key: {"status": "ok", "age_s": 0.1,
+                  "source": "esp_native_api", "native_type": "SensorState",
+                  "subscription_timestamp_monotonic": 100.0}
             for key in ("output_state_code_v2", "current",
                         "set_current_readback_v2", "ocp_readback_v2",
                         "protection_code")

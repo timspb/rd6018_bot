@@ -316,10 +316,14 @@ class ESPHomeTransport(ReadOnlyTransport):
             valid_age = (age is not None and 0 <= age < float('inf'))
             report = {
                 "status": "ok" if item is not None and valid_age else "unknown",
+                "source": "esp_native_api",
+                "native_type": self._state_types.get(str(object_id)),
                 "age_s": age if valid_age else None,
                 "fetched_at": wall_now,
                 "source_key": "output_state_code_v2" if source == "output_state" else source,
             }
+            if isinstance(updated, (int, float)) and not isinstance(updated, bool):
+                report["subscription_timestamp_monotonic"] = updated
             # A stored native callback timestamp must not drift on subsequent
             # cache reads. Otherwise tiny clock-conversion jitter could forge
             # a post-command heartbeat even when the sensor never updated.
