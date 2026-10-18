@@ -1,5 +1,15 @@
 # V3 production START route wiring
 
+## Required observation on a real START
+
+Before/through/after a physical START, **collect fresh direct ESP Native
+callbacks** for R18 Output, I/V, setpoints, R16 and lease
+armed/generation/remaining. Preserve callback source, type, ESP identity,
+monotonic timestamps and event order relative to `arm()`, `renew_if_due()`,
+and the canonical ExecutionPort. HA102 is secondary, never a replacement
+for missing ESP evidence. See `docs/ESP_NATIVE_LIVE_EVIDENCE.md`.
+
+
 Status: **current post-ERADICATION authority**.
 
 ```text

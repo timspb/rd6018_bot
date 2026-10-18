@@ -1,5 +1,37 @@
 # AGENTS.md
 
+## ОБЯЗАТЕЛЬНО: актуальные физические данные — напрямую с ESP Native API
+
+**БРАТЬ АКТУАЛЬНЫЕ ДАННЫЕ С ESP, А НЕ ИЗ HA, СТАРОГО ОТЧЁТА ИЛИ КЭША.**
+На node104 авторитетный физический источник — непосредственно ESPHome Native API
+контроллера ESP (текущий адрес стенда `192.168.1.28:6053`), через уже
+существующий `esp_direct` / `aioesphomeapi` клиент и свежую подписку на
+`SensorState` / `BinarySensorState`. Это первый шаг **каждой** проверки
+Output, START, STOP, lease, аварии, деплоя и физической приёмки.
+Доступность TCP-порта сама по себе **не является** физическим readback.
+
+Каждый раз заново читать с ESP: физический Output **R18**, измеренные U/I,
+напряжение АКБ, уставки Vset/Iset, OVP/OCP и защиту R16, lease
+armed/generation/remaining/Modbus age, trip/quarantine/autonomous. Проверять
+идентичность ESP, типы полей, источник `esp_native_api`, временные метки
+подписки и фактическую свежесть; для post-STOP доказательства применять
+имеющийся строгий post-command критерий свежего R18 и нулевых U/I.
+
+HA102 — **вторичный путь к тому же ESP**, полезный для независимой сверки,
+но не заменяющий прямые ESP Native callbacks. Старые снимки, журналы,
+показания Telegram UI и HA-кэш описывают только историю. Не заявлять
+`Output OFF` или `PHYSICAL PASS` по ним.
+
+При отсутствии доступа к Native API сначала найти **уже установленный**
+ESP direct-клиент и штатный read-only collector, разобраться с доступом.
+Если чтение действительно невозможно, написать **ESP ACCESS BLOCKED**,
+а не «физическое состояние неизвестно, потому что HA не свежий». Не
+симулировать значения, не обходить запреты инструментов и не отправлять
+непосредственные ESP-кнопки/Modbus-команды вне единственного ExecutionPort.
+
+Канон и порядок: `docs/ESP_NATIVE_LIVE_EVIDENCE.md`.
+
+
 This repository controls a physical RD6018 power supply and lead-acid batteries. Treat actuator changes as safety-critical.
 
 ## Production entrypoint
@@ -29,6 +61,7 @@ Read these before changing control behavior:
 3. `docs/V3_UI_MODULAR_ARCHITECTURE.md` — UI/application/transport boundary.
 4. `docs/RD6018_COMPOSITION_ROOT_MODEL.md` — single production composition-root contract.
 5. `docs/RD6018_FAILSAFE.md` — physical and edge fail-safe rules.
+   **Also mandatory:** `docs/ESP_NATIVE_LIVE_EVIDENCE.md` — fetch fresh direct ESP data first.
 6. `README.md` — current operator/repository overview.
 7. `docs/DEPLOYMENT.md` — deployment, validation and rollback runbook.
 8. `docs/README.md` — documentation authority classification.

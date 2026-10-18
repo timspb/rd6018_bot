@@ -1,5 +1,17 @@
 # V3 bench validation protocol
 
+## Mandatory source for fresh bench evidence
+
+**Collect actual up-to-date measurements directly from ESP Native API**
+before and after every scenario; do not substitute HA102 cache, Telegram
+screen, old report or TCP socket connectivity. Read the real R18 Output,
+measured U/I, battery, R16, setpoints/protection, lease/generation and source
+timestamps/identity via the existing ESP read-only collector. HA102 can be
+checked separately as secondary evidence. Confirm a new post-command ESP
+Native R18 OFF callback plus measured U/I=0 for STOP; no invented readings.
+See `docs/ESP_NATIVE_LIVE_EVIDENCE.md`.
+
+
 Automatic execution remains disabled. The bench layer defines reproducible
 manual scenarios and records evidence; it does not create a transport or
 enable the physical bridge. A real run must use the existing

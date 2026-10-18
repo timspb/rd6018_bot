@@ -1,5 +1,20 @@
 # D109 — MAIN Current Guard: действующее снижение тока через единый ExecutionPort
 
+## Operator correction — always fetch current readings FROM ESP
+
+**БРАТЬ АКТУАЛЬНЫЕ ДАННЫЕ С ESP!** Current D109 physical acceptance MUST
+begin with NEW direct ESP Native callbacks, not stale historical evidence,
+HA102 freshness, Telegram screen state or a plain TCP 6053 connection.
+Use existing `esp_direct` / `aioesphomeapi` and D091/D106 read-only
+collector. Record actual ESP identity, timestamps, R18 Output, U/I,
+battery voltage, R16, setpoints/OVP/OCP, lease armed/generation/remaining,
+trip/quarantine/autonomous/Modbus age. Read fresh again after STOP.
+If the connector cannot run, clearly label `ESP ACCESS BLOCKED`; do not
+mislabel stale HA or missing UI as the physical cause. Authority and details:
+`docs/ESP_NATIVE_LIVE_EVIDENCE.md`. Nothing here grants direct hardware
+write permissions outside the existing ExecutionPort.
+
+
 Дата: 2026-10-18. Канонический RD6018 Bot, source-only sprint.
 
 ## Результат
