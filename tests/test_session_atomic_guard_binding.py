@@ -75,6 +75,20 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
             self.save(controller)
         self.assertEqual(json.loads(self.path.read_text(encoding="utf-8")), first)
 
+    def test_guard_canonical_writer_rejects_wider_current_target(self):
+        controller = self.controller()
+        controller._main_current_guard = MainCurrentGuard.start(
+            session_id="verified-sid", battery_id="battery-actual",
+            segment_id="main-1", capacity_ah=60, recipe_initial_current_a=6.0
+        )
+        original = self.save(controller)
+        # Contradict the cap in an incoming device-programmed result.
+        controller._device_set_current = 9.0
+        controller._device_set_voltage = 14.4
+        with self.assertRaisesRegex(GuardJournalError, "target_exceeds_ratchet"):
+            self.save(controller)
+        self.assertEqual(json.loads(self.path.read_text()), original)
+
     def test_guard_wrong_session_identity_fails_without_wiping_file(self):
         controller = self.controller()
         controller._main_current_guard = MainCurrentGuard.start(

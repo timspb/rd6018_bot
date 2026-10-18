@@ -221,7 +221,7 @@ class EdgeSafetyLease:
         state, _attrs = await self._state_with_attrs(entity_id)
         return state
 
-    async def read_state(self) -> EdgeLeaseState:
+    async def read_state(self, *, require_native: bool = False) -> EdgeLeaseState:
         (
             armed_raw,
             tripped_raw,
@@ -237,6 +237,18 @@ class EdgeSafetyLease:
             self._state_with_attrs(self.config.modbus_age_entity),
             self._state_with_attrs(self.config.remaining_entity),
         )
+        # Current authority may only come from direct ESP Native API
+        # callbacks. HA REST fallback remains available for observation and
+        # the existing lease lifecycle, but cannot authorize a Guard Iset/OCP
+        # write. Do not change the semantics of normal read_state callers.
+        if require_native and any(
+            item[1].get("source") != "esp_native_api"
+            for item in (
+                armed_raw, tripped_raw, boot_quarantine_raw,
+                generation_raw, modbus_age_raw, remaining_raw,
+            )
+        ):
+            raise EdgeSafetyLeaseError("guard lease needs direct native ESP evidence")
         armed = _bool_state(armed_raw[0])
         tripped = _bool_state(tripped_raw[0])
         boot_quarantine = _bool_state(boot_quarantine_raw[0])

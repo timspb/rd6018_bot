@@ -55,6 +55,7 @@ from runtime.charge.link_session_recovery import (
     choose_recovery_route,
 )
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
+from application.main_guard_runtime import execute_due_main_guard
 from runtime.charge.strategy.main_guard_admission import (
     admit_main_guard_shadow, read_canonical_session,
 )
@@ -2844,7 +2845,14 @@ async def data_logger() -> None:
                     if admission is None:
                         _main_guard_shadow.invalidate_evidence(now_s=time.monotonic())
                     else:
-                        _main_guard_shadow.observe(
+                        _main_guard_shadow.bind_new_canonical_session(
+                            session_id=admission.session_id,
+                            battery_id=admission.battery_id,
+                            unguarded_document_proven=(
+                                getattr(charge_controller, "_main_current_guard", None) is None
+                            ),
+                        )
+                        main_proposal = _main_guard_shadow.observe(
                             now_s=time.monotonic(),
                             session_id=admission.session_id,
                             battery_id=admission.battery_id,
@@ -2856,6 +2864,27 @@ async def data_logger() -> None:
                             output_current_a=native_current if native_guard_fresh else None,
                             fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
                         )
+                        if (main_proposal is not None and not manual_active
+                                and not _has_manual_off_condition()):
+                            outcome = await execute_due_main_guard(
+                                app=sys.modules[__name__],
+                                port=_runtime_execution_port(),
+                                admission=admission,
+                                shadow=_main_guard_shadow,
+                                proposal=main_proposal,
+                                session_path=SESSION_FILE,
+                            )
+                            if outcome is not None:
+                                if outcome.verified:
+                                    logger.info(
+                                        "MAIN Guard Iset/OCP reduced and journaled: %.2f A",
+                                        outcome.guard.hardware_limit_a,
+                                    )
+                                else:
+                                    logger.warning(
+                                        "MAIN Guard reduction not verified: %s; OFF=%s",
+                                        outcome.reason, outcome.off_confirmed,
+                                    )
                     actions = (await charge_controller.tick(
                         battery_v, i, temp_ext, is_cv, ah, output_switch,
                         manual_off_active=_has_manual_off_condition(),

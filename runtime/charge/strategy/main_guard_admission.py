@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 from rd6018_telemetry import canonical_programmed_readback, finite_float, telemetry_freshness
 from runtime.charge.strategy.main_targets import select_main_target
-from runtime.charge.strategy.main_guard_session import GUARD_KEY
+from runtime.charge.strategy.main_guard_session import GUARD_KEY, GuardJournalError, read_guard
 
 MAX_SESSION_AGE_S = 120.0
 MAX_NATIVE_AGE_S = 10.0
@@ -66,9 +66,9 @@ def admit_main_guard_shadow(
         return None
     if (getattr(controller, "is_active", False) is not True
             or session_document.get("v2_authoritative") is not True
-            or session_document.get("state") == "retired"
-            or GUARD_KEY in session_document):
-        # Previously guarded sessions require their canonical restore owner.
+            or session_document.get("state") == "retired"):
+        # Guarded and fresh sessions are verified below against the same
+        # physical Iset; an old/foreign journal cannot reauthorize a new cap.
         return None
     profile = str(getattr(controller, "battery_type", "")).strip().upper()
     if profile not in ("EFB", "CA/CA"):
@@ -106,8 +106,31 @@ def admit_main_guard_shadow(
     baseline = min(recipe, .1 * capacity, 12.0)
     if not math.isfinite(recipe) or baseline < .1 or recipe > baseline + READBACK_MARGIN_A:
         return None
+    expected_hardware_i = recipe
+    if GUARD_KEY in session_document:
+        remembered = getattr(controller, "_main_current_guard", None)
+        if remembered is None:
+            return None
+        try:
+            durable, _ = read_guard(
+                session_document, session_id=session_id, battery_id=battery_id,
+                now_s=now,
+            )
+        except (GuardJournalError, ValueError, TypeError):
+            return None
+        if (durable.fault is not None or durable.pending is not None
+                or remembered.fault is not None or remembered.pending is not None
+                or durable.segment_id != remembered.segment_id
+                or abs(durable.hardware_limit_a - remembered.hardware_limit_a) > 1e-9
+                or abs(durable.initial_limit_a - baseline) > 1e-9
+                or abs(durable.recipe_initial_current_a - recipe) > 1e-9):
+            return None
+        expected_hardware_i = durable.hardware_limit_a
+    elif getattr(controller, "_main_current_guard", None) is not None:
+        # A guarded process must never silently discard its durable journal.
+        return None
     target = _positive(session_document.get("target_current"))
-    if target is None or abs(target-recipe) > READBACK_MARGIN_A:
+    if target is None or abs(target-expected_hardware_i) > READBACK_MARGIN_A:
         return None
     meta = live.get("_meta")
     if not isinstance(meta, Mapping):
@@ -126,7 +149,7 @@ def admit_main_guard_shadow(
     if (programmed is None or ocp is None
             or abs(programmed-target) > READBACK_MARGIN_A
             or programmed > baseline + READBACK_MARGIN_A
-            or ocp < programmed):
+            or abs(ocp-programmed-0.1) > READBACK_MARGIN_A):
         return None
     return MainGuardAdmission(session_id, battery_id, capacity, recipe)
 

@@ -40,6 +40,7 @@ class MainGuardExecutionResult:
     verified: bool
     reason: str
     off_confirmed: bool = False
+    hardware_write_invoked: bool = False
 
 
 class MainGuardExecutionFault(RuntimeError):
@@ -194,7 +195,7 @@ async def execute_main_guard_reduction(
             if updated.fault or updated.pending is not None:
                 raise MainGuardExecutionFault("postflight_guard_ack_rejected")
             await persist(updated.snapshot())  # post-ACK durable commit
-            return MainGuardExecutionResult(updated, True, "readback_and_journal_verified")
+            return MainGuardExecutionResult(updated, True, "readback_and_journal_verified", hardware_write_invoked=True)
         except asyncio.CancelledError:
             if hardware_write_invoked:
                 await port.request_verified_off()
@@ -218,6 +219,7 @@ async def execute_main_guard_reduction(
             return MainGuardExecutionResult(
                 guard, False, type(exc).__name__ + ":" + str(exc),
                 off_confirmed=off_confirmed,
+                hardware_write_invoked=hardware_write_invoked,
             )
 
 
