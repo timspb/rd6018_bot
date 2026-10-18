@@ -81,8 +81,40 @@ def _native_record(field: str, object_id: str, esp, inventory, now: float) -> di
         "actual_object_id": object_id, "native_type": meta.get("native_type"),
         "entity_type": meta.get("entity_type"), "native_key": meta.get("key"),
         "device_id": meta.get("device_id"), "status": "ok",
+        "subscription_timestamp_monotonic": meta.get("subscription_timestamp_monotonic"),
         "reported_at_epoch": now - age,
     }}
+
+
+def _validate_callback_cache_generation(field: str, callback: tuple, cached: dict) -> None:
+    """Check callback/cache provenance without equating two different readings.
+
+    The first typed callback is sampled BEFORE the later cache snapshot.
+    A newer native callback can legitimately update the sensor in between.
+    Compare values only for the same update generation; for a newer
+    generation, the final native snapshot and independent HA comparison
+    remain the authority. An older/foreign cache is never accepted.
+    """
+    original, original_meta = callback
+    cache_meta = cached["meta"]
+    if (original_meta.get("source") != "esp_native_api"
+            or cache_meta.get("source") != "esp_native_api"
+            or original_meta.get("native_type") != "SensorState"
+            or cache_meta.get("native_type") != "SensorState"
+            or cache_meta.get("actual_object_id") != original_meta.get("object_id")
+            or original_meta.get("key") != cache_meta.get("native_key")
+            or original_meta.get("device_id") != cache_meta.get("device_id")):
+        raise ro.ProofError("native callback/cache identity or type disagreement: " + field)
+    first_ts = ro._number(original_meta.get("subscription_timestamp_monotonic"))
+    latest_ts = ro._number(cache_meta.get("subscription_timestamp_monotonic"))
+    # The cache update happens in _on_state before the subscribed wrapper
+    # observes that same callback (normally microseconds apart).
+    same_generation_slack_s = 0.025
+    if latest_ts < first_ts - same_generation_slack_s:
+        raise ro.ProofError("native cache older than new callback: " + field)
+    if abs(latest_ts - first_ts) <= same_generation_slack_s:
+        if abs(float(cached["value"]) - ro._number(original)) > 0.02:
+            raise ro.ProofError("native same-callback/cache disagreement: " + field)
 
 
 async def collect_live() -> dict:
@@ -133,13 +165,12 @@ async def collect_live() -> dict:
                                            esp, inventory, now)
         # Validate that the mandatory measured sensor values are from new
         # callback subscriptions, not an earlier cached snapshot.
-        for field, original in (
-            ("output_r18", native_measurements["output_state"][0]),
-            ("voltage_v", native_measurements["voltage"][0]),
-            ("current_a", native_measurements["current"][0]),
+        for field, callback in (
+            ("output_r18", native_measurements["output_state"]),
+            ("voltage_v", native_measurements["voltage"]),
+            ("current_a", native_measurements["current"]),
         ):
-            if abs(float(native[field]["value"]) - ro._number(original)) > 0.02:
-                raise ro.ProofError("native new-callback/cache disagreement")
+            _validate_callback_cache_generation(field, callback, native[field])
         required_ha = {
             field: hc.entities.get(ENTITY[field]) for field in projection.HA_FIELDS}
         if not all(required_ha.values()):
