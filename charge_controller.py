@@ -54,6 +54,10 @@ from runtime.charge.evidence.first_stage import (
     MainSampleEvidenceEvaluator,
     MainSampleEvidenceInput,
 )
+from runtime.charge.evidence.mix_observation import (
+    apply_mix_evidence_mirror,
+    build_mix_evidence_mirror,
+)
 from runtime.charge.evidence.trace_context import (
     TraceLifecycle,
     SignalContextInput,
@@ -1496,13 +1500,15 @@ class ManagedChargeController:
                 )
             return decision
 
-        # Mix: expose V2 mode-specific evidence through the legacy-compatible fields
-        # used by the existing Telegram dashboard while V2 owns the actual decision.
+        # Mix: expose mode-specific evidence through the existing dashboard fields.
         metrics = record.analysis.metrics
-        if is_cv and metrics.current_min_a is not None:
-            self.i_min_recorded = metrics.current_min_a
-        if is_cc and metrics.voltage_max_v is not None:
-            self.v_max_recorded = metrics.voltage_max_v
+        mirror = build_mix_evidence_mirror(
+            is_cv=bool(is_cv),
+            is_cc=bool(is_cc),
+            current_min_a=metrics.current_min_a,
+            voltage_max_v=metrics.voltage_max_v,
+        )
+        apply_mix_evidence_mirror(self, mirror)
 
         decision = decide_mix_transition(
             profile=self.battery_type,

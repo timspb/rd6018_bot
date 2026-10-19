@@ -526,3 +526,11 @@ source-only record: `D123_SPRINT20_EVIDENCE_20261019.md`.
 Remaining mutable MIX state inside `_apply_authoritative_decision` is now limited
 primarily to read-model metric mirrors and completion-evidence logging; the
 stage actions themselves route through typed owners.
+
+### Sprint 21 MIX evidence/read-model mirror ownership
+
+The controller no longer mutates MIX dashboard/evidence mirrors inline. The sole MIX authority path builds a frozen `MixEvidenceMirror` through `runtime.charge.evidence.mix_observation` and applies it once. CV updates `i_min_recorded` only when `current_min_a` is present; CC updates `v_max_recorded` only when `voltage_max_v` is present. Missing metrics preserve the prior mirror values exactly.
+
+This is evidence/read-model state only. MIX strategy decisions, sticky finish hold, final SAFE_WAIT entry/completion, stage transitions, target/protection selection, persistence, recipes, Guard, lease, action execution and the physical writer remain with their existing owners. The evidence owner has no execution port or RD setter dependency. Focused MIX regressions passed **17 tests**; full Python 3.12 offline discovery passed **2,406 tests / 3 skipped**; compileall and diff-check PASS. Exact source-only record: `D123_SPRINT21_EVIDENCE_20261019.md`.
+
+Remaining central P3 debt is now concentrated in completion-evidence logging, `_apply_authoritative_decision` dispatch/orchestration, Storage/DONE and Manual integration, and eventual application-owned session tick ownership.
