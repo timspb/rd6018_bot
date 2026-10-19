@@ -118,6 +118,7 @@ from runtime.charge.runtime.final_safe_wait_authority import (
 )
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
+from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
 from runtime.charge.strategy.desulfation import (
     DesulfationAction,
     decide_desulfation,
@@ -823,7 +824,7 @@ class ManagedChargeController:
         )
         if not valid:
             reason = "recovery_safe_wait_continuation_invalid"
-            self._stop_and_diagnose(
+            apply_stop_and_diagnose(self,
                 actions=actions,
                 now=now,
                 voltage=voltage,
@@ -905,7 +906,7 @@ class ManagedChargeController:
         )
         if effect is None:
             reason = "final_safe_wait_continuation_invalid"
-            self._stop_and_diagnose(
+            apply_stop_and_diagnose(self,
                 actions=actions,
                 now=now,
                 voltage=voltage,
@@ -1275,39 +1276,6 @@ class ManagedChargeController:
         """Compatibility accessor over the canonical modular MIX authority limit."""
         return mix_max_active_seconds(self.battery_type)
 
-    def _stop_and_diagnose(
-        self,
-        *,
-        actions: Dict[str, Any],
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        reason: str,
-    ) -> None:
-        prev = self.current_stage
-        self._recovery_safe_wait = None
-        self._final_safe_wait = None
-        actions["log_event_end"] = self._make_log_event_end(
-            now, ah, voltage, current, temp, reason
-        )
-        self.current_stage = self.STAGE_DONE
-        self._clear_restored_targets()
-        self.stage_start_time = now
-        self._stage_start_ah = ah
-        self.finish_timer_start = None
-        self._main_sample_evidence.reset()
-        actions["turn_off"] = True
-        actions["notify"] = (
-            "<b>🛑 V2 остановил автоматическую эскалацию.</b>\n"
-            f"Причина: <code>{reason}</code>.\n"
-            "Выход выключен; требуется оценка графика/АКБ перед новым HV-этапом."
-        )
-        actions["log_event"] = "V2_STOP_DIAGNOSE"
-        self._save_session(voltage, current, ah)
-        logger.warning("Modular diagnostic stop %s -> Done | %s", prev, reason)
-
     def _advance_agm_step(
         self,
         *,
@@ -1525,13 +1493,13 @@ class ManagedChargeController:
                 )
                 if not apply_final_safe_wait_entry(self, effect_input, actions):
                     reason = "final_safe_wait_entry_session_identity_invalid"
-                    self._stop_and_diagnose(
+                    apply_stop_and_diagnose(self,
                         actions=actions, now=timestamp_s, voltage=voltage,
                         current=current, temp=temp, ah=ah, reason=reason,
                     )
                     return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
             elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
-                self._stop_and_diagnose(
+                apply_stop_and_diagnose(self,
                     actions=actions,
                     now=timestamp_s,
                     voltage=voltage,
@@ -1632,7 +1600,7 @@ class ManagedChargeController:
             )
             if not apply_final_safe_wait_entry(self, effect_input, actions):
                 reason = "final_safe_wait_entry_session_identity_invalid"
-                self._stop_and_diagnose(
+                apply_stop_and_diagnose(self,
                     actions=actions, now=timestamp_s, voltage=voltage,
                     current=current, temp=temp, ah=ah, reason=reason,
                 )
@@ -1643,7 +1611,7 @@ class ManagedChargeController:
                 decision.reason,
                 timestamp_s,
             )
-            self._stop_and_diagnose(
+            apply_stop_and_diagnose(self,
                 actions=actions,
                 now=timestamp_s,
                 voltage=voltage,
@@ -1867,7 +1835,7 @@ class ManagedChargeController:
             if self._is_authoritative_stage(stage_before) and self.current_stage == stage_before:
                 temp_value = finite_or_nan(temp_ext)
                 if math.isfinite(temp_value):
-                    self._stop_and_diagnose(
+                    apply_stop_and_diagnose(self,
                         actions=actions,
                         now=timestamp_s,
                         voltage=finite_or_nan(voltage),

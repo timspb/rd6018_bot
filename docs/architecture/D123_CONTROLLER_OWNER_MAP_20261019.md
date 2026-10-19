@@ -468,3 +468,20 @@ is part of the receipt-gated completion path. Extracting it alone would alter
 the commit/save order. Manual integration and central tick orchestration also
 span broader boundaries without a comparably isolated effect. Those remain
 future gates; P2, P3, P4, and P5 remain open.
+
+### Sprint 18 STOP_AND_DIAGNOSE effect ownership
+
+The former `ManagedChargeController._stop_and_diagnose` method is deleted.
+All current controller callers invoke `runtime.charge.runtime.stop_diagnose.apply_stop_and_diagnose`.
+That owner builds a frozen `StopDiagnoseEffect` and applies the exact existing
+fail-closed transition to DONE: continuation clearing, one canonical stage-history
+edge, terminal clocks, finish-timer and MAIN-evidence reset, exact OFF/notify/log
+actions, and canonical session save ordering. Save failure preserves the prior
+pre-save mutation semantics. The owner has no RD setter or `execution_port`
+dependency. Focused related tests passed **58**, full Python 3.12 offline
+discovery passed **2,395 tests / 3 skipped**, and compileall/diff checks passed.
+Exact evidence: `D123_SPRINT18_EVIDENCE_20261019.md`.
+
+P3 still retains Storage/DONE integration, Manual integration, other remaining
+central-controller stage/orchestration seams, and the final application-owned
+session tick cut. P2 restore admission, P4, P5 and physical acceptance remain open.

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from runtime.charge.evidence.first_stage import FirstStageState, assess_first_stage
+from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
 from pb_domain import BatteryCondition, ChargeIntent
 from production_controller import ProductionChargeController
 from recovery_session import RecoveryTracePoint
@@ -538,7 +539,7 @@ class ProductionControllerTests(unittest.TestCase):
             ), patch("charge_controller.time.time", return_value=1000.0), patch(
                 "production_controller.time.time", return_value=1000.0
             ):
-                controller._stop_and_diagnose(
+                apply_stop_and_diagnose(controller,
                     actions=actions,
                     now=1000.0,
                     voltage=16.47,
