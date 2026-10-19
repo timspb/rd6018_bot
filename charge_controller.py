@@ -41,9 +41,11 @@ from runtime.charge.persistence import (
     SESSION_FILE,
     SESSION_START_MAX_AGE_S,
     clear_session_file,
+    enrich_restored_session,
     restore_session,
     save_session,
 )
+from runtime.charge.session import apply_trace_identity, new_trace_identity
 from runtime.charge.post import post_charge_profile_params
 
 SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
@@ -538,10 +540,6 @@ class ManagedChargeController:
         self._v2_runtime = runtime
         return runtime
 
-    def _begin_trace_identity(self) -> None:
-        self._v2_trace_session_id = uuid.uuid4().hex
-        self._v2_trace_started_at = float(self.total_start_time or time.time())
-
     def _initialize_shadow_session(self, *, started_at: Optional[float] = None) -> None:
         self._v2_session_signal_context = None
         runtime_started_at = float(
@@ -559,102 +557,6 @@ class ManagedChargeController:
         except Exception:
             self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
-
-    @staticmethod
-    def _enum_or_default(enum_cls: Any, value: Any, default: Any) -> Any:
-        try:
-            return enum_cls(str(value))
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _read_legacy_session_document() -> Dict[str, Any]:
-        try:
-            with open(SESSION_FILE, "r", encoding="utf-8") as handle:
-                raw = json.load(handle)
-            return raw if isinstance(raw, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _write_trace_identity_to_session_file(self) -> None:
-        if self.current_stage == self.STAGE_IDLE:
-            return
-        if not self._v2_trace_session_id or self._v2_trace_started_at <= 0:
-            return
-        document = self._read_legacy_session_document()
-        if not document:
-            return
-
-        document["v2_trace_session_id"] = self._v2_trace_session_id
-        document["v2_trace_started_at"] = self._v2_trace_started_at
-        document["v2_battery_id"] = self._v2_battery_id
-        document["v2_intent"] = self._v2_intent.value
-        document["v2_condition_before"] = self._v2_condition_before.value
-        document["v2_authoritative"] = True
-        if self._recovery_safe_wait is not None:
-            document["v2_recovery_safe_wait"] = self._recovery_safe_wait.as_dict()
-        else:
-            document.pop("v2_recovery_safe_wait", None)
-        if self._final_safe_wait is not None:
-            document["v2_final_safe_wait"] = self._final_safe_wait.as_dict()
-        else:
-            document.pop("v2_final_safe_wait", None)
-        if self.current_stage == self.STAGE_DONE:
-            document["terminal_session_id"] = self._v2_trace_session_id
-
-        tmp_path = f"{SESSION_FILE}.v2.tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(document, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, SESSION_FILE)
-        except OSError as exc:
-            logger.warning("Could not persist V2 trace identity: %s", exc)
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
-
-    def _restore_trace_identity(self, document: Dict[str, Any]) -> None:
-        raw_started_at = document.get("v2_trace_started_at")
-        if raw_started_at is None:
-            raw_started_at = document.get("total_start_time")
-        if raw_started_at is None:
-            raw_started_at = document.get("saved_at")
-        try:
-            started_at = float(raw_started_at)
-        except (TypeError, ValueError):
-            started_at = float(self.total_start_time or time.time())
-        if not math.isfinite(started_at) or started_at <= 0:
-            started_at = float(self.total_start_time or time.time())
-
-        raw_id = str(document.get("v2_trace_session_id") or "").strip()
-        if not raw_id:
-            seed = "|".join(
-                [
-                    str(document.get("profile") or self.battery_type),
-                    str(document.get("ah_limit") or self.ah_capacity),
-                    f"{started_at:.6f}",
-                    str(document.get("saved_at") or ""),
-                ]
-            )
-            raw_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-recovery:{seed}").hex
-
-        saved_battery_id = document.get("v2_battery_id")
-        if saved_battery_id:
-            self._v2_battery_id = str(saved_battery_id)
-        self._v2_intent = self._enum_or_default(
-            ChargeIntent,
-            document.get("v2_intent"),
-            self._v2_intent,
-        )
-        self._v2_condition_before = self._enum_or_default(
-            BatteryCondition,
-            document.get("v2_condition_before"),
-            self._v2_condition_before,
-        )
-        self._v2_trace_session_id = raw_id
-        self._v2_trace_started_at = started_at
 
     def _restore_recovery_safe_wait(self, document: Dict[str, Any]) -> None:
         self._recovery_safe_wait = None
@@ -785,7 +687,7 @@ class ManagedChargeController:
         self._recovery_safe_wait = None
         self._final_safe_wait = None
         start_charge(self, battery_type, ah_capacity)
-        self._begin_trace_identity()
+        apply_trace_identity(self, new_trace_identity(self))
         self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
     def _clear_session_file(self) -> None:
@@ -818,7 +720,6 @@ class ManagedChargeController:
         current: float,
         ah: float,
     ) -> Tuple[bool, Optional[str]]:
-        trace_document = self._read_legacy_session_document()
         ok, message = restore_session(
             self,
             voltage,
@@ -839,12 +740,17 @@ class ManagedChargeController:
                 "Historical Custom session is retired; restart Manual with operator authorization.",
             )
         if ok:
+            trace_document = dict(getattr(self, "_session_restore_document", {}))
             self._restore_desulfation_stage_clock(trace_document)
-            self._restore_trace_identity(trace_document)
             self._restore_recovery_safe_wait(trace_document)
             self._restore_final_safe_wait(trace_document)
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
-            self._write_trace_identity_to_session_file()
+            enriched = bool(getattr(self, "_session_restore_enriched", False))
+            if not enriched and not enrich_restored_session(
+                self, trace_document, session_file=SESSION_FILE
+            ):
+                self.stop(clear_session=False)
+                return False, "Restored session identity could not be durably reconciled."
         return ok, message
 
     @property

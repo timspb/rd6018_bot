@@ -22,13 +22,18 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [ ] Canonical session ID, battery ID, stage history and audit/trace lifecycle ownership moved
 - [x] Pure trace point, shadow/event metadata, first-stage trace metadata and CV/CC session signal context assembly moved to `runtime.charge.evidence.trace_context`; `ManagedChargeController.tick` retains one call path for each output and one production caller
 - [x] Direct CV/CC context, event metadata, stable trace shape, moved-body and owner-call-count tests added in `tests/test_d123_p2_trace_context.py`
-- [ ] Session identity/restore and trace persistence ownership moved; retained in controller for this partial cut because `_write_trace_identity_to_session_file` is a separate direct file writer and migration needs coordinated use of the existing canonical atomic session writer
-- [ ] Guard journal revision/hash + monotonic accrued ON-time and sticky Iset proof intact
-- [ ] Atomic persistence, restart continuity-fail-closed and guarded restore negative tests PASS
-- [ ] No second checkpoint writer or authority path
+- [x] P2b trace identity creation/restore moved to typed `runtime.charge.session.TraceIdentitySnapshot`; controller identity helpers and `_read_legacy_session_document` removed
+- [x] Restored session enrichment uses `complete_session_document` plus the sole `runtime.charge.persistence` atomic writer; original keys and optional recovery/final SAFE_WAIT documents are retained or canonically removed by continuation state
+- [x] Guarded checkpoint restore remains rejected before controller mutation/enrichment; regression proves session/revision/SHA bytes remain unchanged. Failed atomic replacement fails restore and retains original session; no actuator path is called
+- [x] No controller session patch writer, `.v2.tmp` path or `os.replace`; architecture AST guard blocks reintroduction. Unused production cooling/finish/runtime-signal patch writers removed; extension schema remains on canonical save
+- [ ] Stage history, audit/trace lifecycle and MAIN Guard restore admission ownership moved; this is still P2 lifecycle work, so P2 remains **partial**
+- [x] Sprint 03 focused tests, Python 3.12 offline full suite and compileall PASS; see `D123_SPRINT03_EVIDENCE_20261019.md`
 
-P2 is **partial** after Sprint 02. See `D123_SPRINT02_EVIDENCE_20261019.md` for
-the exact cut, tested restart contracts, and remaining lifecycle work.
+P2b session identity and writer convergence is complete on its committed Sprint
+03 source, but P2 overall remains **partial** because stage history, audit/trace
+lifecycle, and guarded restore admission ownership are still outstanding. Sprint
+02 evidence remains historical; see `D123_SPRINT03_EVIDENCE_20261019.md` for the
+current cut and exact test counts.
 
 ## P3 modular stage orchestration
 - [ ] MAIN + PREP and residual

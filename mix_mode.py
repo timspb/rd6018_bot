@@ -168,9 +168,11 @@ def _begin_mix_only_controller_session(
     controller._stage_start_temp = float(temp_ext_c)
     controller._reset_delta_and_blanking(now)
 
-    begin_trace = getattr(controller, "_begin_trace_identity", None)
-    if callable(begin_trace):
-        begin_trace()
+    from runtime.charge.session import apply_trace_identity, new_trace_identity
+    apply_trace_identity(controller, new_trace_identity(controller))
+    mix_authority = getattr(controller, "_mix_active_authority", None)
+    if mix_authority is not None:
+        mix_authority.begin(controller.recovery_trace_context["session_id"], active=False)
     init_shadow = getattr(controller, "_initialize_shadow_session", None)
     if callable(init_shadow):
         init_shadow(started_at=getattr(controller, "_v2_trace_started_at", now))

@@ -118,20 +118,19 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
             controller.current_stage = controller.STAGE_IDLE
 
         controller.stop = stop
-        with patch.object(controller, "_read_legacy_session_document", return_value={}):
-            with patch.object(
-                ManagedChargeController,
-                "try_restore_session",
-                return_value=(True, "cooling restored"),
-            ):
-                ok, message = controller.try_restore_session(
-                    13.0,
-                    0.0,
-                    5.0,
-                    output_is_on=False,
-                    is_cv=False,
-                    is_cc=True,
-                )
+        with patch.object(
+            ManagedChargeController,
+            "try_restore_session",
+            return_value=(True, "cooling restored"),
+        ):
+            ok, message = controller.try_restore_session(
+                13.0,
+                0.0,
+                5.0,
+                output_is_on=False,
+                is_cv=False,
+                is_cc=True,
+            )
 
         self.assertFalse(ok)
         self.assertIn("automatic resume is disabled", message)

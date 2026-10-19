@@ -8,7 +8,6 @@ import time
 from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
-from runtime.charge.persistence import SESSION_FILE
 from runtime.charge.runtime.cooling_guard import finite, validate_cooling_pause
 from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
 from runtime.charge.strategy.main_targets import select_main_target
@@ -19,6 +18,7 @@ from runtime.charge.strategy.mix_variables import (
     mix_max_active_seconds,
 )
 from charge_controller import ManagedChargeController
+from runtime.charge.persistence import SESSION_FILE
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from application.recipe_policy import chemistry_for_profile
@@ -42,6 +42,11 @@ RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
 
 class ProductionChargeController(ManagedChargeController):
     """Live controller with recipe envelopes and production pause semantics."""
+
+    # Legacy sessions without persisted intent migrate conservatively to the
+    # same defaults historically applied by this production restore boundary.
+    RESTORE_TRACE_DEFAULT_INTENT = ChargeIntent.NORMAL
+    RESTORE_TRACE_DEFAULT_CONDITION = BatteryCondition.UNKNOWN
 
     _OPERATOR_REASON_TEXT = {
         "main_tail_hold_complete_recovery_hv_authorized": (
@@ -352,26 +357,6 @@ class ProductionChargeController(ManagedChargeController):
 
         self._v2_cooling_pause = None
 
-    def _write_cooling_pause_to_session_file(self) -> None:
-        document = self._read_legacy_session_document()
-        if not document:
-            return
-        if self._v2_cooling_pause is not None:
-            document["v2_cooling_pause"] = self._v2_cooling_pause
-        else:
-            document.pop("v2_cooling_pause", None)
-        tmp_path = f"{SESSION_FILE}.cooling.tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(document, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, SESSION_FILE)
-        except OSError:
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
-
     def _save_session(self, voltage: float, current: float, ah: float) -> None:
         super()._save_session(voltage, current, ah)
 
@@ -431,51 +416,6 @@ class ProductionChargeController(ManagedChargeController):
             ):
                 result.pop(key, None)
         return result
-
-    def _write_finish_state_to_session_file(self) -> None:
-        document = self._read_legacy_session_document()
-        if not document:
-            return
-        valid_timer = False
-        try:
-            valid_timer = math.isfinite(float(self.finish_timer_start)) and float(self.finish_timer_start) > 0.0
-        except (TypeError, ValueError, OverflowError):
-            pass
-        valid = (
-            self.current_stage == self.STAGE_MIX
-            and valid_timer
-            and self._delta_reported is True
-            and self._delta_trigger_mode in {"CV", "CC"}
-            and self._v2_trace_session_id
-        )
-        if valid:
-            document["delta_state_version"] = 1
-            document["delta_session_id"] = self._v2_trace_session_id
-            document["delta_reported"] = True
-            document["delta_trigger_mode"] = self._delta_trigger_mode
-            evidence = self._finish_evidence
-            if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode):
-                document["finish_evidence"] = dict(evidence)
-            else:
-                document.pop("finish_evidence", None)
-        else:
-            document.pop("delta_state_version", None)
-            document.pop("delta_session_id", None)
-            document.pop("delta_reported", None)
-            document.pop("delta_trigger_mode", None)
-            document.pop("finish_evidence", None)
-        tmp_path = f"{SESSION_FILE}.finish-state.tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(document, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, SESSION_FILE)
-        except OSError as exc:
-            logger.warning("Could not persist finish state: %s", exc)
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
 
     def _restore_finish_state(self, document: Dict[str, Any]) -> None:
         self._delta_reported = False
@@ -546,42 +486,6 @@ class ProductionChargeController(ManagedChargeController):
         except (KeyError, TypeError, ValueError, OverflowError):
             return False
         return all(math.isfinite(value) for value in (reference, accepted_delta, accepted_at))
-
-    def _write_runtime_signal_to_session_file(self) -> None:
-        document = self._read_legacy_session_document()
-        if not document:
-            return
-        context = self._v2_session_signal_context
-        mode = context.get("mode") if isinstance(context, dict) else None
-        valid = (
-            self.current_stage == self.STAGE_MIX
-            and isinstance(context, dict)
-            and mode in {"CV", "CC"}
-            and context.get("stage") == self.STAGE_MIX
-            and context.get("session_id") == self._v2_trace_session_id
-            and context.get("output_on") is True
-            and context.get("telemetry_valid") is True
-            and (
-                (mode == "CV" and context.get("cv_state") is True and context.get("current_min_a") is not None)
-                or (mode == "CC" and context.get("cc_state") is True and context.get("voltage_max_v") is not None)
-            )
-        )
-        if valid:
-            document["runtime_signal"] = {"version": 2, **context}
-        else:
-            document.pop("runtime_signal", None)
-        tmp_path = f"{SESSION_FILE}.runtime-signal.tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(document, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, SESSION_FILE)
-        except OSError as exc:
-            logger.warning("Could not persist runtime signal: %s", exc)
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
 
     def _restore_runtime_signal_state(
         self,
@@ -866,10 +770,10 @@ class ProductionChargeController(ManagedChargeController):
         is_cc: Optional[bool] = None,
     ) -> Tuple[bool, Optional[str]]:
         """Restore V2 sessions without granting recovery authority to legacy files."""
-        document = self._read_legacy_session_document()
         ok, message = super().try_restore_session(voltage, current, ah)
         if not ok:
             return ok, message
+        document = dict(getattr(self, "_session_restore_document", {}))
 
         self._reset_continuous_tail_hold()
 
@@ -893,9 +797,6 @@ class ProductionChargeController(ManagedChargeController):
             self._v2_intent = ChargeIntent.NORMAL
             self._v2_condition_before = BatteryCondition.UNKNOWN
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
-            # Migration and trace identity now enter the same canonical atomic
-            # document as the restored charge state and all continuation data.
-            self._save_session(float(voltage), float(current), float(ah))
 
         if self.current_stage == self.STAGE_MIX:
             self._restore_finish_state(document)

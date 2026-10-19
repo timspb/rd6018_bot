@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -146,6 +147,90 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
             ok, _ = second.try_restore_session(14.0, 1.0, 1.0)
         self.assertTrue(ok)
         self.assertEqual(second.recovery_trace_context["session_id"], migrated_id)
+
+    def test_restore_enrichment_uses_one_canonical_write_and_preserves_old_keys(self):
+        now = time.time()
+        legacy = {
+            "profile": "EFB", "stage": "Main Charge", "stage_start_time": now - 100.0,
+            "ah_limit": 70, "target_voltage": 14.8, "target_current": 7.0,
+            "total_start_time": now - 200.0, "saved_at": now,
+            "stage_history": [], "migration_marker": {"kept": True},
+        }
+        with open(self.session_file, "w", encoding="utf-8") as handle:
+            json.dump(legacy, handle)
+        writer = __import__("runtime.charge.session_atomic", fromlist=["atomic_session_write"])
+        with patch("charge_controller.SESSION_FILE", self.session_file), \
+             patch("runtime.charge.persistence.SESSION_FILE", self.session_file), \
+             patch("runtime.charge.persistence.atomic_session_write", wraps=writer.atomic_session_write) as atomic:
+            restored = ManagedChargeController(DummyHass())
+            ok, _ = restored.try_restore_session(14.0, 1.0, 1.0)
+        self.assertTrue(ok)
+        self.assertEqual(atomic.call_count, 1)
+        with open(self.session_file, "r", encoding="utf-8") as handle:
+            enriched = json.load(handle)
+        self.assertEqual(enriched["migration_marker"], {"kept": True})
+        self.assertEqual(enriched["v2_trace_session_id"], restored.recovery_trace_context["session_id"])
+        self.assertFalse(list(__import__("pathlib").Path(self.tempdir.name).glob("*.v2.tmp")))
+
+    def test_enrichment_io_failure_fails_restore_and_keeps_original_document(self):
+        now = time.time()
+        legacy = {
+            "profile": "EFB", "stage": "Main Charge", "stage_start_time": now - 100.0,
+            "ah_limit": 70, "target_voltage": 14.8, "target_current": 7.0,
+            "total_start_time": now - 200.0, "saved_at": now,
+            "stage_history": [],
+        }
+        original = json.dumps(legacy, indent=2)
+        with open(self.session_file, "w", encoding="utf-8") as handle:
+            handle.write(original)
+        partial_temp = self.session_file + ".v2.tmp"
+        with open(partial_temp, "w", encoding="utf-8") as handle:
+            handle.write('{"partial":')
+        with patch("charge_controller.SESSION_FILE", self.session_file), \
+             patch("runtime.charge.persistence.SESSION_FILE", self.session_file), \
+             patch("runtime.charge.session_atomic.os.replace", side_effect=OSError("disk full")):
+            restored = ManagedChargeController(DummyHass())
+            ok, _ = restored.try_restore_session(14.0, 1.0, 1.0)
+        self.assertFalse(ok)
+        self.assertEqual(restored.current_stage, restored.STAGE_IDLE)
+        with open(self.session_file, "r", encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), original)
+        with open(partial_temp, "r", encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), '{"partial":')
+        self.assertFalse(list(__import__("pathlib").Path(self.tempdir.name).glob(".charge-session-*.tmp")))
+
+    def test_guarded_checkpoint_is_rejected_without_identity_rewrite(self):
+        from runtime.charge.strategy.main_current_guard import MainCurrentGuard
+        from runtime.charge.strategy.main_guard_session import attach_guard, GUARD_KEY
+
+        now = time.time()
+        document = {
+            "profile": "EFB", "stage": "Main Charge", "stage_start_time": now - 100.0,
+            "ah_limit": 70, "target_voltage": 14.8, "target_current": 6.0,
+            "total_start_time": now - 200.0, "saved_at": now,
+            "stage_history": [], "v2_trace_session_id": "sid-guard",
+            "v2_battery_id": "battery-guard",
+        }
+        guard = MainCurrentGuard.start(
+            session_id="sid-guard", battery_id="battery-guard", segment_id="main-1",
+            capacity_ah=70, recipe_initial_current_a=6.0,
+        )
+        document[GUARD_KEY] = attach_guard(
+            document, guard, now_s=now, expected_revision=0
+        )[GUARD_KEY]
+        original = json.dumps(document, sort_keys=True)
+        with open(self.session_file, "w", encoding="utf-8") as handle:
+            handle.write(original)
+        restored = ManagedChargeController(DummyHass())
+        p1, p2 = self._session_patches()
+        with p1, p2, patch("runtime.charge.persistence.SESSION_FILE", self.session_file):
+            ok, _ = restored.try_restore_session(14.0, 1.0, 1.0)
+        self.assertFalse(ok)
+        with open(self.session_file, "r", encoding="utf-8") as handle:
+            persisted = json.load(handle)
+        self.assertEqual(persisted[GUARD_KEY]["revision"], document[GUARD_KEY]["revision"])
+        self.assertEqual(persisted[GUARD_KEY]["sha256"], document[GUARD_KEY]["sha256"])
+        self.assertEqual(json.dumps(persisted, sort_keys=True), original)
 
 
 if __name__ == "__main__":

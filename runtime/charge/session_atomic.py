@@ -1,8 +1,9 @@
 """One-write, crash-durable canonical session serialization.
 
-This is owned by the controller, not an observer or independent process.
-The caller must serialize all charge and guard lifecycle updates under ONE
-owner-wide lock before active MAIN Guard actuation can be enabled.
+This is the single secure atomic replacement primitive for the canonical
+charge-session document, owned by runtime.charge.persistence. The execution
+owner may call it for MAIN Guard checkpoints while holding its owner-wide lock.
+Other callers must preserve that journal and never create a parallel writer.
 """
 from __future__ import annotations
 import json
@@ -86,8 +87,12 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
         final = getattr(host, "_final_safe_wait", None)
         if recovery is not None:
             result["v2_recovery_safe_wait"] = recovery.as_dict()
+        else:
+            result.pop("v2_recovery_safe_wait", None)
         if final is not None:
             result["v2_final_safe_wait"] = final.as_dict()
+        else:
+            result.pop("v2_final_safe_wait", None)
         if result.get("stage") == getattr(host, "STAGE_DONE", None):
             result["terminal_session_id"] = str(session_id)
 

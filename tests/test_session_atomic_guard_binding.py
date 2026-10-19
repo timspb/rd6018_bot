@@ -59,6 +59,13 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
         self.assertEqual(read_guard(first, session_id="verified-sid",
                                     battery_id="battery-actual",
                                     now_s=self.now)[0].hardware_limit_a, 6.0)
+        restored_guard, _revision = read_guard(
+            first, session_id="verified-sid", battery_id="battery-actual",
+            now_s=self.now,
+        )
+        self.assertEqual(restored_guard.session_id, "verified-sid")
+        self.assertEqual(restored_guard.battery_id, "battery-actual")
+        self.assertEqual(restored_guard.capacity_ah, controller.ah_capacity)
         second = self.save(controller)
         self.assertEqual(second[GUARD_KEY]["revision"], 2)
         self.assertEqual(second["v2_trace_session_id"], "verified-sid")

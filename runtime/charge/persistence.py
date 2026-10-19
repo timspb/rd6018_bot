@@ -105,10 +105,11 @@ def paused_done_resume_is_authorized(
 
 
 def _normalize_terminal_done_document(
+    host: Any,
     document: dict[str, Any],
     *,
     session_file: str,
-) -> None:
+) -> bool:
     """Normalize ambiguous legacy Done to terminal/OFF without rewriting evidence."""
 
     normalized = dict(document)
@@ -123,18 +124,49 @@ def _normalize_terminal_done_document(
         terminal_metadata["output_intent"] = DONE_OUTPUT_OFF
         normalized["terminal_metadata"] = terminal_metadata
 
-    tmp_path = f"{session_file}.done-normalize.tmp"
     try:
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(normalized, handle, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, session_file)
+        from runtime.charge.session_atomic import complete_session_document
+        normalized = complete_session_document(
+            host, normalized, previous=document, now_s=time.time(),
+        )
+        atomic_session_write(session_file, normalized)
+        document.clear()
+        document.update(normalized)
+        return True
     except OSError as ex:
         logger.warning("Could not normalize terminal Done session: %s", ex)
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except OSError:
-            pass
+        return False
+
+
+def enrich_restored_session(host: Any, document: dict[str, Any], *,
+                            session_file: str = SESSION_FILE) -> bool:
+    """Persist restored identity/continuations via the sole canonical writer.
+
+    Start from the complete old document to retain extension and migration keys.
+    Guarded documents are rejected before reaching this path by restore_session;
+    complete_session_document still independently protects any guarded journal.
+    """
+    if not document or host.current_stage == host.STAGE_IDLE:
+        return False
+    saved_at = time.time()
+    from runtime.charge.session_atomic import complete_session_document
+    from runtime.charge.strategy.main_guard_session import GUARD_KEY, GuardJournalError
+    if GUARD_KEY in document or getattr(host, "_main_current_guard", None) is not None:
+        # Identity-only enrichment cannot claim a guarded checkpoint revision.
+        return False
+    try:
+        completed = complete_session_document(
+            host, document, previous=document, now_s=saved_at,
+        )
+    except GuardJournalError as exc:
+        logger.error("Restored session identity/Guard reconciliation failed: %s", exc)
+        return False
+    try:
+        atomic_session_write(session_file, completed, allow_nan=True)
+    except OSError as exc:
+        logger.error("Could not persist restored session identity: %s", exc)
+        return False
+    return True
 
 
 def clear_session_file(host: Any, *, session_file: str = SESSION_FILE) -> None:
@@ -555,6 +587,9 @@ def restore_session(
             host.total_start_time = now
             logger.info("Restore: total_start_time invalid or >24h, set to now()")
 
+        from runtime.charge.session import apply_trace_identity, restore_trace_identity
+        apply_trace_identity(host, restore_trace_identity(host, data))
+
         target_finish = data.get("target_finish_time")
         restored_terminal = False
         target_v_raw = float(data.get("target_voltage", 14.7))
@@ -679,10 +714,15 @@ def restore_session(
                 "remaining_min": remaining_min,
             },
         )
+        host._session_restore_enriched = False
+        if normalize_done_document:
+            host._session_restore_enriched = _normalize_terminal_done_document(
+                host, data, session_file=session_file,
+            )
+        host._session_restore_document = dict(data)
         if restored_terminal:
             host._save_session(voltage, current, ah)
-        elif normalize_done_document:
-            _normalize_terminal_done_document(data, session_file=session_file)
+            host._session_restore_enriched = True
         host._stage_tracking_enabled = True
         return True, msg
 
@@ -696,6 +736,7 @@ __all__ = [
     "SESSION_MAX_AGE_S",
     "SESSION_START_MAX_AGE_S",
     "clear_session_file",
+    "enrich_restored_session",
     "paused_done_resume_is_authorized",
     "restore_allows_auto_enable",
     "restore_session",

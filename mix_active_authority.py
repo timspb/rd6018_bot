@@ -252,11 +252,6 @@ class MixActiveAuthorityMixin:
             raise MixActiveAuthorityError("Mix session identity is unavailable")
         return session_id
 
-    def _begin_trace_identity(self) -> None:
-        super()._begin_trace_identity()
-        if self.current_stage == self.STAGE_MIX:
-            self._mix_active_authority.begin(self._mix_authority_session_id(), active=False)
-
     def _enter_mix(self, *args: Any, **kwargs: Any) -> None:
         super()._enter_mix(*args, **kwargs)
         self._mix_active_authority.begin(self._mix_authority_session_id(), active=False)

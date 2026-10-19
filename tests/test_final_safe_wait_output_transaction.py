@@ -191,7 +191,6 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 "production_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)
-                controller._write_trace_identity_to_session_file()
 
                 restored = DiagnosticProductionChargeController(
                     DummyHass()
