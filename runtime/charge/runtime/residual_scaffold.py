@@ -27,6 +27,7 @@ from runtime.charge.runtime.cooling_resume import (
     apply_cooling_resume_effect,
     build_cooling_resume_effect,
 )
+from runtime.charge.runtime.residual_terminal import decide_residual_terminal
 from runtime.charge.strategy.prep_variables import PREP_VOLTAGE_V
 from runtime.safety.communication_variables import (
     LINK_LOSS_INITIAL_NOTICE_COUNT,
@@ -238,7 +239,10 @@ async def run_authoritative_residual_scaffold(
     if voltage > float(PB_PROFILE_WARNING_VOLTAGE_V.default) and not manual_active:
         actions["notify"] = f"<b>⚠️ Напряжение</b> {voltage:.2f}V превышает лимит!"
 
-    if stage_before == host.STAGE_IDLE:
+    terminal = decide_residual_terminal(
+        stage_before, idle_stage=host.STAGE_IDLE, done_stage=host.STAGE_DONE
+    ) if stage_before in {host.STAGE_IDLE, host.STAGE_DONE} else None
+    if terminal is not None and terminal.return_after_observation:
         return actions
 
     if host._pending_log_event:
@@ -349,7 +353,7 @@ async def run_authoritative_residual_scaffold(
         host.notify(actions["notify"])
         return actions
 
-    # DONE has no automatic transition here; IDLE already returned above.
+    # DONE has no automatic transition after its shared observation path.
     return actions
 
 

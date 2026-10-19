@@ -380,3 +380,25 @@ residual route, cooling and desulfation clock regressions were included in the
 focused run. This source-only cut does not validate the physical re-enable path.
 DONE/IDLE ownership, Storage/DONE and Manual integration remain pending; P2
 remains partial.
+
+### Sprint 14 P3-9 residual IDLE/DONE terminal flow choice
+
+The production caller remains `ManagedChargeController._run_stage_scaffold_tick`
+through `run_authoritative_residual_scaffold`. Sprint 14 moves only the
+terminal-flow choice to the frozen `ResidualTerminalDecision` in
+`runtime.charge.runtime.residual_terminal`: IDLE returns immediately after the
+existing shared observation and safety work; DONE continues through the
+existing stage timing, pending-log, and reporting path before its existing
+no-transition return. The residual scaffold calls the owner once for terminal
+stages. Sample capture, temperature/link safety, analytics, log/report state,
+DONE verified commit, persistence, session identity, Manual, execution routing,
+and all recipes remain at their existing owners.
+
+The owner makes no state mutation and has no actuator/execution-port access.
+`tests/test_d123_p3_residual_terminal.py` covers IDLE/DONE parity, rejection of
+nonterminal/unknown stages, one production call site, and the no-writer boundary.
+The focused set including residual authority and COOLING resume regressions
+passed 11 tests with Python 3.12 and a synthetic token. This is a narrow
+source-only terminal-flow extraction; remaining IDLE/DONE observation and
+persistence ownership, Storage/DONE, Manual integration, P2, P4, and P5 remain
+open.

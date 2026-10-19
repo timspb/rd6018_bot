@@ -57,10 +57,11 @@ the current cut and test counts.
 - [x] Sprint 11 PREP threshold completion now returns/applies one frozen `PrepCompletionEffect` in `runtime.charge.runtime.prep_completion`; the residual scaffold retains threshold/target selection and delegates only the PREP -> MAIN state/effect commit. Focused residual/effect set: **8 PASS**; full discovery: **2,373 PASS / 3 skipped**; compileall and diff check pass. See `D123_SPRINT11_EVIDENCE_20261019.md`.
 - [x] Sprint 12 final SAFE_WAIT decision and Storage request construction use `FinalSafeWaitAuthorityEffect` in `runtime.charge.runtime.final_safe_wait_authority`; focused authority/mix/transaction/restore set **27 PASS**, full offline discovery **2,376 PASS / 3 skipped**, compileall and diff check PASS. See `D123_SPRINT12_EVIDENCE_20261019.md`.
 - [x] Sprint 13 residual COOLING resume mutation/action construction uses frozen `CoolingResumeEffect` in `runtime.charge.runtime.cooling_resume`; focused parity/failure/static plus residual/cooling/desulfation regressions **22 PASS**, full offline discovery **2,379 PASS / 3 skipped**, compileall and diff check PASS. See `D123_SPRINT13_EVIDENCE_20261019.md`.
+- [x] Sprint 14 residual IDLE/DONE terminal flow choice uses frozen `ResidualTerminalDecision` in `runtime.charge.runtime.residual_terminal`; IDLE's early return and DONE's post-observation no-transition behavior are retained. Focused parity/failure/static plus residual/cooling regressions **11 PASS**, full offline discovery **2,382 PASS / 3 skipped**, compileall and diff check PASS. See `D123_SPRINT14_EVIDENCE_20261019.md`.
 - [x] Final SAFE_WAIT decision/action construction: Sprint 12 typed authority effect; verified DONE commit remains Sprint 10 owner.
 - [ ] Storage/DONE and Manual integration.
 - [x] Residual COOLING resume typed effect (Sprint 13).
-- [ ] DONE/IDLE ownership; Storage/DONE and Manual integration.
+- [ ] Remaining DONE/IDLE observation mutations and persistence ownership; Storage/DONE and Manual integration.
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths
 
