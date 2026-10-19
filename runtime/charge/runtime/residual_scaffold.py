@@ -29,6 +29,10 @@ from runtime.charge.runtime.cooling_resume import (
 )
 from runtime.charge.runtime.residual_terminal import decide_residual_terminal
 from runtime.charge.runtime.residual_observation import record_residual_observation
+from runtime.charge.runtime.residual_reporting import (
+    apply_residual_reporting_effect,
+    build_residual_reporting_effect,
+)
 from runtime.charge.strategy.prep_variables import PREP_VOLTAGE_V
 from runtime.safety.communication_variables import (
     LINK_LOSS_INITIAL_NOTICE_COUNT,
@@ -249,28 +253,24 @@ async def run_authoritative_residual_scaffold(
     if terminal is not None and terminal.return_after_observation:
         return actions
 
-    if host._pending_log_event:
-        actions["log_event"] = host._pending_log_event
-        host._pending_log_event = None
-
     elapsed = max(0.0, now - host.stage_start_time)
     if now - host._last_log_time >= float(HISTORY_SAMPLE_INTERVAL_S.default):
         _phase_log(host.current_stage, voltage, current, temp)
         host._last_log_time = now
 
-    if (
-        not manual_off_active
-        and now - host._last_hourly_report >= float(OPERATOR_REPORT_INTERVAL_S.default)
-    ):
-        host._last_hourly_report = now
-        report = (
-            f"⏳ Прошло {elapsed / 3600.0:.1f}ч из — лимита этапа. "
-            f"Ток: {current:.2f} А, T: {temp:.1f}°C, Ah: {ah:.2f}."
-        )
-        if "notify" not in actions or not actions["notify"]:
-            actions["notify"] = report
-        else:
-            host.notify(report)
+    reporting_effect = build_residual_reporting_effect(
+        pending_log_event=host._pending_log_event,
+        manual_off_active=manual_off_active,
+        now_s=now,
+        last_hourly_report_s=host._last_hourly_report,
+        report_interval_s=float(OPERATOR_REPORT_INTERVAL_S.default),
+        elapsed_s=elapsed,
+        current_a=current,
+        temperature_c=temp,
+        ah=ah,
+        existing_notify=actions.get("notify"),
+    )
+    apply_residual_reporting_effect(host, reporting_effect, actions)
 
     if is_cv:
         if host._cv_since is None:

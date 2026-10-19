@@ -424,3 +424,32 @@ no-writer guards. Focused residual authority and COOLING regressions passed 13
 tests with the Python 3.12 venv and synthetic token. This is source-only;
 remaining IDLE/DONE report/persistence ownership, Storage/DONE, Manual, P2, P4,
 and P5 remain open. Full discovery was not run or claimed.
+
+### Sprint 16 P3-11 residual pending-log and operator-report effect
+
+The production caller remains `ManagedChargeController._run_stage_scaffold_tick`
+through `run_authoritative_residual_scaffold`. Sprint 16 moves pending-log
+consumption and hourly operator-report scheduling/payload construction into the
+frozen `ResidualReportingEffect` in `runtime.charge.runtime.residual_reporting`.
+Its applicator owns clearing `_pending_log_event`, advancing
+`_last_hourly_report`, adding the pending event/report to the action mapping,
+and preserving the existing direct-notify behavior when an action already has a
+nonempty notification. IDLE still exits before this owner; DONE still reaches
+it after shared observation and stage-clock bookkeeping.
+
+The cut leaves phase-log timing, stage timing, persistence/session save,
+Storage/DONE verified completion, Manual integration, safety, recipes, and
+physical execution untouched. The charge owner has no RD setter or
+`execution_port` route. `tests/test_d123_p3_residual_terminal.py` covers exact
+report text, pending-log consumption, interval/manual-off behavior, notification
+collision semantics, frozen effect, single applicator call, and static no-writer
+gates. Focused residual/Storage failure regressions passed **30 tests** and the
+full Python 3.12 offline discovery passed **2,387 tests / 3 skipped** with
+synthetic token `123456789:d123-sprint16`; `compileall -q .` and
+`git diff --check` passed. Exact source-only record:
+`D123_SPRINT16_EVIDENCE_20261019.md`.
+
+The next bounded cut is not taken automatically: Storage/DONE and persistence
+are coupled through verified completion and canonical session save, while
+Manual integration and central tick extraction span larger ownership
+boundaries. P2 remains partial; P3, P4, and P5 remain open.
