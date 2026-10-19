@@ -113,6 +113,9 @@ from runtime.charge.runtime.final_safe_wait_completion import (
     apply_final_safe_wait_completion_effect,
     build_final_safe_wait_completion_effect,
 )
+from runtime.charge.runtime.final_safe_wait_authority import (
+    build_final_safe_wait_authority_effect,
+)
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.strategy.desulfation import (
@@ -127,7 +130,6 @@ from runtime.charge.strategy.desulfation_variables import (
 from runtime.charge.strategy.final_safe_wait import (
     FinalSafeWaitAction,
     FinalSafeWaitContinuation,
-    decide_final_safe_wait,
     validate_final_continuation,
 )
 from runtime.charge.strategy.main_authority import decide_main_transition
@@ -885,19 +887,23 @@ class ManagedChargeController:
         actions: Dict[str, Any],
         output_is_on: Optional[Any],
     ) -> AuthorityDecision:
-        continuation = self._final_safe_wait
-        valid = (
-            continuation is not None
-            and self.current_stage == self.STAGE_SAFE_WAIT
-            and validate_final_continuation(
-                continuation,
-                session_id=self._v2_trace_session_id,
-                session_generation=self._v2_trace_started_at,
-                expected_next_stage=self.STAGE_DONE,
-                allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
-            )
+        output_is_off = normalize_output_on(output_is_on) is False
+        if output_is_off:
+            self._record_safe_wait_sample(now, voltage, current, temp)
+        effect = build_final_safe_wait_authority_effect(
+            self._final_safe_wait,
+            current_stage=self.current_stage,
+            safe_wait_stage=self.STAGE_SAFE_WAIT,
+            done_stage=self.STAGE_DONE,
+            session_id=self._v2_trace_session_id,
+            session_generation=self._v2_trace_started_at,
+            allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
+            now_s=now,
+            voltage_v=voltage,
+            output_is_off=output_is_off,
+            add_phase_limits=self._add_phase_limits,
         )
-        if not valid:
+        if effect is None:
             reason = "final_safe_wait_continuation_invalid"
             self._stop_and_diagnose(
                 actions=actions,
@@ -910,39 +916,10 @@ class ManagedChargeController:
             )
             self._final_safe_wait = None
             return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
-
-        assert continuation is not None
-        output_is_off = normalize_output_on(output_is_on) is False
-        if output_is_off:
-            self._record_safe_wait_sample(now, voltage, current, temp)
-        decision = decide_final_safe_wait(
-            continuation,
-            now_s=now,
-            voltage_v=voltage,
-            output_is_off=output_is_off,
-        )
+        actions.update(effect.actions)
+        decision = effect.decision
         if decision.action == FinalSafeWaitAction.WAIT:
             return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
-
-        actions["set_voltage"] = continuation.target_voltage_v
-        actions["set_current"] = continuation.target_current_a
-        self._add_phase_limits(
-            actions,
-            continuation.target_voltage_v,
-            continuation.target_current_a,
-        )
-        actions["turn_on"] = True
-        # Storage/DONE remains a two-phase transition: this token is only a request.
-        # The execution layer must prove programmed readback and physical Output ON
-        # before commit_verified_enable_transition may advance the software stage.
-        actions["verified_enable_transition"] = {
-            "kind": "final_safe_wait_to_done",
-            "session_id": continuation.session_id,
-            "session_generation": continuation.session_generation,
-            "started_at": continuation.started_at,
-            "reason": decision.reason,
-        }
-        actions["log_event"] = "FINAL_SAFE_WAIT_STORAGE_ENABLE_ATTEMPT"
         logger.info(
             "V2 final SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
             decision.reason,

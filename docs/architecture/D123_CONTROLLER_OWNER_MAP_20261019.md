@@ -336,3 +336,25 @@ no physical writer. `tests/test_v3_residual_authority_migration.py` continues
 to cover the production residual route, cooling resume and unsupported-stage
 fail-closed behavior. Cooling resume, final SAFE_WAIT decision, DONE/IDLE and
 remaining residual integrations remain pending.
+
+### Sprint 12 P3-7 final SAFE_WAIT authority request
+
+Both existing final SAFE_WAIT call paths still enter
+`ManagedChargeController._apply_final_safe_wait_authority`. Its output freshness
+normalization and SAFE_WAIT sample capture remain in the controller. Continuation
+validation, pure relaxation decision, and exact Storage request action values now
+come from `runtime.charge.runtime.final_safe_wait_authority` as a typed
+`FinalSafeWaitAuthorityEffect`. The controller retains invalid-continuation
+STOP_AND_DIAGNOSE containment, log reporting, and return mapping. Actions continue
+through the same downstream `runtime.production_runtime` route and existing
+`application.execution_port` verified transaction; the effect owner has no stage
+mutation, persistence, or physical writer authority. The follow-up receipt still
+commits through `commit_verified_enable_transition` and the Sprint 10 completion
+effect.
+
+`tests/test_d123_p3_final_safe_wait_authority_effect.py` verifies exact Storage
+request keys/values, fresh-OFF wait behavior, stale identity rejection, and one
+controller builder call. Existing mix authority, final SAFE_WAIT transaction,
+and Storage restore tests exercise fail-closed and downstream transaction paths.
+This is source-only. Remaining residual COOLING resume, DONE/IDLE and Manual
+integration remain open.
