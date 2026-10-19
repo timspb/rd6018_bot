@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from d123_final_safe_wait_helpers import enter_final_safe_wait
+
 from charge_controller import ManagedChargeController, FinalSafeWaitContinuation
 from diagnostic_controller import DiagnosticProductionChargeController
 from runtime.charge.persistence import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON
@@ -23,7 +25,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
         with patch("charge_controller.SESSION_FILE", session_file), patch(
             "charge_controller.SESSION_FILE", session_file
         ):
-            controller._enter_safe_wait_done(
+            enter_final_safe_wait(controller,
                 actions=actions,
                 now=1000.0,
                 voltage=16.2,
@@ -134,7 +136,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 controller.start("AGM", 90)
                 controller._v2_trace_session_id = "session-final"
                 controller.current_stage = controller.STAGE_MIX
-                controller._enter_safe_wait_done(
+                enter_final_safe_wait(controller,
                     actions={},
                     now=1000.0,
                     voltage=16.2,
@@ -176,7 +178,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             )
             controller.start("AGM", 90)
             controller.current_stage = controller.STAGE_MIX
-            controller._enter_safe_wait_done(
+            enter_final_safe_wait(controller,
                 actions={},
                 now=now,
                 voltage=16.2,

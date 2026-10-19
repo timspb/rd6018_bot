@@ -46,10 +46,13 @@ the current cut and test counts.
 - [x] P3-1: MAIN -> DESULFATION effect is built as `MainDesulfationEffect` by the pure `runtime.charge.runtime.desulfation_entry.build_main_desulfation_effect`, then applied once through `apply_main_desulfation_effect`; `ManagedChargeController._enter_desulfation` is removed. `decide_main_transition` remains the sole decision caller; the existing downstream action/execution/verified-commit route is unchanged.
 - [x] P3-1 parity gates cover typed action keys and values across Ca/Ca, EFB and AGM, attempt count, stage-history single edge, targets/blanking/plateau reset, protection limits, no setter route in the owner, and AST single caller/import direction: `tests/test_d123_p3_main_desulfation_effect.py`.
 - [x] Existing bounded recovery, retry/Guard, SAFE_WAIT continuation, transaction, terminal, restart and rollback/fail-closed regression suites passed with the full offline suite; source result is not physical acceptance.
-- [ ] Remaining P3 effect owners: MAIN + PREP and residual; final SAFE_WAIT; cooling/storage/done and Manual integration.
+- [ ] Remaining P3 effect owners: MAIN + PREP and residual; final SAFE_WAIT decision/commit; cooling/storage/done and Manual integration.
 - [ ] MAIN + PREP and residual
 - [x] Sprint 07 P3-2 DESULFATION completion -> recovery SAFE_WAIT uses a frozen typed effect in `runtime.charge.runtime.desulfation_completion`; two-hour decision gate, canonical strategy targets, typed continuation, one session mutation edge, exact OFF intent and downstream transaction path preserved. Identity validation rejects missing/stale session ID/generation before mutation; regression and persisted-session snapshot paths pass. See `D123_SPRINT07_EVIDENCE_20261019.md`.
-- [x] MIX entry effect (Sprint 08); final SAFE_WAIT remains pending.
+- [x] MIX entry effect (Sprint 08).
+- [x] Sprint 09 P3-4 MAIN/MIX -> final SAFE_WAIT entry uses an immutable typed effect and one mutation applicator in `runtime.charge.runtime.final_safe_wait_entry`; `_enter_safe_wait_done` is deleted. Exact OFF intent, source stage, continuation identity/generation, storage targets, sample/reset behavior and event/notification fields are preserved. Missing/stale identity fails closed before mutation and routes to STOP_AND_DIAGNOSE; downstream fresh-OFF SAFE_WAIT decision and verified Storage ON transaction remain unchanged.
+- [x] Sprint 09 parity and AST gates, focused final SAFE_WAIT/recovery/MIX/readback/lease/rollback/restoration set (**469 PASS**), full offline discovery (**2,367 PASS / 2 skipped**), compileall and diff check pass. See `D123_SPRINT09_EVIDENCE_20261019.md`.
+- [ ] Final SAFE_WAIT decision/commit; cooling/storage/done and Manual integration.
 - [ ] Cooling, storage/done, Manual integration
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths

@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, patch
 import aiosqlite
 
 import charge_controller
+from d123_final_safe_wait_helpers import enter_final_safe_wait
+
 from charge_controller import ManagedChargeController
 from tools.voltage_relaxation_sidecar import PassiveCollector, read_session
 
@@ -58,7 +60,7 @@ class ActualPersistenceContractTests(IsolatedAsyncioTestCase):
         actions = {}
         with patch.object(charge_controller, "SESSION_FILE", str(self.session)):
             if kind == "final":
-                controller._enter_safe_wait_done(
+                enter_final_safe_wait(controller,
                     actions=actions, now=now-45, voltage=13.5,
                     current=0.01, temp=22.0, ah=12.0, reason="offline-test",
                 )

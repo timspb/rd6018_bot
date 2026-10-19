@@ -15,6 +15,10 @@ from runtime.charge.strategy.main_variables import (
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 from production_controller import ProductionChargeController
+from runtime.charge.runtime.final_safe_wait_entry import (
+    FinalSafeWaitEntryInput,
+    apply_final_safe_wait_entry,
+)
 
 
 class AutoStrategyProductionChargeController(ProductionChargeController):
@@ -126,15 +130,33 @@ class AutoStrategyProductionChargeController(ProductionChargeController):
                 reason=decision.reason,
             )
         elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
-            self._enter_safe_wait_done(
-                actions=actions,
-                now=timestamp_s,
-                voltage=voltage,
-                current=current,
-                temp=temp,
+            previous_stage = self.current_stage
+            storage_v, storage_i = self._storage_target()
+            effect_input = FinalSafeWaitEntryInput(
+                source_stage=previous_stage,
+                safe_wait_stage=self.STAGE_SAFE_WAIT,
+                next_stage=self.STAGE_DONE,
+                session_id=self._v2_trace_session_id,
+                session_generation=self._v2_trace_started_at,
+                target_voltage_v=storage_v,
+                target_current_a=storage_i,
+                now_s=timestamp_s,
+                voltage_v=voltage,
+                current_a=current,
+                temperature_c=temp,
                 ah=ah,
                 reason=decision.reason,
+                log_event_end=self._make_log_event_end(
+                    timestamp_s, ah, voltage, current, temp, decision.reason
+                ),
             )
+            if not apply_final_safe_wait_entry(self, effect_input, actions):
+                reason = "final_safe_wait_entry_session_identity_invalid"
+                self._stop_and_diagnose(
+                    actions=actions, now=timestamp_s, voltage=voltage,
+                    current=current, temp=temp, ah=ah, reason=reason,
+                )
+                return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
         elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
             self._stop_and_diagnose(
                 actions=actions,

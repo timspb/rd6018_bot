@@ -104,6 +104,10 @@ from runtime.charge.runtime.support import (
 )
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S, STAGE_TRANSITION_BLANKING_S
 from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
+from runtime.charge.runtime.final_safe_wait_entry import (
+    FinalSafeWaitEntryInput,
+    apply_final_safe_wait_entry,
+)
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.strategy.desulfation import (
@@ -136,7 +140,6 @@ from runtime.charge.strategy.recovery_safe_wait import (
     validate_recovery_continuation,
 )
 from runtime.charge.strategy.safe_wait_variables import (
-    SAFE_WAIT_TARGET_MARGIN_V,
     safe_wait_max_seconds,
 )
 from runtime.charge.strategy.storage import select_storage_target
@@ -1319,52 +1322,6 @@ class ManagedChargeController:
         """Compatibility accessor over the canonical modular MIX authority limit."""
         return mix_max_active_seconds(self.battery_type)
 
-    def _enter_safe_wait_done(
-        self,
-        *,
-        actions: Dict[str, Any],
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        reason: str,
-    ) -> None:
-        prev = self.current_stage
-        actions["log_event_end"] = self._make_log_event_end(
-            now, ah, voltage, current, temp, reason
-        )
-        uv, ui = self._storage_target()
-        threshold = uv - float(SAFE_WAIT_TARGET_MARGIN_V.default)
-        self.current_stage = self.STAGE_SAFE_WAIT
-        self._clear_restored_targets()
-        self.stage_start_time = now
-        self._stage_start_ah = ah
-        self._safe_wait_next_stage = self.STAGE_DONE
-        self._safe_wait_target_v, self._safe_wait_target_i = uv, ui
-        self._safe_wait_start = now
-        self._final_safe_wait = FinalSafeWaitContinuation(
-            source_stage=prev,
-            next_stage=self.STAGE_DONE,
-            target_voltage_v=float(uv),
-            target_current_a=float(ui),
-            started_at=float(now),
-            session_id=self._v2_trace_session_id,
-            completion_reason=str(reason),
-            session_generation=float(self._v2_trace_started_at),
-        )
-        self._recovery_safe_wait = None
-        self._record_safe_wait_sample(now, voltage, current, temp)
-        self.finish_timer_start = None
-        self._main_sample_evidence.reset()
-        actions["turn_off"] = True
-        actions["notify"] = (
-            f"<b>✅ V2: этап завершён.</b> {reason}. "
-            f"Ожидание падения до {threshold:.1f}В перед Storage."
-        )
-        actions["log_event"] = "START | V2_AUTHORITATIVE"
-        logger.info("V2 transition %s -> %s | %s", prev, self.STAGE_SAFE_WAIT, reason)
-
     def _stop_and_diagnose(
         self,
         *,
@@ -1593,15 +1550,33 @@ class ManagedChargeController:
                 ))
                 apply_main_mix_effect(self, effect, actions)
             elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
-                self._enter_safe_wait_done(
-                    actions=actions,
-                    now=timestamp_s,
-                    voltage=voltage,
-                    current=current,
-                    temp=temp,
+                previous_stage = self.current_stage
+                storage_v, storage_i = self._storage_target()
+                effect_input = FinalSafeWaitEntryInput(
+                    source_stage=previous_stage,
+                    safe_wait_stage=self.STAGE_SAFE_WAIT,
+                    next_stage=self.STAGE_DONE,
+                    session_id=self._v2_trace_session_id,
+                    session_generation=self._v2_trace_started_at,
+                    target_voltage_v=storage_v,
+                    target_current_a=storage_i,
+                    now_s=timestamp_s,
+                    voltage_v=voltage,
+                    current_a=current,
+                    temperature_c=temp,
                     ah=ah,
                     reason=decision.reason,
+                    log_event_end=self._make_log_event_end(
+                        timestamp_s, ah, voltage, current, temp, decision.reason
+                    ),
                 )
+                if not apply_final_safe_wait_entry(self, effect_input, actions):
+                    reason = "final_safe_wait_entry_session_identity_invalid"
+                    self._stop_and_diagnose(
+                        actions=actions, now=timestamp_s, voltage=voltage,
+                        current=current, temp=temp, ah=ah, reason=reason,
+                    )
+                    return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
             elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
                 self._stop_and_diagnose(
                     actions=actions,
@@ -1682,15 +1657,33 @@ class ManagedChargeController:
                     max(0.0, timestamp_s - float(self.finish_timer_start)),
                     timestamp_s,
                 )
-            self._enter_safe_wait_done(
-                actions=actions,
-                now=timestamp_s,
-                voltage=voltage,
-                current=current,
-                temp=temp,
+            previous_stage = self.current_stage
+            storage_v, storage_i = self._storage_target()
+            effect_input = FinalSafeWaitEntryInput(
+                source_stage=previous_stage,
+                safe_wait_stage=self.STAGE_SAFE_WAIT,
+                next_stage=self.STAGE_DONE,
+                session_id=self._v2_trace_session_id,
+                session_generation=self._v2_trace_started_at,
+                target_voltage_v=storage_v,
+                target_current_a=storage_i,
+                now_s=timestamp_s,
+                voltage_v=voltage,
+                current_a=current,
+                temperature_c=temp,
                 ah=ah,
                 reason=decision.reason,
+                log_event_end=self._make_log_event_end(
+                    timestamp_s, ah, voltage, current, temp, decision.reason
+                ),
             )
+            if not apply_final_safe_wait_entry(self, effect_input, actions):
+                reason = "final_safe_wait_entry_session_identity_invalid"
+                self._stop_and_diagnose(
+                    actions=actions, now=timestamp_s, voltage=voltage,
+                    current=current, temp=temp, ah=ah, reason=reason,
+                )
+                return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
         elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
             logger.info(
                 "CHARGE_EVIDENCE kind=stop event=diagnose reason=%s owner=v2 timestamp=%.3f",

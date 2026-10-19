@@ -75,7 +75,7 @@ already migrated.
 | **`MainSampleEvidenceEvaluator` is now external; removed:** `_update_main_plateau_clock`, `_assess_main_sample`; former field `_v2_main_plateau_since` removed (`charge_controller.py:195`, `2209–2237` call; pure decision at `1908`; evaluator/API at `runtime/charge/evidence/first_stage.py:46–144`; removed methods were baseline `1000–1082`) | Before D123: controller tick and START/pause/cooling/reset callers. After D123: typed evidence owner; tick supplies current analysis; START and pause use owner reset/shift API | `runtime.charge.evidence.first_stage.MainSampleEvidenceEvaluator`; typed `MainSampleEvidenceInput` -> `MainSampleEvidence`; then existing pure MAIN decision | `test_main_sample_evidence_clock`, first-stage, controller authority, production-controller and main strategy tests. **High:** transition evidence/timing; exact accepted 15-minute backdating retained |
 | `_apply_continuous_tail_hold`, `_log_stage_transition` (`1022–1051`) | Base identity extension point plus production subclass tail policy; called after evidence result during tick | Production continuity hold remains in `production_controller.py`; later P2/P3 decision required before further movement | `test_production_controller`. **High:** continuous tail hold is separate from plateau clock and preserved |
 | `_complete_desulfation_to_safe_wait`, `_apply_recovery_safe_wait_authority`, `_apply_final_safe_wait_authority`, `_handle_safe_wait_stage_override`, `commit_verified_enable_transition`, `_handle_mix_stage_override`, `_is_authoritative_stage`, `_run_stage_scaffold_tick` (`1053–1641`) | Stage orchestration and transactional transition code; tick only | Existing stage decision modules plus application use case/execution port; substantial P3 debt | stage, safe-wait, execution and restart suites. **Critical:** verified OFF/ON and continuation safety |
-| `_enter_safe_wait_done`, `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source) | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | Other stage methods remain controller-owned; MAIN->DESULFATION now uses `runtime.charge.runtime.desulfation_entry` typed effect; existing application action consumer and execution port remain unchanged | authority/recovery/AGM/MIX tests. **Critical:** actuator setpoints, Output state, retry budget, stage commit |
+| `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source); `_enter_safe_wait_done` removed in Sprint 09 | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | MAIN/MIX -> final SAFE_WAIT now uses `runtime.charge.runtime.final_safe_wait_entry`; other stage methods remain controller-owned. Existing application action consumer and execution port remain unchanged | authority/recovery/AGM/MIX/final SAFE_WAIT tests. **Critical:** stage commit and OFF/ON transaction ordering |
 | `tick` (`2068–2360`) | Transitional session orchestration and FSM adapter; only active call is production loop at `runtime/production_runtime.py:2939`; tests call directly | Intended to move to existing application use case at P2–P4, with current strategy, evidence, safety and execution owners | controller/production/recovery/safety tests. **Critical:** whole charge state machine and action batches |
 
 Methods are grouped by responsibility above and current source line ranges are
@@ -249,3 +249,35 @@ deleted without a proxy. Ca/Ca, EFB and AGM behavior is covered by
 `tests/test_d123_p3_main_mix_effect.py` and existing downstream/transaction,
 trace, checkpoint and restart regressions. This remains source-only and does
 not establish physical acceptance.
+
+### Sprint 09 P3-4 MAIN/MIX -> final SAFE_WAIT entry
+
+The existing MAIN and MIX decisions are unchanged. On their existing
+`COMPLETE_TO_SAFE_WAIT` result, target selection still uses `_storage_target`,
+and the existing event-end payload is captured before the stage mutation. Both
+the controller path and the existing AUTO decision adapter build the frozen
+`FinalSafeWaitEntryEffect` through `runtime.charge.runtime.final_safe_wait_entry`
+and use its single mutation applicator. The effect retains source stage, session
+ID/generation, canonical Storage targets, completion reason, sample values,
+timestamp and exact `log_event_end`, notification, `START | V2_AUTHORITATIVE`
+and `turn_off=True` action values.
+
+Before mutation, the applicator requires a MAIN or MIX source stage matching the
+current host, matching non-empty session ID and finite positive matching
+generation, plus valid positive targets and start timestamp. Rejection leaves
+stage, history, continuation and actions untouched; the caller enters the
+existing STOP_AND_DIAGNOSE path, which cannot request Output ON. On acceptance,
+the effect makes one canonical stage-history edge, records the same SAFE_WAIT
+sample, clears restored targets, sets the existing continuation and target
+mirrors, resets the completed sticky hold and MAIN plateau evidence, and emits
+the existing verified-OFF intent. No physical writer, execution port, recipe,
+threshold, persisted schema, downstream final SAFE_WAIT decision, verified
+Storage ON commit, rollback, lease or Guard behavior moved.
+
+Parity and static ownership checks are in
+`tests/test_d123_p3_final_safe_wait_entry_effect.py`; prior direct-mutator test
+setup now calls the typed effect owner. Focused final SAFE_WAIT/recovery/MIX,
+readback, lease, rollback-related transaction and restoration coverage passed
+469 tests. Exact full discovery and source-only scope are recorded in
+`D123_SPRINT09_EVIDENCE_20261019.md`. Final SAFE_WAIT decision/commit,
+cooling/storage/done and Manual integration remain P3 work; P2 remains partial.

@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from d123_final_safe_wait_helpers import enter_final_safe_wait
+
 from charge_controller import ManagedChargeController
 from production_controller import ProductionChargeController
 from runtime.charge.strategy import mix as mix_strategy
@@ -253,7 +255,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             controller = ProductionChargeController(DummyHass())
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_MIX
-            controller._enter_safe_wait_done(
+            enter_final_safe_wait(controller,
                 actions={},
                 now=now,
                 voltage=16.2,

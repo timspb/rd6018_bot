@@ -96,6 +96,8 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         controller.stage_start_time = start - 6 * 3600
         controller.total_start_time = start - 10 * 3600
         controller._v2_target_voltage_v = 16.3
+        controller._v2_trace_session_id = "sticky-finish-session"
+        controller._v2_trace_started_at = start - 10 * 3600
         controller._last_known_output_on = True
         controller._v2_runtime = FixedRuntime(analysis_at(start, voltage=16.3, current=0.5, current_min=0.4, seconds_since_min=3600, events={SignalEvent.CURRENT_REVERSAL_CONFIRMED, SignalEvent.END_OF_CHARGE_LIKELY}), decision=RecoveryDecision.FINISH_STAGE)
         with patch("charge_controller.time.time", return_value=start), patch("charge_controller.time.time", return_value=start):
