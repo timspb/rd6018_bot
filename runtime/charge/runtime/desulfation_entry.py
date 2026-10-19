@@ -82,7 +82,30 @@ def apply_main_desulfation_effect(host: Any, effect: MainDesulfationEffect, acti
     logger.info("V2 transition %s -> %s | %s", effect.previous_stage, effect.stage, effect.reason)
 
 
+def apply_main_desulfation_entry(
+    host: Any, *, reason: str, now_s: float, ah: float, voltage_v: float,
+    current_a: float, temperature_c: float, target_voltage_v: float,
+    target_current_a: float, actions: dict[str, Any],
+) -> None:
+    """Assemble and apply the existing MAIN desulfation entry effect once."""
+    effect = build_main_desulfation_effect(MainDesulfationEffectInput(
+        previous_stage=host.current_stage,
+        desulfation_stage=host.STAGE_DESULFATION,
+        attempt=host.antisulfate_count + 1,
+        reason=reason,
+        now_s=now_s,
+        ah=ah,
+        target_voltage_v=target_voltage_v,
+        target_current_a=target_current_a,
+        log_event_end=host._make_log_event_end(
+            now_s, ah, voltage_v, current_a, temperature_c, reason
+        ),
+    ))
+    apply_main_desulfation_effect(host, effect, actions)
+
+
 __all__ = [
     "MainDesulfationEffect", "MainDesulfationEffectInput",
-    "apply_main_desulfation_effect", "build_main_desulfation_effect",
+    "apply_main_desulfation_effect", "apply_main_desulfation_entry",
+    "build_main_desulfation_effect",
 ]

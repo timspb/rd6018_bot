@@ -83,3 +83,15 @@ source change was made in Sprint 05.
 - [x] Run focused suites, full Python 3.12 offline discovery, compileall and
   `git diff --check`; record exact results in Sprint 23 evidence.
 - [x] Commit this single source cut and finish with a clean worktree.
+
+## Sprint 24 — MAIN DESULFATION and MIX entry dispatch
+
+- [x] Starting point pinned: clean `4662f54d4f0af722f9b96b246e83658d97df5a7a`.
+- [x] Keep `decide_main_transition`, `_desulf_target(temp)`, `_mix_target(temp)`,
+  and MIX protection-limit selection in the controller; move typed input and
+  event-end assembly plus single application into the existing stage owners.
+- [x] Add Ca/Ca, EFB and AGM target/action parity, pre-mutation failure, and AST
+  single-dispatch/no-inline-input guards for both entries.
+- [x] Run focused suites, full Python 3.12 offline discovery, compileall and
+  `git diff --check`; record exact results in Sprint 24 evidence.
+- [x] Commit this single source cut and finish with a clean worktree.

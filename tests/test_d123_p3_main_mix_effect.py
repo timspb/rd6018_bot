@@ -6,7 +6,8 @@ import unittest
 
 from charge_controller import ManagedChargeController
 from runtime.charge.runtime.mix_entry import (
-    MainMixEffectInput, apply_main_mix_effect, build_main_mix_effect,
+    MainMixEffectInput, apply_main_mix_effect, apply_main_mix_entry,
+    build_main_mix_effect,
 )
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S
 
@@ -65,15 +66,55 @@ class MainMixEffectTests(unittest.TestCase):
                    and node.name == "ManagedChargeController")
         methods = {node.name for node in cls.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertNotIn("_enter_mix", methods)
-        for name in ("build_main_mix_effect", "apply_main_mix_effect"):
+        for name in ("apply_main_mix_entry",):
             self.assertEqual(sum(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                                  and node.func.id == name for node in ast.walk(tree)), 1)
+        self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                             and node.func.id in {"MainMixEffectInput", "build_main_mix_effect",
+                                                  "apply_main_mix_effect"}
+                             for node in ast.walk(tree)))
         owner = ast.parse((ROOT / "runtime/charge/runtime/mix_entry.py").read_text(encoding="utf-8"))
         for node in ast.walk(owner):
             if isinstance(node, ast.ImportFrom):
                 self.assertNotIn("charge_controller", node.module or "")
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 self.assertNotIn(node.func.attr.lower(), {"set_voltage", "set_current", "set_output", "turn_on"})
+
+    def test_bounded_dispatch_preserves_profile_target_limits_and_event_end(self):
+        for profile in ("Ca/Ca", "EFB", "AGM"):
+            with self.subTest(profile=profile):
+                host = ManagedChargeController(object())
+                host.battery_type, host.ah_capacity = profile, 90
+                host._make_log_event_end = lambda *args: {"trigger": args[-1]}
+                voltage, current = host._mix_target(25.0)
+                limits = {}
+                host._add_phase_limits(limits, voltage, current)
+                actions = {}
+                apply_main_mix_entry(
+                    host, reason="fixture", now_s=123.0, ah=4.0, voltage_v=14.0,
+                    current_a=1.0, temperature_c=25.0, target_voltage_v=voltage,
+                    target_current_a=current, ovp_v=limits["set_ovp"],
+                    ocp_a=limits["set_ocp"], actions=actions,
+                )
+                self.assertEqual((actions["set_voltage"], actions["set_current"],
+                                  actions["set_ovp"], actions["set_ocp"]),
+                                 (voltage, current, limits["set_ovp"], limits["set_ocp"]))
+                self.assertEqual(actions["log_event_end"], {"trigger": "fixture"})
+                self.assertEqual(host.current_stage, host.STAGE_MIX)
+
+    def test_event_end_failure_precedes_mutation_and_action_application(self):
+        host = ManagedChargeController(object())
+        host.current_stage = host.STAGE_MAIN
+        host._make_log_event_end = lambda *args: (_ for _ in ()).throw(RuntimeError("capture"))
+        actions = {"existing": True}
+        with self.assertRaisesRegex(RuntimeError, "capture"):
+            apply_main_mix_entry(
+                host, reason="fixture", now_s=123.0, ah=4.0, voltage_v=14.0,
+                current_a=1.0, temperature_c=25.0, target_voltage_v=15.5,
+                target_current_a=2.0, ovp_v=16.0, ocp_a=3.0, actions=actions,
+            )
+        self.assertEqual(host.current_stage, host.STAGE_MAIN)
+        self.assertEqual(actions, {"existing": True})
 
 
 if __name__ == "__main__":

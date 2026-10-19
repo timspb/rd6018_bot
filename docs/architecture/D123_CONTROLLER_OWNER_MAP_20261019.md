@@ -565,3 +565,23 @@ STOP_AND_DIAGNOSE path. No strategy, recipe, session schema, Guard, lease,
 physical transaction or executor ownership moved. The owner contains no RD
 setter or `execution_port` dependency. Exact implementation and verification
 are recorded in `D123_SPRINT23_EVIDENCE_20261019.md`.
+
+### Sprint 24 MAIN entry dispatch convergence
+
+`decide_main_transition` remains the decision owner. For `ENTER_DESULFATION`,
+the controller still selects `_desulf_target(temp)` and dispatches once to
+`runtime.charge.runtime.desulfation_entry.apply_main_desulfation_entry`; that
+owner assembles the unchanged typed input and event-end payload, then calls the
+existing effect applicator once. For `ENTER_MIX`, `_mix_target(temp)` and
+`_add_phase_limits` remain in the controller; it dispatches their selected
+values once to `runtime.charge.runtime.mix_entry.apply_main_mix_entry`, which
+assembles the typed input/event end and calls the existing effect applicator.
+Action keys/values, stage history, attempts, clocks, resets, protection limits,
+and targets retain their prior algorithms. Event-end assembly failure
+precedes stage mutation and action updates, as before. Both owners remain free
+of RD setters and execution-port dependencies. See
+`D123_SPRINT24_EVIDENCE_20261019.md`.
+
+Sprint 24 changes only these two `_apply_authoritative_decision` branches.
+AGM step advancement, MAIN completion, STOP_AND_DIAGNOSE, and tick remain
+untouched. P3, P2, P4/P5, deployment and physical acceptance remain open.

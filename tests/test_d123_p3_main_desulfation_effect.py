@@ -8,6 +8,7 @@ import unittest
 from charge_controller import ManagedChargeController
 from runtime.charge.runtime.desulfation_entry import (
     MainDesulfationEffectInput,
+    apply_main_desulfation_entry,
     apply_main_desulfation_effect,
     build_main_desulfation_effect,
 )
@@ -91,11 +92,49 @@ class MainDesulfationEffectTests(unittest.TestCase):
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ManagedChargeController")
         self.assertNotIn("_enter_desulfation", {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))})
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                             and n.func.id == "apply_main_desulfation_effect" for n in ast.walk(tree)), 1)
+                             and n.func.id == "apply_main_desulfation_entry" for n in ast.walk(tree)), 1)
+        self.assertFalse(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                             and n.func.id in {"MainDesulfationEffectInput", "build_main_desulfation_effect",
+                                               "apply_main_desulfation_effect"}
+                             for n in ast.walk(tree)))
         owner = ast.parse((ROOT / "runtime/charge/runtime/desulfation_entry.py").read_text(encoding="utf-8"))
         for node in ast.walk(owner):
             if isinstance(node, ast.ImportFrom):
                 self.assertFalse((node.module or "").endswith("charge_controller"))
+
+    def test_bounded_dispatch_preserves_profile_target_and_event_end(self):
+        for profile in ("Ca/Ca", "EFB", "AGM"):
+            with self.subTest(profile=profile):
+                host = ManagedChargeController(object())
+                host.battery_type, host.ah_capacity = profile, 90
+                host._make_log_event_end = lambda *args: {"trigger": args[-1]}
+                voltage, current = host._desulf_target(25.0)
+                actions = {}
+                apply_main_desulfation_entry(
+                    host, reason="fixture", now_s=123.0, ah=4.0, voltage_v=14.0,
+                    current_a=1.0, temperature_c=25.0, target_voltage_v=voltage,
+                    target_current_a=current, actions=actions,
+                )
+                self.assertEqual((actions["set_voltage"], actions["set_current"]),
+                                 (voltage, current))
+                self.assertEqual(actions["log_event_end"], {"trigger": "fixture"})
+                self.assertEqual(host.antisulfate_count, 1)
+
+    def test_event_end_failure_precedes_mutation_and_action_application(self):
+        host = ManagedChargeController(object())
+        host.current_stage = host.STAGE_MAIN
+        host.antisulfate_count = 2
+        host._make_log_event_end = lambda *args: (_ for _ in ()).throw(RuntimeError("capture"))
+        actions = {"existing": True}
+        with self.assertRaisesRegex(RuntimeError, "capture"):
+            apply_main_desulfation_entry(
+                host, reason="fixture", now_s=123.0, ah=4.0, voltage_v=14.0,
+                current_a=1.0, temperature_c=25.0, target_voltage_v=15.5,
+                target_current_a=1.8, actions=actions,
+            )
+        self.assertEqual(host.current_stage, host.STAGE_MAIN)
+        self.assertEqual(host.antisulfate_count, 2)
+        self.assertEqual(actions, {"existing": True})
 
 
 if __name__ == "__main__":

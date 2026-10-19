@@ -87,9 +87,7 @@ from runtime.charge.runtime.agm_step_advance import (
     build_agm_step_advance_effect,
 )
 from runtime.charge.runtime.desulfation_entry import (
-    MainDesulfationEffectInput,
-    apply_main_desulfation_effect,
-    build_main_desulfation_effect,
+    apply_main_desulfation_entry,
 )
 from runtime.charge.runtime.desulfation_completion import (
     DesulfationCompletionInput,
@@ -97,9 +95,7 @@ from runtime.charge.runtime.desulfation_completion import (
     build_desulfation_completion_effect,
 )
 from runtime.charge.runtime.mix_entry import (
-    MainMixEffectInput,
-    apply_main_mix_effect,
-    build_main_mix_effect,
+    apply_main_mix_entry,
 )
 from runtime.charge.runtime.mix_finish_hold import (
     apply_mix_finish_hold_effect,
@@ -1422,44 +1418,23 @@ class ManagedChargeController:
                 )
                 apply_agm_step_advance_effect(self, effect, actions)
             elif decision.action == AuthorityAction.ENTER_DESULFATION:
-                previous_stage = self.current_stage
                 dv, di = self._desulf_target(temp)
-                effect = build_main_desulfation_effect(MainDesulfationEffectInput(
-                    previous_stage=previous_stage,
-                    desulfation_stage=self.STAGE_DESULFATION,
-                    attempt=self.antisulfate_count + 1,
-                    reason=decision.reason,
-                    now_s=timestamp_s,
-                    ah=ah,
-                    target_voltage_v=dv,
-                    target_current_a=di,
-                    log_event_end=self._make_log_event_end(
-                        timestamp_s, ah, voltage, current, temp, decision.reason
-                    ),
-                ))
-                apply_main_desulfation_effect(
-                    self, effect, actions
+                apply_main_desulfation_entry(
+                    self, reason=decision.reason, now_s=timestamp_s, ah=ah,
+                    voltage_v=voltage, current_a=current, temperature_c=temp,
+                    target_voltage_v=dv, target_current_a=di, actions=actions,
                 )
             elif decision.action == AuthorityAction.ENTER_MIX:
-                previous_stage = self.current_stage
                 mxv, mxi = self._mix_target(temp)
                 mix_actions: Dict[str, Any] = {}
                 self._add_phase_limits(mix_actions, mxv, mxi)
-                effect = build_main_mix_effect(MainMixEffectInput(
-                    previous_stage=previous_stage,
-                    mix_stage=self.STAGE_MIX,
-                    reason=decision.reason,
-                    now_s=timestamp_s,
-                    ah=ah,
-                    target_voltage_v=mxv,
-                    target_current_a=mxi,
-                    ovp_v=mix_actions["set_ovp"],
-                    ocp_a=mix_actions["set_ocp"],
-                    log_event_end=self._make_log_event_end(
-                        timestamp_s, ah, voltage, current, temp, decision.reason
-                    ),
-                ))
-                apply_main_mix_effect(self, effect, actions)
+                apply_main_mix_entry(
+                    self, reason=decision.reason, now_s=timestamp_s, ah=ah,
+                    voltage_v=voltage, current_a=current, temperature_c=temp,
+                    target_voltage_v=mxv, target_current_a=mxi,
+                    ovp_v=mix_actions["set_ovp"], ocp_a=mix_actions["set_ocp"],
+                    actions=actions,
+                )
             elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
                 storage_v, storage_i = self._storage_target()
                 if not apply_main_completion_to_safe_wait(

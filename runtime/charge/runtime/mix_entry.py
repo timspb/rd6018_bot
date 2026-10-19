@@ -72,4 +72,31 @@ def apply_main_mix_effect(host: Any, effect: MainMixEffect, actions: dict[str, A
     logger.info("V2 transition %s -> %s | %s", effect.previous_stage, effect.stage, effect.reason)
 
 
-__all__ = ["MainMixEffect", "MainMixEffectInput", "apply_main_mix_effect", "build_main_mix_effect"]
+def apply_main_mix_entry(
+    host: Any, *, reason: str, now_s: float, ah: float, voltage_v: float,
+    current_a: float, temperature_c: float, target_voltage_v: float,
+    target_current_a: float, ovp_v: float, ocp_a: float,
+    actions: dict[str, Any],
+) -> None:
+    """Assemble and apply the existing MAIN MIX entry effect once."""
+    effect = build_main_mix_effect(MainMixEffectInput(
+        previous_stage=host.current_stage,
+        mix_stage=host.STAGE_MIX,
+        reason=reason,
+        now_s=now_s,
+        ah=ah,
+        target_voltage_v=target_voltage_v,
+        target_current_a=target_current_a,
+        ovp_v=ovp_v,
+        ocp_a=ocp_a,
+        log_event_end=host._make_log_event_end(
+            now_s, ah, voltage_v, current_a, temperature_c, reason
+        ),
+    ))
+    apply_main_mix_effect(host, effect, actions)
+
+
+__all__ = [
+    "MainMixEffect", "MainMixEffectInput", "apply_main_mix_effect",
+    "apply_main_mix_entry", "build_main_mix_effect",
+]
