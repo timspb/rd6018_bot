@@ -7,7 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from runtime.charge.evidence.first_stage import FirstStageState
+from runtime.charge.evidence.first_stage import FirstStageState, assess_first_stage
 from pb_domain import BatteryCondition, ChargeIntent
 from production_controller import ProductionChargeController
 from recovery_session import RecoveryTracePoint
@@ -33,10 +33,13 @@ class ProductionControllerTests(unittest.TestCase):
         )))
 
     def _assess_tail(self, controller, *, timestamp_s, current_a=0.09, voltage_v=14.70, is_cv=True):
-        return controller._assess_main_sample(
-            stage_before=controller.STAGE_MAIN, target_before=14.70, plateau_since=None,
-            timestamp_s=timestamp_s, voltage=voltage_v, current=current_a, is_cv=is_cv,
-            record=self._flat_record(),
+        assessment = assess_first_stage(
+            chemistry=controller.battery_type, capacity_ah=controller.ah_capacity,
+            voltage_v=voltage_v, current_a=current_a, target_voltage_v=14.70,
+            is_cv=is_cv,
+        )
+        return controller._apply_continuous_tail_hold(
+            assessment, stage_before=controller.STAGE_MAIN, timestamp_s=timestamp_s,
         )
 
     def test_normal_agm_cold_main_keeps_temperature_compensation_inside_full_auto_envelope(self):

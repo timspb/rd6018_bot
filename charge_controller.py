@@ -50,10 +50,9 @@ SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
 from runtime.charge.evidence.first_stage import (
     FirstStageAssessment,
     FirstStageState,
-    assess_first_stage,
-    tail_current_threshold_a,
+    MainSampleEvidenceEvaluator,
+    MainSampleEvidenceInput,
 )
-from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
@@ -193,7 +192,7 @@ class ManagedChargeController:
         self._v2_disagreement_repeat_count: int = 0
         self._v2_trace_session_id: Optional[str] = None
         self._v2_trace_started_at: float = 0.0
-        self._v2_main_plateau_since: Optional[float] = None
+        self._main_sample_evidence = MainSampleEvidenceEvaluator()
         self._recovery_safe_wait: Optional[RecoverySafeWaitContinuation] = None
         self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
         # Captured by the modular tick and serialized by the production controller.
@@ -513,7 +512,7 @@ class ManagedChargeController:
         self._v2_runtime = None
         self._v2_last_disagreement = None
         self._v2_disagreement_repeat_count = 0
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         self._recovery_safe_wait = None
         self._final_safe_wait = None
 
@@ -544,7 +543,7 @@ class ManagedChargeController:
         self._new_runtime(started_at=runtime_started_at)
         self._v2_last_disagreement = None
         self._v2_disagreement_repeat_count = 0
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         try:
             target_v, _ = self._get_target_v_i()
             self._v2_target_voltage_v = float(target_v)
@@ -997,90 +996,6 @@ class ManagedChargeController:
             }
         return payload
 
-    def _update_main_plateau_clock(
-        self,
-        *,
-        stage_before: str,
-        target_before: Optional[float],
-        timestamp_s: float,
-        voltage: float,
-        current: float,
-        is_cv: bool,
-        record: Any,
-    ) -> Optional[float]:
-        if stage_before != self.STAGE_MAIN or target_before is None or not is_cv:
-            self._v2_main_plateau_since = None
-            return None
-        try:
-            threshold = tail_current_threshold_a(
-                chemistry_for_profile(self.battery_type),
-                float(self.ah_capacity),
-            )
-            near_target = float(voltage) >= float(target_before) - float(NEAR_TARGET_MARGIN_V.default)
-        except (TypeError, ValueError):
-            self._v2_main_plateau_since = None
-            return None
-
-        events = record.analysis.events
-        if SignalEvent.CURRENT_MINIMUM_UPDATED in events:
-            self._v2_main_plateau_since = None
-            return None
-        qualifies = (
-            near_target
-            and float(current) > threshold
-            and SignalEvent.CURRENT_PLATEAU in events
-        )
-        if not qualifies:
-            self._v2_main_plateau_since = None
-            return None
-        if self._v2_main_plateau_since is None:
-            # CURRENT_PLATEAU itself is based on a 15-minute window.  Backdate the
-            # first plateau timestamp by that evidence window so a 40-minute rule
-            # remains approximately 40 minutes rather than silently becoming 55.
-            self._v2_main_plateau_since = max(0.0, float(timestamp_s) - float(PLATEAU_EVIDENCE_WINDOW_MINUTES.default) * 60.0)
-        return self._v2_main_plateau_since
-
-    def _assess_main_sample(
-        self,
-        *,
-        stage_before: str,
-        target_before: Optional[float],
-        plateau_since: Optional[float],
-        timestamp_s: float,
-        voltage: float,
-        current: float,
-        is_cv: bool,
-        record: Any,
-    ) -> Optional[FirstStageAssessment]:
-        if stage_before != self.STAGE_MAIN or target_before is None:
-            return None
-        if not math.isfinite(float(target_before)):
-            return None
-
-        plateau_minutes = 0.0
-        if plateau_since is not None:
-            plateau_minutes = max(0.0, (timestamp_s - float(plateau_since)) / 60.0)
-        required_plateau = (
-            float(AGM_PLATEAU_REQUIRED_MINUTES.default)
-            if self.battery_type == self.PROFILE_AGM
-            else float(STANDARD_PLATEAU_REQUIRED_MINUTES.default)
-        )
-        metrics = record.analysis.metrics
-        return assess_first_stage(
-            chemistry=chemistry_for_profile(self.battery_type),
-            capacity_ah=float(self.ah_capacity),
-            voltage_v=self._finite_or_nan(voltage),
-            current_a=self._finite_or_nan(current),
-            target_voltage_v=float(target_before),
-            is_cv=bool(is_cv),
-            plateau_minutes=plateau_minutes,
-            required_plateau_minutes=required_plateau,
-            dtemp_c_per_min=metrics.d_temp_c_per_min,
-            dcurrent_a_per_min=metrics.d_current_a_per_min,
-            dvoltage_v_per_min=metrics.d_voltage_v_per_min,
-            temperature_c=getattr(getattr(record.analysis, "sample", None), "temp_c", None),
-        )
-
     def _log_shadow_disagreement(self, record: Any, *, stage: str) -> None:
         disagreement = record.disagreement
         if disagreement is None:
@@ -1103,6 +1018,16 @@ class ManagedChargeController:
             stage,
             record.decision.reason,
         )
+
+    def _apply_continuous_tail_hold(
+        self,
+        assessment: Optional[FirstStageAssessment],
+        *,
+        stage_before: str,
+        timestamp_s: float,
+    ) -> Optional[FirstStageAssessment]:
+        """Default production extension point for typed first-stage evidence."""
+        return assessment
 
     def _log_stage_transition(
         self,
@@ -1167,7 +1092,7 @@ class ManagedChargeController:
         self._safe_wait_target_i = continuation.target_current_a
         self._safe_wait_start = continuation.started_at
         self._record_safe_wait_sample(now, voltage, current, temp)
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         actions["turn_off"] = True
         threshold = (
             continuation.target_voltage_v
@@ -1487,7 +1412,7 @@ class ManagedChargeController:
         self.v_max_recorded = None
         self.i_min_recorded = None
         self._delta_trigger_count = 0
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         self._safe_wait_next_stage = None
         self._safe_wait_target_v = 0.0
         self._safe_wait_target_i = 0.0
@@ -1756,7 +1681,7 @@ class ManagedChargeController:
         self._recovery_safe_wait = None
         self._record_safe_wait_sample(now, voltage, current, temp)
         self.finish_timer_start = None
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         actions["turn_off"] = True
         actions["notify"] = (
             f"<b>✅ V2: этап завершён.</b> {reason}. "
@@ -1787,7 +1712,7 @@ class ManagedChargeController:
         self.stage_start_time = now
         self._stage_start_ah = ah
         self.finish_timer_start = None
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         actions["turn_off"] = True
         actions["notify"] = (
             "<b>🛑 V2 остановил автоматическую эскалацию.</b>\n"
@@ -1811,7 +1736,7 @@ class ManagedChargeController:
         self.stage_start_time = now
         self._stage_start_ah = ah
         self._reset_delta_and_blanking(now)
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         uv, ui = self._main_target(temp)
         actions["set_voltage"] = uv
         actions["set_current"] = ui
@@ -1843,7 +1768,7 @@ class ManagedChargeController:
         self.stage_start_time = now
         self._stage_start_ah = ah
         self._reset_delta_and_blanking(now)
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         dv, di = self._desulf_target(temp)
         actions["set_voltage"] = dv
         actions["set_current"] = di
@@ -1875,7 +1800,7 @@ class ManagedChargeController:
         self.stage_start_time = now
         self._stage_start_ah = ah
         self._reset_delta_and_blanking(now)
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         self.finish_timer_start = None
         self._delta_reported = False
         if hasattr(self, "_finish_evidence"):
@@ -2281,24 +2206,34 @@ class ManagedChargeController:
                 ),
             }
 
-            plateau_since = self._update_main_plateau_clock(
-                stage_before=stage_before,
-                target_before=target_before,
-                timestamp_s=timestamp_s,
-                voltage=voltage,
-                current=current,
-                is_cv=is_cv,
-                record=record,
+            metrics = record.analysis.metrics
+            sample = MainSampleEvidenceInput(
+                stage=stage_before,
+                main_stage=self.STAGE_MAIN,
+                target_voltage_v=target_before,
+                timestamp_s=float(timestamp_s),
+                voltage_v=float(voltage),
+                current_a=float(current),
+                is_cv=bool(is_cv),
+                chemistry=chemistry_for_profile(self.battery_type),
+                capacity_ah=float(self.ah_capacity),
+                plateau_required_minutes=(
+                    float(AGM_PLATEAU_REQUIRED_MINUTES.default)
+                    if self.battery_type == self.PROFILE_AGM
+                    else float(STANDARD_PLATEAU_REQUIRED_MINUTES.default)
+                ),
+                plateau_window_minutes=float(PLATEAU_EVIDENCE_WINDOW_MINUTES.default),
+                events=frozenset(record.analysis.events),
+                dtemp_c_per_min=metrics.d_temp_c_per_min,
+                dcurrent_a_per_min=metrics.d_current_a_per_min,
+                dvoltage_v_per_min=metrics.d_voltage_v_per_min,
+                temperature_c=getattr(getattr(record.analysis, "sample", None), "temp_c", None),
             )
-            first_stage = self._assess_main_sample(
+            first_stage_evidence = self._main_sample_evidence.assess(sample)
+            first_stage = self._apply_continuous_tail_hold(
+                first_stage_evidence.assessment,
                 stage_before=stage_before,
-                target_before=target_before,
-                plateau_since=plateau_since,
-                timestamp_s=timestamp_s,
-                voltage=voltage,
-                current=current,
-                is_cv=is_cv,
-                record=record,
+                timestamp_s=float(timestamp_s),
             )
 
             if self._is_authoritative_stage(stage_before):

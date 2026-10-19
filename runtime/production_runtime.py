@@ -490,11 +490,13 @@ def _shift_operator_pause_clocks(pause_seconds: float) -> None:
         "_delta_monitor_after",
         "_cv_since",
         "_v2_trace_started_at",
-        "_v2_main_plateau_since",
     ):
         value = getattr(charge_controller, name, None)
         if isinstance(value, (int, float)) and value > 0:
             setattr(charge_controller, name, float(value) + pause_seconds)
+    main_sample_evidence = getattr(charge_controller, "_main_sample_evidence", None)
+    if main_sample_evidence is not None:
+        main_sample_evidence.shift_clock(pause_seconds)
 
 
 def _save_manual_off_state() -> None:

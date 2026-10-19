@@ -175,15 +175,19 @@ class ProductionChargeController(ManagedChargeController):
         self._v2_continuous_tail_since = None
         self._v2_continuous_tail_stage_start = None
 
-    def _assess_main_sample(self, **kwargs: Any) -> Optional[FirstStageAssessment]:
-        """Require an uninterrupted TAIL_READY residence before production authority."""
-        assessment = super()._assess_main_sample(**kwargs)
-        stage_before = kwargs.get("stage_before")
+    def _apply_continuous_tail_hold(
+        self,
+        assessment: Optional[FirstStageAssessment],
+        *,
+        stage_before: str,
+        timestamp_s: float,
+    ) -> Optional[FirstStageAssessment]:
+        """Apply the production-only uninterrupted tail residence to typed evidence."""
         if stage_before != self.STAGE_MAIN or assessment is None:
             self._reset_continuous_tail_hold()
             return assessment
 
-        timestamp_s = float(kwargs.get("timestamp_s") or 0.0)
+        timestamp_s = float(timestamp_s)
         stage_marker = float(self.stage_start_time or 0.0)
         if self._v2_continuous_tail_stage_start != stage_marker:
             self._v2_continuous_tail_stage_start = stage_marker
@@ -307,7 +311,7 @@ class ProductionChargeController(ManagedChargeController):
         self.finish_timer_start = source_finish_timer_start
         self._stuck_current_since = None
         self._stuck_current_value = None
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         self._delta_trigger_count = 0
         self._last_delta_confirm_time = 0.0
 
@@ -332,7 +336,7 @@ class ProductionChargeController(ManagedChargeController):
 
         self._stuck_current_since = None
         self._stuck_current_value = None
-        self._v2_main_plateau_since = None
+        self._main_sample_evidence.reset()
         self._delta_trigger_count = 0
         self._last_delta_confirm_time = 0.0
         self._delta_reported = bool(pause.get("delta_reported", False))

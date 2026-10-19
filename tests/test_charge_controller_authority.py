@@ -80,7 +80,7 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         now = 30000.0
         controller = self._controller(intent=ChargeIntent.RECOVERY, now=now)
         controller.ah_capacity = 60
-        controller._v2_main_plateau_since = now - 40 * 60
+        controller._main_sample_evidence.plateau_since_s = now - 40 * 60
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.8, current=1.0, current_min=1.0, seconds_since_min=40 * 60, events={SignalEvent.CURRENT_PLATEAU}))
         with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await controller.tick(14.8, 1.0, 25.0, True, 20.0, True, is_cc=False)

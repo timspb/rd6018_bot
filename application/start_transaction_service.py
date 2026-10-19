@@ -119,8 +119,9 @@ def _select_initial_auto_target(
     reset_blanking = getattr(controller, "_reset_delta_and_blanking", None)
     if callable(reset_blanking):
         reset_blanking(now)
-    if hasattr(controller, "_v2_main_plateau_since"):
-        controller._v2_main_plateau_since = None
+    main_sample_evidence = getattr(controller, "_main_sample_evidence", None)
+    if main_sample_evidence is not None:
+        main_sample_evidence.reset()
     target_v, target_i = controller._main_target(temp_ext)
     if hasattr(controller, "_v2_target_voltage_v"):
         controller._v2_target_voltage_v = float(target_v)

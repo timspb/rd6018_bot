@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+import math
+from typing import Any, FrozenSet, Optional
 
 from .first_stage_variables import (
     AGM_TAIL_C_RATE,
@@ -40,6 +41,115 @@ class FirstStageAssessment:
     tail_threshold_c: float
     near_target: bool
     reason: str
+
+
+@dataclass(frozen=True)
+class MainSampleEvidenceInput:
+    """One already-analyzed MAIN observation, with no actuator authority."""
+
+    stage: str
+    main_stage: str
+    target_voltage_v: Optional[float]
+    timestamp_s: float
+    voltage_v: float
+    current_a: float
+    is_cv: bool
+    chemistry: Any
+    capacity_ah: float
+    plateau_required_minutes: float
+    plateau_window_minutes: float
+    events: FrozenSet[Any]
+    dtemp_c_per_min: Optional[float]
+    dcurrent_a_per_min: Optional[float]
+    dvoltage_v_per_min: Optional[float]
+    temperature_c: Optional[float]
+
+
+@dataclass(frozen=True)
+class MainSampleEvidence:
+    assessment: Optional[FirstStageAssessment]
+    plateau_since_s: Optional[float]
+
+
+class MainSampleEvidenceEvaluator:
+    """Own the restart-local MAIN plateau clock and first-stage assessment."""
+
+    def __init__(self) -> None:
+        self.plateau_since_s: Optional[float] = None
+
+    def reset(self) -> None:
+        self.plateau_since_s = None
+
+    def shift_clock(self, seconds: float) -> None:
+        if self.plateau_since_s is not None and seconds > 0:
+            self.plateau_since_s += float(seconds)
+
+    def assess(self, sample: MainSampleEvidenceInput) -> MainSampleEvidence:
+        if sample.stage != sample.main_stage or sample.target_voltage_v is None:
+            self.reset()
+            return MainSampleEvidence(None, None)
+        target = float(sample.target_voltage_v)
+        if not math.isfinite(target):
+            self.reset()
+            return MainSampleEvidence(None, None)
+        qualifies = False
+        try:
+            threshold = tail_current_threshold_a(sample.chemistry, sample.capacity_ah)
+            near_target = float(sample.voltage_v) >= target - float(NEAR_TARGET_MARGIN_V.default)
+            current = float(sample.current_a)
+        except (TypeError, ValueError):
+            self.reset()
+        else:
+            if not sample.is_cv or any(
+                getattr(event, "value", event) == "current_minimum_updated"
+                for event in sample.events
+            ):
+                self.reset()
+                qualifies = False
+            else:
+                qualifies = near_target and current > threshold and any(
+                    getattr(event, "value", event) == "current_plateau" for event in sample.events
+                )
+        if not qualifies:
+            self.reset()
+            plateau_since = None
+        else:
+            if self.plateau_since_s is None:
+                # Preserve accepted parity: CURRENT_PLATEAU already represents a
+                # 15-minute window, so its first timestamp is backdated by that window.
+                self.plateau_since_s = max(
+                    0.0,
+                    float(sample.timestamp_s) - float(sample.plateau_window_minutes) * 60.0,
+                )
+            plateau_since = self.plateau_since_s
+
+        plateau_minutes = (
+            max(0.0, (float(sample.timestamp_s) - float(plateau_since)) / 60.0)
+            if plateau_since is not None else 0.0
+        )
+        assessment = assess_first_stage(
+            chemistry=sample.chemistry,
+            capacity_ah=float(sample.capacity_ah),
+            voltage_v=_finite_or_nan(sample.voltage_v),
+            current_a=_finite_or_nan(sample.current_a),
+            target_voltage_v=target,
+            is_cv=bool(sample.is_cv),
+            plateau_minutes=plateau_minutes,
+            required_plateau_minutes=float(sample.plateau_required_minutes),
+            dtemp_c_per_min=sample.dtemp_c_per_min,
+            dcurrent_a_per_min=sample.dcurrent_a_per_min,
+            dvoltage_v_per_min=sample.dvoltage_v_per_min,
+            temperature_c=sample.temperature_c,
+        )
+        return MainSampleEvidence(assessment, self.plateau_since_s)
+
+
+def _finite_or_nan(value: Any) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return math.nan
+    return result if math.isfinite(result) else math.nan
 
 
 def _chemistry_key(chemistry: Any) -> str:
@@ -188,6 +298,9 @@ def assess_first_stage(
 __all__ = [
     "FirstStageAssessment",
     "FirstStageState",
+    "MainSampleEvidence",
+    "MainSampleEvidenceEvaluator",
+    "MainSampleEvidenceInput",
     "assess_first_stage",
     "tail_c_rate",
     "tail_current_threshold_a",
