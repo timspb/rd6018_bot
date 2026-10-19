@@ -147,10 +147,54 @@ def apply_final_safe_wait_entry(
     )
 
 
+def apply_mix_completion_to_safe_wait(
+    host: Any,
+    *,
+    now_s: float,
+    voltage_v: float,
+    current_a: float,
+    temperature_c: float,
+    ah: float,
+    reason: str,
+    target_voltage_v: float,
+    target_current_a: float,
+    actions: dict[str, Any],
+) -> bool:
+    """Own MIX hold completion evidence and dispatch into final SAFE_WAIT."""
+    hold_started_at = host.finish_timer_start
+    if hold_started_at is not None:
+        logger.info(
+            "CHARGE_EVIDENCE kind=delta event=hold_complete mode=%s hold_seconds=%.1f timestamp=%.3f",
+            host._delta_trigger_mode or "unknown",
+            max(0.0, float(now_s) - float(hold_started_at)),
+            now_s,
+        )
+    value = FinalSafeWaitEntryInput(
+        source_stage=host.current_stage,
+        safe_wait_stage=host.STAGE_SAFE_WAIT,
+        next_stage=host.STAGE_DONE,
+        session_id=host._v2_trace_session_id,
+        session_generation=host._v2_trace_started_at,
+        target_voltage_v=target_voltage_v,
+        target_current_a=target_current_a,
+        now_s=now_s,
+        voltage_v=voltage_v,
+        current_a=current_a,
+        temperature_c=temperature_c,
+        ah=ah,
+        reason=reason,
+        log_event_end=host._make_log_event_end(
+            now_s, ah, voltage_v, current_a, temperature_c, reason
+        ),
+    )
+    return apply_final_safe_wait_entry(host, value, actions)
+
+
 __all__ = [
     "FinalSafeWaitEntryEffect",
     "FinalSafeWaitEntryInput",
     "apply_final_safe_wait_entry",
     "apply_final_safe_wait_entry_effect",
+    "apply_mix_completion_to_safe_wait",
     "build_final_safe_wait_entry_effect",
 ]

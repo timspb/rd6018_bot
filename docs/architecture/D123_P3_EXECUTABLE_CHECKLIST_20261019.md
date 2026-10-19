@@ -1,6 +1,6 @@
 # D123 P3 preparation — stage effect endpoint checklist
 
-Status: inventory only; **no P3 stage or execution behavior is moved here**.
+Status: active P3 checklist; completed cuts and evidence are appended below.
 Use the existing application, charge-stage, safety, and execution owners. Do not
 add an owner or alter recipes, target thresholds, OVP/OCP, lease, or MAIN Guard.
 
@@ -57,3 +57,16 @@ source change was made in Sprint 05.
   with only `TG_TOKEN=123456789:d123-offline-sprint03`, plus `compileall`.
 - [ ] Commit one verified source cut and update the owner map/checklist. Leave
   untouched stages explicitly pending; no P3 completion claim from inventory.
+
+## Sprint 22 — MIX completion dispatch
+
+- [x] Starting point pinned: clean `08e7e8a4b8e7084d830f6e9dc79b4a85d66d7234`.
+- [x] Move MIX hold-completion evidence logging and typed final SAFE_WAIT
+  input/dispatch into the existing `runtime.charge.runtime.final_safe_wait_entry`
+  owner. Keep storage target selection in the controller and keep invalid
+  identity containment fail-closed.
+- [x] Add parity, stale-identity failure and AST/no-physical-writer guards.
+- [x] Run focused suites, full Python 3.12 offline discovery, compileall and
+  `git diff --check`; see `D123_SPRINT22_EVIDENCE_20261019.md`.
+- [ ] P2 Guard restore admission remains fail-closed/deferred. Continue with a
+  separate bounded P3 owner cut; do not start P4 or claim convergence.

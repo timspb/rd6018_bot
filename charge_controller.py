@@ -119,6 +119,7 @@ from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.final_safe_wait_entry import (
     FinalSafeWaitEntryInput,
     apply_final_safe_wait_entry,
+    apply_mix_completion_to_safe_wait,
 )
 from runtime.charge.runtime.final_safe_wait_completion import (
     FinalSafeWaitCompletionInput,
@@ -1538,34 +1539,19 @@ class ManagedChargeController:
                 timestamp_s,
             )
         elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
-            if self.finish_timer_start is not None:
-                logger.info(
-                    "CHARGE_EVIDENCE kind=delta event=hold_complete mode=%s hold_seconds=%.1f timestamp=%.3f",
-                    self._delta_trigger_mode or "unknown",
-                    max(0.0, timestamp_s - float(self.finish_timer_start)),
-                    timestamp_s,
-                )
-            previous_stage = self.current_stage
             storage_v, storage_i = self._storage_target()
-            effect_input = FinalSafeWaitEntryInput(
-                source_stage=previous_stage,
-                safe_wait_stage=self.STAGE_SAFE_WAIT,
-                next_stage=self.STAGE_DONE,
-                session_id=self._v2_trace_session_id,
-                session_generation=self._v2_trace_started_at,
-                target_voltage_v=storage_v,
-                target_current_a=storage_i,
+            if not apply_mix_completion_to_safe_wait(
+                self,
                 now_s=timestamp_s,
                 voltage_v=voltage,
                 current_a=current,
                 temperature_c=temp,
                 ah=ah,
                 reason=decision.reason,
-                log_event_end=self._make_log_event_end(
-                    timestamp_s, ah, voltage, current, temp, decision.reason
-                ),
-            )
-            if not apply_final_safe_wait_entry(self, effect_input, actions):
+                target_voltage_v=storage_v,
+                target_current_a=storage_i,
+                actions=actions,
+            ):
                 reason = "final_safe_wait_entry_session_identity_invalid"
                 apply_stop_and_diagnose(self,
                     actions=actions, now=timestamp_s, voltage=voltage,

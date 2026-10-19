@@ -156,6 +156,23 @@ session lifecycle ownership are still pending. P3 is partial: Sprint 06 moved
 only the MAIN -> DESULFATION effect construction/application seam; the other
 stage owners remain transitional.
 
+### Sprint 22 MIX completion dispatch
+
+`runtime.charge.runtime.final_safe_wait_entry.apply_mix_completion_to_safe_wait`
+now owns the MIX finish-hold completion evidence log and constructs/dispatches
+the existing typed final SAFE_WAIT entry input. The MIX branch in
+`ManagedChargeController._apply_authoritative_decision` retains its strategy
+decision, storage target resolution, one owner call, and the established
+fail-closed STOP_AND_DIAGNOSE response for invalid session identity. The shared
+MAIN completion path is unchanged. The owner uses the same
+`apply_final_safe_wait_entry` validation, stage/history commit, continuation,
+reset and action payload; no execution port or RD setters were added. See
+`D123_SPRINT22_EVIDENCE_20261019.md` for source and test evidence.
+
+This is one bounded P3 cut. P2 MAIN Guard restore admission remains
+fail-closed/deferred, and controller tick/session ownership, remaining MIX and
+Storage/DONE/Manual paths, P4/P5, and physical acceptance remain open.
+
 ### Sprint 06 P3-1 MAIN -> DESULFATION effect
 
 `decide_main_transition` remains the decision owner and its controller call

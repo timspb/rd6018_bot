@@ -86,6 +86,64 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
             effect.action_values["turn_off"] = False
         self.assertFalse(hasattr(controller, "_enter_safe_wait_done"))
 
+    def test_mix_completion_owner_dispatches_existing_entry_and_rejects_stale_identity(self):
+        controller = self._controller(
+            ManagedChargeController.PROFILE_EFB, ManagedChargeController.STAGE_MIX
+        )
+        controller.finish_timer_start = 700.0
+        controller._delta_trigger_mode = "CV"
+        target_v, target_i = controller._storage_target()
+        actions = {}
+        self.assertTrue(owner.apply_mix_completion_to_safe_wait(
+            controller,
+            now_s=1000.0,
+            voltage_v=16.2,
+            current_a=0.5,
+            temperature_c=25.0,
+            ah=10.0,
+            reason="confirmed_delta_finish_hold_complete",
+            target_voltage_v=target_v,
+            target_current_a=target_i,
+            actions=actions,
+        ))
+        self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
+        self.assertEqual(actions["log_event_end"]["stage"], controller.STAGE_MIX)
+        self.assertEqual(actions["log_event"], "START | V2_AUTHORITATIVE")
+        self.assertTrue(actions["turn_off"])
+        self.assertNotIn("turn_on", actions)
+
+        stale = self._controller(
+            ManagedChargeController.PROFILE_EFB, ManagedChargeController.STAGE_MIX
+        )
+        stale._v2_trace_session_id = None
+        before = (stale.current_stage, list(stale._stage_history), stale.stage_start_time)
+        rejected = {}
+        self.assertFalse(owner.apply_mix_completion_to_safe_wait(
+            stale,
+            now_s=1000.0,
+            voltage_v=16.2,
+            current_a=0.5,
+            temperature_c=25.0,
+            ah=10.0,
+            reason="confirmed_delta_finish_hold_complete",
+            target_voltage_v=target_v,
+            target_current_a=target_i,
+            actions=rejected,
+        ))
+        self.assertEqual(
+            (stale.current_stage, list(stale._stage_history), stale.stage_start_time), before
+        )
+        self.assertEqual(rejected, {})
+
+    def test_mix_completion_cut_is_single_dispatch_without_physical_writer(self):
+        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        mix_branch = source[source.index("elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:", source.index("# Mix: expose")):source.index("elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:", source.index("# Mix: expose"))]
+        self.assertIn("apply_mix_completion_to_safe_wait(", mix_branch)
+        self.assertNotIn("FinalSafeWaitEntryInput(", mix_branch)
+        owner_source = inspect.getsource(owner)
+        for forbidden in ("execution_port", '"set_voltage"', '"set_current"', '"set_ovp"', '"set_ocp"', '"set_output"'):
+            self.assertNotIn(forbidden, owner_source)
+
     def test_ast_keeps_one_effect_applicator_and_no_physical_writer(self):
         source = inspect.getsource(owner)
         tree = ast.parse(source)
