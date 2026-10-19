@@ -43,7 +43,10 @@ ownership are still outstanding. See `D123_SPRINT05_EVIDENCE_20261019.md` for
 the current cut and test counts.
 
 ## P3 modular stage orchestration
-- [ ] Sprint 05 did not start P3: next bounded task is to move the existing MAIN -> DESULFATION stage effect application into the existing application/charge runtime owner, preserving the exact action dictionary, same verified transaction/commit boundary and stage safety; do not begin until trace P2d gates pass and ownership/caller tests can prove no duplicate writer
+- [x] P3-1: MAIN -> DESULFATION effect is built as `MainDesulfationEffect` by the pure `runtime.charge.runtime.desulfation_entry.build_main_desulfation_effect`, then applied once through `apply_main_desulfation_effect`; `ManagedChargeController._enter_desulfation` is removed. `decide_main_transition` remains the sole decision caller; the existing downstream action/execution/verified-commit route is unchanged.
+- [x] P3-1 parity gates cover typed action keys and values across Ca/Ca, EFB and AGM, attempt count, stage-history single edge, targets/blanking/plateau reset, protection limits, no setter route in the owner, and AST single caller/import direction: `tests/test_d123_p3_main_desulfation_effect.py`.
+- [x] Existing bounded recovery, retry/Guard, SAFE_WAIT continuation, transaction, terminal, restart and rollback/fail-closed regression suites passed with the full offline suite; source result is not physical acceptance.
+- [ ] Remaining P3 effect owners: MAIN + PREP and residual; DESULFATION completion/recovery SAFE_WAIT; MIX/final SAFE_WAIT; cooling/storage/done and Manual integration.
 - [ ] MAIN + PREP and residual
 - [ ] DESULFATION + recovery SAFE_WAIT
 - [ ] MIX + final SAFE_WAIT

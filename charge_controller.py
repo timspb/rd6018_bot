@@ -78,6 +78,11 @@ from runtime.charge.diagnostics import (
     get_timers as diagnostic_timers,
 )
 from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
+from runtime.charge.runtime.desulfation_entry import (
+    MainDesulfationEffectInput,
+    apply_main_desulfation_effect,
+    build_main_desulfation_effect,
+)
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -1468,39 +1473,6 @@ class ManagedChargeController:
         )
         actions["log_event"] = f"V2_AGM_STEP_{self._agm_stage_idx + 1}"
 
-    def _enter_desulfation(
-        self,
-        *,
-        actions: Dict[str, Any],
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        reason: str,
-    ) -> None:
-        prev = self.current_stage
-        self.antisulfate_count += 1
-        actions["log_event_end"] = self._make_log_event_end(
-            now, ah, voltage, current, temp, reason
-        )
-        self.current_stage = self.STAGE_DESULFATION
-        self._clear_restored_targets()
-        self.stage_start_time = now
-        self._stage_start_ah = ah
-        self._reset_delta_and_blanking(now)
-        self._main_sample_evidence.reset()
-        dv, di = self._desulf_target(temp)
-        actions["set_voltage"] = dv
-        actions["set_current"] = di
-        self._add_desulf_limits(actions, dv, di)
-        actions["notify"] = (
-            f"🔧 <b>V2 десульфатация #{self.antisulfate_count}</b>\n"
-            f"{reason}\nЦель: {dv:.2f}В / {di:.2f}А на сервисный этап."
-        )
-        actions["log_event"] = "START | V2_DESULFATION"
-        logger.info("V2 transition %s -> %s | %s", prev, self.STAGE_DESULFATION, reason)
-
     def _enter_mix(
         self,
         *,
@@ -1651,14 +1623,23 @@ class ManagedChargeController:
                     reason=decision.reason,
                 )
             elif decision.action == AuthorityAction.ENTER_DESULFATION:
-                self._enter_desulfation(
-                    actions=actions,
-                    now=timestamp_s,
-                    voltage=voltage,
-                    current=current,
-                    temp=temp,
-                    ah=ah,
+                previous_stage = self.current_stage
+                dv, di = self._desulf_target(temp)
+                effect = build_main_desulfation_effect(MainDesulfationEffectInput(
+                    previous_stage=previous_stage,
+                    desulfation_stage=self.STAGE_DESULFATION,
+                    attempt=self.antisulfate_count + 1,
                     reason=decision.reason,
+                    now_s=timestamp_s,
+                    ah=ah,
+                    target_voltage_v=dv,
+                    target_current_a=di,
+                    log_event_end=self._make_log_event_end(
+                        timestamp_s, ah, voltage, current, temp, decision.reason
+                    ),
+                ))
+                apply_main_desulfation_effect(
+                    self, effect, actions
                 )
             elif decision.action == AuthorityAction.ENTER_MIX:
                 self._enter_mix(

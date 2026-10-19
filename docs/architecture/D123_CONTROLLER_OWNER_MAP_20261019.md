@@ -75,7 +75,7 @@ already migrated.
 | **`MainSampleEvidenceEvaluator` is now external; removed:** `_update_main_plateau_clock`, `_assess_main_sample`; former field `_v2_main_plateau_since` removed (`charge_controller.py:195`, `2209–2237` call; pure decision at `1908`; evaluator/API at `runtime/charge/evidence/first_stage.py:46–144`; removed methods were baseline `1000–1082`) | Before D123: controller tick and START/pause/cooling/reset callers. After D123: typed evidence owner; tick supplies current analysis; START and pause use owner reset/shift API | `runtime.charge.evidence.first_stage.MainSampleEvidenceEvaluator`; typed `MainSampleEvidenceInput` -> `MainSampleEvidence`; then existing pure MAIN decision | `test_main_sample_evidence_clock`, first-stage, controller authority, production-controller and main strategy tests. **High:** transition evidence/timing; exact accepted 15-minute backdating retained |
 | `_apply_continuous_tail_hold`, `_log_stage_transition` (`1022–1051`) | Base identity extension point plus production subclass tail policy; called after evidence result during tick | Production continuity hold remains in `production_controller.py`; later P2/P3 decision required before further movement | `test_production_controller`. **High:** continuous tail hold is separate from plateau clock and preserved |
 | `_complete_desulfation_to_safe_wait`, `_apply_recovery_safe_wait_authority`, `_apply_final_safe_wait_authority`, `_handle_safe_wait_stage_override`, `commit_verified_enable_transition`, `_handle_mix_stage_override`, `_is_authoritative_stage`, `_run_stage_scaffold_tick` (`1053–1641`) | Stage orchestration and transactional transition code; tick only | Existing stage decision modules plus application use case/execution port; substantial P3 debt | stage, safe-wait, execution and restart suites. **Critical:** verified OFF/ON and continuation safety |
-| `_enter_safe_wait_done`, `_stop_and_diagnose`, `_advance_agm_step`, `_enter_desulfation`, `_enter_mix`, `_apply_authoritative_decision` (`1647–2066`) | Mutable stage/effect owner; tick only | Existing strategy decisions produce typed result; existing application orchestrates transaction; no new controller | authority/recovery/AGM/MIX tests. **Critical:** actuator setpoints, Output state, retry budget, stage commit |
+| `_enter_safe_wait_done`, `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source) | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | Other stage methods remain controller-owned; MAIN->DESULFATION now uses `runtime.charge.runtime.desulfation_entry` typed effect; existing application action consumer and execution port remain unchanged | authority/recovery/AGM/MIX tests. **Critical:** actuator setpoints, Output state, retry budget, stage commit |
 | `tick` (`2068–2360`) | Transitional session orchestration and FSM adapter; only active call is production loop at `runtime/production_runtime.py:2939`; tests call directly | Intended to move to existing application use case at P2–P4, with current strategy, evidence, safety and execution owners | controller/production/recovery/safety tests. **Critical:** whole charge state machine and action batches |
 
 Methods are grouped by responsibility above and current source line ranges are
@@ -152,8 +152,30 @@ unchanged. Capture failure remains diagnostic and cannot invalidate the already
 formed action mapping. See `D123_SPRINT05_EVIDENCE_20261019.md`.
 
 P2 remains partial because MAIN Guard restore admission and remaining audit /
-session lifecycle ownership are still pending. P3 was not attempted because
-stage-effect movement requires a separate bounded actor transaction cut.
+session lifecycle ownership are still pending. P3 is partial: Sprint 06 moved
+only the MAIN -> DESULFATION effect construction/application seam; the other
+stage owners remain transitional.
+
+### Sprint 06 P3-1 MAIN -> DESULFATION effect
+
+`decide_main_transition` remains the decision owner and its controller call
+site remains singular. On `ENTER_DESULFATION`, the controller resolves the
+existing compensated target and event-end record, then calls the pure typed
+builder `build_main_desulfation_effect` followed by the single
+`apply_main_desulfation_effect` call in
+`runtime/charge/runtime/desulfation_entry.py`. The former controller method
+`_enter_desulfation` is deleted. The applicator records one stage edge through
+`runtime.charge.session.set_current_stage`, invokes the already-existing target,
+delta/blanking and evidence reset helpers, and updates the existing phase
+current limit. It returns no physical execution path; action keys/values flow
+through the same controller action dictionary and existing production
+execution/verified-commit consumer. No other `_enter_*` method moved.
+
+Focused typed-effect and static ownership gates are in
+`tests/test_d123_p3_main_desulfation_effect.py`. Targeted bounded-recovery,
+authority, output transaction, SAFE_WAIT and guarded restore suites plus the
+full offline discovery were rerun in Sprint 06; exact counts and current
+source-only status are in `D123_SPRINT06_EVIDENCE_20261019.md`.
 
 Separate deferred algorithm defect: `SignalAnalyzerConfig` allows
 `plateau_min_samples=5` in a 15-minute window. Five 3-minute-spaced samples can
@@ -174,6 +196,7 @@ They did **not** remove today's `ManagedChargeController`. It is current
 production-reachable orchestration with mutable stage transitions, action
 application, trace/session glue, and (before D123) first-stage clock mechanics.
 Calling this class “legacy” does not make it historical V1; it is the transitional
-current owner identified by D123. This sprint extracts only MAIN sample/plateau
-evidence and does not claim controller convergence, application tick ownership,
+current owner identified by D123. Sprint 06 additionally extracts the bounded
+MAIN -> DESULFATION effect while retaining the existing controller dispatch.
+This does not claim controller convergence, application tick ownership,
 physical acceptance, deployment, or closure of P2–P5.
