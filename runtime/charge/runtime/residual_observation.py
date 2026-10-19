@@ -23,4 +23,13 @@ def record_residual_observation(
             host._last_v_i_history_time = timestamp_s
 
 
-__all__ = ["record_residual_observation"]
+def update_residual_cv_clock(host: Any, *, is_cv: bool, timestamp_s: float) -> None:
+    """Preserve the residual stages' existing CV-clock mirror update."""
+    if is_cv:
+        if host._cv_since is None:
+            host._cv_since = timestamp_s
+    else:
+        host._cv_since = None
+
+
+__all__ = ["record_residual_observation", "update_residual_cv_clock"]

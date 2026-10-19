@@ -28,7 +28,10 @@ from runtime.charge.runtime.cooling_resume import (
     build_cooling_resume_effect,
 )
 from runtime.charge.runtime.residual_terminal import decide_residual_terminal
-from runtime.charge.runtime.residual_observation import record_residual_observation
+from runtime.charge.runtime.residual_observation import (
+    record_residual_observation,
+    update_residual_cv_clock,
+)
 from runtime.charge.runtime.residual_reporting import (
     apply_residual_reporting_effect,
     build_residual_reporting_effect,
@@ -272,11 +275,7 @@ async def run_authoritative_residual_scaffold(
     )
     apply_residual_reporting_effect(host, reporting_effect, actions)
 
-    if is_cv:
-        if host._cv_since is None:
-            host._cv_since = now
-    else:
-        host._cv_since = None
+    update_residual_cv_clock(host, is_cv=bool(is_cv), timestamp_s=now)
 
     if (
         host._stage_start_ah == 0

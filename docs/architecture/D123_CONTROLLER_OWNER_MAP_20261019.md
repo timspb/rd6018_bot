@@ -449,7 +449,22 @@ synthetic token `123456789:d123-sprint16`; `compileall -q .` and
 `git diff --check` passed. Exact source-only record:
 `D123_SPRINT16_EVIDENCE_20261019.md`.
 
-The next bounded cut is not taken automatically: Storage/DONE and persistence
-are coupled through verified completion and canonical session save, while
-Manual integration and central tick extraction span larger ownership
-boundaries. P2 remains partial; P3, P4, and P5 remain open.
+### Sprint 17 residual CV-clock mirror
+
+The residual scaffold now delegates its existing `_cv_since` mirror update to
+`runtime.charge.runtime.residual_observation.update_residual_cv_clock`. The
+owner preserves the exact behavior: first CV observation sets the clock,
+subsequent CV observations leave it unchanged, and CC clears it. The scaffold
+remains the single caller and supplies the same sampled time. This moves one
+residual observation mutation without changing stage decisions, history,
+session persistence, Storage completion, Manual, safety, or physical execution.
+The owner has no RD setters or `execution_port` access. Focused parity and
+static guards plus Python 3.12 offline suite counts are recorded in
+`D123_SPRINT17_EVIDENCE_20261019.md`.
+
+Storage/DONE persistence remains coupled to the verified completion commit:
+the ordinary tick save intentionally excludes IDLE/DONE, and DONE durability
+is part of the receipt-gated completion path. Extracting it alone would alter
+the commit/save order. Manual integration and central tick orchestration also
+span broader boundaries without a comparably isolated effect. Those remain
+future gates; P2, P3, P4, and P5 remain open.

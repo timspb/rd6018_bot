@@ -60,11 +60,14 @@ the current cut and test counts.
 - [x] Sprint 14 residual IDLE/DONE terminal flow choice uses frozen `ResidualTerminalDecision` in `runtime.charge.runtime.residual_terminal`; IDLE's early return and DONE's post-observation no-transition behavior are retained. Focused parity/failure/static plus residual/cooling regressions **11 PASS**, full offline discovery **2,382 PASS / 3 skipped**, compileall and diff check PASS. See `D123_SPRINT14_EVIDENCE_20261019.md`.
 - [x] Sprint 15 residual observation sample mirrors and IDLE/DONE analytics/V-I history mutation move to `runtime.charge.runtime.residual_observation`; IDLE remains excluded from analytics/history and DONE remains included. Focused parity/failure/static plus residual/cooling regressions **13 PASS** under Python 3.12 with synthetic token. See `D123_SPRINT15_EVIDENCE_20261019.md`.
 - [x] Sprint 16 IDLE/DONE pending-log consumption and hourly operator-report payload/schedule mutation move to frozen `ResidualReportingEffect` in `runtime.charge.runtime.residual_reporting`; IDLE still returns before this path, DONE retains report timing and notification collision behavior. Focused set **30 PASS**; full offline discovery **2,387 tests / 3 skipped**; full `compileall` and diff check PASS. See `D123_SPRINT16_EVIDENCE_20261019.md`.
+- [x] Sprint 17 residual PREP/COOLING/DONE CV-clock mirror mutation moves to `runtime.charge.runtime.residual_observation.update_residual_cv_clock`; first-CV timestamp retention and CC clearing are unchanged. Focused isolated set **20 PASS**; full offline discovery **2,391 tests / 3 skipped**; compileall and diff check PASS. See `D123_SPRINT17_EVIDENCE_20261019.md`.
 - [x] Final SAFE_WAIT decision/action construction: Sprint 12 typed authority effect; verified DONE commit remains Sprint 10 owner.
 - [ ] Storage/DONE and Manual integration.
 - [x] Residual COOLING resume typed effect (Sprint 13).
 - [x] DONE/IDLE pending-log consumption and hourly report schedule/payload moved in Sprint 16.
+- [x] Sprint 17 residual PREP/COOLING/DONE CV-clock mirror mutation moves to `runtime.charge.runtime.residual_observation.update_residual_cv_clock`; first-CV timestamp retention and CC clearing are unchanged. Focused/full counts recorded in `D123_SPRINT17_EVIDENCE_20261019.md`.
 - [ ] Remaining DONE/IDLE persistence ownership; Storage/DONE and Manual integration. Sprint 16 does not move session serialization or verified Storage completion.
+- [ ] Terminal persistence remains coupled to verified DONE completion and canonical session save; Storage/DONE and Manual integration remain open.
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths
 
