@@ -22,6 +22,11 @@ from runtime.charge.runtime.prep_completion import (
     apply_prep_completion_effect,
     build_prep_completion_effect,
 )
+from runtime.charge.runtime.cooling_resume import (
+    CoolingResumeInput,
+    apply_cooling_resume_effect,
+    build_cooling_resume_effect,
+)
 from runtime.charge.strategy.prep_variables import PREP_VOLTAGE_V
 from runtime.safety.communication_variables import (
     LINK_LOSS_INITIAL_NOTICE_COUNT,
@@ -322,28 +327,26 @@ async def run_authoritative_residual_scaffold(
             f"T≤{warning:g}°C ({temp:.1f}°C)",
         )
         return_stage = host._cooling_from_stage or host.STAGE_MAIN
-        host.current_stage = return_stage
-        host._clear_restored_targets()
-        host.stage_start_time = now
-        host._stage_start_ah = ah
-
         target_v = host._cooling_target_v
         target_i = host._cooling_target_i
-        host._cooling_from_stage = None
-
-        actions["set_voltage"] = target_v
-        actions["set_current"] = target_i
         host._add_phase_limits(actions, target_v, target_i)
-        actions["turn_on"] = True
-        host._blanking_until = now + float(STAGE_TRANSITION_BLANKING_S.default)
-        msg = (
-            "🌡 <b>АКБ ОСТЫЛА - ВОЗВРАТ К ЗАРЯДУ!</b>\n"
-            f"Температура: {temp:.1f}°C (норма: ≤{warning:g}°C)\n"
-            f"Возврат к этапу: {return_stage}"
-        )
-        actions["notify"] = msg
-        actions["log_event"] = f"START | Емкость: {host.ah_capacity}Ah"
-        host.notify(msg)
+        effect = build_cooling_resume_effect(CoolingResumeInput(
+            source_stage=stage_before,
+            return_stage=return_stage,
+            cooling_stage=host.STAGE_COOLING,
+            now_s=now,
+            ah=ah,
+            target_voltage_v=target_v,
+            target_current_a=target_i,
+            blanking_seconds=float(STAGE_TRANSITION_BLANKING_S.default),
+            battery_capacity_ah=host.ah_capacity,
+            warning_temperature_c=warning,
+            temperature_c=temp,
+            actions=actions,
+        ))
+        if not apply_cooling_resume_effect(host, effect, actions):
+            return actions
+        host.notify(actions["notify"])
         return actions
 
     # DONE has no automatic transition here; IDLE already returned above.

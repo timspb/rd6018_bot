@@ -358,3 +358,25 @@ controller builder call. Existing mix authority, final SAFE_WAIT transaction,
 and Storage restore tests exercise fail-closed and downstream transaction paths.
 This is source-only. Remaining residual COOLING resume, DONE/IDLE and Manual
 integration remain open.
+
+### Sprint 13 P3-8 residual COOLING resume
+
+`run_authoritative_residual_scaffold` remains the single production caller and
+continues to own the COOLING temperature threshold, event-end capture, phase
+limit selection, and notification dispatch. When the existing `temp <= warning`
+gate is met, it now builds and applies the frozen `CoolingResumeEffect` in
+`runtime.charge.runtime.cooling_resume`. The effect owns the same return-stage
+selection, COOLING -> prior-stage mutation, restored-target clearing, stage/Ah
+clock reset, cooling source clearing, transition blanking deadline, and exact
+setpoint/turn_on/notification/log action values. The resulting actions still
+flow through the same production execution route and `application.execution_port`;
+the effect has no physical writer or execution-port dependency. Session identity,
+Guard, lease, recipe, safety, and verified transaction boundaries are unchanged.
+
+`tests/test_d123_p3_cooling_resume_effect.py` checks frozen payload and action
+parity, one stage-history edge, timing/target preservation, stale-stage rejection,
+single residual applicator call, and absence of physical writer calls. Existing
+residual route, cooling and desulfation clock regressions were included in the
+focused run. This source-only cut does not validate the physical re-enable path.
+DONE/IDLE ownership, Storage/DONE and Manual integration remain pending; P2
+remains partial.
