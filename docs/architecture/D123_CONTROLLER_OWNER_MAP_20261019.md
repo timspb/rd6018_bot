@@ -231,3 +231,21 @@ existing `test_desulfation_ownership_cutover.py` and
 decision path and persisted continuation snapshot. This is source-only P3-2,
 not physical validation or P3 completion; remaining P3 and P4 are listed in the
 Sprint 07 evidence and checklist.
+
+### Sprint 08 P3-3 MAIN -> MIX
+
+`decide_main_transition` remains the sole MAIN decision caller. On
+`ENTER_MIX`, the controller still resolves the canonical `_mix_target(temp)`
+and existing `_add_phase_limits` output, plus the existing event-end record;
+it passes those values to the frozen typed `MainMixEffect` in
+`runtime/charge/runtime/mix_entry.py` and calls its applicator once. The effect
+owns the existing action mapping (`log_event_end`, V/I, OVP/OCP, notification,
+and `START | V2_MIX`) and in-memory stage edge, restored-target clearing,
+stage clock/Ah, delta/blanking and plateau resets, finish-evidence reset, and
+phase-current-limit mirror. Target selection, MAIN/MIX decisions, current
+clipping evidence, action execution, verified OFF/ON, rollback and physical
+transaction ownership remain with their established owners. `_enter_mix` was
+deleted without a proxy. Ca/Ca, EFB and AGM behavior is covered by
+`tests/test_d123_p3_main_mix_effect.py` and existing downstream/transaction,
+trace, checkpoint and restart regressions. This remains source-only and does
+not establish physical acceptance.
