@@ -97,6 +97,10 @@ from runtime.charge.runtime.mix_entry import (
     apply_main_mix_effect,
     build_main_mix_effect,
 )
+from runtime.charge.runtime.mix_finish_hold import (
+    apply_mix_finish_hold_effect,
+    build_mix_finish_hold_effect,
+)
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -1510,45 +1514,20 @@ class ManagedChargeController:
             finish_hold_s=mix_finish_hold_seconds(),
         )
         if decision.action == AuthorityAction.START_FINISH_HOLD:
-            self.finish_timer_start = timestamp_s
-            self._delta_reported = True
-            self._delta_trigger_mode = "CC" if is_cc else ("CV" if is_cv else None)
-            if hasattr(self, "_finish_evidence") and self._delta_trigger_mode in {"CV", "CC"}:
-                reference = metrics.voltage_max_v if is_cc else metrics.current_min_a
-                accepted_delta = metrics.delta_voltage_from_max_v if is_cc else metrics.delta_current_from_min_a
-                if reference is not None and accepted_delta is not None:
-                    self._finish_evidence = {
-                        "version": 1,
-                        "mode": self._delta_trigger_mode,
-                        "reference_value": float(reference),
-                        "accepted_delta": float(accepted_delta),
-                        "accepted_at": float(timestamp_s),
-                        "session_id": self._v2_trace_session_id,
-                    }
-            if is_cc:
-                evidence = (
-                    f"Vmax={metrics.voltage_max_v:.3f}В, "
-                    f"ΔV={metrics.delta_voltage_from_max_v:.3f}В"
-                    if metrics.voltage_max_v is not None
-                    and metrics.delta_voltage_from_max_v is not None
-                    else "CC ΔV подтверждена"
-                )
-            else:
-                evidence = (
-                    f"Imin={metrics.current_min_a:.3f}А, "
-                    f"ΔI={metrics.delta_current_from_min_a:.3f}А"
-                    if metrics.current_min_a is not None
-                    and metrics.delta_current_from_min_a is not None
-                    else "CV ΔI подтверждена"
-                )
-            actions["notify"] = (
-                f"<b>🎯 V2 Delta подтверждена</b> ({'CC' if is_cc else 'CV'}).\n"
-                f"{evidence}\nSticky finish-hold: 2ч."
+            effect = build_mix_finish_hold_effect(
+                now_s=timestamp_s,
+                is_cc=bool(is_cc),
+                is_cv=bool(is_cv),
+                voltage_max_v=metrics.voltage_max_v,
+                delta_voltage_from_max_v=metrics.delta_voltage_from_max_v,
+                current_min_a=metrics.current_min_a,
+                delta_current_from_min_a=metrics.delta_current_from_min_a,
+                session_id=self._v2_trace_session_id,
             )
-            actions["log_event"] = f"V2_FINISH_HOLD_START | {evidence}"
+            apply_mix_finish_hold_effect(self, effect, actions)
             logger.info(
                 "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
-                self._delta_trigger_mode or "unknown",
+                effect.mode or "unknown",
                 mix_finish_hold_seconds(),
                 timestamp_s,
             )

@@ -506,3 +506,23 @@ diff-check PASS. Exact source-only record:
 Remaining P3 central debt is now concentrated in
 `_apply_authoritative_decision` orchestration itself, Storage/DONE and Manual
 integration, and eventual application-owned session tick ownership.
+
+### Sprint 20 MIX finish-hold start ownership
+
+The mutable `AuthorityAction.START_FINISH_HOLD` branch now delegates to
+`runtime.charge.runtime.mix_finish_hold.MixFinishHoldEffect`. The frozen owner
+captures the existing sticky hold timestamp/mode, optional finish-evidence
+snapshot and exact CV/CC evidence strings plus notify/log actions. The controller
+retains only strategy dispatch and the existing diagnostic logger line. Missing
+metric evidence still starts the hold without creating the optional snapshot,
+matching prior behavior.
+
+The owner has no stage transition, target, RD setter, Output intent,
+`execution_port`, persistence, Guard or lease responsibility. Focused MIX and
+authority regressions passed **37 tests**; full Python 3.12 offline discovery
+passed **2,403 tests / 3 skipped**; compileall and diff-check PASS. Exact
+source-only record: `D123_SPRINT20_EVIDENCE_20261019.md`.
+
+Remaining mutable MIX state inside `_apply_authoritative_decision` is now limited
+primarily to read-model metric mirrors and completion-evidence logging; the
+stage actions themselves route through typed owners.
