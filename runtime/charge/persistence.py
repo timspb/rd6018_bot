@@ -18,6 +18,7 @@ from runtime.charge.strategy.mix_variables import mix_finish_hold_seconds
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
 from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
 from runtime.charge.session_atomic import atomic_session_write
+from runtime.charge.session import restore_stage_history
 
 
 logger = logging.getLogger("rd6018")
@@ -516,29 +517,10 @@ def restore_session(
         host._safe_wait_target_v = float(data.get("safe_wait_target_v", 0))
         host._safe_wait_target_i = float(data.get("safe_wait_target_i", 0))
         now = time.time()
-        host.previous_stage = data.get("previous_stage")
-        host._last_transition_reason = str(data.get("last_transition_reason", "") or "")
-        host._stage_history.clear()
-        raw_stage_history = data.get("stage_history", [])
-        if isinstance(raw_stage_history, list):
-            for item in raw_stage_history[-host._stage_history.maxlen:]:
-                if not isinstance(item, dict):
-                    continue
-                from_stage = str(item.get("from") or "").strip()
-                to_stage = str(item.get("to") or "").strip()
-                if not from_stage and not to_stage:
-                    continue
-                host._stage_history.append(
-                    {
-                        "from": from_stage,
-                        "to": to_stage,
-                        "reason": str(item.get("reason") or "").strip(),
-                        "ts": float(item.get("ts") or now),
-                    }
-                )
-        if host._stage_history and not host.previous_stage:
-            last_transition = host._stage_history[-1]
-            host.previous_stage = str(last_transition.get("from") or "") or None
+        restore_stage_history(
+            host, data.get("previous_stage"), data.get("last_transition_reason"),
+            data.get("stage_history", []), now=now,
+        )
         raw_safe_wait_start = data.get("safe_wait_start")
         try:
             host._safe_wait_start = float(raw_safe_wait_start) if raw_safe_wait_start not in (None, 0) else now

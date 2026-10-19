@@ -9,6 +9,7 @@ from typing import Any
 from charging_log import log_session_header
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
+from runtime.charge.session import clear_stage_history
 
 
 logger = logging.getLogger("rd6018")
@@ -30,9 +31,7 @@ def reset_session_data(host: Any) -> None:
     host._stuck_current_value = None
     host._first_stage_hold_since = None
     host._first_stage_hold_current = None
-    host.previous_stage = None
-    host._last_transition_reason = ""
-    host._stage_history.clear()
+    clear_stage_history(host)
     host._reset_stage_metrics()
     host._reset_bank_fault_state()
     host._reset_link_loss_state()
@@ -81,9 +80,7 @@ def initialize_session(host: Any, battery_type: str, ah_capacity: int, start_sta
     host._temp_comp_last_update_time = 0.0
     host._temp_comp_last_temp = None
     host._reset_link_loss_state()
-    host.previous_stage = None
-    host._last_transition_reason = ""
-    host._stage_history.clear()
+    clear_stage_history(host)
     host._clear_restored_targets()
     host._clear_session_file()
 
@@ -187,9 +184,7 @@ def full_reset(host: Any) -> None:
     host._safe_wait_next_stage = None
     host._analytics_history.clear()
     host._safe_wait_v_samples.clear()
-    host.previous_stage = None
-    host._last_transition_reason = ""
-    host._stage_history.clear()
+    clear_stage_history(host)
     host._reset_stage_metrics()
     host._reset_bank_fault_state()
     host._reset_link_loss_state()

@@ -124,6 +124,59 @@ def apply_trace_identity(host: object, snapshot: TraceIdentitySnapshot) -> None:
     )
 
 
+def set_current_stage(host: object, value: str) -> None:
+    """Apply a stage value and record its single canonical history edge."""
+    previous = getattr(host, "_current_stage", None)
+    host._current_stage = value
+    if not getattr(host, "_stage_tracking_enabled", False) or previous in (None, value):
+        return
+    host.previous_stage = previous
+    host._stage_history.append({
+        "from": previous, "to": value,
+        "reason": str(getattr(host, "_last_transition_reason", "") or "").strip(),
+        "ts": time.time(),
+    })
+    host._stage_start_voltage = 0.0
+    host._stage_start_current = 0.0
+    host._stage_start_temp = 0.0
+    host._last_voltage = 0.0
+    host._last_current = 0.0
+    host._last_temp_ext = 0.0
+    host._last_ah = 0.0
+    host._last_transition_reason = ""
+
+
+def restore_stage_history(host: object, previous_stage: object, reason: object, history: object, *, now: float) -> None:
+    """Restore the established persisted stage-history schema."""
+    host.previous_stage = previous_stage
+    host._last_transition_reason = str(reason or "")
+    host._stage_history.clear()
+    if isinstance(history, list):
+        for item in history[-host._stage_history.maxlen:]:
+            if not isinstance(item, dict):
+                continue
+            from_stage = str(item.get("from") or "").strip()
+            to_stage = str(item.get("to") or "").strip()
+            if not from_stage and not to_stage:
+                continue
+            try:
+                timestamp = float(item.get("ts") or now)
+            except (TypeError, ValueError, OverflowError):
+                timestamp = float(now)
+            host._stage_history.append({
+                "from": from_stage, "to": to_stage,
+                "reason": str(item.get("reason") or "").strip(), "ts": timestamp,
+            })
+    if host._stage_history and not host.previous_stage:
+        host.previous_stage = str(host._stage_history[-1].get("from") or "") or None
+
+
+def clear_stage_history(host: object) -> None:
+    host.previous_stage = None
+    host._last_transition_reason = ""
+    host._stage_history.clear()
+
+
 class SessionManager:
     """Own only logical lifecycle; no persistence or actuator authority."""
 

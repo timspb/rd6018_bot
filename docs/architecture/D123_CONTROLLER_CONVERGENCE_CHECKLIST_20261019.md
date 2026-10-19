@@ -27,6 +27,10 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [x] Guarded checkpoint restore remains rejected before controller mutation/enrichment; regression proves session/revision/SHA bytes remain unchanged. Failed atomic replacement fails restore and retains original session; no actuator path is called
 - [x] No controller session patch writer, `.v2.tmp` path or `os.replace`; architecture AST guard blocks reintroduction. Unused production cooling/finish/runtime-signal patch writers removed; extension schema remains on canonical save
 - [ ] Stage history, audit/trace lifecycle and MAIN Guard restore admission ownership moved; this is still P2 lifecycle work, so P2 remains **partial**
+- [x] Sprint 04 stage-history mutation, clearing and persisted-history reconstruction moved to `runtime.charge.session`; the stable `current_stage` property calls that canonical owner and existing serialized `stage_history`, `previous_stage`, and `last_transition_reason` keys remain unchanged
+- [x] Stage-history parity/architecture tests cover a single recorded transition edge, no duplicate for an unchanged stage, transition metric reset, previous-stage update, and persisted field restoration: `tests/test_d123_p2c_stage_history.py`
+- [ ] Trace identity context, disagreement counters/logging and shadow trace-store lifecycle remain controller-owned; P2c remains **incomplete**. The database store is the only trace writer and was intentionally left unchanged pending a characterized owner/API cut
+- [ ] MAIN Guard restore admission ownership remains deferred; guarded restore stays fail-closed before mutation/enrichment
 - [x] Sprint 03 focused tests, Python 3.12 offline full suite and compileall PASS; see `D123_SPRINT03_EVIDENCE_20261019.md`
 
 P2b session identity and writer convergence is complete on its committed Sprint
@@ -36,6 +40,7 @@ lifecycle, and guarded restore admission ownership are still outstanding. Sprint
 current cut and exact test counts.
 
 ## P3 modular stage orchestration
+- [ ] Sprint 04 did not start P3 because P2c lifecycle convergence is incomplete
 - [ ] MAIN + PREP and residual
 - [ ] DESULFATION + recovery SAFE_WAIT
 - [ ] MIX + final SAFE_WAIT

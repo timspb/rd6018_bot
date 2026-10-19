@@ -45,7 +45,7 @@ from runtime.charge.persistence import (
     restore_session,
     save_session,
 )
-from runtime.charge.session import apply_trace_identity, new_trace_identity
+from runtime.charge.session import apply_trace_identity, new_trace_identity, set_current_stage
 from runtime.charge.post import post_charge_profile_params
 
 SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
@@ -215,23 +215,7 @@ class ManagedChargeController:
 
     @current_stage.setter
     def current_stage(self, value: str) -> None:
-        prev = getattr(self, "_current_stage", None)
-        self._current_stage = value
-        if not getattr(self, "_stage_tracking_enabled", False):
-            return
-        if prev is None or prev == value:
-            return
-        self.previous_stage = prev
-        self._stage_history.append(
-            {
-                "from": prev,
-                "to": value,
-                "reason": str(getattr(self, "_last_transition_reason", "") or "").strip(),
-                "ts": time.time(),
-            }
-        )
-        self._reset_stage_metrics()
-        self._last_transition_reason = ""
+        set_current_stage(self, value)
 
     @property
     def is_active(self) -> bool:

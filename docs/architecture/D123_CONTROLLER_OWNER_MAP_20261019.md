@@ -124,6 +124,26 @@ serialization. Restart therefore still cannot manufacture plateau time. Operator
 pause previously shifted this timestamp along with other clocks; the evidence
 owner now does so via `shift_clock`.
 
+### Sprint 04 stage-history convergence
+
+At committed Sprint 04 source, `runtime.charge.session` owns stage
+mutation (`set_current_stage`), history clearing, history restore normalization,
+and stage metric reset on transitions. `ManagedChargeController.current_stage`
+remains the stable public property used by application/runtime consumers and
+delegates its setter to that owner. `runtime.charge.persistence` retains the
+session document boundary but delegates history reconstruction to the same
+session owner. Lifecycle reset paths also use its history clear operation. This
+keeps one append for each actual transition, preserves no-op assignments, and
+retains the persisted keys and entry shape (`from`, `to`, `reason`, `ts`).
+
+Trace lifecycle is not yet converged: controller owns `recovery_trace_context`,
+disagreement repeat counters/logging, and the call into the existing
+`recovery_trace_store.record_shadow_trace`; the store remains the sole database
+writer. Moving these together safely requires a characterized typed context
+boundary and capture-call test without adding an owner or writer. See
+`D123_SPRINT04_EVIDENCE_20261019.md`; P2c and P2 remain partial, and P3 was not
+attempted.
+
 Separate deferred algorithm defect: `SignalAnalyzerConfig` allows
 `plateau_min_samples=5` in a 15-minute window. Five 3-minute-spaced samples can
 emit `CURRENT_PLATEAU` after only 12 minutes; the accepted consumer then
