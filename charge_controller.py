@@ -108,6 +108,11 @@ from runtime.charge.runtime.final_safe_wait_entry import (
     FinalSafeWaitEntryInput,
     apply_final_safe_wait_entry,
 )
+from runtime.charge.runtime.final_safe_wait_completion import (
+    FinalSafeWaitCompletionInput,
+    apply_final_safe_wait_completion_effect,
+    build_final_safe_wait_completion_effect,
+)
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.strategy.desulfation import (
@@ -1010,53 +1015,24 @@ class ManagedChargeController:
         """
         kind = str(transition.get("kind") or "")
         if kind == "final_safe_wait_to_done":
-            continuation = self._final_safe_wait
-            if continuation is None or self.current_stage != self.STAGE_SAFE_WAIT:
+            effect = build_final_safe_wait_completion_effect(
+                FinalSafeWaitCompletionInput(
+                    continuation=self._final_safe_wait,
+                    current_stage=self.current_stage,
+                    safe_wait_stage=self.STAGE_SAFE_WAIT,
+                    done_stage=self.STAGE_DONE,
+                    active_session_generation=self._v2_trace_started_at,
+                    transition=transition,
+                    now_s=now,
+                    voltage_v=voltage,
+                    current_a=current,
+                    ah=ah,
+                )
+            )
+            if effect is None:
                 logger.error("verified final completion rejected: no matching SAFE_WAIT continuation")
                 return None
-            token_session = str(transition.get("session_id") or "") or None
-            try:
-                token_started_at = float(transition.get("started_at"))
-                token_session_generation = float(transition.get("session_generation"))
-            except (TypeError, ValueError):
-                return None
-            if (
-                token_session != continuation.session_id
-                or continuation.session_generation is None
-                or not math.isfinite(token_started_at)
-                or not math.isfinite(token_session_generation)
-                or abs(token_started_at - continuation.started_at) > 1e-6
-                or abs(
-                    token_session_generation
-                    - float(continuation.session_generation)
-                ) > 1e-6
-                or abs(
-                    token_session_generation
-                    - float(self._v2_trace_started_at)
-                ) > 1e-6
-            ):
-                logger.error("verified final completion rejected: continuation token mismatch")
-                return None
-
-            self.current_stage = self.STAGE_DONE
-            self._clear_restored_targets()
-            self.stage_start_time = float(now)
-            self._stage_start_ah = float(ah)
-            self._safe_wait_next_stage = None
-            self._safe_wait_target_v = 0.0
-            self._safe_wait_target_i = 0.0
-            self._safe_wait_start = 0.0
-            self._final_safe_wait = None
-            self._recovery_safe_wait = None
-            self._done_transition_source_stage = self.STAGE_SAFE_WAIT
-            try:
-                self._save_session(float(voltage), float(current), float(ah))
-            finally:
-                self._done_transition_source_stage = None
-            return {
-                "log_event": "START | V2_STORAGE_OUTPUT_VERIFIED",
-                "notify": "<b>✅ Заряд завершён.</b> Storage включён и подтверждён.",
-            }
+            return apply_final_safe_wait_completion_effect(self, effect)
         if kind != "recovery_safe_wait_to_main":
             return None
         continuation = self._recovery_safe_wait

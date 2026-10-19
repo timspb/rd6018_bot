@@ -52,7 +52,9 @@ the current cut and test counts.
 - [x] MIX entry effect (Sprint 08).
 - [x] Sprint 09 P3-4 MAIN/MIX -> final SAFE_WAIT entry uses an immutable typed effect and one mutation applicator in `runtime.charge.runtime.final_safe_wait_entry`; `_enter_safe_wait_done` is deleted. Exact OFF intent, source stage, continuation identity/generation, storage targets, sample/reset behavior and event/notification fields are preserved. Missing/stale identity fails closed before mutation and routes to STOP_AND_DIAGNOSE; downstream fresh-OFF SAFE_WAIT decision and verified Storage ON transaction remain unchanged.
 - [x] Sprint 09 parity and AST gates, focused final SAFE_WAIT/recovery/MIX/readback/lease/rollback/restoration set (**469 PASS**), full offline discovery (**2,367 PASS / 2 skipped**), compileall and diff check pass. See `D123_SPRINT09_EVIDENCE_20261019.md`.
-- [ ] Final SAFE_WAIT decision/commit; cooling/storage/done and Manual integration.
+- [x] Sprint 10 final SAFE_WAIT verified completion commit now builds a frozen `FinalSafeWaitCompletionEffect` and applies it once in `runtime.charge.runtime.final_safe_wait_completion`; `commit_verified_enable_transition` retains receipt routing and recovery behavior. Stage/history commit and canonical session save retain their prior order and Storage intent.
+- [x] Sprint 10 stale/missing receipt read-only rejection, immutable effect, one stage-history edge, Storage intent persistence, restart/readback/rollback and AST physical-writer/caller gates pass. Focused related set: **30 PASS**; full discovery: **2,370 PASS / 3 skipped**; compileall and diff check pass. See `D123_SPRINT10_EVIDENCE_20261019.md`.
+- [ ] Final SAFE_WAIT decision/action construction; cooling/storage/done and Manual integration.
 - [ ] Cooling, storage/done, Manual integration
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths
@@ -77,3 +79,4 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - [x] Sprint 08 P3-3: MAIN -> MIX uses immutable `MainMixEffect` and one applicator in `runtime.charge.runtime.mix_entry`; `_enter_mix` deleted. Sole decision caller, target selection, protection action generation, stage-history edge, resets, notifications and execution transaction route retained.
 - [x] Sprint 08 focused transition/transaction/restart/trace/checkpoint/current-clipping regression set: **73 PASS**; typed effect includes Ca/Ca, EFB and AGM parity and AST one-caller/no-actuator guards.
 - [x] Sprint 08 final exact-source Python 3.12 offline discovery: **2,363 PASS / 2 skipped**; `compileall` and `git diff --check` pass. See `D123_SPRINT08_EVIDENCE_20261019.md`.
+- [ ] Sprint 10 used the existing `/home/home-pc/rd6018-v3-deploy/.venv` Python 3.12 because the specifically requested `/tmp/rd6018-d109-venv` was absent; no dependencies were installed. Software results remain source-only and are not physical acceptance.

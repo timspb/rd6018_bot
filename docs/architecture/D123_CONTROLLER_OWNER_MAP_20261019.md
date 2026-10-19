@@ -281,3 +281,33 @@ readback, lease, rollback-related transaction and restoration coverage passed
 469 tests. Exact full discovery and source-only scope are recorded in
 `D123_SPRINT09_EVIDENCE_20261019.md`. Final SAFE_WAIT decision/commit,
 cooling/storage/done and Manual integration remain P3 work; P2 remains partial.
+
+### Sprint 10 P3-5 verified final SAFE_WAIT -> DONE commit
+
+The existing `application.execution_port` transaction remains the sole physical
+applicator and must return a session-bound verified-enable receipt before this
+cut is reached. `ManagedChargeController.commit_verified_enable_transition`
+still routes that receipt by transition kind and retains the independent
+recovery SAFE_WAIT -> MAIN path. Its final `final_safe_wait_to_done` mutation
+branch now constructs a frozen `FinalSafeWaitCompletionEffect` through
+`runtime/charge/runtime/final_safe_wait_completion` and invokes that module's
+single applicator.
+
+The typed owner validates the same continuation/session identity, generation
+and start timestamp before mutation. It then performs the same DONE stage edge,
+restored-target and SAFE_WAIT mirror clearing, DONE-source marker and canonical
+session save. Stage history still changes through the existing
+`current_stage`/session owner before persistence; `_done_transition_source_stage`
+is cleared in `finally`, including save failure. The effect contains only the
+completion result metadata; it has no physical intents or setters. Receipt
+rejection leaves the controller pending in SAFE_WAIT, and physical transaction
+failure never invokes the commit route. Persisted Storage completion intent,
+session keys, recovery behavior, Guard and execution ordering are unchanged.
+
+`tests/test_d123_p3_final_safe_wait_completion_effect.py` guards frozen effect
+data, stale/missing receipt rejection without mutation, one transition-history
+edge, sole controller applicator call, and absence of physical writers in the
+charge owner. Existing final SAFE_WAIT transaction/restore and recovery
+transaction suites provide downstream persistence/readback/rollback coverage.
+The final SAFE_WAIT strategy decision and enable request construction remain in
+the controller and are still pending P3 work. This cut is software-only.
