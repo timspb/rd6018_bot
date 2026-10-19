@@ -53,6 +53,15 @@ from runtime.charge.evidence.first_stage import (
     MainSampleEvidenceEvaluator,
     MainSampleEvidenceInput,
 )
+from runtime.charge.evidence.trace_context import (
+    SignalContextInput,
+    TracePointInput,
+    build_shadow_metadata,
+    build_signal_context,
+    build_trace_point_metadata,
+    finite_or_nan,
+    normalize_output_on,
+)
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
@@ -886,116 +895,6 @@ class ManagedChargeController:
         )
         return True
 
-    @staticmethod
-    def _finite_or_nan(value: Any) -> float:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            return math.nan
-        return parsed if math.isfinite(parsed) else math.nan
-
-    @staticmethod
-    def _finite_or_none(value: Any) -> Optional[float]:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            return None
-        return parsed if math.isfinite(parsed) else None
-
-    @staticmethod
-    def _normalize_output_on(value: Any) -> Optional[bool]:
-        if value is None:
-            return None
-        raw = str(value).strip().lower()
-        if value is True or raw == "on":
-            return True
-        if value is False or raw == "off":
-            return False
-        return None
-
-    @staticmethod
-    def _first_stage_metadata(assessment: FirstStageAssessment) -> Dict[str, Any]:
-        return {
-            "state": assessment.state.value,
-            "current_c_rate": assessment.current_c_rate,
-            "tail_threshold_a": assessment.tail_threshold_a,
-            "tail_threshold_c": assessment.tail_threshold_c,
-            "near_target": assessment.near_target,
-            "reason": assessment.reason,
-        }
-
-    def _trace_point_metadata(
-        self,
-        *,
-        timestamp_s: float,
-        stage_before: str,
-        stage_after: str,
-        target_before: Optional[float],
-        voltage: Any,
-        current: Any,
-        temp_ext: Any,
-        is_cv: bool,
-        is_cc: Optional[bool],
-        ah: Any,
-        output_is_on: Any,
-    ) -> Dict[str, Any]:
-        return {
-            "timestamp_s": float(timestamp_s),
-            "stage": str(stage_before),
-            "legacy_stage_after": str(stage_after),
-            "voltage_v": self._finite_or_none(voltage),
-            "current_a": self._finite_or_none(current),
-            "temp_c": self._finite_or_none(temp_ext),
-            "is_cv": bool(is_cv),
-            "is_cc": bool(is_cc) if is_cc is not None else None,
-            "target_voltage_v": self._finite_or_none(target_before),
-            "ah": self._finite_or_none(ah),
-            "output_on": self._normalize_output_on(output_is_on),
-        }
-
-    def _shadow_metadata(
-        self,
-        record: Any,
-        *,
-        trace_point: Dict[str, Any],
-        first_stage: Optional[FirstStageAssessment] = None,
-        authority_decision: Optional[AuthorityDecision] = None,
-    ) -> Dict[str, Any]:
-        metrics = record.analysis.metrics
-        payload = {
-            "status": "ok",
-            "decision": record.decision.decision.value,
-            "reason": record.decision.reason,
-            "events": sorted(event.value for event in record.analysis.events),
-            "disagreement": record.disagreement,
-            "legacy_effect": record.legacy_effect,
-            "authority": "modular",
-            "trace_point": trace_point,
-            "metrics": {
-                "d_voltage_v_per_min": metrics.d_voltage_v_per_min,
-                "d_current_a_per_min": metrics.d_current_a_per_min,
-                "d_temp_c_per_min": metrics.d_temp_c_per_min,
-                "current_min_a": metrics.current_min_a,
-                "seconds_since_current_min": metrics.seconds_since_current_min,
-                "delta_current_from_min_a": metrics.delta_current_from_min_a,
-                "reversal_threshold_a": metrics.reversal_threshold_a,
-                "reversal_confirmations": metrics.reversal_confirmations,
-                "voltage_max_v": metrics.voltage_max_v,
-                "seconds_since_voltage_max": metrics.seconds_since_voltage_max,
-                "delta_voltage_from_max_v": metrics.delta_voltage_from_max_v,
-                "voltage_reversal_threshold_v": metrics.voltage_reversal_threshold_v,
-                "voltage_reversal_confirmations": metrics.voltage_reversal_confirmations,
-            },
-        }
-        if first_stage is not None:
-            payload["first_stage"] = self._first_stage_metadata(first_stage)
-        if authority_decision is not None:
-            payload["authority_decision"] = {
-                "action": authority_decision.action.value,
-                "reason": authority_decision.reason,
-            }
-        return payload
-
     def _log_shadow_disagreement(self, record: Any, *, stage: str) -> None:
         disagreement = record.disagreement
         if disagreement is None:
@@ -1151,7 +1050,7 @@ class ManagedChargeController:
             return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
 
         assert continuation is not None
-        output_is_off = self._normalize_output_on(output_is_on) is False
+        output_is_off = normalize_output_on(output_is_on) is False
         if output_is_off:
             self._record_safe_wait_sample(now, voltage, current, temp)
         decision = decide_recovery_safe_wait(
@@ -1229,7 +1128,7 @@ class ManagedChargeController:
             return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
 
         assert continuation is not None
-        output_is_off = self._normalize_output_on(output_is_on) is False
+        output_is_off = normalize_output_on(output_is_on) is False
         if output_is_off:
             self._record_safe_wait_sample(now, voltage, current, temp)
         decision = decide_final_safe_wait(
@@ -2117,16 +2016,16 @@ class ManagedChargeController:
                 RecoveryTracePoint(
                     timestamp_s=timestamp_s,
                     stage=stage_before,
-                    voltage_v=self._finite_or_nan(voltage),
-                    current_a=self._finite_or_nan(current),
-                    temp_c=self._finite_or_nan(temp_ext),
+                    voltage_v=finite_or_nan(voltage),
+                    current_a=finite_or_nan(current),
+                    temp_c=finite_or_nan(temp_ext),
                     is_cv=bool(is_cv),
                     is_cc=resolved_is_cc,
                     target_voltage_v=target_before,
-                    ah=self._finite_or_nan(ah),
+                    ah=finite_or_nan(ah),
                 ),
                 legacy_actions=actions,
-                output_is_on=self._normalize_output_on(output_is_on),
+                output_is_on=normalize_output_on(output_is_on),
             )
 
             metrics = record.analysis.metrics
@@ -2159,52 +2058,21 @@ class ManagedChargeController:
                 )
             analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
             mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)
-            self._v2_session_signal_context = {
-                "stage": str(stage_before),
-                "mode": mode,
-                "session_id": self._v2_trace_session_id,
-                "session_generation": float(self._v2_trace_started_at or 0.0),
-                "output_on": self._normalize_output_on(output_is_on),
-                "cv_state": bool(is_cv),
-                "cc_state": bool(resolved_is_cc),
-                "telemetry_valid": not record.analysis.has(SignalEvent.TELEMETRY_INVALID),
-                "telemetry_observed_at": float(timestamp_s),
-                "telemetry_age_s": max(0.0, time.time() - float(timestamp_s)),
-                "target_voltage_v": target_before,
-                "current_min_a": metrics.current_min_a,
-                "current_min_time_s": (
-                    float(timestamp_s) - float(analyzer._current_min_time_s)
-                    if analyzer is not None and analyzer._current_min_time_s is not None
-                    else None
-                ),
-                "delta_reference_a": metrics.current_min_a,
-                "voltage_max_v": metrics.voltage_max_v,
-                "voltage_max_time_s": (
-                    float(timestamp_s) - float(analyzer._voltage_max_time_s)
-                    if analyzer is not None and analyzer._voltage_max_time_s is not None
-                    else None
-                ),
-                "delta_reference_v": metrics.voltage_max_v,
-                "reversal_threshold_a": metrics.reversal_threshold_a,
-                "reversal_confirmations": metrics.reversal_confirmations,
-                "last_reversal_confirmation_s": (
-                    analyzer._last_reversal_confirmation_s if analyzer is not None else None
-                ),
-                "reversal_emitted": bool(analyzer._reversal_emitted) if analyzer is not None else False,
-                "voltage_reversal_confirmations": (
-                    metrics.voltage_reversal_confirmations
-                ),
-                "voltage_last_reversal_confirmation_s": (
-                    analyzer._last_voltage_reversal_confirmation_s
-                    if analyzer is not None
-                    else None
-                ),
-                "voltage_reversal_emitted": (
-                    bool(analyzer._voltage_reversal_emitted)
-                    if analyzer is not None
-                    else False
-                ),
-            }
+            self._v2_session_signal_context = build_signal_context(SignalContextInput(
+                stage=stage_before,
+                mode=mode,
+                session_id=self._v2_trace_session_id,
+                session_generation=float(self._v2_trace_started_at or 0.0),
+                output_is_on=output_is_on,
+                is_cv=bool(is_cv),
+                is_cc=bool(resolved_is_cc),
+                telemetry_valid=not record.analysis.has(SignalEvent.TELEMETRY_INVALID),
+                timestamp_s=float(timestamp_s),
+                now_s=time.time(),
+                target_voltage_v=target_before,
+                metrics=metrics,
+                analyzer=analyzer,
+            ))
 
             metrics = record.analysis.metrics
             sample = MainSampleEvidenceInput(
@@ -2240,7 +2108,7 @@ class ManagedChargeController:
                 if temp_ext is None:
                     temp_value = math.nan
                 else:
-                    temp_value = self._finite_or_nan(temp_ext)
+                    temp_value = finite_or_nan(temp_ext)
                 if math.isfinite(temp_value):
                     authority_decision = self._apply_authoritative_decision(
                         record=record,
@@ -2261,7 +2129,7 @@ class ManagedChargeController:
                 # no historical transition source remains to audit.
                 self._log_shadow_disagreement(record, stage=stage_before)
 
-            trace_point = self._trace_point_metadata(
+            trace_point = build_trace_point_metadata(TracePointInput(
                 timestamp_s=timestamp_s,
                 stage_before=stage_before,
                 stage_after=self.current_stage,
@@ -2273,8 +2141,8 @@ class ManagedChargeController:
                 is_cc=resolved_is_cc,
                 ah=ah,
                 output_is_on=output_is_on,
-            )
-            actions["recovery_shadow"] = self._shadow_metadata(
+            ))
+            actions["recovery_shadow"] = build_shadow_metadata(
                 record,
                 trace_point=trace_point,
                 first_stage=first_stage,
@@ -2285,7 +2153,7 @@ class ManagedChargeController:
             # transition owner to receive control after an internal error.
             logger.exception("Recovery observation/authority failed")
             self._v2_session_signal_context = None
-            trace_point = self._trace_point_metadata(
+            trace_point = build_trace_point_metadata(TracePointInput(
                 timestamp_s=timestamp_s,
                 stage_before=stage_before,
                 stage_after=self.current_stage,
@@ -2297,7 +2165,7 @@ class ManagedChargeController:
                 is_cc=resolved_is_cc,
                 ah=ah,
                 output_is_on=output_is_on,
-            )
+            ))
             actions["recovery_shadow"] = {
                 "status": "error",
                 "decision": None,
@@ -2307,15 +2175,15 @@ class ManagedChargeController:
                 "trace_point": trace_point,
             }
             if self._is_authoritative_stage(stage_before) and self.current_stage == stage_before:
-                temp_value = self._finite_or_nan(temp_ext)
+                temp_value = finite_or_nan(temp_ext)
                 if math.isfinite(temp_value):
                     self._stop_and_diagnose(
                         actions=actions,
                         now=timestamp_s,
-                        voltage=self._finite_or_nan(voltage),
-                        current=self._finite_or_nan(current),
+                        voltage=finite_or_nan(voltage),
+                        current=finite_or_nan(current),
                         temp=temp_value,
-                        ah=self._finite_or_nan(ah),
+                        ah=finite_or_nan(ah),
                         reason=f"v2_internal_error:{type(exc).__name__}",
                     )
                 else:
@@ -2332,7 +2200,7 @@ class ManagedChargeController:
 
         next_target = actions.get("set_voltage")
         if next_target is not None:
-            self._v2_target_voltage_v = self._finite_or_nan(next_target)
+            self._v2_target_voltage_v = finite_or_nan(next_target)
         elif self.current_stage != stage_before:
             try:
                 self._v2_target_voltage_v = float(self._get_target_v_i(temp_ext)[0])

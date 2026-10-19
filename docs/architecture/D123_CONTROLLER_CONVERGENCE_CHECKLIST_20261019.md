@@ -19,10 +19,16 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [x] Source-only evidence saved in `D123_SPRINT01_EVIDENCE_20261019.md`; exact commit SHA is recorded by the resulting D123 commit
 
 ## P2 session / trace
-- [ ] Canonical session ID, battery ID, stage history and audit/trace ownership moved
+- [ ] Canonical session ID, battery ID, stage history and audit/trace lifecycle ownership moved
+- [x] Pure trace point, shadow/event metadata, first-stage trace metadata and CV/CC session signal context assembly moved to `runtime.charge.evidence.trace_context`; `ManagedChargeController.tick` retains one call path for each output and one production caller
+- [x] Direct CV/CC context, event metadata, stable trace shape, moved-body and owner-call-count tests added in `tests/test_d123_p2_trace_context.py`
+- [ ] Session identity/restore and trace persistence ownership moved; retained in controller for this partial cut because `_write_trace_identity_to_session_file` is a separate direct file writer and migration needs coordinated use of the existing canonical atomic session writer
 - [ ] Guard journal revision/hash + monotonic accrued ON-time and sticky Iset proof intact
 - [ ] Atomic persistence, restart continuity-fail-closed and guarded restore negative tests PASS
 - [ ] No second checkpoint writer or authority path
+
+P2 is **partial** after Sprint 02. See `D123_SPRINT02_EVIDENCE_20261019.md` for
+the exact cut, tested restart contracts, and remaining lifecycle work.
 
 ## P3 modular stage orchestration
 - [ ] MAIN + PREP and residual

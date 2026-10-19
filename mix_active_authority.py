@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from runtime.charge.persistence import SESSION_FILE
+from runtime.charge.evidence.trace_context import normalize_output_on
 
 
 class MixActiveAuthorityError(RuntimeError):
@@ -313,7 +314,7 @@ class MixActiveAuthorityMixin:
             session_id = self._mix_authority_session_id()
             # Unknown Output cannot prove an inactive HV interval. Conservatively
             # charge it as active; runtime telemetry safety independently fails closed.
-            output_state = self._normalize_output_on(output_raw)
+            output_state = normalize_output_on(output_raw)
             self._mix_active_authority.observe(session_id, active=(output_state is not False))
 
         result = await super().tick(*args, **kwargs)
