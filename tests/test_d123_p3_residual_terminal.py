@@ -6,12 +6,58 @@ import unittest
 from pathlib import Path
 
 from runtime.charge.runtime import residual_terminal as owner
+from runtime.charge.runtime import residual_observation
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class ResidualTerminalDecisionTests(unittest.TestCase):
+    def test_terminal_observation_mutation_has_evidence_owner_and_parity(self):
+        class Host:
+            STAGE_IDLE = "IDLE"
+
+            def __init__(self):
+                self._stage_start_voltage = 0.0
+                self._stage_start_current = 0.0
+                self._stage_start_temp = 0.0
+                self._last_voltage = self._last_current = self._last_temp_ext = self._last_ah = 0.0
+                self._analytics_history = []
+                self._last_v_i_history_time = 0.0
+                self.v_history, self.i_history = [], []
+
+        idle = Host()
+        residual_observation.record_residual_observation(
+            idle, stage="IDLE", timestamp_s=61, voltage_v=12.4, current_a=0.2,
+            temperature_c=23, ah=1.5, history_interval_s=60,
+        )
+        self.assertEqual((idle._last_voltage, idle._last_current, idle._last_ah), (12.4, 0.2, 1.5))
+        self.assertEqual(idle._analytics_history, [])
+        self.assertEqual((idle.v_history, idle.i_history), ([], []))
+
+        done = Host()
+        residual_observation.record_residual_observation(
+            done, stage="DONE", timestamp_s=61, voltage_v=12.5, current_a=0.1,
+            temperature_c=24, ah=2.0, history_interval_s=60,
+        )
+        self.assertEqual(done._analytics_history, [(61, 12.5, 0.1, 2.0, 24)])
+        self.assertEqual(done.v_history, [(61, 12.5)])
+        self.assertEqual(done.i_history, [(61, 0.1)])
+        self.assertEqual(done._stage_start_voltage, 12.5)
+
+    def test_residual_scaffold_uses_observation_owner_once(self):
+        source = (ROOT / "runtime/charge/runtime/residual_scaffold.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "record_residual_observation"]
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("host._analytics_history.append", source)
+        self.assertNotIn("host._mark_stage_sample", source)
+        owner_source = inspect.getsource(residual_observation)
+        self.assertNotIn("execution_port", owner_source)
+        self.assertNotIn("set_voltage", owner_source)
+        self.assertNotIn("turn_on", owner_source)
+
     def test_idle_and_done_keep_distinct_return_semantics(self):
         idle = owner.decide_residual_terminal("IDLE", idle_stage="IDLE", done_stage="DONE")
         done = owner.decide_residual_terminal("DONE", idle_stage="IDLE", done_stage="DONE")

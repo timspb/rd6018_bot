@@ -22,12 +22,12 @@ from runtime.charge.controller_state import (
     STAGE_SAFE_WAIT,
     clear_restored_targets,
     initialize_controller_state,
-    mark_stage_sample,
     reset_bank_fault_state,
     reset_delta_and_blanking,
     reset_link_loss_state,
     reset_stage_metrics,
 )
+from runtime.charge.sample_state import mark_stage_sample
 from runtime.charge.lifecycle import (
     full_reset as full_reset_charge,
     initialize_session,

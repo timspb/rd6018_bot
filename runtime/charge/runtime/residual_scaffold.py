@@ -28,6 +28,7 @@ from runtime.charge.runtime.cooling_resume import (
     build_cooling_resume_effect,
 )
 from runtime.charge.runtime.residual_terminal import decide_residual_terminal
+from runtime.charge.runtime.residual_observation import record_residual_observation
 from runtime.charge.strategy.prep_variables import PREP_VOLTAGE_V
 from runtime.safety.communication_variables import (
     LINK_LOSS_INITIAL_NOTICE_COUNT,
@@ -196,7 +197,16 @@ async def run_authoritative_residual_scaffold(
         host.notify(msg)
         return actions
 
-    host._mark_stage_sample(voltage, current, temp, ah)
+    record_residual_observation(
+        host,
+        stage=stage_before,
+        timestamp_s=now,
+        voltage_v=voltage,
+        current_a=current,
+        temperature_c=temp,
+        ah=ah,
+        history_interval_s=float(HISTORY_SAMPLE_INTERVAL_S.default),
+    )
 
     if _output_is_known(output_is_on):
         host._last_known_output_on = _output_is_on(output_is_on)
@@ -207,12 +217,6 @@ async def run_authoritative_residual_scaffold(
     host._was_unavailable = False
 
     if stage_before != host.STAGE_IDLE:
-        host._analytics_history.append((now, voltage, current, ah, temp))
-        if now - host._last_v_i_history_time >= float(HISTORY_SAMPLE_INTERVAL_S.default):
-            host.v_history.append((now, voltage))
-            host.i_history.append((now, current))
-            host._last_v_i_history_time = now
-
         elapsed_check = now - host.stage_start_time
         if (
             elapsed_check < 0

@@ -402,3 +402,25 @@ passed 11 tests with Python 3.12 and a synthetic token. This is a narrow
 source-only terminal-flow extraction; remaining IDLE/DONE observation and
 persistence ownership, Storage/DONE, Manual integration, P2, P4, and P5 remain
 open.
+
+### Sprint 15 P3-10 residual observation mutation owner
+
+The same production caller remains `ManagedChargeController._run_stage_scaffold_tick`
+through `run_authoritative_residual_scaffold`. The scaffold now delegates sample
+mirror and history mutation to `runtime.charge.runtime.residual_observation`.
+That owner calls the canonical `mark_stage_sample` state helper, appends the
+existing analytics tuple and throttled V/I history for non-IDLE residual stages,
+and retains IDLE's existing exclusion from those histories. Thus DONE continues
+to record analytics and V/I history while IDLE records only the latest sample
+mirrors. The residual scaffold no longer calls `_mark_stage_sample` or appends
+these histories directly.
+
+The cut changes no stage timing, safety handling, pending-log/report state,
+persistence, session schema, Guard, lease, recipes, or execution routing.
+`application.execution_port` remains the sole physical writer. The new
+`tests/test_d123_p3_residual_terminal.py` cases check IDLE/DONE field and history
+parity and a single owner call, plus the existing terminal decision and
+no-writer guards. Focused residual authority and COOLING regressions passed 13
+tests with the Python 3.12 venv and synthetic token. This is source-only;
+remaining IDLE/DONE report/persistence ownership, Storage/DONE, Manual, P2, P4,
+and P5 remain open. Full discovery was not run or claimed.
