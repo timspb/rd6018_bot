@@ -78,6 +78,10 @@ from runtime.charge.diagnostics import (
     get_timers as diagnostic_timers,
 )
 from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
+from runtime.charge.runtime.agm_step_advance import (
+    apply_agm_step_advance_effect,
+    build_agm_step_advance_effect,
+)
 from runtime.charge.runtime.desulfation_entry import (
     MainDesulfationEffectInput,
     apply_main_desulfation_effect,
@@ -1276,30 +1280,6 @@ class ManagedChargeController:
         """Compatibility accessor over the canonical modular MIX authority limit."""
         return mix_max_active_seconds(self.battery_type)
 
-    def _advance_agm_step(
-        self,
-        *,
-        actions: Dict[str, Any],
-        now: float,
-        temp: float,
-        ah: float,
-        reason: str,
-    ) -> None:
-        self._agm_stage_idx = min(self._agm_stage_idx + 1, len(AGM_STAGE_VOLTAGES_V.default) - 1)
-        self.stage_start_time = now
-        self._stage_start_ah = ah
-        self._reset_delta_and_blanking(now)
-        self._main_sample_evidence.reset()
-        uv, ui = self._main_target(temp)
-        actions["set_voltage"] = uv
-        actions["set_current"] = ui
-        self._add_phase_limits(actions, uv, ui)
-        actions["notify"] = (
-            f"<b>🚀 V2 AGM ступень {self._agm_stage_idx + 1}/{len(AGM_STAGE_VOLTAGES_V.default)}:</b> "
-            f"{uv:.2f}В / {ui:.2f}А — {reason}."
-        )
-        actions["log_event"] = f"V2_AGM_STEP_{self._agm_stage_idx + 1}"
-
     def _apply_authoritative_decision(
         self,
         *,
@@ -1424,13 +1404,15 @@ class ManagedChargeController:
                 is_cv=bool(is_cv),
             )
             if decision.action == AuthorityAction.ADVANCE_AGM_STEP:
-                self._advance_agm_step(
-                    actions=actions,
-                    now=timestamp_s,
-                    temp=temp,
+                effect = build_agm_step_advance_effect(
+                    current_stage_index=self._agm_stage_idx,
+                    stage_count=len(AGM_STAGE_VOLTAGES_V.default),
+                    now_s=timestamp_s,
                     ah=ah,
+                    temperature_c=temp,
                     reason=decision.reason,
                 )
+                apply_agm_step_advance_effect(self, effect, actions)
             elif decision.action == AuthorityAction.ENTER_DESULFATION:
                 previous_stage = self.current_stage
                 dv, di = self._desulf_target(temp)

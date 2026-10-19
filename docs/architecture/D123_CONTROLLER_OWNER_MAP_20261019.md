@@ -485,3 +485,24 @@ Exact evidence: `D123_SPRINT18_EVIDENCE_20261019.md`.
 P3 still retains Storage/DONE integration, Manual integration, other remaining
 central-controller stage/orchestration seams, and the final application-owned
 session tick cut. P2 restore admission, P4, P5 and physical acceptance remain open.
+
+### Sprint 19 AGM MAIN step-advance ownership
+
+The former `ManagedChargeController._advance_agm_step` method is deleted. The
+sole `AuthorityAction.ADVANCE_AGM_STEP` branch now builds and applies
+`runtime.charge.runtime.agm_step_advance.AgmStepAdvanceEffect`. The old
+sequencing is unchanged: index first, then stage/Ah clocks and Delta/blanking +
+MAIN evidence resets, then the existing `_main_target(temp)` using the advanced
+index, then existing phase-limit action construction. No MAIN target,
+temperature-compensation, protection-margin, recipe, Guard or execution logic
+was copied.
+
+The effect owner has no RD setter, Output intent or execution-port dependency.
+Focused AGM/MAIN authority regression passed **34 tests**; full Python 3.12
+offline discovery passed **2,399 tests / 3 skipped**, with compileall and
+diff-check PASS. Exact source-only record:
+`D123_SPRINT19_EVIDENCE_20261019.md`.
+
+Remaining P3 central debt is now concentrated in
+`_apply_authoritative_decision` orchestration itself, Storage/DONE and Manual
+integration, and eventual application-owned session tick ownership.
