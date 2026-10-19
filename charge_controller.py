@@ -88,6 +88,11 @@ from runtime.charge.runtime.desulfation_completion import (
     apply_desulfation_completion_effect,
     build_desulfation_completion_effect,
 )
+from runtime.charge.runtime.mix_entry import (
+    MainMixEffectInput,
+    apply_main_mix_effect,
+    build_main_mix_effect,
+)
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -1417,42 +1422,6 @@ class ManagedChargeController:
         )
         actions["log_event"] = f"V2_AGM_STEP_{self._agm_stage_idx + 1}"
 
-    def _enter_mix(
-        self,
-        *,
-        actions: Dict[str, Any],
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        reason: str,
-    ) -> None:
-        prev = self.current_stage
-        actions["log_event_end"] = self._make_log_event_end(
-            now, ah, voltage, current, temp, reason
-        )
-        self.current_stage = self.STAGE_MIX
-        self._clear_restored_targets()
-        self.stage_start_time = now
-        self._stage_start_ah = ah
-        self._reset_delta_and_blanking(now)
-        self._main_sample_evidence.reset()
-        self.finish_timer_start = None
-        self._delta_reported = False
-        if hasattr(self, "_finish_evidence"):
-            self._finish_evidence = None
-        mxv, mxi = self._mix_target(temp)
-        actions["set_voltage"] = mxv
-        actions["set_current"] = mxi
-        self._add_phase_limits(actions, mxv, mxi)
-        actions["notify"] = (
-            f"<b>🚀 V2 → Mix Mode</b>\n{reason}\n"
-            f"Цель: {mxv:.2f}В / {mxi:.2f}А; выход по CV ΔI или CC ΔV."
-        )
-        actions["log_event"] = "START | V2_MIX"
-        logger.info("V2 transition %s -> %s | %s", prev, self.STAGE_MIX, reason)
-
     def _apply_authoritative_decision(
         self,
         *,
@@ -1604,15 +1573,25 @@ class ManagedChargeController:
                     self, effect, actions
                 )
             elif decision.action == AuthorityAction.ENTER_MIX:
-                self._enter_mix(
-                    actions=actions,
-                    now=timestamp_s,
-                    voltage=voltage,
-                    current=current,
-                    temp=temp,
-                    ah=ah,
+                previous_stage = self.current_stage
+                mxv, mxi = self._mix_target(temp)
+                mix_actions: Dict[str, Any] = {}
+                self._add_phase_limits(mix_actions, mxv, mxi)
+                effect = build_main_mix_effect(MainMixEffectInput(
+                    previous_stage=previous_stage,
+                    mix_stage=self.STAGE_MIX,
                     reason=decision.reason,
-                )
+                    now_s=timestamp_s,
+                    ah=ah,
+                    target_voltage_v=mxv,
+                    target_current_a=mxi,
+                    ovp_v=mix_actions["set_ovp"],
+                    ocp_a=mix_actions["set_ocp"],
+                    log_event_end=self._make_log_event_end(
+                        timestamp_s, ah, voltage, current, temp, decision.reason
+                    ),
+                ))
+                apply_main_mix_effect(self, effect, actions)
             elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
                 self._enter_safe_wait_done(
                     actions=actions,
