@@ -6,6 +6,27 @@ add an owner or alter recipes, target thresholds, OVP/OCP, lease, or MAIN Guard.
 
 ## Inventory captured for next cut
 
+### First bounded effect cut prepared after Sprint 05 (not implemented)
+
+Move only the `AuthorityAction.ENTER_DESULFATION` effect currently applied by
+`ManagedChargeController._apply_authoritative_decision` through
+`_enter_desulfation` into the existing application/charge runtime orchestration.
+The existing decision remains `runtime.charge.strategy.main_authority`'s
+`decide_main_transition`; the migrated effect must produce the exact current
+action dictionary (`log_event_end`, stage `Десульфатация`, `set_voltage`,
+`set_current`, desulfation limits, `notify`, `log_event`) with the existing
+reset, retry-count and timestamp semantics. Keep execution and verified commit
+in the existing `application.execution_port`; do not call setters directly or
+add an independent session writer. Characterize calls from both the existing
+controller tick and production runtime before editing. If the application owner
+cannot accept a single typed effect result without a parallel stage writer,
+stop and record a blocker rather than moving partial mutations.
+
+Required before this cut: trace P2d owner/capture gates green; exact action-key
+and value parity, state/reset parity, same execution-port call count, OFF/ON
+transaction failure and restart tests. This is a task definition only; no P3
+source change was made in Sprint 05.
+
 | Current controller mutation endpoint | Existing target boundary | Minimum characterization suites |
 |---|---|---|
 | `tick`, `_run_stage_scaffold_tick`, `_apply_authoritative_decision` | Existing application orchestration + charge decision/scaffold results | `test_charge_controller_authority`, `test_v3_main_authority_migration`, `test_v3_recovery_authority_migration`, full controller suite |

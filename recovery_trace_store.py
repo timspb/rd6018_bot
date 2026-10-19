@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import math
 import time
-from typing import Any, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
 
 from database import get_db
 from pb_domain import BatteryCondition, ChargeIntent
 from signal_analyzer import SignalAnalyzerConfig
+
+if TYPE_CHECKING:
+    from runtime.charge.evidence.trace_context import RecoveryTraceContext
 
 
 TRACE_TABLE = "recovery_trace_points"
@@ -312,6 +315,31 @@ async def record_shadow_trace(
         _last_retention_cleanup_s = timestamp_s
 
     await db.commit()
+    return True
+
+
+async def capture_shadow_trace_if_ready(
+    context: "RecoveryTraceContext",
+    shadow: Mapping[str, Any],
+    *,
+    idle_stage: str,
+) -> bool:
+    """Apply existing capture admission and route to the single trace writer."""
+    import database
+
+    if not getattr(database, "TRACE_CAPTURE_READY", False):
+        return False
+    trace = shadow.get("trace_point")
+    if not isinstance(trace, Mapping) or str(trace.get("stage") or "") == idle_stage:
+        return False
+    if context.started_at <= 0:
+        return False
+    await record_shadow_trace(
+        session_id=context.session_id, started_at=context.started_at,
+        battery_id=context.battery_id, battery_type=context.battery_type,
+        capacity_ah=context.capacity_ah, intent=context.intent,
+        condition_before=context.condition_before, shadow=shadow,
+    )
     return True
 
 

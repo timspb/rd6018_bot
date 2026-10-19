@@ -26,21 +26,24 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [x] Restored session enrichment uses `complete_session_document` plus the sole `runtime.charge.persistence` atomic writer; original keys and optional recovery/final SAFE_WAIT documents are retained or canonically removed by continuation state
 - [x] Guarded checkpoint restore remains rejected before controller mutation/enrichment; regression proves session/revision/SHA bytes remain unchanged. Failed atomic replacement fails restore and retains original session; no actuator path is called
 - [x] No controller session patch writer, `.v2.tmp` path or `os.replace`; architecture AST guard blocks reintroduction. Unused production cooling/finish/runtime-signal patch writers removed; extension schema remains on canonical save
-- [ ] Stage history, audit/trace lifecycle and MAIN Guard restore admission ownership moved; this is still P2 lifecycle work, so P2 remains **partial**
+- [ ] Remaining audit/session lifecycle and MAIN Guard restore admission ownership moved; P2 remains **partial**
 - [x] Sprint 04 stage-history mutation, clearing and persisted-history reconstruction moved to `runtime.charge.session`; the stable `current_stage` property calls that canonical owner and existing serialized `stage_history`, `previous_stage`, and `last_transition_reason` keys remain unchanged
 - [x] Stage-history parity/architecture tests cover a single recorded transition edge, no duplicate for an unchanged stage, transition metric reset, previous-stage update, and persisted field restoration: `tests/test_d123_p2c_stage_history.py`
-- [ ] Trace identity context, disagreement counters/logging and shadow trace-store lifecycle remain controller-owned; P2c remains **incomplete**. The database store is the only trace writer and was intentionally left unchanged pending a characterized owner/API cut
+- [x] Sprint 05 moved typed trace context construction, volatile fallback, and disagreement throttling/logging to `runtime.charge.evidence.trace_context`; capture admission/routing belongs to existing `recovery_trace_store`; required controller `recovery_trace_context` interface remains, old capture/log method bodies and counter fields are removed, and `record_shadow_trace` remains the sole DB writer
+- [x] P2d regression covers stable point/shadow rows, deterministic restart identity, unavailable capture, storage failure isolation, repeat throttling, frozen diagnostic-only snapshot and AST single-writer/no-controller-body guards
+- [x] Final Python 3.12 full discovery with synthetic `TG_TOKEN=123456789:d123-sprint05`: **2,353 PASS / 2 skipped** (2,355 total); `compileall`, focused 31-test set, import architecture guard and `git diff --check` pass; exact evidence: `D123_SPRINT05_EVIDENCE_20261019.md`
+- [ ] MAIN Guard restore admission and remaining audit/session lifecycle ownership remain pending; P2 remains **partial**
 - [ ] MAIN Guard restore admission ownership remains deferred; guarded restore stays fail-closed before mutation/enrichment
 - [x] Sprint 03 focused tests, Python 3.12 offline full suite and compileall PASS; see `D123_SPRINT03_EVIDENCE_20261019.md`
 
-P2b session identity and writer convergence is complete on its committed Sprint
-03 source, but P2 overall remains **partial** because stage history, audit/trace
-lifecycle, and guarded restore admission ownership are still outstanding. Sprint
-02 evidence remains historical; see `D123_SPRINT03_EVIDENCE_20261019.md` for the
-current cut and exact test counts.
+P2b session identity/writer convergence, P2c stage history, and P2d trace capture
+lifecycle cuts are complete on their committed sprints. P2 remains **partial**
+because MAIN Guard restore admission and remaining audit/session lifecycle
+ownership are still outstanding. See `D123_SPRINT05_EVIDENCE_20261019.md` for
+the current cut and test counts.
 
 ## P3 modular stage orchestration
-- [ ] Sprint 04 did not start P3 because P2c lifecycle convergence is incomplete
+- [ ] Sprint 05 did not start P3: next bounded task is to move the existing MAIN -> DESULFATION stage effect application into the existing application/charge runtime owner, preserving the exact action dictionary, same verified transaction/commit boundary and stage safety; do not begin until trace P2d gates pass and ownership/caller tests can prove no duplicate writer
 - [ ] MAIN + PREP and residual
 - [ ] DESULFATION + recovery SAFE_WAIT
 - [ ] MIX + final SAFE_WAIT

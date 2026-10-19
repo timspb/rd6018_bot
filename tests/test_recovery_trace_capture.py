@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -70,6 +71,35 @@ class RecoveryTraceCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sessions[0]["battery_type"], "EFB")
         self.assertAlmostEqual(sessions[0]["capacity_ah"], 70.0)
 
+        db = await database.get_db()
+        async with db.execute(
+            "SELECT session_id, started_at, battery_id, battery_type, capacity_ah, "
+            "intent, condition_before, timestamp_s, stage, voltage_v, current_a, "
+            "temp_c, is_cv, is_cc, target_voltage_v, ah, output_on, shadow_status, "
+            "shadow_decision, shadow_reason, legacy_effect, disagreement, shadow_json "
+            "FROM recovery_trace_points"
+        ) as cursor:
+            row = await cursor.fetchone()
+        self.assertIsNotNone(row)
+        context = controller.recovery_trace_context
+        self.assertEqual(row["session_id"], context["session_id"])
+        self.assertEqual(row["started_at"], context["started_at"])
+        self.assertEqual(row["battery_id"], context["battery_id"])
+        self.assertEqual(row["battery_type"], "EFB")
+        self.assertEqual(row["capacity_ah"], 70.0)
+        self.assertEqual(row["intent"], context["intent"].value)
+        self.assertEqual(row["condition_before"], context["condition_before"].value)
+        self.assertEqual(row["timestamp_s"], actions["recovery_shadow"]["trace_point"]["timestamp_s"])
+        self.assertEqual(row["stage"], controller.STAGE_MAIN)
+        self.assertEqual(row["shadow_status"], actions["recovery_shadow"]["status"])
+        self.assertEqual(row["shadow_decision"], actions["recovery_shadow"]["decision"])
+        self.assertEqual(row["shadow_reason"], actions["recovery_shadow"]["reason"])
+        stored_shadow = json.loads(row["shadow_json"])
+        self.assertEqual(stored_shadow["trace_point"], actions["recovery_shadow"]["trace_point"])
+        self.assertEqual(stored_shadow["events"], actions["recovery_shadow"]["events"])
+        self.assertEqual(stored_shadow["decision"], actions["recovery_shadow"]["decision"])
+        self.assertEqual(stored_shadow["reason"], actions["recovery_shadow"]["reason"])
+
         document = await export_replay_document(sessions[0]["session_id"])
         trace = document["cycles"][0]["trace"]
         self.assertEqual(len(trace), 1)
@@ -82,8 +112,8 @@ class RecoveryTraceCaptureTests(unittest.IsolatedAsyncioTestCase):
         controller = self._controller()
 
         with patch.object(
-            controller,
-            "_persist_shadow_trace_if_ready",
+            controller._trace_lifecycle,
+            "capture_if_ready",
             new=AsyncMock(side_effect=RuntimeError("synthetic storage failure")),
         ):
             actions = await self._tick(controller)

@@ -70,7 +70,7 @@ already migrated.
 | `_prep_target`, `_main_target`, `_get_profile_target_v_i`, `_get_target_v_i`, `_desulf_target`, `_mix_target`, `_storage_target` (`324–396`, `477–498`) | Recipe/strategy adapters; tick, START and transitions call target selection | Existing `runtime.charge.strategy.*` selectors and recipe policy | target/recipe/envelope tests. **High:** any target or current change |
 | `_post_charge_profile_params`, `_get_current_targets`, `_get_target_finish_time`, `_get_stage_max_hours`, `_mix_current_delta_threshold`, `_exit_cc_condition`, `_exit_cv_condition`, `_session_rules_summary`, `_mix_limit_seconds` (`398–399`, `434–456`, `1643–1645`) | Strategy/reporting adapters used by transitions, tick, UI and diagnostics | Existing post, support, MIX and strategy owners | strategy, finish, timeout tests. **High:** charge finish/timeout authority |
 | `_record_safe_wait_sample`, `_make_log_event_end`, `_bank_fault_risk_snapshot`, `get_timers`, `get_ai_stage_snapshot`, `ui_support_snapshot`, `signal_analyzer_diagnostic_snapshot`, `recovery_shadow_summary` (`401–432`, `461–475`, `2362–2529`) | Diagnostics/read surfaces; UI and telemetry callers read snapshots; tick calls sample/log helpers | `runtime.charge.diagnostics`, reporting/read-model owners; no physical authority | diagnostic/UI/replay tests. **Medium:** evidence provenance and operator visibility |
-| `configure_recovery_context`, `_new_runtime`, `_initialize_shadow_session`, `recovery_trace_context`, `_persist_shadow_trace_if_ready`, `_log_shadow_disagreement`, `_log_stage_transition`, `_trace_point_metadata`, `_shadow_metadata`, `_finite_or_nan`, `_finite_or_none`, `_normalize_output_on` (current source locations) | Session/evidence/trace glue; tick, START, persistence and trace logger | Pure trace/signal payload assembly is owned by `runtime.charge.evidence.trace_context`; typed trace identity creation/restore is owned by `runtime.charge.session`; disagreement counters/logging, recovery runtime and stage transition logging remain in controller | `test_d123_p2_trace_context`, trace/recovery/session tests. **High:** trace schema and restore continuity |
+| `configure_recovery_context`, `_new_runtime`, `_initialize_shadow_session`, `recovery_trace_context`, `_log_stage_transition`, `_trace_point_metadata`, `_shadow_metadata`, `_finite_or_nan`, `_finite_or_none`, `_normalize_output_on` (current source locations) | Session/evidence/trace glue; tick, START, persistence and trace logger | Pure trace/signal payload assembly, typed context construction and disagreement throttling are owned by `runtime.charge.evidence.trace_context`; typed trace identity creation/restore is owned by `runtime.charge.session`; capture admission and DB write routing are owned by `recovery_trace_store`; controller retains the required `recovery_trace_context` read interface and calls lifecycle/persistence at its existing tick points | `test_d123_p2_trace_context`, trace/recovery/session tests. **High:** trace schema and restore continuity |
 | `_restore_recovery_safe_wait`, `_restore_final_safe_wait`, `start`, `_clear_session_file`, `_save_session`, `_restore_desulfation_stage_clock`, `try_restore_session` | Lifecycle and persistence façade; runtime startup/restore and controller lifecycle | Canonical session read/restore/enrichment/write belongs to `runtime.charge.persistence` + `runtime.charge.session_atomic`; continuation validation and state application still have controller code. Guarded restore stays rejected before mutation until owner admission/readback reconciliation is installed | `test_recovery_trace_identity`, `test_session_atomic_guard_binding`, recovery/final SAFE_WAIT restart tests. **High:** restart can affect authority; no implicit Output ON |
 | **`MainSampleEvidenceEvaluator` is now external; removed:** `_update_main_plateau_clock`, `_assess_main_sample`; former field `_v2_main_plateau_since` removed (`charge_controller.py:195`, `2209–2237` call; pure decision at `1908`; evaluator/API at `runtime/charge/evidence/first_stage.py:46–144`; removed methods were baseline `1000–1082`) | Before D123: controller tick and START/pause/cooling/reset callers. After D123: typed evidence owner; tick supplies current analysis; START and pause use owner reset/shift API | `runtime.charge.evidence.first_stage.MainSampleEvidenceEvaluator`; typed `MainSampleEvidenceInput` -> `MainSampleEvidence`; then existing pure MAIN decision | `test_main_sample_evidence_clock`, first-stage, controller authority, production-controller and main strategy tests. **High:** transition evidence/timing; exact accepted 15-minute backdating retained |
 | `_apply_continuous_tail_hold`, `_log_stage_transition` (`1022–1051`) | Base identity extension point plus production subclass tail policy; called after evidence result during tick | Production continuity hold remains in `production_controller.py`; later P2/P3 decision required before further movement | `test_production_controller`. **High:** continuous tail hold is separate from plateau clock and preserved |
@@ -111,7 +111,7 @@ emitted by `_session_document_extensions` during the canonical complete save.
 | State | Owner now | Lifecycle/active readers | Risk and intended owner |
 |---|---|---|---|
 | `_v2_main_plateau_since` | Removed in D123; clock now `ManagedChargeController._main_sample_evidence.plateau_since_s` | Reset on START/session initialization/configuration, stage/transition and cooling; shifted during operator pause; evaluator is new per process and not serialized, matching prior restart behavior | **High.** Canonical owner is evidence module. Historical `v2` field name has no source references after extraction |
-| `_v2_runtime`, `_v2_target_voltage_v`, `_v2_last_stage`, disagreement fields | Controller | Session init/restore, tick, tracing and diagnostics | **High.** Remaining P2 evidence/session lifecycle work |
+| `_v2_runtime`, `_v2_target_voltage_v`, `_v2_last_stage` | Controller | Session init/restore, tick, tracing and diagnostics | **High.** Remaining P2/P3 evidence/session lifecycle work |
 | `_v2_trace_session_id`, `_v2_trace_started_at`, identity inputs | Runtime charge session owner for new/restore snapshot; controller stores active snapshot | `runtime.charge.session.TraceIdentitySnapshot`; canonical persistence enriches accepted restore | **High.** Preserve deterministic migration identity; guarded documents remain unmodified and restore-held |
 | `_v2_session_signal_context`, recovery/final SAFE_WAIT continuation | Controller plus persistence module contracts | Captured in tick and serialized/restored by production controller and runtime | **Critical.** P2 existing session/persistence owner; keep fail-closed restore |
 | `current_stage`, stage times, transition history, target/Ah counters, timers | Controller initialized through controller_state/lifecycle; direct production readers and tick mutations | Session lifecycle, tick, UI, guard and restore | **Critical.** P2/P3 canonical session state and application-owned transition commit |
@@ -136,13 +136,24 @@ session owner. Lifecycle reset paths also use its history clear operation. This
 keeps one append for each actual transition, preserves no-op assignments, and
 retains the persisted keys and entry shape (`from`, `to`, `reason`, `ts`).
 
-Trace lifecycle is not yet converged: controller owns `recovery_trace_context`,
-disagreement repeat counters/logging, and the call into the existing
-`recovery_trace_store.record_shadow_trace`; the store remains the sole database
-writer. Moving these together safely requires a characterized typed context
-boundary and capture-call test without adding an owner or writer. See
-`D123_SPRINT04_EVIDENCE_20261019.md`; P2c and P2 remain partial, and P3 was not
-attempted.
+### Sprint 05 trace lifecycle convergence
+
+`runtime.charge.evidence.trace_context` now owns the frozen typed
+`RecoveryTraceContext`, volatile identity fallback construction, and
+disagreement repeat throttling/logging. The existing `recovery_trace_store`
+owns readiness/stage/start-time admission and routes eligible captures to the
+existing database writer. `ManagedChargeController` retains
+the migration-required `recovery_trace_context` dict read property and makes
+one integration call for disagreement and one capture call at the existing
+tick points. `_persist_shadow_trace_if_ready`, `_log_shadow_disagreement`, and
+their counter fields are removed. `recovery_trace_store.record_shadow_trace`
+remains the only DB insert owner; the persisted table and shadow content are
+unchanged. Capture failure remains diagnostic and cannot invalidate the already
+formed action mapping. See `D123_SPRINT05_EVIDENCE_20261019.md`.
+
+P2 remains partial because MAIN Guard restore admission and remaining audit /
+session lifecycle ownership are still pending. P3 was not attempted because
+stage-effect movement requires a separate bounded actor transaction cut.
 
 Separate deferred algorithm defect: `SignalAnalyzerConfig` allows
 `plateau_min_samples=5` in a 15-minute window. Five 3-minute-spaced samples can

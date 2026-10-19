@@ -2,12 +2,86 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+import uuid
+import logging
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 from runtime.charge.decisions import AuthorityDecision
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RecoveryTraceContext:
+    session_id: str
+    started_at: float
+    battery_id: str
+    battery_type: str
+    capacity_ah: float
+    intent: Any
+    condition_before: Any
+    authoritative: bool = True
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "session_id": self.session_id, "started_at": self.started_at,
+            "battery_id": self.battery_id, "battery_type": self.battery_type,
+            "capacity_ah": self.capacity_ah, "intent": self.intent,
+            "condition_before": self.condition_before,
+            "authoritative": self.authoritative,
+        }
+
+
+def recovery_trace_context(host: object) -> RecoveryTraceContext:
+    started_at = float(getattr(host, "_v2_trace_started_at", 0.0) or getattr(host, "total_start_time", 0.0) or 0.0)
+    battery_type = getattr(host, "battery_type", "")
+    capacity = getattr(host, "ah_capacity", 0.0)
+    battery_id = getattr(host, "_v2_battery_id", None) or f"anonymous:{battery_type}:{capacity}"
+    session_id = getattr(host, "_v2_trace_session_id", None)
+    if not session_id:
+        seed = f"{battery_id}|{battery_type}|{capacity}|{started_at:.6f}"
+        session_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-volatile:{seed}").hex
+    return RecoveryTraceContext(str(session_id), started_at, str(battery_id), str(battery_type),
+                               float(capacity or 0.0), getattr(host, "_v2_intent", None),
+                               getattr(host, "_v2_condition_before", None))
+
+
+class TraceLifecycle:
+    """Own throttled shadow diagnostics and delegate capture to persistence."""
+
+    def __init__(self) -> None:
+        self.last_disagreement: Optional[str] = None
+        self.disagreement_repeat_count = 0
+
+    def reset_disagreement(self) -> None:
+        self.last_disagreement = None
+        self.disagreement_repeat_count = 0
+
+    def observe_disagreement(self, record: Any, *, stage: str) -> None:
+        disagreement = record.disagreement
+        if disagreement is None:
+            self.last_disagreement = None
+            self.disagreement_repeat_count = 0
+            return
+        if disagreement == self.last_disagreement:
+            self.disagreement_repeat_count += 1
+        else:
+            self.last_disagreement = disagreement
+            self.disagreement_repeat_count = 1
+        if self.disagreement_repeat_count != 1 and self.disagreement_repeat_count % 20 != 0:
+            return
+        logger.warning(
+            "RECOVERY_SHADOW disagreement=%s repeats=%d decision=%s legacy=%s stage=%s reason=%s",
+            disagreement, self.disagreement_repeat_count, record.decision.decision.value,
+            record.legacy_effect, stage, record.decision.reason,
+        )
+
+    async def capture_if_ready(self, context: RecoveryTraceContext, shadow: Dict[str, Any], *, idle_stage: str) -> bool:
+        from recovery_trace_store import capture_shadow_trace_if_ready
+        return await capture_shadow_trace_if_ready(context, shadow, idle_stage=idle_stage)
 
 
 def finite_or_nan(value: Any) -> float:

@@ -1,4 +1,5 @@
 import ast
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 import unittest
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from runtime.charge.evidence.trace_context import (
     build_trace_point_metadata,
 )
 from signal_analyzer import SignalEvent, SignalMetrics
+from pb_domain import BatteryCondition, ChargeIntent
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -148,6 +150,81 @@ class TraceContextEvidenceTests(unittest.TestCase):
                              for call in tick_assembly_calls), 2)
         self.assertEqual(sum(isinstance(call.func, ast.Name) and call.func.id == "build_shadow_metadata"
                              for call in tick_assembly_calls), 1)
+
+    def test_trace_lifecycle_is_owned_outside_controller_and_store_is_single_writer(self):
+        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                   and node.name == "ManagedChargeController")
+        names = {node.name for node in cls.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        self.assertTrue({"_persist_shadow_trace_if_ready", "_log_shadow_disagreement"}.isdisjoint(names))
+        self.assertNotIn("_v2_last_disagreement", source)
+        self.assertNotIn("_v2_disagreement_repeat_count", source)
+        definitions = []
+        for path in ROOT.rglob("*.py"):
+            module = ast.parse(path.read_text(encoding="utf-8"))
+            definitions.extend((path.name, node.name) for node in ast.walk(module)
+                               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                               and node.name == "record_shadow_trace")
+        self.assertEqual(definitions, [("recovery_trace_store.py", "record_shadow_trace")])
+
+    def test_non_authoritative_snapshot_is_explicitly_diagnostic(self):
+        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                      and node.name == "signal_analyzer_diagnostic_snapshot")
+        self.assertIn("non-authoritative analyzer diagnostic snapshot", ast.get_docstring(method))
+        self.assertNotIn("signal_analyzer_diagnostic_snapshot", {
+            node.id for node in ast.walk(method) if isinstance(node, ast.Name)
+        })
+        self.assertFalse({"set_output", "safe_enable_output", "turn_on"} & {
+            node.id for node in ast.walk(method) if isinstance(node, ast.Name)
+        })
+
+    def test_disagreement_throttle_logs_once_then_every_twentieth_repeat(self):
+        from unittest.mock import patch
+        from runtime.charge.evidence.trace_context import TraceLifecycle
+        lifecycle = TraceLifecycle()
+        record = SimpleNamespace(
+            disagreement="stage_mismatch",
+            decision=SimpleNamespace(decision=SimpleNamespace(value="continue"), reason="test"),
+            legacy_effect="hold",
+        )
+        with patch("runtime.charge.evidence.trace_context.logger.warning") as warning:
+            for _ in range(19):
+                lifecycle.observe_disagreement(record, stage="MAIN")
+            self.assertEqual(warning.call_count, 1)
+            lifecycle.observe_disagreement(record, stage="MAIN")
+            self.assertEqual(warning.call_count, 2)
+        self.assertEqual(lifecycle.disagreement_repeat_count, 20)
+
+    def test_recovery_context_keeps_fallback_enum_identity_and_is_frozen(self):
+        from runtime.charge.evidence.trace_context import recovery_trace_context
+        host = SimpleNamespace(
+            _v2_trace_started_at=1200.125, total_start_time=999.0,
+            _v2_battery_id=None, battery_type="EFB", ah_capacity=70,
+            _v2_trace_session_id=None, _v2_intent=ChargeIntent.RECOVERY,
+            _v2_condition_before=BatteryCondition.UNKNOWN,
+        )
+        context = recovery_trace_context(host)
+        seed = "anonymous:EFB:70|EFB|70|1200.125000"
+        expected_id = __import__("uuid").uuid5(
+            __import__("uuid").NAMESPACE_URL, f"rd6018-volatile:{seed}"
+        ).hex
+        self.assertEqual(context.session_id, expected_id)
+        self.assertEqual(context.started_at, 1200.125)
+        self.assertIs(context.intent, ChargeIntent.RECOVERY)
+        self.assertIs(context.condition_before, BatteryCondition.UNKNOWN)
+        with self.assertRaises(FrozenInstanceError):
+            context.started_at = 1.0
+        signal_input = SignalContextInput(
+            stage="MAIN", mode="CV", session_id=context.session_id,
+            session_generation=context.started_at, output_is_on=True, is_cv=True,
+            is_cc=False, telemetry_valid=True, timestamp_s=1201.0, now_s=1201.0,
+            target_voltage_v=14.8, metrics=SimpleNamespace(),
+        )
+        with self.assertRaises(FrozenInstanceError):
+            signal_input.stage = "MIX"
 
 
 if __name__ == "__main__":

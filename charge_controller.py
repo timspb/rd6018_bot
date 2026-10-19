@@ -5,7 +5,6 @@ import logging
 import math
 import os
 import time
-import uuid
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from runtime.charge.controller_state import (
@@ -56,6 +55,7 @@ from runtime.charge.evidence.first_stage import (
     MainSampleEvidenceInput,
 )
 from runtime.charge.evidence.trace_context import (
+    TraceLifecycle,
     SignalContextInput,
     TracePointInput,
     build_shadow_metadata,
@@ -63,6 +63,7 @@ from runtime.charge.evidence.trace_context import (
     build_trace_point_metadata,
     finite_or_nan,
     normalize_output_on,
+    recovery_trace_context as build_recovery_trace_context,
 )
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
@@ -199,8 +200,7 @@ class ManagedChargeController:
         self._v2_runtime: Optional[ShadowRecoveryRuntime] = None
         self._v2_target_voltage_v: Optional[float] = None
         self._v2_last_stage: Optional[str] = None
-        self._v2_last_disagreement: Optional[str] = None
-        self._v2_disagreement_repeat_count: int = 0
+        self._trace_lifecycle = TraceLifecycle()
         self._v2_trace_session_id: Optional[str] = None
         self._v2_trace_started_at: float = 0.0
         self._main_sample_evidence = MainSampleEvidenceEvaluator()
@@ -505,8 +505,7 @@ class ManagedChargeController:
         self._v2_intent = intent
         self._v2_condition_before = condition_before
         self._v2_runtime = None
-        self._v2_last_disagreement = None
-        self._v2_disagreement_repeat_count = 0
+        self._trace_lifecycle.reset_disagreement()
         self._main_sample_evidence.reset()
         self._recovery_safe_wait = None
         self._final_safe_wait = None
@@ -532,8 +531,7 @@ class ManagedChargeController:
             else (self._v2_trace_started_at or self.total_start_time or time.time())
         )
         self._new_runtime(started_at=runtime_started_at)
-        self._v2_last_disagreement = None
-        self._v2_disagreement_repeat_count = 0
+        self._trace_lifecycle.reset_disagreement()
         self._main_sample_evidence.reset()
         try:
             target_v, _ = self._get_target_v_i()
@@ -739,74 +737,8 @@ class ManagedChargeController:
 
     @property
     def recovery_trace_context(self) -> Dict[str, Any]:
-        started_at = float(self._v2_trace_started_at or self.total_start_time or 0.0)
-        battery_id = self._v2_battery_id or f"anonymous:{self.battery_type}:{self.ah_capacity}"
-        session_id = self._v2_trace_session_id
-        if not session_id:
-            seed = f"{battery_id}|{self.battery_type}|{self.ah_capacity}|{started_at:.6f}"
-            session_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-volatile:{seed}").hex
-        return {
-            "session_id": session_id,
-            "started_at": started_at,
-            "battery_id": battery_id,
-            "battery_type": self.battery_type,
-            "capacity_ah": float(self.ah_capacity or 0.0),
-            "intent": self._v2_intent,
-            "condition_before": self._v2_condition_before,
-            "authoritative": True,
-        }
-
-    async def _persist_shadow_trace_if_ready(self, shadow: Dict[str, Any]) -> bool:
-        import database
-
-        if not getattr(database, "TRACE_CAPTURE_READY", False):
-            return False
-        trace = shadow.get("trace_point")
-        if not isinstance(trace, dict):
-            return False
-        if str(trace.get("stage") or "") == self.STAGE_IDLE:
-            return False
-
-        context = self.recovery_trace_context
-        if float(context["started_at"]) <= 0:
-            return False
-
-        from recovery_trace_store import record_shadow_trace
-
-        await record_shadow_trace(
-            session_id=context["session_id"],
-            started_at=context["started_at"],
-            battery_id=context["battery_id"],
-            battery_type=context["battery_type"],
-            capacity_ah=context["capacity_ah"],
-            intent=context["intent"],
-            condition_before=context["condition_before"],
-            shadow=shadow,
-        )
-        return True
-
-    def _log_shadow_disagreement(self, record: Any, *, stage: str) -> None:
-        disagreement = record.disagreement
-        if disagreement is None:
-            self._v2_last_disagreement = None
-            self._v2_disagreement_repeat_count = 0
-            return
-        if disagreement == self._v2_last_disagreement:
-            self._v2_disagreement_repeat_count += 1
-        else:
-            self._v2_last_disagreement = disagreement
-            self._v2_disagreement_repeat_count = 1
-        if self._v2_disagreement_repeat_count != 1 and self._v2_disagreement_repeat_count % 20 != 0:
-            return
-        logger.warning(
-            "RECOVERY_SHADOW disagreement=%s repeats=%d decision=%s legacy=%s stage=%s reason=%s",
-            disagreement,
-            self._v2_disagreement_repeat_count,
-            record.decision.decision.value,
-            record.legacy_effect,
-            stage,
-            record.decision.reason,
-        )
+        """Stable migration read interface; identity construction belongs to evidence."""
+        return build_recovery_trace_context(self).as_dict()
 
     def _apply_continuous_tail_hold(
         self,
@@ -2017,7 +1949,7 @@ class ManagedChargeController:
             else:
                 # Residual PREP/COOLING/IDLE/DONE stages are modular-owned too;
                 # no historical transition source remains to audit.
-                self._log_shadow_disagreement(record, stage=stage_before)
+                self._trace_lifecycle.observe_disagreement(record, stage=stage_before)
 
             trace_point = build_trace_point_metadata(TracePointInput(
                 timestamp_s=timestamp_s,
@@ -2081,7 +2013,10 @@ class ManagedChargeController:
                     actions["turn_off"] = True
 
         try:
-            if await self._persist_shadow_trace_if_ready(actions["recovery_shadow"]):
+            if await self._trace_lifecycle.capture_if_ready(
+                build_recovery_trace_context(self), actions["recovery_shadow"],
+                idle_stage=self.STAGE_IDLE,
+            ):
                 actions["recovery_shadow"]["persistence"] = "stored"
         except Exception as exc:
             logger.exception("RECOVERY_TRACE persistence failed; actuator decision remains valid")
@@ -2281,7 +2216,7 @@ class ManagedChargeController:
                 "authoritative": True,
             }
         summary = dict(self._v2_runtime.summary())
-        summary["last_disagreement"] = self._v2_last_disagreement
-        summary["last_disagreement_repeats"] = self._v2_disagreement_repeat_count
+        summary["last_disagreement"] = self._trace_lifecycle.last_disagreement
+        summary["last_disagreement_repeats"] = self._trace_lifecycle.disagreement_repeat_count
         summary["authoritative"] = True
         return summary
