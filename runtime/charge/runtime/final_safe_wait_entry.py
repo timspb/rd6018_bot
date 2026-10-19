@@ -190,11 +190,47 @@ def apply_mix_completion_to_safe_wait(
     return apply_final_safe_wait_entry(host, value, actions)
 
 
+def apply_main_completion_to_safe_wait(
+    host: Any,
+    *,
+    now_s: float,
+    voltage_v: float,
+    current_a: float,
+    temperature_c: float,
+    ah: float,
+    reason: str,
+    target_voltage_v: float,
+    target_current_a: float,
+    actions: dict[str, Any],
+) -> bool:
+    """Assemble and dispatch the existing MAIN completion entry effect."""
+    value = FinalSafeWaitEntryInput(
+        source_stage=host.current_stage,
+        safe_wait_stage=host.STAGE_SAFE_WAIT,
+        next_stage=host.STAGE_DONE,
+        session_id=host._v2_trace_session_id,
+        session_generation=host._v2_trace_started_at,
+        target_voltage_v=target_voltage_v,
+        target_current_a=target_current_a,
+        now_s=now_s,
+        voltage_v=voltage_v,
+        current_a=current_a,
+        temperature_c=temperature_c,
+        ah=ah,
+        reason=reason,
+        log_event_end=host._make_log_event_end(
+            now_s, ah, voltage_v, current_a, temperature_c, reason
+        ),
+    )
+    return apply_final_safe_wait_entry(host, value, actions)
+
+
 __all__ = [
     "FinalSafeWaitEntryEffect",
     "FinalSafeWaitEntryInput",
     "apply_final_safe_wait_entry",
     "apply_final_safe_wait_entry_effect",
+    "apply_main_completion_to_safe_wait",
     "apply_mix_completion_to_safe_wait",
     "build_final_safe_wait_entry_effect",
 ]

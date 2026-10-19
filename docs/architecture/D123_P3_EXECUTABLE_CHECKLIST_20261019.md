@@ -70,3 +70,16 @@ source change was made in Sprint 05.
   `git diff --check`; see `D123_SPRINT22_EVIDENCE_20261019.md`.
 - [ ] P2 Guard restore admission remains fail-closed/deferred. Continue with a
   separate bounded P3 owner cut; do not start P4 or claim convergence.
+
+## Sprint 23 — MAIN completion dispatch
+
+- [x] Starting point pinned: clean `67c670238c4370ab45bb83ab8604e47cdcdec51c`.
+- [x] Move MAIN `COMPLETE_TO_SAFE_WAIT` typed input assembly and dispatch into
+  the existing `runtime.charge.runtime.final_safe_wait_entry` owner. MAIN
+  decision and controller `_storage_target()` selection remain in place;
+  invalid identity still enters controller STOP_AND_DIAGNOSE containment.
+- [x] Add profile target/action parity, stale identity rejection, and AST / no
+  physical writer / single-dispatch guards.
+- [x] Run focused suites, full Python 3.12 offline discovery, compileall and
+  `git diff --check`; record exact results in Sprint 23 evidence.
+- [x] Commit this single source cut and finish with a clean worktree.

@@ -551,3 +551,17 @@ The controller no longer mutates MIX dashboard/evidence mirrors inline. The sole
 This is evidence/read-model state only. MIX strategy decisions, sticky finish hold, final SAFE_WAIT entry/completion, stage transitions, target/protection selection, persistence, recipes, Guard, lease, action execution and the physical writer remain with their existing owners. The evidence owner has no execution port or RD setter dependency. Focused MIX regressions passed **17 tests**; full Python 3.12 offline discovery passed **2,406 tests / 3 skipped**; compileall and diff-check PASS. Exact source-only record: `D123_SPRINT21_EVIDENCE_20261019.md`.
 
 Remaining central P3 debt is now concentrated in completion-evidence logging, `_apply_authoritative_decision` dispatch/orchestration, Storage/DONE and Manual integration, and eventual application-owned session tick ownership.
+
+### Sprint 23 MAIN completion dispatch
+
+The MAIN `AuthorityAction.COMPLETE_TO_SAFE_WAIT` branch retains
+`decide_main_transition` and `_storage_target()` selection in
+`ManagedChargeController._apply_authoritative_decision`. It now delegates
+construction of the existing `FinalSafeWaitEntryInput` (including the existing
+event-end payload) and the single final SAFE_WAIT entry application to
+`runtime.charge.runtime.final_safe_wait_entry.apply_main_completion_to_safe_wait`.
+Rejected session identity still returns to the controller's existing
+STOP_AND_DIAGNOSE path. No strategy, recipe, session schema, Guard, lease,
+physical transaction or executor ownership moved. The owner contains no RD
+setter or `execution_port` dependency. Exact implementation and verification
+are recorded in `D123_SPRINT23_EVIDENCE_20261019.md`.

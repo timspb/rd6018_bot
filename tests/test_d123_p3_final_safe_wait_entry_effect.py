@@ -1,9 +1,12 @@
 import ast
 import inspect
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 
 from charge_controller import ManagedChargeController
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.runtime import final_safe_wait_entry as owner
 
 
@@ -134,6 +137,129 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
             (stale.current_stage, list(stale._stage_history), stale.stage_start_time), before
         )
         self.assertEqual(rejected, {})
+
+    def test_main_completion_owner_preserves_parity_and_rejects_stale_identity(self):
+        for profile in (
+            ManagedChargeController.PROFILE_CA,
+            ManagedChargeController.PROFILE_EFB,
+            ManagedChargeController.PROFILE_AGM,
+        ):
+            with self.subTest(profile=profile):
+                controller = self._controller(profile, ManagedChargeController.STAGE_MAIN)
+                target_v, target_i = controller._storage_target()
+                actions = {}
+                self.assertTrue(owner.apply_main_completion_to_safe_wait(
+                    controller,
+                    now_s=1000.0,
+                    voltage_v=15.1,
+                    current_a=0.4,
+                    temperature_c=24.0,
+                    ah=12.0,
+                    reason="main_completion",
+                    target_voltage_v=target_v,
+                    target_current_a=target_i,
+                    actions=actions,
+                ))
+                self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
+                self.assertEqual(controller._safe_wait_next_stage, controller.STAGE_DONE)
+                self.assertEqual(
+                    (controller._safe_wait_target_v, controller._safe_wait_target_i),
+                    (target_v, target_i),
+                )
+                self.assertEqual(actions["log_event_end"]["stage"], controller.STAGE_MAIN)
+                self.assertEqual(actions["log_event"], "START | V2_AUTHORITATIVE")
+                self.assertTrue(actions["turn_off"])
+                self.assertNotIn("turn_on", actions)
+
+        stale = self._controller(
+            ManagedChargeController.PROFILE_EFB, ManagedChargeController.STAGE_MAIN
+        )
+        stale._v2_trace_session_id = None
+        before = (stale.current_stage, list(stale._stage_history), stale.stage_start_time)
+        rejected = {}
+        target_v, target_i = stale._storage_target()
+        self.assertFalse(owner.apply_main_completion_to_safe_wait(
+            stale,
+            now_s=1000.0,
+            voltage_v=15.1,
+            current_a=0.4,
+            temperature_c=24.0,
+            ah=12.0,
+            reason="main_completion",
+            target_voltage_v=target_v,
+            target_current_a=target_i,
+            actions=rejected,
+        ))
+        self.assertEqual(
+            (stale.current_stage, list(stale._stage_history), stale.stage_start_time), before
+        )
+        self.assertEqual(rejected, {})
+
+        record = SimpleNamespace(
+            decision=SimpleNamespace(decision=None),
+            analysis=SimpleNamespace(metrics=SimpleNamespace(seconds_since_current_min=0.0)),
+        )
+        stale_actions = {}
+        with patch(
+            "charge_controller.decide_main_transition",
+            return_value=AuthorityDecision(AuthorityAction.COMPLETE_TO_SAFE_WAIT, "main_completion"),
+        ):
+            result = stale._apply_authoritative_decision(
+                record=record,
+                first_stage=None,
+                stage_before=stale.STAGE_MAIN,
+                timestamp_s=1000.0,
+                voltage=15.1,
+                current=0.4,
+                temp=24.0,
+                ah=12.0,
+                is_cv=True,
+                is_cc=False,
+                actions=stale_actions,
+            )
+        self.assertEqual(result.action, AuthorityAction.STOP_AND_DIAGNOSE)
+        self.assertEqual(stale.current_stage, stale.STAGE_DONE)
+        self.assertTrue(stale_actions["turn_off"])
+        self.assertNotIn("turn_on", stale_actions)
+
+    def test_main_completion_cut_has_one_controller_dispatch_and_owner_assembly(self):
+        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        controller_tree = ast.parse(source)
+        method = next(
+            node for node in ast.walk(controller_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_apply_authoritative_decision"
+        )
+        main_dispatches = [
+            node for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "apply_main_completion_to_safe_wait"
+        ]
+        inline_inputs = [
+            node for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "FinalSafeWaitEntryInput"
+        ]
+        self.assertEqual(len(main_dispatches), 1)
+        self.assertEqual(inline_inputs, [])
+        main_branch = source[
+            source.index("if stage_before == self.STAGE_MAIN:", source.index("def _apply_authoritative_decision")):
+            source.index("# Mix: expose mode-specific evidence", source.index("def _apply_authoritative_decision"))
+        ]
+        complete_branch = main_branch[
+            main_branch.index("elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:"):
+            main_branch.index("elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:")
+        ]
+        self.assertEqual(complete_branch.count("apply_main_completion_to_safe_wait("), 1)
+        self.assertNotIn("FinalSafeWaitEntryInput(", complete_branch)
+        self.assertIn("self._storage_target()", complete_branch)
+        self.assertIn("apply_stop_and_diagnose(", complete_branch)
+        owner_source = inspect.getsource(owner)
+        self.assertIn("def apply_main_completion_to_safe_wait(", owner_source)
+        for forbidden in ("execution_port", '"set_voltage"', '"set_current"', '"set_ovp"', '"set_ocp"', '"set_output"'):
+            self.assertNotIn(forbidden, owner_source)
 
     def test_mix_completion_cut_is_single_dispatch_without_physical_writer(self):
         source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
