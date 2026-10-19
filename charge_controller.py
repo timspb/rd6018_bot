@@ -83,6 +83,11 @@ from runtime.charge.runtime.desulfation_entry import (
     apply_main_desulfation_effect,
     build_main_desulfation_effect,
 )
+from runtime.charge.runtime.desulfation_completion import (
+    DesulfationCompletionInput,
+    apply_desulfation_completion_effect,
+    build_desulfation_completion_effect,
+)
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -774,67 +779,6 @@ class ManagedChargeController:
             reason or "unspecified",
             owner,
             float(timestamp_s),
-        )
-
-    def _complete_desulfation_to_safe_wait(
-        self,
-        *,
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        actions: Dict[str, Any],
-    ) -> None:
-        elapsed = max(0.0, float(now) - float(self.stage_start_time))
-        actions["log_event_end"] = self._make_log_event_end(
-            now,
-            ah,
-            voltage,
-            current,
-            temp,
-            "bounded intermediate recovery 2h complete",
-        )
-        target_v, target_i = self._main_target(temp)
-        continuation = RecoverySafeWaitContinuation(
-            source_stage=self.STAGE_DESULFATION,
-            next_stage=self.STAGE_MAIN,
-            target_voltage_v=float(target_v),
-            target_current_a=float(target_i),
-            started_at=float(now),
-            session_id=self._v2_trace_session_id,
-            recovery_attempt=int(self.antisulfate_count),
-            agm_stage_idx=int(self._agm_stage_idx),
-            session_generation=float(self._v2_trace_started_at),
-        )
-        self._recovery_safe_wait = continuation
-        self.current_stage = self.STAGE_SAFE_WAIT
-        self._clear_restored_targets()
-        self.stage_start_time = now
-        self._stage_start_ah = ah
-        # Compatibility mirrors for existing persistence/UI readers only.
-        self._safe_wait_next_stage = continuation.next_stage
-        self._safe_wait_target_v = continuation.target_voltage_v
-        self._safe_wait_target_i = continuation.target_current_a
-        self._safe_wait_start = continuation.started_at
-        self._record_safe_wait_sample(now, voltage, current, temp)
-        self._main_sample_evidence.reset()
-        actions["turn_off"] = True
-        threshold = (
-            continuation.target_voltage_v
-            - float(SAFE_WAIT_TARGET_MARGIN_V.default)
-        )
-        actions["notify"] = (
-            f"<b>⏸ Десульфатация завершена.</b> Ожидание падения до {threshold:.1f}В. "
-            "Выход выключен."
-        )
-        actions["log_event"] = "START | INTERMEDIATE_RECOVERY_COMPLETE"
-        logger.info(
-            "V2 intermediate recovery complete stage=%s elapsed=%.1fs attempt=%d agm_step=%d",
-            self.STAGE_DESULFATION,
-            elapsed,
-            continuation.recovery_attempt,
-            continuation.agm_stage_idx,
         )
 
     def _apply_recovery_safe_wait_authority(
@@ -1536,14 +1480,32 @@ class ManagedChargeController:
                 )
             )
             if decision.action == DesulfationAction.COMPLETE_TO_SAFE_WAIT:
-                self._complete_desulfation_to_safe_wait(
-                    now=timestamp_s,
-                    voltage=voltage,
-                    current=current,
-                    temp=temp,
+                target_v, target_i = self._main_target(temp)
+                effect = build_desulfation_completion_effect(DesulfationCompletionInput(
+                    session_id=self._v2_trace_session_id,
+                    session_generation=float(self._v2_trace_started_at),
+                    source_stage=self.STAGE_DESULFATION,
+                    safe_wait_stage=self.STAGE_SAFE_WAIT,
+                    next_stage=self.STAGE_MAIN,
+                    main_target_voltage_v=target_v,
+                    main_target_current_a=target_i,
+                    recovery_attempt=int(self.antisulfate_count),
+                    agm_stage_idx=int(self._agm_stage_idx),
+                    now_s=timestamp_s,
                     ah=ah,
-                    actions=actions,
-                )
+                    voltage_v=voltage,
+                    measured_current_a=current,
+                    temperature_c=temp,
+                    log_event_end=self._make_log_event_end(
+                        timestamp_s, ah, voltage, current, temp,
+                        "bounded intermediate recovery 2h complete",
+                    ),
+                ))
+                if not apply_desulfation_completion_effect(self, effect, actions):
+                    return AuthorityDecision(
+                        AuthorityAction.CONTINUE,
+                        "desulfation_completion_session_identity_invalid",
+                    )
                 return AuthorityDecision(
                     AuthorityAction.COMPLETE_TO_SAFE_WAIT,
                     decision.reason,

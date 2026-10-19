@@ -200,3 +200,34 @@ current owner identified by D123. Sprint 06 additionally extracts the bounded
 MAIN -> DESULFATION effect while retaining the existing controller dispatch.
 This does not claim controller convergence, application tick ownership,
 physical acceptance, deployment, or closure of P2–P5.
+
+### Sprint 07 P3-2 DESULFATION -> recovery SAFE_WAIT
+
+The active `decide_desulfation` call and its configured two-hour active-time
+budget are unchanged. At `COMPLETE_TO_SAFE_WAIT`, the sole existing dispatch in
+`ManagedChargeController._apply_authoritative_decision` resolves the canonical
+`_main_target(temp)` and existing event-end record, then builds and applies the
+frozen `DesulfationCompletionEffect` from
+`runtime.charge.runtime.desulfation_completion`. The effect carries current
+session ID/generation, source/next stages, targets, attempt, AGM step, timestamp,
+Ah and sample values; it owns the immutable `log_event_end`, `turn_off=True`,
+notification and `INTERMEDIATE_RECOVERY_COMPLETE` action values. Its applicator
+validates non-empty matching session identity, finite matching positive
+session generation and the DESULFATION source stage before any mutation.
+
+After validation it makes one stage-history edge through the existing session
+owner, commits the typed `RecoverySafeWaitContinuation`, keeps the existing
+`_safe_wait_*` read mirrors, clears restored targets, updates stage clock/Ah,
+records the existing SAFE_WAIT sample and resets MAIN plateau evidence. It has
+no physical setter or execution-port dependency. Its action intents continue to
+the same production execution-port OFF/readback/rollback route; the OFF
+transaction ordering, restart snapshot schema, downstream recovery SAFE_WAIT
+gate and all recipe targets remain unchanged. The removed
+`_complete_desulfation_to_safe_wait` has no wrapper or remaining caller.
+
+Focused gates are in `tests/test_d123_p3_desulfation_completion_effect.py`;
+existing `test_desulfation_ownership_cutover.py` and
+`test_voltage_relaxation_real_session_contract.py` exercise the production
+decision path and persisted continuation snapshot. This is source-only P3-2,
+not physical validation or P3 completion; remaining P3 and P4 are listed in the
+Sprint 07 evidence and checklist.

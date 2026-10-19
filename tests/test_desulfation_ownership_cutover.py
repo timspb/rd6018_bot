@@ -90,7 +90,9 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         controller._agm_stage_idx = 2 if profile == "AGM" else 0
         controller.antisulfate_count = 2
         controller._v2_trace_session_id = "session-cutover"
-        controller._v2_trace_started_at = now - 4 * 3600
+        # Session generations are epoch timestamps; keep this synthetic fixture
+        # valid even when its stage-clock anchor is deliberately small.
+        controller._v2_trace_started_at = max(1.0, now - 4 * 3600)
         controller._v2_intent = ChargeIntent.RECOVERY
         controller._v2_target_voltage_v = controller._desulf_target(25.0)[0]
         controller._last_known_output_on = True

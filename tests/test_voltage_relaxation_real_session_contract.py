@@ -63,9 +63,11 @@ class ActualPersistenceContractTests(IsolatedAsyncioTestCase):
                     current=0.01, temp=22.0, ah=12.0, reason="offline-test",
                 )
             else:
-                controller._complete_desulfation_to_safe_wait(
-                    actions=actions, now=now-45, voltage=13.5,
-                    current=0.01, temp=22.0, ah=12.0,
+                controller.stage_start_time = now - 7200
+                controller._apply_authoritative_decision(
+                    record=None, first_stage=None, stage_before=controller.STAGE_DESULFATION,
+                    timestamp_s=now, voltage=13.5, current=0.01, temp=22.0, ah=12.0,
+                    is_cv=False, is_cc=True, actions=actions,
                 )
             controller._save_session(13.5, 0.01, 12.0)
         assert actions.get("turn_off") is True  # intent only, NEVER executed

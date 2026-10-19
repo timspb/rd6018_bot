@@ -46,9 +46,9 @@ the current cut and test counts.
 - [x] P3-1: MAIN -> DESULFATION effect is built as `MainDesulfationEffect` by the pure `runtime.charge.runtime.desulfation_entry.build_main_desulfation_effect`, then applied once through `apply_main_desulfation_effect`; `ManagedChargeController._enter_desulfation` is removed. `decide_main_transition` remains the sole decision caller; the existing downstream action/execution/verified-commit route is unchanged.
 - [x] P3-1 parity gates cover typed action keys and values across Ca/Ca, EFB and AGM, attempt count, stage-history single edge, targets/blanking/plateau reset, protection limits, no setter route in the owner, and AST single caller/import direction: `tests/test_d123_p3_main_desulfation_effect.py`.
 - [x] Existing bounded recovery, retry/Guard, SAFE_WAIT continuation, transaction, terminal, restart and rollback/fail-closed regression suites passed with the full offline suite; source result is not physical acceptance.
-- [ ] Remaining P3 effect owners: MAIN + PREP and residual; DESULFATION completion/recovery SAFE_WAIT; MIX/final SAFE_WAIT; cooling/storage/done and Manual integration.
+- [ ] Remaining P3 effect owners: MAIN + PREP and residual; MIX/final SAFE_WAIT; cooling/storage/done and Manual integration.
 - [ ] MAIN + PREP and residual
-- [ ] DESULFATION + recovery SAFE_WAIT
+- [x] Sprint 07 P3-2 DESULFATION completion -> recovery SAFE_WAIT uses a frozen typed effect in `runtime.charge.runtime.desulfation_completion`; two-hour decision gate, canonical strategy targets, typed continuation, one session mutation edge, exact OFF intent and downstream transaction path preserved. Identity validation rejects missing/stale session ID/generation before mutation; regression and persisted-session snapshot paths pass. See `D123_SPRINT07_EVIDENCE_20261019.md`.
 - [ ] MIX + final SAFE_WAIT
 - [ ] Cooling, storage/done, Manual integration
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
@@ -70,3 +70,4 @@ the current cut and test counts.
 ## Live physical status, independent
 
 Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 PID106714, Output ON, 16.34 V / 0.81 A, safety lease armed, R16=normal. **This D123 task never issues hardware commands.** Existing 15.5 V supervised bench limit was exceeded by automatic desulfation; do not assume new physical authorization.
+- [x] Sprint 07 final exact-source Python 3.12 offline discovery: **2,361 PASS / 2 skipped**; targeted P3-2/regression set **49 PASS**; `compileall` and `git diff --check` pass. Source-only evidence: `D123_SPRINT07_EVIDENCE_20261019.md`.
