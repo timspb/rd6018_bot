@@ -311,3 +311,28 @@ charge owner. Existing final SAFE_WAIT transaction/restore and recovery
 transaction suites provide downstream persistence/readback/rollback coverage.
 The final SAFE_WAIT strategy decision and enable request construction remain in
 the controller and are still pending P3 work. This cut is software-only.
+
+### Sprint 11 P3-6 PREP -> MAIN entry
+
+`runtime.charge.runtime.residual_scaffold.run_authoritative_residual_scaffold`
+continues to own the PREP voltage threshold, canonical PREP/MAIN target
+selection, event-end capture and stage routing. Once PREP reaches its existing
+threshold, it now builds a frozen `PrepCompletionEffect` in
+`runtime/charge/runtime/prep_completion` and calls its single applicator. The
+effect owns only the PREP -> MAIN state edge, restored-target clearing, stage
+and Ah clock update, start-Ah capture, existing Delta/blanking reset, and the
+same MAIN target/protection action values, notification and log event.
+
+The action batch still flows to the existing downstream execution consumer;
+the owner contains no setter calls, execution-port access, or Output intent.
+Existing action keys are preserved, nested event-end data is frozen in the
+effect and copied back to the ordinary action mapping at application. Cooling,
+Manual, safety, threshold and target-selection ownership are unchanged.
+
+`tests/test_d123_p3_prep_completion_effect.py` covers immutable typed effect
+payload, target/protection parity, one stage-history edge, retained existing
+action values, no Output ON intent, one residual-scaffold applicator call and
+no physical writer. `tests/test_v3_residual_authority_migration.py` continues
+to cover the production residual route, cooling resume and unsupported-stage
+fail-closed behavior. Cooling resume, final SAFE_WAIT decision, DONE/IDLE and
+remaining residual integrations remain pending.

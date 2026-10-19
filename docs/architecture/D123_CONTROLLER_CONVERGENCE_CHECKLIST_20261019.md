@@ -54,8 +54,9 @@ the current cut and test counts.
 - [x] Sprint 09 parity and AST gates, focused final SAFE_WAIT/recovery/MIX/readback/lease/rollback/restoration set (**469 PASS**), full offline discovery (**2,367 PASS / 2 skipped**), compileall and diff check pass. See `D123_SPRINT09_EVIDENCE_20261019.md`.
 - [x] Sprint 10 final SAFE_WAIT verified completion commit now builds a frozen `FinalSafeWaitCompletionEffect` and applies it once in `runtime.charge.runtime.final_safe_wait_completion`; `commit_verified_enable_transition` retains receipt routing and recovery behavior. Stage/history commit and canonical session save retain their prior order and Storage intent.
 - [x] Sprint 10 stale/missing receipt read-only rejection, immutable effect, one stage-history edge, Storage intent persistence, restart/readback/rollback and AST physical-writer/caller gates pass. Focused related set: **30 PASS**; full discovery: **2,370 PASS / 3 skipped**; compileall and diff check pass. See `D123_SPRINT10_EVIDENCE_20261019.md`.
+- [x] Sprint 11 PREP threshold completion now returns/applies one frozen `PrepCompletionEffect` in `runtime.charge.runtime.prep_completion`; the residual scaffold retains threshold/target selection and delegates only the PREP -> MAIN state/effect commit. Focused residual/effect set: **8 PASS**; full discovery: **2,373 PASS / 3 skipped**; compileall and diff check pass. See `D123_SPRINT11_EVIDENCE_20261019.md`.
 - [ ] Final SAFE_WAIT decision/action construction; cooling/storage/done and Manual integration.
-- [ ] Cooling, storage/done, Manual integration
+- [ ] Remaining residual COOLING resume and DONE/IDLE ownership; Storage/DONE and Manual integration
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths
 

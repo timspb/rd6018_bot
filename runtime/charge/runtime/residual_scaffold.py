@@ -17,6 +17,11 @@ from runtime.charge.runtime.variables import (
     STAGE_CLOCK_SANITY_MAX_HOURS,
     STAGE_TRANSITION_BLANKING_S,
 )
+from runtime.charge.runtime.prep_completion import (
+    PrepCompletionInput,
+    apply_prep_completion_effect,
+    build_prep_completion_effect,
+)
 from runtime.charge.strategy.prep_variables import PREP_VOLTAGE_V
 from runtime.safety.communication_variables import (
     LINK_LOSS_INITIAL_NOTICE_COUNT,
@@ -285,21 +290,23 @@ async def run_authoritative_residual_scaffold(
             temp,
             f"V≥{float(PREP_VOLTAGE_V.default):g}В ({voltage:.2f}В)",
         )
-        host.current_stage = host.STAGE_MAIN
-        host._clear_restored_targets()
-        host.stage_start_time = now
-        host._stage_start_ah = ah
-        host._start_ah = ah
-        host._reset_delta_and_blanking(now)
         main_v, main_i = host._main_target(temp)
-        actions["set_voltage"] = main_v
-        actions["set_current"] = main_i
-        host._add_phase_limits(actions, main_v, main_i)
-        actions["notify"] = (
-            "<b>✅ Фаза завершена:</b> Подготовка\n"
-            "<b>🚀 Переход к:</b> Main Charge"
-        )
-        actions["log_event"] = f"START | Емкость: {host.ah_capacity}Ah"
+        entry_actions: Dict[str, Any] = {}
+        host._add_phase_limits(entry_actions, main_v, main_i)
+        effect = build_prep_completion_effect(PrepCompletionInput(
+            source_stage=stage_before,
+            prep_stage=host.STAGE_PREP,
+            main_stage=host.STAGE_MAIN,
+            now_s=now,
+            ah=ah,
+            battery_capacity_ah=host.ah_capacity,
+            profile=host.battery_type,
+            target_voltage_v=main_v,
+            target_current_a=main_i,
+            actions={**actions, **entry_actions},
+        ))
+        if not apply_prep_completion_effect(host, effect, actions):
+            return actions
         return actions
 
     if stage_before == host.STAGE_COOLING:
