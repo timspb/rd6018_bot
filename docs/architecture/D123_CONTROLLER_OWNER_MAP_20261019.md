@@ -585,3 +585,20 @@ of RD setters and execution-port dependencies. See
 Sprint 24 changes only these two `_apply_authoritative_decision` branches.
 AGM step advancement, MAIN completion, STOP_AND_DIAGNOSE, and tick remain
 untouched. P3, P2, P4/P5, deployment and physical acceptance remain open.
+
+### Sprint 25 DESULFATION completion dispatch convergence
+
+`decide_desulfation` remains the decision owner and the controller keeps
+`_main_target(temp)` selection. On `COMPLETE_TO_SAFE_WAIT`, the controller now
+dispatches once to the existing
+`runtime.charge.runtime.desulfation_completion.complete_desulfation_to_safe_wait`.
+That owner captures the exact event-end payload, assembles
+`DesulfationCompletionInput`, builds the existing frozen effect and applies it
+once. Capture/build failure returns false before state/action mutation; invalid
+session identity remains the caller's
+`AuthorityDecision(CONTINUE, 'desulfation_completion_session_identity_invalid')`.
+Session identity/generation, source/next stages, recovery attempt, AGM step,
+targets, clocks, samples, action payload and commit ordering are preserved.
+The owner has no RD setter or execution-port dependency. SAFE_WAIT recovery and
+final, MAIN, MIX, tick, P2 and P4 were outside this cut. See
+`D123_SPRINT25_EVIDENCE_20261019.md`.

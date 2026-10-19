@@ -9,7 +9,9 @@ from runtime.charge.runtime.desulfation_completion import (
     DesulfationCompletionInput,
     apply_desulfation_completion_effect,
     build_desulfation_completion_effect,
+    complete_desulfation_to_safe_wait,
 )
+from runtime.charge.decisions import AuthorityAction
 from runtime.charge.strategy.desulfation import DesulfationAction, decide_desulfation
 from runtime.charge.strategy.recovery_safe_wait import RecoverySafeWaitContinuation
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S
@@ -100,18 +102,57 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ManagedChargeController")
         names = {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertNotIn("_complete_desulfation_to_safe_wait", names)
-        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        controller_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                            and n.func.id == "complete_desulfation_to_safe_wait"]
+        self.assertEqual(len(controller_calls), 1)
+        self.assertFalse(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                            and n.func.id in {"apply_desulfation_completion_effect",
+                                              "build_desulfation_completion_effect",
+                                              "DesulfationCompletionInput"} for n in ast.walk(tree)))
+        owner = ast.parse((ROOT / "runtime/charge/runtime/desulfation_completion.py").read_text(encoding="utf-8"))
+        calls = [n for n in ast.walk(owner) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                  and n.func.id == "apply_desulfation_completion_effect"]
         self.assertEqual(len(calls), 1)
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                             and n.func.id == "build_desulfation_completion_effect" for n in ast.walk(tree)), 1)
-        owner = ast.parse((ROOT / "runtime/charge/runtime/desulfation_completion.py").read_text(encoding="utf-8"))
+                             and n.func.id == "build_desulfation_completion_effect" for n in ast.walk(owner)), 1)
         for node in ast.walk(owner):
             if isinstance(node, ast.ImportFrom):
                 self.assertNotIn("charge_controller", node.module or "")
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 self.assertNotIn(node.func.attr.lower(), {"set_voltage", "set_current", "set_output", "turn_on"})
         self.assertGreater(float(DELTA_MONITOR_DELAY_S.default), 0.0)
+
+    def test_controller_dispatch_parity_and_event_capture_failure_is_read_only(self):
+        host = self._host("EFB")
+        actions = {}
+        decision = host._apply_authoritative_decision(
+            record=None, first_stage=None, stage_before=host.STAGE_DESULFATION,
+            timestamp_s=9000.0, voltage=15.4, current=1.1, temp=25.0, ah=8.5,
+            is_cv=False, is_cc=False, actions=actions,
+        )
+        target_v, target_i = host._main_target(25.0)
+        self.assertEqual(decision.action, AuthorityAction.COMPLETE_TO_SAFE_WAIT)
+        self.assertEqual(host._safe_wait_target_v, target_v)
+        self.assertEqual(host._safe_wait_target_i, target_i)
+        self.assertEqual(actions["log_event_end"], {
+            "stage": host.STAGE_DESULFATION, "time_sec": 7200.0,
+            "ah_on_stage": 6.5, "ah": 8.5, "t": 25.0, "v": 15.4,
+            "i": 1.1, "trigger": "bounded intermediate recovery 2h complete",
+        })
+
+        failed = self._host("EFB")
+        before = (failed.current_stage, failed.stage_start_time, failed._stage_start_ah,
+                  failed._recovery_safe_wait, tuple(failed._stage_history))
+        failed._make_log_event_end = lambda *args: (_ for _ in ()).throw(RuntimeError("capture failed"))
+        failed_actions = {}
+        self.assertFalse(complete_desulfation_to_safe_wait(
+            failed, main_target_voltage_v=14.4, main_target_current_a=3.2,
+            now_s=9000.0, ah=8.5, voltage_v=15.4, measured_current_a=1.1,
+            temperature_c=25.0, actions=failed_actions,
+        ))
+        self.assertEqual((failed.current_stage, failed.stage_start_time, failed._stage_start_ah,
+                          failed._recovery_safe_wait, tuple(failed._stage_history)), before)
+        self.assertEqual(failed_actions, {})
 
 
 if __name__ == "__main__":

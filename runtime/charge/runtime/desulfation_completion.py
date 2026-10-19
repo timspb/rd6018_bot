@@ -101,5 +101,37 @@ def apply_desulfation_completion_effect(host: Any, effect: DesulfationCompletion
     return True
 
 
+def complete_desulfation_to_safe_wait(
+    host: Any, *, main_target_voltage_v: float, main_target_current_a: float,
+    now_s: float, ah: float, voltage_v: float, measured_current_a: float,
+    temperature_c: float, actions: dict[str, Any],
+) -> bool:
+    """Capture and commit the existing DESULFATION completion in one owner."""
+    try:
+        log_event_end = host._make_log_event_end(
+            now_s, ah, voltage_v, measured_current_a, temperature_c,
+            "bounded intermediate recovery 2h complete",
+        )
+        value = DesulfationCompletionInput(
+            session_id=host._v2_trace_session_id,
+            session_generation=float(host._v2_trace_started_at),
+            source_stage=host.STAGE_DESULFATION,
+            safe_wait_stage=host.STAGE_SAFE_WAIT,
+            next_stage=host.STAGE_MAIN,
+            main_target_voltage_v=main_target_voltage_v,
+            main_target_current_a=main_target_current_a,
+            recovery_attempt=int(host.antisulfate_count),
+            agm_stage_idx=int(host._agm_stage_idx),
+            now_s=now_s, ah=ah, voltage_v=voltage_v,
+            measured_current_a=measured_current_a, temperature_c=temperature_c,
+            log_event_end=log_event_end,
+        )
+        effect = build_desulfation_completion_effect(value)
+    except Exception:
+        return False
+    return apply_desulfation_completion_effect(host, effect, actions)
+
+
 __all__ = ["DesulfationCompletionEffect", "DesulfationCompletionInput",
-           "apply_desulfation_completion_effect", "build_desulfation_completion_effect"]
+           "apply_desulfation_completion_effect", "build_desulfation_completion_effect",
+           "complete_desulfation_to_safe_wait"]

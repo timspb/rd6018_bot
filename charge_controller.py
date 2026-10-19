@@ -90,9 +90,7 @@ from runtime.charge.runtime.desulfation_entry import (
     apply_main_desulfation_entry,
 )
 from runtime.charge.runtime.desulfation_completion import (
-    DesulfationCompletionInput,
-    apply_desulfation_completion_effect,
-    build_desulfation_completion_effect,
+    complete_desulfation_to_safe_wait,
 )
 from runtime.charge.runtime.mix_entry import (
     apply_main_mix_entry,
@@ -1312,27 +1310,12 @@ class ManagedChargeController:
             )
             if decision.action == DesulfationAction.COMPLETE_TO_SAFE_WAIT:
                 target_v, target_i = self._main_target(temp)
-                effect = build_desulfation_completion_effect(DesulfationCompletionInput(
-                    session_id=self._v2_trace_session_id,
-                    session_generation=float(self._v2_trace_started_at),
-                    source_stage=self.STAGE_DESULFATION,
-                    safe_wait_stage=self.STAGE_SAFE_WAIT,
-                    next_stage=self.STAGE_MAIN,
-                    main_target_voltage_v=target_v,
-                    main_target_current_a=target_i,
-                    recovery_attempt=int(self.antisulfate_count),
-                    agm_stage_idx=int(self._agm_stage_idx),
-                    now_s=timestamp_s,
-                    ah=ah,
-                    voltage_v=voltage,
-                    measured_current_a=current,
-                    temperature_c=temp,
-                    log_event_end=self._make_log_event_end(
-                        timestamp_s, ah, voltage, current, temp,
-                        "bounded intermediate recovery 2h complete",
-                    ),
-                ))
-                if not apply_desulfation_completion_effect(self, effect, actions):
+                if not complete_desulfation_to_safe_wait(
+                    self, main_target_voltage_v=target_v,
+                    main_target_current_a=target_i, now_s=timestamp_s, ah=ah,
+                    voltage_v=voltage, measured_current_a=current,
+                    temperature_c=temp, actions=actions,
+                ):
                     return AuthorityDecision(
                         AuthorityAction.CONTINUE,
                         "desulfation_completion_session_identity_invalid",
