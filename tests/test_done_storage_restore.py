@@ -12,6 +12,7 @@ from runtime.charge.persistence import (
     DONE_COMPLETION_TERMINAL,
     DONE_OUTPUT_OFF,
     DONE_OUTPUT_ON,
+    TerminalPersistenceRequest,
     paused_done_resume_is_authorized,
     restore_allows_auto_enable,
 )
@@ -54,7 +55,10 @@ class DoneStorageRestoreTests(unittest.TestCase):
         controller._device_set_current = 2.0
         with self._patch_session_file(path):
             controller._save_session(
-                13.4, 0.0, 1.5, verified_storage_completion=True
+                13.4, 0.0, 1.5,
+                terminal_request=TerminalPersistenceRequest(
+                    DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON, 13.4, 0.0, 1.5
+                ),
             )
         return app, controller
 

@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from runtime.charge.terminal_intent import (
+    DONE_COMPLETION_STORAGE,
+    DONE_OUTPUT_ON,
+    TerminalPersistenceRequest,
+)
 from runtime.charge.strategy.final_safe_wait import FinalSafeWaitContinuation
 
 logger = logging.getLogger("rd6018.charge.final_safe_wait")
@@ -99,7 +104,10 @@ def apply_final_safe_wait_completion_effect(
     host._recovery_safe_wait = None
     host._save_session(
         effect.voltage_v, effect.current_a, effect.ah,
-        verified_storage_completion=True,
+        terminal_request=TerminalPersistenceRequest(
+            DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON,
+            effect.voltage_v, effect.current_a, effect.ah,
+        ),
     )
     return dict(effect.result)
 

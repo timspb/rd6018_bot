@@ -19,6 +19,13 @@ from runtime.safety.variables import MAX_STAGE_CURRENT_A
 from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
 from runtime.charge.session_atomic import atomic_session_write
 from runtime.charge.session import restore_stage_history
+from runtime.charge.terminal_intent import (
+    DONE_COMPLETION_STORAGE,
+    DONE_COMPLETION_TERMINAL,
+    DONE_OUTPUT_ON,
+    DONE_OUTPUT_OFF,
+    TerminalPersistenceRequest,
+)
 
 
 logger = logging.getLogger("rd6018")
@@ -30,14 +37,11 @@ SESSION_START_MAX_AGE_S = 24 * 60 * 60
 SESSION_MAX_AGE = SESSION_MAX_AGE_S
 SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
 DONE_STATE_VERSION = 1
-DONE_COMPLETION_STORAGE = "storage"
-DONE_COMPLETION_TERMINAL = "terminal"
-DONE_OUTPUT_ON = "on"
-DONE_OUTPUT_OFF = "off"
 AGM_STAGES = tuple(float(value) for value in AGM_STAGE_VOLTAGES_V.default)
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 MIX_DONE_TIMER = mix_finish_hold_seconds()
 ELAPSED_MAX_HOURS = float(STAGE_CLOCK_SANITY_MAX_HOURS.default)
+
 
 def _set_done_outcome(
     host: Any,
@@ -235,7 +239,7 @@ def retire_controller_session(host: Any, *, session_id: str, battery_id: str | N
 def save_session(
     host: Any, voltage: float, current: float, ah: float, *,
     session_file: str = SESSION_FILE,
-    verified_storage_completion: bool = False,
+    terminal_request: TerminalPersistenceRequest | None = None,
 ) -> None:
         """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
         if bool(getattr(host, "_recovery_session_retirement_pending", False)):
@@ -245,11 +249,11 @@ def save_session(
             return
 
         if host.current_stage == host.STAGE_DONE:
-            if verified_storage_completion:
+            if terminal_request is not None:
                 _set_done_outcome(
                     host,
-                    DONE_COMPLETION_STORAGE,
-                    DONE_OUTPUT_ON,
+                    terminal_request.completion_kind,
+                    terminal_request.output_intent,
                     authoritative=True,
                 )
             elif not bool(getattr(host, "_done_outcome_authoritative", False)):
@@ -331,6 +335,12 @@ def save_session(
 
         saved_at = time.time()
         terminal = host.current_stage == host.STAGE_DONE
+        if terminal_request is not None and terminal:
+            voltage, current, ah = (
+                terminal_request.voltage_v,
+                terminal_request.current_a,
+                terminal_request.ah,
+            )
         terminal_voltage, terminal_voltage_available = terminal_measurement("voltage", voltage)
         terminal_current, terminal_current_available = terminal_measurement("current", current)
         terminal_ah, terminal_ah_available = terminal_measurement("ah", ah)

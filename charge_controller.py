@@ -39,6 +39,7 @@ from runtime.charge.lifecycle import (
 from runtime.charge.persistence import (
     SESSION_FILE,
     SESSION_START_MAX_AGE_S,
+    TerminalPersistenceRequest,
     clear_session_file,
     enrich_restored_session,
     restore_session,
@@ -709,13 +710,13 @@ class ManagedChargeController:
 
     def _save_session(
         self, voltage: float, current: float, ah: float, *,
-        verified_storage_completion: bool = False,
+        terminal_request: TerminalPersistenceRequest | None = None,
     ) -> None:
         # save_session atomically writes the charge, V2 trace and optional MAIN
         # Guard journal in ONE document; no second independent rewrite here.
         save_session(
             self, voltage, current, ah, session_file=SESSION_FILE,
-            verified_storage_completion=verified_storage_completion,
+            terminal_request=terminal_request,
         )
 
     def _restore_desulfation_stage_clock(self, document: Dict[str, Any]) -> None:

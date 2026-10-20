@@ -7,6 +7,11 @@ from unittest.mock import Mock
 
 from charge_controller import ManagedChargeController
 from runtime.charge.runtime import stop_diagnose as owner
+from runtime.charge.persistence import (
+    DONE_COMPLETION_TERMINAL,
+    DONE_OUTPUT_OFF,
+    TerminalPersistenceRequest,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,7 +77,12 @@ class StopDiagnoseEffectTests(unittest.TestCase):
         self.assertEqual(controller._stage_start_ah, 4.0)
         self.assertTrue(actions["turn_off"])
         self.assertEqual(actions["log_event"], "V2_STOP_DIAGNOSE")
-        save.assert_called_once_with(14.8, 1.2, 4.0)
+        save.assert_called_once_with(
+            14.8, 1.2, 4.0,
+            terminal_request=TerminalPersistenceRequest(
+                DONE_COMPLETION_TERMINAL, DONE_OUTPUT_OFF, 14.8, 1.2, 4.0
+            ),
+        )
 
     def test_save_failure_keeps_existing_pre_save_mutation_semantics(self):
         controller = self._controller()

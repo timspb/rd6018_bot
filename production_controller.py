@@ -359,11 +359,11 @@ class ProductionChargeController(ManagedChargeController):
 
     def _save_session(
         self, voltage: float, current: float, ah: float, *,
-        verified_storage_completion: bool = False,
+        terminal_request=None,
     ) -> None:
         super()._save_session(
             voltage, current, ah,
-            verified_storage_completion=verified_storage_completion,
+            terminal_request=terminal_request,
         )
 
     def _session_document_extensions(self, document: Dict[str, Any]) -> Dict[str, Any]:

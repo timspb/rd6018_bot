@@ -137,7 +137,7 @@ class FinalSafeWaitCompletionEffectTests(unittest.TestCase):
         completion_source = inspect.getsource(owner.apply_final_safe_wait_completion_effect)
         self.assertNotIn("_done_transition_source_stage", persistence_source)
         self.assertNotIn("_done_transition_source_stage", completion_source)
-        self.assertIn("verified_storage_completion=True", completion_source)
+        self.assertIn("terminal_request=TerminalPersistenceRequest(", completion_source)
         self.assertNotIn("_done_transition_source_stage", (ROOT / "runtime/charge/controller_state.py").read_text(encoding="utf-8"))
 
 

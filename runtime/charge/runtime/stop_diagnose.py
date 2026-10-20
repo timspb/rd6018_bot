@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from runtime.charge.terminal_intent import (
+    DONE_COMPLETION_TERMINAL,
+    DONE_OUTPUT_OFF,
+    TerminalPersistenceRequest,
+)
+
 logger = logging.getLogger("rd6018.recovery")
 
 
@@ -73,7 +79,13 @@ def apply_stop_diagnose_effect(
     host.finish_timer_start = None
     host._main_sample_evidence.reset()
     actions.update(effect.action_values)
-    host._save_session(effect.voltage_v, effect.current_a, effect.ah)
+    host._save_session(
+        effect.voltage_v, effect.current_a, effect.ah,
+        terminal_request=TerminalPersistenceRequest(
+            DONE_COMPLETION_TERMINAL, DONE_OUTPUT_OFF,
+            effect.voltage_v, effect.current_a, effect.ah,
+        ),
+    )
     logger.warning(
         "Modular diagnostic stop %s -> Done | %s",
         effect.source_stage,
