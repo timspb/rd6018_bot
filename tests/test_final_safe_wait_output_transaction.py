@@ -7,7 +7,7 @@ from unittest.mock import patch
 from d123_final_safe_wait_helpers import enter_final_safe_wait
 
 from charge_controller import ManagedChargeController, FinalSafeWaitContinuation
-from diagnostic_controller import DiagnosticProductionChargeController
+from production_controller import create_production_charge_host
 from runtime.charge.persistence import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON
 from runtime.charge.runtime.final_safe_wait_authority import apply_final_safe_wait_authority
 
@@ -132,12 +132,12 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
     def test_verified_final_transition_persists_storage_on_intent(self):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
-            controller = DiagnosticProductionChargeController(
+            controller = create_production_charge_host(
                 DummyHass()
             )
             with patch("runtime.charge.persistence.SESSION_FILE", session_file), patch(
                 "charge_controller.SESSION_FILE", session_file
-            ), patch("production_controller.SESSION_FILE", session_file):
+            ), patch("charge_controller.SESSION_FILE", session_file):
                 controller.start("AGM", 90)
                 controller._v2_trace_session_id = "session-final"
                 controller.current_stage = controller.STAGE_MIX
@@ -179,7 +179,7 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 200_000.0
-            controller = DiagnosticProductionChargeController(
+            controller = create_production_charge_host(
                 DummyHass()
             )
             controller.start("AGM", 90)
@@ -193,14 +193,14 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 ah=10.0,
                 reason="confirmed_delta_and_sticky_hold",
             )
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=now + 30.0
             ), patch("charge_controller.time.time", return_value=now + 30.0), patch(
-                "production_controller.time.time", return_value=now + 30.0
+                "charge_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)
 
-                restored = DiagnosticProductionChargeController(
+                restored = create_production_charge_host(
                     DummyHass()
                 )
                 ok, _message = restored.try_restore_session(

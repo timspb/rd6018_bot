@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from application.charge_session_tick import run_charge_session_tick
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 
 
 class DummyHass:
@@ -11,7 +11,7 @@ class DummyHass:
 
 class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_managed_profile_refreshes_legacy_hourly_clock_before_scaffold_tick(self):
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = controller.PROFILE_CA
         controller.current_stage = controller.STAGE_MAIN
         controller._last_hourly_report = 0.0
@@ -35,7 +35,7 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
         session_body.assert_awaited_once()
 
     async def test_custom_profile_retains_legacy_hourly_reporting_contract(self):
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = controller.PROFILE_CUSTOM
         controller.current_stage = controller.STAGE_MAIN
         controller._last_hourly_report = 0.0

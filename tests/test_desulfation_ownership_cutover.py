@@ -11,7 +11,7 @@ from charge_controller import (
     RecoverySafeWaitContinuation,
 )
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from recovery_policy import RecoveryDecision, RecoveryDecisionResult
 from signal_analyzer import SignalAnalysis, SignalEvent, SignalMetrics, SignalSample
 
@@ -81,7 +81,7 @@ class FixedRuntime:
 
 class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, profile="AGM", capacity=90, now=10_000.0):
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = profile
         controller.ah_capacity = capacity
         controller.current_stage = controller.STAGE_DESULFATION
@@ -108,7 +108,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch("charge_controller.time.time", return_value=now), patch(
             "charge_controller.time.time", return_value=now
-        ), patch("production_controller.time.time", return_value=now):
+        ), patch("charge_controller.time.time", return_value=now):
             return await run_charge_session_tick(controller,
                 voltage=voltage,
                 current=current,
@@ -192,7 +192,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch("charge_controller.time.time", return_value=now), patch(
             "charge_controller.time.time", return_value=now
-        ), patch("production_controller.time.time", return_value=now):
+        ), patch("charge_controller.time.time", return_value=now):
             actions = await run_charge_session_tick(controller,
                 16.3,
                 0.45,
@@ -440,17 +440,17 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
                 agm_stage_idx=controller._agm_stage_idx,
                 session_generation=controller._v2_trace_started_at,
             )
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=now
             ), patch("charge_controller.time.time", return_value=now), patch(
-                "production_controller.time.time", return_value=now
+                "charge_controller.time.time", return_value=now
             ):
                 controller._save_session(15.0, 0.0, 12.0)
                 with open(session_file, "r", encoding="utf-8") as handle:
                     saved = json.load(handle)
                 self.assertEqual(saved["v2_recovery_safe_wait"]["source_stage"], controller.STAGE_DESULFATION)
 
-                restored = ProductionChargeController(DummyHass())
+                restored = create_production_charge_host(DummyHass())
                 ok, _ = restored.try_restore_session(
                     15.0,
                     0.0,

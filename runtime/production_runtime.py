@@ -72,7 +72,7 @@ from runtime.safety.variables import (
 from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 from runtime.safety.live_protection import evaluate_live_protection
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from config import (
     ALLOWED_CHAT_IDS,
     DEEPSEEK_API_KEY,
@@ -341,7 +341,7 @@ async def call_llm_analytics(data: dict) -> Optional[str]:
         return None
 
 
-charge_controller = ProductionChargeController(hass, notify_cb=_charge_notify)
+charge_controller = create_production_charge_host(hass, notify_cb=_charge_notify)
 _main_guard_shadow = MainGuardShadow()
 
 

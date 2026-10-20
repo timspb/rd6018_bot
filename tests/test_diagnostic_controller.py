@@ -8,9 +8,9 @@ from battery_fault_engine import DiagnosticAuthority
 from application.charge_stage_tick import apply_charge_stage_authority
 from application.charge_session_tick import refresh_pre_tick_diagnostics
 from runtime.charge.diagnostics import diagnostic_hv_veto, update_diagnostic_context
-from diagnostic_controller import DiagnosticProductionChargeController
+from production_controller import create_production_charge_host
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 
 
@@ -20,7 +20,7 @@ class DummyHass:
 
 class DiagnosticControllerTests(unittest.TestCase):
     def _controller(self, *, profile="EFB"):
-        controller = DiagnosticProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = profile
         controller.ah_capacity = 70
         controller._v2_intent = ChargeIntent.RECOVERY
@@ -107,7 +107,7 @@ class DiagnosticControllerTests(unittest.TestCase):
         self.assertIsNotNone(veto)
 
     def test_controller_has_no_tick_override(self):
-        self.assertNotIn("tick", DiagnosticProductionChargeController.__dict__)
+        self.assertNotIn("tick", type(self._controller()).__dict__)
 
     def test_application_awaits_stored_diagnostic_refresh(self):
         async def scenario():
@@ -129,7 +129,7 @@ class DiagnosticControllerTests(unittest.TestCase):
             return False, None
 
         with patch.object(
-            ProductionChargeController,
+            type(controller),
             "try_restore_session",
             production_restore,
         ):

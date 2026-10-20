@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from charge_controller import ManagedChargeController
 from application.charge_stage_tick import run_charge_stage_tick
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from runtime.charge.runtime.recovery_scaffold import apply_recovery_safe_wait_authority
 from runtime.charge.strategy import desulfation as desulfation_strategy
 from runtime.charge.strategy.desulfation_variables import (
@@ -198,7 +198,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 20_000.0
-            controller = ProductionChargeController(DummyHass())
+            controller = create_production_charge_host(DummyHass())
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_DESULFATION
             controller.stage_start_time = now - 1800.0
@@ -208,12 +208,12 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             controller._v2_trace_session_id = "session-restart"
             controller._v2_trace_started_at = now - 5000.0
             with patch("charge_controller.SESSION_FILE", session_file), patch(
-                "production_controller.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("charge_controller.time.time", return_value=now), patch(
-                "production_controller.time.time", return_value=now
+                "charge_controller.time.time", return_value=now
             ):
                 controller._save_session(16.3, 0.5, 12.0)
-                restored = ProductionChargeController(DummyHass())
+                restored = create_production_charge_host(DummyHass())
                 ok, _ = restored.try_restore_session(
                     16.3,
                     0.5,

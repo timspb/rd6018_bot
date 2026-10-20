@@ -10,7 +10,8 @@ device was accessed or modified.
 ```text
 bot.py
   -> runtime.production_runtime (one module composition/lifecycle)
-       constructs charge_controller = ProductionChargeController(...)
+       constructs charge_controller = create_production_charge_host(...)
+         -> exactly ManagedChargeController with frozen production host configuration
        runtime loop invokes application.charge_session_tick.run_charge_session_tick(...)
          -> the one production session host supplies state and production extensions
          -> application routes through canonical stage/evidence owners
@@ -35,8 +36,10 @@ The exact production construction is `runtime/production_runtime.py:344`; the
 periodic call is `runtime/production_runtime.py:2894`. The runner gates the call
 on `session_recovery_guard.may_run_automatic_control()`. `bot.py` remains the
 entrypoint. `ManagedChargeController.tick` was removed in Sprint 48. Sprint 50
-also removed the active runtime construction of the base facade: the one
-production session host is `ProductionChargeController`.
+removed active runtime construction of the base facade; Sprint 55C then removed
+the marker subclass. The one production host is now exactly `ManagedChargeController`,
+configured by `create_production_charge_host`. Bootstrap configures an existing
+canonical instance in place and preserves its identity.
 
 There is one production charging FSM and one instance, but it is not yet the
 target fully application-owned session/state lifecycle described by
@@ -887,8 +890,9 @@ P5 release and physical acceptance remain open. Exact order and tests are in
 production-specific reason mapping now live as functions/constants in
 `application.production_session_extensions`; the canonical inherited host calls
 those functions, which operate on its existing fields and durable MIX authority.
-`AutoStrategyProductionChargeController` retains only its compatibility class
-name and declares no behavior. The production host's old class-level reason map
+`AutoStrategyProductionChargeController` retained only its compatibility class
+name and declared no behavior at the Sprint 55A boundary; Sprint 55C removed
+that class. The production host's old class-level reason map
 was removed. The base host still uses its original limits, summary, timers and AI
 snapshot when it lacks production extension state.
 
@@ -956,3 +960,10 @@ state. No second session host, persistence writer, or physical writer was added.
 
 See `D123_SPRINT55B_EVIDENCE_20261020.md` for the exact before/after graph and
 verification limits.
+
+
+### Sprint 55C canonical full acceptance
+
+- Canonical Python 3.12 full discovery: **2,462 tests, 3 skipped, PASS**.
+- P4 class-shape objective: **CLOSED**; production constructs exactly one canonical `ManagedChargeController` with frozen explicit host configuration and no production controller subclass/mixin.
+- Remaining work is P2 session/Guard lifecycle ownership and P5 release/physical gates; no deployment or physical validation occurred.

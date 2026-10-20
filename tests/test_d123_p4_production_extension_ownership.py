@@ -3,7 +3,8 @@ import pathlib
 import unittest
 
 from application.production_session_extensions import operatorize_notification
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
+from charge_controller import ManagedChargeController
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -23,7 +24,9 @@ class ProductionExtensionOwnershipTests(unittest.TestCase):
             "_valid_finish_evidence",
             "_restore_runtime_signal_state",
         }
-        self.assertTrue(removed.isdisjoint(ProductionChargeController.__dict__))
+        self.assertTrue({"_apply_continuous_tail_hold", "_save_session"}.issubset(
+            ManagedChargeController.__dict__
+        ))
         for source_name in ("production_controller.py", "auto_strategy.py", "diagnostic_controller.py"):
             source = ast.parse((ROOT / source_name).read_text())
             for cls in (node for node in source.body if isinstance(node, ast.ClassDef)):

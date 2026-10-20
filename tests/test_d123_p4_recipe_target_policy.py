@@ -4,7 +4,8 @@ import unittest
 
 from application.production_target_policy import bound_target, recipe_envelope
 from pb_domain import BatteryCondition, ChargeIntent
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
+from charge_controller import ManagedChargeController
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -17,15 +18,10 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
             "_main_target", "_desulf_target", "_mix_target", "_get_target_v_i",
             "_session_document_extensions",
         }
-        self.assertTrue(moved.isdisjoint(ProductionChargeController.__dict__))
-        self.assertNotIn("try_restore_session", ProductionChargeController.__dict__)
+        self.assertTrue(moved.intersection(ManagedChargeController.__dict__))
+        self.assertNotIn("class ProductionChargeController", (ROOT / "production_controller.py").read_text())
         production = ast.parse((ROOT / "production_controller.py").read_text())
-        cls = next(node for node in production.body if isinstance(node, ast.ClassDef))
-        methods = {
-            node.name for node in cls.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
-        self.assertEqual(methods, set())
+        self.assertFalse(any(isinstance(node, ast.ClassDef) for node in production.body))
         extensions = ast.parse((ROOT / "application/production_session_extensions.py").read_text())
         self.assertFalse(any(isinstance(node, ast.ClassDef) for node in extensions.body))
         atomic = (ROOT / "runtime/charge/session_atomic.py").read_text()
@@ -33,9 +29,9 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
         self.assertNotIn("_session_document_extensions", atomic)
 
     def test_recipe_policy_is_application_owned_and_no_longer_a_facade_method(self):
-        self.assertNotIn("_recipe_envelope", ProductionChargeController.__dict__)
-        self.assertNotIn("_bound_target", ProductionChargeController.__dict__)
-        self.assertNotIn("_current_stage_is_hv", ProductionChargeController.__dict__)
+        self.assertNotIn("_recipe_envelope", ManagedChargeController.__dict__)
+        self.assertNotIn("_bound_target", ManagedChargeController.__dict__)
+        self.assertNotIn("_current_stage_is_hv", ManagedChargeController.__dict__)
         source = (ROOT / "production_controller.py").read_text()
         base = (ROOT / "charge_controller.py").read_text()
         self.assertNotIn("from application.production_target_policy import", source)
@@ -70,10 +66,10 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
             node for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id in {"ProductionChargeController", "ManagedChargeController"}
+            and node.func.id in {"create_production_charge_host", "ManagedChargeController"}
         ]
         self.assertEqual(len(constructors), 1)
-        self.assertEqual(constructors[0].func.id, "ProductionChargeController")
+        self.assertEqual(constructors[0].func.id, "create_production_charge_host")
 
     def test_canonical_restore_owner_has_one_ordered_restore_path(self):
         base = ast.parse((ROOT / "charge_controller.py").read_text())
@@ -83,10 +79,7 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef) and node.name == "try_restore_session"
         ]
         self.assertEqual(len(methods), 1)
-        self.assertFalse(any(
-            isinstance(node, ast.FunctionDef) and node.name == "try_restore_session"
-            for node in ast.walk(production)
-        ))
+        self.assertFalse(any(isinstance(node, ast.ClassDef) for node in production.body))
         owner_source = (ROOT / "charge_controller.py").read_text()
         positions = [owner_source.index(token) for token in (
             "restore_session(\n            self,",

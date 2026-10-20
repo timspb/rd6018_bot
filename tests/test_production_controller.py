@@ -12,7 +12,7 @@ from application.production_session_extensions import apply_continuous_tail_hold
 from runtime.charge.evidence.first_stage import FirstStageState, assess_first_stage
 from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
 from pb_domain import BatteryCondition, ChargeIntent
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from mix_active_authority import MixActiveTimeAuthority
 from recovery_session import RecoveryTracePoint
 
@@ -36,7 +36,7 @@ class ProductionControllerTests(unittest.TestCase):
         return authority
 
     def _controller(self, profile: str, intent: ChargeIntent, capacity: int = 100):
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.configure_recovery_context(
             battery_id="fixture", intent=intent, condition_before=BatteryCondition.UNKNOWN,
         )
@@ -174,7 +174,7 @@ class ProductionControllerTests(unittest.TestCase):
             MixActiveTimeAuthority(f"{session_file}.mix-authority.json").begin(
                 document["v2_trace_session_id"], active=False
             )
-            controller = ProductionChargeController(DummyHass())
+            controller = create_production_charge_host(DummyHass())
             self._bind_mix_authority(controller, session_file,
                                      session_id=document["v2_trace_session_id"])
             with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.time.time", return_value=1100.0):
@@ -241,10 +241,10 @@ class ProductionControllerTests(unittest.TestCase):
         self._bind_mix_authority(controller, session_file)
         with patch("charge_controller.SESSION_FILE", session_file), patch(
             "charge_controller.SESSION_FILE", session_file
-        ), patch("production_controller.SESSION_FILE", session_file), patch(
+        ), patch("charge_controller.SESSION_FILE", session_file), patch(
             "charge_controller.time.time", return_value=1000.0
         ), patch("charge_controller.time.time", return_value=1000.0), patch(
-            "production_controller.time.time", return_value=1000.0
+            "charge_controller.time.time", return_value=1000.0
         ):
             controller._save_session(16.47, 0.66, 1.0)
 
@@ -266,10 +266,10 @@ class ProductionControllerTests(unittest.TestCase):
         self._bind_mix_authority(controller, session_file)
         with patch("charge_controller.SESSION_FILE", session_file), patch(
             "charge_controller.SESSION_FILE", session_file
-        ), patch("production_controller.SESSION_FILE", session_file), patch(
+        ), patch("charge_controller.SESSION_FILE", session_file), patch(
             "charge_controller.time.time", return_value=1000.0
         ), patch("charge_controller.time.time", return_value=1000.0), patch(
-            "production_controller.time.time", return_value=1000.0
+            "charge_controller.time.time", return_value=1000.0
         ):
             controller._save_session(16.47, 0.66, 1.0)
 
@@ -282,12 +282,12 @@ class ProductionControllerTests(unittest.TestCase):
                 saved = json.load(handle)
             self.assertAlmostEqual(saved["runtime_signal"]["current_min_a"], 0.66)
 
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0), patch(
-                "production_controller.time.time", return_value=1010.0
+                "charge_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
                     16.47, 0.66, 1.0, output_is_on=True, is_cv=True, is_cc=False
@@ -318,12 +318,12 @@ class ProductionControllerTests(unittest.TestCase):
             session_file = os.path.join(tempdir, "charge_session.json")
             original = self._runtime_signal_document(mode="CC", confirmations=2)
             self._persist_runtime_signal(original, session_file)
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0), patch(
-                "production_controller.time.time", return_value=1010.0
+                "charge_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
                     16.47, 0.66, 1.0, output_is_on=True, is_cv=False, is_cc=True
@@ -367,7 +367,7 @@ class ProductionControllerTests(unittest.TestCase):
                 (now - 60.0, 16.26),
                 (now, 16.25),
             )
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "application.charge_session_tick.run_charge_stage_tick", new=no_legacy_scaffold
             ), patch("battery_diagnostics_store.list_specific_gravity", new=AsyncMock(return_value=[])):
                 for timestamp_s, voltage_v in samples:
@@ -399,7 +399,7 @@ class ProductionControllerTests(unittest.TestCase):
                 )
                 self.assertFalse(signal["voltage_reversal_emitted"])
 
-                restored = ProductionChargeController(DummyHass())
+                restored = create_production_charge_host(DummyHass())
                 self._attach_mix_authority(restored, session_file)
                 ok, _ = restored.try_restore_session(
                     16.25,
@@ -428,14 +428,14 @@ class ProductionControllerTests(unittest.TestCase):
                     output_on=output_on, observed_at=observed_at
                 )
                 self._persist_runtime_signal(original, session_file)
-                restored = ProductionChargeController(DummyHass())
+                restored = create_production_charge_host(DummyHass())
                 self._attach_mix_authority(restored, session_file)
                 with patch("charge_controller.SESSION_FILE", session_file), patch(
                     "charge_controller.SESSION_FILE", session_file
-                ), patch("production_controller.SESSION_FILE", session_file), patch(
+                ), patch("charge_controller.SESSION_FILE", session_file), patch(
                     "charge_controller.time.time", return_value=now
                 ), patch("charge_controller.time.time", return_value=now), patch(
-                    "production_controller.time.time", return_value=now
+                    "charge_controller.time.time", return_value=now
                 ):
                     ok, _ = restored.try_restore_session(
                         16.47, 0.66, 1.0, output_is_on=output_on, is_cv=True, is_cc=False
@@ -454,12 +454,12 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertEqual(saved["finish_evidence"]["mode"], "CV")
             self.assertAlmostEqual(saved["finish_evidence"]["reference_value"], 0.66)
             self.assertAlmostEqual(saved["finish_evidence"]["accepted_delta"], 0.24)
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0), patch(
-                "production_controller.time.time", return_value=1010.0
+                "charge_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
                     16.47, 0.66, 1.0, output_is_on=False, is_cv=True, is_cc=False
@@ -482,12 +482,12 @@ class ProductionControllerTests(unittest.TestCase):
             self.assertEqual(saved["finish_evidence"]["mode"], "CC")
             self.assertAlmostEqual(saved["finish_evidence"]["reference_value"], 16.47)
             self.assertAlmostEqual(saved["finish_evidence"]["accepted_delta"], 0.05)
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0), patch(
-                "production_controller.time.time", return_value=1010.0
+                "charge_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
                     16.47, 0.66, 1.0, output_is_on=False, is_cv=False, is_cc=True
@@ -509,9 +509,9 @@ class ProductionControllerTests(unittest.TestCase):
                 handle.seek(0)
                 json.dump(saved, handle)
                 handle.truncate()
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_controller.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.time.time", return_value=1010.0), patch("charge_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
             self.assertTrue(ok)
             self.assertTrue(restored._delta_reported)
@@ -528,9 +528,9 @@ class ProductionControllerTests(unittest.TestCase):
                 handle.seek(0)
                 json.dump(saved, handle)
                 handle.truncate()
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch("charge_controller.time.time", return_value=1010.0), patch("production_controller.time.time", return_value=1010.0):
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.time.time", return_value=1010.0), patch("charge_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
             self.assertTrue(ok)
             self.assertTrue(restored._delta_reported)
@@ -546,15 +546,15 @@ class ProductionControllerTests(unittest.TestCase):
             controller._safe_wait_next_stage = controller.STAGE_DONE
             controller._safe_wait_target_v = 13.8
             controller._safe_wait_target_i = 1.0
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1000.0
             ), patch("charge_controller.time.time", return_value=1000.0), patch(
-                "production_controller.time.time", return_value=1000.0
+                "charge_controller.time.time", return_value=1000.0
             ):
                 controller._save_session(13.8, 0.0, 1.0)
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(13.8, 0.0, 1.0, output_is_on=False)
@@ -571,10 +571,10 @@ class ProductionControllerTests(unittest.TestCase):
             controller.current_stage = controller.STAGE_MIX
             controller.stage_start_time = 900.0
             actions = {}
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1000.0
             ), patch("charge_controller.time.time", return_value=1000.0), patch(
-                "production_controller.time.time", return_value=1000.0
+                "charge_controller.time.time", return_value=1000.0
             ):
                 apply_stop_and_diagnose(controller,
                     actions=actions,
@@ -598,12 +598,12 @@ class ProductionControllerTests(unittest.TestCase):
             with open(session_file, "w", encoding="utf-8") as handle:
                 json.dump(saved, handle)
 
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0), patch(
-                "production_controller.time.time", return_value=1010.0
+                "charge_controller.time.time", return_value=1010.0
             ):
                 ok, _ = restored.try_restore_session(
                     13.8, 0.0, 1.0, output_is_on=False, is_cv=False, is_cc=False
@@ -626,10 +626,10 @@ class ProductionControllerTests(unittest.TestCase):
             session_file = os.path.join(tempdir, "charge_session.json")
             controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
             controller.current_stage = controller.STAGE_DONE
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1000.0
             ), patch("charge_controller.time.time", return_value=1000.0), patch(
-                "production_controller.time.time", return_value=1000.0
+                "charge_controller.time.time", return_value=1000.0
             ):
                 controller._save_session(0.0, 0.0, 0.0)
             with open(session_file, "r", encoding="utf-8") as handle:
@@ -646,10 +646,10 @@ class ProductionControllerTests(unittest.TestCase):
             session_file = os.path.join(tempdir, "charge_session.json")
             controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
             controller.current_stage = controller.STAGE_DONE
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1000.0
             ), patch("charge_controller.time.time", return_value=1000.0), patch(
-                "production_controller.time.time", return_value=1000.0
+                "charge_controller.time.time", return_value=1000.0
             ):
                 controller._save_session(13.8, 0.66, 10.5)
                 controller._save_session(0.0, 0.0, 0.0)
@@ -685,9 +685,9 @@ class ProductionControllerTests(unittest.TestCase):
             MixActiveTimeAuthority(f"{session_file}.mix-authority.json").begin(
                 document["v2_trace_session_id"], active=False
             )
-            restored = ProductionChargeController(DummyHass())
+            restored = create_production_charge_host(DummyHass())
             self._attach_mix_authority(restored, session_file)
-            with patch("charge_controller.SESSION_FILE", session_file), patch("production_controller.SESSION_FILE", session_file), patch(
+            with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.time.time", return_value=1010.0
             ), patch("charge_controller.time.time", return_value=1010.0):
                 ok, _ = restored.try_restore_session(16.47, 0.66, 1.0)
@@ -702,14 +702,14 @@ class ProductionControllerTests(unittest.TestCase):
                 session_file = os.path.join(tempdir, "charge_session.json")
                 original = self._runtime_signal_document(mode=saved_mode)
                 self._persist_runtime_signal(original, session_file)
-                restored = ProductionChargeController(DummyHass())
+                restored = create_production_charge_host(DummyHass())
                 self._attach_mix_authority(restored, session_file)
                 with patch("charge_controller.SESSION_FILE", session_file), patch(
                     "charge_controller.SESSION_FILE", session_file
-                ), patch("production_controller.SESSION_FILE", session_file), patch(
+                ), patch("charge_controller.SESSION_FILE", session_file), patch(
                     "charge_controller.time.time", return_value=1010.0
                 ), patch("charge_controller.time.time", return_value=1010.0), patch(
-                    "production_controller.time.time", return_value=1010.0
+                    "charge_controller.time.time", return_value=1010.0
                 ):
                     ok, _ = restored.try_restore_session(
                         16.47, 0.66, 1.0, output_is_on=True,

@@ -5,7 +5,7 @@ from unittest.mock import patch
 from application.charge_session_tick import run_charge_session_tick
 from charge_controller import ManagedChargeController
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from runtime.charge.runtime.cooling_guard import validate_cooling_pause
 
 
@@ -15,7 +15,7 @@ class DummyHass:
 
 class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self):
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller._v2_intent = ChargeIntent.RECOVERY

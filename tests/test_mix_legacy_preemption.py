@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from application.charge_session_tick import run_charge_session_tick
-from diagnostic_controller import DiagnosticProductionChargeController
+from production_controller import create_production_charge_host
 from mix_active_authority import MixActiveTimeAuthority
 from recovery_policy import RecoveryDecision, RecoveryDecisionResult
 from signal_analyzer import SignalAnalysis, SignalMetrics, SignalSample
@@ -83,7 +83,7 @@ class FixedRuntime:
 
 class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self, *, now: float, wall_stage_hours: float, active_hours: float, tmp: str):
-        controller = DiagnosticProductionChargeController(
+        controller = create_production_charge_host(
             DummyHass(),
         )
         controller.current_stage = controller.STAGE_MIX
@@ -121,10 +121,10 @@ class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
             patch("battery_diagnostics_store.list_specific_gravity", new=AsyncMock(return_value=[])),
             patch("charge_controller.SESSION_FILE", session_file),
             patch("charge_controller.SESSION_FILE", session_file),
-            patch("production_controller.SESSION_FILE", session_file),
+            patch("charge_controller.SESSION_FILE", session_file),
             patch("charge_controller.time.time", return_value=now),
             patch("charge_controller.time.time", return_value=now),
-            patch("production_controller.time.time", return_value=now),
+            patch("charge_controller.time.time", return_value=now),
             patch("application.production_session_extensions.time.time", return_value=now),
         ):
             return await run_charge_session_tick(controller,

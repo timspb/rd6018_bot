@@ -8,7 +8,7 @@ from d123_final_safe_wait_helpers import enter_final_safe_wait
 from application.charge_stage_tick import run_charge_stage_tick
 
 from charge_controller import ManagedChargeController
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from runtime.charge.runtime.final_safe_wait_authority import apply_final_safe_wait_authority
 from runtime.charge.strategy import mix as mix_strategy
 from runtime.charge.strategy.final_safe_wait import (
@@ -261,7 +261,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             session_file = os.path.join(tempdir, "charge_session.json")
             now = 200_000.0
-            controller = ProductionChargeController(DummyHass())
+            controller = create_production_charge_host(DummyHass())
             controller.start(controller.PROFILE_AGM, 90)
             controller.current_stage = controller.STAGE_MIX
             enter_final_safe_wait(controller,
@@ -277,12 +277,12 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             expected_generation = controller._v2_trace_started_at
 
             with patch("charge_controller.SESSION_FILE", session_file), patch(
-                "production_controller.SESSION_FILE", session_file
+                "charge_controller.SESSION_FILE", session_file
             ), patch("charge_controller.time.time", return_value=now + 30.0), patch(
-                "production_controller.time.time", return_value=now + 30.0
+                "charge_controller.time.time", return_value=now + 30.0
             ):
                 controller._save_session(15.0, 0.0, 10.0)
-                restored = ProductionChargeController(DummyHass())
+                restored = create_production_charge_host(DummyHass())
                 ok, _ = restored.try_restore_session(
                     15.0,
                     0.0,

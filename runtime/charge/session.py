@@ -74,11 +74,12 @@ def restore_trace_identity(host: object, document: dict[str, object]) -> TraceId
         raw_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-recovery:{seed}").hex
 
     saved_battery_id = document.get("v2_battery_id")
+    configuration = getattr(host, "host_configuration", None)
     intent_default = getattr(
-        host, "RESTORE_TRACE_DEFAULT_INTENT", getattr(host, "_v2_intent", "normal")
+        configuration, "restore_trace_default_intent", getattr(host, "_v2_intent", "normal")
     )
     condition_default = getattr(
-        host, "RESTORE_TRACE_DEFAULT_CONDITION",
+        configuration, "restore_trace_default_condition",
         getattr(host, "_v2_condition_before", "unknown"),
     )
     intent_value = str(

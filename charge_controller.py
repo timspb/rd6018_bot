@@ -28,6 +28,7 @@ from runtime.charge.controller_state import (
     reset_stage_metrics,
 )
 from runtime.charge.sample_state import mark_stage_sample
+from runtime.charge.host_configuration import ManagedChargeHostConfiguration
 from runtime.charge.lifecycle import (
     full_reset as full_reset_charge,
     initialize_session,
@@ -169,7 +170,9 @@ class ManagedChargeController:
         battery_id: Optional[str] = None,
         recovery_intent: ChargeIntent = ChargeIntent.RECOVERY,
         condition_before: BatteryCondition = BatteryCondition.UNKNOWN,
+        host_configuration: Optional[ManagedChargeHostConfiguration] = None,
     ) -> None:
+        self.host_configuration = host_configuration or ManagedChargeHostConfiguration()
         initialize_controller_state(self, hass_client, notify_cb=notify_cb)
         self._v2_battery_id = battery_id
         self._v2_intent = recovery_intent
@@ -185,7 +188,7 @@ class ManagedChargeController:
         self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
         # Captured by the modular tick and serialized by the production controller.
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
-        if getattr(type(self), "PRODUCTION_EXTENSION_HOST", False):
+        if self.host_configuration.production_extensions_enabled:
             from application.production_session_extensions import initialize_production_session_state
             from runtime.charge.diagnostics import initialize_battery_fault_state
             initialize_production_session_state(self)
@@ -607,7 +610,7 @@ class ManagedChargeController:
             ):
                 self.stop(clear_session=False)
                 return False, "Restored session identity could not be durably reconciled."
-            if getattr(type(self), "PRODUCTION_EXTENSION_HOST", False):
+            if self.host_configuration.production_extensions_enabled:
                 # Keep the existing authority order: canonical ordinary restore,
                 # Guard journal reconstruction, then non-Guard production state.
                 from runtime.charge.strategy.main_guard_session import GUARD_KEY, read_guard

@@ -10,7 +10,8 @@ import operator_dashboard
 import operator_hmi as hmi
 from diagnostic_persistence import DiagnosticActionJournal
 from operator_output_truth import OUTPUT_TRUTH_ATTR
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
+from charge_controller import ManagedChargeController
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
@@ -47,7 +48,8 @@ class V2EntrypointTests(unittest.TestCase):
     def test_import_bot_is_composition_only_without_runtime_bridge(self):
         self.assertEqual(bot.__name__, "bot")
         self.assertFalse(hasattr(bot, "charge_controller"))
-        self.assertIsInstance(production_runtime.charge_controller, ProductionChargeController)
+        self.assertIs(type(production_runtime.charge_controller), ManagedChargeController)
+        self.assertTrue(production_runtime.charge_controller.host_configuration.production_extensions_enabled)
 
     def test_production_runtime_constructs_only_the_production_session_host(self):
         import ast
@@ -59,7 +61,7 @@ class V2EntrypointTests(unittest.TestCase):
                    and node.module in {"charge_controller", "production_controller"}]
         self.assertEqual(
             [(node.module, alias.name) for node in imports for alias in node.names],
-            [("production_controller", "ProductionChargeController")],
+            [("production_controller", "create_production_charge_host")],
         )
         constructions = [node.value for node in tree.body if isinstance(node, ast.Assign)
                          and any(isinstance(target, ast.Name) and target.id == "charge_controller"
@@ -67,7 +69,7 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertEqual(len(constructions), 1)
         self.assertIsInstance(constructions[0], ast.Call)
         self.assertIsInstance(constructions[0].func, ast.Name)
-        self.assertEqual(constructions[0].func.id, "ProductionChargeController")
+        self.assertEqual(constructions[0].func.id, "create_production_charge_host")
 
     def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
         from pathlib import Path

@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from application.charge_stage_tick import run_charge_stage_tick
 
 
@@ -16,8 +16,8 @@ class DummyHass:
 
 
 class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
-    def _controller(self) -> ProductionChargeController:
-        controller = ProductionChargeController(DummyHass())
+    def _controller(self) -> object:
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller.stage_start_time = 100.0

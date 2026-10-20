@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import charge_controller
 from charge_controller import ManagedChargeController
-from production_controller import ProductionChargeController
+from production_controller import create_production_charge_host
 from application.production_session_extensions import session_document_extensions
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 from runtime.charge.strategy.main_guard_session import (
@@ -118,7 +118,7 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
         self.assertFalse(list(self.path.parent.glob(".charge-session-*.tmp")))
 
     def test_production_continuation_metadata_is_in_one_atomic_write(self):
-        controller = ProductionChargeController(None, battery_id="battery-actual")
+        controller = create_production_charge_host(None, battery_id="battery-actual")
         controller.battery_type = "EFB"
         controller.ah_capacity = 60
         controller.current_stage = controller.STAGE_MAIN
@@ -139,7 +139,7 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
         self.assertEqual(document["v2_trace_session_id"], "verified-sid")
 
     def test_real_production_mix_runtime_and_delta_metadata(self):
-        controller = ProductionChargeController(None, battery_id="battery-actual")
+        controller = create_production_charge_host(None, battery_id="battery-actual")
         controller.battery_type = "EFB"
         controller.ah_capacity = 60
         controller.current_stage = controller.STAGE_MIX
@@ -169,7 +169,7 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
         self.assertNotIn("finish_evidence", cleared)
 
     def test_invalid_output_signal_does_not_persist_as_mix_proof(self):
-        controller = ProductionChargeController(None, battery_id="battery-actual")
+        controller = create_production_charge_host(None, battery_id="battery-actual")
         controller.current_stage = controller.STAGE_MIX
         controller._v2_trace_session_id = "verified-sid"
         controller._v2_session_signal_context = {

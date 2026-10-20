@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from application.charge_session_tick import run_charge_session_tick
 from pb_domain import ChargeIntent
-from production_controller import ProductionChargeController, V2_MIX_MAX_HOURS
+from production_controller import create_production_charge_host, V2_MIX_MAX_HOURS
 from mix_active_authority import MixActiveTimeAuthority
 
 
@@ -16,7 +16,7 @@ class DummyHass:
 
 class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
     def _controller(self):
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         controller.battery_type = controller.PROFILE_EFB
         controller.ah_capacity = 60
         controller._v2_intent = ChargeIntent.RECOVERY
@@ -124,7 +124,7 @@ class ProductionMixLimitTests(unittest.TestCase):
     def test_v2_mix_limits_are_the_agreed_fallback_windows(self):
         expected = {"Ca/Ca": 20.0, "EFB": 24.0, "AGM": 10.0}
         self.assertEqual(V2_MIX_MAX_HOURS, expected)
-        controller = ProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         for profile, hours in expected.items():
             controller.battery_type = profile
             from runtime.charge.strategy.mix_variables import mix_max_active_seconds

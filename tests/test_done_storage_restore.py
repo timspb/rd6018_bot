@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from diagnostic_controller import DiagnosticProductionChargeController
+from production_controller import create_production_charge_host
 from runtime.charge.persistence import (
     DONE_COMPLETION_STORAGE,
     DONE_COMPLETION_TERMINAL,
@@ -30,12 +30,12 @@ class DoneStorageRestoreTests(unittest.TestCase):
         # session owner through their imported SESSION_FILE aliases.
         stack.enter_context(patch("runtime.charge.persistence.SESSION_FILE", path))
         stack.enter_context(patch("charge_controller.SESSION_FILE", path))
-        stack.enter_context(patch("production_controller.SESSION_FILE", path))
+        stack.enter_context(patch("charge_controller.SESSION_FILE", path))
         return stack
 
     @staticmethod
     def _installed_controller():
-        controller = DiagnosticProductionChargeController(DummyHass())
+        controller = create_production_charge_host(DummyHass())
         app = SimpleNamespace(
             charge_controller=controller,
             _restore_allows_auto_enable=restore_allows_auto_enable,
