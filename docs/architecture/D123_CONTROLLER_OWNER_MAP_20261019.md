@@ -1098,3 +1098,25 @@ only live source result is `READY_BUT_NOT_EXECUTED`. A synthetic endpoint may
 return a verified-on receipt; only the receipt-gated block in
 `ExecutionPort.execute_guarded_physical_resume` clears the two OFF latches.
 Emergency OFF and ordinary START/Manual owners are unchanged.
+
+### Sprint 60 P5 release boundary
+
+Sprint 60 adds source-only release gates and an operator matrix in
+`D123_SPRINT60_P5_SOURCE_RELEASE_EVIDENCE_20261021.md`. Existing release
+preparation remains authoritative: `tools/node104_atomic_deploy.py` stages an
+exact commit with `git archive` and a tracked-file hash manifest; the existing
+deployment runbook defines preconditions and rollback. The guarded restore OFF
+latch remains active and the production resume endpoint remains uninstalled.
+The Sprint 60 source test asserts one runtime host, one canonical session
+writer, tracked-only artifacts, the supported interpreter matrix and the
+startup OFF/resume boundary. No second installer, owner, or release framework
+was introduced.
+
+The last stored deployed-source references are historical and conflict:
+`c1298ea2df67bba1e4888de6e830b002b5db2fce` in the 2026-10-04 project-runbook
+checkpoint and `8b75cca153f00847d84396aba392472bb7552ad` in the 2026-10-17
+D090 observed marker. Neither proves the current installed accepted SHA or
+rollback backup. Resolving that requires a later authorized read-only
+deployment inventory. Current direct Native evidence, exact firmware/bench
+validation, and deployed startup proof are absent. See Sprint 60 evidence for
+the source-ready / deploy-ready / physical-ready distinction and matrix.

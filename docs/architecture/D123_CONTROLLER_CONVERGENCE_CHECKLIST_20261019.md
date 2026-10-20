@@ -139,6 +139,18 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - [x] Final focused restore/Guard/extension/session/startup/migration batch **110 PASS**, architecture/continuation batch **11 PASS**, compileall and diff-check **PASS**. Full Python 3.12 discovery was attempted but stalled in sandbox asynchronous/socket tests without a summary; outer canonical runner must execute it. See `D123_P2_SESSION_GUARD_CONVERGENCE_EVIDENCE_20261021.md`.
 - [ ] P5 release matrix and physical acceptance remain open.
 
+### P5 Sprint 60 source release preparation (2026-10-21)
+
+- [x] Pin the clean source baseline to `ec21585957f5994edfde6bfaf8888b0a69e8b63b`; inspect the canonical CI matrix, dependency markers, archive/manifest release builder, rollback simulator and deployment runbook without contacting deployed systems.
+- [x] Add source-only release barriers for the one production host/session writer, Guarded restore activated-OFF latch, absent production resume endpoint, tracked-only archive boundary and supported Python matrix: `tests/test_d123_sprint60_source_release.py`.
+- [x] Document exact candidate artifact hash inputs, 3.10/3.11/3.12 targets, rollback preconditions, startup OFF/quarantine condition, and explicitly missing live/physical evidence: `D123_SPRINT60_P5_SOURCE_RELEASE_EVIDENCE_20261021.md`.
+- [x] Exact worktree Python 3.12 focused release/Guard/startup/restore/rollback batch **110 tests, 1 skipped, PASS**; actual untracked authority fixture exclusion verified by existing `git archive` builder.
+- [ ] Full Python 3.12 discovery was attempted twice but yielded no summary; test process disappeared and command session was interrupted. It is INCOMPLETE, not PASS; exact canonical full-suite run remains external.
+- [x] Python 3.12 `compileall -q .` and `git diff --check` PASS.
+- [ ] Python 3.10/3.11 are BLOCKED locally if no already-installed interpreter is available; never infer PASS or install packages for this source-only sprint.
+- [ ] Current installed accepted SHA and durable rollback backup require a separately authorized read-only deployment inventory; the locally stored `c1298ea...` and `8b75cca...` values are historical, conflicting snapshots, not current proof.
+- [ ] Deployment readiness and physical readiness remain separate gates. Fresh Native ESP evidence, exact ESPHome compile/flash/bench evidence and deployment acceptance are missing; no PHYSICAL PASS is asserted.
+
 
 ### P2 canonical full acceptance
 
