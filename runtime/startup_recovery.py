@@ -54,6 +54,13 @@ class StartupRecovery:
         if not execution_port.session_recovery_guard.may_run_automatic_control():
             return
         controller = app.charge_controller
+        candidate = getattr(controller, "_guarded_restore_candidate", None)
+        if candidate is not None:
+            # The existing app.hass aggregate is not direct Native evidence.
+            # Until an existing Native callback snapshot is exposed through
+            # this recovery owner, retain the candidate in quarantine and do
+            # not restore or attempt any Output-ON transition.
+            return
         live = await app.hass.get_all_live()
 
         if not bool(getattr(controller, "is_active", False)):

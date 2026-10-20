@@ -7,6 +7,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
+from typing import Mapping
 
 class SessionStatus(str, Enum):
     IDLE = "idle"
@@ -43,6 +45,28 @@ class RestoredSessionDocument:
     @classmethod
     def capture(cls, document: dict[str, object]) -> "RestoredSessionDocument":
         return cls(document=dict(document))
+
+
+@dataclass(frozen=True)
+class GuardedRestoreCandidate:
+    """Immutable persisted Guard document held outside active controller state."""
+    document: Mapping[str, object]
+    session_id: str | None
+    battery_id: str | None
+    guard_revision: int | None
+    blocker: str
+
+    @classmethod
+    def capture(cls, document: dict[str, object], blocker: str) -> "GuardedRestoreCandidate":
+        record = document.get("main_current_guard_v1")
+        revision = record.get("revision") if isinstance(record, dict) else None
+        return cls(
+            document=MappingProxyType(dict(document)),
+            session_id=document.get("v2_trace_session_id") if isinstance(document.get("v2_trace_session_id"), str) else None,
+            battery_id=document.get("v2_battery_id") if isinstance(document.get("v2_battery_id"), str) else None,
+            guard_revision=revision if type(revision) is int else None,
+            blocker=blocker,
+        )
 
 
 def new_trace_identity(host: object, *, now: float | None = None) -> TraceIdentitySnapshot:

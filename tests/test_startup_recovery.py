@@ -18,6 +18,29 @@ class _Managed:
 
 
 class StartupRecoveryTests(unittest.TestCase):
+    def test_guarded_candidate_stays_quarantined_without_native_snapshot(self):
+        from application.execution_port import ExecutionPort
+        from application.guard_execution_owner_lock import GuardExecutionOwnerLock
+        from application.session_recovery_guard import SessionRecoveryGuard
+        from runtime.charge.session import GuardedRestoreCandidate
+        app = types.SimpleNamespace()
+        app.charge_controller = types.SimpleNamespace(
+            is_active=False,
+            _guarded_restore_candidate=GuardedRestoreCandidate(
+                {"main_current_guard_v1": {"revision": 2}}, "sid", "bat", 2,
+                "direct_native_pre_on_reconciliation_required",
+            ),
+        )
+        app.execution_port = ExecutionPort(object(), SessionRecoveryGuard())
+        app.execution_port.bind_guard_owner_lock(GuardExecutionOwnerLock())
+        app.hass = types.SimpleNamespace(get_all_live=mock.AsyncMock(
+            side_effect=AssertionError("Guard recovery must not use HA aggregate")
+        ))
+        recovery = StartupRecovery(app, _Managed(), _Managed())
+        asyncio.run(recovery.replay_deferred_startup_restore())
+        app.hass.get_all_live.assert_not_awaited()
+        self.assertEqual(app.charge_controller._guarded_restore_candidate.guard_revision, 2)
+
     def test_startup_and_deferred_restore_barriers_precede_restore(self):
         lifecycle = Path("runtime/production_lifecycle.py").read_text(encoding="utf-8")
         guard_check = lifecycle.index("may_run_automatic_control()")

@@ -36,6 +36,7 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [x] Final Python 3.12 full discovery with synthetic `TG_TOKEN=123456789:d123-sprint05`: **2,353 PASS / 2 skipped** (2,355 total); `compileall`, focused 31-test set, import architecture guard and `git diff --check` pass; exact evidence: `D123_SPRINT05_EVIDENCE_20261019.md`
 - [ ] MAIN Guard restore admission and remaining audit/session lifecycle ownership remain pending; P2 remains **partial**
 - [ ] MAIN Guard restore admission ownership remains deferred; guarded restore stays fail-closed before mutation/enrichment
+- [ ] D123 Guard pre-ON integration remains blocked at direct-Native acquisition/activation: Guard restore documents are now retained as typed quarantined candidates, and deferred replay exits before HA aggregate reads, but no existing startup recovery owner exposes a Native callback snapshot for assessment or a proven candidate-to-active restore transition. See `D123_GUARD_PRE_ON_INTEGRATION_EVIDENCE_20261021.md`.
 - [x] Sprint 03 focused tests, Python 3.12 offline full suite and compileall PASS; see `D123_SPRINT03_EVIDENCE_20261019.md`
 
 P2b session identity/writer convergence, P2c stage history, and P2d trace capture

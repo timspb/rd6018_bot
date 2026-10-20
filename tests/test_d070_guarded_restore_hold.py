@@ -53,6 +53,11 @@ class GuardedLegacyRestoreHoldTests(unittest.TestCase):
                 self.assertEqual(controller.current_stage, stage_before)
                 self.assertEqual(controller.battery_type, profile_before)
                 self.assertEqual(self.session_file.read_bytes(), original)
+                self.assertEqual(
+                    controller._guarded_restore_candidate.blocker,
+                    "direct_native_pre_on_reconciliation_required",
+                )
+                self.assertEqual(controller._guarded_restore_candidate.session_id, "sid-1")
 
     def test_corrupt_or_pending_guard_cannot_be_ignored_as_optional(self):
         for journal in (None, {}, {"pending": {"proposal_id": "unresolved"}}):

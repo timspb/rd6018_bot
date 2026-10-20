@@ -127,6 +127,17 @@ have direct references, while many others are called internally.
 
 ## ProductionChargeController transitional surface
 
+### D123 Guard restore boundary (2026-10-21)
+
+`runtime.charge.persistence.restore_session` retains any Guard-bearing decoded
+document as `GuardedRestoreCandidate` on the sole controller host, without
+mutating active FSM, trace, or Guard state. `StartupRecovery.replay_deferred_startup_restore`
+recognizes this quarantine and exits before reading HA aggregate data. Direct
+Native pre-ON assessment is not yet integrated because the startup recovery
+owner has no existing Native snapshot acquisition API; Guard candidates remain
+inactive and cannot resume automatically. See
+`D123_GUARD_PRE_ON_INTEGRATION_EVIDENCE_20261021.md`.
+
 `runtime.production_runtime` constructs one `ProductionChargeController`; it
 does not directly instantiate `ManagedChargeController`. The production class
 still inherits the base session host because its canonical state initialization,

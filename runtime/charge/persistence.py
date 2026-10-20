@@ -469,9 +469,16 @@ def restore_session(
         # age-based file deletion; never silently replace the guard with I0.
         from runtime.charge.strategy.main_guard_session import GUARD_KEY
         if GUARD_KEY in data:
+            from runtime.charge.session import GuardedRestoreCandidate
+            # Keep the decoded authority available to the recovery owner as a
+            # typed quarantine object. It is deliberately not copied into FSM,
+            # trace identity, or active Guard fields here.
+            host._guarded_restore_candidate = GuardedRestoreCandidate.capture(
+                data, "direct_native_pre_on_reconciliation_required",
+            )
             logger.error(
-                "Guarded session restore held: canonical owner-wide "
-                "execution and native pre-ON reconciliation are not installed"
+                "Guarded session restore held: direct Native pre-ON "
+                "acquisition and canonical activation are unavailable"
             )
             return False, (
                 "MAIN Current Guard session is held for owner/readback "
