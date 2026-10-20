@@ -291,3 +291,22 @@ source change was made in Sprint 05.
 - [x] Record exact source-only scope in `D123_SPRINT38_EVIDENCE_20261020.md`.
 - [ ] Next gate: audit subclass authority overrides and central stage dispatch;
   preserve decision parity and fail-closed paths before any owner change.
+
+## Sprint 51 — P4 recipe-envelope policy ownership
+
+- [x] Keep one `ProductionChargeController` state host and move recipe-envelope
+  construction plus target voltage/current clamping into the typed application
+  policy `application.production_target_policy`; remove three policy methods
+  from the controller facade.
+- [x] Preserve target selection, Custom bypass, diagnostic/recovery envelopes,
+  temperature compensation, and restored-target clamping. No Guard restore,
+  persistence, state, lease, safety or Manual behavior changed.
+- [x] Add behavioral parity and static single-host/owner tests in
+  `tests/test_d123_p4_recipe_target_policy.py`.
+- [x] Focused suite **58 PASS**; full Python 3.12 offline discovery
+  **2,448 tests / 3 skipped / 0 failures**, compileall and diff-check PASS;
+  exact outcomes in `D123_SPRINT51_EVIDENCE_20261020.md`.
+- [x] Commit and verify clean worktree after all gates pass.
+- [ ] Next gate: assess production-only runtime signal/session extension or
+  cooling pause as another bounded owner move. Ordinary restore and MAIN Guard
+  restore admission remain fail-closed/deferred; no parallel state object.

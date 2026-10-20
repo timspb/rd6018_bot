@@ -98,6 +98,20 @@ ordinary restore and MAIN Guard restore admission are not yet owned by a
 canonical application/session lifecycle. See
 `D123_SPRINT50_EVIDENCE_20261020.md`.
 
+### Sprint 51 recipe-envelope target policy
+
+`application.production_target_policy` now owns production recipe-envelope
+resolution from the current host profile/capacity/battery/intent/condition and
+the pure voltage/current clamp. `ProductionChargeController` continues to own
+the one FSM and supplies its existing state to that policy while adapting the
+base target selectors; restored-target clamping uses the same policy functions.
+The controller no longer declares `_recipe_envelope`, `_bound_target`, or
+`_current_stage_is_hv`. No lifecycle, session, persistence, restore, or Guard
+admission ownership moved. The single production host and canonical session
+writer remain unchanged. Parity and no-second-host checks are in
+`tests/test_d123_p4_recipe_target_policy.py`; exact sprint validation is in
+`D123_SPRINT51_EVIDENCE_20261020.md`.
+
 Methods are grouped by responsibility above and current source line ranges are
 included; no declaration is omitted. Baseline `charge_controller.py` was 2,594
 LOC with 85 AST method declarations/84 unique names. After the D123 cut it is

@@ -20,9 +20,8 @@ from charge_controller import ManagedChargeController
 from runtime.charge.persistence import SESSION_FILE
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
-from application.recipe_policy import chemistry_for_profile
-from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
-from recipe_engine import RecipeEnvelope, select_recipe_envelope
+from application.production_target_policy import bound_target, recipe_envelope
+from pb_domain import BatteryCondition, ChargeIntent
 
 
 logger = logging.getLogger("rd6018.production_controller")
@@ -97,45 +96,18 @@ class ProductionChargeController(ManagedChargeController):
         self._v2_runtime = runtime
         return runtime
 
-    def _recipe_envelope(self) -> Optional[RecipeEnvelope]:
-        if self.battery_type == self.PROFILE_CUSTOM:
-            return None
-        chemistry = chemistry_for_profile(self.battery_type)
-        identity = BatteryIdentity(
-            battery_id=self._v2_battery_id or f"runtime:{self.battery_type}",
-            chemistry=chemistry,
-            nominal_capacity_ah=float(max(1, self.ah_capacity)),
+    def _bound_recipe_target(self, target: Tuple[float, float], *, hv: bool) -> Tuple[float, float]:
+        envelope = recipe_envelope(
+            profile=self.battery_type,
+            capacity_ah=self.ah_capacity,
+            battery_id=self._v2_battery_id,
+            intent=self._v2_intent,
+            condition=self._v2_condition_before,
         )
-        return select_recipe_envelope(
-            ChargeContext(
-                identity=identity,
-                intent=self._v2_intent,
-                condition=self._v2_condition_before,
-            ),
-            expert_high_voltage=False,
-        )
-
-    @staticmethod
-    def _bound_target(
-        target: Tuple[float, float],
-        envelope: Optional[RecipeEnvelope],
-        *,
-        hv: bool,
-    ) -> Tuple[float, float]:
-        if envelope is None:
-            return target
-        voltage_v, current_a = float(target[0]), float(target[1])
-        current_limit = envelope.hv_current_limit_a if hv else envelope.main_current_limit_a
-        return (
-            min(voltage_v, float(envelope.voltage_ceiling_v)),
-            min(current_a, float(current_limit)),
-        )
-
-    def _current_stage_is_hv(self) -> bool:
-        return self.current_stage in {self.STAGE_DESULFATION, self.STAGE_MIX}
+        return bound_target(target, envelope, hv=hv)
 
     def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return self._bound_target(super()._prep_target(temp_c), self._recipe_envelope(), hv=False)
+        return self._bound_recipe_target(super()._prep_target(temp_c), hv=False)
 
     def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         if self.battery_type == self.PROFILE_CUSTOM:
@@ -150,19 +122,18 @@ class ProductionChargeController(ManagedChargeController):
                 self._apply_temperature_compensation(base.voltage_v, temp_c),
                 base.current_a,
             )
-        return self._bound_target(target, self._recipe_envelope(), hv=False)
+        return self._bound_recipe_target(target, hv=False)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return self._bound_target(super()._desulf_target(temp_c), self._recipe_envelope(), hv=True)
+        return self._bound_recipe_target(super()._desulf_target(temp_c), hv=True)
 
     def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return self._bound_target(super()._mix_target(temp_c), self._recipe_envelope(), hv=True)
+        return self._bound_recipe_target(super()._mix_target(temp_c), hv=True)
 
     def _get_target_v_i(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
-        return self._bound_target(
+        return self._bound_recipe_target(
             super()._get_target_v_i(temp_c),
-            self._recipe_envelope(),
-            hv=self._current_stage_is_hv(),
+            hv=self.current_stage in {self.STAGE_DESULFATION, self.STAGE_MIX},
         )
 
     def _continuous_tail_hold_seconds(self) -> float:
@@ -697,10 +668,16 @@ class ProductionChargeController(ManagedChargeController):
             )
 
         if self._restored_target_v > 0 and self._restored_target_i > 0:
-            bounded_v, bounded_i = self._bound_target(
+            bounded_v, bounded_i = bound_target(
                 (self._restored_target_v, self._restored_target_i),
-                self._recipe_envelope(),
-                hv=self._current_stage_is_hv(),
+                recipe_envelope(
+                    profile=self.battery_type,
+                    capacity_ah=self.ah_capacity,
+                    battery_id=self._v2_battery_id,
+                    intent=self._v2_intent,
+                    condition=self._v2_condition_before,
+                ),
+                hv=self.current_stage in {self.STAGE_DESULFATION, self.STAGE_MIX},
             )
             self._restored_target_v = bounded_v
             self._restored_target_i = bounded_i
