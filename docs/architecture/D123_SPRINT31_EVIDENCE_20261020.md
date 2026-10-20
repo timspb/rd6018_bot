@@ -2,11 +2,14 @@
 
 ## Scope and baseline
 
-Source-only work started from exact clean HEAD
+Source-only work was pinned to exact HEAD
 `5f5f2b42c9d14c820d2968f3381c6aae5b052db0` on
-`codex/d118-start-lease-repair-20261019`. No live node104, ESP, HA, deployment,
-GitHub, recipe, threshold, or physical operation was performed. P2 MAIN Guard
-restore admission remains fail-closed and deferred.
+`codex/d118-start-lease-repair-20261019`. The HEAD was exact, but the worktree
+was not clean at task start: four unstaged files contained the MIX authority
+extraction now committed here. Those changes were preserved and reviewed; no
+reset or overwrite occurred. No live node104, ESP, HA, deployment, GitHub,
+recipe, threshold, or physical operation was performed. P2 MAIN Guard restore
+admission remains fail-closed and deferred.
 
 ## Manual integration audit
 
