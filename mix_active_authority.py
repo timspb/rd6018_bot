@@ -279,10 +279,10 @@ class MixActiveAuthorityMixin:
             return False, f"MIX_ACTIVE_AUTHORITY_RESTORE_REJECTED: {exc}"
         return ok, message
 
-    def _apply_authoritative_decision(self, *args: Any, **kwargs: Any):
+    def _apply_stage_authority(self, *args: Any, **kwargs: Any):
         stage_before = kwargs.get("stage_before")
         if stage_before != self.STAGE_MIX:
-            return super()._apply_authoritative_decision(*args, **kwargs)
+            return super()._apply_stage_authority(*args, **kwargs)
 
         timestamp_s = float(kwargs.get("timestamp_s") or 0.0)
         session_id = self._mix_authority_session_id()
@@ -290,7 +290,7 @@ class MixActiveAuthorityMixin:
         saved_stage_start = self.stage_start_time
         self.stage_start_time = timestamp_s - float(snapshot.elapsed_s)
         try:
-            decision = super()._apply_authoritative_decision(*args, **kwargs)
+            decision = super()._apply_stage_authority(*args, **kwargs)
         finally:
             if self.current_stage == stage_before:
                 self.stage_start_time = saved_stage_start

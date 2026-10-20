@@ -204,7 +204,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
             "runtime.charge.strategy.main_authority.decide_main_transition",
             return_value=AuthorityDecision(AuthorityAction.COMPLETE_TO_SAFE_WAIT, "main_completion"),
         ):
-            result = stale._apply_authoritative_decision(
+            result = stale._apply_stage_authority(
                 record=record,
                 first_stage=None,
                 stage_before=stale.STAGE_MAIN,
@@ -223,13 +223,8 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
         self.assertNotIn("turn_on", stale_actions)
 
     def test_main_completion_cut_has_one_main_owner_dispatch_and_no_writer(self):
-        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        controller_tree = ast.parse(source)
-        method = next(
-            node for node in ast.walk(controller_tree)
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_apply_authoritative_decision"
-        )
+        source = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
+        method = ast.parse(source)
         main_dispatches = [
             node for node in ast.walk(method)
             if isinstance(node, ast.Call)

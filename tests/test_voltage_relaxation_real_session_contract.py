@@ -66,7 +66,7 @@ class ActualPersistenceContractTests(IsolatedAsyncioTestCase):
                 )
             else:
                 controller.stage_start_time = now - 7200
-                controller._apply_authoritative_decision(
+                controller._apply_stage_authority(
                     record=None, first_stage=None, stage_before=controller.STAGE_DESULFATION,
                     timestamp_s=now, voltage=13.5, current=0.01, temp=22.0, ah=12.0,
                     is_cv=False, is_cc=True, actions=actions,

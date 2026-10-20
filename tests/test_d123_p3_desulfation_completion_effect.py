@@ -102,7 +102,8 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ManagedChargeController")
         names = {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertNotIn("_complete_desulfation_to_safe_wait", names)
-        controller_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        dispatch = ast.parse((ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8"))
+        controller_calls = [n for n in ast.walk(dispatch) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                             and n.func.id == "apply_desulfation_authority_tick"]
         self.assertEqual(len(controller_calls), 1)
         self.assertFalse(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
@@ -139,7 +140,7 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
     def test_controller_dispatch_parity_and_event_capture_failure_is_read_only(self):
         host = self._host("EFB")
         actions = {}
-        decision = host._apply_authoritative_decision(
+        decision = host._apply_stage_authority(
             record=None, first_stage=None, stage_before=host.STAGE_DESULFATION,
             timestamp_s=9000.0, voltage=15.4, current=1.1, temp=25.0, ah=8.5,
             is_cv=False, is_cc=False, actions=actions,

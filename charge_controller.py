@@ -77,16 +77,13 @@ from recovery_policy import RecoveryDecision
 from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
-from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+from runtime.charge.decisions import AuthorityDecision
 from runtime.charge.diagnostics import (
     ai_stage_snapshot,
     bank_fault_risk_snapshot,
     get_timers as diagnostic_timers,
 )
-from runtime.charge.runtime.main_scaffold import (
-    apply_main_authority_tick,
-    run_authoritative_main_scaffold,
-)
+from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -97,25 +94,16 @@ from runtime.charge.runtime.support import (
     target_finish_time,
 )
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S, STAGE_TRANSITION_BLANKING_S
-from runtime.charge.runtime.mix_scaffold import (
-    apply_mix_authority_tick,
-    run_authoritative_mix_scaffold,
-)
+from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.final_safe_wait_completion import (
     FinalSafeWaitCompletionInput,
     apply_final_safe_wait_completion_effect,
     build_final_safe_wait_completion_effect,
 )
-from runtime.charge.runtime.final_safe_wait_authority import (
-    apply_final_safe_wait_authority,
-)
-from runtime.charge.runtime.recovery_scaffold import (
-    apply_desulfation_authority_tick,
-    apply_recovery_safe_wait_authority,
-    run_authoritative_recovery_scaffold,
-)
+from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
+from runtime.charge.runtime.stage_authority import apply_authoritative_stage_tick
 from runtime.charge.strategy.desulfation import select_desulfation_target
 from runtime.charge.strategy.desulfation_variables import (
     DESULFATION_OCP_MARGIN_A,
@@ -941,7 +929,7 @@ class ManagedChargeController:
         """Compatibility accessor over the canonical modular MIX authority limit."""
         return mix_max_active_seconds(self.battery_type)
 
-    def _apply_authoritative_decision(
+    def _apply_stage_authority(
         self,
         *,
         record: Any,
@@ -957,64 +945,11 @@ class ManagedChargeController:
         actions: Dict[str, Any],
         output_is_on: Optional[Any] = None,
     ) -> Optional[AuthorityDecision]:
-        if not self._is_authoritative_stage(stage_before) or self.current_stage != stage_before:
-            return None
-
-        if stage_before == self.STAGE_DESULFATION:
-            return apply_desulfation_authority_tick(
-                self, timestamp_s=timestamp_s, voltage=voltage,
-                current=current, temp=temp, ah=ah, actions=actions,
-            )
-
-        if (
-            stage_before == self.STAGE_SAFE_WAIT
-            and (
-                self._recovery_safe_wait is not None
-                or self._safe_wait_next_stage == self.STAGE_MAIN
-            )
-        ):
-            return apply_recovery_safe_wait_authority(
-                self,
-                now=timestamp_s,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                actions=actions,
-                output_is_on=output_is_on,
-            )
-
-        if (
-            stage_before == self.STAGE_SAFE_WAIT
-            and (
-                self._final_safe_wait is not None
-                or self._safe_wait_next_stage == self.STAGE_DONE
-            )
-        ):
-            return apply_final_safe_wait_authority(
-                self,
-                now=timestamp_s,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                actions=actions,
-                output_is_on=output_is_on,
-            )
-
-        if stage_before != self.STAGE_MAIN and stage_before != self.STAGE_MIX:
-            return None
-
-        if stage_before == self.STAGE_MAIN:
-            return apply_main_authority_tick(
-                self, record=record, first_stage=first_stage,
-                timestamp_s=timestamp_s, voltage=voltage, current=current,
-                temp=temp, ah=ah, is_cv=is_cv, actions=actions,
-            )
-
-        return apply_mix_authority_tick(
+        return apply_authoritative_stage_tick(
             self,
             record=record,
+            first_stage=first_stage,
+            stage_before=stage_before,
             timestamp_s=timestamp_s,
             voltage=voltage,
             current=current,
@@ -1023,6 +958,7 @@ class ManagedChargeController:
             is_cv=is_cv,
             is_cc=is_cc,
             actions=actions,
+            output_is_on=output_is_on,
         )
 
     async def tick(
@@ -1150,7 +1086,7 @@ class ManagedChargeController:
                 else:
                     temp_value = finite_or_nan(temp_ext)
                 if math.isfinite(temp_value):
-                    authority_decision = self._apply_authoritative_decision(
+                    authority_decision = self._apply_stage_authority(
                         record=record,
                         first_stage=first_stage,
                         stage_before=stage_before,

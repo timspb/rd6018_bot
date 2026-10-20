@@ -38,7 +38,7 @@ logger = logging.getLogger("rd6018.charge.main_runtime")
 def apply_main_authority_tick(
     host: Any, *, record: Any, first_stage: Any, timestamp_s: float,
     voltage: float, current: float, temp: float, ah: float,
-    is_cv: bool, actions: Dict[str, Any],
+    is_cv: bool, actions: Dict[str, Any], decision_veto=None,
 ) -> Any:
     """Own MAIN transition evaluation and dispatch into typed stage effects."""
     from runtime.charge.decisions import AuthorityAction, AuthorityDecision
@@ -82,6 +82,14 @@ def apply_main_authority_tick(
         current_a=float(current),
         is_cv=bool(is_cv),
     )
+    if decision_veto is not None:
+        veto = decision_veto(decision)
+        if veto is not None:
+            apply_stop_and_diagnose(
+                host, actions=actions, now=timestamp_s, voltage=voltage,
+                current=current, temp=temp, ah=ah, reason=veto.reason,
+            )
+            return veto
     if decision.action == AuthorityAction.ADVANCE_AGM_STEP:
         effect = build_agm_step_advance_effect(
             current_stage_index=host._agm_stage_idx,

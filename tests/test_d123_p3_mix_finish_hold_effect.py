@@ -99,7 +99,8 @@ class MixFinishHoldEffectTests(unittest.TestCase):
         self.assertNotIn("self._finish_evidence =", branch)
 
         controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        self.assertIn("return apply_mix_authority_tick(", controller_source)
+        dispatch_source = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
+        self.assertIn("return apply_mix_authority_tick(", dispatch_source)
         from runtime.charge.runtime import mix_scaffold
         owner_source = inspect.getsource(mix_scaffold.apply_mix_authority_tick)
         for forbidden in ("execution_port", "set_voltage", "set_current", "turn_on", "turn_off"):
@@ -108,13 +109,9 @@ class MixFinishHoldEffectTests(unittest.TestCase):
     def test_mix_decision_and_dispatch_have_one_runtime_owner(self):
         from runtime.charge.runtime import mix_scaffold
 
-        controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        controller_tree = ast.parse(controller_source)
-        method = next(
-            node for node in ast.walk(controller_tree)
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_apply_authoritative_decision"
-        )
+        dispatch_source = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
+        controller_tree = ast.parse(dispatch_source)
+        method = controller_tree
         delegated = [
             node for node in ast.walk(method)
             if isinstance(node, ast.Call)

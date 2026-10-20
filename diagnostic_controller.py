@@ -13,6 +13,7 @@ from battery_fault_engine import (
     assess_battery_fault,
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
+from runtime.charge.runtime.main_scaffold import apply_main_authority_tick
 from mix_active_authority import MixActiveAuthorityMixin
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 
@@ -124,7 +125,7 @@ class DiagnosticProductionChargeController(
             f"diagnostic_hv_block:{reasons}",
         )
 
-    def _apply_authoritative_decision(
+    def _apply_stage_authority(
         self,
         *,
         record: Any,
@@ -153,39 +154,23 @@ class DiagnosticProductionChargeController(
             and self._is_authoritative_stage(stage_before)
             and self.current_stage == stage_before
         ):
-            decision = self._decide_main_authority(
+            applied = apply_main_authority_tick(
+                self,
                 record=record,
                 first_stage=first_stage,
-                timestamp_s=timestamp_s,
-                current=current,
-                is_cv=is_cv,
-            )
-            veto = self._diagnostic_hv_veto(decision)
-            if veto is not None:
-                self._stop_and_diagnose(
-                    actions=actions,
-                    now=timestamp_s,
-                    voltage=voltage,
-                    current=current,
-                    temp=temp,
-                    ah=ah,
-                    reason=veto.reason,
-                )
-                actions["battery_diagnostics"] = self.diagnostic_snapshot()
-                return veto
-            applied = self._apply_main_authority_decision(
-                decision,
-                actions=actions,
                 timestamp_s=timestamp_s,
                 voltage=voltage,
                 current=current,
                 temp=temp,
                 ah=ah,
+                is_cv=is_cv,
+                actions=actions,
+                decision_veto=self._diagnostic_hv_veto,
             )
             actions["battery_diagnostics"] = self.diagnostic_snapshot()
             return applied
 
-        decision = super()._apply_authoritative_decision(
+        decision = super()._apply_stage_authority(
             record=record,
             first_stage=first_stage,
             stage_before=stage_before,

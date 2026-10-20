@@ -60,7 +60,7 @@ class MixActiveTimeoutIntegrationTests(unittest.TestCase):
             actions = {}
 
             with patch("charge_controller.SESSION_FILE", str(Path(tmp) / "session.json")):
-                decision = controller._apply_authoritative_decision(
+                decision = controller._apply_stage_authority(
                     record=record,
                     first_stage=None,
                     stage_before=controller.STAGE_MIX,

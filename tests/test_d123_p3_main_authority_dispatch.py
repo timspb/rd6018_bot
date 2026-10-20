@@ -92,9 +92,12 @@ class MainAuthorityDispatchTests(unittest.TestCase):
         calls = [
             node for node in ast.walk(controller)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-            and node.func.id == "apply_main_authority_tick"
+            and node.func.id == "apply_authoritative_stage_tick"
         ]
         self.assertEqual(len(calls), 1)
+        dispatch = ast.parse((ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8"))
+        self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                             and n.func.id == "apply_main_authority_tick" for n in ast.walk(dispatch)), 1)
         forbidden = {
             "decide_main_transition", "apply_agm_step_advance_effect",
             "apply_main_desulfation_entry", "apply_main_mix_entry",
