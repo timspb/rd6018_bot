@@ -110,6 +110,7 @@ from runtime.charge.runtime.final_safe_wait_authority import (
 )
 from runtime.charge.runtime.recovery_scaffold import (
     apply_desulfation_authority_tick,
+    apply_recovery_safe_wait_authority,
     run_authoritative_recovery_scaffold,
 )
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
@@ -131,9 +132,7 @@ from runtime.charge.strategy.mix_variables import (
     mix_max_active_seconds,
 )
 from runtime.charge.strategy.recovery_safe_wait import (
-    RecoverySafeWaitAction,
     RecoverySafeWaitContinuation,
-    decide_recovery_safe_wait,
     validate_recovery_continuation,
 )
 from runtime.charge.strategy.safe_wait_variables import (
@@ -665,86 +664,6 @@ class ManagedChargeController:
             float(timestamp_s),
         )
 
-    def _apply_recovery_safe_wait_authority(
-        self,
-        *,
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        actions: Dict[str, Any],
-        output_is_on: Optional[Any],
-    ) -> AuthorityDecision:
-        continuation = self._recovery_safe_wait
-        valid = (
-            continuation is not None
-            and self.current_stage == self.STAGE_SAFE_WAIT
-            and validate_recovery_continuation(
-                continuation,
-                session_id=self._v2_trace_session_id,
-                session_generation=self._v2_trace_started_at,
-                expected_source_stage=self.STAGE_DESULFATION,
-                expected_next_stage=self.STAGE_MAIN,
-            )
-            and continuation.recovery_attempt == int(self.antisulfate_count)
-            and continuation.agm_stage_idx == int(self._agm_stage_idx)
-        )
-        if not valid:
-            reason = "recovery_safe_wait_continuation_invalid"
-            apply_stop_and_diagnose(self,
-                actions=actions,
-                now=now,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                reason=reason,
-            )
-            self._recovery_safe_wait = None
-            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
-
-        assert continuation is not None
-        output_is_off = normalize_output_on(output_is_on) is False
-        if output_is_off:
-            self._record_safe_wait_sample(now, voltage, current, temp)
-        decision = decide_recovery_safe_wait(
-            continuation,
-            now_s=now,
-            voltage_v=voltage,
-            output_is_off=output_is_off,
-        )
-        if decision.action == RecoverySafeWaitAction.WAIT:
-            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
-
-        actions["set_voltage"] = continuation.target_voltage_v
-        actions["set_current"] = continuation.target_current_a
-        self._add_phase_limits(
-            actions,
-            continuation.target_voltage_v,
-            continuation.target_current_a,
-        )
-        actions["turn_on"] = True
-        # The execution layer must prove the complete two-phase physical transaction
-        # before this token can commit SAFE_WAIT -> MAIN.
-        actions["verified_enable_transition"] = {
-            "kind": "recovery_safe_wait_to_main",
-            "session_id": continuation.session_id,
-            "session_generation": continuation.session_generation,
-            "started_at": continuation.started_at,
-            "reason": decision.reason,
-        }
-        actions["log_event"] = "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
-        logger.info(
-            "V2 recovery SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
-            decision.reason,
-            decision.wait_elapsed_s,
-        )
-        return AuthorityDecision(
-            AuthorityAction.CONTINUE,
-            f"recovery_safe_wait_enable_requested:{decision.reason}",
-        )
-
     def _apply_final_safe_wait_authority(
         self,
         *,
@@ -819,7 +738,8 @@ class ManagedChargeController:
             return False
 
         if self._recovery_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_MAIN:
-            self._apply_recovery_safe_wait_authority(
+            apply_recovery_safe_wait_authority(
+                self,
                 now=now,
                 voltage=voltage,
                 current=current,
@@ -1176,7 +1096,8 @@ class ManagedChargeController:
                 or self._safe_wait_next_stage == self.STAGE_MAIN
             )
         ):
-            return self._apply_recovery_safe_wait_authority(
+            return apply_recovery_safe_wait_authority(
+                self,
                 now=timestamp_s,
                 voltage=voltage,
                 current=current,

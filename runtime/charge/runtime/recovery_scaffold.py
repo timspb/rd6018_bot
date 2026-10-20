@@ -67,6 +67,79 @@ def apply_desulfation_authority_tick(
     return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
 
 
+def apply_recovery_safe_wait_authority(
+    host: Any, *, now: float, voltage: float, current: float, temp: float,
+    ah: float, actions: Dict[str, Any], output_is_on: Optional[Any],
+) -> Any:
+    """Own recovery SAFE_WAIT continuation validation, decision, and request."""
+    from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+    from runtime.charge.evidence.trace_context import normalize_output_on
+    from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
+    from runtime.charge.strategy.recovery_safe_wait import (
+        RecoverySafeWaitAction, decide_recovery_safe_wait,
+        validate_recovery_continuation,
+    )
+
+    continuation = host._recovery_safe_wait
+    valid = (
+        continuation is not None
+        and host.current_stage == host.STAGE_SAFE_WAIT
+        and validate_recovery_continuation(
+            continuation,
+            session_id=host._v2_trace_session_id,
+            session_generation=host._v2_trace_started_at,
+            expected_source_stage=host.STAGE_DESULFATION,
+            expected_next_stage=host.STAGE_MAIN,
+        )
+        and continuation.recovery_attempt == int(host.antisulfate_count)
+        and continuation.agm_stage_idx == int(host._agm_stage_idx)
+    )
+    if not valid:
+        reason = "recovery_safe_wait_continuation_invalid"
+        apply_stop_and_diagnose(
+            host, actions=actions, now=now, voltage=voltage,
+            current=current, temp=temp, ah=ah, reason=reason,
+        )
+        host._recovery_safe_wait = None
+        return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
+
+    assert continuation is not None
+    output_is_off = normalize_output_on(output_is_on) is False
+    if output_is_off:
+        host._record_safe_wait_sample(now, voltage, current, temp)
+    decision = decide_recovery_safe_wait(
+        continuation, now_s=now, voltage_v=voltage,
+        output_is_off=output_is_off,
+    )
+    if decision.action == RecoverySafeWaitAction.WAIT:
+        return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
+
+    actions["set_voltage"] = continuation.target_voltage_v
+    actions["set_current"] = continuation.target_current_a
+    host._add_phase_limits(
+        actions, continuation.target_voltage_v, continuation.target_current_a,
+    )
+    actions["turn_on"] = True
+    # The execution layer must prove the complete two-phase physical transaction
+    # before this token can commit SAFE_WAIT -> MAIN.
+    actions["verified_enable_transition"] = {
+        "kind": "recovery_safe_wait_to_main",
+        "session_id": continuation.session_id,
+        "session_generation": continuation.session_generation,
+        "started_at": continuation.started_at,
+        "reason": decision.reason,
+    }
+    actions["log_event"] = "RECOVERY_SAFE_WAIT_ENABLE_ATTEMPT"
+    logging.getLogger("rd6018.recovery").info(
+        "V2 recovery SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
+        decision.reason, decision.wait_elapsed_s,
+    )
+    return AuthorityDecision(
+        AuthorityAction.CONTINUE,
+        f"recovery_safe_wait_enable_requested:{decision.reason}",
+    )
+
+
 def _output_is_known(value: Any) -> bool:
     return value is not None and str(value).lower() not in {
         "unavailable",
@@ -288,4 +361,8 @@ async def run_authoritative_recovery_scaffold(
     return actions
 
 
-__all__ = ["apply_desulfation_authority_tick", "run_authoritative_recovery_scaffold"]
+__all__ = [
+    "apply_desulfation_authority_tick",
+    "apply_recovery_safe_wait_authority",
+    "run_authoritative_recovery_scaffold",
+]

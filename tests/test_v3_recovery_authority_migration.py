@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from charge_controller import ManagedChargeController
 from production_controller import ProductionChargeController
+from runtime.charge.runtime.recovery_scaffold import apply_recovery_safe_wait_authority
 from runtime.charge.strategy import desulfation as desulfation_strategy
 from runtime.charge.strategy.desulfation_variables import (
     DESULFATION_BASE_VOLTAGE_V,
@@ -176,7 +177,8 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         )
         actions = {}
         with patch.object(controller, "_save_session"):
-            decision = controller._apply_recovery_safe_wait_authority(
+            decision = apply_recovery_safe_wait_authority(
+                controller,
                 now=1100.0,
                 voltage=14.0,
                 current=0.0,

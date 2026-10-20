@@ -213,3 +213,18 @@ source change was made in Sprint 05.
 - [ ] Next gate: inspect recovery/final SAFE_WAIT authority routing and tick
   evidence/trace glue for a bounded ownership move; preserve Guard/restore,
   verified Storage and application execution boundaries. Do not start P4.
+
+## Sprint 34 — recovery SAFE_WAIT authority
+
+- [x] Move recovery SAFE_WAIT continuation validation, decision and
+  enable-request construction into the existing recovery scaffold owner; both
+  production routes delegate and the controller-owned method is removed.
+- [x] Preserve invalid-identity fail-closed stop, output-off sample gate,
+  strategy and request payloads, verified-enable token, and downstream
+  execution transaction. No direct physical writer added.
+- [x] Focused suite **30 PASS**; full Python 3.12 offline discovery
+  **2,426 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT34_EVIDENCE_20261020.md`.
+- [ ] Next gate: inspect final SAFE_WAIT authority and outer recovery/final
+  stage routing, then tick evidence/trace glue for another bounded move.
+  Preserve Guard/restore and verified execution boundaries; do not start P4.
