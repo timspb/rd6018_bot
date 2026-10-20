@@ -129,3 +129,20 @@ source change was made in Sprint 05.
   `runtime.charge.persistence`; do not add a parallel serializer. Resume only
   when a cut can transfer terminal snapshot authority without changing the
   verified receipt -> stage edge -> canonical save ordering.
+
+## Sprint 29 — SAFE_WAIT continuation restore ownership cut
+
+- [x] Starting point pinned: clean `d1f710a251b59a6c5b53af019e082e033f216112`.
+- [x] Read current writer, controller save/restore/continuation code, owner map,
+  Sprint 28 evidence, and session/restore/Guard regressions.
+- [x] Move the paired recovery/final SAFE_WAIT continuation reconstruction
+  bodies into `runtime.charge.session_continuation_restore`; keep core restore
+  admission and orchestration in their current owners. Both move together for
+  typed/legacy continuation parity. See `D123_SPRINT29_EVIDENCE_20261020.md`.
+- [x] Focused suite **49 PASS**, full Python 3.12 offline discovery
+  **2,423 PASS / 3 skipped**, compileall and diff check PASS.
+- [x] Commit source-only continuation restore ownership cut with clean tree.
+- [ ] Next gate: characterize an ordinary session serialization request seam only if
+  schema, extension, Guard, identity, and atomic writer authority remain whole.
+  P2 Guard restore admission stays fail-closed/deferred. Manual/P4 remain
+  untouched.

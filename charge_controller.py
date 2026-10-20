@@ -47,6 +47,10 @@ from runtime.charge.persistence import (
 )
 from runtime.charge.session import apply_trace_identity, new_trace_identity, set_current_stage
 from runtime.charge.post import post_charge_profile_params
+from runtime.charge.session_continuation_restore import (
+    restore_final_safe_wait,
+    restore_recovery_safe_wait,
+)
 
 SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
 from runtime.charge.evidence.first_stage import (
@@ -573,127 +577,6 @@ class ManagedChargeController:
             self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
 
-    def _restore_recovery_safe_wait(self, document: Dict[str, Any]) -> None:
-        self._recovery_safe_wait = None
-        raw = document.get("v2_recovery_safe_wait")
-        if isinstance(raw, dict):
-            try:
-                raw_generation = raw.get("session_generation")
-                candidate = RecoverySafeWaitContinuation(
-                    source_stage=str(raw.get("source_stage") or ""),
-                    next_stage=str(raw.get("next_stage") or ""),
-                    target_voltage_v=float(raw.get("target_voltage_v")),
-                    target_current_a=float(raw.get("target_current_a")),
-                    started_at=float(raw.get("started_at")),
-                    session_id=(
-                        str(raw.get("session_id") or self._v2_trace_session_id or "") or None
-                    ),
-                    session_generation=(
-                        float(raw_generation)
-                        if raw_generation is not None
-                        else float(self._v2_trace_started_at)
-                    ),
-                    recovery_attempt=int(raw.get("recovery_attempt", self.antisulfate_count)),
-                    agm_stage_idx=int(raw.get("agm_stage_idx", self._agm_stage_idx)),
-                )
-            except (TypeError, ValueError, OverflowError):
-                candidate = None
-            if (
-                candidate is not None
-                and validate_recovery_continuation(
-                    candidate,
-                    session_id=self._v2_trace_session_id,
-                    session_generation=self._v2_trace_started_at,
-                    expected_source_stage=self.STAGE_DESULFATION,
-                    expected_next_stage=self.STAGE_MAIN,
-                )
-                and candidate.recovery_attempt == int(self.antisulfate_count)
-                and candidate.agm_stage_idx == int(self._agm_stage_idx)
-            ):
-                self._recovery_safe_wait = candidate
-            return
-
-        # One-way migration of an already persisted pre-cutover recovery SAFE_WAIT.
-        # SAFE_WAIT->MAIN is unique to intermediate recovery; final Mix uses DONE.
-        if (
-            self.current_stage == self.STAGE_SAFE_WAIT
-            and self._safe_wait_next_stage == self.STAGE_MAIN
-            and self._safe_wait_target_v > 0.0
-            and self._safe_wait_target_i > 0.0
-            and self._safe_wait_start > 0.0
-        ):
-            self._recovery_safe_wait = RecoverySafeWaitContinuation(
-                source_stage=self.STAGE_DESULFATION,
-                next_stage=self.STAGE_MAIN,
-                target_voltage_v=float(self._safe_wait_target_v),
-                target_current_a=float(self._safe_wait_target_i),
-                started_at=float(self._safe_wait_start),
-                session_id=self._v2_trace_session_id,
-                session_generation=float(self._v2_trace_started_at),
-                recovery_attempt=int(self.antisulfate_count),
-                agm_stage_idx=int(self._agm_stage_idx),
-            )
-
-    def _restore_final_safe_wait(self, document: Dict[str, Any]) -> None:
-        self._final_safe_wait = None
-        raw = document.get("v2_final_safe_wait")
-        if isinstance(raw, dict):
-            try:
-                raw_generation = raw.get("session_generation")
-                candidate = FinalSafeWaitContinuation(
-                    source_stage=str(raw.get("source_stage") or ""),
-                    next_stage=str(raw.get("next_stage") or ""),
-                    target_voltage_v=float(raw.get("target_voltage_v")),
-                    target_current_a=float(raw.get("target_current_a")),
-                    started_at=float(raw.get("started_at")),
-                    session_id=(
-                        str(raw.get("session_id") or self._v2_trace_session_id or "") or None
-                    ),
-                    completion_reason=str(raw.get("completion_reason") or ""),
-                    session_generation=(
-                        float(raw_generation)
-                        if raw_generation is not None
-                        else float(self._v2_trace_started_at)
-                    ),
-                )
-            except (TypeError, ValueError, OverflowError):
-                candidate = None
-            if (
-                candidate is not None
-                and validate_final_continuation(
-                    candidate,
-                    session_id=self._v2_trace_session_id,
-                    session_generation=self._v2_trace_started_at,
-                    expected_next_stage=self.STAGE_DONE,
-                    allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
-                )
-            ):
-                self._final_safe_wait = candidate
-            return
-
-        # One-way migration for a successful pre-cutover final SAFE_WAIT. Recovery
-        # SAFE_WAIT is distinguished by next=MAIN and was reconstructed above.
-        if (
-            self.current_stage == self.STAGE_SAFE_WAIT
-            and self._safe_wait_next_stage == self.STAGE_DONE
-            and self._safe_wait_target_v > 0.0
-            and self._safe_wait_target_i > 0.0
-            and self._safe_wait_start > 0.0
-        ):
-            source_stage = str(self.previous_stage or self.STAGE_MIX)
-            if source_stage not in {self.STAGE_MAIN, self.STAGE_MIX}:
-                return
-            self._final_safe_wait = FinalSafeWaitContinuation(
-                source_stage=source_stage,
-                next_stage=self.STAGE_DONE,
-                target_voltage_v=float(self._safe_wait_target_v),
-                target_current_a=float(self._safe_wait_target_i),
-                started_at=float(self._safe_wait_start),
-                session_id=self._v2_trace_session_id,
-                completion_reason=str(self._last_transition_reason or "restored_successful_completion"),
-                session_generation=float(self._v2_trace_started_at),
-            )
-
     def start(self, battery_type: str, ah_capacity: int) -> None:
         if str(battery_type) == self.PROFILE_CUSTOM:
             raise RuntimeError(
@@ -763,8 +646,8 @@ class ManagedChargeController:
         if ok:
             trace_document = dict(getattr(self, "_session_restore_document", {}))
             self._restore_desulfation_stage_clock(trace_document)
-            self._restore_recovery_safe_wait(trace_document)
-            self._restore_final_safe_wait(trace_document)
+            restore_recovery_safe_wait(self, trace_document)
+            restore_final_safe_wait(self, trace_document)
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
             enriched = bool(getattr(self, "_session_restore_enriched", False))
             if not enriched and not enrich_restored_session(

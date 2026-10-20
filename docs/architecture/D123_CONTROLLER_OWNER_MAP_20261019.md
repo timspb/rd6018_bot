@@ -646,3 +646,23 @@ and does not claim rollback. Storage/DONE restore admission and legacy
 terminal/OFF normalization remain in persistence. Broader ordinary-session
 serialization, Guard restore admission, Manual integration, P4, and P5 remain
 open. Exact evidence: `D123_SPRINT28_EVIDENCE_20261019.md`.
+
+### Sprint 29 SAFE_WAIT continuation restore cut
+
+The paired typed/legacy recovery and final SAFE_WAIT continuation
+reconstruction implementations moved to
+`runtime.charge.session_continuation_restore`; their controller method bodies
+were deleted. Controller `try_restore_session` retains orchestration order
+after core persistence restore and DESULFATION age restoration. Continuation
+admission still binds to restored session identity/generation, stage, retry
+count, AGM index and allowed source/next stages. Both implementations moved
+together to preserve parity across current and one-way legacy representations.
+Core restore admission, fail-closed Guard policy, persistence schema/extension
+completion and atomic writer remain with current owners. Focused tests passed
+**44 tests**; full Python 3.12 discovery passed **2,423 tests / 3 skipped**.
+Exact evidence: `D123_SPRINT29_EVIDENCE_20261020.md`.
+
+
+### Sprint 29 SAFE_WAIT continuation restore
+
+Recovery and final persisted SAFE_WAIT continuation reconstruction now belongs to `runtime.charge.session_continuation_restore`. That owner parses typed snapshots, validates session ID/generation and stage/counter identity, and performs the existing one-way legacy reconstruction. `ManagedChargeController.try_restore_session` retains ordering, runtime initialization, enrichment, and fail-closed handling. The former `_restore_recovery_safe_wait` and `_restore_final_safe_wait` method bodies were deleted. Persistence schema, atomic writer, age handling, Guard admission, and output authority remain with existing owners. Exact evidence: `D123_SPRINT29_EVIDENCE_20261020.md`.
