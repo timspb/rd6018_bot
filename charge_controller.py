@@ -663,53 +663,6 @@ class ManagedChargeController:
             float(timestamp_s),
         )
 
-    def _handle_safe_wait_stage_override(
-        self,
-        *,
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        actions: Dict[str, Any],
-        output_is_on: Optional[Any],
-    ) -> bool:
-        """Compatibility hook delegating SAFE_WAIT decisions to modular owners."""
-
-        if (
-            self.battery_type == self.PROFILE_CUSTOM
-            or self.current_stage != self.STAGE_SAFE_WAIT
-        ):
-            return False
-
-        if self._recovery_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_MAIN:
-            apply_recovery_safe_wait_authority(
-                self,
-                now=now,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                actions=actions,
-                output_is_on=output_is_on,
-            )
-            return True
-
-        if self._final_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_DONE:
-            apply_final_safe_wait_authority(
-                self,
-                now=now,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                actions=actions,
-                output_is_on=output_is_on,
-            )
-            return True
-
-        return False
-
     def commit_verified_enable_transition(
         self,
         transition: Dict[str, Any],

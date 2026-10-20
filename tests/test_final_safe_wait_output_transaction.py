@@ -9,6 +9,7 @@ from d123_final_safe_wait_helpers import enter_final_safe_wait
 from charge_controller import ManagedChargeController, FinalSafeWaitContinuation
 from diagnostic_controller import DiagnosticProductionChargeController
 from runtime.charge.persistence import DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON
+from runtime.charge.runtime.final_safe_wait_authority import apply_final_safe_wait_authority
 
 
 class DummyHass:
@@ -49,7 +50,8 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             with patch("charge_controller.SESSION_FILE", session_file), patch(
                 "charge_controller.SESSION_FILE", session_file
             ):
-                handled = controller._handle_safe_wait_stage_override(
+                decision = apply_final_safe_wait_authority(
+                    controller,
                     now=1001.0,
                     voltage=13.2,
                     current=0.0,
@@ -58,7 +60,8 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                     actions=transition_actions,
                     output_is_on=False,
                 )
-                self.assertTrue(handled)
+                self.assertEqual(decision.action.value, "continue")
+                self.assertIn("final_safe_wait_storage_enable_requested:", decision.reason)
                 self.assertTrue(transition_actions["turn_on"])
                 self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
 
@@ -80,7 +83,8 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                 os.path.join(tempdir, "charge_session.json")
             )
             transition_actions = {}
-            controller._handle_safe_wait_stage_override(
+            apply_final_safe_wait_authority(
+                controller,
                 now=1001.0,
                 voltage=13.2,
                 current=0.0,
@@ -111,7 +115,8 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
             )
             actions = {}
             self.assertTrue(
-                controller._handle_safe_wait_stage_override(
+                apply_final_safe_wait_authority(
+                    controller,
                     now=1001.0,
                     voltage=13.2,
                     current=0.0,
@@ -146,7 +151,8 @@ class FinalSafeWaitOutputTransactionTests(unittest.TestCase):
                     reason="confirmed_delta_and_sticky_hold",
                 )
                 transition_actions = {}
-                controller._handle_safe_wait_stage_override(
+                apply_final_safe_wait_authority(
+                    controller,
                     now=1001.0,
                     voltage=13.2,
                     current=0.0,

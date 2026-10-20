@@ -761,3 +761,13 @@ remains the decision/request builder; fresh-OFF sampling, continuation
 validation, fail-closed stop dispatch, and request-result mapping now live in
 the same runtime owner. Verified DONE commit and physical output transaction
 remain unchanged. See `D123_SPRINT35_EVIDENCE_20261020.md`.
+
+### Sprint 36 SAFE_WAIT compatibility router retirement
+
+Removed `_handle_safe_wait_stage_override`: repository search found no
+production call sites, only direct characterization tests. Those tests now
+invoke the canonical recovery/final SAFE_WAIT runtime owners, while production
+`tick` continues through `_apply_authoritative_decision`. Request payload,
+fail-closed unknown/stale continuation handling, verified receipt/token path,
+and persistence intent remain covered. See
+`D123_SPRINT36_EVIDENCE_20261020.md`.

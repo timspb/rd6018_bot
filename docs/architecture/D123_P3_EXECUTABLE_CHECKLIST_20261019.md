@@ -243,3 +243,17 @@ source change was made in Sprint 05.
 - [ ] Next gate: inspect outer stage routing, tick evidence/trace assembly,
   and terminal persistence ownership. Preserve Guard/restore boundaries; do
   not start P4.
+
+## Sprint 36 — SAFE_WAIT compatibility router retirement
+
+- [x] Confirm `_handle_safe_wait_stage_override` has no production call sites;
+  remove the compatibility router and retarget direct tests to canonical
+  recovery/final SAFE_WAIT owners.
+- [x] Preserve the authoritative tick route, fail-closed checks, action/token
+  values, verified Storage commit, and persisted completion intent.
+- [x] Focused suite **30 PASS**; full Python 3.12 offline discovery
+  **2,426 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT36_EVIDENCE_20261020.md`.
+- [ ] Next gate: separately assess the test-only MIX characterization hook,
+  then tick evidence/trace assembly and terminal persistence. Preserve P2 Guard
+  restore and do not start P4.
