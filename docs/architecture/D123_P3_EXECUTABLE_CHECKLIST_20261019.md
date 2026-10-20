@@ -108,3 +108,24 @@ source change was made in Sprint 05.
 - [x] Run focused/full Python 3.12 offline discovery, `compileall`, and diff
   check; see `D123_SPRINT26_EVIDENCE_20261019.md`.
 - [x] Commit one source-only cut and finish with a clean worktree.
+
+## Sprint 27 — broader terminal persistence ownership (blocked, documented)
+
+- [x] Starting point pinned: clean `7f5e334d2d657b1c22528026fd7f1dafece162c8`.
+- [x] Trace DONE saves from both the receipt-gated Storage completion effect
+  and `STOP_AND_DIAGNOSE` into the canonical atomic writer and inspect restore
+  admission/fallback.
+- [x] Record the exact blocker: terminal snapshot serialization and restore
+  normalization are shared canonical persistence responsibilities. Moving only
+  Storage/DONE fields would split schema authority or change the verified
+  completion's stage/save ordering; moving the whole serializer is not a
+  bounded P3 cut and risks ordinary-session parity.
+- [x] No source ownership was moved or deleted. Focused and full offline
+  regression, compileall and diff-check results are in
+  `D123_SPRINT27_EVIDENCE_20261019.md`.
+- [ ] Next gate: characterize a transaction-shaped terminal persistence port
+  used by both Storage completion and STOP_AND_DIAGNOSE, including injected
+  writer failure and restart/restore parity. Keep the writer in
+  `runtime.charge.persistence`; do not add a parallel serializer. Resume only
+  when a cut can transfer terminal snapshot authority without changing the
+  verified receipt -> stage edge -> canonical save ordering.

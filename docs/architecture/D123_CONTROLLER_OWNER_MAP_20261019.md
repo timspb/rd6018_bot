@@ -625,3 +625,21 @@ Broader terminal session serialization ownership, Storage/DONE integration,
 Manual integration and eventual application-owned tick remain open. P2 MAIN
 Guard restore admission remains deferred/fail-closed; P3 is not complete and P4
 has not started.
+
+### Sprint 27 terminal persistence ownership assessment — blocked
+
+At exact clean HEAD `7f5e334d2d657b1c22528026fd7f1dafece162c8`, the DONE
+document has one canonical serializer/atomic writer in
+`runtime.charge.persistence.save_session`, with DONE restore admission and
+legacy terminal/OFF normalization in that same persistence owner. Both the
+receipt-gated `FinalSafeWaitCompletionEffect` and the separate
+`STOP_AND_DIAGNOSE` effect save through the controller boundary. Storage intent
+is now explicit after Sprint 26, while the generic persistence path remains the
+schema authority. There is no safe isolated P3 transfer of broader terminal
+serialization: moving only DONE assembly would split the persisted schema owner;
+moving the whole generic serializer or restore normalizer would exceed the
+Storage/DONE cut and risk ordinary-session behavior and fail-closed restart
+semantics. Therefore Sprint 27 deliberately makes no source change and adds no
+abstraction. The exact characterization gate is recorded in
+`D123_SPRINT27_EVIDENCE_20261019.md`; P3 and P2 remain open, and P4 has not
+started.
