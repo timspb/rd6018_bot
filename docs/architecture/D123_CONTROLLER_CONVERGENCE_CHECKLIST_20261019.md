@@ -79,6 +79,7 @@ the current cut and test counts.
 - [x] Sprint 37 removed the unused `_handle_mix_stage_override` characterization hook after confirming no production or test call sites; a regression prevents its return. MIX remains owned by modular `tick`/mix scaffold. Focused set **38 PASS**, full Python 3.12 offline discovery **2,427 PASS / 3 skipped**, compileall and diff-check PASS. See `D123_SPRINT37_EVIDENCE_20261020.md`.
 - [x] Sprint 38 moved the four analyzed extrema/reversal log projections from `tick` into `runtime.charge.evidence.trace_context.log_analysis_events`, preserving exact formats and the metrics binding used by later signal/MAIN evidence assembly. Focused set **44 PASS**, full Python 3.12 offline discovery **2,428 PASS / 3 skipped**, compileall and diff-check PASS. See `D123_SPRINT38_EVIDENCE_20261020.md`.
 - [x] Sprint 39 centralized admitted stage routing in `runtime.charge.runtime.stage_authority.apply_authoritative_stage_tick`, removed duplicated production subclass MAIN dispatch, and retained Diagnostic HV veto plus durable MIX elapsed-time projection. Production subclass regression covers both allowed MAIN→MIX and diagnostic fail-closed STOP/OFF. Focused set **79 PASS**, full Python 3.12 offline discovery **2,432 PASS / 3 skipped**, compileall and diff-check PASS. See `D123_SPRINT39_EVIDENCE_20261020.md`.
+- [x] Sprint 40 moved controller action-batch orchestration and verified-enable commit coordination into `application.controller_action_execution`; the runtime callsite remains inside the same owner-lock scope. ExecutionPort remains sole physical transaction owner; missing commit after verified ON still requests verified OFF. Focused set **52 PASS**, full Python 3.12 offline discovery **2,435 PASS / 3 skipped**, compileall and diff-check PASS. See `D123_SPRINT40_EVIDENCE_20261020.md`.
 - [x] Final SAFE_WAIT decision/action construction: Sprint 12 typed authority effect; verified DONE commit remains Sprint 10 owner.
 - [ ] Storage/DONE and Manual integration.
 - [x] Residual COOLING resume typed effect (Sprint 13).
@@ -90,6 +91,7 @@ the current cut and test counts.
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths
 - [ ] Sprint 39 is a routing cut only: controller `tick` orchestration and mutable action dictionary remain; Manual integration and broader session/DONE ownership remain open. P3 is NOT complete.
+- [ ] Sprint 40 moves application transaction coordination only: the controller callback still owns verified transition mutation; controller `tick` and action assembly, Manual integration, and broader session/DONE ownership remain open. P3 is NOT complete.
 
 ## P4 façade elimination
 - [ ] `runtime.production_runtime` uses one canonical application charge owner

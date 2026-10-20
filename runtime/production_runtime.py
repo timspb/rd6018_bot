@@ -82,6 +82,7 @@ from config import (
     TG_TOKEN,
 )
 from application.execution_port import get_or_create_execution_port
+from application.controller_action_execution import execute_controller_action_batch
 from application.session_recovery_service import SessionRecoveryService
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
@@ -1065,74 +1066,25 @@ async def _apply_controller_output_actions(
     ordering, startup settle, final V/I/OVP/OCP verification and forced OFF are
     owned by :class:`application.execution_port.ExecutionPort`.
     """
-    execution = await _runtime_execution_port().execute_controller_actions(
-        actions,
-        live,
-        max_stage_current_a=float(MAX_STAGE_CURRENT),
-        ocp_offset_a=float(OCP_OFFSET),
-        idle_safe_ocp_a=float(IDLE_SAFE_OCP),
-        stabilize_delay_s=float(OCP_STABILIZE_DELAY_SEC),
+    return await execute_controller_action_batch(
+        actions, live,
+        execution_port=_runtime_execution_port(),
+        controller=charge_controller,
+        battery_v=battery_v,
+        current=current,
+        temp=temp,
+        ah=ah,
+        max_stage_current_a=MAX_STAGE_CURRENT,
+        ocp_offset_a=OCP_OFFSET,
+        idle_safe_ocp_a=IDLE_SAFE_OCP,
+        stabilize_delay_s=OCP_STABILIZE_DELAY_SEC,
         recipe_voltage_ceiling_v=float(PB_AUTOMATIC_TARGET_CEILING_V.default),
         has_ovp=bool(ENTITY_MAP.get("ovp")),
         has_ocp=bool(ENTITY_MAP.get("ocp")),
+        notify=_charge_notify,
+        log_event=log_event,
+        logger=logger,
     )
-    enabled = execution.enabled
-
-    if actions.get("turn_on") and not enabled:
-        logger.warning(
-            "Controller Output ON request was not verified; stage commit withheld"
-        )
-    if execution.final_targets_missing:
-        logger.error("Final startup protection verification lacks V/I/OVP target")
-    elif execution.final_verification_failed:
-        logger.error(
-            "Final OVP/OCP/V/I verification failed after startup settle; forcing OFF"
-        )
-
-    transition = actions.get("verified_enable_transition")
-    if isinstance(transition, dict):
-        commit = None
-        if enabled:
-            commit_fn = getattr(
-                charge_controller,
-                "commit_verified_enable_transition",
-                None,
-            )
-            if callable(commit_fn):
-                commit = commit_fn(
-                    transition,
-                    now=time.time(),
-                    voltage=float(battery_v),
-                    current=float(current),
-                    ah=float(ah),
-                )
-        if not enabled or not isinstance(commit, dict):
-            if enabled:
-                logger.error(
-                    "Verified Output ON could not be bound to controller transition; forcing OFF"
-                )
-                await _runtime_execution_port().request_verified_off()
-                enabled = False
-            logger.warning(
-                "Verified-enable stage transition remains pending in SAFE_WAIT"
-            )
-        else:
-            charge_controller._last_known_output_on = True
-            event_name = str(commit.get("log_event") or "").strip()
-            if event_name:
-                log_event(
-                    charge_controller.current_stage,
-                    battery_v,
-                    current,
-                    temp,
-                    ah,
-                    event_name,
-                )
-            notify = str(commit.get("notify") or "").strip()
-            if notify:
-                _charge_notify(notify, critical=False)
-
-    return enabled
 
 
 async def _hard_stop_charge(clear_session: bool = True) -> None:
