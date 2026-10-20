@@ -124,22 +124,40 @@ have direct references, while many others are called internally.
 
 ## ProductionChargeController transitional surface
 
-`runtime.production_runtime` constructs `ProductionChargeController`; it does
-not directly instantiate `ManagedChargeController`. `ProductionChargeController`
-remains a subclass of that base because state, lifecycle, session restore, and
-other P2 responsibilities have not been migrated. Its unique active responsibilities are recipe-envelope target clamping,
-continuous tail-hold policy, cooling pause snapshot/restore, finish-evidence and
-runtime-signal session extensions, production tick wrapper, and fail-closed
-restore/notification adaptation. These remain transitional production behavior
-and are not a second production FSM. `diagnostic_controller.py` subclasses the
-production controller for the distinct Diagnostic intent. Tests include
-`test_production_controller.py`, `test_diagnostic_controller.py`, and cooling,
-restore, and finish-evidence suites.
+`runtime.production_runtime` constructs one `ProductionChargeController`; it
+does not directly instantiate `ManagedChargeController`. The production class
+still inherits the base session host because its canonical state initialization,
+runtime initialization, target adapter call graph, and restore lifecycle remain
+in use. D123 Sprint 52 reduced the production class from 22 method declarations
+and 10 base overrides at the starting SHA to 10 declarations and 8 overrides.
+Continuous-tail hold, cooling tick snapshot/resume, runtime-signal snapshot and
+restore, finish-evidence validation/restore, session extension serialization,
+and notification projection now live in
+`application.production_session_extensions`; those functions mutate or read the
+same host and do not create a second FSM/session owner. The class retains only a
+thin `_session_document_extensions` adapter because canonical
+`runtime.charge.session_atomic` calls that host hook.
 
-Sprint 03 removes its unused independent cooling, finish-state, and runtime
-signal JSON patch writers. Its remaining restore reader uses the canonical
-read function in `runtime.charge.persistence`; serialized extension keys remain
-emitted by `_session_document_extensions` during the canonical complete save.
+Remaining production override names are `__init__`, `_new_runtime`, `_prep_target`,
+`_main_target`, `_desulf_target`, `_mix_target`, `_get_target_v_i`, and
+`try_restore_session`. The first seven bind production cooling-runtime creation
+and recipe-envelope target adaptation to the inherited state; `try_restore_session`
+continues the inherited restore transaction and performs guarded session restore
+in the established order. Removing these requires the deferred P2 canonical
+session/state lifecycle seam, including MAIN Guard restore admission. See
+`D123_SPRINT52_EVIDENCE_20261020.md` for the exact dependency inventory and tests.
+`diagnostic_controller.py` subclasses the production host for its distinct
+Diagnostic intent. Tests include `test_production_controller.py`,
+`test_diagnostic_controller.py`, and the cooling, restore, and finish-evidence
+suites.
+
+Sprint 03 removed unused independent cooling, finish-state, and runtime-signal
+JSON patch writers. The remaining restore reader uses the canonical read
+function in `runtime.charge.persistence`; serialized extension keys are emitted
+through the single `_session_document_extensions` host hook during the canonical
+complete save. Sprint 52 moved that hook's implementation and extension restore
+policy into the application extension owner without changing the session schema
+or writer.
 
 ## State field inventory and lifecycle
 
@@ -150,7 +168,7 @@ emitted by `_session_document_extensions` during the canonical complete save.
 | `_v2_trace_session_id`, `_v2_trace_started_at`, identity inputs | Runtime charge session owner for new/restore snapshot; controller stores active snapshot | `runtime.charge.session.TraceIdentitySnapshot`; canonical persistence enriches accepted restore | **High.** Preserve deterministic migration identity; guarded documents remain unmodified and restore-held |
 | `_v2_session_signal_context`, recovery/final SAFE_WAIT continuation | Controller plus persistence module contracts | Captured in tick and serialized/restored by production controller and runtime | **Critical.** P2 existing session/persistence owner; keep fail-closed restore |
 | `current_stage`, stage times, transition history, target/Ah counters, timers | Controller initialized through controller_state/lifecycle; direct production readers and tick mutations | Session lifecycle, tick, UI, guard and restore | **Critical.** P2/P3 canonical session state and application-owned transition commit |
-| `_v2_continuous_tail_since`, `_v2_continuous_tail_stage_start`, finish/cooling evidence fields | Production controller | MAIN samples, cooling pause and session extensions | **High.** Keep distinct from plateau clock; later evidence/session convergence |
+| `_v2_continuous_tail_since`, `_v2_continuous_tail_stage_start`, `_v2_cooling_pause`, `_finish_evidence`, `_delta_reported`, `_delta_trigger_mode` | Single production host; behavior in `application.production_session_extensions` | MAIN application tick, cooling pause/resume, canonical extension serialization/restore | **High.** Fields remain on the one host; schema and validation unchanged |
 | `MainGuardShadow` / checkpoint identity | Existing runtime and `session_atomic` | Production telemetry/admission/guard loop; atomic journal path | **Critical.** No migration in P1; preserve source SHA, revision, monotonic 1800s ratchet and transaction semantics |
 
 The plateau clock is deliberately not restored from disk: before D123 its field

@@ -5,11 +5,9 @@ import logging
 import math
 import os
 import time
-from dataclasses import replace
 from typing import Any, Dict, Optional, Tuple
 
-from runtime.charge.runtime.cooling_guard import finite, validate_cooling_pause
-from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
+from runtime.charge.runtime.cooling_guard import validate_cooling_pause
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.mix_variables import (
     AGM_MIX_MAX_ACTIVE_HOURS,
@@ -19,8 +17,16 @@ from runtime.charge.strategy.mix_variables import (
 from charge_controller import ManagedChargeController
 from runtime.charge.persistence import SESSION_FILE
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
-from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from application.production_target_policy import bound_target, recipe_envelope
+from application.production_session_extensions import (
+    OPERATOR_REASON_TEXT,
+    reset_continuous_tail_hold,
+    restore_finish_state,
+    restore_runtime_signal_snapshot,
+    restore_runtime_signal_state,
+    session_document_extensions,
+    valid_finish_evidence,
+)
 from pb_domain import BatteryCondition, ChargeIntent
 
 
@@ -35,9 +41,6 @@ V2_MIX_MAX_HOURS = {
     "AGM": float(AGM_MIX_MAX_ACTIVE_HOURS.default),
 }
 
-RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
-
-
 class ProductionChargeController(ManagedChargeController):
     """Live controller with recipe envelopes and production pause semantics."""
 
@@ -45,36 +48,7 @@ class ProductionChargeController(ManagedChargeController):
     # same defaults historically applied by this production restore boundary.
     RESTORE_TRACE_DEFAULT_INTENT = ChargeIntent.NORMAL
     RESTORE_TRACE_DEFAULT_CONDITION = BatteryCondition.UNKNOWN
-
-    _OPERATOR_REASON_TEXT = {
-        "main_tail_hold_complete_recovery_hv_authorized": (
-            "Хвост основного заряда стабилен; восстановительный HV-этап разрешён."
-        ),
-        "main_tail_hold_complete_normal_charge": (
-            "Хвост основного заряда стабилен; основной заряд завершён."
-        ),
-        "moderate_stable_cv_plateau_recovery_evidence": (
-            "Подтверждена стабильная CV-полка; разрешён сервисный этап восстановления."
-        ),
-        "moderate_plateau_after_desulfation_budget": (
-            "CV-полка сохраняется после допустимых сервисных попыток; переход в Mix."
-        ),
-        "agm_tail_hold_complete_advance_voltage_step": (
-            "AGM-хвост стабилен; переход на следующую ступень напряжения."
-        ),
-        "persistent_main_plateau_requires_recovery_intent": (
-            "Устойчивая полка требует отдельного режима восстановления."
-        ),
-        "confirmed_delta_finish_hold_complete": (
-            "Подтверждённая Delta выдержана 2 часа; активный этап завершён."
-        ),
-        "mix_profile_observation_window_exhausted": (
-            "Достигнут максимальный безопасный интервал наблюдения Mix."
-        ),
-        "mode_specific_end_of_charge_evidence_confirmed": (
-            "Подтверждён признак окончания заряда; запущена двухчасовая контрольная выдержка."
-        ),
-    }
+    _OPERATOR_REASON_TEXT = OPERATOR_REASON_TEXT
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -136,489 +110,10 @@ class ProductionChargeController(ManagedChargeController):
             hv=self.current_stage in {self.STAGE_DESULFATION, self.STAGE_MIX},
         )
 
-    def _continuous_tail_hold_seconds(self) -> float:
-        return (
-            agm_tail_hold_seconds()
-            if self.battery_type == self.PROFILE_AGM
-            else standard_tail_hold_seconds()
-        )
-
-    def _reset_continuous_tail_hold(self) -> None:
-        self._v2_continuous_tail_since = None
-        self._v2_continuous_tail_stage_start = None
-
-    def _apply_continuous_tail_hold(
-        self,
-        assessment: Optional[FirstStageAssessment],
-        *,
-        stage_before: str,
-        timestamp_s: float,
-    ) -> Optional[FirstStageAssessment]:
-        """Apply the production-only uninterrupted tail residence to typed evidence."""
-        if stage_before != self.STAGE_MAIN or assessment is None:
-            self._reset_continuous_tail_hold()
-            return assessment
-
-        timestamp_s = float(timestamp_s)
-        stage_marker = float(self.stage_start_time or 0.0)
-        if self._v2_continuous_tail_stage_start != stage_marker:
-            self._v2_continuous_tail_stage_start = stage_marker
-            self._v2_continuous_tail_since = None
-
-        if assessment.state != FirstStageState.TAIL_READY:
-            self._v2_continuous_tail_since = None
-            return assessment
-
-        if self._v2_continuous_tail_since is None:
-            self._v2_continuous_tail_since = timestamp_s
-
-        held_s = max(0.0, timestamp_s - self._v2_continuous_tail_since)
-        required_s = self._continuous_tail_hold_seconds()
-        if held_s + 1e-6 >= required_s:
-            return assessment
-
-        return replace(
-            assessment,
-            state=FirstStageState.BULK_OR_TAPER,
-            reason=(
-                f"continuous tail hold {held_s / 3600.0:.2f}h / "
-                f"{required_s / 3600.0:.2f}h"
-            ),
-        )
-
-    def _runtime_signal_snapshot(self) -> Dict[str, Any]:
-        runtime = self._v2_runtime
-        if not isinstance(runtime, CoolingAwareShadowRecoveryRuntime):
-            return {}
-        tracker = runtime.tracker
-        analyzer = tracker._analyzer
-        return {
-            "tracker_stage_key": tracker._stage_key,
-            "tracker_stage_started_at": tracker._stage_started_at,
-            "tracker_stage_start_ah": tracker._stage_start_ah,
-            "analyzer_stage_name": analyzer.stage_name,
-            "analyzer_target_voltage_v": analyzer.target_voltage_v,
-            "current_min_a": analyzer._current_min_a,
-            "current_min_time_s": analyzer._current_min_time_s,
-            "voltage_max_v": analyzer._voltage_max_v,
-            "voltage_max_time_s": analyzer._voltage_max_time_s,
-            "reversal_confirmations": analyzer._reversal_confirmations,
-            "last_reversal_confirmation_s": analyzer._last_reversal_confirmation_s,
-            "reversal_emitted": analyzer._reversal_emitted,
-            "voltage_reversal_confirmations": analyzer._voltage_reversal_confirmations,
-            "last_voltage_reversal_confirmation_s": analyzer._last_voltage_reversal_confirmation_s,
-            "voltage_reversal_emitted": analyzer._voltage_reversal_emitted,
-        }
-
-    def _restore_runtime_signal_snapshot(self, state: Dict[str, Any]) -> None:
-        runtime = self._v2_runtime
-        if not isinstance(runtime, CoolingAwareShadowRecoveryRuntime) or not state:
-            return
-        tracker = runtime.tracker
-        analyzer = tracker._analyzer
-        tracker._stage_key = state.get("tracker_stage_key")
-        tracker._stage_started_at = state.get("tracker_stage_started_at")
-        tracker._stage_start_ah = state.get("tracker_stage_start_ah")
-        analyzer.reset_stage(
-            state.get("analyzer_stage_name"),
-            target_voltage_v=state.get("analyzer_target_voltage_v"),
-        )
-        analyzer._current_min_a = state.get("current_min_a")
-        analyzer._current_min_time_s = state.get("current_min_time_s")
-        analyzer._voltage_max_v = state.get("voltage_max_v")
-        analyzer._voltage_max_time_s = state.get("voltage_max_time_s")
-        analyzer._reversal_emitted = bool(state.get("reversal_emitted", False))
-        analyzer._voltage_reversal_emitted = bool(state.get("voltage_reversal_emitted", False))
-        analyzer._reversal_confirmations = int(state.get("reversal_confirmations", 0) or 0)
-        analyzer._last_reversal_confirmation_s = state.get("last_reversal_confirmation_s")
-        analyzer._voltage_reversal_confirmations = int(
-            state.get("voltage_reversal_confirmations", 0) or 0
-        )
-        analyzer._last_voltage_reversal_confirmation_s = state.get(
-            "last_voltage_reversal_confirmation_s"
-        )
-
-    def _capture_cooling_pause(
-        self,
-        *,
-        entered_at: float,
-        source_stage: str,
-        source_stage_start_time: float,
-        source_stage_start_ah: float,
-        source_target: Tuple[float, float],
-        source_finish_timer_start: Optional[float],
-        source_first_hold_since: Optional[float],
-        source_first_hold_current: Optional[float],
-        source_cv_since: Optional[float],
-        source_tail_since: Optional[float],
-        source_runtime_signal: Dict[str, Any],
-    ) -> None:
-        self._v2_cooling_pause = {
-            "source_stage": source_stage,
-            "entered_at": float(entered_at),
-            "source_stage_start_time": float(source_stage_start_time),
-            "source_stage_start_ah": float(source_stage_start_ah),
-            "target_v": float(source_target[0]),
-            "target_i": float(source_target[1]),
-            "finish_timer_start": source_finish_timer_start,
-            "first_stage_hold_since": source_first_hold_since,
-            "first_stage_hold_current": source_first_hold_current,
-            "cv_since": source_cv_since,
-            "continuous_tail_since": source_tail_since,
-            "delta_reported": bool(self._delta_reported),
-            "delta_trigger_mode": self._delta_trigger_mode,
-            "finish_evidence": dict(self._finish_evidence) if self._finish_evidence else None,
-            "runtime_signal": source_runtime_signal,
-        }
-        # Always return to the exact target that was active before Cooling. This also
-        # fixes legacy PREP -> Cooling, where _get_current_targets() returned 14V/1A.
-        self._cooling_from_stage = source_stage
-        self._cooling_target_v, self._cooling_target_i = source_target
-        self.finish_timer_start = source_finish_timer_start
-        self._stuck_current_since = None
-        self._stuck_current_value = None
-        self._main_sample_evidence.reset()
-        self._delta_trigger_count = 0
-        self._last_delta_confirm_time = 0.0
-
-    def _resume_cooling_pause(self, *, resumed_at: float) -> None:
-        pause = self._v2_cooling_pause
-        if not pause:
-            return
-        duration = max(0.0, float(resumed_at) - float(pause["entered_at"]))
-        self.stage_start_time = float(pause["source_stage_start_time"]) + duration
-        self._stage_start_ah = float(pause.get("source_stage_start_ah") or self._stage_start_ah)
-
-        finish = pause.get("finish_timer_start")
-        self.finish_timer_start = float(finish) + duration if finish is not None else None
-        hold_since = pause.get("first_stage_hold_since")
-        self._first_stage_hold_since = float(hold_since) + duration if hold_since is not None else None
-        self._first_stage_hold_current = pause.get("first_stage_hold_current")
-        cv_since = pause.get("cv_since")
-        self._cv_since = float(cv_since) + duration if cv_since is not None else None
-        tail_since = pause.get("continuous_tail_since")
-        self._v2_continuous_tail_since = float(tail_since) + duration if tail_since is not None else None
-        self._v2_continuous_tail_stage_start = self.stage_start_time
-
-        self._stuck_current_since = None
-        self._stuck_current_value = None
-        self._main_sample_evidence.reset()
-        self._delta_trigger_count = 0
-        self._last_delta_confirm_time = 0.0
-        self._delta_reported = bool(pause.get("delta_reported", False))
-        self._delta_trigger_mode = pause.get("delta_trigger_mode")
-        evidence = pause.get("finish_evidence")
-        self._finish_evidence = dict(evidence) if isinstance(evidence, dict) else None
-
-        runtime = self._v2_runtime
-        if isinstance(runtime, CoolingAwareShadowRecoveryRuntime):
-            # A fresh process restore reconstructs the pre-Cooling extrema first.
-            self._restore_runtime_signal_snapshot(dict(pause.get("runtime_signal") or {}))
-            runtime.resume_after_cooling(duration)
-
-        self._v2_cooling_pause = None
-
-    def _save_session(
-        self, voltage: float, current: float, ah: float, *,
-        terminal_request=None,
-    ) -> None:
-        super()._save_session(
-            voltage, current, ah,
-            terminal_request=terminal_request,
-        )
 
     def _session_document_extensions(self, document: Dict[str, Any]) -> Dict[str, Any]:
-        """Return V2 continuation metadata for the canonical atomic session write."""
-        result: Dict[str, Any] = {}
-        if self._v2_cooling_pause is not None:
-            result["v2_cooling_pause"] = self._v2_cooling_pause
-        else:
-            result.pop("v2_cooling_pause", None)
+        return session_document_extensions(self, document)
 
-        context = self._v2_session_signal_context
-        mode = context.get("mode") if isinstance(context, dict) else None
-        runtime_valid = (
-            self.current_stage == self.STAGE_MIX
-            and isinstance(context, dict)
-            and mode in {"CV", "CC"}
-            and context.get("stage") == self.STAGE_MIX
-            and context.get("session_id") == self._v2_trace_session_id
-            and context.get("output_on") is True
-            and context.get("telemetry_valid") is True
-            and ((mode == "CV" and context.get("cv_state") is True and context.get("current_min_a") is not None)
-                 or (mode == "CC" and context.get("cc_state") is True and context.get("voltage_max_v") is not None))
-        )
-        if runtime_valid:
-            result["runtime_signal"] = {"version": 2, **context}
-        else:
-            result.pop("runtime_signal", None)
-
-        try:
-            timer = float(self.finish_timer_start)
-            timer_valid = math.isfinite(timer) and timer > 0.0
-        except (TypeError, ValueError, OverflowError):
-            timer_valid = False
-        finish_valid = (
-            self.current_stage == self.STAGE_MIX and timer_valid
-            and self._delta_reported is True
-            and self._delta_trigger_mode in {"CV", "CC"}
-            and bool(self._v2_trace_session_id)
-        )
-        if finish_valid:
-            result.update({
-                "delta_state_version": 1,
-                "delta_session_id": self._v2_trace_session_id,
-                "delta_reported": True,
-                "delta_trigger_mode": self._delta_trigger_mode,
-            })
-            evidence = self._finish_evidence
-            if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode):
-                result["finish_evidence"] = dict(evidence)
-            else:
-                result.pop("finish_evidence", None)
-        else:
-            for key in (
-                "delta_state_version", "delta_session_id", "delta_reported",
-                "delta_trigger_mode", "finish_evidence",
-            ):
-                result.pop(key, None)
-        return result
-
-    def _restore_finish_state(self, document: Dict[str, Any]) -> None:
-        self._delta_reported = False
-        self._delta_trigger_mode = None
-        self._finish_evidence = None
-        if self.current_stage != self.STAGE_MIX:
-            return
-        marker_present = any(
-            key in document
-            for key in ("delta_state_version", "delta_session_id", "delta_reported", "delta_trigger_mode")
-        )
-        if self.finish_timer_start is None:
-            if marker_present:
-                logger.info("SESSION_RESTORE_FINISH_STATE_RESET reason=missing_finish_timer")
-            return
-        try:
-            finish_timer = float(self.finish_timer_start)
-        except (TypeError, ValueError, OverflowError):
-            self.finish_timer_start = None
-            logger.warning("SESSION_RESTORE_FINISH_STATE_RESET reason=invalid_finish_timer")
-            return
-        if not math.isfinite(finish_timer) or finish_timer <= 0.0:
-            self.finish_timer_start = None
-            logger.warning("SESSION_RESTORE_FINISH_STATE_RESET reason=invalid_finish_timer")
-            return
-        try:
-            marker_version = int(document.get("delta_state_version", 0) or 0)
-        except (TypeError, ValueError, OverflowError):
-            marker_version = 0
-        if (
-            marker_version != 1
-            or document.get("delta_session_id") != self._v2_trace_session_id
-            or document.get("delta_reported") is not True
-            or document.get("delta_trigger_mode") not in {"CV", "CC"}
-        ):
-            logger.info("SESSION_RESTORE_FINISH_STATE_RESET reason=missing_or_incompatible_marker")
-            return
-        self.finish_timer_start = finish_timer
-        self._delta_reported = True
-        self._delta_trigger_mode = str(document["delta_trigger_mode"])
-        evidence = document.get("finish_evidence")
-        if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode):
-            self._finish_evidence = dict(evidence)
-            logger.info(
-                "SESSION_RESTORE_FINISH_EVIDENCE mode=%s reference=%s delta=%s accepted_at=%.3f",
-                evidence["mode"], evidence["reference_value"], evidence["accepted_delta"], evidence["accepted_at"],
-            )
-        elif evidence is not None:
-            logger.info("SESSION_RESTORE_FINISH_EVIDENCE_UNAVAILABLE reason=missing_or_incompatible_summary")
-        logger.info(
-            "SESSION_RESTORE_FINISH_STATE mode=%s started_at=%.3f session=%s",
-            self._delta_trigger_mode,
-            finish_timer,
-            self._v2_trace_session_id or "-",
-        )
-
-    def _valid_finish_evidence(self, evidence: Any, *, mode: str) -> bool:
-        if not isinstance(evidence, dict) or mode not in {"CV", "CC"}:
-            return False
-        if evidence.get("version") != 1 or evidence.get("mode") != mode:
-            return False
-        if evidence.get("session_id") != self._v2_trace_session_id:
-            return False
-        try:
-            reference = float(evidence["reference_value"])
-            accepted_delta = float(evidence["accepted_delta"])
-            accepted_at = float(evidence["accepted_at"])
-        except (KeyError, TypeError, ValueError, OverflowError):
-            return False
-        return all(math.isfinite(value) for value in (reference, accepted_delta, accepted_at))
-
-    def _restore_runtime_signal_state(
-        self,
-        document: Dict[str, Any],
-        *,
-        output_is_on: Optional[Any],
-        is_cv: Optional[bool],
-        is_cc: Optional[bool],
-    ) -> None:
-        runtime_signal = document.get("runtime_signal") if isinstance(document, dict) else None
-
-        def reset(reason: str) -> None:
-            logger.warning("SESSION_RESTORE_SIGNAL_RESET reason=%s", reason)
-
-        if not isinstance(runtime_signal, dict):
-            reset("missing_runtime_signal")
-            return
-        if int(runtime_signal.get("version", 0) or 0) != 2:
-            reset("unsupported_runtime_signal_version")
-            return
-        if runtime_signal.get("session_id") != self._v2_trace_session_id:
-            reset("session_identity_mismatch")
-            return
-        mode = str(runtime_signal.get("mode") or "").upper()
-        if mode not in {"CV", "CC"}:
-            reset("unsupported_signal_mode")
-            return
-        try:
-            generation = float(runtime_signal.get("session_generation"))
-            observed_at = float(runtime_signal.get("telemetry_observed_at"))
-            stored_age = float(runtime_signal.get("telemetry_age_s"))
-            current_min_raw = runtime_signal.get("current_min_a")
-            min_age_raw = runtime_signal.get("current_min_time_s")
-            delta_reference_raw = runtime_signal.get("delta_reference_a")
-            current_min = float(current_min_raw) if current_min_raw is not None else None
-            min_age = float(min_age_raw) if min_age_raw is not None else None
-            delta_reference = float(delta_reference_raw) if delta_reference_raw is not None else None
-            voltage_max_raw = runtime_signal.get("voltage_max_v")
-            voltage_max_age_raw = runtime_signal.get("voltage_max_time_s")
-            delta_reference_v_raw = runtime_signal.get("delta_reference_v")
-            voltage_max = float(voltage_max_raw) if voltage_max_raw is not None else None
-            voltage_max_age = float(voltage_max_age_raw) if voltage_max_age_raw is not None else None
-            delta_reference_v = (
-                float(delta_reference_v_raw) if delta_reference_v_raw is not None else None
-            )
-            reversal_confirmations = int(runtime_signal.get("reversal_confirmations", 0) or 0)
-            voltage_reversal_confirmations = int(
-                runtime_signal.get("voltage_reversal_confirmations", 0) or 0
-            )
-            voltage_last_reversal_confirmation_s = runtime_signal.get(
-                "voltage_last_reversal_confirmation_s"
-            )
-            voltage_reversal_emitted = bool(
-                runtime_signal.get("voltage_reversal_emitted", False)
-            )
-        except (TypeError, ValueError, OverflowError):
-            reset("invalid_runtime_signal_numbers")
-            return
-        if not all(
-            math.isfinite(value)
-            for value in (
-                generation, observed_at, stored_age,
-                *(value for value in (voltage_max, voltage_max_age, delta_reference_v) if value is not None),
-                *(value for value in (current_min, min_age, delta_reference) if value is not None),
-            )
-        ) or reversal_confirmations < 0 or voltage_reversal_confirmations < 0:
-            reset("invalid_runtime_signal_numbers")
-            return
-        if abs(generation - float(self._v2_trace_started_at)) > 1e-6:
-            reset("session_generation_mismatch")
-            return
-        age = max(0.0, time.time() - observed_at)
-        if runtime_signal.get("output_on") is not True or output_is_on is not True:
-            reset("output_not_confirmed_on")
-            return
-        if runtime_signal.get("telemetry_valid") is not True:
-            reset("saved_evidence_not_valid")
-            return
-        observed_mode = "CV" if is_cv is True else ("CC" if is_cc is True else None)
-        if observed_mode != mode:
-            reset("mode_mismatch")
-            return
-        if age > RUNTIME_SIGNAL_RESTORE_MAX_AGE_S or stored_age > RUNTIME_SIGNAL_RESTORE_MAX_AGE_S:
-            reset("telemetry_stale")
-            return
-        if mode == "CV" and (
-            runtime_signal.get("cv_state") is not True
-            or current_min is None
-            or min_age is None
-            or delta_reference is None
-            or current_min < 0.0
-            or min_age < 0.0
-            or abs(delta_reference - current_min) > 1e-6
-        ):
-            reset("invalid_delta_reference")
-            return
-        if mode == "CC" and (
-            runtime_signal.get("cc_state") is not True
-            or voltage_max is None
-            or voltage_max_age is None
-            or delta_reference_v is None
-            or voltage_max <= 0.0
-            or voltage_max_age < 0.0
-            or abs(delta_reference_v - voltage_max) > 1e-6
-        ):
-            reset("invalid_delta_reference")
-            return
-        if self._v2_runtime is None or not hasattr(self._v2_runtime, "tracker"):
-            reset("runtime_unavailable")
-            return
-        if runtime_signal.get("stage") != self.STAGE_MIX:
-            reset("stage_mismatch")
-            return
-
-        state = {
-            "tracker_stage_key": self.STAGE_MIX.lower(),
-            "tracker_stage_started_at": self._v2_runtime.tracker._stage_started_at,
-            "tracker_stage_start_ah": self._v2_runtime.tracker._stage_start_ah,
-            "analyzer_stage_name": self.STAGE_MIX.lower(),
-            "analyzer_target_voltage_v": runtime_signal.get("target_voltage_v"),
-            "current_min_a": current_min if mode == "CV" else None,
-            "current_min_time_s": observed_at - min_age if mode == "CV" else None,
-            "reversal_confirmations": reversal_confirmations if mode == "CV" else 0,
-            "last_reversal_confirmation_s": (
-                runtime_signal.get("last_reversal_confirmation_s") if mode == "CV" else None
-            ),
-            "reversal_emitted": bool(runtime_signal.get("reversal_emitted", False)) if mode == "CV" else False,
-            "voltage_max_v": voltage_max if mode == "CC" else None,
-            "voltage_max_time_s": observed_at - voltage_max_age if mode == "CC" else None,
-            "voltage_reversal_confirmations": (
-                voltage_reversal_confirmations if mode == "CC" else 0
-            ),
-            "last_voltage_reversal_confirmation_s": (
-                voltage_last_reversal_confirmation_s if mode == "CC" else None
-            ),
-            "voltage_reversal_emitted": (
-                voltage_reversal_emitted if mode == "CC" else False
-            ),
-        }
-        self._restore_runtime_signal_snapshot(state)
-        logger.info(
-            "SESSION_RESTORE_SIGNAL_STATE mode=%s reference=%s age=%.1fs confirmations=%s session=%s",
-            mode,
-            f"{current_min:.3f}A" if mode == "CV" else f"{voltage_max:.3f}V",
-            age,
-            state["reversal_confirmations"],
-            self._v2_trace_session_id or "-",
-        )
-
-    @classmethod
-    def _operatorize_notification(cls, text: str) -> str:
-        result = str(text or "")
-        for reason, human in cls._OPERATOR_REASON_TEXT.items():
-            result = result.replace(reason, human)
-        replacements = {
-            "<b>🚀 V2 → Mix Mode</b>": "<b>🚀 Переход в Mix</b>",
-            "<b>🎯 V2 Delta подтверждена</b>": "<b>🎯 Delta подтверждена</b>",
-            "<b>✅ V2: этап завершён.</b>": "<b>✅ Этап завершён.</b>",
-            "<b>🛑 V2 остановил автоматическую эскалацию.</b>": "<b>🛑 Автоматический переход остановлен.</b>",
-            "<b>🚀 V2 AGM ступень": "<b>🚀 AGM ступень",
-            "🔧 <b>V2 десульфатация": "🔧 <b>Десульфатация",
-            "Sticky finish-hold: 2ч.": "Контрольная выдержка: 2 ч.",
-        }
-        for old, new in replacements.items():
-            result = result.replace(old, new)
-        return result
 
     def try_restore_session(
         self,
@@ -635,7 +130,7 @@ class ProductionChargeController(ManagedChargeController):
             return ok, message
         document = dict(getattr(self, "_session_restore_document", {}))
 
-        self._reset_continuous_tail_hold()
+        reset_continuous_tail_hold(self)
 
         # A persisted Guard is authority-bearing state. Restore it from the
         # exact canonical session identity before any caller can consider an
@@ -659,8 +154,9 @@ class ProductionChargeController(ManagedChargeController):
             self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
         if self.current_stage == self.STAGE_MIX:
-            self._restore_finish_state(document)
-            self._restore_runtime_signal_state(
+            restore_finish_state(self, document)
+            restore_runtime_signal_state(
+                self,
                 document,
                 output_is_on=output_is_on,
                 is_cv=is_cv,
@@ -694,10 +190,10 @@ class ProductionChargeController(ManagedChargeController):
             evidence = pause.get("finish_evidence")
             self._finish_evidence = (
                 dict(evidence)
-                if self._valid_finish_evidence(evidence, mode=self._delta_trigger_mode)
+                if valid_finish_evidence(self, evidence, mode=self._delta_trigger_mode)
                 else None
             )
-            self._restore_runtime_signal_snapshot(dict(pause.get("runtime_signal") or {}))
+            restore_runtime_signal_snapshot(self, dict(pause.get("runtime_signal") or {}))
             self._v2_target_voltage_v = self._cooling_target_v or self._v2_target_voltage_v
 
         if self.current_stage == self.STAGE_COOLING:

@@ -14,6 +14,13 @@ from typing import Any, Dict, Optional
 
 from application.recipe_policy import chemistry_for_profile
 from application.charge_stage_tick import apply_charge_stage_authority, run_charge_stage_tick
+from application.production_session_extensions import (
+    apply_continuous_tail_hold,
+    capture_cooling_pause,
+    operatorize_notification,
+    resume_cooling_pause,
+    runtime_signal_snapshot,
+)
 from mix_active_authority import MixActiveAuthorityError
 from runtime.charge.runtime.cooling_guard import finite, validate_cooling_pause
 from recovery_session import RecoveryTracePoint
@@ -66,7 +73,7 @@ async def run_charge_session_tick(
     if callable(authority_suspended) and authority_suspended():
         host.last_update_time = time.time()
         return {}
-    production_cooling = callable(getattr(host, "_capture_cooling_pause", None))
+    production_cooling = hasattr(host, "_v2_cooling_pause")
     if production_cooling and host.is_active and host.battery_type != host.PROFILE_CUSTOM:
         host._last_hourly_report = time.time()
 
@@ -107,7 +114,7 @@ async def run_charge_session_tick(
         pre_hold_current = host._first_stage_hold_current
         pre_cv_since = host._cv_since
         pre_tail_since = host._v2_continuous_tail_since
-        pre_runtime_signal = host._runtime_signal_snapshot()
+        pre_runtime_signal = runtime_signal_snapshot(host)
 
     actions = await _run_charge_session_tick_body(
         host, voltage, current, temp_ext, is_cv, ah,
@@ -121,7 +128,8 @@ async def run_charge_session_tick(
 
     now = float(host.last_update_time or time.time())
     if stage_before != host.STAGE_COOLING and host.current_stage == host.STAGE_COOLING:
-        host._capture_cooling_pause(
+        capture_cooling_pause(
+            host,
             entered_at=now,
             source_stage=stage_before,
             source_stage_start_time=pre_stage_start,
@@ -145,7 +153,7 @@ async def run_charge_session_tick(
                 return _fail_closed_cooling_actions(host, reason)
         host._save_session(float(voltage), float(current), float(ah))
     elif stage_before == host.STAGE_COOLING and host.current_stage != host.STAGE_COOLING:
-        host._resume_cooling_pause(resumed_at=now)
+        resume_cooling_pause(host, resumed_at=now)
         if host.current_stage == host.STAGE_SAFE_WAIT:
             assert pause_before is not None
             entered_at = float(pause_before["entered_at"])
@@ -163,7 +171,10 @@ async def run_charge_session_tick(
         host._save_session(float(voltage), float(current), float(ah))
 
     if isinstance(actions.get("notify"), str):
-        actions["notify"] = host._operatorize_notification(actions["notify"])
+        actions["notify"] = operatorize_notification(
+            actions["notify"],
+            reasons=getattr(type(host), "_OPERATOR_REASON_TEXT", None),
+        )
     return actions
 
 
@@ -307,7 +318,8 @@ async def _run_charge_session_tick_body(
             temperature_c=getattr(getattr(record.analysis, "sample", None), "temp_c", None),
         )
         first_stage_evidence = host._main_sample_evidence.assess(sample)
-        first_stage = host._apply_continuous_tail_hold(
+        first_stage = apply_continuous_tail_hold(
+            host,
             first_stage_evidence.assessment,
             stage_before=stage_before,
             timestamp_s=float(timestamp_s),

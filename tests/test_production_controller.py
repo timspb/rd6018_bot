@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from application.charge_session_tick import run_charge_session_tick
+from application.production_session_extensions import apply_continuous_tail_hold
 from runtime.charge.evidence.first_stage import FirstStageState, assess_first_stage
 from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
 from pb_domain import BatteryCondition, ChargeIntent
@@ -40,7 +41,8 @@ class ProductionControllerTests(unittest.TestCase):
             voltage_v=voltage_v, current_a=current_a, target_voltage_v=14.70,
             is_cv=is_cv,
         )
-        return controller._apply_continuous_tail_hold(
+        return apply_continuous_tail_hold(
+            controller,
             assessment, stage_before=controller.STAGE_MAIN, timestamp_s=timestamp_s,
         )
 
