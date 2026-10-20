@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from d123_final_safe_wait_helpers import enter_final_safe_wait
+from application.charge_stage_tick import run_charge_stage_tick
 
 from charge_controller import ManagedChargeController
 from production_controller import ProductionChargeController
@@ -106,7 +107,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_authoritative_mix_never_enters_historical_tick(self):
         controller = self._controller(ManagedChargeController.STAGE_MIX)
-        actions = await controller._run_stage_scaffold_tick(
+        actions = await run_charge_stage_tick(controller,
             stage_before=controller.STAGE_MIX,
             voltage=16.3,
             current=0.5,
@@ -125,7 +126,7 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller = self._controller(ManagedChargeController.STAGE_SAFE_WAIT)
         controller._final_safe_wait = self._final_continuation(controller)
         controller._safe_wait_next_stage = controller.STAGE_DONE
-        actions = await controller._run_stage_scaffold_tick(
+        actions = await run_charge_stage_tick(controller,
             stage_before=controller.STAGE_SAFE_WAIT,
             voltage=13.5,
             current=0.0,

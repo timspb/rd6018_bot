@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from charge_controller import ManagedChargeController
+from application.charge_stage_tick import run_charge_stage_tick
 from production_controller import ProductionChargeController
 from runtime.charge.runtime.recovery_scaffold import apply_recovery_safe_wait_authority
 from runtime.charge.strategy import desulfation as desulfation_strategy
@@ -74,7 +75,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_authoritative_desulfation_never_enters_historical_tick(self):
         controller = self._controller(ManagedChargeController.STAGE_DESULFATION)
-        actions = await controller._run_stage_scaffold_tick(
+        actions = await run_charge_stage_tick(controller,
             stage_before=controller.STAGE_DESULFATION,
             voltage=16.3,
             current=0.5,
@@ -103,7 +104,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             session_generation=controller._v2_trace_started_at,
         )
         controller._safe_wait_next_stage = controller.STAGE_MAIN
-        actions = await controller._run_stage_scaffold_tick(
+        actions = await run_charge_stage_tick(controller,
             stage_before=controller.STAGE_SAFE_WAIT,
             voltage=14.5,
             current=0.0,

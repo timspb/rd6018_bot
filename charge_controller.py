@@ -688,36 +688,6 @@ class ManagedChargeController:
             return None
         return apply_recovery_safe_wait_completion_effect(self, effect)
 
-    async def _run_stage_scaffold_tick(
-        self,
-        *,
-        stage_before: str,
-        voltage: float,
-        current: float,
-        temp_ext: Optional[float],
-        is_cv: bool,
-        ah: float,
-        output_is_on: Optional[Any],
-        manual_off_active: bool,
-        is_cc: Optional[bool],
-        manual_active: bool,
-    ) -> Dict[str, Any]:
-        """Compatibility entry to the application stage router."""
-        from application.charge_stage_tick import run_charge_stage_tick
-
-        return await run_charge_stage_tick(
-            self,
-            stage_before=stage_before,
-            voltage=voltage,
-            current=current,
-            temp_ext=temp_ext,
-            is_cv=is_cv,
-            ah=ah,
-            output_is_on=output_is_on,
-            manual_off_active=manual_off_active,
-            is_cc=is_cc,
-            manual_active=manual_active,
-        )
     async def tick(
         self,
         voltage: float,

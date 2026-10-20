@@ -94,9 +94,10 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         auto = (ROOT / "auto_strategy.py").read_text(encoding="utf-8")
         scaffold = stage_router
         self.assertIn("run_authoritative_main_scaffold", scaffold)
+        self.assertNotIn("async def _run_stage_scaffold_tick", controller)
         self.assertNotIn("saved_blanking", scaffold)
         self.assertNotIn("mask_main", scaffold)
-        self.assertIn("run_charge_stage_tick(", controller)
+        self.assertNotIn("run_charge_stage_tick(", controller)
         application_tick = (ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8")
         self.assertIn("actions = await run_charge_stage_tick(", application_tick)
         self.assertNotIn("host._run_stage_scaffold_tick(", application_tick)

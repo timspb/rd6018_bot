@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from production_controller import ProductionChargeController
+from application.charge_stage_tick import run_charge_stage_tick
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller.current_stage = controller.STAGE_PREP
 
         with patch("application.charge_stage_tick.time.time", return_value=1000.0):
-            actions = await controller._run_stage_scaffold_tick(
+            actions = await run_charge_stage_tick(controller,
                 stage_before=controller.STAGE_PREP,
                 voltage=12.0,
                 current=0.6,
@@ -59,7 +60,7 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller._cooling_target_i = 0.6
 
         with patch("application.charge_stage_tick.time.time", return_value=1200.0):
-            actions = await controller._run_stage_scaffold_tick(
+            actions = await run_charge_stage_tick(controller,
                 stage_before=controller.STAGE_COOLING,
                 voltage=11.9,
                 current=0.0,
@@ -83,7 +84,7 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller._clear_session_file = lambda: None
 
         with patch("application.charge_stage_tick.time.time", return_value=1300.0):
-            actions = await controller._run_stage_scaffold_tick(
+            actions = await run_charge_stage_tick(controller,
                 stage_before="synthetic-unknown",
                 voltage=13.0,
                 current=0.1,
