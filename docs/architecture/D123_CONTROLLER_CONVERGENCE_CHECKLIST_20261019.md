@@ -168,6 +168,16 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - [x] Focused Python 3.12 release/restore/rollback set **38 tests, 1 skipped, PASS**; `compileall` and `git diff --check` PASS. Canonical full discovery was attempted but stalled after early errors without a final summary (**INCOMPLETE**, no count/PASS). Details are in `D123_SPRINT62_P5_SHA_BOUND_RELEASE_EVIDENCE_20261021.md`.
 - [ ] Python 3.10/3.11, full Python 3.12 result, installed accepted SHA, durable deployment backup, deployment, firmware, direct Native, and physical acceptance remain blocked/outside this source-only sprint.
 
+### P5 Sprint 63 source closure and rollback acceptance (2026-10-21)
+
+- [x] Reviewed the existing release owner, D090 transaction owner, deployment/rollback runbook, and temporary-root simulator behaviorally; no alternate installer or release framework added.
+- [x] Confirmed candidate staging is exact-commit `git archive` with archive and per-file manifest verification; extracted paths, modes, sizes, and bytes are verified before a staged marker is written. There is no production install/rollback endpoint in the generic atomic simulator.
+- [x] Confirmed D090 binds the currently observed app tree to the reviewed preimage inventory pin, rejects absent/mismatched pins, validates complete durable backup inventory against captured baseline before restoration, and leaves service contained on corrupt/partial backup. Historical source SHA values are not accepted as current preimage proof.
+- [x] Exercised injected failures and recovery through existing D090 and D105 lifecycle tests, including preimage drift, backup truncation/corruption, incomplete unsealed backup, every transaction crash boundary, and idempotent rollback. Existing atomic simulator crash/recovery tests remain in the focused batch.
+- [x] No concrete source defect remains in requested scope; source-only P5 is **EXHAUSTED**. This closes source review only, not release/deployment readiness.
+- [ ] Python 3.10/3.11 remain **BLOCKED** where interpreters are unavailable. Exact current installed SHA and durable deployed backup require separately authorized live inventory; deployment requires fresh direct Native preflight/post-stop OFF proof and documented service transaction; exact firmware compile/flash/bench validation and supervised physical acceptance remain external gates. No physical PASS.
+- [x] Exact findings and Python 3.12 validation are recorded in `D123_SPRINT63_P5_ROLLBACK_ACCEPTANCE_EVIDENCE_20261021.md`.
+
 
 ### P2 canonical full acceptance
 

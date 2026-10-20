@@ -1140,3 +1140,20 @@ stage directories remain historical source artifacts. Current installed SHA
 and durable deployment backup stay **UNKNOWN / UNPROVEN** pending a fresh
 read-only inventory from the actual deployment host. Guarded restore remains
 OFF-latched and no production physical-resume endpoint is installed.
+
+Sprint 63 closes the source-only P5 review after behaviorally inspecting the
+existing release/stage owner (`tools/node104_atomic_deploy.py`), D090 release
+transaction (`tools/node104_d090_transaction.py`), deployment runbook, and
+temporary-root simulator. The exact-commit archive and extracted-tree checks
+remain the install-artifact preparation boundary; the generic simulator has no
+production install/rollback endpoint. D090 requires the reviewed preimage
+inventory pin and validates the durable backup against its captured complete
+baseline before recovery. Injected-failure tests cover drift, partial/unsealed
+and corrupt backups, crash boundaries, and idempotent rollback. No concrete
+source defect was found, so source-only P5 is **EXHAUSTED**; no further
+manifest/SHA loops are warranted. See
+`D123_SPRINT63_P5_ROLLBACK_ACCEPTANCE_EVIDENCE_20261021.md`. Current installed
+SHA/backup inventory, deployment, fresh direct Native preflight and post-stop
+OFF proof, target firmware compile/flash/bench, and supervised physical
+acceptance remain external release gates. The guarded OFF latch and absent
+production resume endpoint remain unchanged.
