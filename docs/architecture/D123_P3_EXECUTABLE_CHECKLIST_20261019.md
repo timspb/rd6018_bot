@@ -196,3 +196,20 @@ source change was made in Sprint 05.
 - [ ] Next gate: inspect remaining DESULFATION/recovery/final SAFE_WAIT routing
   and tick evidence/trace assembly for one bounded move. Preserve the deferred
   P2 MAIN Guard restore admission boundary; do not start P4.
+
+## Sprint 33 — DESULFATION completion authority
+
+- [x] Pin clean baseline `e0ee41f3d9b322026e396743e4add6905b039a1b`.
+- [x] Move DESULFATION elapsed-time decision and completion dispatch into the
+  existing `runtime.charge.runtime.recovery_scaffold` owner. Keep the existing
+  strategy decision and typed `complete_desulfation_to_safe_wait` applicator.
+- [x] Preserve the two-hour boundary, target selection, exact completion
+  reason/action payload, and fail-closed identity result. Add static
+  single-caller/no-physical-writer checks.
+- [x] Focused suite **40 PASS**; full Python 3.12 offline discovery
+  **2,426 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT33_EVIDENCE_20261020.md`.
+- [x] Commit one source cut and verify clean worktree.
+- [ ] Next gate: inspect recovery/final SAFE_WAIT authority routing and tick
+  evidence/trace glue for a bounded ownership move; preserve Guard/restore,
+  verified Storage and application execution boundaries. Do not start P4.

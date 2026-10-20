@@ -33,6 +33,40 @@ from runtime.safety.voltage_variables import PB_PROFILE_WARNING_VOLTAGE_V
 logger = logging.getLogger("rd6018.charge.recovery_runtime")
 
 
+def apply_desulfation_authority_tick(
+    host: Any, *, timestamp_s: float, voltage: float, current: float,
+    temp: float, ah: float, actions: Dict[str, Any],
+) -> Any:
+    """Own bounded DESULFATION completion decision and typed-effect dispatch."""
+    from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+    from runtime.charge.runtime.desulfation_completion import complete_desulfation_to_safe_wait
+    from runtime.charge.strategy.desulfation import (
+        DesulfationAction, decide_desulfation,
+    )
+
+    decision = decide_desulfation(
+        active_elapsed_s=max(
+            0.0, float(timestamp_s) - float(host.stage_start_time),
+        )
+    )
+    if decision.action == DesulfationAction.COMPLETE_TO_SAFE_WAIT:
+        target_v, target_i = host._main_target(temp)
+        if not complete_desulfation_to_safe_wait(
+            host, main_target_voltage_v=target_v,
+            main_target_current_a=target_i, now_s=timestamp_s, ah=ah,
+            voltage_v=voltage, measured_current_a=current,
+            temperature_c=temp, actions=actions,
+        ):
+            return AuthorityDecision(
+                AuthorityAction.CONTINUE,
+                "desulfation_completion_session_identity_invalid",
+            )
+        return AuthorityDecision(
+            AuthorityAction.COMPLETE_TO_SAFE_WAIT, decision.reason,
+        )
+    return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
+
+
 def _output_is_known(value: Any) -> bool:
     return value is not None and str(value).lower() not in {
         "unavailable",
@@ -254,4 +288,4 @@ async def run_authoritative_recovery_scaffold(
     return actions
 
 
-__all__ = ["run_authoritative_recovery_scaffold"]
+__all__ = ["apply_desulfation_authority_tick", "run_authoritative_recovery_scaffold"]

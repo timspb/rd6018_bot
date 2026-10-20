@@ -103,7 +103,7 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
         names = {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertNotIn("_complete_desulfation_to_safe_wait", names)
         controller_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                            and n.func.id == "complete_desulfation_to_safe_wait"]
+                            and n.func.id == "apply_desulfation_authority_tick"]
         self.assertEqual(len(controller_calls), 1)
         self.assertFalse(any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                             and n.func.id in {"apply_desulfation_completion_effect",
@@ -115,6 +115,20 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                              and n.func.id == "build_desulfation_completion_effect" for n in ast.walk(owner)), 1)
+        recovery = ast.parse((ROOT / "runtime/charge/runtime/recovery_scaffold.py").read_text(encoding="utf-8"))
+        recovery_source = (ROOT / "runtime/charge/runtime/recovery_scaffold.py").read_text(encoding="utf-8")
+        self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                             and n.func.id == "complete_desulfation_to_safe_wait"
+                             for n in ast.walk(recovery)), 1)
+        self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                             and n.func.id == "decide_desulfation"
+                             for n in ast.walk(recovery)), 1)
+        authority_owner = recovery_source[
+            recovery_source.index("def apply_desulfation_authority_tick("):
+            recovery_source.index("def _output_is_known(")
+        ]
+        for forbidden in ("execution_port", ".turn_on(", ".turn_off(", ".set_voltage(", ".set_output("):
+            self.assertNotIn(forbidden, authority_owner)
         for node in ast.walk(owner):
             if isinstance(node, ast.ImportFrom):
                 self.assertNotIn("charge_controller", node.module or "")

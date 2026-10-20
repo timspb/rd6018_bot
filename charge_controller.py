@@ -86,9 +86,6 @@ from runtime.charge.runtime.main_scaffold import (
     apply_main_authority_tick,
     run_authoritative_main_scaffold,
 )
-from runtime.charge.runtime.desulfation_completion import (
-    complete_desulfation_to_safe_wait,
-)
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -111,14 +108,13 @@ from runtime.charge.runtime.final_safe_wait_completion import (
 from runtime.charge.runtime.final_safe_wait_authority import (
     build_final_safe_wait_authority_effect,
 )
-from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
+from runtime.charge.runtime.recovery_scaffold import (
+    apply_desulfation_authority_tick,
+    run_authoritative_recovery_scaffold,
+)
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
-from runtime.charge.strategy.desulfation import (
-    DesulfationAction,
-    decide_desulfation,
-    select_desulfation_target,
-)
+from runtime.charge.strategy.desulfation import select_desulfation_target
 from runtime.charge.strategy.desulfation_variables import (
     DESULFATION_OCP_MARGIN_A,
     desulfation_duration_seconds,
@@ -1168,29 +1164,10 @@ class ManagedChargeController:
             return None
 
         if stage_before == self.STAGE_DESULFATION:
-            decision = decide_desulfation(
-                active_elapsed_s=max(
-                    0.0,
-                    float(timestamp_s) - float(self.stage_start_time),
-                )
+            return apply_desulfation_authority_tick(
+                self, timestamp_s=timestamp_s, voltage=voltage,
+                current=current, temp=temp, ah=ah, actions=actions,
             )
-            if decision.action == DesulfationAction.COMPLETE_TO_SAFE_WAIT:
-                target_v, target_i = self._main_target(temp)
-                if not complete_desulfation_to_safe_wait(
-                    self, main_target_voltage_v=target_v,
-                    main_target_current_a=target_i, now_s=timestamp_s, ah=ah,
-                    voltage_v=voltage, measured_current_a=current,
-                    temperature_c=temp, actions=actions,
-                ):
-                    return AuthorityDecision(
-                        AuthorityAction.CONTINUE,
-                        "desulfation_completion_session_identity_invalid",
-                    )
-                return AuthorityDecision(
-                    AuthorityAction.COMPLETE_TO_SAFE_WAIT,
-                    decision.reason,
-                )
-            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
 
         if (
             stage_before == self.STAGE_SAFE_WAIT

@@ -14,8 +14,9 @@ bot.py
        runtime loop invokes charge_controller.tick(...)
          -> controller invokes its one session ShadowRecoveryRuntime.observe(...)
          -> runtime.charge.evidence.MainSampleEvidenceEvaluator.assess(...)
-         -> runtime.charge.runtime.main_scaffold.apply_main_authority_tick(...)
-              -> runtime.charge.strategy.decide_main_transition(...)
+  -> runtime.charge.runtime.main_scaffold.apply_main_authority_tick(...)
+  -> runtime.charge.runtime.recovery_scaffold.apply_desulfation_authority_tick(...)
+       -> runtime.charge.strategy.decide_main_transition(...)
          -> returns action mapping to existing runtime execution-port caller
        persistence delegates to runtime.charge.persistence and production session
        extensions; main-guard checkpoint uses runtime.charge.session_atomic
@@ -77,7 +78,7 @@ already migrated.
 | **`MainSampleEvidenceEvaluator` is now external; removed:** `_update_main_plateau_clock`, `_assess_main_sample`; former field `_v2_main_plateau_since` removed (`charge_controller.py:195`, `2209–2237` call; pure decision at `1908`; evaluator/API at `runtime/charge/evidence/first_stage.py:46–144`; removed methods were baseline `1000–1082`) | Before D123: controller tick and START/pause/cooling/reset callers. After D123: typed evidence owner; tick supplies current analysis; START and pause use owner reset/shift API | `runtime.charge.evidence.first_stage.MainSampleEvidenceEvaluator`; typed `MainSampleEvidenceInput` -> `MainSampleEvidence`; then existing pure MAIN decision | `test_main_sample_evidence_clock`, first-stage, controller authority, production-controller and main strategy tests. **High:** transition evidence/timing; exact accepted 15-minute backdating retained |
 | `_apply_continuous_tail_hold`, `_log_stage_transition` (`1022–1051`) | Base identity extension point plus production subclass tail policy; called after evidence result during tick | Production continuity hold remains in `production_controller.py`; later P2/P3 decision required before further movement | `test_production_controller`. **High:** continuous tail hold is separate from plateau clock and preserved |
 | `_complete_desulfation_to_safe_wait`, `_apply_recovery_safe_wait_authority`, `_apply_final_safe_wait_authority`, `_handle_safe_wait_stage_override`, `commit_verified_enable_transition`, `_handle_mix_stage_override`, `_is_authoritative_stage`, `_run_stage_scaffold_tick` (`1053–1641`) | Stage orchestration and transactional transition code; tick only | Existing stage decision modules plus application use case/execution port; substantial P3 debt | stage, safe-wait, execution and restart suites. **Critical:** verified OFF/ON and continuation safety |
-| `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source); `_enter_safe_wait_done` removed in Sprint 09 | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | MAIN dispatch now goes through `runtime.charge.runtime.main_scaffold.apply_main_authority_tick`; MIX dispatch goes through `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick`; outer stage routing and DESULFATION/recovery/SAFE_WAIT dispatch remain controller-owned. Application action consumer and execution port remain unchanged | authority/recovery/AGM/MIX/final SAFE_WAIT tests. **Critical:** stage commit and OFF/ON transaction ordering |
+| `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source); `_enter_safe_wait_done` removed in Sprint 09 | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | MAIN dispatch goes through `runtime.charge.runtime.main_scaffold.apply_main_authority_tick`; DESULFATION completion decision/effect dispatch through `runtime.charge.runtime.recovery_scaffold.apply_desulfation_authority_tick`; MIX dispatch through `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick`. Outer stage routing and recovery/final SAFE_WAIT dispatch remain controller-owned. Execution port unchanged | authority/recovery/AGM/MIX/final SAFE_WAIT tests. **Critical:** stage commit and OFF/ON transaction ordering |
 | `tick` (`2068–2360`) | Transitional session orchestration and FSM adapter; only active call is production loop at `runtime/production_runtime.py:2939`; tests call directly | Intended to move to existing application use case at P2–P4, with current strategy, evidence, safety and execution owners | controller/production/recovery/safety tests. **Critical:** whole charge state machine and action batches |
 
 Methods are grouped by responsibility above and current source line ranges are
@@ -725,3 +726,16 @@ Outer stage routing, DESULFATION/recovery/final SAFE_WAIT dispatch, tick
 evidence/trace assembly, terminal persistence ownership, Manual integration,
 P2 Guard restore admission and P4 remain outside this cut. Exact validation is
 recorded in `D123_SPRINT32_EVIDENCE_20261020.md`.
+
+### Sprint 33 DESULFATION completion authority cut
+
+The DESULFATION branch of `ManagedChargeController._apply_authoritative_decision`
+now delegates once to the existing
+`runtime.charge.runtime.recovery_scaffold.apply_desulfation_authority_tick`.
+That owner calls the unchanged `decide_desulfation`, preserves the elapsed-time
+calculation and two-hour completion boundary, obtains the existing MAIN target,
+and dispatches through `complete_desulfation_to_safe_wait`. Invalid session
+identity still returns the exact `CONTINUE` reason without inventing a recovery
+transition. Stage admission, recovery/final SAFE_WAIT decisions, persistence,
+and physical execution ownership are unchanged. See
+`D123_SPRINT33_EVIDENCE_20261020.md`.
