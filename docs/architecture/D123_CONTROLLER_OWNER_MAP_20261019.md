@@ -858,3 +858,22 @@ specific P2 boundary preventing inheritance removal; MAIN Guard admission
 remains deferred, so P4 inheritance elimination stays open. Full exact-source
 counts, verification, and sandbox socket errors are in
 `D123_SPRINT53_EVIDENCE_20261020.md`.
+
+### Sprint 54 canonical restore owner
+
+`ManagedChargeController.try_restore_session` now owns the production restore
+tail as well as ordinary session restore: after canonical persistence restore,
+Custom rejection, DESULFATION clock and continuation reconstruction, shadow
+initialization and enrichment, it performs the same Guard journal read and
+production extension restoration in the established order. The production
+class no longer declares or overrides a method. Runtime and recovery callers
+remain unchanged and continue through this single gate. Persistence still holds
+guarded documents before mutation/enrichment, so no admission is widened.
+
+The production subclass remains an empty marker class that selects the
+production extension fields and recipe target behavior on the single inherited
+host. Thus P4 method convergence is complete, but inheritance elimination is
+not: removing the marker relationship requires a separate composition-factory
+cut. P2 remains partial at the canonical raw-document/Guard admission boundary;
+P5 release and physical acceptance remain open. Exact order and tests are in
+`D123_SPRINT54_EVIDENCE_20261020.md`.

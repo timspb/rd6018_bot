@@ -119,9 +119,9 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
             controller.current_stage = controller.STAGE_IDLE
 
         controller.stop = stop
-        with patch.object(
-            ManagedChargeController,
-            "try_restore_session",
+        controller._session_restore_enriched = True
+        with patch(
+            "charge_controller.restore_session",
             return_value=(True, "cooling restored"),
         ):
             ok, message = controller.try_restore_session(

@@ -18,14 +18,14 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
             "_session_document_extensions",
         }
         self.assertTrue(moved.isdisjoint(ProductionChargeController.__dict__))
-        self.assertIn("try_restore_session", ProductionChargeController.__dict__)
+        self.assertNotIn("try_restore_session", ProductionChargeController.__dict__)
         production = ast.parse((ROOT / "production_controller.py").read_text())
         cls = next(node for node in production.body if isinstance(node, ast.ClassDef))
         methods = {
             node.name for node in cls.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        self.assertEqual(methods, {"try_restore_session"})
+        self.assertEqual(methods, set())
         extensions = ast.parse((ROOT / "application/production_session_extensions.py").read_text())
         self.assertFalse(any(isinstance(node, ast.ClassDef) for node in extensions.body))
         atomic = (ROOT / "runtime/charge/session_atomic.py").read_text()
@@ -74,6 +74,38 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
         ]
         self.assertEqual(len(constructors), 1)
         self.assertEqual(constructors[0].func.id, "ProductionChargeController")
+
+    def test_canonical_restore_owner_has_one_ordered_restore_path(self):
+        base = ast.parse((ROOT / "charge_controller.py").read_text())
+        production = ast.parse((ROOT / "production_controller.py").read_text())
+        methods = [
+            node for node in ast.walk(base)
+            if isinstance(node, ast.FunctionDef) and node.name == "try_restore_session"
+        ]
+        self.assertEqual(len(methods), 1)
+        self.assertFalse(any(
+            isinstance(node, ast.FunctionDef) and node.name == "try_restore_session"
+            for node in ast.walk(production)
+        ))
+        owner_source = (ROOT / "charge_controller.py").read_text()
+        positions = [owner_source.index(token) for token in (
+            "restore_session(\n            self,",
+            "if GUARD_KEY in trace_document:",
+            "restore_production_session_state(",
+        )]
+        self.assertEqual(positions, sorted(positions))
+        atomic = ast.parse((ROOT / "runtime/charge/session_atomic.py").read_text())
+        writers = [
+            node for node in ast.walk(atomic)
+            if isinstance(node, ast.FunctionDef) and node.name == "atomic_session_write"
+        ]
+        self.assertEqual(len(writers), 1)
+        forbidden = {"safe_enable_output", "turn_on", "set_voltage", "set_current", "set_ovp", "set_ocp"}
+        calls = {
+            node.func.attr for node in ast.walk(methods[0])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        self.assertTrue(forbidden.isdisjoint(calls))
 
 
 if __name__ == "__main__":

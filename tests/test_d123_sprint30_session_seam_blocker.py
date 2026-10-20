@@ -15,9 +15,9 @@ class OrdinaryRestoreSnapshotOwnershipTests(unittest.TestCase):
 
         self.assertIn("host._session_restore_document = dict(data)", persistence)
         self.assertIn("trace_document = dict(getattr(self, \"_session_restore_document\", {}))", base)
-        self.assertIn("document = dict(getattr(self, \"_session_restore_document\", {}))", production)
-        self.assertIn("if GUARD_KEY in document:", production)
-        self.assertIn("guard, revision = read_guard(", production)
+        self.assertIn("if GUARD_KEY in trace_document:", base)
+        self.assertIn("guard, revision = read_guard(", base)
+        self.assertNotIn("def try_restore_session", production)
 
     def test_schema_assembly_and_atomic_completion_remain_single_owner(self):
         persistence = (ROOT / "runtime/charge/persistence.py").read_text()
