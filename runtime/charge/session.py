@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import time
 import uuid
+import copy
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
@@ -58,12 +59,15 @@ class GuardedRestoreCandidate:
 
     @classmethod
     def capture(cls, document: dict[str, object], blocker: str) -> "GuardedRestoreCandidate":
-        record = document.get("main_current_guard_v1")
+        # Detach nested journal data from the decoded persistence object before
+        # exposing a read-only top-level view to recovery code.
+        isolated = copy.deepcopy(document)
+        record = isolated.get("main_current_guard_v1")
         revision = record.get("revision") if isinstance(record, dict) else None
         return cls(
-            document=MappingProxyType(dict(document)),
-            session_id=document.get("v2_trace_session_id") if isinstance(document.get("v2_trace_session_id"), str) else None,
-            battery_id=document.get("v2_battery_id") if isinstance(document.get("v2_battery_id"), str) else None,
+            document=MappingProxyType(isolated),
+            session_id=isolated.get("v2_trace_session_id") if isinstance(isolated.get("v2_trace_session_id"), str) else None,
+            battery_id=isolated.get("v2_battery_id") if isinstance(isolated.get("v2_battery_id"), str) else None,
             guard_revision=revision if type(revision) is int else None,
             blocker=blocker,
         )

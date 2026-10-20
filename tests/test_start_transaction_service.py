@@ -67,6 +67,7 @@ class FakeHass:
         self.result = result
         self.enable_kwargs = None
         self.turn_off_calls = 0
+        self.live_read_calls = 0
         self.turn_off_result = True
         self.live = {
             "battery_voltage": 12.6,
@@ -85,6 +86,7 @@ class FakeHass:
         }
 
     async def get_all_live(self):
+        self.live_read_calls += 1
         return dict(self.live)
 
     async def safe_enable_output(self, **kwargs):
@@ -149,6 +151,20 @@ PENDING = types.SimpleNamespace(
 
 
 class V2StartupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_guarded_restore_candidate_blocks_fresh_start_before_live_read(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.charge_controller._guarded_restore_candidate = object()
+        message = FakeMessage()
+
+        ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertFalse(ok)
+        self.assertFalse(app.charge_controller.started)
+        self.assertIsNone(app.hass.enable_kwargs)
+        self.assertEqual(app.hass.live_read_calls, 0)
+        self.assertIn("сохранённая MAIN Guard сессия остаётся в карантине",
+                      message.answers[-1][0])
+
     async def test_initial_voltage_at_or_above_12_starts_main_atomically(self):
         app = FakeApp(EnableResult(enabled=True))
         message = FakeMessage()

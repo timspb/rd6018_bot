@@ -36,7 +36,8 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [x] Final Python 3.12 full discovery with synthetic `TG_TOKEN=123456789:d123-sprint05`: **2,353 PASS / 2 skipped** (2,355 total); `compileall`, focused 31-test set, import architecture guard and `git diff --check` pass; exact evidence: `D123_SPRINT05_EVIDENCE_20261019.md`
 - [ ] MAIN Guard restore admission and remaining audit/session lifecycle ownership remain pending; P2 remains **partial**
 - [ ] MAIN Guard restore admission ownership remains deferred; guarded restore stays fail-closed before mutation/enrichment
-- [ ] D123 Guard pre-ON integration remains blocked at direct-Native acquisition/activation: Guard restore documents are now retained as typed quarantined candidates, and deferred replay exits before HA aggregate reads, but no existing startup recovery owner exposes a Native callback snapshot for assessment or a proven candidate-to-active restore transition. See `D123_GUARD_PRE_ON_INTEGRATION_EVIDENCE_20261021.md`.
+- [x] Sprint 57 P2 read-only Native evidence cut: existing `HassClient` exposes a minimal Guard snapshot only over its existing `ESPDirectConnector`, with per-callback Native provenance/type/monotonic freshness and separately fresh edge lease evidence. Startup assesses the quarantined candidate under the app-scoped ExecutionPort lock through the existing `read_guard` and `assess_main_guard_before_output_on`, then rechecks canonical identity/revision. Assessment never restores/activates; positive synthetic assessment preserves quarantine and persisted bytes. START is held while a candidate remains; Manual policy is untouched. See `D123_SPRINT57_EVIDENCE_20261021.md`.
+- [ ] Guarded restore activation remains fail-closed/deferred: no candidate-to-active transition or Output operation is installed; source evidence cannot prove target-node callback contract or physical acceptance.
 - [x] Sprint 03 focused tests, Python 3.12 offline full suite and compileall PASS; see `D123_SPRINT03_EVIDENCE_20261019.md`
 
 P2b session identity/writer convergence, P2c stage history, and P2d trace capture
@@ -145,4 +146,13 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - Guard-bearing restore is rejected exactly once by `runtime.charge.persistence.restore_session` before host mutation.
 - Continuation owner is domain-layer clean and receives enrichment callback by injection; no persistence back-import.
 - Canonical Python 3.12 full discovery: **2,463 tests, 3 skipped, PASS**.
-- Remaining P2 boundary is live owner-wide execution + fresh direct ESP Native pre-ON reconciliation for guarded resume; source-only restore ownership is converged.
+- Sprint 57 supplies the existing shared owner lock and direct-Native pre-ON evidence to read-only assessment, but deliberately does not activate guarded restore. Remaining P2 work is audit/session lifecycle convergence; guarded activation and physical validation remain deferred.
+
+### Sprint 57 / P2 Native Guard evidence
+
+- P4 remains **CLOSED** and the canonical `ManagedChargeController` plus its existing session lifecycle remain singular.
+- Guarded candidate nested persistence data is deep-copied before the top-level read-only proxy is exposed. The persisted JSON bytes/schema and sole writer are unchanged.
+- Existing Native connector path now offers one read-only Guard snapshot only for an actual `ESPDirectConnector`; HA-only backends, stale/missing callback timestamps, wrong native types, and unavailable lease evidence fail closed. Fetch time never supplies freshness.
+- Startup assessment uses the existing owner lock, `read_guard`, and MAIN pre-ON evaluator; it verifies canonical identity/revision both before and after assessment. `RECONCILED` is diagnostic only. The candidate remains quarantined and controller/session/Output state is unchanged.
+- START now blocks when a guarded restore candidate remains quarantined. Manual policy is unchanged; emergency verified OFF remains independent of normal owner locking.
+- Guard activation stays deferred. See `D123_SPRINT57_EVIDENCE_20261021.md` for exact source boundary and synthetic verification.

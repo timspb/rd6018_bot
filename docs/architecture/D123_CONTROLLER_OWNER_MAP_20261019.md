@@ -138,6 +138,41 @@ owner has no existing Native snapshot acquisition API; Guard candidates remain
 inactive and cannot resume automatically. See
 `D123_GUARD_PRE_ON_INTEGRATION_EVIDENCE_20261021.md`.
 
+### Sprint 57 P2 read-only evidence continuation (2026-10-21)
+
+The previous statement that startup had no Native snapshot API is superseded
+for read-only assessment only. `HassClient.get_native_guard_pre_on_snapshot`
+uses the already selected physical backend and returns evidence only when that
+backend is an `ESPDirectConnector`. It consumes the connector's existing live
+callback values and native `get_state` lease read; it creates no transport,
+client, or execution owner. Required electrical fields must each report
+`esp_native_api`, `SensorState`, and an actual callback monotonic timestamp no
+older than ten seconds. Lease is separately required from a fresh native
+`BinarySensorState`. HA aggregate/cache metadata and fetch time cannot satisfy
+these checks.
+
+`StartupRecovery.replay_deferred_startup_restore` still runs under the one
+app-scoped `ExecutionPort._guard_owner_lock`. It snapshots the canonical
+session, parses the candidate with existing `read_guard`, calls the existing
+`assess_main_guard_before_output_on`, and rechecks canonical session/battery
+identity plus Guard revision after assessment. Its result is retained only as
+`StartupRecovery.last_guard_assessment`; a `RECONCILED` result does not restore
+FSM/session state or clear the candidate. No Output operation is reachable from
+this assessment branch. Missing Native acquisition, untrusted journal, stale
+identity/revision, missing lock/lease, or evaluator failure leaves the
+candidate quarantined. Persistence remains the sole writer and original
+document bytes/schema are not modified.
+
+`GuardedRestoreCandidate.capture` deep-copies the decoded document before
+wrapping its top-level mapping, so subsequent source-object mutation cannot
+change captured nested Guard data. START explicitly refuses a still-quarantined
+candidate before aggregate telemetry or session creation. Manual behavior is
+unchanged. Emergency verified OFF remains on its existing independent route.
+P4 remains closed with exactly one canonical controller/session owner. Guarded
+restore activation remains deferred: this source work proves neither target
+ESP callback semantics under deployment nor physical acceptance. Synthetic
+matrix and test results are in `D123_SPRINT57_EVIDENCE_20261021.md`.
+
 `runtime.production_runtime` constructs one `ProductionChargeController`; it
 does not directly instantiate `ManagedChargeController`. The production class
 still inherits the base session host because its canonical state initialization,

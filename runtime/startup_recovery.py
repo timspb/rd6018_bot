@@ -7,11 +7,19 @@ existing recovery order and delegates to those owners.
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from functools import wraps
+import time
 from typing import Any
 
 from application.execution_port import get_or_create_execution_port
 from diagnostic_persistence import recover_diagnostic_persistence
+from runtime.charge.persistence import SESSION_FILE
+from runtime.charge.strategy.main_guard_pre_on import assess_main_guard_before_output_on
+from runtime.charge.strategy.main_guard_session import GuardJournalError, read_guard
+from runtime.charge.strategy.main_guard_admission import read_canonical_session
+from rd6018_telemetry import as_bool
 
 
 def _serialized_deferred_restore(operation):
@@ -33,6 +41,7 @@ class StartupRecovery:
         self.managed_mix = managed_mix
         self.managed_live = managed_live
         self.live_observer = live_observer
+        self.last_guard_assessment = None
 
     async def recover_managed_startup_authority(self) -> bool:
         if not get_or_create_execution_port(self.app).session_recovery_guard.may_run_automatic_control():
@@ -56,10 +65,113 @@ class StartupRecovery:
         controller = app.charge_controller
         candidate = getattr(controller, "_guarded_restore_candidate", None)
         if candidate is not None:
-            # The existing app.hass aggregate is not direct Native evidence.
-            # Until an existing Native callback snapshot is exposed through
-            # this recovery owner, retain the candidate in quarantine and do
-            # not restore or attempt any Output-ON transition.
+            # This is evidence collection only. Even RECONCILED never admits
+            # controller state or enters the Output-ON path in this sprint.
+            from runtime.charge.strategy.main_guard_pre_on import GuardPreOnAssessment
+
+            def record_assessment(assessment):
+                self.last_guard_assessment = assessment
+                if assessment.status == "BLOCKED":
+                    controller._guarded_restore_candidate = replace(
+                        candidate, blocker=assessment.reason,
+                    )
+
+            lock = execution_port._guard_owner_lock
+            if (lock is None or getattr(lock, "owner_task", None) is not asyncio.current_task()):
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "execution_owner_or_lease_unproven",
+                ))
+                return
+            native_reader = getattr(app.hass, "get_native_guard_pre_on_snapshot", None)
+            if not callable(native_reader):
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "direct_native_snapshot_api_unavailable",
+                ))
+                return
+            native_live = await native_reader()
+            if native_live is None:
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "direct_native_callback_evidence_unavailable",
+                ))
+                return
+            canonical = read_canonical_session(SESSION_FILE)
+            if not isinstance(canonical, dict):
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "canonical_document_unavailable",
+                ))
+                return
+            try:
+                now = time.time()
+                restored_guard, candidate_revision = read_guard(
+                    dict(candidate.document), session_id=candidate.session_id or "",
+                    battery_id=candidate.battery_id or "", now_s=now,
+                )
+                _canonical_guard, canonical_revision = read_guard(
+                    canonical, session_id=candidate.session_id or "",
+                    battery_id=candidate.battery_id or "", now_s=now,
+                )
+            except (GuardJournalError, ValueError, TypeError, OverflowError) as exc:
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "canonical_guard_untrustworthy:" + type(exc).__name__,
+                ))
+                return
+            if (candidate_revision != candidate.guard_revision
+                    or canonical_revision != candidate_revision
+                    or canonical.get("v2_trace_session_id") != candidate.session_id
+                    or canonical.get("v2_battery_id") != candidate.battery_id):
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "canonical_document_identity_or_revision_changed",
+                ))
+                return
+            lease_meta = native_live.get("_lease_meta")
+            lease = as_bool(native_live.get("edge_lease_armed"))
+            try:
+                lease_age = float(lease_meta.get("age_s")) if isinstance(lease_meta, dict) else -1
+            except (TypeError, ValueError, OverflowError):
+                lease_age = -1
+            lease_fresh = (
+                isinstance(lease_meta, dict)
+                and lease_meta.get("source") == "esp_native_api"
+                and lease_meta.get("status") == "ok"
+                and lease_meta.get("native_type") == "BinarySensorState"
+                and 0 <= lease_age <= 10.0
+            )
+            assessment = assess_main_guard_before_output_on(
+                session_document=canonical,
+                restored_guard=restored_guard,
+                native_live=native_live,
+                session_id=candidate.session_id or "",
+                battery_id=candidate.battery_id or "",
+                profile=str(canonical.get("profile") or ""),
+                stage=str(canonical.get("stage") or ""),
+                target_current_a=restored_guard.hardware_limit_a,
+                owner_authorized=True,
+                edge_lease_armed=lease_fresh and lease is True,
+                now_epoch_s=now,
+            )
+            latest = read_canonical_session(SESSION_FILE)
+            try:
+                if not isinstance(latest, dict):
+                    raise GuardJournalError("canonical_document_unavailable")
+                _latest_guard, latest_revision = read_guard(
+                    latest, session_id=candidate.session_id or "",
+                    battery_id=candidate.battery_id or "", now_s=time.time(),
+                )
+            except (GuardJournalError, ValueError, TypeError, OverflowError) as exc:
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "canonical_document_recheck_failed:" + type(exc).__name__,
+                ))
+                return
+            if (latest_revision != canonical_revision
+                    or latest.get("v2_trace_session_id") != candidate.session_id
+                    or latest.get("v2_battery_id") != candidate.battery_id):
+                record_assessment(GuardPreOnAssessment(
+                    "BLOCKED", "canonical_document_identity_or_revision_changed",
+                ))
+                return
+            record_assessment(assessment)
+            # Deliberately return regardless of assessment: no activation is
+            # installed, and the persisted bytes/candidate remain quarantined.
             return
         live = await app.hass.get_all_live()
 

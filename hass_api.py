@@ -178,6 +178,73 @@ class HassClient:
             return None
         return await reader()
 
+    async def get_native_guard_pre_on_snapshot(self) -> Dict[str, Any] | None:
+        """Return the minimal direct ESP callback snapshot used by Guard assessment.
+
+        This deliberately does not fall back to HA or to a fetch timestamp. The
+        per-key monotonic timestamp must originate in an ESP Native callback.
+        """
+        from runtime.physical.connectors.esp_direct import ESPDirectConnector
+
+        backend = self._physical_backend
+        if not isinstance(backend, ESPDirectConnector):
+            return None
+        try:
+            live = await backend.get_all_live()
+        except Exception:
+            return None
+        keys = (
+            "output_state_code_v2", "set_current_readback_v2",
+            "ocp_readback_v2", "protection_code",
+        )
+        source_meta = live.get("_meta")
+        if not isinstance(source_meta, dict):
+            return None
+        now_monotonic = time.monotonic()
+        selected_meta: Dict[str, Any] = {}
+        snapshot: Dict[str, Any] = {}
+        for key in keys:
+            item = source_meta.get(key)
+            if not isinstance(item, dict):
+                return None
+            updated = item.get("subscription_timestamp_monotonic")
+            native_type = item.get("native_type")
+            age = (now_monotonic - updated
+                   if isinstance(updated, (int, float)) and not isinstance(updated, bool)
+                   else None)
+            if (item.get("source") != "esp_native_api" or item.get("status") != "ok"
+                    or native_type != "SensorState" or age is None
+                    or age < 0 or age > 10.0):
+                return None
+            snapshot[key] = live.get(key)
+            selected_meta[key] = {
+                "source": "esp_native_api", "status": "ok",
+                "native_type": native_type, "age_s": age,
+                "subscription_timestamp_monotonic": updated,
+            }
+        snapshot["_meta"] = selected_meta
+        # Keep lease separate from the four electrical Guard inputs. It is
+        # copied only when its own callback proves Native provenance/freshness.
+        try:
+            lease_value, lease_meta = await backend.get_state("safety_lease_armed")
+        except Exception:
+            return snapshot
+        updated = lease_meta.get("subscription_timestamp_monotonic")
+        age = (time.monotonic() - updated
+               if isinstance(updated, (int, float)) and not isinstance(updated, bool)
+               else None)
+        if (lease_meta.get("source") == "esp_native_api"
+                and lease_meta.get("status") == "ok"
+                and lease_meta.get("native_type") == "BinarySensorState"
+                and age is not None and 0 <= age <= 10.0):
+            snapshot["edge_lease_armed"] = lease_value
+            snapshot["_lease_meta"] = {
+                "source": "esp_native_api", "status": "ok",
+                "native_type": "BinarySensorState", "age_s": age,
+                "subscription_timestamp_monotonic": updated,
+            }
+        return snapshot
+
     async def get_states(self, entity_ids: List[str]) -> Dict[str, Tuple[Any, Dict]]:
         async def _get_one(eid: str) -> Tuple[str, Tuple[Any, Dict]]:
             return eid, await self.get_state(eid)

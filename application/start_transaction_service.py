@@ -173,6 +173,13 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         )
         return False
 
+    if getattr(app.charge_controller, "_guarded_restore_candidate", None) is not None:
+        await message.answer(
+            "⚠️ Запуск заблокирован: сохранённая MAIN Guard сессия остаётся в карантине. "
+            "Требуется отдельное подтверждённое восстановление."
+        )
+        return False
+
     live = await app.hass.get_all_live()
     snapshot = snapshot_from_live(live)
     if snapshot is None:
