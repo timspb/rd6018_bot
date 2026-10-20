@@ -11,7 +11,7 @@ Status: source-only P4 composition cut; no production, HA, ESPHome, or physical 
 
 ## Verification
 
-- Python 3.12 `compileall`: PASS before the final isolation adjustment; full-suite import/execution after that adjustment validates syntax and imports.
+- Python 3.12 `compileall`: PASS after the final isolation adjustment.
 - Focused isolation, runtime composition, and trace-context regression: **19/19 PASS**.
 - Full offline unittest discovery after the final changes: **2,441 tests, 3 skipped, 0 failures**.
 - No production service, HA, ESPHome node, or physical equipment was contacted or changed.

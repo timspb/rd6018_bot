@@ -95,6 +95,7 @@ the current cut and test counts.
 - [ ] No active `ManagedChargeController`, no obsolete controller entry, no `_apply_authoritative_decision`, no `_enter_*` owner duplicated
 - [ ] Static architecture tests reject any transitional facade/monolithic regression
 - [ ] Docs and eradication ledger corrected, with old closure evidence preserved
+- [x] Sprint 48 removed `ManagedChargeController.tick`; production and real controller tests use `application.charge_session_tick` directly. HANDS_OFF/startup isolation now gates the application host dynamically. Python 3.12 full offline discovery **2,441 tests / 3 skipped**, focused regression **19/19**, compileall/diff-check PASS. Evidence: `D123_SPRINT48_EVIDENCE_20261020.md`; commit `063ce36`.
 
 ## P5 release
 - [ ] Exact source SHA, full multi-version test matrix and clean git state
