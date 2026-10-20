@@ -1128,3 +1128,15 @@ manifest findings are in `D123_SPRINT61_P5_OFFLINE_MANIFEST_EVIDENCE_20261021.md
 The installed accepted SHA and durable rollback backup remain unknown because
 no current deployment-host evidence is available. Do not infer either from
 the two local stage manifests or historical SHA references.
+
+Sprint 62 records an independently reproduced exact-SHA archive and manifest
+for clean base `a7cb80e438ca777b6425646a7efc21907c22f743` in
+`D123_SPRINT62_P5_SHA_BOUND_RELEASE_EVIDENCE_20261021.md`. The existing
+`node104_atomic_deploy.py` source manifest binds a Git archive to the SHA and
+per-file path/mode/size/digest. Its transaction simulator validates a
+journal-bound backup tree and fail-closed recovery, but it is not a production
+rollback command or evidence of the node's current pre-image. The two local
+stage directories remain historical source artifacts. Current installed SHA
+and durable deployment backup stay **UNKNOWN / UNPROVEN** pending a fresh
+read-only inventory from the actual deployment host. Guarded restore remains
+OFF-latched and no production physical-resume endpoint is installed.

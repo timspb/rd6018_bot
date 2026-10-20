@@ -159,6 +159,15 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - [x] Python 3.12.3 environment and dependencies are usable; Python 3.10/3.11 unavailable and **BLOCKED**. Focused atomic/release batch **27 tests, 1 skipped, PASS**; compileall and diff-check PASS.
 - [ ] Canonical full Python 3.12 discovery attempted but stalled without a final summary; result **INCOMPLETE**, no test count claimed. Next exact-commit archive must be regenerated after outer commit. Deployment/physical gates remain open.
 
+### P5 Sprint 62 offline exact-source release proof (2026-10-21)
+
+- [x] Independently archive exact clean source `a7cb80e438ca777b6425646a7efc21907c22f743`; verify all 1,185 regular entries by path/mode/size/content SHA256 against `source_manifest`. Archive SHA256 `32101e28f92ceaea98b087ff2b6849f0f47a17423838097626fc3dd95c25ac68`; canonical sorted manifest JSON SHA256 `972ef78faf36061269be4893a8f1db7f4014ab0b0951a9d867b1fdc07bace4cd`. Untracked authority fixture is excluded by the existing `git archive` boundary.
+- [x] Audit existing stage files and deployment script read-only. Local stages remain historical; simulator verifies its journaled backup tree but is not a production rollback command. Current installed SHA and durable deployment backup remain **UNKNOWN / UNPROVEN**.
+- [x] Confirm guarded restore remains activated-OFF and production resume endpoint remains absent through existing release architecture assertions.
+- [x] Python 3.12 is locally available; Python 3.10/3.11 are **BLOCKED** (no local interpreter). No interpreter or dependency installation.
+- [x] Focused Python 3.12 release/restore/rollback set **38 tests, 1 skipped, PASS**; `compileall` and `git diff --check` PASS. Canonical full discovery was attempted but stalled after early errors without a final summary (**INCOMPLETE**, no count/PASS). Details are in `D123_SPRINT62_P5_SHA_BOUND_RELEASE_EVIDENCE_20261021.md`.
+- [ ] Python 3.10/3.11, full Python 3.12 result, installed accepted SHA, durable deployment backup, deployment, firmware, direct Native, and physical acceptance remain blocked/outside this source-only sprint.
+
 
 ### P2 canonical full acceptance
 
