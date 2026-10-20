@@ -13,7 +13,6 @@ from battery_fault_engine import (
     assess_battery_fault,
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
-from runtime.charge.runtime.main_scaffold import apply_main_authority_tick
 from mix_active_authority import MixActiveAuthorityMixin
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 
@@ -124,68 +123,6 @@ class DiagnosticProductionChargeController(
             AuthorityAction.STOP_AND_DIAGNOSE,
             f"diagnostic_hv_block:{reasons}",
         )
-
-    def _apply_stage_authority(
-        self,
-        *,
-        record: Any,
-        first_stage: Optional[FirstStageAssessment],
-        stage_before: str,
-        timestamp_s: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        is_cv: bool,
-        is_cc: bool,
-        actions: Dict[str, Any],
-        output_is_on: Optional[Any] = None,
-    ) -> Optional[AuthorityDecision]:
-        self._update_live_diagnostic_evidence(
-            timestamp_s=timestamp_s,
-            voltage=voltage,
-            current=current,
-            temp=temp,
-            ah=ah,
-        )
-
-        if (
-            stage_before == self.STAGE_MAIN
-            and self._is_authoritative_stage(stage_before)
-            and self.current_stage == stage_before
-        ):
-            applied = apply_main_authority_tick(
-                self,
-                record=record,
-                first_stage=first_stage,
-                timestamp_s=timestamp_s,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                is_cv=is_cv,
-                actions=actions,
-                decision_veto=self._diagnostic_hv_veto,
-            )
-            actions["battery_diagnostics"] = self.diagnostic_snapshot()
-            return applied
-
-        decision = super()._apply_stage_authority(
-            record=record,
-            first_stage=first_stage,
-            stage_before=stage_before,
-            timestamp_s=timestamp_s,
-            voltage=voltage,
-            current=current,
-            temp=temp,
-            ah=ah,
-            is_cv=is_cv,
-            is_cc=is_cc,
-            actions=actions,
-            output_is_on=output_is_on,
-        )
-        actions["battery_diagnostics"] = self.diagnostic_snapshot()
-        return decision
 
     async def tick(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         await self._refresh_stored_diagnostics()

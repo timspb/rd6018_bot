@@ -15,7 +15,6 @@ from runtime.charge.strategy.mix_variables import (
     AGM_MIX_MAX_ACTIVE_HOURS,
     CA_MIX_MAX_ACTIVE_HOURS,
     EFB_MIX_MAX_ACTIVE_HOURS,
-    mix_max_active_seconds,
 )
 from charge_controller import ManagedChargeController
 from runtime.charge.persistence import SESSION_FILE
@@ -165,9 +164,6 @@ class ProductionChargeController(ManagedChargeController):
             self._recipe_envelope(),
             hv=self._current_stage_is_hv(),
         )
-
-    def _mix_limit_seconds(self) -> float:
-        return mix_max_active_seconds(self.battery_type)
 
     def _continuous_tail_hold_seconds(self) -> float:
         return (

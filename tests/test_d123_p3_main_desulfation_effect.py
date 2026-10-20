@@ -91,8 +91,9 @@ class MainDesulfationEffectTests(unittest.TestCase):
         tree = ast.parse((ROOT / "charge_controller.py").read_text(encoding="utf-8"))
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ManagedChargeController")
         self.assertNotIn("_enter_desulfation", {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))})
+        session = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                             and n.func.id == "apply_authoritative_stage_tick" for n in ast.walk(tree)), 1)
+                             and n.func.id == "apply_charge_stage_authority" for n in ast.walk(session)), 1)
         owner_tree = ast.parse((ROOT / "runtime/charge/runtime/main_scaffold.py").read_text(encoding="utf-8"))
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                              and n.func.id == "apply_main_desulfation_entry"

@@ -66,7 +66,6 @@ from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
-from runtime.charge.decisions import AuthorityDecision
 from runtime.charge.diagnostics import (
     ai_stage_snapshot,
     bank_fault_risk_snapshot,
@@ -92,7 +91,6 @@ from runtime.charge.runtime.recovery_safe_wait_completion import (
     apply_recovery_safe_wait_completion_effect,
     build_recovery_safe_wait_completion_effect,
 )
-from runtime.charge.runtime.stage_authority import apply_authoritative_stage_tick
 from runtime.charge.strategy.desulfation import select_desulfation_target
 from runtime.charge.strategy.desulfation_variables import (
     DESULFATION_OCP_MARGIN_A,
@@ -105,9 +103,6 @@ from runtime.charge.strategy.final_safe_wait import (
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.prep import select_prep_target
 from runtime.charge.strategy.mix import select_mix_target
-from runtime.charge.strategy.mix_variables import (
-    mix_max_active_seconds,
-)
 from runtime.charge.strategy.recovery_safe_wait import (
     RecoverySafeWaitContinuation,
     validate_recovery_continuation,
@@ -693,23 +688,6 @@ class ManagedChargeController:
             return None
         return apply_recovery_safe_wait_completion_effect(self, effect)
 
-    def _is_authoritative_stage(self, stage: str) -> bool:
-        return (
-            self.battery_type != self.PROFILE_CUSTOM
-            and (
-                stage in {self.STAGE_MAIN, self.STAGE_DESULFATION, self.STAGE_MIX}
-                or (
-                    stage == self.STAGE_SAFE_WAIT
-                    and (
-                        self._recovery_safe_wait is not None
-                        or self._final_safe_wait is not None
-                        or self._safe_wait_next_stage == self.STAGE_MAIN
-                        or self._safe_wait_next_stage == self.STAGE_DONE
-                    )
-                )
-            )
-        )
-
     async def _run_stage_scaffold_tick(
         self,
         *,
@@ -740,42 +718,6 @@ class ManagedChargeController:
             is_cc=is_cc,
             manual_active=manual_active,
         )
-    def _mix_limit_seconds(self) -> float:
-        """Compatibility accessor over the canonical modular MIX authority limit."""
-        return mix_max_active_seconds(self.battery_type)
-
-    def _apply_stage_authority(
-        self,
-        *,
-        record: Any,
-        first_stage: Optional[FirstStageAssessment],
-        stage_before: str,
-        timestamp_s: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        is_cv: bool,
-        is_cc: bool,
-        actions: Dict[str, Any],
-        output_is_on: Optional[Any] = None,
-    ) -> Optional[AuthorityDecision]:
-        return apply_authoritative_stage_tick(
-            self,
-            record=record,
-            first_stage=first_stage,
-            stage_before=stage_before,
-            timestamp_s=timestamp_s,
-            voltage=voltage,
-            current=current,
-            temp=temp,
-            ah=ah,
-            is_cv=is_cv,
-            is_cc=is_cc,
-            actions=actions,
-            output_is_on=output_is_on,
-        )
-
     async def tick(
         self,
         voltage: float,

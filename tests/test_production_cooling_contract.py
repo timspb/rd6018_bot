@@ -114,7 +114,9 @@ class ProductionMixLimitTests(unittest.TestCase):
         controller = ProductionChargeController(DummyHass())
         for profile, hours in expected.items():
             controller.battery_type = profile
-            self.assertEqual(controller._mix_limit_seconds(), hours * 3600.0)
+            from runtime.charge.strategy.mix_variables import mix_max_active_seconds
+
+            self.assertEqual(mix_max_active_seconds(controller.battery_type), hours * 3600.0)
 
 
 if __name__ == "__main__":

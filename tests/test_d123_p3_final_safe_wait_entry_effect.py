@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from charge_controller import ManagedChargeController
+from application.charge_stage_tick import apply_charge_stage_authority
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.runtime import final_safe_wait_entry as owner
 
@@ -204,7 +205,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
             "runtime.charge.strategy.main_authority.decide_main_transition",
             return_value=AuthorityDecision(AuthorityAction.COMPLETE_TO_SAFE_WAIT, "main_completion"),
         ):
-            result = stale._apply_stage_authority(
+            result = apply_charge_stage_authority(stale,
                 record=record,
                 first_stage=None,
                 stage_before=stale.STAGE_MAIN,

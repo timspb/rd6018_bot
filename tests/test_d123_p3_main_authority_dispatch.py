@@ -89,12 +89,12 @@ class MainAuthorityDispatchTests(unittest.TestCase):
 
     def test_controller_has_one_dispatch_and_no_inline_main_policy_or_effects(self):
         controller = ast.parse((ROOT / "charge_controller.py").read_text(encoding="utf-8"))
-        calls = [
-            node for node in ast.walk(controller)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-            and node.func.id == "apply_authoritative_stage_tick"
-        ]
+        session = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
+        calls = [node for node in ast.walk(session)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                 and node.func.id == "apply_charge_stage_authority"]
         self.assertEqual(len(calls), 1)
+        self.assertNotIn("apply_authoritative_stage_tick(", (ROOT / "charge_controller.py").read_text(encoding="utf-8"))
         dispatch = ast.parse((ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8"))
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                              and n.func.id == "apply_main_authority_tick" for n in ast.walk(dispatch)), 1)

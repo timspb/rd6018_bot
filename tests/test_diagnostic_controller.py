@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from battery_fault_engine import DiagnosticAuthority
+from application.charge_stage_tick import apply_charge_stage_authority
 from diagnostic_controller import DiagnosticProductionChargeController
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController
@@ -58,7 +59,7 @@ class DiagnosticControllerTests(unittest.TestCase):
                     "runtime.charge.strategy.main_authority.decide_main_transition",
                     return_value=enter_mix,
                 ):
-                    result = controller._apply_stage_authority(
+                    result = apply_charge_stage_authority(controller,
                         record=record, first_stage=None, stage_before=controller.STAGE_MAIN,
                         timestamp_s=200.0, voltage=14.4, current=0.3, temp=24.0,
                         ah=2.0, is_cv=True, is_cc=False, actions=actions,

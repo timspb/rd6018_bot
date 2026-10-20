@@ -8,6 +8,25 @@ from runtime.charge.decisions import AuthorityDecision
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 
 
+def is_authoritative_charge_stage(host: Any, stage: str) -> bool:
+    """Return whether this modular stage has an admitted authority owner."""
+    return (
+        host.battery_type != host.PROFILE_CUSTOM
+        and (
+            stage in {host.STAGE_MAIN, host.STAGE_DESULFATION, host.STAGE_MIX}
+            or (
+                stage == host.STAGE_SAFE_WAIT
+                and (
+                    host._recovery_safe_wait is not None
+                    or host._final_safe_wait is not None
+                    or host._safe_wait_next_stage == host.STAGE_MAIN
+                    or host._safe_wait_next_stage == host.STAGE_DONE
+                )
+            )
+        )
+    )
+
+
 def apply_authoritative_stage_tick(
     host: Any,
     *,
@@ -26,7 +45,7 @@ def apply_authoritative_stage_tick(
     decision_veto: Optional[Callable[[AuthorityDecision], Optional[AuthorityDecision]]] = None,
 ) -> Optional[AuthorityDecision]:
     """Dispatch an admitted stage tick without owning stage policy or hardware."""
-    if not host._is_authoritative_stage(stage_before) or host.current_stage != stage_before:
+    if not is_authoritative_charge_stage(host, stage_before) or host.current_stage != stage_before:
         return None
 
     if stage_before == host.STAGE_DESULFATION:
@@ -87,4 +106,4 @@ def apply_authoritative_stage_tick(
     return None
 
 
-__all__ = ["apply_authoritative_stage_tick"]
+__all__ = ["apply_authoritative_stage_tick", "is_authoritative_charge_stage"]

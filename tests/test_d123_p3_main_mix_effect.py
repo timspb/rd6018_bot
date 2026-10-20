@@ -61,12 +61,10 @@ class MainMixEffectTests(unittest.TestCase):
                 self.assertIsNone(host._main_sample_evidence.plateau_since_s)
 
     def test_controller_has_one_caller_and_effect_has_no_actuator_or_controller_import(self):
-        tree = ast.parse((ROOT / "charge_controller.py").read_text(encoding="utf-8"))
-        cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
-                   and node.name == "ManagedChargeController")
-        methods = {node.name for node in cls.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-        self.assertNotIn("_enter_mix", methods)
-        for name in ("apply_authoritative_stage_tick",):
+        tree = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
+        controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        self.assertNotIn("def _enter_mix(", controller_source)
+        for name in ("apply_charge_stage_authority",):
             self.assertEqual(sum(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                                  and node.func.id == name for node in ast.walk(tree)), 1)
         owner_tree = ast.parse((ROOT / "runtime/charge/runtime/main_scaffold.py").read_text(encoding="utf-8"))

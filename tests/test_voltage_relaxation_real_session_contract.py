@@ -15,6 +15,7 @@ import aiosqlite
 
 import charge_controller
 from d123_final_safe_wait_helpers import enter_final_safe_wait
+from application.charge_stage_tick import apply_charge_stage_authority
 
 from charge_controller import ManagedChargeController
 from tools.voltage_relaxation_sidecar import PassiveCollector, read_session
@@ -66,7 +67,7 @@ class ActualPersistenceContractTests(IsolatedAsyncioTestCase):
                 )
             else:
                 controller.stage_start_time = now - 7200
-                controller._apply_stage_authority(
+                apply_charge_stage_authority(controller,
                     record=None, first_stage=None, stage_before=controller.STAGE_DESULFATION,
                     timestamp_s=now, voltage=13.5, current=0.01, temp=22.0, ah=12.0,
                     is_cv=False, is_cc=True, actions=actions,

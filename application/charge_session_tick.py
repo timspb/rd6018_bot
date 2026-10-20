@@ -13,7 +13,7 @@ import time
 from typing import Any, Dict, Optional
 
 from application.recipe_policy import chemistry_for_profile
-from application.charge_stage_tick import run_charge_stage_tick
+from application.charge_stage_tick import apply_charge_stage_authority, run_charge_stage_tick
 from recovery_session import RecoveryTracePoint
 from runtime.charge.evidence.first_stage import FirstStageAssessment, MainSampleEvidenceInput
 from runtime.charge.evidence.trace_context import (
@@ -33,6 +33,7 @@ from runtime.charge.strategy.main_variables import (
     PLATEAU_EVIDENCE_WINDOW_MINUTES,
     STANDARD_PLATEAU_REQUIRED_MINUTES,
 )
+from runtime.charge.runtime.stage_authority import is_authoritative_charge_stage
 from signal_analyzer import SignalEvent
 
 
@@ -158,10 +159,11 @@ async def run_charge_session_tick(
             timestamp_s=float(timestamp_s),
         )
 
-        if host._is_authoritative_stage(stage_before):
+        if is_authoritative_charge_stage(host, stage_before):
             temp_value = math.nan if temp_ext is None else finite_or_nan(temp_ext)
             if math.isfinite(temp_value):
-                authority_decision = host._apply_stage_authority(
+                authority_decision = apply_charge_stage_authority(
+                    host,
                     record=record,
                     first_stage=first_stage,
                     stage_before=stage_before,
@@ -221,7 +223,7 @@ async def run_charge_session_tick(
             "authority": "modular",
             "trace_point": trace_point,
         }
-        if host._is_authoritative_stage(stage_before) and host.current_stage == stage_before:
+        if is_authoritative_charge_stage(host, stage_before) and host.current_stage == stage_before:
             temp_value = finite_or_nan(temp_ext)
             if math.isfinite(temp_value):
                 apply_stop_and_diagnose(

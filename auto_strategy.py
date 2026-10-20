@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, Optional
 
 from production_controller import ProductionChargeController
+from runtime.charge.strategy.mix_variables import mix_max_active_seconds
 
 
 class AutoStrategyProductionChargeController(ProductionChargeController):
@@ -36,7 +37,7 @@ class AutoStrategyProductionChargeController(ProductionChargeController):
 
     def _get_stage_max_hours(self) -> Optional[float]:
         if self.current_stage == self.STAGE_MIX and self.finish_timer_start is None:
-            return self._mix_limit_seconds() / 3600.0
+            return mix_max_active_seconds(self.battery_type) / 3600.0
         return super()._get_stage_max_hours()
 
     def _mix_display_elapsed_s(self, now: float) -> float:
@@ -54,7 +55,7 @@ class AutoStrategyProductionChargeController(ProductionChargeController):
         timers = super().get_timers()
         if self.current_stage == self.STAGE_MIX and self.finish_timer_start is None:
             now = time.time()
-            limit_s = self._mix_limit_seconds()
+            limit_s = mix_max_active_seconds(self.battery_type)
             elapsed = self._mix_display_elapsed_s(now)
             remaining = max(0.0, limit_s - elapsed)
             timers["stage_limit_sec"] = limit_s

@@ -16,6 +16,7 @@ from runtime.charge.runtime.variables import (
     OPERATOR_REPORT_INTERVAL_S,
     STAGE_CLOCK_SANITY_MAX_HOURS,
 )
+from runtime.charge.strategy.mix_variables import mix_max_active_seconds
 from runtime.safety.communication_variables import (
     LINK_LOSS_INITIAL_NOTICE_COUNT,
     LINK_LOSS_NOTICE_INTERVAL_S,
@@ -59,7 +60,7 @@ def apply_mix_authority_tick(
         profile=host.battery_type,
         policy_decision=record.decision.decision,
         active_elapsed_s=max(0.0, timestamp_s - host.stage_start_time),
-        authority_limit_s=host._mix_limit_seconds(),
+        authority_limit_s=mix_max_active_seconds(host.battery_type),
         finish_hold_started_at=host.finish_timer_start,
         now_s=timestamp_s,
         finish_hold_s=mix_finish_hold_seconds(),

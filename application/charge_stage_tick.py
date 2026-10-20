@@ -10,11 +10,59 @@ from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
 from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
+from runtime.charge.runtime.stage_authority import apply_authoritative_stage_tick
 from runtime.charge.strategy.mix_variables import mix_max_active_seconds
 from runtime.charge.strategy.safe_wait_variables import safe_wait_max_seconds
 
 
 logger = logging.getLogger("rd6018.application.charge_stage_tick")
+
+
+def apply_charge_stage_authority(host: Any, **kwargs: Any) -> Any:
+    """Coordinate stage authority, diagnostic veto, and durable Mix clock projection."""
+    stage_before = kwargs["stage_before"]
+    timestamp_s = float(kwargs["timestamp_s"])
+    diagnostic_update = getattr(host, "_update_live_diagnostic_evidence", None)
+    if callable(diagnostic_update):
+        diagnostic_update(
+            timestamp_s=timestamp_s,
+            voltage=float(kwargs["voltage"]),
+            current=float(kwargs["current"]),
+            temp=float(kwargs["temp"]),
+            ah=float(kwargs["ah"]),
+        )
+
+    mix_authority = getattr(host, "_mix_active_authority", None)
+    projected_mix = stage_before == host.STAGE_MIX and mix_authority is not None
+    saved_stage_start = None
+    session_id = None
+    if projected_mix:
+        session_id = host._mix_authority_session_id()
+        snapshot = mix_authority._require(session_id)
+        saved_stage_start = host.stage_start_time
+        host.stage_start_time = timestamp_s - float(snapshot.elapsed_s)
+
+    try:
+        decision = apply_authoritative_stage_tick(
+            host,
+            **{key: value for key, value in kwargs.items() if key != "output_is_on"},
+            output_is_on=kwargs.get("output_is_on"),
+            decision_veto=getattr(host, "_diagnostic_hv_veto", None),
+        )
+    finally:
+        if projected_mix and host.current_stage == stage_before:
+            host.stage_start_time = saved_stage_start
+
+    if (
+        projected_mix and decision is not None
+        and str(getattr(decision, "reason", "")) == "MIX_TIMEOUT"
+    ):
+        mix_authority.mark_terminal(session_id, "MIX_TIMEOUT")
+
+    diagnostic_snapshot = getattr(host, "diagnostic_snapshot", None)
+    if callable(diagnostic_snapshot):
+        kwargs["actions"]["battery_diagnostics"] = diagnostic_snapshot()
+    return decision
 
 
 async def run_charge_stage_tick(

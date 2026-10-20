@@ -5,6 +5,7 @@ from pathlib import Path
 import unittest
 
 from charge_controller import ManagedChargeController
+from application.charge_stage_tick import apply_charge_stage_authority
 from runtime.charge.runtime.desulfation_completion import (
     DesulfationCompletionInput,
     apply_desulfation_completion_effect,
@@ -140,7 +141,7 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
     def test_controller_dispatch_parity_and_event_capture_failure_is_read_only(self):
         host = self._host("EFB")
         actions = {}
-        decision = host._apply_stage_authority(
+        decision = apply_charge_stage_authority(host,
             record=None, first_stage=None, stage_before=host.STAGE_DESULFATION,
             timestamp_s=9000.0, voltage=15.4, current=1.1, temp=25.0, ah=8.5,
             is_cv=False, is_cc=False, actions=actions,

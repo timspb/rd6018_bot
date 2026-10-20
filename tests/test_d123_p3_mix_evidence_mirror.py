@@ -54,7 +54,8 @@ class MixEvidenceMirrorTests(unittest.TestCase):
         ]
         self.assertEqual(len(calls), 1)
         controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        self.assertIn("apply_authoritative_stage_tick(", controller_source)
+        authority_source = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
+        self.assertIn("apply_authoritative_stage_tick(", authority_source)
         dispatch_source = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
         self.assertIn("return apply_mix_authority_tick(", dispatch_source)
         self.assertNotIn("self.i_min_recorded = metrics.current_min_a", controller_source)

@@ -103,13 +103,14 @@ class AgmStepAdvanceEffectTests(unittest.TestCase):
         ]
         self.assertNotIn("_advance_agm_step", methods)
         self.assertNotIn("self._advance_agm_step", source)
-        calls = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "apply_authoritative_stage_tick"
-        ]
+        session = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
+        calls = [node for node in ast.walk(session)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                 and node.func.id == "apply_charge_stage_authority"]
         self.assertEqual(len(calls), 1)
+        app_stage = ast.parse((ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8"))
+        self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                             and n.func.id == "apply_authoritative_stage_tick" for n in ast.walk(app_stage)), 1)
         dispatch = ast.parse((ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8"))
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                              and n.func.id == "apply_main_authority_tick" for n in ast.walk(dispatch)), 1)

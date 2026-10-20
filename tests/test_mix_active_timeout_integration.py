@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from diagnostic_controller import DiagnosticProductionChargeController
+from application.charge_stage_tick import apply_charge_stage_authority
 from mix_active_authority import MixActiveTimeAuthority
 from recovery_policy import RecoveryDecision
 
@@ -60,7 +61,7 @@ class MixActiveTimeoutIntegrationTests(unittest.TestCase):
             actions = {}
 
             with patch("charge_controller.SESSION_FILE", str(Path(tmp) / "session.json")):
-                decision = controller._apply_stage_authority(
+                decision = apply_charge_stage_authority(controller,
                     record=record,
                     first_stage=None,
                     stage_before=controller.STAGE_MIX,

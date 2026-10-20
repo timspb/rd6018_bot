@@ -279,26 +279,6 @@ class MixActiveAuthorityMixin:
             return False, f"MIX_ACTIVE_AUTHORITY_RESTORE_REJECTED: {exc}"
         return ok, message
 
-    def _apply_stage_authority(self, *args: Any, **kwargs: Any):
-        stage_before = kwargs.get("stage_before")
-        if stage_before != self.STAGE_MIX:
-            return super()._apply_stage_authority(*args, **kwargs)
-
-        timestamp_s = float(kwargs.get("timestamp_s") or 0.0)
-        session_id = self._mix_authority_session_id()
-        snapshot = self._mix_active_authority._require(session_id)
-        saved_stage_start = self.stage_start_time
-        self.stage_start_time = timestamp_s - float(snapshot.elapsed_s)
-        try:
-            decision = super()._apply_stage_authority(*args, **kwargs)
-        finally:
-            if self.current_stage == stage_before:
-                self.stage_start_time = saved_stage_start
-
-        if decision is not None and str(getattr(decision, "reason", "")) == "MIX_TIMEOUT":
-            self._mix_active_authority.mark_terminal(session_id, "MIX_TIMEOUT")
-        return decision
-
     async def tick(self, *args: Any, **kwargs: Any):
         stage_before = self.current_stage
         output_raw = kwargs.get("output_is_on") if "output_is_on" in kwargs else (
