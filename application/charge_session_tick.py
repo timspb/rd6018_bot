@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional
 
 from application.recipe_policy import chemistry_for_profile
 from application.charge_stage_tick import apply_charge_stage_authority, run_charge_stage_tick
+from mix_active_authority import MixActiveAuthorityError
 from recovery_session import RecoveryTracePoint
 from runtime.charge.evidence.first_stage import FirstStageAssessment, MainSampleEvidenceInput
 from runtime.charge.evidence.trace_context import (
@@ -60,8 +61,17 @@ async def run_charge_session_tick(
     manual_active: bool = False,
 ) -> Dict[str, Any]:
     """Sequence one tick without owning chemistry decisions or hardware writes."""
-    await refresh_pre_tick_diagnostics(host)
     stage_before = host.current_stage
+    mix_authority = getattr(host, "_mix_active_authority", None)
+    mix_session_id: Optional[str] = None
+    if stage_before == host.STAGE_MIX and mix_authority is not None:
+        mix_session_id = host._mix_authority_session_id()
+        # Unknown Output cannot prove an inactive HV interval. Conservatively
+        # charge it as active; runtime telemetry safety independently fails closed.
+        output_state = normalize_output_on(output_is_on)
+        mix_authority.observe(mix_session_id, active=(output_state is not False))
+
+    await refresh_pre_tick_diagnostics(host)
     target_before = host._v2_target_voltage_v
     if target_before is None and stage_before not in {
         host.STAGE_IDLE, host.STAGE_SAFE_WAIT, host.STAGE_COOLING,
@@ -280,6 +290,24 @@ async def run_charge_session_tick(
     )
     if host.current_stage not in {host.STAGE_IDLE, host.STAGE_DONE}:
         host._save_session(float(voltage), float(current), float(ah))
+
+    if mix_session_id is not None and host.current_stage != host.STAGE_MIX:
+        try:
+            mix_authority.set_inactive(mix_session_id)
+        except MixActiveAuthorityError:
+            pass
+    elif (
+        mix_authority is not None
+        and stage_before != host.STAGE_MIX
+        and host.current_stage == host.STAGE_MIX
+    ):
+        # A transition keeps/turns Output ON. Start now; conservative slight
+        # over-count is preferable to extending automatic high-voltage authority.
+        mix_session_id = host._mix_authority_session_id()
+        try:
+            mix_authority.observe(mix_session_id, active=True)
+        except MixActiveAuthorityError:
+            mix_authority.begin(mix_session_id, active=True)
     return actions
 
 

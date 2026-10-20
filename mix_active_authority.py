@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from runtime.charge.persistence import SESSION_FILE
-from runtime.charge.evidence.trace_context import normalize_output_on
 
 
 class MixActiveAuthorityError(RuntimeError):
@@ -278,33 +277,3 @@ class MixActiveAuthorityMixin:
             self._v2_target_voltage_v = None
             return False, f"MIX_ACTIVE_AUTHORITY_RESTORE_REJECTED: {exc}"
         return ok, message
-
-    async def tick(self, *args: Any, **kwargs: Any):
-        stage_before = self.current_stage
-        output_raw = kwargs.get("output_is_on") if "output_is_on" in kwargs else (
-            args[5] if len(args) > 5 else None
-        )
-        session_id: Optional[str] = None
-        if stage_before == self.STAGE_MIX:
-            session_id = self._mix_authority_session_id()
-            # Unknown Output cannot prove an inactive HV interval. Conservatively
-            # charge it as active; runtime telemetry safety independently fails closed.
-            output_state = normalize_output_on(output_raw)
-            self._mix_active_authority.observe(session_id, active=(output_state is not False))
-
-        result = await super().tick(*args, **kwargs)
-
-        if session_id is not None and self.current_stage != self.STAGE_MIX:
-            try:
-                self._mix_active_authority.set_inactive(session_id)
-            except MixActiveAuthorityError:
-                pass
-        elif stage_before != self.STAGE_MIX and self.current_stage == self.STAGE_MIX:
-            # The transition action keeps/turns Output ON. Start the live anchor now;
-            # this may slightly over-count if hardware enable lands later, never extend.
-            session_id = self._mix_authority_session_id()
-            try:
-                self._mix_active_authority.observe(session_id, active=True)
-            except MixActiveAuthorityError:
-                self._mix_active_authority.begin(session_id, active=True)
-        return result

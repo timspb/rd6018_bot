@@ -45,6 +45,8 @@ class ApplicationTickOwnershipTests(unittest.TestCase):
             names = {node.name for node in cls.body
                      if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
             self.assertNotIn("_apply_stage_authority", names)
+            if class_name == "MixActiveAuthorityMixin":
+                self.assertNotIn("tick", names)
 
         app = ast.parse((ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8"))
         apply = next(node for node in app.body if isinstance(node, ast.FunctionDef)
