@@ -170,7 +170,7 @@ reset and action payload; no execution port or RD setters were added. See
 `D123_SPRINT22_EVIDENCE_20261019.md` for source and test evidence.
 
 This is one bounded P3 cut. P2 MAIN Guard restore admission remains
-fail-closed/deferred, and controller tick/session ownership, remaining MIX and
+fail-closed/deferred, and controller tick/session ownership, remaining stage and
 Storage/DONE/Manual paths, P4/P5, and physical acceptance remain open.
 
 ### Sprint 31 MIX authority dispatch ownership
