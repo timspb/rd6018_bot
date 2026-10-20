@@ -48,10 +48,6 @@ from runtime.charge.persistence import (
 )
 from runtime.charge.session import apply_trace_identity, new_trace_identity, set_current_stage
 from runtime.charge.post import post_charge_profile_params
-from runtime.charge.session_continuation_restore import (
-    restore_final_safe_wait,
-    restore_recovery_safe_wait,
-)
 
 SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
 from runtime.charge.evidence.first_stage import (
@@ -599,39 +595,12 @@ class ManagedChargeController:
                 "Historical Custom session is retired; restart Manual with operator authorization.",
             )
         if ok:
-            trace_document = dict(getattr(self, "_session_restore_document", {}))
-            self._restore_desulfation_stage_clock(trace_document)
-            restore_recovery_safe_wait(self, trace_document)
-            restore_final_safe_wait(self, trace_document)
-            self._initialize_shadow_session(started_at=self._v2_trace_started_at)
-            enriched = bool(getattr(self, "_session_restore_enriched", False))
-            if not enriched and not enrich_restored_session(
-                self, trace_document, session_file=SESSION_FILE
-            ):
-                self.stop(clear_session=False)
-                return False, "Restored session identity could not be durably reconciled."
-            if self.host_configuration.production_extensions_enabled:
-                # Keep the existing authority order: canonical ordinary restore,
-                # Guard journal reconstruction, then non-Guard production state.
-                from runtime.charge.strategy.main_guard_session import GUARD_KEY, read_guard
-                self._main_current_guard = None
-                self._main_current_guard_revision = None
-                if GUARD_KEY in trace_document:
-                    guard, revision = read_guard(
-                        trace_document,
-                        session_id=str(self._v2_trace_session_id or ""),
-                        battery_id=str(self._v2_battery_id or ""),
-                        now_s=float(time.time()),
-                    )
-                    self._main_current_guard = guard
-                    self._main_current_guard_revision = revision
-                from application.production_session_extensions import restore_production_session_state
-                rejection = restore_production_session_state(
-                    self, trace_document, output_is_on=output_is_on,
-                    is_cv=is_cv, is_cc=is_cc,
-                )
-                if rejection is not None:
-                    return False, rejection
+            from runtime.charge.session_continuation_restore import finish_session_restore
+            return finish_session_restore(
+                self, output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
+                session_file=SESSION_FILE, success_message=message,
+                enrich_restored_session=enrich_restored_session,
+            )
         return ok, message
 
     @property

@@ -28,13 +28,16 @@ class Sprint55BArchitectureTests(unittest.TestCase):
         self.assertNotIn("class MixActiveAuthorityMixin", (ROOT / "mix_active_authority.py").read_text())
 
     def test_guard_extension_mix_order_remains(self):
-        controller = (ROOT / "charge_controller.py").read_text()
-        guard = controller.index("read_guard(", controller.index("def try_restore_session"))
-        extensions = controller.index("restore_production_session_state(", guard)
+        persistence = (ROOT / "runtime/charge/persistence.py").read_text()
+        continuation = (ROOT / "runtime/charge/session_continuation_restore.py").read_text()
         extension = (ROOT / "application/production_session_extensions.py").read_text()
+        guard = persistence.index("if GUARD_KEY in data:")
+        first_host_mutation = persistence.index("host._stage_tracking_enabled = False", guard)
+        extensions = continuation.index("restore_production_session_state(")
         ordinary = extension.index("restore_production_session_state")
         mix_load = extension.index("restore_mix_active_authority(host)", ordinary)
-        self.assertLess(guard, extensions)
+        self.assertLess(guard, first_host_mutation)
+        self.assertGreaterEqual(extensions, 0)
         self.assertLess(ordinary, mix_load)
 
 

@@ -711,7 +711,8 @@ def restore_session(
             host._session_restore_enriched = _normalize_terminal_done_document(
                 host, data, session_file=session_file,
             )
-        host._session_restore_document = dict(data)
+        from runtime.charge.session import RestoredSessionDocument
+        host._session_restore_snapshot = RestoredSessionDocument.capture(data)
         if restored_terminal:
             host._save_session(voltage, current, ah)
             host._session_restore_enriched = True

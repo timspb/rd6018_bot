@@ -104,4 +104,37 @@ def restore_final_safe_wait(host: Any, document: Mapping[str, Any]) -> None:
         )
 
 
-__all__ = ["restore_final_safe_wait", "restore_recovery_safe_wait"]
+def finish_session_restore(
+    host: Any, *, output_is_on: Any, is_cv: Any, is_cc: Any,
+    session_file: str, success_message: str | None, enrich_restored_session: Any,
+) -> tuple[bool, str | None]:
+    """Sequence accepted ordinary snapshot, continuations, and extensions.
+
+    Guard-bearing documents are rejected earlier by the persistence owner,
+    before controller mutation. This function handles only an accepted
+    unguarded legacy/current snapshot; it never infers physical state or admits
+    restart authority.
+    """
+    snapshot = getattr(host, "_session_restore_snapshot", None)
+    document = dict(snapshot.document) if snapshot is not None else {}
+    host._restore_desulfation_stage_clock(document)
+    restore_recovery_safe_wait(host, document)
+    restore_final_safe_wait(host, document)
+    host._initialize_shadow_session(started_at=host._v2_trace_started_at)
+    if not bool(getattr(host, "_session_restore_enriched", False)) and not enrich_restored_session(
+        host, document, session_file=session_file
+    ):
+        host.stop(clear_session=False)
+        return False, "Restored session identity could not be durably reconciled."
+    if host.host_configuration.production_extensions_enabled:
+        from application.production_session_extensions import restore_production_session_state
+        rejection = restore_production_session_state(
+            host, document, output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
+        )
+        if rejection is not None:
+            return False, rejection
+    return True, success_message
+
+
+
+__all__ = ["finish_session_restore", "restore_final_safe_wait", "restore_recovery_safe_wait"]

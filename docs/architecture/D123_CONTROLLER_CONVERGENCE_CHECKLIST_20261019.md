@@ -128,3 +128,20 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - Canonical Python 3.12 full discovery: **2,462 tests, 3 skipped, PASS**.
 - P4 class-shape objective: **CLOSED**; production constructs exactly one canonical `ManagedChargeController` with frozen explicit host configuration and no production controller subclass/mixin.
 - Remaining work is P2 session/Guard lifecycle ownership and P5 release/physical gates; no deployment or physical validation occurred.
+
+### Sprint 56 / D123 P2 session and Guard convergence (2026-10-21)
+- [x] Replace raw `_session_restore_document` attribute with explicit `RestoredSessionDocument` handoff from the single canonical persistence reader; preserve all stored keys and migration behavior.
+- [x] Move accepted ordinary restore continuation orchestration from `ManagedChargeController.try_restore_session` to existing `runtime.charge.session_continuation_restore`, retaining recovery/final SAFE_WAIT identity, durable enrichment failure containment, and production extension/MIX restore ordering.
+- [x] Name and test the MAIN Guard restore boundary separately from ordinary metadata. Guard-bearing documents remain rejected before host mutation because owner-wide execution lock plus matching fresh Native pre-ON Iset/OCP/generation reconciliation are absent; no output state is synthesized.
+- [x] Sprint 55C explicit host configuration retained; P4 remains closed.
+- [x] Final focused restore/Guard/extension/session/startup/migration batch **110 PASS**, architecture/continuation batch **11 PASS**, compileall and diff-check **PASS**. Full Python 3.12 discovery was attempted but stalled in sandbox asynchronous/socket tests without a summary; outer canonical runner must execute it. See `D123_P2_SESSION_GUARD_CONVERGENCE_EVIDENCE_20261021.md`.
+- [ ] P5 release matrix and physical acceptance remain open.
+
+
+### P2 canonical full acceptance
+
+- Raw `_session_restore_document` coupling removed; accepted ordinary restore uses typed `RestoredSessionDocument`.
+- Guard-bearing restore is rejected exactly once by `runtime.charge.persistence.restore_session` before host mutation.
+- Continuation owner is domain-layer clean and receives enrichment callback by injection; no persistence back-import.
+- Canonical Python 3.12 full discovery: **2,463 tests, 3 skipped, PASS**.
+- Remaining P2 boundary is live owner-wide execution + fresh direct ESP Native pre-ON reconciliation for guarded resume; source-only restore ownership is converged.

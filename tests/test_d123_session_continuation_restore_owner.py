@@ -60,8 +60,10 @@ class SessionContinuationRestoreOwnerTests(unittest.TestCase):
         }
         self.assertNotIn("_restore_recovery_safe_wait", methods)
         self.assertNotIn("_restore_final_safe_wait", methods)
-        self.assertIn("restore_recovery_safe_wait(self, trace_document)", source)
-        self.assertIn("restore_final_safe_wait(self, trace_document)", source)
+        owner = Path("runtime/charge/session_continuation_restore.py").read_text()
+        self.assertIn("restore_recovery_safe_wait(host, document)", owner)
+        self.assertIn("restore_final_safe_wait(host, document)", owner)
+        self.assertIn("finish_session_restore(", source)
 
 
 if __name__ == "__main__":

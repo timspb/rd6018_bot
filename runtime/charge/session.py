@@ -31,6 +31,20 @@ class TraceIdentitySnapshot:
     condition_before: str
 
 
+@dataclass(frozen=True)
+class RestoredSessionDocument:
+    """Typed handoff of the one canonical decoded session document.
+
+    The schema remains owned by persistence; consumers receive this explicit
+    snapshot only after ordinary restore has accepted the document.
+    """
+    document: dict[str, object]
+
+    @classmethod
+    def capture(cls, document: dict[str, object]) -> "RestoredSessionDocument":
+        return cls(document=dict(document))
+
+
 def new_trace_identity(host: object, *, now: float | None = None) -> TraceIdentitySnapshot:
     """Create a new trace identity from the canonical session lifecycle owner."""
     started_at = float(getattr(host, "total_start_time", 0.0) or now or time.time())

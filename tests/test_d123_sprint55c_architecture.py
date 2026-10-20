@@ -54,10 +54,16 @@ class Sprint55CArchitectureTests(unittest.TestCase):
         self.assertIn("configure_production_charge_host(app.charge_controller)", source)
 
     def test_restore_and_writer_owners_remain_single_and_ordered(self):
-        source = (ROOT / "charge_controller.py").read_text()
-        guard = source.index("read_guard(", source.index("def try_restore_session"))
-        extension = source.index("restore_production_session_state(", guard)
-        self.assertLess(guard, extension)
+        source = (ROOT / "runtime/charge/session_continuation_restore.py").read_text()
+        persistence = (ROOT / "runtime/charge/persistence.py").read_text()
+        guard = persistence.index("if GUARD_KEY in data:")
+        extension = source.index("restore_production_session_state(")
+        self.assertIn("return False", persistence[guard:persistence.index("saved_at =", guard)])
+        controller = (ROOT / "charge_controller.py").read_text()
+        self.assertIn("RestoredSessionDocument.capture(data)", persistence)
+        self.assertNotIn("_session_restore_document", persistence + controller + source)
+        self.assertNotIn("safe_enable_output(", source)
+        self.assertNotIn("turn_on(", source)
         atomic = ast.parse((ROOT / "runtime/charge/session_atomic.py").read_text())
         self.assertEqual(sum(isinstance(node, ast.FunctionDef) and node.name == "atomic_session_write"
                              for node in ast.walk(atomic)), 1)

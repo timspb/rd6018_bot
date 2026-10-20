@@ -967,3 +967,37 @@ verification limits.
 - Canonical Python 3.12 full discovery: **2,462 tests, 3 skipped, PASS**.
 - P4 class-shape objective: **CLOSED**; production constructs exactly one canonical `ManagedChargeController` with frozen explicit host configuration and no production controller subclass/mixin.
 - Remaining work is P2 session/Guard lifecycle ownership and P5 release/physical gates; no deployment or physical validation occurred.
+
+### Sprint 56 / P2 session restore ownership
+
+`runtime.charge.persistence.restore_session` remains the sole canonical file
+reader, persisted schema/migration validator, trace identity applicator, and
+ordinary host restore owner. Accepted decoded data is handed to the existing
+host as a `RestoredSessionDocument`; `_session_restore_document` no longer
+exists. `ManagedChargeController.try_restore_session` is still the startup
+decision gate but delegates accepted restore orchestration to
+`runtime.charge.session_continuation_restore.finish_session_restore`.
+
+That session owner checks `main_guard_restore_boundary` before continuation
+reconstruction or enrichment, then restores DESULFATION age, recovery/final
+SAFE_WAIT continuation identity, trace shadow, and durable identity enrichment.
+Only after Guard handling does it restore production extensions, including
+COOLING and durable MIX authority. It has no physical writer and does not
+synthesize Output state. Failed enrichment rejects restore.
+
+Guard-bearing documents are currently rejected inside persistence before any
+host mutation, so no journal is ordinarily admitted on restart. This remains
+the correct fail-closed boundary until an owner-wide execution lock and
+fresh direct Native pre-ON receipt prove matching Output, Iset/OCP, session
+generation, and Guard revision while resolving pending command state. Those
+are live/native facts and cannot be established by a source-only edit.
+See `D123_P2_SESSION_GUARD_CONVERGENCE_EVIDENCE_20261021.md`.
+
+
+### P2 canonical full acceptance
+
+- Raw `_session_restore_document` coupling removed; accepted ordinary restore uses typed `RestoredSessionDocument`.
+- Guard-bearing restore is rejected exactly once by `runtime.charge.persistence.restore_session` before host mutation.
+- Continuation owner is domain-layer clean and receives enrichment callback by injection; no persistence back-import.
+- Canonical Python 3.12 full discovery: **2,463 tests, 3 skipped, PASS**.
+- Remaining P2 boundary is live owner-wide execution + fresh direct ESP Native pre-ON reconciliation for guarded resume; source-only restore ownership is converged.

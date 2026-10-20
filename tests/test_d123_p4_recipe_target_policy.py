@@ -81,12 +81,12 @@ class ProductionRecipeTargetPolicyTests(unittest.TestCase):
         self.assertEqual(len(methods), 1)
         self.assertFalse(any(isinstance(node, ast.ClassDef) for node in production.body))
         owner_source = (ROOT / "charge_controller.py").read_text()
-        positions = [owner_source.index(token) for token in (
-            "restore_session(\n            self,",
-            "if GUARD_KEY in trace_document:",
-            "restore_production_session_state(",
-        )]
-        self.assertEqual(positions, sorted(positions))
+        persistence = (ROOT / "runtime/charge/persistence.py").read_text()
+        continuation = (ROOT / "runtime/charge/session_continuation_restore.py").read_text()
+        self.assertIn("restore_session(\n            self,", owner_source)
+        self.assertIn("if GUARD_KEY in data:", persistence)
+        self.assertIn("restore_production_session_state(", continuation)
+        self.assertNotIn("runtime.charge.persistence", continuation)
         atomic = ast.parse((ROOT / "runtime/charge/session_atomic.py").read_text())
         writers = [
             node for node in ast.walk(atomic)
