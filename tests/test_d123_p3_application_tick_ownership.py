@@ -61,7 +61,9 @@ class ApplicationTickOwnershipTests(unittest.TestCase):
         session = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
         tick = next(node for node in session.body if isinstance(node, ast.AsyncFunctionDef)
                     and node.name == "run_charge_session_tick")
-        self.assertEqual(len(_calls(tick, {"run_charge_stage_tick"})), 1)
+        body = next(node for node in session.body if isinstance(node, ast.AsyncFunctionDef)
+                    and node.name == "_run_charge_session_tick_body")
+        self.assertEqual(len(_calls(body, {"run_charge_stage_tick"})), 1)
         self.assertEqual(_calls(tick, {
             "set_voltage", "set_current", "set_ovp", "set_ocp", "turn_on",
             "turn_off", "safe_enable_output", "execute_controller_actions",

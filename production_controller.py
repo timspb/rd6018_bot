@@ -215,12 +215,6 @@ class ProductionChargeController(ManagedChargeController):
             ),
         )
 
-    @staticmethod
-    def _tick_arg(args: tuple[Any, ...], kwargs: Dict[str, Any], name: str, index: int, default: Any = None) -> Any:
-        if name in kwargs:
-            return kwargs[name]
-        return args[index] if len(args) > index else default
-
     def _runtime_signal_snapshot(self) -> Dict[str, Any]:
         runtime = self._v2_runtime
         if not isinstance(runtime, CoolingAwareShadowRecoveryRuntime):
@@ -654,113 +648,6 @@ class ProductionChargeController(ManagedChargeController):
         for old, new in replacements.items():
             result = result.replace(old, new)
         return result
-
-    def _fail_closed_cooling_actions(self, reason: str) -> Dict[str, Any]:
-        try:
-            self.stop(clear_session=True)
-        except Exception:
-            pass
-        return {
-            "emergency_stop": True,
-            "turn_off": True,
-            "log_event": f"V2_COOLING_FAIL_CLOSED | {reason}",
-            "notify": (
-                "🛑 <b>Cooling restore/resume заблокирован.</b> "
-                f"Причина: <code>{reason}</code>. Output должен оставаться OFF; "
-                "автоматическое продолжение сессии отменено."
-            ),
-        }
-
-    async def tick(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """Run managed V2 and enforce Cooling as a true pause of charge evidence."""
-        if self.is_active and self.battery_type != self.PROFILE_CUSTOM:
-            self._last_hourly_report = time.time()
-
-        stage_before = self.current_stage
-        pause_before = (
-            dict(self._v2_cooling_pause)
-            if isinstance(getattr(self, "_v2_cooling_pause", None), dict)
-            else None
-        )
-        if stage_before == self.STAGE_COOLING:
-            valid, reason = validate_cooling_pause(self, pause_before)
-            if not valid:
-                return self._fail_closed_cooling_actions(reason)
-
-        safe_wait_start_before = (
-            finite(getattr(self, "_safe_wait_start", None))
-            if stage_before == self.STAGE_SAFE_WAIT
-            else None
-        )
-
-        temp_ext = self._tick_arg(args, kwargs, "temp_ext", 2)
-        voltage = self._tick_arg(args, kwargs, "voltage", 0, 0.0)
-        current = self._tick_arg(args, kwargs, "current", 1, 0.0)
-        ah = self._tick_arg(args, kwargs, "ah", 4, 0.0)
-
-        pre_stage_start = float(self.stage_start_time or 0.0)
-        pre_stage_start_ah = float(self._stage_start_ah or 0.0)
-        pre_finish = self.finish_timer_start
-        pre_hold_since = self._first_stage_hold_since
-        pre_hold_current = self._first_stage_hold_current
-        pre_cv_since = self._cv_since
-        pre_tail_since = self._v2_continuous_tail_since
-        pre_runtime_signal = self._runtime_signal_snapshot()
-        try:
-            pre_target = tuple(float(v) for v in self._get_target_v_i(temp_ext))
-        except Exception:
-            pre_target = (float(self._cooling_target_v or 0.0), float(self._cooling_target_i or 0.0))
-
-        actions = await super().tick(*args, **kwargs)
-        now = float(self.last_update_time or time.time())
-
-        if stage_before != self.STAGE_COOLING and self.current_stage == self.STAGE_COOLING:
-            self._capture_cooling_pause(
-                entered_at=now,
-                source_stage=stage_before,
-                source_stage_start_time=pre_stage_start,
-                source_stage_start_ah=pre_stage_start_ah,
-                source_target=pre_target,
-                source_finish_timer_start=pre_finish,
-                source_first_hold_since=pre_hold_since,
-                source_first_hold_current=pre_hold_current,
-                source_cv_since=pre_cv_since,
-                source_tail_since=pre_tail_since,
-                source_runtime_signal=pre_runtime_signal,
-            )
-            if stage_before == self.STAGE_SAFE_WAIT:
-                if safe_wait_start_before is None or safe_wait_start_before <= 0:
-                    return self._fail_closed_cooling_actions(
-                        "safe_wait_cooling_capture_failed"
-                    )
-                pause = dict(self._v2_cooling_pause or {})
-                pause["source_safe_wait_start"] = float(safe_wait_start_before)
-                self._v2_cooling_pause = pause
-                valid, reason = validate_cooling_pause(self, pause)
-                if not valid:
-                    return self._fail_closed_cooling_actions(reason)
-            self._save_session(float(voltage), float(current), float(ah))
-        elif stage_before == self.STAGE_COOLING and self.current_stage != self.STAGE_COOLING:
-            self._resume_cooling_pause(resumed_at=now)
-            if self.current_stage == self.STAGE_SAFE_WAIT:
-                assert pause_before is not None
-                entered_at = float(pause_before["entered_at"])
-                source_safe_wait_start = float(pause_before["source_safe_wait_start"])
-                cooling_duration = max(0.0, float(now) - entered_at)
-                self._safe_wait_start = source_safe_wait_start + cooling_duration
-                for key in ("turn_on", "set_voltage", "set_current", "set_ovp", "set_ocp"):
-                    actions.pop(key, None)
-                actions["turn_off"] = True
-                actions["notify"] = (
-                    "🌡 АКБ остыла до порога возобновления. SAFE_WAIT продолжается с "
-                    "замороженным таймером; Output остаётся OFF."
-                )
-                actions["log_event"] = "COOLING -> SAFE_WAIT | OUTPUT_OFF_PRESERVED"
-            self._save_session(float(voltage), float(current), float(ah))
-
-        if isinstance(actions.get("notify"), str):
-            actions["notify"] = self._operatorize_notification(actions["notify"])
-        return actions
 
     def try_restore_session(
         self,

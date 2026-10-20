@@ -1,7 +1,6 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from charge_controller import ManagedChargeController
 from production_controller import ProductionChargeController
 
 
@@ -16,7 +15,10 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
         controller.current_stage = controller.STAGE_MAIN
         controller._last_hourly_report = 0.0
 
-        with patch.object(ManagedChargeController, "tick", new=AsyncMock(return_value={})) as parent_tick:
+        with patch(
+            "application.charge_session_tick._run_charge_session_tick_body",
+            new=AsyncMock(return_value={}),
+        ) as session_body:
             result = await controller.tick(
                 14.7,
                 0.1,
@@ -29,7 +31,7 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {})
         self.assertGreater(controller._last_hourly_report, 0.0)
-        parent_tick.assert_awaited_once()
+        session_body.assert_awaited_once()
 
     async def test_custom_profile_retains_legacy_hourly_reporting_contract(self):
         controller = ProductionChargeController(DummyHass())
@@ -37,7 +39,10 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
         controller.current_stage = controller.STAGE_MAIN
         controller._last_hourly_report = 0.0
 
-        with patch.object(ManagedChargeController, "tick", new=AsyncMock(return_value={})):
+        with patch(
+            "application.charge_session_tick._run_charge_session_tick_body",
+            new=AsyncMock(return_value={}),
+        ):
             await controller.tick(
                 14.4,
                 1.0,

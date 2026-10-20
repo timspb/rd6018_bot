@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 from application.recipe_policy import chemistry_for_profile
 from application.charge_stage_tick import apply_charge_stage_authority, run_charge_stage_tick
 from mix_active_authority import MixActiveAuthorityError
+from runtime.charge.runtime.cooling_guard import finite, validate_cooling_pause
 from recovery_session import RecoveryTracePoint
 from runtime.charge.evidence.first_stage import FirstStageAssessment, MainSampleEvidenceInput
 from runtime.charge.evidence.trace_context import (
@@ -60,7 +61,138 @@ async def run_charge_session_tick(
     is_cc: Optional[bool] = None,
     manual_active: bool = False,
 ) -> Dict[str, Any]:
-    """Sequence one tick without owning chemistry decisions or hardware writes."""
+    """Run application tick plus production Cooling pause/resume orchestration."""
+    production_cooling = callable(getattr(host, "_capture_cooling_pause", None))
+    if production_cooling and host.is_active and host.battery_type != host.PROFILE_CUSTOM:
+        host._last_hourly_report = time.time()
+
+    stage_before = host.current_stage
+    pause_before = (
+        dict(host._v2_cooling_pause)
+        if isinstance(getattr(host, "_v2_cooling_pause", None), dict)
+        else None
+    )
+    if production_cooling and stage_before == host.STAGE_COOLING:
+        valid, reason = validate_cooling_pause(host, pause_before)
+        if not valid:
+            return _fail_closed_cooling_actions(host, reason)
+
+    safe_wait_start_before = None
+    pre_target = (0.0, 0.0)
+    pre_stage_start = pre_stage_start_ah = 0.0
+    pre_finish = pre_hold_since = pre_hold_current = None
+    pre_cv_since = pre_tail_since = None
+    pre_runtime_signal: Dict[str, Any] = {}
+    if production_cooling:
+        safe_wait_start_before = (
+            finite(getattr(host, "_safe_wait_start", None))
+            if stage_before == host.STAGE_SAFE_WAIT
+            else None
+        )
+        try:
+            pre_target = tuple(float(value) for value in host._get_target_v_i(temp_ext))
+        except Exception:
+            pre_target = (
+                float(getattr(host, "_cooling_target_v", None) or 0.0),
+                float(getattr(host, "_cooling_target_i", None) or 0.0),
+            )
+        pre_stage_start = float(host.stage_start_time or 0.0)
+        pre_stage_start_ah = float(host._stage_start_ah or 0.0)
+        pre_finish = host.finish_timer_start
+        pre_hold_since = host._first_stage_hold_since
+        pre_hold_current = host._first_stage_hold_current
+        pre_cv_since = host._cv_since
+        pre_tail_since = host._v2_continuous_tail_since
+        pre_runtime_signal = host._runtime_signal_snapshot()
+
+    actions = await _run_charge_session_tick_body(
+        host, voltage, current, temp_ext, is_cv, ah,
+        output_is_on=output_is_on,
+        manual_off_active=manual_off_active,
+        is_cc=is_cc,
+        manual_active=manual_active,
+    )
+    if not production_cooling:
+        return actions
+
+    now = float(host.last_update_time or time.time())
+    if stage_before != host.STAGE_COOLING and host.current_stage == host.STAGE_COOLING:
+        host._capture_cooling_pause(
+            entered_at=now,
+            source_stage=stage_before,
+            source_stage_start_time=pre_stage_start,
+            source_stage_start_ah=pre_stage_start_ah,
+            source_target=pre_target,
+            source_finish_timer_start=pre_finish,
+            source_first_hold_since=pre_hold_since,
+            source_first_hold_current=pre_hold_current,
+            source_cv_since=pre_cv_since,
+            source_tail_since=pre_tail_since,
+            source_runtime_signal=pre_runtime_signal,
+        )
+        if stage_before == host.STAGE_SAFE_WAIT:
+            if safe_wait_start_before is None or safe_wait_start_before <= 0:
+                return _fail_closed_cooling_actions(host, "safe_wait_cooling_capture_failed")
+            pause = dict(host._v2_cooling_pause or {})
+            pause["source_safe_wait_start"] = float(safe_wait_start_before)
+            host._v2_cooling_pause = pause
+            valid, reason = validate_cooling_pause(host, pause)
+            if not valid:
+                return _fail_closed_cooling_actions(host, reason)
+        host._save_session(float(voltage), float(current), float(ah))
+    elif stage_before == host.STAGE_COOLING and host.current_stage != host.STAGE_COOLING:
+        host._resume_cooling_pause(resumed_at=now)
+        if host.current_stage == host.STAGE_SAFE_WAIT:
+            assert pause_before is not None
+            entered_at = float(pause_before["entered_at"])
+            source_safe_wait_start = float(pause_before["source_safe_wait_start"])
+            cooling_duration = max(0.0, float(now) - entered_at)
+            host._safe_wait_start = source_safe_wait_start + cooling_duration
+            for key in ("turn_on", "set_voltage", "set_current", "set_ovp", "set_ocp"):
+                actions.pop(key, None)
+            actions["turn_off"] = True
+            actions["notify"] = (
+                "🌡 АКБ остыла до порога возобновления. SAFE_WAIT продолжается с "
+                "замороженным таймером; Output остаётся OFF."
+            )
+            actions["log_event"] = "COOLING -> SAFE_WAIT | OUTPUT_OFF_PRESERVED"
+        host._save_session(float(voltage), float(current), float(ah))
+
+    if isinstance(actions.get("notify"), str):
+        actions["notify"] = host._operatorize_notification(actions["notify"])
+    return actions
+
+
+def _fail_closed_cooling_actions(host: Any, reason: str) -> Dict[str, Any]:
+    try:
+        host.stop(clear_session=True)
+    except Exception:
+        pass
+    return {
+        "emergency_stop": True,
+        "turn_off": True,
+        "log_event": f"V2_COOLING_FAIL_CLOSED | {reason}",
+        "notify": (
+            "🛑 <b>Cooling restore/resume заблокирован.</b> "
+            f"Причина: <code>{reason}</code>. Output должен оставаться OFF; "
+            "автоматическое продолжение сессии отменено."
+        ),
+    }
+
+
+async def _run_charge_session_tick_body(
+    host: Any,
+    voltage: float,
+    current: float,
+    temp_ext: Optional[float],
+    is_cv: bool,
+    ah: float,
+    output_is_on: Optional[Any] = None,
+    manual_off_active: bool = False,
+    is_cc: Optional[bool] = None,
+    manual_active: bool = False,
+) -> Dict[str, Any]:
+    """Execute the shared non-Cooling automatic session orchestration."""
     stage_before = host.current_stage
     mix_authority = getattr(host, "_mix_active_authority", None)
     mix_session_id: Optional[str] = None
