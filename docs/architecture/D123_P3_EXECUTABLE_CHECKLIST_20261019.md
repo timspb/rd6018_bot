@@ -36,6 +36,15 @@ source change was made in Sprint 05.
 | `commit_verified_enable_transition`, `_handle_safe_wait_stage_override` | Existing `application.execution_port` verified transaction and commit boundary | START/output transaction suites; exact lease and actuator call-count contracts |
 | `_apply_continuous_tail_hold` and production cooling pause mutation | Existing production policy/evidence and canonical session persistence extensions | `test_production_controller`, cooling restore and session atomic guard-binding suites |
 
+## Sprint 31 — MIX authority dispatch ownership
+
+- [x] Starting source pin: exact requested HEAD `5f5f2b42c9d14c820d2968f3381c6aae5b052db0`; preserved the existing unstaged MIX extraction found in the worktree and validated it as the single Sprint 31 source cut.
+- [x] Move MIX evidence mirror application, `decide_mix_transition`, finish-hold effect construction/application, final SAFE_WAIT completion dispatch, and STOP_AND_DIAGNOSE dispatch from `_apply_authoritative_decision` into the existing `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick` owner.
+- [x] Keep `_apply_authoritative_decision` as the sole caller for MIX authority. The runtime owner has no execution port, RD setter, or actuator API; action execution and verified transaction ownership remain in `application.execution_port`.
+- [x] Preserve one decision call, existing decision/action keys and order, finish evidence and hold behavior, invalid identity fail-closed handling, and downstream timeout/SAFE_WAIT transaction paths; focused parity/failure/static guards pass.
+- [x] Run focused tests, full Python 3.12 offline discovery, `compileall`, and `git diff --check`; exact evidence and limitations: `D123_SPRINT31_EVIDENCE_20261020.md`.
+- [ ] Next gate: inspect one remaining controller-owned orchestration boundary around SAFE_WAIT or `_run_stage_scaffold_tick`; do not cross deferred Guard restore admission or split verified Storage/DONE save ordering. Manual and P4 remain outside this cut.
+
 ## Executable gates before each P3 edit
 
 - [ ] Pin current HEAD and clean-tree state; append evidence, never rewrite prior
@@ -146,3 +155,26 @@ source change was made in Sprint 05.
   schema, extension, Guard, identity, and atomic writer authority remain whole.
   P2 Guard restore admission stays fail-closed/deferred. Manual/P4 remain
   untouched.
+
+## Sprint 31 — MIX authority orchestration ownership
+
+- [x] Manual independence audit: production Manual START and STOP remain on
+  `ProductionManualUIRoute` / `ProductionManualSessionManager`; no active Manual
+  state or recipe coupling remains in `ManagedChargeController`.
+- [x] Move MIX evidence mirror, transition decision, finish-hold effect dispatch,
+  MIX completion dispatch, and STOP_AND_DIAGNOSE dispatch from
+  `_apply_authoritative_decision` into the existing
+  `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick` owner.
+- [x] Preserve MIX decision inputs, profile authority limit, action payloads,
+  evidence fields/logs, completion target selection and fail-closed stale-session
+  containment. The controller retains one guarded call after authoritative-stage
+  validation; the existing application execution path remains unchanged.
+- [x] Add/retarget parity, stale identity, owner dispatch, and no physical-writer
+  guards; preserve MAIN completion and Guard/restore admission boundaries.
+- [x] Full Python 3.12 offline unittest discovery with synthetic `TG_TOKEN`,
+  compileall, and diff check recorded in `D123_SPRINT31_EVIDENCE_20261020.md`.
+- [x] Commit one source-only cut with a clean worktree.
+- [ ] Next gate: assess the remaining central `_apply_authoritative_decision`
+  MAIN/SAFE_WAIT orchestration and tick evidence/trace glue for a bounded move
+  into existing owners. Keep P2 MAIN Guard restore admission deferred/fail-closed;
+  do not start P4.

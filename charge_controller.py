@@ -59,10 +59,6 @@ from runtime.charge.evidence.first_stage import (
     MainSampleEvidenceEvaluator,
     MainSampleEvidenceInput,
 )
-from runtime.charge.evidence.mix_observation import (
-    apply_mix_evidence_mirror,
-    build_mix_evidence_mirror,
-)
 from runtime.charge.evidence.trace_context import (
     TraceLifecycle,
     SignalContextInput,
@@ -100,10 +96,6 @@ from runtime.charge.runtime.desulfation_completion import (
 from runtime.charge.runtime.mix_entry import (
     apply_main_mix_entry,
 )
-from runtime.charge.runtime.mix_finish_hold import (
-    apply_mix_finish_hold_effect,
-    build_mix_finish_hold_effect,
-)
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -114,11 +106,11 @@ from runtime.charge.runtime.support import (
     target_finish_time,
 )
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S, STAGE_TRANSITION_BLANKING_S
-from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
-from runtime.charge.runtime.final_safe_wait_entry import (
-    apply_main_completion_to_safe_wait,
-    apply_mix_completion_to_safe_wait,
+from runtime.charge.runtime.mix_scaffold import (
+    apply_mix_authority_tick,
+    run_authoritative_mix_scaffold,
 )
+from runtime.charge.runtime.final_safe_wait_entry import apply_main_completion_to_safe_wait
 from runtime.charge.runtime.final_safe_wait_completion import (
     FinalSafeWaitCompletionInput,
     apply_final_safe_wait_completion_effect,
@@ -147,9 +139,8 @@ from runtime.charge.strategy.final_safe_wait import (
 from runtime.charge.strategy.main_authority import decide_main_transition
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.prep import select_prep_target
-from runtime.charge.strategy.mix import decide_mix_transition, select_mix_target
+from runtime.charge.strategy.mix import select_mix_target
 from runtime.charge.strategy.mix_variables import (
-    mix_finish_hold_seconds,
     mix_max_active_seconds,
 )
 from runtime.charge.strategy.recovery_safe_wait import (
@@ -1340,79 +1331,18 @@ class ManagedChargeController:
                 )
             return decision
 
-        # Mix: expose mode-specific evidence through the existing dashboard fields.
-        metrics = record.analysis.metrics
-        mirror = build_mix_evidence_mirror(
-            is_cv=bool(is_cv),
-            is_cc=bool(is_cc),
-            current_min_a=metrics.current_min_a,
-            voltage_max_v=metrics.voltage_max_v,
+        return apply_mix_authority_tick(
+            self,
+            record=record,
+            timestamp_s=timestamp_s,
+            voltage=voltage,
+            current=current,
+            temp=temp,
+            ah=ah,
+            is_cv=is_cv,
+            is_cc=is_cc,
+            actions=actions,
         )
-        apply_mix_evidence_mirror(self, mirror)
-
-        decision = decide_mix_transition(
-            profile=self.battery_type,
-            policy_decision=record.decision.decision,
-            active_elapsed_s=max(0.0, timestamp_s - self.stage_start_time),
-            authority_limit_s=self._mix_limit_seconds(),
-            finish_hold_started_at=self.finish_timer_start,
-            now_s=timestamp_s,
-            finish_hold_s=mix_finish_hold_seconds(),
-        )
-        if decision.action == AuthorityAction.START_FINISH_HOLD:
-            effect = build_mix_finish_hold_effect(
-                now_s=timestamp_s,
-                is_cc=bool(is_cc),
-                is_cv=bool(is_cv),
-                voltage_max_v=metrics.voltage_max_v,
-                delta_voltage_from_max_v=metrics.delta_voltage_from_max_v,
-                current_min_a=metrics.current_min_a,
-                delta_current_from_min_a=metrics.delta_current_from_min_a,
-                session_id=self._v2_trace_session_id,
-            )
-            apply_mix_finish_hold_effect(self, effect, actions)
-            logger.info(
-                "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
-                effect.mode or "unknown",
-                mix_finish_hold_seconds(),
-                timestamp_s,
-            )
-        elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
-            storage_v, storage_i = self._storage_target()
-            if not apply_mix_completion_to_safe_wait(
-                self,
-                now_s=timestamp_s,
-                voltage_v=voltage,
-                current_a=current,
-                temperature_c=temp,
-                ah=ah,
-                reason=decision.reason,
-                target_voltage_v=storage_v,
-                target_current_a=storage_i,
-                actions=actions,
-            ):
-                reason = "final_safe_wait_entry_session_identity_invalid"
-                apply_stop_and_diagnose(self,
-                    actions=actions, now=timestamp_s, voltage=voltage,
-                    current=current, temp=temp, ah=ah, reason=reason,
-                )
-                return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
-        elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
-            logger.info(
-                "CHARGE_EVIDENCE kind=stop event=diagnose reason=%s owner=v2 timestamp=%.3f",
-                decision.reason,
-                timestamp_s,
-            )
-            apply_stop_and_diagnose(self,
-                actions=actions,
-                now=timestamp_s,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                reason=decision.reason,
-            )
-        return decision
 
     async def tick(
         self,

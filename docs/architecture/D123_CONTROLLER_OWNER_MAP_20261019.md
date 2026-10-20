@@ -75,7 +75,7 @@ already migrated.
 | **`MainSampleEvidenceEvaluator` is now external; removed:** `_update_main_plateau_clock`, `_assess_main_sample`; former field `_v2_main_plateau_since` removed (`charge_controller.py:195`, `2209–2237` call; pure decision at `1908`; evaluator/API at `runtime/charge/evidence/first_stage.py:46–144`; removed methods were baseline `1000–1082`) | Before D123: controller tick and START/pause/cooling/reset callers. After D123: typed evidence owner; tick supplies current analysis; START and pause use owner reset/shift API | `runtime.charge.evidence.first_stage.MainSampleEvidenceEvaluator`; typed `MainSampleEvidenceInput` -> `MainSampleEvidence`; then existing pure MAIN decision | `test_main_sample_evidence_clock`, first-stage, controller authority, production-controller and main strategy tests. **High:** transition evidence/timing; exact accepted 15-minute backdating retained |
 | `_apply_continuous_tail_hold`, `_log_stage_transition` (`1022–1051`) | Base identity extension point plus production subclass tail policy; called after evidence result during tick | Production continuity hold remains in `production_controller.py`; later P2/P3 decision required before further movement | `test_production_controller`. **High:** continuous tail hold is separate from plateau clock and preserved |
 | `_complete_desulfation_to_safe_wait`, `_apply_recovery_safe_wait_authority`, `_apply_final_safe_wait_authority`, `_handle_safe_wait_stage_override`, `commit_verified_enable_transition`, `_handle_mix_stage_override`, `_is_authoritative_stage`, `_run_stage_scaffold_tick` (`1053–1641`) | Stage orchestration and transactional transition code; tick only | Existing stage decision modules plus application use case/execution port; substantial P3 debt | stage, safe-wait, execution and restart suites. **Critical:** verified OFF/ON and continuation safety |
-| `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source); `_enter_safe_wait_done` removed in Sprint 09 | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | MAIN/MIX -> final SAFE_WAIT now uses `runtime.charge.runtime.final_safe_wait_entry`; other stage methods remain controller-owned. Existing application action consumer and execution port remain unchanged | authority/recovery/AGM/MIX/final SAFE_WAIT tests. **Critical:** stage commit and OFF/ON transaction ordering |
+| `_stop_and_diagnose`, `_advance_agm_step`, `_enter_mix`, `_apply_authoritative_decision` (current source); `_enter_safe_wait_done` removed in Sprint 09 | Mutable stage/effect owner; tick only. `_enter_desulfation` was removed in Sprint 06. | MAIN, DESULFATION and SAFE_WAIT dispatch remain controller-owned; MIX evidence mirror, transition decision, and finish/SAFE_WAIT/STOP effect dispatch now go through the single `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick` call. Existing application action consumer and execution port remain unchanged | authority/recovery/AGM/MIX/final SAFE_WAIT tests. **Critical:** stage commit and OFF/ON transaction ordering |
 | `tick` (`2068–2360`) | Transitional session orchestration and FSM adapter; only active call is production loop at `runtime/production_runtime.py:2939`; tests call directly | Intended to move to existing application use case at P2–P4, with current strategy, evidence, safety and execution owners | controller/production/recovery/safety tests. **Critical:** whole charge state machine and action batches |
 
 Methods are grouped by responsibility above and current source line ranges are
@@ -172,6 +172,25 @@ reset and action payload; no execution port or RD setters were added. See
 This is one bounded P3 cut. P2 MAIN Guard restore admission remains
 fail-closed/deferred, and controller tick/session ownership, remaining MIX and
 Storage/DONE/Manual paths, P4/P5, and physical acceptance remain open.
+
+### Sprint 31 MIX authority dispatch ownership
+
+`ManagedChargeController._apply_authoritative_decision` now delegates its MIX
+branch once to `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick`.
+That existing owner applies the MIX evidence mirror, calls
+`decide_mix_transition` once, and dispatches the existing finish-hold,
+final-SAFE_WAIT, and STOP_AND_DIAGNOSE effects. The controller no longer
+contains the MIX decision or those effect branches. This is a residual
+orchestration dispatch cut; it does not move MAIN/SAFE_WAIT decisions,
+`_run_stage_scaffold_tick`, verified enable commit, or the production `tick`.
+
+The decision call inputs, branch order, effect action keys/values, hold logger,
+storage target lookup, invalid-session containment, and action mapping returned
+to the existing transaction path are preserved. The runtime owner has no
+`execution_port` or RD setter calls; physical transactions and verified commits
+remain in the existing application owner. No persistence schema, Guard,
+900-second lease, recipes, setpoints, or restart authority changed. Exact
+source and validation are in `D123_SPRINT31_EVIDENCE_20261020.md`.
 
 ### Sprint 06 P3-1 MAIN -> DESULFATION effect
 
@@ -670,3 +689,20 @@ Recovery and final persisted SAFE_WAIT continuation reconstruction now belongs t
 ### Sprint 30 ordinary restore snapshot seam audit
 
 `runtime.charge.persistence.restore_session` assigns the exact restored document to `host._session_restore_document` near line 714. `ManagedChargeController.try_restore_session` reads it in `charge_controller.py` for DESULFATION clock, recovery/final SAFE_WAIT continuations and durable enrichment. `ProductionChargeController.try_restore_session` reads it in `production_controller.py` for persisted MAIN Guard via `main_guard_session.read_guard`, plus MIX finish/runtime signal state. The shared raw snapshot bridges the canonical reader and current consumers. A narrow typed projection omits Guard/extensions; a complete typed wrapper duplicates the schema, while moving the consumer sequence into persistence crosses the explicitly deferred MAIN Guard restore admission boundary. No safe bounded implementation cut was identified. Exact evidence: `D123_SPRINT30_EVIDENCE_20261020.md`.
+
+### Sprint 31 MIX authority orchestration cut
+
+Manual remains an independent program family: production UI START/STOP routes
+submit through `ProductionManualUIRoute` to `ProductionManualSessionManager`;
+no active coupling to AUTO decision orchestration or controller recipe/state was
+found. The next bounded P3 cut moved MIX evidence mirror projection, MIX
+transition decision, finish-hold effect dispatch, completion dispatch, and
+STOP_AND_DIAGNOSE dispatch from `ManagedChargeController._apply_authoritative_decision`
+to `runtime.charge.runtime.mix_scaffold.apply_mix_authority_tick`. The controller
+retains authoritative-stage/current-stage admission and delegates once. MIX
+profile limit, evidence inputs, action/log payloads, storage target selection,
+stale session containment, and downstream application execution are unchanged.
+The new owner has no ExecutionPort or RD setter dependency. MAIN and SAFE_WAIT
+orchestration, tick trace/evidence assembly, and P2 MAIN Guard restore admission
+remain outside this cut. Exact validation and commit are recorded in
+`D123_SPRINT31_EVIDENCE_20261020.md`.

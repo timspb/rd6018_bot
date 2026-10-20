@@ -44,7 +44,7 @@ class MixEvidenceMirrorTests(unittest.TestCase):
         self.assertEqual(host.v_max_recorded, 16.2)
 
     def test_controller_delegates_once_without_inline_mirror_assignments(self):
-        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime/charge/runtime/mix_scaffold.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         calls = [
             node for node in ast.walk(tree)
@@ -53,10 +53,13 @@ class MixEvidenceMirrorTests(unittest.TestCase):
             and node.func.id == "apply_mix_evidence_mirror"
         ]
         self.assertEqual(len(calls), 1)
-        self.assertNotIn("self.i_min_recorded = metrics.current_min_a", source)
-        self.assertNotIn("self.v_max_recorded = metrics.voltage_max_v", source)
+        controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        self.assertIn("return apply_mix_authority_tick(", controller_source)
+        self.assertNotIn("self.i_min_recorded = metrics.current_min_a", controller_source)
+        self.assertNotIn("self.v_max_recorded = metrics.voltage_max_v", controller_source)
 
-        owner_source = inspect.getsource(owner)
+        from runtime.charge.runtime import mix_scaffold
+        owner_source = inspect.getsource(mix_scaffold.apply_mix_authority_tick)
         for forbidden in ("execution_port", "set_voltage", "set_current", "turn_on", "turn_off"):
             self.assertNotIn(forbidden, owner_source)
 

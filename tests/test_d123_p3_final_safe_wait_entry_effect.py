@@ -246,7 +246,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
         self.assertEqual(inline_inputs, [])
         main_branch = source[
             source.index("if stage_before == self.STAGE_MAIN:", source.index("def _apply_authoritative_decision")):
-            source.index("# Mix: expose mode-specific evidence", source.index("def _apply_authoritative_decision"))
+            source.index("return apply_mix_authority_tick(", source.index("def _apply_authoritative_decision"))
         ]
         complete_branch = main_branch[
             main_branch.index("elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:"):
@@ -262,8 +262,8 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
             self.assertNotIn(forbidden, owner_source)
 
     def test_mix_completion_cut_is_single_dispatch_without_physical_writer(self):
-        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        mix_branch = source[source.index("elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:", source.index("# Mix: expose")):source.index("elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:", source.index("# Mix: expose"))]
+        source = (ROOT / "runtime/charge/runtime/mix_scaffold.py").read_text(encoding="utf-8")
+        mix_branch = source[source.index("elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:"):source.index("elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:")]
         self.assertIn("apply_mix_completion_to_safe_wait(", mix_branch)
         self.assertNotIn("FinalSafeWaitEntryInput(", mix_branch)
         owner_source = inspect.getsource(owner)

@@ -83,7 +83,7 @@ class MixFinishHoldEffectTests(unittest.TestCase):
         self.assertIn("CV ΔI подтверждена", actions["notify"])
 
     def test_controller_has_single_effect_application_and_no_inline_hold_mutation(self):
-        source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime/charge/runtime/mix_scaffold.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         calls = [
             node for node in ast.walk(tree)
@@ -98,8 +98,58 @@ class MixFinishHoldEffectTests(unittest.TestCase):
         self.assertNotIn("self.finish_timer_start =", branch)
         self.assertNotIn("self._finish_evidence =", branch)
 
-        owner_source = inspect.getsource(owner)
+        controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        self.assertIn("return apply_mix_authority_tick(", controller_source)
+        from runtime.charge.runtime import mix_scaffold
+        owner_source = inspect.getsource(mix_scaffold.apply_mix_authority_tick)
         for forbidden in ("execution_port", "set_voltage", "set_current", "turn_on", "turn_off"):
+            self.assertNotIn(forbidden, owner_source)
+
+    def test_mix_decision_and_dispatch_have_one_runtime_owner(self):
+        from runtime.charge.runtime import mix_scaffold
+
+        controller_source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
+        controller_tree = ast.parse(controller_source)
+        method = next(
+            node for node in ast.walk(controller_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_apply_authoritative_decision"
+        )
+        delegated = [
+            node for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "apply_mix_authority_tick"
+        ]
+        inline_mix_authority = [
+            node for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {
+                "decide_mix_transition",
+                "build_mix_evidence_mirror",
+                "apply_mix_evidence_mirror",
+                "build_mix_finish_hold_effect",
+                "apply_mix_finish_hold_effect",
+                "apply_mix_completion_to_safe_wait",
+            }
+        ]
+        self.assertEqual(len(delegated), 1)
+        self.assertEqual(inline_mix_authority, [])
+
+        owner_source = inspect.getsource(mix_scaffold.apply_mix_authority_tick)
+        owner_tree = ast.parse(owner_source)
+        decisions = [
+            node for node in ast.walk(owner_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "decide_mix_transition"
+        ]
+        self.assertEqual(len(decisions), 1)
+        for forbidden in (
+            "execution_port", "set_voltage", "set_current", "set_ovp",
+            "set_ocp", "set_output", "turn_on", "turn_off",
+        ):
             self.assertNotIn(forbidden, owner_source)
 
 
