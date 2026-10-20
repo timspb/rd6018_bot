@@ -7,6 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from application.charge_session_tick import run_charge_session_tick
 from runtime.charge.evidence.first_stage import FirstStageState, assess_first_stage
 from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
 from pb_domain import BatteryCondition, ChargeIntent
@@ -343,7 +344,7 @@ class ProductionControllerTests(unittest.TestCase):
                 for timestamp_s, voltage_v in samples:
                     controller.last_update_time = timestamp_s
                     asyncio.run(
-                        controller.tick(
+                        run_charge_session_tick(controller,
                             voltage_v,
                             1.5,
                             27.0,

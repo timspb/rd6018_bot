@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from application.charge_session_tick import run_charge_session_tick
 import database
 from charge_controller import ManagedChargeController
 from recovery_trace_store import export_replay_document, list_trace_sessions
@@ -39,7 +40,7 @@ class RecoveryTraceCaptureTests(unittest.IsolatedAsyncioTestCase):
 
     async def _tick(self, controller: ManagedChargeController):
         with patch("charge_controller.time.time", return_value=1000.0):
-            return await controller.tick(
+            return await run_charge_session_tick(controller,
                 voltage=14.75,
                 current=0.70,
                 temp_ext=25.0,

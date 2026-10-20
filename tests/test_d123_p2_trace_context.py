@@ -139,12 +139,7 @@ class TraceContextEvidenceTests(unittest.TestCase):
                  and isinstance(node.func, ast.Name)
                  and node.func.id == "build_signal_context"]
         self.assertEqual(len(calls), 0)
-        tick = next(node for node in cls.body if isinstance(node, ast.AsyncFunctionDef)
-                    and node.name == "tick")
-        tick_assembly_calls = [node for node in ast.walk(tick) if isinstance(node, ast.Call)
-                               and isinstance(node.func, ast.Name)
-                               and node.func.id in {"build_signal_context", "build_trace_point_metadata", "build_shadow_metadata"}]
-        self.assertEqual(tick_assembly_calls, [])
+        self.assertNotIn("tick", method_names)
         owner = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
         owner_calls = [node for node in ast.walk(owner) if isinstance(node, ast.Call)
                        and isinstance(node.func, ast.Name)

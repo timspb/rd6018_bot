@@ -14,25 +14,17 @@ def _calls(tree, names):
 
 
 class ApplicationTickOwnershipTests(unittest.TestCase):
-    def test_controller_tick_is_a_single_application_handoff(self):
+    def test_controller_has_no_tick_compatibility_facade(self):
         tree = ast.parse((ROOT / "charge_controller.py").read_text(encoding="utf-8"))
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                    and node.name == "ManagedChargeController")
-        tick = next(node for node in cls.body if isinstance(node, ast.AsyncFunctionDef)
-                    and node.name == "tick")
-        handoffs = _calls(tick, {"run_charge_session_tick"})
-        self.assertEqual(len(handoffs), 1)
-        self.assertEqual(_calls(tick, {
-            "run_charge_stage_tick", "apply_authoritative_stage_tick",
-            "build_signal_context", "build_trace_point_metadata",
-            "build_shadow_metadata", "log_analysis_events",
-        }), [])
+        method_names = {node.name for node in cls.body
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        self.assertNotIn("tick", method_names)
         for method_name in ("_apply_authoritative_decision", "_enter_desulfation", "_enter_mix"):
-            self.assertNotIn(method_name, {node.name for node in cls.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))})
+            self.assertNotIn(method_name, method_names)
         for method_name in ("_is_authoritative_stage", "_apply_stage_authority"):
-            self.assertNotIn(method_name, {node.name for node in cls.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))})
+            self.assertNotIn(method_name, method_names)
 
     def test_diagnostic_and_mix_subclasses_have_no_stage_router_overrides(self):
         for path, class_name in (

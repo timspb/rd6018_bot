@@ -62,6 +62,10 @@ async def run_charge_session_tick(
     manual_active: bool = False,
 ) -> Dict[str, Any]:
     """Run application tick plus production Cooling pause/resume orchestration."""
+    authority_suspended = getattr(host, "_pb_background_suspended", None)
+    if callable(authority_suspended) and authority_suspended():
+        host.last_update_time = time.time()
+        return {}
     production_cooling = callable(getattr(host, "_capture_cooling_pause", None))
     if production_cooling and host.is_active and host.battery_type != host.PROFILE_CUSTOM:
         host._last_hourly_report = time.time()

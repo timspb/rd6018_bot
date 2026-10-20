@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from application.charge_session_tick import run_charge_session_tick
 from charge_controller import (
     INTERMEDIATE_RECOVERY_DURATION_SEC,
     RecoverySafeWaitContinuation,
@@ -108,7 +109,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         with patch("charge_controller.time.time", return_value=now), patch(
             "charge_controller.time.time", return_value=now
         ), patch("production_controller.time.time", return_value=now):
-            return await controller.tick(
+            return await run_charge_session_tick(controller,
                 voltage=voltage,
                 current=current,
                 temp_ext=temp,
@@ -192,7 +193,7 @@ class DesulfationOwnershipCutoverTests(unittest.IsolatedAsyncioTestCase):
         with patch("charge_controller.time.time", return_value=now), patch(
             "charge_controller.time.time", return_value=now
         ), patch("production_controller.time.time", return_value=now):
-            actions = await controller.tick(
+            actions = await run_charge_session_tick(controller,
                 16.3,
                 0.45,
                 25.0,

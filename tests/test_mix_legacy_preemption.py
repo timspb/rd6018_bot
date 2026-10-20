@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from application.charge_session_tick import run_charge_session_tick
 from diagnostic_controller import DiagnosticProductionChargeController
 from mix_active_authority import MixActiveTimeAuthority
 from recovery_policy import RecoveryDecision, RecoveryDecisionResult
@@ -126,7 +127,7 @@ class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
             patch("production_controller.time.time", return_value=now),
             patch("auto_strategy.time.time", return_value=now),
         ):
-            return await controller.tick(
+            return await run_charge_session_tick(controller,
                 16.50,
                 0.60,
                 25.0,

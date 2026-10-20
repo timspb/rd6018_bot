@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from application.charge_session_tick import run_charge_session_tick
 from charge_controller import ManagedChargeController
 from pb_domain import BatteryCondition, ChargeIntent
 
@@ -20,7 +21,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_idle_tick_keeps_modular_actions_and_adds_observation(self):
         controller = self._shadow_controller()
-        actions = await controller.tick(
+        actions = await run_charge_session_tick(controller,
             voltage=12.7,
             current=0.0,
             temp_ext=25.0,
@@ -40,7 +41,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller = self._shadow_controller()
         controller.current_stage = controller.STAGE_MAIN
         controller._last_known_output_on = True
-        actions = await controller.tick(
+        actions = await run_charge_session_tick(controller,
             voltage=14.4,
             current=0.8,
             temp_ext=None,
@@ -59,7 +60,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
             intent=ChargeIntent.RECOVERY,
             condition_before=BatteryCondition.REHYDRATED,
         )
-        await controller.tick(
+        await run_charge_session_tick(controller,
             voltage=12.7,
             current=0.0,
             temp_ext=25.0,
@@ -86,7 +87,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._last_known_output_on = True
 
         with patch("charge_controller.time.time", return_value=1000.0):
-            actions = await controller.tick(
+            actions = await run_charge_session_tick(controller,
                 voltage=14.75,
                 current=0.70,
                 temp_ext=25.0,
@@ -118,7 +119,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._last_known_output_on = True
 
         with patch("charge_controller.time.time", return_value=301.0):
-            first = await controller.tick(
+            first = await run_charge_session_tick(controller,
                 voltage=14.8,
                 current=0.60,
                 temp_ext=23.0,
@@ -135,7 +136,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("charge_controller.time.time", return_value=2701.0):
-            actions = await controller.tick(
+            actions = await run_charge_session_tick(controller,
                 voltage=14.8,
                 current=0.60,
                 temp_ext=23.0,
@@ -164,7 +165,7 @@ class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
         controller._last_known_output_on = True
 
         with patch("charge_controller.time.time", return_value=1000.0):
-            actions = await controller.tick(
+            actions = await run_charge_session_tick(controller,
                 voltage=14.2,
                 current=2.0,
                 temp_ext=25.0,

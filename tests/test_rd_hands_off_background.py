@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from rd_hands_off_background import install_hands_off_background_isolation
+from application.charge_session_tick import run_charge_session_tick
 
 
 class DummyController:
@@ -94,7 +95,7 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
         )
         before = controller.last_update_time
 
-        actions = await controller.tick(12.0, 1.0, None, False, 0.0)
+        actions = await run_charge_session_tick(controller, 12.0, 1.0, None, False, 0.0)
         restored = controller.try_restore_session(12.0, 1.0, 0.0, output_is_on=True)
         await app._hard_stop_charge()
 
@@ -112,7 +113,7 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
             startup_ready=True,
         )
 
-        self.assertEqual(await controller.tick(), {})
+        self.assertEqual(await run_charge_session_tick(controller, 12.0, 1.0, None, False, 0.0), {})
         self.assertEqual(controller.try_restore_session(), (False, None))
         await app._hard_stop_charge()
 
@@ -127,7 +128,7 @@ class BackgroundAuthorityIsolationTests(unittest.IsolatedAsyncioTestCase):
             recovery_scope=False,
         )
 
-        self.assertEqual(await controller.tick(), {})
+        self.assertEqual(await run_charge_session_tick(controller, 12.0, 1.0, None, False, 0.0), {})
         self.assertEqual(controller.try_restore_session(), (False, None))
         await app._hard_stop_charge()
         self.assertFalse(app._has_manual_off_condition())

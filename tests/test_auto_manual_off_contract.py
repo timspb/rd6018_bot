@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from application.charge_session_tick import run_charge_session_tick
 
 
 class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
@@ -26,7 +27,7 @@ class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
             return {}
 
         with patch("application.charge_session_tick.run_charge_stage_tick", new=stage_tick):
-            await controller.tick(
+            await run_charge_session_tick(controller,
                 14.8,
                 1.0,
                 25.0,

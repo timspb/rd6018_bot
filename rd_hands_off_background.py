@@ -75,7 +75,6 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
     if controller is None:
         raise RuntimeError("RD external background isolation requires charge controller")
 
-    original_tick = controller.tick
     original_restore = controller.try_restore_session
     original_hard_stop = getattr(app, "_hard_stop_charge", None)
     original_manual_off_active = getattr(app, "_has_manual_off_condition", None)
@@ -83,11 +82,9 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
     original_notify = getattr(app, "_charge_notify", None)
     original_log_event = getattr(app, "log_event", None)
 
-    async def authority_aware_tick(*args: Any, **kwargs: Any) -> Any:
-        if _pb_background_suspended(app, manager):
-            controller.last_update_time = time.time()
-            return {}
-        return await original_tick(*args, **kwargs)
+    # The application use case owns automatic ticks; attach the live ownership
+    # predicate to its host instead of restoring a controller.tick facade.
+    controller._pb_background_suspended = lambda: _pb_background_suspended(app, manager)
 
     def authority_aware_restore(*args: Any, **kwargs: Any) -> Any:
         if _pb_background_suspended(app, manager):
@@ -146,7 +143,6 @@ def install_hands_off_background_isolation(app: Any, manager: Any) -> None:
             return original_log_event(*args, **kwargs)
         return None
 
-    controller.tick = authority_aware_tick
     controller.try_restore_session = authority_aware_restore
     if callable(original_hard_stop):
         app._hard_stop_charge = authority_aware_hard_stop

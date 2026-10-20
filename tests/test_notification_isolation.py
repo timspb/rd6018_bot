@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from application.charge_session_tick import run_charge_session_tick
 from production_controller import ProductionChargeController
 
 
@@ -19,7 +20,7 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
             "application.charge_session_tick._run_charge_session_tick_body",
             new=AsyncMock(return_value={}),
         ) as session_body:
-            result = await controller.tick(
+            result = await run_charge_session_tick(controller,
                 14.7,
                 0.1,
                 23.0,
@@ -43,7 +44,7 @@ class V2NotificationIsolationTests(unittest.IsolatedAsyncioTestCase):
             "application.charge_session_tick._run_charge_session_tick_body",
             new=AsyncMock(return_value={}),
         ):
-            await controller.tick(
+            await run_charge_session_tick(controller,
                 14.4,
                 1.0,
                 23.0,

@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from application.charge_session_tick import run_charge_session_tick
 from charge_controller import ManagedChargeController
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController
@@ -47,7 +48,7 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(controller, "_save_session", return_value=None):
             with patch("time.time", return_value=1000.0):
-                actions = await controller.tick(
+                actions = await run_charge_session_tick(controller,
                     voltage=13.5,
                     current=0.0,
                     temp_ext=40.0,
@@ -65,7 +66,7 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(pause["source_stage"], controller.STAGE_SAFE_WAIT)
 
             with patch("time.time", return_value=4600.0):
-                actions = await controller.tick(
+                actions = await run_charge_session_tick(controller,
                     voltage=13.2,
                     current=0.0,
                     temp_ext=35.0,
@@ -93,7 +94,7 @@ class ProductionGuardrailsTests(unittest.IsolatedAsyncioTestCase):
             controller.current_stage = controller.STAGE_IDLE
 
         controller.stop = stop
-        actions = await controller.tick(
+        actions = await run_charge_session_tick(controller,
             voltage=13.2,
             current=0.0,
             temp_ext=35.0,

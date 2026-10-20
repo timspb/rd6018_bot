@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from application.charge_session_tick import run_charge_session_tick
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController, V2_MIX_MAX_HOURS
 
@@ -36,7 +37,7 @@ class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
         expected_target = controller._main_target(40.0)
         with patch.object(controller, "_save_session", return_value=None):
             with patch("charge_controller.time.time", return_value=1000.0):
-                actions = await controller.tick(
+                actions = await run_charge_session_tick(controller,
                     voltage=14.8, current=0.25, temp_ext=40.0, is_cv=True,
                     ah=5.0, output_is_on=True, is_cc=False,
                 )
@@ -48,7 +49,7 @@ class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(controller._stuck_current_since)
 
             with patch("charge_controller.time.time", return_value=4600.0):
-                actions = await controller.tick(
+                actions = await run_charge_session_tick(controller,
                     voltage=13.6, current=0.0, temp_ext=35.0, is_cv=False,
                     ah=5.0, output_is_on=False, is_cc=False,
                 )
@@ -72,14 +73,14 @@ class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(controller, "_save_session", return_value=None):
             with patch("charge_controller.time.time", return_value=1000.0):
-                await controller.tick(
+                await run_charge_session_tick(controller,
                     voltage=16.45, current=0.30, temp_ext=40.0, is_cv=True,
                     ah=6.0, output_is_on=True, is_cc=False,
                 )
             self.assertEqual(controller.current_stage, controller.STAGE_COOLING)
 
             with patch("charge_controller.time.time", return_value=4600.0):
-                await controller.tick(
+                await run_charge_session_tick(controller,
                     voltage=14.0, current=0.0, temp_ext=35.0, is_cv=False,
                     ah=6.0, output_is_on=False, is_cc=False,
                 )
@@ -98,7 +99,7 @@ class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
         expected_target = controller._prep_target(40.0)
         with patch.object(controller, "_save_session", return_value=None):
             with patch("charge_controller.time.time", return_value=1000.0):
-                await controller.tick(
+                await run_charge_session_tick(controller,
                     voltage=11.5, current=0.60, temp_ext=40.0, is_cv=False,
                     ah=1.5, output_is_on=True, is_cc=True,
                 )

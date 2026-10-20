@@ -688,32 +688,6 @@ class ManagedChargeController:
             return None
         return apply_recovery_safe_wait_completion_effect(self, effect)
 
-    async def tick(
-        self,
-        voltage: float,
-        current: float,
-        temp_ext: Optional[float],
-        is_cv: bool,
-        ah: float,
-        output_is_on: Optional[Any] = None,
-        manual_off_active: bool = False,
-        is_cc: Optional[bool] = None,
-        manual_active: bool = False,
-    ) -> Dict[str, Any]:
-        from application.charge_session_tick import run_charge_session_tick
-
-        return await run_charge_session_tick(
-            self,
-            voltage,
-            current,
-            temp_ext,
-            is_cv,
-            ah,
-            output_is_on=output_is_on,
-            manual_off_active=manual_off_active,
-            is_cc=is_cc,
-            manual_active=manual_active,
-        )
     def ui_support_snapshot(self) -> Dict[str, Any]:
         """Compact mode-specific status for Telegram/UI without exposing raw internals."""
         metrics: Dict[str, Any] = {}
