@@ -112,8 +112,10 @@ class StopDiagnoseEffectTests(unittest.TestCase):
         ]
         self.assertNotIn("_stop_and_diagnose", methods)
         self.assertNotIn("self._stop_and_diagnose", controller_source)
+        app_source = (ROOT / "application" / "charge_session_tick.py").read_text(encoding="utf-8")
+        app_tree = ast.parse(app_source)
         calls = [
-            node for node in ast.walk(tree)
+            node for node in ast.walk(app_tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "apply_stop_and_diagnose"

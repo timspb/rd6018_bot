@@ -67,6 +67,14 @@ source change was made in Sprint 05.
 - [ ] Commit one verified source cut and update the owner map/checklist. Leave
   untouched stages explicitly pending; no P3 completion claim from inventory.
 
+## Sprint 41 — application tick ownership and P3 close
+
+- [x] Move production session tick and admitted stage routing to application owners; controller entrypoints are compatibility handoffs only.
+- [x] Move verified recovery SAFE_WAIT continuation commit into a frozen typed effect owner; preserve token validation and canonical save ordering.
+- [x] Verify Manual through the production boundary, application tick/stage owner guards, trace ownership and fail-closed transitions.
+- [x] Python 3.12 compileall PASS; full offline discovery **2,438 tests / 3 skipped**; `git diff --check` PASS before commit. See `D123_SPRINT41_EVIDENCE_20261020.md`.
+- [ ] Remaining work is outside P3: P2 MAIN Guard/session lifecycle ownership, P4 facade elimination, P5 release and separately authorized physical acceptance.
+
 ## Sprint 22 — MIX completion dispatch
 
 - [x] Starting point pinned: clean `08e7e8a4b8e7084d830f6e9dc79b4a85d66d7234`.

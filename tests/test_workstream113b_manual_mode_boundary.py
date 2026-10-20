@@ -1,11 +1,16 @@
 import asyncio
 import inspect
+import tempfile
+import time
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from application.manual_execution_boundary import ManualExecutionBoundary
 from application.manual_phase_lifecycle import ManualPhaseLifecycle
 from runtime.charge.profiles.manual import ManualChargeProfile
+from manual_mode import ManualChargeRequest, ManualSessionManager
+from rd6018_telemetry import RegulationMode
 
 
 class ManualModeBoundaryTests(unittest.TestCase):
@@ -51,6 +56,34 @@ class ManualModeBoundaryTests(unittest.TestCase):
         identity = SimpleNamespace(session_id="s1", trace_id="t1")
         self.assertTrue(asyncio.run(boundary.apply(decision, identity=identity)))
         self.assertEqual(boundary.audit[-1].result, "VERIFIED")
+
+    def test_production_manual_manager_routes_profile_phase_through_identity_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = SimpleNamespace(hass=None, charge_controller=SimpleNamespace(is_active=False))
+            manager = ManualSessionManager(app, session_file=f"{directory}/manual.json")
+            manager.request = ManualChargeRequest.from_profile(self.profile, battery_id="bench")
+            manager.identity_integration.create_for_start(profile="bench", created_at=1.0)
+            manager._manual_start_event_emitted = True
+            manager._persist = Mock()
+            manager.execution_boundary.apply = AsyncMock(return_value=True)
+
+            now = time.time()
+            manager.phase_lifecycle.confirmations = self.profile.main.confirmation_count - 1
+            manager.phase_lifecycle.last_confirmation_at = now - self.profile.main.confirmation_interval_seconds - 1
+            manager.phase_lifecycle.hold_started_at = now - self.profile.main.hold_hours * 3600 - 1
+            with patch("manual_mode.resolve_regulation", return_value=RegulationMode.CV):
+                self.assertEqual(
+                    manager._main_tail_reason({"battery_voltage": 14.1, "current": 2.3}),
+                    "manual_main_to_mix",
+                )
+
+            asyncio.run(manager._advance_profile_to_mix())
+            manager.execution_boundary.apply.assert_awaited_once_with(
+                manager.phase_lifecycle.last_decision,
+                identity=manager.identity_integration.identity,
+            )
+            self.assertEqual(manager.request.stage, "mix")
+            self.assertEqual(manager.phase_transition_reason, "manual_main_to_mix")
 
 
 if __name__ == "__main__":

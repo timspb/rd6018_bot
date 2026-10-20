@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 
 class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
@@ -14,23 +15,27 @@ class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
             controller.last_update_time = 1000.0
             return {}
 
-        controller._run_stage_scaffold_tick = scaffold
         controller._new_runtime = lambda **_: type(
             "Runtime",
             (),
             {"observe": lambda self, point: type("Record", (), {"events": (), "decision": None})()},
         )()
 
-        await controller.tick(
-            14.8,
-            1.0,
-            25.0,
-            True,
-            1.0,
-            "on",
-            manual_off_active=True,
-            is_cc=False,
-        )
+        async def stage_tick(_host, **kwargs):
+            await scaffold(**kwargs)
+            return {}
+
+        with patch("application.charge_session_tick.run_charge_stage_tick", new=stage_tick):
+            await controller.tick(
+                14.8,
+                1.0,
+                25.0,
+                True,
+                1.0,
+                "on",
+                manual_off_active=True,
+                is_cc=False,
+            )
         self.assertIs(captured["manual_off_active"], False)
 
     def test_production_composition_has_no_manual_off_compatibility_edge(self):

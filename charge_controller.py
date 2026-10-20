@@ -57,24 +57,13 @@ from runtime.charge.evidence.first_stage import (
     FirstStageAssessment,
     FirstStageState,
     MainSampleEvidenceEvaluator,
-    MainSampleEvidenceInput,
 )
 from runtime.charge.evidence.trace_context import (
     TraceLifecycle,
-    SignalContextInput,
-    TracePointInput,
-    build_shadow_metadata,
-    build_signal_context,
-    build_trace_point_metadata,
-    log_analysis_events,
-    finite_or_nan,
-    normalize_output_on,
     recovery_trace_context as build_recovery_trace_context,
 )
-from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, ChargeIntent
 from recovery_policy import RecoveryDecision
-from recovery_session import RecoveryTracePoint
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
 from runtime.charge.decisions import AuthorityDecision
@@ -83,7 +72,6 @@ from runtime.charge.diagnostics import (
     bank_fault_risk_snapshot,
     get_timers as diagnostic_timers,
 )
-from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
 from runtime.charge.runtime.support import (
     current_targets,
     exit_cc_condition,
@@ -94,15 +82,16 @@ from runtime.charge.runtime.support import (
     target_finish_time,
 )
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S, STAGE_TRANSITION_BLANKING_S
-from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.final_safe_wait_completion import (
     FinalSafeWaitCompletionInput,
     apply_final_safe_wait_completion_effect,
     build_final_safe_wait_completion_effect,
 )
-from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
-from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
-from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
+from runtime.charge.runtime.recovery_safe_wait_completion import (
+    RecoverySafeWaitCompletionInput,
+    apply_recovery_safe_wait_completion_effect,
+    build_recovery_safe_wait_completion_effect,
+)
 from runtime.charge.runtime.stage_authority import apply_authoritative_stage_tick
 from runtime.charge.strategy.desulfation import select_desulfation_target
 from runtime.charge.strategy.desulfation_variables import (
@@ -122,9 +111,6 @@ from runtime.charge.strategy.mix_variables import (
 from runtime.charge.strategy.recovery_safe_wait import (
     RecoverySafeWaitContinuation,
     validate_recovery_continuation,
-)
-from runtime.charge.strategy.safe_wait_variables import (
-    safe_wait_max_seconds,
 )
 from runtime.charge.strategy.storage import select_storage_target
 from runtime.charge.strategy.temperature_variables import (
@@ -689,69 +675,23 @@ class ManagedChargeController:
             return apply_final_safe_wait_completion_effect(self, effect)
         if kind != "recovery_safe_wait_to_main":
             return None
-        continuation = self._recovery_safe_wait
-        if continuation is None or self.current_stage != self.STAGE_SAFE_WAIT:
+        effect = build_recovery_safe_wait_completion_effect(
+            RecoverySafeWaitCompletionInput(
+                continuation=self._recovery_safe_wait,
+                current_stage=self.current_stage,
+                safe_wait_stage=self.STAGE_SAFE_WAIT,
+                active_session_generation=self._v2_trace_started_at,
+                transition=transition,
+                now_s=now,
+                voltage_v=voltage,
+                current_a=current,
+                ah=ah,
+            )
+        )
+        if effect is None:
             logger.error("verified recovery resume rejected: no matching SAFE_WAIT continuation")
             return None
-        token_session = str(transition.get("session_id") or "") or None
-        try:
-            token_started_at = float(transition.get("started_at"))
-            token_session_generation = float(transition.get("session_generation"))
-        except (TypeError, ValueError):
-            return None
-        if (
-            token_session != continuation.session_id
-            or continuation.session_generation is None
-            or not math.isfinite(token_started_at)
-            or not math.isfinite(token_session_generation)
-            or abs(token_started_at - continuation.started_at) > 1e-6
-            or abs(token_session_generation - float(continuation.session_generation)) > 1e-6
-            or abs(token_session_generation - float(self._v2_trace_started_at)) > 1e-6
-        ):
-            logger.error("verified recovery resume rejected: continuation token mismatch")
-            return None
-
-        prev = self.current_stage
-        self.current_stage = continuation.next_stage
-        self._clear_restored_targets()
-        self.stage_start_time = float(now)
-        self._stage_start_ah = float(ah)
-        self._blanking_until = float(now) + float(STAGE_TRANSITION_BLANKING_S.default)
-        self.v_max_recorded = None
-        self.i_min_recorded = None
-        self._delta_trigger_count = 0
-        self._main_sample_evidence.reset()
-        self._safe_wait_next_stage = None
-        self._safe_wait_target_v = 0.0
-        self._safe_wait_target_i = 0.0
-        self._safe_wait_start = 0.0
-        self._recovery_safe_wait = None
-        reason = str(transition.get("reason") or "verified_enable")
-        self._log_stage_transition(
-            old_stage=prev,
-            new_stage=self.current_stage,
-            timestamp_s=float(now),
-            reason=f"recovery_safe_wait_verified_enable:{reason}",
-        )
-        self._save_session(float(voltage), float(current), float(ah))
-        logger.info(
-            "V2 recovery SAFE_WAIT -> %s committed after verified Output ON reason=%s",
-            self.current_stage,
-            reason,
-        )
-        if reason == "timeout":
-            return {
-                "log_event": "START | RECOVERY_SAFE_WAIT_TIMEOUT_TO_MAIN",
-                "notify": (
-                    "?? ?????????? ?????? ???????? ????? ?????????? ?????. "
-                    f"????? ????????????? ???????? ??????????? ??????? ? Main "
-                    f"({continuation.target_voltage_v:.1f}?)."
-                ),
-            }
-        return {
-            "log_event": "START | RECOVERY_SAFE_WAIT_TO_MAIN",
-            "notify": "<b>?? ??????? ? Main Charge ???????????.</b> Output ??????? ? ??????? ?????????.",
-        }
+        return apply_recovery_safe_wait_completion_effect(self, effect)
 
     def _is_authoritative_stage(self, stage: str) -> bool:
         return (
@@ -784,147 +724,22 @@ class ManagedChargeController:
         is_cc: Optional[bool],
         manual_active: bool,
     ) -> Dict[str, Any]:
-        """Route migrated production stages around historical ChargeController.tick.
+        """Compatibility entry to the application stage router."""
+        from application.charge_stage_tick import run_charge_stage_tick
 
-        MAIN, intermediate recovery, MIX, and final SAFE_WAIT use modular runtime
-        scaffolds. Historical Custom is retired from production entirely: an IDLE
-        residue is inert, while any active residue fails closed to Output OFF.
-        Other not-yet-migrated automatic stages retain the compatibility path.
-        """
-        if self.battery_type == self.PROFILE_CUSTOM:
-            if stage_before == self.STAGE_IDLE:
-                return {}
-            logger.error(
-                "Active historical Custom controller state rejected stage=%s; forcing OFF",
-                stage_before,
-            )
-            self.stop(clear_session=True)
-            return {
-                "turn_off": True,
-                "log_event": "HISTORICAL_CUSTOM_RUNTIME_RETIRED",
-                "notify": (
-                    "❌ Исторический Custom-контроллер отключён. "
-                    "Ручной режим запускается только через Manual."
-                ),
-            }
-
-        if stage_before in {
-            self.STAGE_PREP,
-            self.STAGE_COOLING,
-            self.STAGE_IDLE,
-            self.STAGE_DONE,
-        }:
-            return await run_authoritative_residual_scaffold(
-                self,
-                stage_before=stage_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                ah=ah,
-                output_is_on=output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-                now_s=time.time(),
-            )
-
-        if (
-            self.battery_type != self.PROFILE_CUSTOM
-            and stage_before == self.STAGE_MAIN
-        ):
-            return await run_authoritative_main_scaffold(
-                self,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                ah=ah,
-                output_is_on=output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-                now_s=time.time(),
-            )
-
-        recovery_safe_wait = (
-            stage_before == self.STAGE_SAFE_WAIT
-            and (
-                self._recovery_safe_wait is not None
-                or self._safe_wait_next_stage == self.STAGE_MAIN
-            )
+        return await run_charge_stage_tick(
+            self,
+            stage_before=stage_before,
+            voltage=voltage,
+            current=current,
+            temp_ext=temp_ext,
+            is_cv=is_cv,
+            ah=ah,
+            output_is_on=output_is_on,
+            manual_off_active=manual_off_active,
+            is_cc=is_cc,
+            manual_active=manual_active,
         )
-        if (
-            self.battery_type != self.PROFILE_CUSTOM
-            and (stage_before == self.STAGE_DESULFATION or recovery_safe_wait)
-        ):
-            return await run_authoritative_recovery_scaffold(
-                self,
-                stage_before=stage_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                ah=ah,
-                output_is_on=output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-                now_s=time.time(),
-            )
-
-        final_safe_wait = (
-            stage_before == self.STAGE_SAFE_WAIT
-            and (
-                self._final_safe_wait is not None
-                or self._safe_wait_next_stage == self.STAGE_DONE
-            )
-        )
-        if (
-            self.battery_type != self.PROFILE_CUSTOM
-            and (stage_before == self.STAGE_MIX or final_safe_wait)
-        ):
-            return await run_authoritative_mix_scaffold(
-                self,
-                stage_before=stage_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                ah=ah,
-                output_is_on=output_is_on,
-                manual_off_active=manual_off_active,
-                is_cc=is_cc,
-                manual_active=manual_active,
-                report_limit_s=(
-                    self._mix_limit_seconds()
-                    if stage_before == self.STAGE_MIX
-                    else safe_wait_max_seconds()
-                ),
-                now_s=time.time(),
-            )
-
-        reason = f"unsupported_modular_stage:{stage_before}"
-        logger.error(
-            "Unsupported modular stage; rejecting stage=%s profile=%s",
-            stage_before,
-            self.battery_type,
-        )
-        self.stop(clear_session=True)
-        return {
-            "turn_off": True,
-            "log_event": "HISTORICAL_STAGE_RUNTIME_RETIRED",
-            "notify": (
-                "❌ Этап не принадлежит модульному runtime. "
-                "Заряд остановлен до повторной авторизации."
-            ),
-            "recovery_shadow": {
-                "status": "fail_closed",
-                "reason": reason,
-                "authority": "v2",
-            },
-        }
-
     def _mix_limit_seconds(self) -> float:
         """Compatibility accessor over the canonical modular MIX authority limit."""
         return mix_max_active_seconds(self.battery_type)
@@ -973,239 +788,20 @@ class ManagedChargeController:
         is_cc: Optional[bool] = None,
         manual_active: bool = False,
     ) -> Dict[str, Any]:
-        stage_before = self.current_stage
-        target_before = self._v2_target_voltage_v
-        if target_before is None and stage_before not in {self.STAGE_IDLE, self.STAGE_SAFE_WAIT, self.STAGE_COOLING}:
-            try:
-                target_before = float(self._get_target_v_i(temp_ext)[0])
-            except Exception:
-                target_before = None
+        from application.charge_session_tick import run_charge_session_tick
 
-        # Persistent Manual-OFF is an asynchronous terminal kill condition
-        # owned outside AUTO chemistry. Its armed state must never alter automatic
-        # stage decisions before the external condition actually fires.
-        actions = await self._run_stage_scaffold_tick(
-            stage_before=stage_before,
-            voltage=voltage,
-            current=current,
-            temp_ext=temp_ext,
-            is_cv=is_cv,
-            ah=ah,
+        return await run_charge_session_tick(
+            self,
+            voltage,
+            current,
+            temp_ext,
+            is_cv,
+            ah,
             output_is_on=output_is_on,
-            manual_off_active=False,
+            manual_off_active=manual_off_active,
             is_cc=is_cc,
             manual_active=manual_active,
         )
-
-        timestamp_s = self.last_update_time or time.time()
-        resolved_is_cc = bool(is_cc) if is_cc is not None else not bool(is_cv)
-        authority_decision: Optional[AuthorityDecision] = None
-        first_stage: Optional[FirstStageAssessment] = None
-        record = None
-
-        try:
-            runtime = self._v2_runtime
-            if runtime is None:
-                runtime = self._new_runtime(
-                    started_at=self._v2_trace_started_at or self.total_start_time or timestamp_s
-                )
-            record = runtime.observe(
-                RecoveryTracePoint(
-                    timestamp_s=timestamp_s,
-                    stage=stage_before,
-                    voltage_v=finite_or_nan(voltage),
-                    current_a=finite_or_nan(current),
-                    temp_c=finite_or_nan(temp_ext),
-                    is_cv=bool(is_cv),
-                    is_cc=resolved_is_cc,
-                    target_voltage_v=target_before,
-                    ah=finite_or_nan(ah),
-                ),
-                legacy_actions=actions,
-                output_is_on=normalize_output_on(output_is_on),
-            )
-
-            log_analysis_events(
-                record,
-                stage=stage_before,
-                session_id=self._v2_trace_session_id,
-                timestamp_s=timestamp_s,
-            )
-            metrics = record.analysis.metrics
-            analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
-            mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)
-            self._v2_session_signal_context = build_signal_context(SignalContextInput(
-                stage=stage_before,
-                mode=mode,
-                session_id=self._v2_trace_session_id,
-                session_generation=float(self._v2_trace_started_at or 0.0),
-                output_is_on=output_is_on,
-                is_cv=bool(is_cv),
-                is_cc=bool(resolved_is_cc),
-                telemetry_valid=not record.analysis.has(SignalEvent.TELEMETRY_INVALID),
-                timestamp_s=float(timestamp_s),
-                now_s=time.time(),
-                target_voltage_v=target_before,
-                metrics=metrics,
-                analyzer=analyzer,
-            ))
-
-            metrics = record.analysis.metrics
-            sample = MainSampleEvidenceInput(
-                stage=stage_before,
-                main_stage=self.STAGE_MAIN,
-                target_voltage_v=target_before,
-                timestamp_s=float(timestamp_s),
-                voltage_v=float(voltage),
-                current_a=float(current),
-                is_cv=bool(is_cv),
-                chemistry=chemistry_for_profile(self.battery_type),
-                capacity_ah=float(self.ah_capacity),
-                plateau_required_minutes=(
-                    float(AGM_PLATEAU_REQUIRED_MINUTES.default)
-                    if self.battery_type == self.PROFILE_AGM
-                    else float(STANDARD_PLATEAU_REQUIRED_MINUTES.default)
-                ),
-                plateau_window_minutes=float(PLATEAU_EVIDENCE_WINDOW_MINUTES.default),
-                events=frozenset(record.analysis.events),
-                dtemp_c_per_min=metrics.d_temp_c_per_min,
-                dcurrent_a_per_min=metrics.d_current_a_per_min,
-                dvoltage_v_per_min=metrics.d_voltage_v_per_min,
-                temperature_c=getattr(getattr(record.analysis, "sample", None), "temp_c", None),
-            )
-            first_stage_evidence = self._main_sample_evidence.assess(sample)
-            first_stage = self._apply_continuous_tail_hold(
-                first_stage_evidence.assessment,
-                stage_before=stage_before,
-                timestamp_s=float(timestamp_s),
-            )
-
-            if self._is_authoritative_stage(stage_before):
-                if temp_ext is None:
-                    temp_value = math.nan
-                else:
-                    temp_value = finite_or_nan(temp_ext)
-                if math.isfinite(temp_value):
-                    authority_decision = self._apply_stage_authority(
-                        record=record,
-                        first_stage=first_stage,
-                        stage_before=stage_before,
-                        timestamp_s=timestamp_s,
-                        voltage=float(voltage),
-                        current=float(current),
-                        temp=temp_value,
-                        ah=float(ah),
-                        is_cv=bool(is_cv),
-                        is_cc=resolved_is_cc,
-                        actions=actions,
-                        output_is_on=output_is_on,
-                    )
-            else:
-                # Residual PREP/COOLING/IDLE/DONE stages are modular-owned too;
-                # no historical transition source remains to audit.
-                self._trace_lifecycle.observe_disagreement(record, stage=stage_before)
-
-            trace_point = build_trace_point_metadata(TracePointInput(
-                timestamp_s=timestamp_s,
-                stage_before=stage_before,
-                stage_after=self.current_stage,
-                target_before=target_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                is_cc=resolved_is_cc,
-                ah=ah,
-                output_is_on=output_is_on,
-            ))
-            actions["recovery_shadow"] = build_shadow_metadata(
-                record,
-                trace_point=trace_point,
-                first_stage=first_stage,
-                authority_decision=authority_decision,
-            )
-        except Exception as exc:
-            # A failed modular evidence path must fail closed; there is no fallback
-            # transition owner to receive control after an internal error.
-            logger.exception("Recovery observation/authority failed")
-            self._v2_session_signal_context = None
-            trace_point = build_trace_point_metadata(TracePointInput(
-                timestamp_s=timestamp_s,
-                stage_before=stage_before,
-                stage_after=self.current_stage,
-                target_before=target_before,
-                voltage=voltage,
-                current=current,
-                temp_ext=temp_ext,
-                is_cv=is_cv,
-                is_cc=resolved_is_cc,
-                ah=ah,
-                output_is_on=output_is_on,
-            ))
-            actions["recovery_shadow"] = {
-                "status": "error",
-                "decision": None,
-                "reason": "V2 observation/authority failed",
-                "error_type": type(exc).__name__,
-                "authority": "modular",
-                "trace_point": trace_point,
-            }
-            if self._is_authoritative_stage(stage_before) and self.current_stage == stage_before:
-                temp_value = finite_or_nan(temp_ext)
-                if math.isfinite(temp_value):
-                    apply_stop_and_diagnose(self,
-                        actions=actions,
-                        now=timestamp_s,
-                        voltage=finite_or_nan(voltage),
-                        current=finite_or_nan(current),
-                        temp=temp_value,
-                        ah=finite_or_nan(ah),
-                        reason=f"v2_internal_error:{type(exc).__name__}",
-                    )
-                else:
-                    actions["emergency_stop"] = True
-                    actions["turn_off"] = True
-
-        try:
-            if await self._trace_lifecycle.capture_if_ready(
-                build_recovery_trace_context(self), actions["recovery_shadow"],
-                idle_stage=self.STAGE_IDLE,
-            ):
-                actions["recovery_shadow"]["persistence"] = "stored"
-        except Exception as exc:
-            logger.exception("RECOVERY_TRACE persistence failed; actuator decision remains valid")
-            actions["recovery_shadow"]["persistence"] = "error"
-            actions["recovery_shadow"]["persistence_error_type"] = type(exc).__name__
-
-        next_target = actions.get("set_voltage")
-        if next_target is not None:
-            self._v2_target_voltage_v = finite_or_nan(next_target)
-        elif self.current_stage != stage_before:
-            try:
-                self._v2_target_voltage_v = float(self._get_target_v_i(temp_ext)[0])
-            except Exception:
-                self._v2_target_voltage_v = None
-        self._v2_last_stage = self.current_stage
-
-        transition_reason = ""
-        if authority_decision is not None:
-            transition_reason = str(authority_decision.reason or "")
-        if not transition_reason:
-            transition_reason = str(actions.get("log_event") or actions.get("log_event_end") or "")
-        self._log_stage_transition(
-            old_stage=stage_before,
-            new_stage=self.current_stage,
-            timestamp_s=timestamp_s,
-            reason=transition_reason,
-        )
-
-        # Mix scaffold temporarily hid the true stage clock from legacy persistence.
-        # Rewrite the durable session after restoring/applying the authoritative state.
-        if self.current_stage not in {self.STAGE_IDLE, self.STAGE_DONE}:
-            self._save_session(float(voltage), float(current), float(ah))
-
-        return actions
-
     def ui_support_snapshot(self) -> Dict[str, Any]:
         """Compact mode-specific status for Telegram/UI without exposing raw internals."""
         metrics: Dict[str, Any] = {}

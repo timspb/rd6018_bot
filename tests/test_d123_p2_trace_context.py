@@ -138,18 +138,20 @@ class TraceContextEvidenceTests(unittest.TestCase):
         calls = [node for node in ast.walk(cls) if isinstance(node, ast.Call)
                  and isinstance(node.func, ast.Name)
                  and node.func.id == "build_signal_context"]
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 0)
         tick = next(node for node in cls.body if isinstance(node, ast.AsyncFunctionDef)
                     and node.name == "tick")
         tick_assembly_calls = [node for node in ast.walk(tick) if isinstance(node, ast.Call)
                                and isinstance(node.func, ast.Name)
                                and node.func.id in {"build_signal_context", "build_trace_point_metadata", "build_shadow_metadata"}]
-        self.assertEqual(sum(isinstance(call.func, ast.Name) and call.func.id == "build_signal_context"
-                             for call in tick_assembly_calls), 1)
-        self.assertEqual(sum(isinstance(call.func, ast.Name) and call.func.id == "build_trace_point_metadata"
-                             for call in tick_assembly_calls), 2)
-        self.assertEqual(sum(isinstance(call.func, ast.Name) and call.func.id == "build_shadow_metadata"
-                             for call in tick_assembly_calls), 1)
+        self.assertEqual(tick_assembly_calls, [])
+        owner = ast.parse((ROOT / "application/charge_session_tick.py").read_text(encoding="utf-8"))
+        owner_calls = [node for node in ast.walk(owner) if isinstance(node, ast.Call)
+                       and isinstance(node.func, ast.Name)
+                       and node.func.id in {"build_signal_context", "build_trace_point_metadata", "build_shadow_metadata"}]
+        self.assertEqual(sum(node.func.id == "build_signal_context" for node in owner_calls), 1)
+        self.assertEqual(sum(node.func.id == "build_trace_point_metadata" for node in owner_calls), 2)
+        self.assertEqual(sum(node.func.id == "build_shadow_metadata" for node in owner_calls), 1)
 
     def test_trace_lifecycle_is_owned_outside_controller_and_store_is_single_writer(self):
         source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")

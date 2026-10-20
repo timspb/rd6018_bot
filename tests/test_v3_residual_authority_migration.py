@@ -30,7 +30,7 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller = self._controller()
         controller.current_stage = controller.STAGE_PREP
 
-        with patch("charge_controller.time.time", return_value=1000.0):
+        with patch("application.charge_stage_tick.time.time", return_value=1000.0):
             actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_PREP,
                 voltage=12.0,
@@ -58,7 +58,7 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller._cooling_target_v = 12.0
         controller._cooling_target_i = 0.6
 
-        with patch("charge_controller.time.time", return_value=1200.0):
+        with patch("application.charge_stage_tick.time.time", return_value=1200.0):
             actions = await controller._run_stage_scaffold_tick(
                 stage_before=controller.STAGE_COOLING,
                 voltage=11.9,
@@ -82,7 +82,7 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller.current_stage = "synthetic-unknown"
         controller._clear_session_file = lambda: None
 
-        with patch("charge_controller.time.time", return_value=1300.0):
+        with patch("application.charge_stage_tick.time.time", return_value=1300.0):
             actions = await controller._run_stage_scaffold_tick(
                 stage_before="synthetic-unknown",
                 voltage=13.0,
@@ -105,7 +105,8 @@ class V3ResidualAuthorityStaticTests(unittest.TestCase):
     def test_v2_controller_has_no_historical_tick_fallback(self):
         source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
         self.assertNotIn("super().tick(", source)
-        self.assertIn("run_authoritative_residual_scaffold(", source)
+        stage_router = (ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8")
+        self.assertIn("run_authoritative_residual_scaffold(", stage_router)
 
     def test_residual_scaffold_has_no_historical_controller_dependency(self):
         source = (
