@@ -8,6 +8,7 @@ from d123_final_safe_wait_helpers import enter_final_safe_wait
 
 from charge_controller import ManagedChargeController
 from production_controller import ProductionChargeController
+from runtime.charge.runtime.final_safe_wait_authority import apply_final_safe_wait_authority
 from runtime.charge.strategy import mix as mix_strategy
 from runtime.charge.strategy.final_safe_wait import (
     FinalSafeWaitContinuation,
@@ -173,7 +174,8 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         )
         actions = {}
         with patch.object(controller, "_save_session"):
-            decision = controller._apply_final_safe_wait_authority(
+            decision = apply_final_safe_wait_authority(
+                controller,
                 now=1100.0,
                 voltage=13.0,
                 current=0.0,
@@ -194,7 +196,8 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller._final_safe_wait = self._final_continuation(controller)
 
         first = {}
-        controller._apply_final_safe_wait_authority(
+        apply_final_safe_wait_authority(
+            controller,
             now=1100.0,
             voltage=13.0,
             current=0.0,
@@ -207,7 +210,8 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.current_stage, controller.STAGE_SAFE_WAIT)
 
         second = {}
-        controller._apply_final_safe_wait_authority(
+        apply_final_safe_wait_authority(
+            controller,
             now=1101.0,
             voltage=13.0,
             current=0.0,
@@ -225,7 +229,8 @@ class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         controller._safe_wait_next_stage = controller.STAGE_DONE
         controller._final_safe_wait = self._final_continuation(controller)
         actions = {}
-        controller._apply_final_safe_wait_authority(
+        apply_final_safe_wait_authority(
+            controller,
             now=1100.0,
             voltage=13.0,
             current=0.0,

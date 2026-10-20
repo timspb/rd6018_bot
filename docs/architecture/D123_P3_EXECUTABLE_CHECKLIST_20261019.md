@@ -228,3 +228,18 @@ source change was made in Sprint 05.
 - [ ] Next gate: inspect final SAFE_WAIT authority and outer recovery/final
   stage routing, then tick evidence/trace glue for another bounded move.
   Preserve Guard/restore and verified execution boundaries; do not start P4.
+
+## Sprint 35 — final SAFE_WAIT authority
+
+- [x] Move final SAFE_WAIT sampling, continuation validation, fail-closed
+  stop handling, Storage request dispatch and result mapping to the existing
+  final SAFE_WAIT runtime owner; both routes delegate and controller duplicate
+  is removed.
+- [x] Preserve immutable effect construction, action/token values, verified
+  DONE commit and physical execution ownership.
+- [x] Focused suite **30 PASS**; full Python 3.12 offline discovery
+  **2,426 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT35_EVIDENCE_20261020.md`.
+- [ ] Next gate: inspect outer stage routing, tick evidence/trace assembly,
+  and terminal persistence ownership. Preserve Guard/restore boundaries; do
+  not start P4.

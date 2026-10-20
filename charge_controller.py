@@ -106,7 +106,7 @@ from runtime.charge.runtime.final_safe_wait_completion import (
     build_final_safe_wait_completion_effect,
 )
 from runtime.charge.runtime.final_safe_wait_authority import (
-    build_final_safe_wait_authority_effect,
+    apply_final_safe_wait_authority,
 )
 from runtime.charge.runtime.recovery_scaffold import (
     apply_desulfation_authority_tick,
@@ -121,7 +121,6 @@ from runtime.charge.strategy.desulfation_variables import (
     desulfation_duration_seconds,
 )
 from runtime.charge.strategy.final_safe_wait import (
-    FinalSafeWaitAction,
     FinalSafeWaitContinuation,
     validate_final_continuation,
 )
@@ -664,60 +663,6 @@ class ManagedChargeController:
             float(timestamp_s),
         )
 
-    def _apply_final_safe_wait_authority(
-        self,
-        *,
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        actions: Dict[str, Any],
-        output_is_on: Optional[Any],
-    ) -> AuthorityDecision:
-        output_is_off = normalize_output_on(output_is_on) is False
-        if output_is_off:
-            self._record_safe_wait_sample(now, voltage, current, temp)
-        effect = build_final_safe_wait_authority_effect(
-            self._final_safe_wait,
-            current_stage=self.current_stage,
-            safe_wait_stage=self.STAGE_SAFE_WAIT,
-            done_stage=self.STAGE_DONE,
-            session_id=self._v2_trace_session_id,
-            session_generation=self._v2_trace_started_at,
-            allowed_source_stages={self.STAGE_MAIN, self.STAGE_MIX},
-            now_s=now,
-            voltage_v=voltage,
-            output_is_off=output_is_off,
-            add_phase_limits=self._add_phase_limits,
-        )
-        if effect is None:
-            reason = "final_safe_wait_continuation_invalid"
-            apply_stop_and_diagnose(self,
-                actions=actions,
-                now=now,
-                voltage=voltage,
-                current=current,
-                temp=temp,
-                ah=ah,
-                reason=reason,
-            )
-            self._final_safe_wait = None
-            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
-        actions.update(effect.actions)
-        decision = effect.decision
-        if decision.action == FinalSafeWaitAction.WAIT:
-            return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)
-        logger.info(
-            "V2 final SAFE_WAIT enable attempt reason=%s elapsed=%.1fs",
-            decision.reason,
-            decision.wait_elapsed_s,
-        )
-        return AuthorityDecision(
-            AuthorityAction.CONTINUE,
-            f"final_safe_wait_storage_enable_requested:{decision.reason}",
-        )
-
     def _handle_safe_wait_stage_override(
         self,
         *,
@@ -751,7 +696,8 @@ class ManagedChargeController:
             return True
 
         if self._final_safe_wait is not None or self._safe_wait_next_stage == self.STAGE_DONE:
-            self._apply_final_safe_wait_authority(
+            apply_final_safe_wait_authority(
+                self,
                 now=now,
                 voltage=voltage,
                 current=current,
@@ -1114,7 +1060,8 @@ class ManagedChargeController:
                 or self._safe_wait_next_stage == self.STAGE_DONE
             )
         ):
-            return self._apply_final_safe_wait_authority(
+            return apply_final_safe_wait_authority(
+                self,
                 now=timestamp_s,
                 voltage=voltage,
                 current=current,

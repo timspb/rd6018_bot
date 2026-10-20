@@ -67,11 +67,13 @@ class FinalSafeWaitAuthorityEffectTests(unittest.TestCase):
         self.assertEqual(dict(wait.actions), {})
         self.assertIsNone(self.build(session_generation=89.0))
 
-    def test_controller_routes_final_safe_wait_once_through_effect_owner(self):
-        tree = ast.parse((ROOT / "charge_controller.py").read_text(encoding="utf-8"))
-        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_apply_final_safe_wait_authority")
+    def test_runtime_owner_applies_effect_once_and_controller_has_no_duplicate(self):
+        tree = ast.parse((ROOT / "runtime/charge/runtime/final_safe_wait_authority.py").read_text(encoding="utf-8"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "apply_final_safe_wait_authority")
         calls = [node for node in ast.walk(method) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "build_final_safe_wait_authority_effect"]
         self.assertEqual(len(calls), 1)
+        controller_tree = ast.parse((ROOT / "charge_controller.py").read_text(encoding="utf-8"))
+        self.assertFalse(any(isinstance(node, ast.FunctionDef) and node.name == "_apply_final_safe_wait_authority" for node in ast.walk(controller_tree)))
 
 
 if __name__ == "__main__":

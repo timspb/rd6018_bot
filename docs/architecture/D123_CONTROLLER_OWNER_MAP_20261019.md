@@ -751,3 +751,13 @@ are preserved. The execution/verified physical transaction remains unchanged.
 Final SAFE_WAIT authority, outer routing, trace/evidence assembly, terminal
 persistence, Manual integration, and P2 Guard restore admission remain outside
 this cut. See `D123_SPRINT34_EVIDENCE_20261020.md`.
+
+### Sprint 35 final SAFE_WAIT authority cut
+
+Both final SAFE_WAIT authority call paths now delegate to
+`runtime.charge.runtime.final_safe_wait_authority.apply_final_safe_wait_authority`;
+the controller-owned method is removed. The existing immutable effect builder
+remains the decision/request builder; fresh-OFF sampling, continuation
+validation, fail-closed stop dispatch, and request-result mapping now live in
+the same runtime owner. Verified DONE commit and physical output transaction
+remain unchanged. See `D123_SPRINT35_EVIDENCE_20261020.md`.
