@@ -1084,3 +1084,17 @@ clears the latch only after its authorization/result is committed. That path
 must be compiled/flashed/bench-validated against the exact ESPHome contract
 before physical use. The source activation does not establish physical
 acceptance.
+
+Sprint 59 extends this boundary with `StartupRecovery.guarded_physical_resume`
+under that same owner lock. The transaction takes a second direct ESP Native
+snapshot immediately before assessment and reruns
+`assess_main_guard_before_output_on`; it never reuses activation-time evidence.
+Canonical bytes/identities, revision, controller stage/profile, restored Guard,
+target, lease, latch and recovery permission are rechecked. The resulting
+immutable `GuardedPhysicalResumePermit` carries the Native callback generation,
+activation generation, owner task/lock and candidate identity. The existing
+ExecutionPort consumes it once. Production has no endpoint installed, so the
+only live source result is `READY_BUT_NOT_EXECUTED`. A synthetic endpoint may
+return a verified-on receipt; only the receipt-gated block in
+`ExecutionPort.execute_guarded_physical_resume` clears the two OFF latches.
+Emergency OFF and ordinary START/Manual owners are unchanged.

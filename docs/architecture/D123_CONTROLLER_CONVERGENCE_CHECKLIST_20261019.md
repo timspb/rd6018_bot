@@ -148,6 +148,7 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - Canonical Python 3.12 full discovery: **2,463 tests, 3 skipped, PASS**.
 - Sprint 57 supplies the existing shared owner lock and direct-Native pre-ON evidence to read-only assessment, but deliberately does not activate guarded restore. Remaining P2 work is audit/session lifecycle convergence; guarded activation and physical validation remain deferred.
 - Sprint 58 completes source-side Guarded candidate activation into software-active/OFF-only state. A separate fresh Native pre-ON physical resume transaction, exact ESP contract bench validation, and P5 acceptance remain open; no source result is physical acceptance.
+- Sprint 59 adds `StartupRecovery.guarded_physical_resume` under the same app-scoped owner lock. It requires a new direct Native snapshot and fresh MAIN Guard assessment, then rechecks canonical file bytes, candidate identity, session/battery/revision, in-memory Guard, stage/profile/target, controller activation and recovery permission. Iset/OCP/V are never programmed. With production endpoint disabled it returns `READY_BUT_NOT_EXECUTED` and keeps both latches set. The injected synthetic endpoint can produce `VERIFIED_ON_COMMITTED`; only the single receipt-gated clear in `ExecutionPort.execute_guarded_physical_resume` releases the port/controller latch. Failed/missing receipts and permit replay remain blocked. No hardware call is made by startup recovery. P5 live/bench/release work remains separately authorized.
 
 ### Sprint 57 / P2 Native Guard evidence
 

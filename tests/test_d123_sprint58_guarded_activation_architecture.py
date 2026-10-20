@@ -67,6 +67,40 @@ class Sprint58GuardedActivationArchitectureTests(unittest.TestCase):
         self.assertNotIn("GuardedRestoreJournal", names)
         self.assertEqual(source("runtime/charge/persistence.py").count("def restore_session("), 1)
 
+    def test_sprint59_has_one_receipt_gated_latch_clear_and_no_startup_writer(self):
+        port_text = source("application/execution_port.py")
+        tree = ast.parse(port_text)
+        execution = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ExecutionPort")
+        method = next(n for n in execution.body if isinstance(n, ast.AsyncFunctionDef)
+                      and n.name == "execute_guarded_physical_resume")
+        clears = [n for n in ast.walk(method) if isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Attribute) and t.attr == "_guarded_restore_activated_off"
+                          for t in n.targets)
+                  and isinstance(n.value, ast.Constant) and n.value.value is False]
+        # One commit block updates the port and mirrored canonical controller
+        # latch atomically after receipt.
+        self.assertEqual(len(clears), 2)
+        startup = ast.parse(source("runtime/startup_recovery.py"))
+        resume = next(n for n in startup.body if isinstance(n, ast.ClassDef) and n.name == "StartupRecovery")
+        method = next(n for n in resume.body if isinstance(n, ast.AsyncFunctionDef)
+                      and n.name == "guarded_physical_resume")
+        calls = {n.func.attr for n in ast.walk(method) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)}
+        names = {n.func.id for n in ast.walk(method) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name)}
+        self.assertIn("get_native_guard_pre_on_snapshot", source("runtime/startup_recovery.py"))
+        self.assertIn("assess_main_guard_before_output_on", names)
+        self.assertFalse({"turn_on", "safe_enable_output", "program_current", "program_voltage"} & calls)
+        self.assertIn("READY_BUT_NOT_EXECUTED", port_text)
+        self.assertIn("VERIFIED_ON_COMMITTED", port_text)
+
+    def test_resume_assessment_has_no_persistence_write_or_ha_aggregate_authority(self):
+        method = source("runtime/startup_recovery.py").split("async def guarded_physical_resume", 1)[1]
+        self.assertNotIn("write_session", method)
+        self.assertNotIn("save_session", method)
+        self.assertNotIn("get_all_live", method)
+        self.assertIn("get_native_guard_pre_on_snapshot", method)
+
 
 if __name__ == "__main__":
     unittest.main()

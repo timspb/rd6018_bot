@@ -97,6 +97,56 @@ class GuardedRestoreActivationPermit:
     _seal: object
 
 
+@dataclass(frozen=True)
+class GuardedPhysicalResumePermit:
+    """Immutable one-use evidence capability for a guarded physical resume."""
+    session_id: str
+    battery_id: str
+    guard_revision: int
+    native_evidence_generation: tuple[tuple[str, float], ...]
+    controller_activation_generation: int
+    owner_task: object
+    owner_lock: object
+    controller: object
+    candidate_identity: int
+    document_sha256: str
+    canonical_bytes_sha256: str | None
+    _seal: object
+
+
+_GUARDED_PHYSICAL_RESUME_SEAL = object()
+
+
+def issue_guarded_physical_resume_permit(*, candidate, document, revision,
+                                         native_live, owner_task, owner_lock,
+                                         controller, activation_generation,
+                                         canonical_bytes_sha256=None):
+    if (not isinstance(candidate, GuardedRestoreCandidate)
+            or getattr(owner_lock, "owner_task", None) is not owner_task
+            or owner_task is not asyncio.current_task()
+            or not getattr(owner_lock, "locked", lambda: False)()):
+        raise ValueError("canonical Guard execution owner lock is not held")
+    meta = native_live.get("_meta") if isinstance(native_live, Mapping) else None
+    if not isinstance(meta, Mapping):
+        raise ValueError("new Native evidence required")
+    keys = ("output_state_code_v2", "set_current_readback_v2", "ocp_readback_v2", "protection_code")
+    generation = []
+    for key in keys:
+        item = meta.get(key)
+        stamp = item.get("subscription_timestamp_monotonic") if isinstance(item, Mapping) else None
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
+            raise ValueError("Native evidence generation incomplete")
+        generation.append((key, float(stamp)))
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return GuardedPhysicalResumePermit(
+        candidate.session_id or "", candidate.battery_id or "", int(revision),
+        tuple(generation), int(activation_generation), owner_task, owner_lock,
+        controller, id(candidate), hashlib.sha256(canonical).hexdigest(),
+        canonical_bytes_sha256 or candidate.canonical_bytes_sha256,
+        _GUARDED_PHYSICAL_RESUME_SEAL,
+    )
+
+
 _GUARDED_RESTORE_PERMIT_SEAL = object()
 
 

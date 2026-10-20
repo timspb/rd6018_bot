@@ -67,6 +67,13 @@ class ControllerActionExecutionResult:
     final_targets_missing: bool = False
 
 
+@dataclass(frozen=True)
+class GuardedPhysicalResumeResult:
+    state: str
+    reason: str
+    receipt: Any = None
+
+
 class ExecutionPort:
     """production physical port; never selects a phase or creates targets."""
 
@@ -78,6 +85,8 @@ class ExecutionPort:
         self._guard_owner_lock: asyncio.Lock | None = None
         self.session_recovery_guard = session_recovery_guard or SessionRecoveryGuard()
         self._guarded_restore_activated_off = False
+        self._guarded_resume_endpoint = None
+        self._guarded_resume_consumed: set[int] = set()
 
     @property
     def guarded_restore_activated_off(self) -> bool:
@@ -86,6 +95,45 @@ class ExecutionPort:
     def mark_guarded_restore_activated_off(self) -> None:
         """Install the monotone block held until a later resume owner exists."""
         self._guarded_restore_activated_off = True
+
+    async def execute_guarded_physical_resume(self, permit: Any) -> GuardedPhysicalResumeResult:
+        """Consume a one-use lock-bound resume capability through an injected endpoint.
+
+        Production intentionally has no endpoint installed in this source-only
+        cut. Tests may inject a synthetic endpoint; a positive receipt is the
+        sole authority that releases the OFF-only latch.
+        """
+        from runtime.charge.session import (
+            GuardedPhysicalResumePermit, _GUARDED_PHYSICAL_RESUME_SEAL,
+        )
+        lock = self._guard_owner_lock
+        task = asyncio.current_task()
+        if (not isinstance(permit, GuardedPhysicalResumePermit)
+                or permit._seal is not _GUARDED_PHYSICAL_RESUME_SEAL
+                or lock is None or not lock.locked() or lock.owner_task is not task
+                or getattr(permit, "owner_task", None) is not task
+                or getattr(permit, "owner_lock", None) is not lock
+                or not self.guarded_restore_activated_off):
+            return GuardedPhysicalResumeResult("BLOCKED", "owner_or_latch_invalid")
+        token = id(permit)
+        if token in self._guarded_resume_consumed:
+            return GuardedPhysicalResumeResult("BLOCKED", "permit_replayed")
+        self._guarded_resume_consumed.add(token)
+        endpoint = self._guarded_resume_endpoint
+        if endpoint is None:
+            return GuardedPhysicalResumeResult("READY_BUT_NOT_EXECUTED", "production_endpoint_disabled")
+        try:
+            receipt = await endpoint(permit)
+        except Exception as exc:
+            return GuardedPhysicalResumeResult("BLOCKED", "verified_on_failed:" + type(exc).__name__)
+        if not getattr(receipt, "verified_on", False):
+            return GuardedPhysicalResumeResult("BLOCKED", "verified_on_receipt_missing")
+        # Single atomic source site: both owners release only after positive receipt.
+        self._guarded_restore_activated_off = False
+        controller = getattr(permit, "controller", None)
+        if controller is not None:
+            controller._guarded_restore_activated_off = False
+        return GuardedPhysicalResumeResult("VERIFIED_ON_COMMITTED", "verified_on_receipt_committed", receipt)
 
     def _recovery_quarantined(self) -> bool:
         return self.session_recovery_guard.quarantined

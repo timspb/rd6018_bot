@@ -21,7 +21,10 @@ from runtime.charge.persistence import SESSION_FILE
 from runtime.charge.strategy.main_guard_pre_on import assess_main_guard_before_output_on
 from runtime.charge.strategy.main_guard_session import GuardJournalError, read_guard
 from runtime.charge.strategy.main_guard_admission import read_canonical_session
-from runtime.charge.session import _issue_guarded_restore_activation_permit
+from runtime.charge.session import (
+    _issue_guarded_restore_activation_permit,
+    issue_guarded_physical_resume_permit,
+)
 from rd6018_telemetry import as_bool
 
 
@@ -300,6 +303,10 @@ class StartupRecovery:
                     "BLOCKED", "canonical_guarded_restore_rejected",
                 ))
                 return
+            controller._guarded_restore_activation_candidate = candidate
+            controller._guarded_restore_activation_generation = (
+                int(getattr(controller, "_guarded_restore_activation_generation", 0)) + 1
+            )
             execution_port.mark_guarded_restore_activated_off()
             self.last_guard_assessment = assessment
             return
@@ -361,3 +368,91 @@ class StartupRecovery:
             "Deferred startup session physically resumed after MANAGED authority reconciliation: %s",
             controller.current_stage,
         )
+
+    @_serialized_deferred_restore
+    async def guarded_physical_resume(self):
+        """Assess a newly read Native snapshot and prepare a source-only resume.
+
+        No production endpoint is installed: successful assessment yields
+        READY_BUT_NOT_EXECUTED and preserves both OFF-only latches.
+        """
+        from runtime.charge.strategy.main_guard_pre_on import GuardPreOnAssessment
+        from application.execution_port import GuardedPhysicalResumeResult
+
+        app = self.app
+        port = get_or_create_execution_port(app)
+        controller = app.charge_controller
+        lock = port._guard_owner_lock
+        def blocked(reason):
+            result = GuardPreOnAssessment("BLOCKED", reason)
+            self.last_guard_assessment = result
+            return GuardedPhysicalResumeResult("BLOCKED", reason)
+        if (not port.guarded_restore_activated_off
+                or not bool(getattr(controller, "_guarded_restore_activated_off", False))
+                or not port.session_recovery_guard.may_run_automatic_control()
+                or lock is None or lock.owner_task is not asyncio.current_task()):
+            return blocked("guarded_resume_authority_unavailable")
+        candidate = getattr(controller, "_guarded_restore_activation_candidate", None)
+        if candidate is None or getattr(controller, "is_active", False) is not True:
+            return blocked("restored_controller_or_candidate_missing")
+        native_reader = getattr(app.hass, "get_native_guard_pre_on_snapshot", None)
+        if not callable(native_reader):
+            return blocked("direct_native_snapshot_api_unavailable")
+        native = await native_reader()
+        if native is None:
+            return blocked("fresh_direct_native_evidence_unavailable")
+        canonical = read_canonical_session(SESSION_FILE)
+        try:
+            if not isinstance(canonical, dict):
+                return blocked("canonical_document_unavailable")
+            digest = hashlib.sha256(Path(SESSION_FILE).read_bytes()).hexdigest()
+            if candidate.canonical_bytes_sha256 is not None and digest != candidate.canonical_bytes_sha256:
+                return blocked("canonical_file_bytes_changed")
+            sid, bid = candidate.session_id or "", candidate.battery_id or ""
+            guard, revision = read_guard(canonical, session_id=sid, battery_id=bid, now_s=time.time())
+            target = canonical.get("target_current")
+            if isinstance(target, bool) or not isinstance(target, (int, float)):
+                return blocked("persisted_resume_target_unavailable")
+            if (revision != candidate.guard_revision or canonical.get("v2_trace_session_id") != sid
+                    or canonical.get("v2_battery_id") != bid
+                    or canonical.get("state") == "retired"
+                    or getattr(controller, "_v2_trace_session_id", None) != sid
+                    or getattr(controller, "_v2_battery_id", None) != bid
+                    or str(getattr(controller, "current_stage", "")) != str(canonical.get("stage"))
+                    or str(getattr(controller, "battery_type", "")).upper() != str(canonical.get("profile", "")).upper()
+                    or getattr(controller, "_main_current_guard", None) is None
+                    or getattr(controller, "_main_current_guard_revision", None) != revision):
+                return blocked("canonical_controller_guard_identity_changed")
+            lease_meta = native.get("_lease_meta")
+            lease_age = lease_meta.get("age_s") if isinstance(lease_meta, dict) else None
+            lease_ok = (isinstance(lease_meta, dict) and lease_meta.get("source") == "esp_native_api"
+                        and lease_meta.get("status") == "ok"
+                        and lease_meta.get("native_type") == "BinarySensorState"
+                        and isinstance(lease_age, (int, float)) and not isinstance(lease_age, bool)
+                        and 0 <= lease_age <= 10.0 and as_bool(native.get("edge_lease_armed")) is True)
+            assessment = assess_main_guard_before_output_on(
+                session_document=canonical, restored_guard=controller._main_current_guard,
+                native_live=native, session_id=sid, battery_id=bid,
+                profile=str(canonical.get("profile") or ""), stage=str(canonical.get("stage") or ""),
+                target_current_a=float(target), owner_authorized=True,
+                edge_lease_armed=lease_ok, now_epoch_s=time.time(),
+            )
+            if assessment.status != "RECONCILED":
+                self.last_guard_assessment = assessment
+                return GuardedPhysicalResumeResult("BLOCKED", assessment.reason)
+            if (read_canonical_session(SESSION_FILE) != canonical
+                    or hashlib.sha256(Path(SESSION_FILE).read_bytes()).hexdigest() != digest
+                    or lock.owner_task is not asyncio.current_task()
+                    or not port.session_recovery_guard.may_run_automatic_control()):
+                return blocked("canonical_or_owner_changed_before_resume")
+            permit = issue_guarded_physical_resume_permit(
+                candidate=candidate, document=canonical, revision=revision,
+                native_live=native, owner_task=asyncio.current_task(), owner_lock=lock,
+                controller=controller,
+                activation_generation=getattr(controller, "_guarded_restore_activation_generation", 0),
+                canonical_bytes_sha256=digest,
+            )
+        except (OSError, GuardJournalError, ValueError, TypeError, OverflowError) as exc:
+            return blocked("guarded_resume_revalidation_failed:" + type(exc).__name__)
+        self.last_guard_assessment = assessment
+        return await port.execute_guarded_physical_resume(permit)
