@@ -25,7 +25,9 @@ def guarded_document():
         capacity_ah=60, recipe_initial_current_a=6,
     )
     doc = {
+        "saved_at": time.time(),
         "profile": "EFB", "stage": "Main Charge", "ah_limit": 60,
+        "target_current": 6.0,
         "v2_trace_session_id": "sid", "v2_battery_id": "battery",
     }
     return attach_guard(doc, guard, now_s=time.time(), expected_revision=0)
@@ -85,6 +87,15 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
                 document, "direct_native_pre_on_reconciliation_required",
             ),
         )
+        def restore(*_args, **kwargs):
+            from runtime.charge.session import GuardedRestoreActivationPermit
+            if not isinstance(kwargs.get("_guarded_activation_permit"), GuardedRestoreActivationPermit):
+                return False, "permit required"
+            controller.is_active = True
+            controller._guarded_restore_candidate = None
+            controller._guarded_restore_activated_off = True
+            return True, "restored"
+        controller.try_restore_session = restore
         app = types.SimpleNamespace(hass=client, charge_controller=controller)
         app.execution_port = ExecutionPort(object(), SessionRecoveryGuard())
         app.guard_execution_owner_lock = GuardExecutionOwnerLock()
@@ -97,7 +108,7 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
             asyncio.run(recovery.replay_deferred_startup_restore())
         return recovery
 
-    def test_direct_native_reconciled_is_assessment_only_and_keeps_quarantine(self):
+    def test_direct_native_reconciled_activates_software_state_off_only(self):
         document = guarded_document()
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "charge_session.json"
@@ -106,9 +117,41 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
             app = self.app_for(self.direct_client(native_live()), document)
             recovery = self.run_recovery(app, path)
             self.assertEqual(recovery.last_guard_assessment.status, "RECONCILED")
+            self.assertIsNone(app.charge_controller._guarded_restore_candidate)
+            self.assertTrue(app.charge_controller.is_active)
+            self.assertTrue(app.charge_controller._guarded_restore_activated_off)
+            self.assertTrue(app.execution_port.guarded_restore_activated_off)
+            self.assertFalse(asyncio.run(app.execution_port.request_verified_on()))
+            self.assertEqual(path.read_bytes(), original)
+            # A subsequent startup replay cannot enter the ordinary auto-resume
+            # branch merely because controller.is_active became true.
+            self.run_recovery(app, path)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_canonical_document_replaced_after_native_assessment_stays_quarantined(self):
+        document = guarded_document()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "charge_session.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            client = self.direct_client(native_live())
+            app = self.app_for(client, document)
+            from runtime.startup_recovery import assess_main_guard_before_output_on as assessor
+
+            def assess_then_replace(**kwargs):
+                result = assessor(**kwargs)
+                replacement = dict(document)
+                replacement["replacement_marker"] = "changed-after-assessment"
+                path.write_text(json.dumps(replacement), encoding="utf-8")
+                return result
+
+            with patch("runtime.startup_recovery.assess_main_guard_before_output_on",
+                       side_effect=assess_then_replace):
+                recovery = self.run_recovery(app, path)
+            self.assertEqual(recovery.last_guard_assessment.status, "BLOCKED")
+            self.assertEqual(recovery.last_guard_assessment.reason,
+                             "candidate_or_canonical_changed_before_activation")
             self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
             self.assertFalse(app.charge_controller.is_active)
-            self.assertEqual(path.read_bytes(), original)
 
     def test_ha_only_backend_has_no_native_guard_snapshot(self):
         client = HassClient(backend=types.SimpleNamespace(name="ha_esp"))

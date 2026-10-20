@@ -1047,3 +1047,40 @@ See `D123_P2_SESSION_GUARD_CONVERGENCE_EVIDENCE_20261021.md`.
 - Continuation owner is domain-layer clean and receives enrichment callback by injection; no persistence back-import.
 - Canonical Python 3.12 full discovery: **2,463 tests, 3 skipped, PASS**.
 - Remaining P2 boundary is live owner-wide execution + fresh direct ESP Native pre-ON reconciliation for guarded resume; source-only restore ownership is converged.
+
+### Sprint 58 guarded activation ownership update (2026-10-21)
+
+The quarantined candidate remains owned by the existing
+`ManagedChargeController` lifecycle and canonical persistence reader. Under
+the app-scoped `ExecutionPort._guard_owner_lock`, `StartupRecovery` now checks
+the existing direct Native snapshot and MAIN Guard assessor, then rechecks the
+same candidate object, full decoded canonical document, session/battery IDs,
+Guard revision, non-retired state and freshness immediately before invoking
+`ManagedChargeController.try_restore_session` with an immutable,
+current-task/current-lock-bound `GuardedRestoreActivationPermit`.
+Candidates captured by canonical persistence also retain the exact source
+file-byte digest; it is checked during startup revalidation and again when
+persistence consumes the permit.
+
+The permit is an evidence value, not mutable session state. The one existing
+`runtime.charge.persistence.restore_session` implementation consumes it and
+reconstructs `_main_current_guard` plus revision only through the canonical
+`read_guard` parser before the existing continuation and production-extension
+restore order. Guarded activation skips ordinary identity enrichment to avoid
+rewriting Guard authority. It does not issue an execution-port or hardware
+writer call. Successful restore clears the candidate and marks the controller
+`_guarded_restore_activated_off`; the app-scoped port latch is installed before
+restore mutation and blocks both recipe-aware `enable()` and
+`request_verified_on()`. Replaying startup after activation returns at this
+barrier. `application.charge_session_tick` also exits before automatic
+decision/setpoint/enable orchestration while the activated-off marker is
+present. Emergency `request_verified_off()` stays independent.
+
+No physical resume owner clears the latch in this sprint. The remaining source
+and P5 work is an explicit later transaction that acquires the same lock,
+obtains a new direct Native snapshot, reruns `assess_main_guard_before_output_on`
+immediately before the ON action, preserves all ordinary safety checks, and
+clears the latch only after its authorization/result is committed. That path
+must be compiled/flashed/bench-validated against the exact ESPHome contract
+before physical use. The source activation does not establish physical
+acceptance.

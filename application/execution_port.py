@@ -77,6 +77,15 @@ class ExecutionPort:
         # itself an independent lock and pretend it protects all output paths.
         self._guard_owner_lock: asyncio.Lock | None = None
         self.session_recovery_guard = session_recovery_guard or SessionRecoveryGuard()
+        self._guarded_restore_activated_off = False
+
+    @property
+    def guarded_restore_activated_off(self) -> bool:
+        return self._guarded_restore_activated_off
+
+    def mark_guarded_restore_activated_off(self) -> None:
+        """Install the monotone block held until a later resume owner exists."""
+        self._guarded_restore_activated_off = True
 
     def _recovery_quarantined(self) -> bool:
         return self.session_recovery_guard.quarantined
@@ -104,8 +113,10 @@ class ExecutionPort:
         ocp_a: float,
         recipe_voltage_ceiling_v: float,
     ) -> ExecutionPortResult:
-        if self._recovery_quarantined():
-            return self._result(intent, identity, "enable", False, False, "session_recovery_quarantined")
+        if self._recovery_quarantined() or self.guarded_restore_activated_off:
+            reason = ("guarded_restore_resume_gate_pending" if self.guarded_restore_activated_off
+                      else "session_recovery_quarantined")
+            return self._result(intent, identity, "enable", False, False, reason)
         try:
             result = await self.execution_owner.safe_enable_output(
                 voltage_v=float(intent.requested_voltage_v),
@@ -222,7 +233,7 @@ class ExecutionPort:
     @_serialized_normal_execution
     async def request_verified_on(self) -> bool:
         """Delegate one guarded/verified Output-ON transaction to the V2 owner."""
-        if self._recovery_quarantined():
+        if self._recovery_quarantined() or self.guarded_restore_activated_off:
             return False
         return bool(await self.execution_owner.turn_on())
 

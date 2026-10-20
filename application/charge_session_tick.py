@@ -70,6 +70,12 @@ async def run_charge_session_tick(
     manual_active: bool = False,
 ) -> Dict[str, Any]:
     """Run application tick plus production Cooling pause/resume orchestration."""
+    if bool(getattr(host, "_guarded_restore_activated_off", False)):
+        # An admitted guarded session is software-active only. It cannot enter
+        # background decision/setpoint/enable orchestration without a separate
+        # physical resume owner; this sprint deliberately provides no clear.
+        host.last_update_time = time.time()
+        return {}
     authority_suspended = getattr(host, "_pb_background_suspended", None)
     if callable(authority_suspended) and authority_suspended():
         host.last_update_time = time.time()

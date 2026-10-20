@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import math
 import os
@@ -436,6 +437,7 @@ def restore_session(
     ah: float,
     *,
     session_file: str = SESSION_FILE,
+    _guarded_activation_permit: Any = None,
 ) -> Tuple[bool, Optional[str]]:
         """
         Восстановить сессию из файла, если прошло < 60 мин.
@@ -445,8 +447,10 @@ def restore_session(
             return False, None
         try:
             with open(session_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+                raw_document = f.read()
+            raw_bytes = raw_document.encode("utf-8")
+            data = json.loads(raw_document)
+        except (OSError, UnicodeError, json.JSONDecodeError):
             return False, None
 
         if not isinstance(data, dict):
@@ -462,28 +466,47 @@ def restore_session(
                     and data.get("session_id") and "battery_id" in data and data.get("retired_utc")):
                 return False, "This charge session was explicitly retired; start a fresh session."
             return False, "Retired session record is invalid; automatic restore is disabled."
-        # Guarded MAIN snapshots carry monotone electrical authority. The
-        # current runtime has NOT yet established a shared all-path Output
-        # owner lock, restore-before-ON reconciliation and hardware Iset/OCP
-        # receipt. Refuse legacy restore *before* any controller mutation or
-        # age-based file deletion; never silently replace the guard with I0.
+        # Guarded MAIN snapshots carry monotone electrical authority. They
+        # remain quarantined unless the canonical startup owner supplies its
+        # one-transaction, current-task activation capability.
         from runtime.charge.strategy.main_guard_session import GUARD_KEY
         if GUARD_KEY in data:
-            from runtime.charge.session import GuardedRestoreCandidate
-            # Keep the decoded authority available to the recovery owner as a
-            # typed quarantine object. It is deliberately not copied into FSM,
-            # trace identity, or active Guard fields here.
-            host._guarded_restore_candidate = GuardedRestoreCandidate.capture(
-                data, "direct_native_pre_on_reconciliation_required",
+            from runtime.charge.session import (
+                GuardedRestoreCandidate,
+                _valid_guarded_restore_activation_permit,
             )
-            logger.error(
-                "Guarded session restore held: direct Native pre-ON "
-                "acquisition and canonical activation are unavailable"
+            from runtime.charge.strategy.main_guard_session import GuardJournalError, read_guard
+            try:
+                sid = str(data.get("v2_trace_session_id") or "")
+                bid = str(data.get("v2_battery_id") or "")
+                restored_guard, revision = read_guard(
+                    data, session_id=sid, battery_id=bid, now_s=time.time(),
+                )
+            except (GuardJournalError, ValueError, TypeError, OverflowError):
+                restored_guard, revision = None, None
+            permit_valid = (
+                restored_guard is not None and restored_guard.pending is None
+                and restored_guard.fault is None
+                and _valid_guarded_restore_activation_permit(
+                    _guarded_activation_permit, document=data, session_id=sid,
+                    battery_id=bid, revision=revision,
+                    candidate=getattr(host, "_guarded_restore_candidate", None),
+                    canonical_bytes_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+                )
             )
-            return False, (
-                "MAIN Current Guard session is held for owner/readback "
-                "reconciliation; automatic resume is disabled."
-            )
+            if not permit_valid:
+                host._guarded_restore_candidate = GuardedRestoreCandidate.capture(
+                    data, "direct_native_pre_on_reconciliation_required",
+                    canonical_bytes=raw_bytes,
+                )
+                return False, (
+                    "MAIN Current Guard session is held for owner/readback "
+                    "reconciliation; automatic resume is disabled."
+                )
+            # Reconstruct Guard only from the canonical journal and before
+            # session continuations or production extensions can run.
+            host._main_current_guard = restored_guard
+            host._main_current_guard_revision = revision
 
         saved_at = data.get("saved_at", 0)
         if time.time() - saved_at > SESSION_MAX_AGE:

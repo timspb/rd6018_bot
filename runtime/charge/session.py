@@ -6,6 +6,9 @@ import math
 import time
 import uuid
 import copy
+import hashlib
+import json
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
@@ -56,9 +59,11 @@ class GuardedRestoreCandidate:
     battery_id: str | None
     guard_revision: int | None
     blocker: str
+    canonical_bytes_sha256: str | None = None
 
     @classmethod
-    def capture(cls, document: dict[str, object], blocker: str) -> "GuardedRestoreCandidate":
+    def capture(cls, document: dict[str, object], blocker: str, *,
+                canonical_bytes: bytes | None = None) -> "GuardedRestoreCandidate":
         # Detach nested journal data from the decoded persistence object before
         # exposing a read-only top-level view to recovery code.
         isolated = copy.deepcopy(document)
@@ -70,7 +75,84 @@ class GuardedRestoreCandidate:
             battery_id=isolated.get("v2_battery_id") if isinstance(isolated.get("v2_battery_id"), str) else None,
             guard_revision=revision if type(revision) is int else None,
             blocker=blocker,
+            canonical_bytes_sha256=(
+                hashlib.sha256(canonical_bytes).hexdigest()
+                if isinstance(canonical_bytes, bytes) else None
+            ),
         )
+
+
+@dataclass(frozen=True)
+class GuardedRestoreActivationPermit:
+    """Short lived, lock-bound proof for one Guarded canonical restore."""
+    session_id: str
+    battery_id: str
+    guard_revision: int
+    document_sha256: str
+    canonical_bytes_sha256: str | None
+    native_evidence_generation: tuple[tuple[str, float], ...]
+    owner_task: object
+    owner_lock: object
+    candidate_identity: int
+    _seal: object
+
+
+_GUARDED_RESTORE_PERMIT_SEAL = object()
+
+
+def _issue_guarded_restore_activation_permit(*, candidate, document, revision,
+                                              native_live, owner_task, owner_lock,
+                                              canonical_bytes_sha256=None):
+    if not isinstance(candidate, GuardedRestoreCandidate):
+        raise TypeError("guarded restore candidate required")
+    locked = getattr(owner_lock, "locked", None)
+    if (not callable(locked)
+            or not locked()
+            or getattr(owner_lock, "owner_task", None) is not owner_task
+            or owner_task is not asyncio.current_task()):
+        raise ValueError("canonical Guard execution owner lock is not held")
+    meta = native_live.get("_meta") if isinstance(native_live, Mapping) else None
+    if not isinstance(meta, Mapping):
+        raise ValueError("native evidence metadata required")
+    generation = []
+    for key in ("output_state_code_v2", "set_current_readback_v2", "ocp_readback_v2", "protection_code"):
+        item = meta.get(key)
+        stamp = item.get("subscription_timestamp_monotonic") if isinstance(item, Mapping) else None
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
+            raise ValueError("native evidence generation incomplete")
+        generation.append((key, float(stamp)))
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return GuardedRestoreActivationPermit(
+        candidate.session_id or "", candidate.battery_id or "", int(revision),
+        hashlib.sha256(canonical).hexdigest(),
+        canonical_bytes_sha256 or candidate.canonical_bytes_sha256,
+        tuple(generation), owner_task, owner_lock,
+        id(candidate), _GUARDED_RESTORE_PERMIT_SEAL,
+    )
+
+
+def _valid_guarded_restore_activation_permit(permit, *, document, session_id, battery_id,
+                                             revision, candidate, canonical_bytes_sha256=None):
+    if not isinstance(permit, GuardedRestoreActivationPermit) or permit._seal is not _GUARDED_RESTORE_PERMIT_SEAL:
+        return False
+    if permit.owner_task is not asyncio.current_task():
+        return False
+    if (not getattr(permit.owner_lock, "locked", lambda: False)()
+            or getattr(permit.owner_lock, "owner_task", None) is not asyncio.current_task()):
+        return False
+    try:
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError):
+        return False
+    return (
+        permit.session_id == session_id and permit.battery_id == battery_id
+        and permit.guard_revision == revision
+        and permit.candidate_identity == id(candidate)
+        and permit.document_sha256 == hashlib.sha256(canonical).hexdigest()
+        and permit.canonical_bytes_sha256 == candidate.canonical_bytes_sha256
+        and (canonical_bytes_sha256 is None
+             or permit.canonical_bytes_sha256 == canonical_bytes_sha256)
+    )
 
 
 def new_trace_identity(host: object, *, now: float | None = None) -> TraceIdentitySnapshot:

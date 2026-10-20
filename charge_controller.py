@@ -574,6 +574,7 @@ class ManagedChargeController:
         output_is_on: Optional[Any] = None,
         is_cv: Optional[bool] = None,
         is_cc: Optional[bool] = None,
+        _guarded_activation_permit: Any = None,
     ) -> Tuple[bool, Optional[str]]:
         ok, message = restore_session(
             self,
@@ -581,6 +582,7 @@ class ManagedChargeController:
             current,
             ah,
             session_file=SESSION_FILE,
+            _guarded_activation_permit=_guarded_activation_permit,
         )
         if ok and self.battery_type == self.PROFILE_CUSTOM:
             logger.warning(
@@ -596,11 +598,16 @@ class ManagedChargeController:
             )
         if ok:
             from runtime.charge.session_continuation_restore import finish_session_restore
-            return finish_session_restore(
+            result = finish_session_restore(
                 self, output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
                 session_file=SESSION_FILE, success_message=message,
                 enrich_restored_session=enrich_restored_session,
+                guarded_activation=_guarded_activation_permit is not None,
             )
+            if result[0] and _guarded_activation_permit is not None:
+                self._guarded_restore_candidate = None
+                self._guarded_restore_activated_off = True
+            return result
         return ok, message
 
     @property

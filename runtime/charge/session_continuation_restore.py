@@ -107,13 +107,13 @@ def restore_final_safe_wait(host: Any, document: Mapping[str, Any]) -> None:
 def finish_session_restore(
     host: Any, *, output_is_on: Any, is_cv: Any, is_cc: Any,
     session_file: str, success_message: str | None, enrich_restored_session: Any,
+    guarded_activation: bool = False,
 ) -> tuple[bool, str | None]:
     """Sequence accepted ordinary snapshot, continuations, and extensions.
 
-    Guard-bearing documents are rejected earlier by the persistence owner,
-    before controller mutation. This function handles only an accepted
-    unguarded legacy/current snapshot; it never infers physical state or admits
-    restart authority.
+    Guard-bearing documents reach this continuation only after the canonical
+    startup owner validates activation. Their bytes are already authoritative,
+    so identity enrichment is deliberately skipped.
     """
     snapshot = getattr(host, "_session_restore_snapshot", None)
     document = dict(snapshot.document) if snapshot is not None else {}
@@ -121,8 +121,10 @@ def finish_session_restore(
     restore_recovery_safe_wait(host, document)
     restore_final_safe_wait(host, document)
     host._initialize_shadow_session(started_at=host._v2_trace_started_at)
-    if not bool(getattr(host, "_session_restore_enriched", False)) and not enrich_restored_session(
-        host, document, session_file=session_file
+    if (
+        not guarded_activation
+        and not bool(getattr(host, "_session_restore_enriched", False))
+        and not enrich_restored_session(host, document, session_file=session_file)
     ):
         host.stop(clear_session=False)
         return False, "Restored session identity could not be durably reconciled."

@@ -37,7 +37,7 @@ Legend: [ ] pending; [x] verified on exact commit. NEVER tick a checkbox on inte
 - [ ] MAIN Guard restore admission and remaining audit/session lifecycle ownership remain pending; P2 remains **partial**
 - [ ] MAIN Guard restore admission ownership remains deferred; guarded restore stays fail-closed before mutation/enrichment
 - [x] Sprint 57 P2 read-only Native evidence cut: existing `HassClient` exposes a minimal Guard snapshot only over its existing `ESPDirectConnector`, with per-callback Native provenance/type/monotonic freshness and separately fresh edge lease evidence. Startup assesses the quarantined candidate under the app-scoped ExecutionPort lock through the existing `read_guard` and `assess_main_guard_before_output_on`, then rechecks canonical identity/revision. Assessment never restores/activates; positive synthetic assessment preserves quarantine and persisted bytes. START is held while a candidate remains; Manual policy is untouched. See `D123_SPRINT57_EVIDENCE_20261021.md`.
-- [ ] Guarded restore activation remains fail-closed/deferred: no candidate-to-active transition or Output operation is installed; source evidence cannot prove target-node callback contract or physical acceptance.
+- [x] Sprint 58 implements one lock-bound guarded restore activation permit consumed by the canonical persistence restore. Direct Native RECONCILED evidence and canonical identity/revision/document are revalidated immediately before restore; Guard authority is reconstructed by `read_guard` before continuations/extensions. The result is explicitly `guarded_restore_activated_off`; shared ExecutionPort enable/verified-ON paths remain latched, and no Output writer is called by activation. See `D123_SPRINT58_GUARDED_ACTIVATION_EVIDENCE_20261021.md`.
 - [x] Sprint 03 focused tests, Python 3.12 offline full suite and compileall PASS; see `D123_SPRINT03_EVIDENCE_20261019.md`
 
 P2b session identity/writer convergence, P2c stage history, and P2d trace capture
@@ -147,6 +147,7 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - Continuation owner is domain-layer clean and receives enrichment callback by injection; no persistence back-import.
 - Canonical Python 3.12 full discovery: **2,463 tests, 3 skipped, PASS**.
 - Sprint 57 supplies the existing shared owner lock and direct-Native pre-ON evidence to read-only assessment, but deliberately does not activate guarded restore. Remaining P2 work is audit/session lifecycle convergence; guarded activation and physical validation remain deferred.
+- Sprint 58 completes source-side Guarded candidate activation into software-active/OFF-only state. A separate fresh Native pre-ON physical resume transaction, exact ESP contract bench validation, and P5 acceptance remain open; no source result is physical acceptance.
 
 ### Sprint 57 / P2 Native Guard evidence
 
