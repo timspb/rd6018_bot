@@ -13,6 +13,7 @@ from battery_fault_engine import (
     assess_battery_fault,
 )
 from runtime.charge.evidence.first_stage import FirstStageAssessment
+from runtime.charge.diagnostics import bank_fault_risk_snapshot
 from mix_active_authority import MixActiveAuthorityMixin
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 
@@ -83,7 +84,8 @@ class DiagnosticProductionChargeController(
         ah: float,
     ) -> None:
         try:
-            legacy = self._bank_fault_risk_snapshot(
+            legacy = bank_fault_risk_snapshot(
+                self,
                 timestamp_s,
                 voltage,
                 current,

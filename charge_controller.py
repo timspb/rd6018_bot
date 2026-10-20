@@ -68,7 +68,6 @@ from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
 from runtime.charge.diagnostics import (
     ai_stage_snapshot,
-    bank_fault_risk_snapshot,
     get_timers as diagnostic_timers,
 )
 from runtime.charge.runtime.support import (
@@ -429,16 +428,6 @@ class ManagedChargeController:
 
     def full_reset(self) -> None:
         full_reset_charge(self)
-
-    def _bank_fault_risk_snapshot(
-        self,
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: Optional[float] = None,
-    ) -> Optional[Dict[str, Any]]:
-        return bank_fault_risk_snapshot(self, now, voltage, current, temp, ah)
 
     def get_timers(self) -> Dict[str, Any]:
         return diagnostic_timers(self)

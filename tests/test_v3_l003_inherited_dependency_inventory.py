@@ -97,7 +97,8 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         controller._stage_start_temp = 24.0
         controller._stage_start_ah = 0.0
         controller._analytics_history.clear()
-        risk = controller._bank_fault_risk_snapshot(now, 11.15, 0.32, 25.1, 1.4)
+        from runtime.charge.diagnostics import bank_fault_risk_snapshot
+        risk = bank_fault_risk_snapshot(controller, now, 11.15, 0.32, 25.1, 1.4)
         self.assertIsNotNone(risk)
         self.assertEqual(risk["status"], "high")
         self.assertGreaterEqual(risk["score"], 70)
