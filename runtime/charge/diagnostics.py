@@ -98,6 +98,23 @@ def bank_fault_expected_main_hours(host, start_v: float, temp_c: float) -> float
         expected -= 0.5
     return max(10.0, expected)
 
+
+def diagnostic_assessment_snapshot(assessment: Any) -> Dict[str, Any]:
+    """Project the current battery fault assessment into its stable UI mapping."""
+    result: Dict[str, Any] = {
+        "authority": assessment.authority.value,
+        "authority_reasons": list(assessment.authority_reasons),
+        "cell_fault_classes": sorted(assessment.independent_cell_fault_classes),
+        "hypotheses": {},
+    }
+    for hypothesis, evidence in assessment.hypotheses.items():
+        result["hypotheses"][hypothesis.value] = {
+            "score": evidence.score,
+            "level": evidence.level.value,
+            "reasons": list(evidence.reasons),
+        }
+    return result
+
 def bank_fault_risk_snapshot(
     host,
     now: float,

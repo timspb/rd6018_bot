@@ -9,7 +9,6 @@ from runtime.charge.strategy.mix_variables import (
 )
 from charge_controller import ManagedChargeController
 from runtime.charge.persistence import SESSION_FILE
-from application.production_session_extensions import OPERATOR_REASON_TEXT
 from pb_domain import BatteryCondition, ChargeIntent
 
 
@@ -29,4 +28,3 @@ class ProductionChargeController(ManagedChargeController):
     # same defaults historically applied by this production restore boundary.
     RESTORE_TRACE_DEFAULT_INTENT = ChargeIntent.NORMAL
     RESTORE_TRACE_DEFAULT_CONDITION = BatteryCondition.UNKNOWN
-    _OPERATOR_REASON_TEXT = OPERATOR_REASON_TEXT

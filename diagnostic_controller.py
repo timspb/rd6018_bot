@@ -100,21 +100,6 @@ class DiagnosticProductionChargeController(
             recovery_attempts=int(self.antisulfate_count),
         )
 
-    def diagnostic_snapshot(self) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
-            "authority": self._diagnostic_assessment.authority.value,
-            "authority_reasons": list(self._diagnostic_assessment.authority_reasons),
-            "cell_fault_classes": sorted(self._diagnostic_assessment.independent_cell_fault_classes),
-            "hypotheses": {},
-        }
-        for hypothesis, evidence in self._diagnostic_assessment.hypotheses.items():
-            result["hypotheses"][hypothesis.value] = {
-                "score": evidence.score,
-                "level": evidence.level.value,
-                "reasons": list(evidence.reasons),
-            }
-        return result
-
     def _diagnostic_hv_veto(self, decision: AuthorityDecision) -> Optional[AuthorityDecision]:
         if decision.action not in _HV_ACTIONS:
             return None

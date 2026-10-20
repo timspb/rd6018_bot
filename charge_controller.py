@@ -421,7 +421,8 @@ class ManagedChargeController:
         return target_finish_time(self)
 
     def _get_stage_max_hours(self) -> Optional[float]:
-        return stage_max_hours(self)
+        from application.production_session_extensions import auto_stage_max_hours
+        return auto_stage_max_hours(self, stage_max_hours(self))
 
     def _mix_current_delta_threshold(self) -> float:
         return mix_current_delta_threshold(self)
@@ -433,16 +434,19 @@ class ManagedChargeController:
         return exit_cv_condition(self, i_now)
 
     def _session_rules_summary(self) -> str:
-        return session_rules_summary(self)
+        from application.production_session_extensions import auto_session_rules_summary
+        return auto_session_rules_summary(self, session_rules_summary(self))
 
     def full_reset(self) -> None:
         full_reset_charge(self)
 
     def get_timers(self) -> Dict[str, Any]:
-        return diagnostic_timers(self)
+        from application.production_session_extensions import auto_timers
+        return auto_timers(self, diagnostic_timers(self))
 
     def get_ai_stage_snapshot(self, temp_c: Optional[float] = None) -> Dict[str, Any]:
-        return ai_stage_snapshot(self, temp_c)
+        from application.production_session_extensions import auto_ai_stage_snapshot
+        return auto_ai_stage_snapshot(self, ai_stage_snapshot(self, temp_c), temp_c)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular DESULFATION target."""

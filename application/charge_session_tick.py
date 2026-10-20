@@ -16,6 +16,7 @@ from application.recipe_policy import chemistry_for_profile
 from application.charge_stage_tick import apply_charge_stage_authority, run_charge_stage_tick
 from application.production_session_extensions import (
     apply_continuous_tail_hold,
+    auto_operator_reason_text,
     capture_cooling_pause,
     operatorize_notification,
     resume_cooling_pause,
@@ -173,7 +174,7 @@ async def run_charge_session_tick(
     if isinstance(actions.get("notify"), str):
         actions["notify"] = operatorize_notification(
             actions["notify"],
-            reasons=getattr(type(host), "_OPERATOR_REASON_TEXT", None),
+            reasons=auto_operator_reason_text(host),
         )
     return actions
 

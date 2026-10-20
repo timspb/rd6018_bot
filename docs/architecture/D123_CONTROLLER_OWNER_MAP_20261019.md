@@ -877,3 +877,56 @@ not: removing the marker relationship requires a separate composition-factory
 cut. P2 remains partial at the canonical raw-document/Guard admission boundary;
 P5 release and physical acceptance remain open. Exact order and tests are in
 `D123_SPRINT54_EVIDENCE_20261020.md`.
+
+### Sprint 55A AUTO presentation and diagnostic snapshot cuts
+
+`auto_strategy.py` previously declared six presentation members: the
+`_OPERATOR_REASON_TEXT` class mapping and five methods
+`_get_stage_max_hours`, `_mix_display_elapsed_s`, `get_timers`,
+`_session_rules_summary`, and `get_ai_stage_snapshot`. The five method bodies and
+production-specific reason mapping now live as functions/constants in
+`application.production_session_extensions`; the canonical inherited host calls
+those functions, which operate on its existing fields and durable MIX authority.
+`AutoStrategyProductionChargeController` retains only its compatibility class
+name and declares no behavior. The production host's old class-level reason map
+was removed. The base host still uses its original limits, summary, timers and AI
+snapshot when it lacks production extension state.
+
+Callers are unchanged: stage-limit reads come through restore/lifecycle; timers
+and AI snapshots are requested by existing UI/runtime consumers; notification
+projection runs in `application.charge_session_tick`. Their application owners
+now resolve the mapping from the same host rather than its class. The diagnostic
+assessment snapshot mapping was moved from
+`DiagnosticProductionChargeController.diagnostic_snapshot` to
+`runtime.charge.diagnostics.diagnostic_assessment_snapshot`, called from
+`application.charge_stage_tick` after authoritative stage processing. No
+assessment state was copied.
+
+Diagnostic stored-specific-gravity refresh (`application.charge_session_tick`
+awaits `_refresh_stored_diagnostics`), live bank-fault evidence update
+(`application.charge_stage_tick` calls `_update_live_diagnostic_evidence`), and
+the pre-transition `_diagnostic_hv_veto` remain on the diagnostic subclass. Their
+mutable assessment context and HV veto require a subsequent same-host migration
+with explicit caller/order parity. The next P4 cut is to move that context and
+refresh/evidence projection to existing runtime/application diagnostic owners,
+then route veto through existing stage authority without relaxing the pre-apply
+veto. Do not remove the diagnostic subclass until these callers are moved.
+
+`MixActiveAuthorityMixin` remains the durable MIX active-time owner. Its
+`_enter_mix` calls the existing MIX entry then begins the durable clock from the
+trace session identity. Its `try_restore_session` first invokes the canonical
+base restore (including Guard admission/hold and production extension
+reconstruction), then detects restored MIX or COOLING sourced from MIX and loads
+the durable authority; load failure sets DONE, clears finish/restored targets,
+and rejects restore. Callers are production runtime restore and the existing
+stage-entry dispatch through the diagnostic host MRO. This exact ordering
+crosses the P2 Guard restore and MIX-entry authority boundary. The next specific
+P4 cut is to put clock begin/load admission into existing session/runtime owners
+on this same host while preserving that order and containment; it must be tested
+against `tests/test_mix_active_timeout_integration.py`, restore, cooling and
+Guard suites before removing the mix mixin/subclass inheritance. MAIN Guard
+restore remains deferred and fail-closed.
+
+Sprint 55A does not change persistence writer, physical execution owner, recipe,
+safety, lease or Manual behavior. P2 remains partial; P4 remains open; P5 and
+physical acceptance remain open.

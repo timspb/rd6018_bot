@@ -11,6 +11,7 @@ from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.runtime.stage_authority import apply_authoritative_stage_tick
+from runtime.charge.diagnostics import diagnostic_assessment_snapshot
 from runtime.charge.strategy.mix_variables import mix_max_active_seconds
 from runtime.charge.strategy.safe_wait_variables import safe_wait_max_seconds
 
@@ -59,9 +60,9 @@ def apply_charge_stage_authority(host: Any, **kwargs: Any) -> Any:
     ):
         mix_authority.mark_terminal(session_id, "MIX_TIMEOUT")
 
-    diagnostic_snapshot = getattr(host, "diagnostic_snapshot", None)
-    if callable(diagnostic_snapshot):
-        kwargs["actions"]["battery_diagnostics"] = diagnostic_snapshot()
+    assessment = getattr(host, "battery_fault_assessment", None)
+    if assessment is not None:
+        kwargs["actions"]["battery_diagnostics"] = diagnostic_assessment_snapshot(assessment)
     return decision
 
 

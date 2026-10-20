@@ -15,18 +15,19 @@ class DiagnosticSnapshotOwnershipTests(unittest.TestCase):
                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertNotIn("_bank_fault_risk_snapshot", names)
 
-    def test_diagnostic_controller_calls_canonical_diagnostic_owner(self):
-        tree = ast.parse((ROOT / "diagnostic_controller.py").read_text(encoding="utf-8"))
-        imports = [node for node in tree.body if isinstance(node, ast.ImportFrom)
-                   and node.module == "runtime.charge.diagnostics"]
-        self.assertTrue(any(alias.name == "bank_fault_risk_snapshot"
-                            for node in imports for alias in node.names))
-        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
-                 and isinstance(node.func, ast.Name)
-                 and node.func.id == "bank_fault_risk_snapshot"]
-        self.assertEqual(len(calls), 1)
-        self.assertNotIn("_bank_fault_risk_snapshot", {
-            node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+    def test_snapshot_projection_is_owned_by_runtime_diagnostics_and_application(self):
+        diagnostics = ast.parse((ROOT / "runtime/charge/diagnostics.py").read_text(encoding="utf-8"))
+        self.assertIn("diagnostic_assessment_snapshot", {
+            node.name for node in diagnostics.body if isinstance(node, ast.FunctionDef)
+        })
+        application = ast.parse((ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8"))
+        self.assertTrue(any(isinstance(node, ast.ImportFrom)
+                            and node.module == "runtime.charge.diagnostics"
+                            and any(alias.name == "diagnostic_assessment_snapshot" for alias in node.names)
+                            for node in application.body))
+        controller = ast.parse((ROOT / "diagnostic_controller.py").read_text(encoding="utf-8"))
+        self.assertNotIn("diagnostic_snapshot", {
+            node.name for node in ast.walk(controller) if isinstance(node, ast.FunctionDef)
         })
 
 

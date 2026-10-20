@@ -125,7 +125,7 @@ class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
             patch("charge_controller.time.time", return_value=now),
             patch("charge_controller.time.time", return_value=now),
             patch("production_controller.time.time", return_value=now),
-            patch("auto_strategy.time.time", return_value=now),
+            patch("application.production_session_extensions.time.time", return_value=now),
         ):
             return await run_charge_session_tick(controller,
                 16.50,

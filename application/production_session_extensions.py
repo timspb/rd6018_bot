@@ -19,9 +19,85 @@ from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standa
 from runtime.charge.runtime.cooling_guard import validate_cooling_pause
 from pb_domain import BatteryCondition, ChargeIntent
 from application.production_target_policy import bound_target, recipe_envelope
+from runtime.charge.strategy.mix_variables import mix_max_active_seconds
 
 logger = logging.getLogger("rd6018.application.production_session_extensions")
 RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
+
+_AUTO_OPERATOR_REASON_ADDITIONS = {
+    "main_tail_hold_complete_standard_mix": "Основной заряд завершён по хвосту; начинается штатный Mix.",
+    "main_tail_hold_complete_diagnostic_no_hv": "Основной заряд завершён; Diagnostic не разрешает автоматический HV.",
+    "persistent_main_plateau_diagnostic_no_hv": "Подтверждена устойчивая полка; Diagnostic остановлен для анализа без HV.",
+    "main_timeout_ca_efb_v1_compatible_mix": "Достигнут 72-часовой fallback Main; Ca/EFB продолжает штатным Mix.",
+    "agm_main_timeout_low_current_cv_mix": "AGM достиг 72-часового fallback уже в CV с I≤0.2 A; разрешён финальный Mix.",
+    "agm_main_timeout_without_low_current_tail": "AGM достиг 72 часов без безопасного низкотокового хвоста; требуется диагностика.",
+    "agm_recovery_budget_exhausted_wait_for_tail": "AGM исчерпал сервисные recovery-попытки; остаёмся в Main и ждём нормальный хвост.",
+}
+
+
+def auto_operator_reason_text(host: Any) -> Dict[str, str]:
+    return AUTO_OPERATOR_REASON_TEXT if hasattr(host, "_v2_cooling_pause") else OPERATOR_REASON_TEXT
+
+
+def auto_stage_max_hours(host: Any, fallback: Optional[float]) -> Optional[float]:
+    if (hasattr(host, "_v2_cooling_pause") and host.current_stage == host.STAGE_MIX
+            and host.finish_timer_start is None):
+        return mix_max_active_seconds(host.battery_type) / 3600.0
+    return fallback
+
+
+def auto_mix_elapsed_s(host: Any, now: float) -> float:
+    authority = getattr(host, "_mix_active_authority", None)
+    snapshot = getattr(authority, "snapshot", None)
+    if snapshot is not None:
+        try:
+            if str(snapshot.session_id) == str(host.recovery_trace_context["session_id"]):
+                return max(0.0, float(snapshot.elapsed_s))
+        except Exception:
+            pass
+    return max(0.0, float(now) - float(host.stage_start_time))
+
+
+def auto_session_rules_summary(host: Any, fallback: str) -> str:
+    if not hasattr(host, "_v2_cooling_pause"):
+        return fallback
+    rules = {
+        host.PROFILE_CA: "Main 14.7V; recovery budget 3/session; Mix max 20h active; normal finish -> SafeWait 2h.",
+        host.PROFILE_EFB: "Main 14.8V; recovery budget 3/session; Mix max 24h active; normal finish -> SafeWait 2h.",
+        host.PROFILE_AGM: "Main 14.4/14.6/14.8/15.0V; recovery budget 4/session; Mix max 10h active; normal finish -> SafeWait 2h.",
+    }
+    return rules.get(host.battery_type, fallback)
+
+
+def auto_timers(host: Any, timers: Dict[str, Any]) -> Dict[str, Any]:
+    if (not hasattr(host, "_v2_cooling_pause") or host.current_stage != host.STAGE_MIX
+            or host.finish_timer_start is not None):
+        return timers
+    now = time.time()
+    limit_s = mix_max_active_seconds(host.battery_type)
+    elapsed = auto_mix_elapsed_s(host, now)
+    remaining = max(0.0, limit_s - elapsed)
+    timers["stage_limit_sec"] = limit_s
+    timers["stage_elapsed_sec"] = elapsed
+    timers["remaining_time"] = (f"{int(remaining // 3600):02d}:{int((remaining % 3600) // 60):02d}" if remaining > 0 else "00:00")
+    return timers
+
+
+def auto_ai_stage_snapshot(host: Any, snapshot: Dict[str, Any], temp_c: Optional[float] = None) -> Dict[str, Any]:
+    if not hasattr(host, "_v2_cooling_pause"):
+        return snapshot
+    if host.current_stage == host.STAGE_MIX and host.finish_timer_start is None:
+        snapshot["mix_active_elapsed_s"] = auto_mix_elapsed_s(host, time.time())
+        snapshot["mix_timeout_semantics"] = "MIX_TIMEOUT -> Output OFF -> manual diagnosis"
+        if host.battery_type == host.PROFILE_EFB:
+            snapshot["summary"] = "Mix 16.5V / 0.03C: normal exit by ΔV/ΔI; 24h active-time authority ceiling."
+            snapshot["transition"] = ("Normal exit by ΔV/ΔI; without delta, 24h active-time ceiling -> "
+                                      "MIX_TIMEOUT, Output OFF, manual diagnosis.")
+            policy = snapshot.get("mix_exit_policy")
+            if isinstance(policy, dict):
+                policy["fallback_limit_hours"] = 24.0
+                policy["fallback_outcome"] = "MIX_TIMEOUT"
+    return snapshot
 
 
 def initialize_production_session_state(host: Any) -> None:
@@ -551,6 +627,8 @@ OPERATOR_REASON_TEXT = {
     "mix_profile_observation_window_exhausted": "Достигнут максимальный безопасный интервал наблюдения Mix.",
     "mode_specific_end_of_charge_evidence_confirmed": "Подтверждён признак окончания заряда; запущена двухчасовая контрольная выдержка.",
 }
+
+AUTO_OPERATOR_REASON_TEXT = {**OPERATOR_REASON_TEXT, **_AUTO_OPERATOR_REASON_ADDITIONS}
 
 
 def operatorize_notification(text: str, *, reasons: Mapping[str, str] | None = None) -> str:
