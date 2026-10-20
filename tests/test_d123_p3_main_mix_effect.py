@@ -66,9 +66,13 @@ class MainMixEffectTests(unittest.TestCase):
                    and node.name == "ManagedChargeController")
         methods = {node.name for node in cls.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         self.assertNotIn("_enter_mix", methods)
-        for name in ("apply_main_mix_entry",):
+        for name in ("apply_main_authority_tick",):
             self.assertEqual(sum(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                                  and node.func.id == name for node in ast.walk(tree)), 1)
+        owner_tree = ast.parse((ROOT / "runtime/charge/runtime/main_scaffold.py").read_text(encoding="utf-8"))
+        self.assertEqual(sum(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                             and node.func.id == "apply_main_mix_entry"
+                             for node in ast.walk(owner_tree)), 1)
         self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                              and node.func.id in {"MainMixEffectInput", "build_main_mix_effect",
                                                   "apply_main_mix_effect"}

@@ -107,9 +107,16 @@ class AgmStepAdvanceEffectTests(unittest.TestCase):
             node for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "apply_agm_step_advance_effect"
+            and node.func.id == "apply_main_authority_tick"
         ]
         self.assertEqual(len(calls), 1)
+        owner_tree = ast.parse((ROOT / "runtime/charge/runtime/main_scaffold.py").read_text(encoding="utf-8"))
+        effect_calls = [
+            node for node in ast.walk(owner_tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "apply_agm_step_advance_effect"
+        ]
+        self.assertEqual(len(effect_calls), 1)
 
         owner_source = inspect.getsource(owner)
         for forbidden in ("execution_port", "turn_on", "turn_off", "set_output"):

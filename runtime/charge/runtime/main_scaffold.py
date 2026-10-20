@@ -35,6 +35,99 @@ from runtime.safety.voltage_variables import PB_PROFILE_WARNING_VOLTAGE_V
 logger = logging.getLogger("rd6018.charge.main_runtime")
 
 
+def apply_main_authority_tick(
+    host: Any, *, record: Any, first_stage: Any, timestamp_s: float,
+    voltage: float, current: float, temp: float, ah: float,
+    is_cv: bool, actions: Dict[str, Any],
+) -> Any:
+    """Own MAIN transition evaluation and dispatch into typed stage effects."""
+    from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+    from runtime.charge.runtime.agm_step_advance import (
+        apply_agm_step_advance_effect, build_agm_step_advance_effect,
+    )
+    from runtime.charge.runtime.desulfation_entry import apply_main_desulfation_entry
+    from runtime.charge.runtime.final_safe_wait_entry import apply_main_completion_to_safe_wait
+    from runtime.charge.runtime.mix_entry import apply_main_mix_entry
+    from runtime.charge.runtime.stop_diagnose import apply_stop_and_diagnose
+    from runtime.charge.strategy.main_authority import decide_main_transition
+    from runtime.charge.strategy.main_variables import (
+        AGM_MAX_RECOVERY_ATTEMPTS, AGM_STAGE_VOLTAGES_V,
+        STANDARD_MAX_RECOVERY_ATTEMPTS, agm_tail_hold_seconds,
+        main_fallback_seconds, standard_tail_hold_seconds,
+    )
+
+    required_hold = (
+        agm_tail_hold_seconds()
+        if host.battery_type == host.PROFILE_AGM
+        else standard_tail_hold_seconds()
+    )
+    max_desulf = (
+        int(AGM_MAX_RECOVERY_ATTEMPTS.default)
+        if host.battery_type == host.PROFILE_AGM
+        else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
+    )
+    decision = decide_main_transition(
+        profile=host.battery_type,
+        intent=host._v2_intent,
+        first_stage=first_stage,
+        policy_decision=record.decision.decision,
+        seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
+        required_tail_hold_s=required_hold,
+        agm_stage_idx=host._agm_stage_idx,
+        agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
+        desulf_attempts=host.antisulfate_count,
+        max_desulf_attempts=max_desulf,
+        main_elapsed_s=max(0.0, float(timestamp_s) - float(host.stage_start_time)),
+        main_limit_s=main_fallback_seconds(),
+        current_a=float(current),
+        is_cv=bool(is_cv),
+    )
+    if decision.action == AuthorityAction.ADVANCE_AGM_STEP:
+        effect = build_agm_step_advance_effect(
+            current_stage_index=host._agm_stage_idx,
+            stage_count=len(AGM_STAGE_VOLTAGES_V.default),
+            now_s=timestamp_s, ah=ah, temperature_c=temp,
+            reason=decision.reason,
+        )
+        apply_agm_step_advance_effect(host, effect, actions)
+    elif decision.action == AuthorityAction.ENTER_DESULFATION:
+        target_v, target_i = host._desulf_target(temp)
+        apply_main_desulfation_entry(
+            host, reason=decision.reason, now_s=timestamp_s, ah=ah,
+            voltage_v=voltage, current_a=current, temperature_c=temp,
+            target_voltage_v=target_v, target_current_a=target_i, actions=actions,
+        )
+    elif decision.action == AuthorityAction.ENTER_MIX:
+        target_v, target_i = host._mix_target(temp)
+        limits: Dict[str, Any] = {}
+        host._add_phase_limits(limits, target_v, target_i)
+        apply_main_mix_entry(
+            host, reason=decision.reason, now_s=timestamp_s, ah=ah,
+            voltage_v=voltage, current_a=current, temperature_c=temp,
+            target_voltage_v=target_v, target_current_a=target_i,
+            ovp_v=limits["set_ovp"], ocp_a=limits["set_ocp"], actions=actions,
+        )
+    elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
+        target_v, target_i = host._storage_target()
+        if not apply_main_completion_to_safe_wait(
+            host, now_s=timestamp_s, voltage_v=voltage, current_a=current,
+            temperature_c=temp, ah=ah, reason=decision.reason,
+            target_voltage_v=target_v, target_current_a=target_i, actions=actions,
+        ):
+            reason = "final_safe_wait_entry_session_identity_invalid"
+            apply_stop_and_diagnose(
+                host, actions=actions, now=timestamp_s, voltage=voltage,
+                current=current, temp=temp, ah=ah, reason=reason,
+            )
+            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
+    elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
+        apply_stop_and_diagnose(
+            host, actions=actions, now=timestamp_s, voltage=voltage,
+            current=current, temp=temp, ah=ah, reason=decision.reason,
+        )
+    return decision
+
+
 def _output_is_known(value: Any) -> bool:
     return value is not None and str(value).lower() not in {
         "unavailable",

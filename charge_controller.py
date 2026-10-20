@@ -82,19 +82,12 @@ from runtime.charge.diagnostics import (
     bank_fault_risk_snapshot,
     get_timers as diagnostic_timers,
 )
-from runtime.charge.runtime.main_scaffold import run_authoritative_main_scaffold
-from runtime.charge.runtime.agm_step_advance import (
-    apply_agm_step_advance_effect,
-    build_agm_step_advance_effect,
-)
-from runtime.charge.runtime.desulfation_entry import (
-    apply_main_desulfation_entry,
+from runtime.charge.runtime.main_scaffold import (
+    apply_main_authority_tick,
+    run_authoritative_main_scaffold,
 )
 from runtime.charge.runtime.desulfation_completion import (
     complete_desulfation_to_safe_wait,
-)
-from runtime.charge.runtime.mix_entry import (
-    apply_main_mix_entry,
 )
 from runtime.charge.runtime.support import (
     current_targets,
@@ -110,7 +103,6 @@ from runtime.charge.runtime.mix_scaffold import (
     apply_mix_authority_tick,
     run_authoritative_mix_scaffold,
 )
-from runtime.charge.runtime.final_safe_wait_entry import apply_main_completion_to_safe_wait
 from runtime.charge.runtime.final_safe_wait_completion import (
     FinalSafeWaitCompletionInput,
     apply_final_safe_wait_completion_effect,
@@ -136,7 +128,6 @@ from runtime.charge.strategy.final_safe_wait import (
     FinalSafeWaitContinuation,
     validate_final_continuation,
 )
-from runtime.charge.strategy.main_authority import decide_main_transition
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.prep import select_prep_target
 from runtime.charge.strategy.mix import select_mix_target
@@ -167,15 +158,9 @@ from runtime.safety.variables import (
 )
 from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
 from runtime.charge.strategy.main_variables import (
-    AGM_MAX_RECOVERY_ATTEMPTS,
     AGM_PLATEAU_REQUIRED_MINUTES,
-    AGM_STAGE_VOLTAGES_V,
     PLATEAU_EVIDENCE_WINDOW_MINUTES,
-    STANDARD_MAX_RECOVERY_ATTEMPTS,
     STANDARD_PLATEAU_REQUIRED_MINUTES,
-    agm_tail_hold_seconds,
-    main_fallback_seconds,
-    standard_tail_hold_seconds,
 )
 logger = logging.getLogger("rd6018.recovery")
 
@@ -1245,91 +1230,11 @@ class ManagedChargeController:
             return None
 
         if stage_before == self.STAGE_MAIN:
-            required_hold = (
-                agm_tail_hold_seconds()
-                if self.battery_type == self.PROFILE_AGM
-                else standard_tail_hold_seconds()
+            return apply_main_authority_tick(
+                self, record=record, first_stage=first_stage,
+                timestamp_s=timestamp_s, voltage=voltage, current=current,
+                temp=temp, ah=ah, is_cv=is_cv, actions=actions,
             )
-            max_desulf = (
-                int(AGM_MAX_RECOVERY_ATTEMPTS.default)
-                if self.battery_type == self.PROFILE_AGM
-                else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
-            )
-            decision = decide_main_transition(
-                profile=self.battery_type,
-                intent=self._v2_intent,
-                first_stage=first_stage,
-                policy_decision=record.decision.decision,
-                seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
-                required_tail_hold_s=required_hold,
-                agm_stage_idx=self._agm_stage_idx,
-                agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
-                desulf_attempts=self.antisulfate_count,
-                max_desulf_attempts=max_desulf,
-                main_elapsed_s=max(0.0, float(timestamp_s) - float(self.stage_start_time)),
-                main_limit_s=main_fallback_seconds(),
-                current_a=float(current),
-                is_cv=bool(is_cv),
-            )
-            if decision.action == AuthorityAction.ADVANCE_AGM_STEP:
-                effect = build_agm_step_advance_effect(
-                    current_stage_index=self._agm_stage_idx,
-                    stage_count=len(AGM_STAGE_VOLTAGES_V.default),
-                    now_s=timestamp_s,
-                    ah=ah,
-                    temperature_c=temp,
-                    reason=decision.reason,
-                )
-                apply_agm_step_advance_effect(self, effect, actions)
-            elif decision.action == AuthorityAction.ENTER_DESULFATION:
-                dv, di = self._desulf_target(temp)
-                apply_main_desulfation_entry(
-                    self, reason=decision.reason, now_s=timestamp_s, ah=ah,
-                    voltage_v=voltage, current_a=current, temperature_c=temp,
-                    target_voltage_v=dv, target_current_a=di, actions=actions,
-                )
-            elif decision.action == AuthorityAction.ENTER_MIX:
-                mxv, mxi = self._mix_target(temp)
-                mix_actions: Dict[str, Any] = {}
-                self._add_phase_limits(mix_actions, mxv, mxi)
-                apply_main_mix_entry(
-                    self, reason=decision.reason, now_s=timestamp_s, ah=ah,
-                    voltage_v=voltage, current_a=current, temperature_c=temp,
-                    target_voltage_v=mxv, target_current_a=mxi,
-                    ovp_v=mix_actions["set_ovp"], ocp_a=mix_actions["set_ocp"],
-                    actions=actions,
-                )
-            elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
-                storage_v, storage_i = self._storage_target()
-                if not apply_main_completion_to_safe_wait(
-                    self,
-                    now_s=timestamp_s,
-                    voltage_v=voltage,
-                    current_a=current,
-                    temperature_c=temp,
-                    ah=ah,
-                    reason=decision.reason,
-                    target_voltage_v=storage_v,
-                    target_current_a=storage_i,
-                    actions=actions,
-                ):
-                    reason = "final_safe_wait_entry_session_identity_invalid"
-                    apply_stop_and_diagnose(self,
-                        actions=actions, now=timestamp_s, voltage=voltage,
-                        current=current, temp=temp, ah=ah, reason=reason,
-                    )
-                    return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, reason)
-            elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:
-                apply_stop_and_diagnose(self,
-                    actions=actions,
-                    now=timestamp_s,
-                    voltage=voltage,
-                    current=current,
-                    temp=temp,
-                    ah=ah,
-                    reason=decision.reason,
-                )
-            return decision
 
         return apply_mix_authority_tick(
             self,

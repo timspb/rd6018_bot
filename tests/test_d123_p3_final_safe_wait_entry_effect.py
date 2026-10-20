@@ -201,7 +201,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
         )
         stale_actions = {}
         with patch(
-            "charge_controller.decide_main_transition",
+            "runtime.charge.strategy.main_authority.decide_main_transition",
             return_value=AuthorityDecision(AuthorityAction.COMPLETE_TO_SAFE_WAIT, "main_completion"),
         ):
             result = stale._apply_authoritative_decision(
@@ -222,7 +222,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
         self.assertTrue(stale_actions["turn_off"])
         self.assertNotIn("turn_on", stale_actions)
 
-    def test_main_completion_cut_has_one_controller_dispatch_and_owner_assembly(self):
+    def test_main_completion_cut_has_one_main_owner_dispatch_and_no_writer(self):
         source = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
         controller_tree = ast.parse(source)
         method = next(
@@ -234,7 +234,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
             node for node in ast.walk(method)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "apply_main_completion_to_safe_wait"
+            and node.func.id == "apply_main_authority_tick"
         ]
         inline_inputs = [
             node for node in ast.walk(method)
@@ -244,18 +244,17 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
         ]
         self.assertEqual(len(main_dispatches), 1)
         self.assertEqual(inline_inputs, [])
-        main_branch = source[
-            source.index("if stage_before == self.STAGE_MAIN:", source.index("def _apply_authoritative_decision")):
-            source.index("return apply_mix_authority_tick(", source.index("def _apply_authoritative_decision"))
+        source = (ROOT / "runtime/charge/runtime/main_scaffold.py").read_text(encoding="utf-8")
+        main_owner = source[
+            source.index("def apply_main_authority_tick("):
+            source.index("def _output_is_known(")
         ]
-        complete_branch = main_branch[
-            main_branch.index("elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:"):
-            main_branch.index("elif decision.action == AuthorityAction.STOP_AND_DIAGNOSE:")
-        ]
-        self.assertEqual(complete_branch.count("apply_main_completion_to_safe_wait("), 1)
-        self.assertNotIn("FinalSafeWaitEntryInput(", complete_branch)
-        self.assertIn("self._storage_target()", complete_branch)
-        self.assertIn("apply_stop_and_diagnose(", complete_branch)
+        self.assertEqual(main_owner.count("apply_main_completion_to_safe_wait("), 1)
+        self.assertNotIn("FinalSafeWaitEntryInput(", main_owner)
+        self.assertIn("host._storage_target()", main_owner)
+        self.assertIn("apply_stop_and_diagnose(", main_owner)
+        for forbidden in ("execution_port", ".turn_on(", ".turn_off(", ".set_voltage(", ".set_output("):
+            self.assertNotIn(forbidden, main_owner)
         owner_source = inspect.getsource(owner)
         self.assertIn("def apply_main_completion_to_safe_wait(", owner_source)
         for forbidden in ("execution_port", '"set_voltage"', '"set_current"', '"set_ovp"', '"set_ocp"', '"set_output"'):

@@ -178,3 +178,21 @@ source change was made in Sprint 05.
   MAIN/SAFE_WAIT orchestration and tick evidence/trace glue for a bounded move
   into existing owners. Keep P2 MAIN Guard restore admission deferred/fail-closed;
   do not start P4.
+
+## Sprint 32 — MAIN authority orchestration ownership
+
+- [x] Pin clean baseline `b4c8440736fc5f9b5e1f447b22352dcddbac1db1`.
+- [x] Move MAIN decision-input assembly and all five existing MAIN outcome
+  dispatches from `_apply_authoritative_decision` into
+  `runtime.charge.runtime.main_scaffold.apply_main_authority_tick`; retain the
+  controller's stage admission and all existing typed effect/transaction owners.
+- [x] Preserve decision values, target policy, action payloads, stage/session
+  state, and invalid identity STOP_AND_DIAGNOSE containment. Add outcome parity,
+  input, single-dispatch, and no-physical-writer tests.
+- [x] Focused suite **38 PASS**; full Python 3.12 offline discovery
+  **2,426 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT32_EVIDENCE_20261020.md`.
+- [x] Commit this source cut and verify the resulting worktree is clean.
+- [ ] Next gate: inspect remaining DESULFATION/recovery/final SAFE_WAIT routing
+  and tick evidence/trace assembly for one bounded move. Preserve the deferred
+  P2 MAIN Guard restore admission boundary; do not start P4.
