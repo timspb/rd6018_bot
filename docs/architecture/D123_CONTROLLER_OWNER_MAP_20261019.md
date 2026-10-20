@@ -1120,3 +1120,11 @@ rollback backup. Resolving that requires a later authorized read-only
 deployment inventory. Current direct Native evidence, exact firmware/bench
 validation, and deployed startup proof are absent. See Sprint 60 evidence for
 the source-ready / deploy-ready / physical-ready distinction and matrix.
+
+Sprint 61 extends only the existing offline source release verifier: extracted
+tree verification now compares tracked file mode as well as path set, size,
+and digest. Exact base archive hash/file count and local historical staging
+manifest findings are in `D123_SPRINT61_P5_OFFLINE_MANIFEST_EVIDENCE_20261021.md`.
+The installed accepted SHA and durable rollback backup remain unknown because
+no current deployment-host evidence is available. Do not infer either from
+the two local stage manifests or historical SHA references.

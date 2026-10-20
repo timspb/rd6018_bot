@@ -49,6 +49,25 @@ class Node104TransactionTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(RuntimeError):
                 MODULE._safe_relative(name)
 
+    def test_manifest_verification_rejects_mode_mismatch(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "artifact.py"
+            payload.write_bytes(b"SOURCE = True\n")
+            payload.chmod(0o644)
+            manifest = {
+                "node": MODULE.EXPECTED_NODE,
+                "service": MODULE.EXPECTED_SERVICE,
+                "files": [{"path": "artifact.py", "mode": 0o644,
+                           "size": payload.stat().st_size,
+                           "sha256": hashlib.sha256(payload.read_bytes()).hexdigest()}],
+            }
+            MODULE.verify_manifest(root, manifest)
+            payload.chmod(0o600)
+            with self.assertRaisesRegex(RuntimeError, "manifest mismatch"):
+                MODULE.verify_manifest(root, manifest)
+
     @unittest.skipUnless(
         shutil.which("git") is not None and (Path(__file__).parents[1] / ".git").exists(),
         "Git stage test requires VCS checkout (runs in CI; source.tar has no .git)",

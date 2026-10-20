@@ -151,6 +151,14 @@ Last read-only check: D122 `58321a866dd68195bf8264d1d9ebe7c18a60748f`, node104 P
 - [ ] Current installed accepted SHA and durable rollback backup require a separately authorized read-only deployment inventory; the locally stored `c1298ea...` and `8b75cca...` values are historical, conflicting snapshots, not current proof.
 - [ ] Deployment readiness and physical readiness remain separate gates. Fresh Native ESP evidence, exact ESPHome compile/flash/bench evidence and deployment acceptance are missing; no PHYSICAL PASS is asserted.
 
+### P5 Sprint 61 offline archive and rollback provenance (2026-10-21)
+
+- [x] Reuse existing `tools/node104_atomic_deploy.py` on exact clean base `02f26307c770693b471e519f38dfbe44b69dc810`; archive SHA256 `a36eee34deb9f4b11380d075985126d12aa00f46a8aff411f0bfcaac1bbe26d8`, 1,184 source files. Independent archive/member comparison verified path/mode/size/content SHA256 for all entries; source manifest SHA256 is `3df12215c5955cc776764a741525cac93532f9f75a72d2d6d1c02bba8dd1f4b1`.
+- [x] Close extracted-tree verifier mode gap and cover mode tamper rejection in existing atomic-deploy tests; no new release tooling/framework.
+- [x] Inspect local stage manifests read-only. SHA `6ab0b1c1704c2e5f18360c1db2fabeb654da696e` and `f4470d894eec4c37121b51f30493ea848e65baff` are historical stages only; current installed SHA and rollback backup remain **UNKNOWN / UNPROVEN**.
+- [x] Python 3.12.3 environment and dependencies are usable; Python 3.10/3.11 unavailable and **BLOCKED**. Focused atomic/release batch **27 tests, 1 skipped, PASS**; compileall and diff-check PASS.
+- [ ] Canonical full Python 3.12 discovery attempted but stalled without a final summary; result **INCOMPLETE**, no test count claimed. Next exact-commit archive must be regenerated after outer commit. Deployment/physical gates remain open.
+
 
 ### P2 canonical full acceptance
 

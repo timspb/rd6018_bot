@@ -105,7 +105,10 @@ def verify_manifest(root: Path, manifest: dict) -> None:
         declared.add(key)
         path = root / rel
         _reject_symlink(path)
-        if not path.is_file() or path.stat().st_size != item["size"] or sha256(path) != item["sha256"]:
+        if (not path.is_file()
+                or path.stat().st_size != item["size"]
+                or path.stat().st_mode & 0o777 != item["mode"]
+                or sha256(path) != item["sha256"]):
             raise RuntimeError(f"manifest mismatch: {rel}")
     actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and not p.is_symlink()}
     if actual != declared:
