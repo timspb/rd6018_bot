@@ -271,3 +271,15 @@ source change was made in Sprint 05.
 - [ ] Next gate: inspect tick evidence/trace assembly and terminal persistence
   as separate cuts; preserve deferred P2 Guard restore admission and do not
   start P4.
+
+## Sprint 38 — completion-evidence logging
+
+- [x] Move current-minimum, voltage-maximum, and CV/CC reversal confirmation
+  log projection to the existing trace/evidence owner.
+- [x] Preserve exact event gating, logger identity, formatted values,
+  timestamp/stage/session context, and the metrics binding used downstream.
+- [x] Focused suite **44 PASS**; full Python 3.12 offline discovery
+  **2,428 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT38_EVIDENCE_20261020.md`.
+- [ ] Next gate: audit subclass authority overrides and central stage dispatch;
+  preserve decision parity and fail-closed paths before any owner change.

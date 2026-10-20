@@ -66,6 +66,7 @@ from runtime.charge.evidence.trace_context import (
     build_shadow_metadata,
     build_signal_context,
     build_trace_point_metadata,
+    log_analysis_events,
     finite_or_nan,
     normalize_output_on,
     recovery_trace_context as build_recovery_trace_context,
@@ -1088,34 +1089,13 @@ class ManagedChargeController:
                 output_is_on=normalize_output_on(output_is_on),
             )
 
+            log_analysis_events(
+                record,
+                stage=stage_before,
+                session_id=self._v2_trace_session_id,
+                timestamp_s=timestamp_s,
+            )
             metrics = record.analysis.metrics
-            if SignalEvent.CURRENT_MINIMUM_UPDATED in record.analysis.events:
-                logger.info(
-                    "CURRENT_MINIMUM_UPDATED Imin=%.3fA stage=%s session=%s",
-                    metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
-                    stage_before,
-                    self._v2_trace_session_id or "-",
-                )
-            if SignalEvent.VOLTAGE_MAXIMUM_UPDATED in record.analysis.events:
-                logger.info(
-                    "CHARGE_EVIDENCE kind=maximum event=update mode=CC Vmax=%.3f timestamp=%.3f",
-                    metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
-                    timestamp_s,
-                )
-            if SignalEvent.CURRENT_REVERSAL_CONFIRMED in record.analysis.events:
-                logger.info(
-                    "CHARGE_EVIDENCE kind=delta event=confirmation mode=CV Imin=%.3f delta=%.3f timestamp=%.3f",
-                    metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
-                    metrics.delta_current_from_min_a if metrics.delta_current_from_min_a is not None else float("nan"),
-                    timestamp_s,
-                )
-            if SignalEvent.VOLTAGE_REVERSAL_CONFIRMED in record.analysis.events:
-                logger.info(
-                    "CHARGE_EVIDENCE kind=delta event=confirmation mode=CC Vmax=%.3f delta=%.3f timestamp=%.3f",
-                    metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
-                    metrics.delta_voltage_from_max_v if metrics.delta_voltage_from_max_v is not None else float("nan"),
-                    timestamp_s,
-                )
             analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
             mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)
             self._v2_session_signal_context = build_signal_context(SignalContextInput(

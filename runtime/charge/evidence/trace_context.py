@@ -10,8 +10,42 @@ from typing import Any, Dict, Optional
 
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 from runtime.charge.decisions import AuthorityDecision
+from signal_analyzer import SignalEvent
 
 logger = logging.getLogger(__name__)
+_evidence_logger = logging.getLogger("rd6018.recovery")
+
+
+def log_analysis_events(record: Any, *, stage: str, session_id: Optional[str], timestamp_s: float) -> None:
+    """Emit the established operator evidence events from one analyzed tick."""
+    metrics = record.analysis.metrics
+    if SignalEvent.CURRENT_MINIMUM_UPDATED in record.analysis.events:
+        _evidence_logger.info(
+            "CURRENT_MINIMUM_UPDATED Imin=%.3fA stage=%s session=%s",
+            metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
+            stage,
+            session_id or "-",
+        )
+    if SignalEvent.VOLTAGE_MAXIMUM_UPDATED in record.analysis.events:
+        _evidence_logger.info(
+            "CHARGE_EVIDENCE kind=maximum event=update mode=CC Vmax=%.3f timestamp=%.3f",
+            metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
+            timestamp_s,
+        )
+    if SignalEvent.CURRENT_REVERSAL_CONFIRMED in record.analysis.events:
+        _evidence_logger.info(
+            "CHARGE_EVIDENCE kind=delta event=confirmation mode=CV Imin=%.3f delta=%.3f timestamp=%.3f",
+            metrics.current_min_a if metrics.current_min_a is not None else float("nan"),
+            metrics.delta_current_from_min_a if metrics.delta_current_from_min_a is not None else float("nan"),
+            timestamp_s,
+        )
+    if SignalEvent.VOLTAGE_REVERSAL_CONFIRMED in record.analysis.events:
+        _evidence_logger.info(
+            "CHARGE_EVIDENCE kind=delta event=confirmation mode=CC Vmax=%.3f delta=%.3f timestamp=%.3f",
+            metrics.voltage_max_v if metrics.voltage_max_v is not None else float("nan"),
+            metrics.delta_voltage_from_max_v if metrics.delta_voltage_from_max_v is not None else float("nan"),
+            timestamp_s,
+        )
 
 
 @dataclass(frozen=True)
