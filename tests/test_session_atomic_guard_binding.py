@@ -9,6 +9,7 @@ from unittest.mock import patch
 import charge_controller
 from charge_controller import ManagedChargeController
 from production_controller import ProductionChargeController
+from application.production_session_extensions import session_document_extensions
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 from runtime.charge.strategy.main_guard_session import (
     GUARD_KEY, GuardJournalError, read_guard
@@ -156,13 +157,13 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
             "reference_value": 0.4, "accepted_delta": 0.1,
             "accepted_at": self.now - 30,
         }
-        mixed = controller._session_document_extensions({})
+        mixed = session_document_extensions(controller, {})
         self.assertEqual(mixed["delta_reported"], True)
         self.assertEqual(mixed["delta_trigger_mode"], "CV")
         self.assertEqual(mixed["runtime_signal"]["mode"], "CV")
         self.assertEqual(mixed["finish_evidence"]["accepted_delta"], 0.1)
         controller.current_stage = controller.STAGE_MAIN
-        cleared = controller._session_document_extensions(mixed)
+        cleared = session_document_extensions(controller, mixed)
         self.assertNotIn("delta_reported", cleared)
         self.assertNotIn("runtime_signal", cleared)
         self.assertNotIn("finish_evidence", cleared)
@@ -178,7 +179,7 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
         }
         self.assertNotIn(
             "runtime_signal",
-            controller._session_document_extensions({"runtime_signal": {"stale": True}}),
+            session_document_extensions(controller, {"runtime_signal": {"stale": True}}),
         )
 
     def save_without_readback(self, controller):

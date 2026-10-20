@@ -114,7 +114,8 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         self.assertNotIn("decide_main_transition", auto)
         stage_dispatch = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
         self.assertIn("apply_main_authority_tick(", stage_dispatch)
-        self.assertIn("select_main_target(", production)
+        self.assertNotIn("select_main_target(", production)
+        self.assertIn("select_main_target(", controller)
         self.assertNotIn("AGM_FIRST_STAGE_HOLD_SEC", production)
         for name in (
             "AGM_FIRST_STAGE_HOLD_SEC",

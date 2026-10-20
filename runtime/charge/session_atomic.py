@@ -61,12 +61,12 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
     to erase its journal. Caller must fail closed and reconcile hardware.
     """
     result = dict(data)
-    # ProductionChargeController metadata must be included before the single
-    # canonical replace. This hook is pure: it may amend the document, never
-    # write charge_session.json itself.
-    extensions = getattr(host, "_session_document_extensions", None)
-    if callable(extensions):
-        extra = extensions(dict(result))
+    # Production extension metadata is projected before the single canonical
+    # replace. The extension owner mutates no persistence or controller object.
+    from application.production_target_policy import is_production_host
+    if is_production_host(host):
+        from application.production_session_extensions import session_document_extensions
+        extra = session_document_extensions(host, dict(result))
         if extra is not None:
             if not isinstance(extra, Mapping):
                 raise TypeError("session document extension must return a mapping")

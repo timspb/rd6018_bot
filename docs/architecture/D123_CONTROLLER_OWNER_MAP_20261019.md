@@ -839,3 +839,22 @@ event gating, formatting, stage/session and timestamp values are preserved;
 the `metrics` local remains for signal-context and MAIN-evidence assembly.
 Decision, persistence and execution remain unchanged. See
 `D123_SPRINT38_EVIDENCE_20261020.md`.
+
+### Sprint 53 production host convergence
+
+Starting from exact HEAD `54f26958d6c4eab332120723a2a84f7048383749`,
+the production controller declaration count moved from **10 to 1**, and its
+overrides of `ManagedChargeController` moved from **8 to 1**. The residual
+method is only `try_restore_session`. Initialization and target/runtime
+policy now use application/runtime owners on the existing host; session
+extension projection is called directly by the canonical atomic writer; and
+non-Guard restore adaptation is owned by
+`application.production_session_extensions.restore_production_session_state`.
+
+The remaining override calls canonical restore, reads the persisted MAIN Guard
+journal, and delegates non-Guard extension restoration. The raw canonical
+document handoff and fail-closed Guard ordering are unchanged. This is the
+specific P2 boundary preventing inheritance removal; MAIN Guard admission
+remains deferred, so P4 inheritance elimination stays open. Full exact-source
+counts, verification, and sandbox socket errors are in
+`D123_SPRINT53_EVIDENCE_20261020.md`.

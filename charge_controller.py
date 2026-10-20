@@ -100,6 +100,7 @@ from runtime.charge.strategy.final_safe_wait import (
     validate_final_continuation,
 )
 from runtime.charge.strategy.main_targets import select_main_target
+from application.production_target_policy import bound_host_target, is_production_host
 from runtime.charge.strategy.prep import select_prep_target
 from runtime.charge.strategy.mix import select_mix_target
 from runtime.charge.strategy.recovery_safe_wait import (
@@ -184,6 +185,9 @@ class ManagedChargeController:
         self._final_safe_wait: Optional[FinalSafeWaitContinuation] = None
         # Captured by the modular tick and serialized by the production controller.
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
+        if getattr(type(self), "PRODUCTION_EXTENSION_HOST", False):
+            from application.production_session_extensions import initialize_production_session_state
+            initialize_production_session_state(self)
 
     @property
     def current_stage(self) -> str:
@@ -294,20 +298,21 @@ class ManagedChargeController:
 
     def _prep_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         target = select_prep_target(capacity_ah=float(self.ah_capacity))
-        return (
+        result = (
             self._apply_temperature_compensation(target.voltage_v, temp_c),
             target.current_a,
         )
+        return bound_host_target(self, result, hv=False)
 
     def _main_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         if self.battery_type == self.PROFILE_CUSTOM:
-            return (
+            return bound_host_target(self, (
                 self._apply_temperature_compensation(self._custom_main_voltage, temp_c),
                 min(
                     float(MAX_STAGE_CURRENT_A.default),
                     self._custom_main_current,
                 ),
-            )
+            ), hv=False)
         target = select_main_target(
             profile=self.battery_type,
             capacity_ah=float(self.ah_capacity),
@@ -326,10 +331,11 @@ class ManagedChargeController:
                 from runtime.charge.strategy.main_guard_session import GuardJournalError
                 raise GuardJournalError("main_guard_identity_or_ceiling_disagrees")
             current_target = min(current_target, guard.hardware_limit_a)
-        return (
+        result = (
             self._apply_temperature_compensation(target.voltage_v, temp_c),
             current_target,
         )
+        return bound_host_target(self, result, hv=False)
 
     def _get_profile_target_v_i(
         self,
@@ -364,7 +370,10 @@ class ManagedChargeController:
                 from runtime.charge.strategy.main_guard_session import GuardJournalError
                 raise GuardJournalError("main_guard_restored_target_identity_disagrees")
             target_i = min(target_i, guard.hardware_limit_a)
-        return target_v, target_i
+        return bound_host_target(
+            self, (target_v, target_i),
+            hv=self.current_stage in {self.STAGE_DESULFATION, self.STAGE_MIX},
+        )
 
     def _post_charge_profile_params(self) -> Dict[str, Any]:
         return post_charge_profile_params(self.battery_type)
@@ -438,10 +447,11 @@ class ManagedChargeController:
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular DESULFATION target."""
         target = select_desulfation_target(capacity_ah=float(self.ah_capacity))
-        return (
+        result = (
             self._apply_temperature_compensation(target.voltage_v, temp_c),
             target.current_a,
         )
+        return bound_host_target(self, result, hv=True)
 
     def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular MIX target."""
@@ -449,10 +459,11 @@ class ManagedChargeController:
             profile=self.battery_type,
             capacity_ah=float(self.ah_capacity),
         )
-        return (
+        result = (
             self._apply_temperature_compensation(target.voltage_v, temp_c),
             target.current_a,
         )
+        return bound_host_target(self, result, hv=True)
 
     def _storage_target(self) -> Tuple[float, float]:
         target = select_storage_target()
@@ -477,6 +488,9 @@ class ManagedChargeController:
         self._final_safe_wait = None
 
     def _new_runtime(self, *, started_at: float) -> ShadowRecoveryRuntime:
+        if is_production_host(self):
+            from application.production_runtime_policy import new_production_runtime
+            return new_production_runtime(self, started_at=started_at)
         battery_id = self._v2_battery_id or (
             f"session:{self.battery_type}:{self.ah_capacity}:{int(started_at)}"
         )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
@@ -39,4 +39,23 @@ def bound_target(
     return min(voltage_v, float(envelope.voltage_ceiling_v)), min(current_a, float(current_limit))
 
 
-__all__ = ["bound_target", "recipe_envelope"]
+def is_production_host(host: Any) -> bool:
+    """Identify the production extension fields on the one canonical host."""
+    return hasattr(host, "_v2_cooling_pause")
+
+
+def bound_host_target(host: Any, target: Tuple[float, float], *, hv: bool) -> Tuple[float, float]:
+    """Apply production recipe bounds using context already held by the host."""
+    if not is_production_host(host):
+        return target
+    envelope = recipe_envelope(
+        profile=host.battery_type,
+        capacity_ah=host.ah_capacity,
+        battery_id=host._v2_battery_id,
+        intent=host._v2_intent,
+        condition=host._v2_condition_before,
+    )
+    return bound_target(target, envelope, hv=hv)
+
+
+__all__ = ["bound_host_target", "bound_target", "is_production_host", "recipe_envelope"]

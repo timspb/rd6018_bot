@@ -16,9 +16,85 @@ from typing import Any, Dict, Optional
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
 from cooling_runtime import CoolingAwareShadowRecoveryRuntime
 from runtime.charge.strategy.main_variables import agm_tail_hold_seconds, standard_tail_hold_seconds
+from runtime.charge.runtime.cooling_guard import validate_cooling_pause
+from pb_domain import BatteryCondition, ChargeIntent
+from application.production_target_policy import bound_target, recipe_envelope
 
 logger = logging.getLogger("rd6018.application.production_session_extensions")
 RUNTIME_SIGNAL_RESTORE_MAX_AGE_S = 120.0
+
+
+def initialize_production_session_state(host: Any) -> None:
+    """Initialize production extension fields on the existing charge host."""
+    host._v2_continuous_tail_since = None
+    host._v2_continuous_tail_stage_start = None
+    host._v2_cooling_pause = None
+    host._finish_evidence = None
+
+
+def restore_production_session_state(
+    host: Any,
+    document: Dict[str, Any],
+    *,
+    output_is_on: Optional[Any],
+    is_cv: Optional[bool],
+    is_cc: Optional[bool],
+) -> Optional[str]:
+    """Restore non-Guard production extensions after canonical Guard read."""
+    reset_continuous_tail_hold(host)
+    if not document.get("v2_intent"):
+        host._v2_intent = ChargeIntent.NORMAL
+        host._v2_condition_before = BatteryCondition.UNKNOWN
+        host._initialize_shadow_session(started_at=host._v2_trace_started_at)
+
+    if host.current_stage == host.STAGE_MIX:
+        restore_finish_state(host, document)
+        restore_runtime_signal_state(
+            host, document, output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
+        )
+
+    if host._restored_target_v > 0 and host._restored_target_i > 0:
+        bounded_v, bounded_i = bound_target(
+            (host._restored_target_v, host._restored_target_i),
+            recipe_envelope(
+                profile=host.battery_type,
+                capacity_ah=host.ah_capacity,
+                battery_id=host._v2_battery_id,
+                intent=host._v2_intent,
+                condition=host._v2_condition_before,
+            ),
+            hv=host.current_stage in {host.STAGE_DESULFATION, host.STAGE_MIX},
+        )
+        host._restored_target_v = bounded_v
+        host._restored_target_i = bounded_i
+
+    pause = document.get("v2_cooling_pause")
+    if host.current_stage == host.STAGE_COOLING and isinstance(pause, dict):
+        host._v2_cooling_pause = dict(pause)
+        host._cooling_from_stage = str(pause.get("source_stage") or host.STAGE_MAIN)
+        host._cooling_target_v = float(pause.get("target_v") or 0.0)
+        host._cooling_target_i = float(pause.get("target_i") or 0.0)
+        host.finish_timer_start = pause.get("finish_timer_start")
+        host._delta_reported = bool(pause.get("delta_reported", False))
+        host._delta_trigger_mode = pause.get("delta_trigger_mode")
+        evidence = pause.get("finish_evidence")
+        host._finish_evidence = (
+            dict(evidence)
+            if valid_finish_evidence(host, evidence, mode=host._delta_trigger_mode)
+            else None
+        )
+        restore_runtime_signal_snapshot(host, dict(pause.get("runtime_signal") or {}))
+        host._v2_target_voltage_v = host._cooling_target_v or host._v2_target_voltage_v
+
+    if host.current_stage == host.STAGE_COOLING:
+        valid, reason = validate_cooling_pause(host, host._v2_cooling_pause)
+        if not valid:
+            host.stop(clear_session=True)
+            return (
+                "Cooling session rejected: durable V2 pause state is missing/invalid "
+                f"({reason}); automatic resume is disabled and Output must remain OFF."
+            )
+    return None
 
 
 def reset_continuous_tail_hold(host: Any) -> None:
