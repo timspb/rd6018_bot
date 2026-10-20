@@ -65,14 +65,14 @@ def _mark_auto_mix_released(controller: Any) -> None:
     ):
         return
     authority = getattr(controller, "_mix_active_authority", None)
-    session_id_fn = getattr(controller, "_mix_authority_session_id", None)
-    if authority is None or not callable(session_id_fn):
+    if authority is None:
         return
     mark_terminal = getattr(authority, "mark_terminal", None)
     if not callable(mark_terminal):
         return
     try:
-        mark_terminal(session_id_fn(), "RELEASED_TO_RD_HANDS_OFF")
+        from mix_active_authority import mix_authority_session_id
+        mark_terminal(mix_authority_session_id(controller), "RELEASED_TO_RD_HANDS_OFF")
     except Exception as exc:
         logger.warning("Failed to terminalize Mix authority during RD release: %s", exc)
 

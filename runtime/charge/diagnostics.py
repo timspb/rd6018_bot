@@ -8,6 +8,7 @@ from canonical V3 owners.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from runtime.charge.strategy.desulfation_variables import desulfation_duration_seconds
@@ -38,6 +39,69 @@ from runtime.safety.variables import (
     PROTECTION_OVP_MARGIN_V,
     WATCHDOG_TIMEOUT_S,
 )
+from battery_fault_engine import BatteryFaultAssessment, BatteryFaultContext, DiagnosticAuthority, assess_battery_fault
+from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+
+_HV_ACTIONS = frozenset({AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX})
+
+
+def initialize_battery_fault_state(host: Any) -> None:
+    host._diagnostic_context = BatteryFaultContext()
+    host._diagnostic_assessment = assess_battery_fault(host._diagnostic_context)
+    host._diagnostic_loaded_sg_key = None
+
+
+def battery_fault_assessment(host: Any) -> BatteryFaultAssessment:
+    return host._diagnostic_assessment
+
+
+def update_diagnostic_context(host: Any, **changes: Any) -> BatteryFaultAssessment:
+    host._diagnostic_context = replace(host._diagnostic_context, **changes)
+    host._diagnostic_assessment = assess_battery_fault(host._diagnostic_context)
+    return host._diagnostic_assessment
+
+
+async def refresh_stored_diagnostics(host: Any) -> None:
+    from battery_diagnostics import assess_specific_gravity
+    from battery_diagnostics_store import list_specific_gravity
+    battery_id = str(host._v2_battery_id or "").strip()
+    if not battery_id:
+        return
+    try:
+        measurements = await list_specific_gravity(battery_id, limit=1)
+    except Exception:
+        return
+    if not measurements:
+        return
+    latest = measurements[-1]
+    key = (battery_id, float(latest.measured_at))
+    if key == host._diagnostic_loaded_sg_key:
+        return
+    assessment = assess_specific_gravity(latest)
+    context_name = latest.context.strip().lower().replace("-", "_").replace(" ", "_")
+    host._diagnostic_loaded_sg_key = key
+    update_diagnostic_context(host, specific_gravity=assessment,
+        sg_persisted_after_corrective_equalization=context_name in {
+            "post_corrective_equalization", "after_corrective_equalization", "post_equalization_retest"})
+
+
+def update_live_diagnostic_evidence(host: Any, *, timestamp_s: float, voltage: float,
+                                    current: float, temp: float, ah: float) -> None:
+    try:
+        legacy = bank_fault_risk_snapshot(host, timestamp_s, voltage, current, temp, ah) or {}
+    except Exception:
+        legacy = {}
+    update_diagnostic_context(host, legacy_risk_score=int(legacy.get("score") or 0),
+        legacy_risk_status=str(legacy.get("status") or "stable"),
+        recovery_attempts=int(host.antisulfate_count))
+
+
+def diagnostic_hv_veto(host: Any, decision: AuthorityDecision) -> Optional[AuthorityDecision]:
+    assessment = battery_fault_assessment(host)
+    if decision.action not in _HV_ACTIONS or assessment.authority is not DiagnosticAuthority.BLOCK_AUTOMATIC_HV:
+        return None
+    reasons = ",".join(assessment.authority_reasons) or "cell_fault_block"
+    return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, f"diagnostic_hv_block:{reasons}")
 
 POST_CHARGE_MAX_WINDOW_SEC = 60 * 60
 POST_CHARGE_PERIODIC_WINDOWS_SEC = (5 * 60, 10 * 60, 15 * 60)

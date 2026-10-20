@@ -187,7 +187,9 @@ class ManagedChargeController:
         self._v2_session_signal_context: Optional[Dict[str, Any]] = None
         if getattr(type(self), "PRODUCTION_EXTENSION_HOST", False):
             from application.production_session_extensions import initialize_production_session_state
+            from runtime.charge.diagnostics import initialize_battery_fault_state
             initialize_production_session_state(self)
+            initialize_battery_fault_state(self)
 
     @property
     def current_stage(self) -> str:

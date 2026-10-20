@@ -1,9 +1,13 @@
 import unittest
+import os
+import shutil
+import tempfile
 from unittest.mock import patch
 
 from application.charge_session_tick import run_charge_session_tick
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController, V2_MIX_MAX_HOURS
+from mix_active_authority import MixActiveTimeAuthority
 
 
 class DummyHass:
@@ -70,6 +74,14 @@ class ProductionCoolingContractTests(unittest.IsolatedAsyncioTestCase):
         controller.finish_timer_start = 500.0
         controller._delta_reported = True
         controller._delta_trigger_mode = "CV"
+        authority_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, authority_dir, ignore_errors=True)
+        controller._mix_active_authority = MixActiveTimeAuthority(
+            os.path.join(authority_dir, "mix-authority.json")
+        )
+        controller._mix_active_authority.begin(
+            controller.recovery_trace_context["session_id"], active=True
+        )
 
         with patch.object(controller, "_save_session", return_value=None):
             with patch("charge_controller.time.time", return_value=1000.0):

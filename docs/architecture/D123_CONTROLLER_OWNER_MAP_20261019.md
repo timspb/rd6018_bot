@@ -930,3 +930,29 @@ restore remains deferred and fail-closed.
 Sprint 55A does not change persistence writer, physical execution owner, recipe,
 safety, lease or Manual behavior. P2 remains partial; P4 remains open; P5 and
 physical acceptance remain open.
+
+### Sprint 55B diagnostic and durable MIX lifecycle update
+
+The live `DiagnosticProductionChargeController` class is removed. The legacy
+import name is a direct alias to `ProductionChargeController`; production
+bootstrap constructs that canonical class directly. Diagnostic mutable state is
+initialized on the production host by `ManagedChargeController`'s existing
+production configuration path. `runtime.charge.diagnostics` owns context
+assessment, stored SG refresh, live bank-fault update, and the pre-effect HV
+veto. `application.charge_session_tick` and `application.charge_stage_tick`
+sequence those operations. The veto still runs in the authoritative stage
+scaffold before ENTER_DESULFATION/ENTER_MIX effect application.
+
+The `MixActiveAuthorityMixin` class is removed. `MixActiveTimeAuthority` remains
+the durable clock implementation, explicitly attached by
+`initialize_production_session_state` on the same host. Application session
+orchestration begins authority on MIX entry and tracks active/inactive time.
+Canonical `ManagedChargeController.try_restore_session` still performs
+ordinary restore, then MAIN Guard reconstruction, then production extension
+reconstruction; that production extension restores durable MIX authority last.
+MIX and COOLING with `source_stage=MIX` both require matching durable session
+identity. Missing or invalid authority rejects restore and clears restored target
+state. No second session host, persistence writer, or physical writer was added.
+
+See `D123_SPRINT55B_EVIDENCE_20261020.md` for the exact before/after graph and
+verification limits.

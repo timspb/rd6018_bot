@@ -22,7 +22,8 @@ from application.production_session_extensions import (
     resume_cooling_pause,
     runtime_signal_snapshot,
 )
-from mix_active_authority import MixActiveAuthorityError
+from mix_active_authority import MixActiveAuthorityError, mix_authority_session_id
+from runtime.charge.diagnostics import refresh_stored_diagnostics
 from runtime.charge.runtime.cooling_guard import finite, validate_cooling_pause
 from recovery_session import RecoveryTracePoint
 from runtime.charge.evidence.first_stage import FirstStageAssessment, MainSampleEvidenceInput
@@ -51,10 +52,9 @@ logger = logging.getLogger("rd6018.application.charge_tick")
 
 
 async def refresh_pre_tick_diagnostics(host: Any) -> None:
-    """Refresh controller-backed diagnostic inputs before automatic decisions."""
-    refresh = getattr(host, "_refresh_stored_diagnostics", None)
-    if callable(refresh):
-        await refresh()
+    """Refresh stored diagnostic inputs before automatic decisions."""
+    if hasattr(host, "_diagnostic_context"):
+        await refresh_stored_diagnostics(host)
 
 
 async def run_charge_session_tick(
@@ -213,7 +213,7 @@ async def _run_charge_session_tick_body(
     mix_authority = getattr(host, "_mix_active_authority", None)
     mix_session_id: Optional[str] = None
     if stage_before == host.STAGE_MIX and mix_authority is not None:
-        mix_session_id = host._mix_authority_session_id()
+        mix_session_id = mix_authority_session_id(host)
         # Unknown Output cannot prove an inactive HV interval. Conservatively
         # charge it as active; runtime telemetry safety independently fails closed.
         output_state = normalize_output_on(output_is_on)
@@ -452,7 +452,7 @@ async def _run_charge_session_tick_body(
     ):
         # A transition keeps/turns Output ON. Start now; conservative slight
         # over-count is preferable to extending automatic high-voltage authority.
-        mix_session_id = host._mix_authority_session_id()
+        mix_session_id = mix_authority_session_id(host)
         try:
             mix_authority.observe(mix_session_id, active=True)
         except MixActiveAuthorityError:

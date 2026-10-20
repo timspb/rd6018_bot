@@ -11,7 +11,8 @@ from runtime.charge.runtime.mix_scaffold import run_authoritative_mix_scaffold
 from runtime.charge.runtime.recovery_scaffold import run_authoritative_recovery_scaffold
 from runtime.charge.runtime.residual_scaffold import run_authoritative_residual_scaffold
 from runtime.charge.runtime.stage_authority import apply_authoritative_stage_tick
-from runtime.charge.diagnostics import diagnostic_assessment_snapshot
+from runtime.charge.diagnostics import (diagnostic_assessment_snapshot, diagnostic_hv_veto,
+                                        update_live_diagnostic_evidence)
 from runtime.charge.strategy.mix_variables import mix_max_active_seconds
 from runtime.charge.strategy.safe_wait_variables import safe_wait_max_seconds
 
@@ -23,9 +24,8 @@ def apply_charge_stage_authority(host: Any, **kwargs: Any) -> Any:
     """Coordinate stage authority, diagnostic veto, and durable Mix clock projection."""
     stage_before = kwargs["stage_before"]
     timestamp_s = float(kwargs["timestamp_s"])
-    diagnostic_update = getattr(host, "_update_live_diagnostic_evidence", None)
-    if callable(diagnostic_update):
-        diagnostic_update(
+    if hasattr(host, "_diagnostic_context"):
+        update_live_diagnostic_evidence(host,
             timestamp_s=timestamp_s,
             voltage=float(kwargs["voltage"]),
             current=float(kwargs["current"]),
@@ -38,7 +38,8 @@ def apply_charge_stage_authority(host: Any, **kwargs: Any) -> Any:
     saved_stage_start = None
     session_id = None
     if projected_mix:
-        session_id = host._mix_authority_session_id()
+        from mix_active_authority import mix_authority_session_id
+        session_id = mix_authority_session_id(host)
         snapshot = mix_authority._require(session_id)
         saved_stage_start = host.stage_start_time
         host.stage_start_time = timestamp_s - float(snapshot.elapsed_s)
@@ -48,11 +49,16 @@ def apply_charge_stage_authority(host: Any, **kwargs: Any) -> Any:
             host,
             **{key: value for key, value in kwargs.items() if key != "output_is_on"},
             output_is_on=kwargs.get("output_is_on"),
-            decision_veto=getattr(host, "_diagnostic_hv_veto", None),
+            decision_veto=(lambda decision: diagnostic_hv_veto(host, decision))
+            if hasattr(host, "_diagnostic_context") else None,
         )
     finally:
         if projected_mix and host.current_stage == stage_before:
             host.stage_start_time = saved_stage_start
+
+    if stage_before != host.STAGE_MIX and host.current_stage == host.STAGE_MIX and mix_authority is not None:
+        from mix_active_authority import begin_mix_active_authority
+        begin_mix_active_authority(host, active=False)
 
     if (
         projected_mix and decision is not None
@@ -60,7 +66,7 @@ def apply_charge_stage_authority(host: Any, **kwargs: Any) -> Any:
     ):
         mix_authority.mark_terminal(session_id, "MIX_TIMEOUT")
 
-    assessment = getattr(host, "battery_fault_assessment", None)
+    assessment = getattr(host, "_diagnostic_assessment", None)
     if assessment is not None:
         kwargs["actions"]["battery_diagnostics"] = diagnostic_assessment_snapshot(assessment)
     return decision

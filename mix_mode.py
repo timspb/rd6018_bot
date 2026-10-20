@@ -131,10 +131,10 @@ async def _confirm_failed_start_is_off(app: Any, *, identity: Any) -> bool:
 
 
 async def _automatic_hv_block_reason(controller: Any) -> Optional[str]:
-    refresh = getattr(controller, "_refresh_stored_diagnostics", None)
-    if callable(refresh):
-        await refresh()
-    assessment = getattr(controller, "battery_fault_assessment", None)
+    from runtime.charge.diagnostics import battery_fault_assessment, refresh_stored_diagnostics
+    if hasattr(controller, "_diagnostic_context"):
+        await refresh_stored_diagnostics(controller)
+    assessment = battery_fault_assessment(controller) if hasattr(controller, "_diagnostic_context") else None
     if assessment is None:
         return None
     if assessment.authority is not DiagnosticAuthority.BLOCK_AUTOMATIC_HV:

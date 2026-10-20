@@ -106,6 +106,8 @@ def initialize_production_session_state(host: Any) -> None:
     host._v2_continuous_tail_stage_start = None
     host._v2_cooling_pause = None
     host._finish_evidence = None
+    from mix_active_authority import initialize_mix_active_authority
+    initialize_mix_active_authority(host)
 
 
 def restore_production_session_state(
@@ -170,6 +172,10 @@ def restore_production_session_state(
                 "Cooling session rejected: durable V2 pause state is missing/invalid "
                 f"({reason}); automatic resume is disabled and Output must remain OFF."
             )
+    from mix_active_authority import restore_mix_active_authority
+    rejection = restore_mix_active_authority(host)
+    if rejection is not None:
+        return rejection
     return None
 
 

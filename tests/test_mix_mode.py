@@ -6,6 +6,7 @@ from aiogram.enums import ParseMode
 from battery_fault_engine import DiagnosticAuthority
 from pb_domain import BatteryCondition
 from safe_output import EnableResult, SafetyViolation
+from runtime.charge.diagnostics import update_diagnostic_context
 from mix_mode import (
     PendingMixStart,
     build_mix_only_preview,
@@ -226,9 +227,11 @@ class V2MixOnlyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_confirmed_cell_fault_blocks_mix_before_session_or_hardware(self):
         app = FakeApp(EnableResult(enabled=True))
-        app.charge_controller.battery_fault_assessment = types.SimpleNamespace(
-            authority=DiagnosticAuthority.BLOCK_AUTOMATIC_HV,
-            authority_reasons=("external_failed_cell_confirmed",),
+        from runtime.charge.diagnostics import initialize_battery_fault_state
+        initialize_battery_fault_state(app.charge_controller)
+        update_diagnostic_context(
+            app.charge_controller,
+            external_failed_cell_confirmed=True,
         )
         message = FakeMessage()
 

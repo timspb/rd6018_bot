@@ -27,18 +27,10 @@ class ApplicationTickOwnershipTests(unittest.TestCase):
             self.assertNotIn(method_name, method_names)
 
     def test_diagnostic_and_mix_subclasses_have_no_stage_router_overrides(self):
-        for path, class_name in (
-            ("diagnostic_controller.py", "DiagnosticProductionChargeController"),
-            ("mix_active_authority.py", "MixActiveAuthorityMixin"),
-        ):
-            tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
-            cls = next(node for node in tree.body
-                       if isinstance(node, ast.ClassDef) and node.name == class_name)
-            names = {node.name for node in cls.body
-                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-            self.assertNotIn("_apply_stage_authority", names)
-            if class_name == "MixActiveAuthorityMixin":
-                self.assertNotIn("tick", names)
+        diagnostic = (ROOT / "diagnostic_controller.py").read_text(encoding="utf-8")
+        mix = (ROOT / "mix_active_authority.py").read_text(encoding="utf-8")
+        self.assertNotIn("class DiagnosticProductionChargeController", diagnostic)
+        self.assertNotIn("class MixActiveAuthorityMixin", mix)
 
         app = ast.parse((ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8"))
         apply = next(node for node in app.body if isinstance(node, ast.FunctionDef)

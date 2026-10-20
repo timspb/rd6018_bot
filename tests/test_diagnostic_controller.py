@@ -7,6 +7,7 @@ from unittest.mock import patch
 from battery_fault_engine import DiagnosticAuthority
 from application.charge_stage_tick import apply_charge_stage_authority
 from application.charge_session_tick import refresh_pre_tick_diagnostics
+from runtime.charge.diagnostics import diagnostic_hv_veto, update_diagnostic_context
 from diagnostic_controller import DiagnosticProductionChargeController
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController
@@ -27,15 +28,15 @@ class DiagnosticControllerTests(unittest.TestCase):
 
     def test_initial_sg_imbalance_does_not_veto_recovery(self):
         controller = self._controller()
-        controller.update_diagnostic_context()
-        self.assertEqual(controller.battery_fault_assessment.authority, DiagnosticAuthority.ALLOW)
+        update_diagnostic_context(controller)
+        self.assertEqual(controller._diagnostic_assessment.authority, DiagnosticAuthority.ALLOW)
         decision = AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
-        self.assertIsNone(controller._diagnostic_hv_veto(decision))
+        self.assertIsNone(diagnostic_hv_veto(controller, decision))
 
     def test_confirmed_failed_cell_vetoes_new_recovery_hv(self):
         controller = self._controller()
-        controller.update_diagnostic_context(external_failed_cell_confirmed=True)
-        veto = controller._diagnostic_hv_veto(
+        update_diagnostic_context(controller, external_failed_cell_confirmed=True)
+        veto = diagnostic_hv_veto(controller,
             AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
         )
         self.assertIsNotNone(veto)
@@ -55,9 +56,9 @@ class DiagnosticControllerTests(unittest.TestCase):
                 controller.current_stage = controller.STAGE_MAIN
                 controller.stage_start_time = 100.0
                 if blocked:
-                    controller.update_diagnostic_context(external_failed_cell_confirmed=True)
+                    update_diagnostic_context(controller, external_failed_cell_confirmed=True)
                 actions = {}
-                with patch.object(controller, "_update_live_diagnostic_evidence"), patch(
+                with patch("application.charge_stage_tick.update_live_diagnostic_evidence"), patch(
                     "runtime.charge.strategy.main_authority.decide_main_transition",
                     return_value=enter_mix,
                 ):
@@ -81,17 +82,17 @@ class DiagnosticControllerTests(unittest.TestCase):
 
     def test_agm_intermediate_main_step_is_not_misclassified_as_hv(self):
         controller = self._controller(profile="AGM")
-        controller.update_diagnostic_context(external_failed_cell_confirmed=True)
+        update_diagnostic_context(controller, external_failed_cell_confirmed=True)
         self.assertIsNone(
-            controller._diagnostic_hv_veto(
+            diagnostic_hv_veto(controller,
                 AuthorityDecision(AuthorityAction.ADVANCE_AGM_STEP, "fixture")
             )
         )
 
     def test_agm_final_tail_mix_is_hv_candidate_and_can_be_vetoed(self):
         controller = self._controller(profile="AGM")
-        controller.update_diagnostic_context(external_failed_cell_confirmed=True)
-        veto = controller._diagnostic_hv_veto(
+        update_diagnostic_context(controller, external_failed_cell_confirmed=True)
+        veto = diagnostic_hv_veto(controller,
             AuthorityDecision(AuthorityAction.ENTER_MIX, "fixture")
         )
         self.assertIsNotNone(veto)
@@ -99,8 +100,8 @@ class DiagnosticControllerTests(unittest.TestCase):
     def test_normal_hv_is_also_subject_to_diagnostic_veto(self):
         controller = self._controller()
         controller._v2_intent = ChargeIntent.NORMAL
-        controller.update_diagnostic_context(external_failed_cell_confirmed=True)
-        veto = controller._diagnostic_hv_veto(
+        update_diagnostic_context(controller, external_failed_cell_confirmed=True)
+        veto = diagnostic_hv_veto(controller,
             AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
         )
         self.assertIsNotNone(veto)
@@ -111,9 +112,9 @@ class DiagnosticControllerTests(unittest.TestCase):
     def test_application_awaits_stored_diagnostic_refresh(self):
         async def scenario():
             controller = self._controller()
-            controller._refresh_stored_diagnostics = AsyncMock()
-            await refresh_pre_tick_diagnostics(controller)
-            controller._refresh_stored_diagnostics.assert_awaited_once_with()
+            with patch("application.charge_session_tick.refresh_stored_diagnostics", new=AsyncMock()) as refresh:
+                await refresh_pre_tick_diagnostics(controller)
+                refresh.assert_awaited_once_with(controller)
 
         import asyncio
 

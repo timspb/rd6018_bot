@@ -13,7 +13,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import production_bot_ui
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
-from diagnostic_controller import DiagnosticProductionChargeController
+from production_controller import ProductionChargeController
 from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute
 from manual_text import install_manual_text
 from pb_domain import ChargeIntent
@@ -157,8 +157,8 @@ def _install_managed_charge_monitor_guard(app: Any) -> None:
 
 
 def install_production(app: Any, *, install_ui: bool = True) -> None:
-    if not isinstance(app.charge_controller, DiagnosticProductionChargeController):
-        app.charge_controller = DiagnosticProductionChargeController(app.hass, notify_cb=app._charge_notify)
+    if not isinstance(app.charge_controller, ProductionChargeController):
+        app.charge_controller = ProductionChargeController(app.hass, notify_cb=app._charge_notify)
     # Restore the durable interlock before constructing the canonical port.
     # This happens during composition, before lifecycle startup can restore.
     if not getattr(app, "_recovery_quarantine_journal_configured", False):

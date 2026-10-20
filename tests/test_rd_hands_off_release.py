@@ -57,10 +57,6 @@ class FakeMixController(FakeController):
         super().__init__(self.STAGE_MIX, session_id="mix-trace")
         self._mix_active_authority = FakeMixAuthority()
 
-    @staticmethod
-    def _mix_authority_session_id():
-        return "mix-session"
-
 
 class FakeManual:
     def __init__(self, started_at=100.0):
@@ -258,7 +254,7 @@ class ActiveHandsOffReleaseTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(
                 controller._mix_active_authority.calls,
-                [("mix-session", "RELEASED_TO_RD_HANDS_OFF")],
+                [("mix-trace", "RELEASED_TO_RD_HANDS_OFF")],
             )
             self.assertFalse(controller.is_active)
 

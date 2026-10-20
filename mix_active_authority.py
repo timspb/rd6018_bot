@@ -236,44 +236,39 @@ class MixActiveTimeAuthority:
         return self._snapshot
 
 
-class MixActiveAuthorityMixin:
-    """Controller mixin that replaces Mix wall-time with durable active time."""
+def initialize_mix_active_authority(host: Any) -> None:
+    """Attach durable MIX authority state to the canonical production host."""
+    host._mix_active_authority = MixActiveTimeAuthority()
+    host._mix_active_restore_error = None
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._mix_active_authority = MixActiveTimeAuthority()
-        self._mix_active_restore_error: Optional[str] = None
 
-    def _mix_authority_session_id(self) -> str:
-        context = self.recovery_trace_context
-        session_id = str(context.get("session_id") or "").strip()
-        if not session_id:
-            raise MixActiveAuthorityError("Mix session identity is unavailable")
-        return session_id
+def mix_authority_session_id(host: Any) -> str:
+    context = host.recovery_trace_context
+    session_id = str(context.get("session_id") or "").strip()
+    if not session_id:
+        raise MixActiveAuthorityError("Mix session identity is unavailable")
+    return session_id
 
-    def _enter_mix(self, *args: Any, **kwargs: Any) -> None:
-        super()._enter_mix(*args, **kwargs)
-        self._mix_active_authority.begin(self._mix_authority_session_id(), active=False)
 
-    def try_restore_session(self, *args: Any, **kwargs: Any):
-        ok, message = super().try_restore_session(*args, **kwargs)
-        if not ok:
-            return ok, message
+def restore_mix_active_authority(host: Any) -> Optional[str]:
+    """Load MIX authority after ordinary, Guard, and production extension restore."""
+    source_mix = host.current_stage == host.STAGE_MIX
+    pause = getattr(host, "_v2_cooling_pause", None)
+    if host.current_stage == host.STAGE_COOLING and isinstance(pause, dict):
+        source_mix = str(pause.get("source_stage") or "") == host.STAGE_MIX
+    if not source_mix:
+        return None
+    try:
+        host._mix_active_authority.load(mix_authority_session_id(host))
+    except MixActiveAuthorityError as exc:
+        host._mix_active_restore_error = str(exc)
+        host.current_stage = host.STAGE_DONE
+        host.finish_timer_start = None
+        host._clear_restored_targets()
+        host._v2_target_voltage_v = None
+        return f"MIX_ACTIVE_AUTHORITY_RESTORE_REJECTED: {exc}"
+    return None
 
-        source_mix = self.current_stage == self.STAGE_MIX
-        pause = getattr(self, "_v2_cooling_pause", None)
-        if self.current_stage == self.STAGE_COOLING and isinstance(pause, dict):
-            source_mix = str(pause.get("source_stage") or "") == self.STAGE_MIX
-        if not source_mix:
-            return ok, message
 
-        try:
-            self._mix_active_authority.load(self._mix_authority_session_id())
-        except MixActiveAuthorityError as exc:
-            self._mix_active_restore_error = str(exc)
-            self.current_stage = self.STAGE_DONE
-            self.finish_timer_start = None
-            self._clear_restored_targets()
-            self._v2_target_voltage_v = None
-            return False, f"MIX_ACTIVE_AUTHORITY_RESTORE_REJECTED: {exc}"
-        return ok, message
+def begin_mix_active_authority(host: Any, *, active: bool = False) -> None:
+    host._mix_active_authority.begin(mix_authority_session_id(host), active=active)

@@ -118,7 +118,7 @@ class MixLegacyPreemptionTests(unittest.IsolatedAsyncioTestCase):
 
     async def _tick(self, controller, *, now: float, session_file: str):
         with (
-            patch("diagnostic_controller.list_specific_gravity", new=AsyncMock(return_value=[])),
+            patch("battery_diagnostics_store.list_specific_gravity", new=AsyncMock(return_value=[])),
             patch("charge_controller.SESSION_FILE", session_file),
             patch("charge_controller.SESSION_FILE", session_file),
             patch("production_controller.SESSION_FILE", session_file),
