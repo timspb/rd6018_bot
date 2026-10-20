@@ -68,6 +68,17 @@ async def execute_controller_action_batch(
                     ah=float(ah),
                 )
         if not enabled or not isinstance(commit, dict):
+            # A failed recovery SAFE_WAIT -> MAIN enable must never replay
+            # autonomously on the next charge tick. Retire that continuation
+            # only after the existing execution owner positively proves OFF.
+            if not enabled and transition.get("kind") == "recovery_safe_wait_to_main":
+                off_proved = bool(await execution_port.request_verified_off())
+                if off_proved:
+                    controller.stop(clear_session=True)
+                    logger.error("Recovery SAFE_WAIT enable failed; verified OFF and retired session")
+                    return False
+                logger.error("Recovery SAFE_WAIT enable failed; OFF unconfirmed, retaining containment authority")
+                return False
             if enabled:
                 logger.error("Verified Output ON could not be bound to controller transition; forcing OFF")
                 await execution_port.request_verified_off()

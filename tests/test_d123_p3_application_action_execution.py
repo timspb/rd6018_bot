@@ -12,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class _Port:
-    def __init__(self, *, enabled=True):
+    def __init__(self, *, enabled=True, off_ok=True):
         self.enabled = enabled
+        self.off_ok = off_ok
         self.calls = []
 
     async def execute_controller_actions(self, actions, live, **kwargs):
@@ -26,7 +27,7 @@ class _Port:
 
     async def request_verified_off(self):
         self.calls.append(("off",))
-        return True
+        return self.off_ok
 
 
 class _Controller:
@@ -36,6 +37,10 @@ class _Controller:
         self.commit = commit
         self.commits = []
         self._last_known_output_on = False
+        self.stopped = []
+
+    def stop(self, clear_session=True):
+        self.stopped.append(clear_session)
 
     def commit_verified_enable_transition(self, transition, **kwargs):
         self.commits.append((transition, kwargs))
@@ -43,11 +48,11 @@ class _Controller:
 
 
 class ApplicationActionExecutionTests(unittest.IsolatedAsyncioTestCase):
-    async def _execute(self, *, enabled, commit):
-        port, controller = _Port(enabled=enabled), _Controller(commit)
+    async def _execute(self, *, enabled, commit, kind="safe_wait", off_ok=True):
+        port, controller = _Port(enabled=enabled, off_ok=off_ok), _Controller(commit)
         notices, events = [], []
         result = await execute_controller_action_batch(
-            {"turn_on": True, "verified_enable_transition": {"kind": "safe_wait"}},
+            {"turn_on": True, "verified_enable_transition": {"kind": kind}},
             {"switch": "off"},
             execution_port=port, controller=controller,
             battery_v=14.1, current=0.2, temp=24.0, ah=3.0,
@@ -78,6 +83,30 @@ class ApplicationActionExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result)
         self.assertEqual([call[0] for call in port.calls], ["execute", "off"])
         self.assertFalse(controller._last_known_output_on)
+
+    async def test_failed_recovery_enable_retires_only_after_verified_off(self):
+        result, port, controller, _notices, _events = await self._execute(
+            enabled=False, commit=None, kind="recovery_safe_wait_to_main", off_ok=True,
+        )
+        self.assertFalse(result)
+        self.assertEqual([x[0] for x in port.calls], ["execute", "off"])
+        self.assertEqual(controller.stopped, [True])
+        self.assertEqual(controller.commits, [])
+
+    async def test_failed_recovery_enable_with_unconfirmed_off_retains_owner(self):
+        result, port, controller, _notices, _events = await self._execute(
+            enabled=False, commit=None, kind="recovery_safe_wait_to_main", off_ok=False,
+        )
+        self.assertFalse(result)
+        self.assertEqual([x[0] for x in port.calls], ["execute", "off"])
+        self.assertEqual(controller.stopped, [])
+
+    async def test_unrelated_failed_enable_does_not_retire_recovery(self):
+        result, port, controller, _notices, _events = await self._execute(
+            enabled=False, commit=None, kind="final_safe_wait_to_done", off_ok=True,
+        )
+        self.assertFalse(result)
+        self.assertEqual(controller.stopped, [])
 
     async def test_runtime_adapter_delegates_to_application_owner(self):
         runtime = (ROOT / "runtime/production_runtime.py").read_text(encoding="utf-8")

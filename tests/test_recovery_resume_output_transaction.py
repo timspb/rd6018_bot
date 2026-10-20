@@ -48,6 +48,11 @@ class FakeController:
         self._last_known_output_on = False
         self.current_stage = "SAFE_WAIT"
         self.commits = []
+        self.stopped = []
+
+    def stop(self, clear_session=True):
+        self.stopped.append(clear_session)
+        self.current_stage = "IDLE"
 
     def commit_verified_enable_transition(self, transition, **kwargs):
         self.commits.append((dict(transition), dict(kwargs)))
@@ -139,7 +144,9 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("verify_live_programming", [call[0] for call in hass.calls])
         # Final OCP is still restored while Output remains OFF so the next attempt
         # starts from the intended protection envelope rather than the wide settle OCP.
-        self.assertEqual(hass.calls[-1], ("set_ocp", 9.1))
+        self.assertIn(("set_ocp", 9.1), hass.calls)
+        self.assertEqual(hass.calls[-1], ("turn_off",))
+        self.assertEqual(controller.stopped, [True])
 
     async def test_failed_final_ocp_readback_forces_off_and_withholds_stage_commit(self):
         hass = FakeHass(enable=True, final_verify=False)
@@ -148,7 +155,8 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller.commits, [])
         self.assertFalse(controller._last_known_output_on)
         names = [call[0] for call in hass.calls]
-        self.assertEqual(names[-2:], ["verify_live_programming", "turn_off"])
+        self.assertEqual(names[-3:], ["verify_live_programming", "turn_off", "turn_off"])
+        self.assertEqual(controller.stopped, [True])
         self.assertEqual(events, [])
         self.assertEqual(notices, [])
 
