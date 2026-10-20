@@ -37,6 +37,9 @@ class DummyHass:
 
 
 class V3MixAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
+    def test_retired_mix_compatibility_router_is_absent(self):
+        self.assertFalse(hasattr(ManagedChargeController, "_handle_mix_stage_override"))
+
     @staticmethod
     def _controller(stage: str) -> ManagedChargeController:
         controller = ManagedChargeController(DummyHass())

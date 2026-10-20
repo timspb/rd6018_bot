@@ -764,29 +764,6 @@ class ManagedChargeController:
             "notify": "<b>?? ??????? ? Main Charge ???????????.</b> Output ??????? ? ??????? ?????????.",
         }
 
-    def _handle_mix_stage_override(
-        self,
-        *,
-        now: float,
-        voltage: float,
-        current: float,
-        temp: float,
-        ah: float,
-        actions: Dict[str, Any],
-        output_is_on: Optional[Any],
-        is_cv: bool,
-        is_cc: Optional[bool],
-    ) -> bool:
-        """Compatibility hook marking MIX as modular-authoritative.
-
-        The production MIX path now bypasses historical ``ChargeController.tick()``
-        entirely; this hook remains only for direct characterization callers.
-        """
-        return bool(
-            self.battery_type != self.PROFILE_CUSTOM
-            and self.current_stage == self.STAGE_MIX
-        )
-
     def _is_authoritative_stage(self, stage: str) -> bool:
         return (
             self.battery_type != self.PROFILE_CUSTOM

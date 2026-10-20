@@ -257,3 +257,17 @@ source change was made in Sprint 05.
 - [ ] Next gate: separately assess the test-only MIX characterization hook,
   then tick evidence/trace assembly and terminal persistence. Preserve P2 Guard
   restore and do not start P4.
+
+## Sprint 37 — MIX compatibility hook retirement
+
+- [x] Confirm `_handle_mix_stage_override` has no production or test call
+  sites; remove the characterization-only hook and add a regression that it
+  remains absent.
+- [x] Preserve modular MIX authority dispatch and all execution/transaction
+  ownership.
+- [x] Focused suite **38 PASS**; full Python 3.12 offline discovery
+  **2,427 PASS / 3 skipped**; compileall and diff-check PASS.
+- [x] Record exact source-only scope in `D123_SPRINT37_EVIDENCE_20261020.md`.
+- [ ] Next gate: inspect tick evidence/trace assembly and terminal persistence
+  as separate cuts; preserve deferred P2 Guard restore admission and do not
+  start P4.

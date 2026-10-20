@@ -771,3 +771,11 @@ invoke the canonical recovery/final SAFE_WAIT runtime owners, while production
 fail-closed unknown/stale continuation handling, verified receipt/token path,
 and persistence intent remain covered. See
 `D123_SPRINT36_EVIDENCE_20261020.md`.
+
+### Sprint 37 MIX compatibility hook retirement
+
+Removed `_handle_mix_stage_override` after repository search confirmed no
+production or test callers; added a regression asserting the characterization
+hook stays absent. MIX decisions and effects continue through the existing
+modular `tick` / mix-scaffold path. No actuator or transaction ownership
+changed. See `D123_SPRINT37_EVIDENCE_20261020.md`.
