@@ -95,3 +95,16 @@ source change was made in Sprint 05.
 - [x] Run focused suites, full Python 3.12 offline discovery, compileall and
   `git diff --check`; record exact results in Sprint 24 evidence.
 - [x] Commit this single source cut and finish with a clean worktree.
+
+## Sprint 26 — verified Storage terminal persistence intent
+
+- [x] Starting point pinned: clean `33382b6edd424876738896d81e3a48c58f2b7338`.
+- [x] Replace `_done_transition_source_stage` mutable marker inference with an
+  explicit `verified_storage_completion` argument at the canonical session
+  save boundary, passed only by `FinalSafeWaitCompletionEffect` application.
+- [x] Preserve persisted schema, restore admission, terminal fallback and
+  execution-port receipt/transaction ordering; add static marker-removal and
+  Storage/restore failure regression coverage.
+- [x] Run focused/full Python 3.12 offline discovery, `compileall`, and diff
+  check; see `D123_SPRINT26_EVIDENCE_20261019.md`.
+- [x] Commit one source-only cut and finish with a clean worktree.

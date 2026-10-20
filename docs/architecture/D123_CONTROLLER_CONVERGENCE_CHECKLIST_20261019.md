@@ -65,6 +65,7 @@ the current cut and test counts.
 - [x] Sprint 19 AGM MAIN step advance moved from `ManagedChargeController._advance_agm_step` to frozen `runtime.charge.runtime.agm_step_advance.AgmStepAdvanceEffect`; old method deleted, sole MAIN decision branch applies the typed effect. Focused AGM/MAIN set **34 PASS**; full offline discovery **2,399 tests / 3 skipped**; compileall and diff check PASS. See `D123_SPRINT19_EVIDENCE_20261019.md`.
 - [x] Sprint 20 MIX `START_FINISH_HOLD` mutation/action construction moved to frozen `runtime.charge.runtime.mix_finish_hold.MixFinishHoldEffect`; sticky timer, CV/CC mode, optional finish evidence and exact notify/log text preserved. Focused MIX/authority set **37 PASS**; full offline discovery **2,403 tests / 3 skipped**; compileall and diff check PASS. See `D123_SPRINT20_EVIDENCE_20261019.md`.
 - [x] Sprint 25 DESULFATION `COMPLETE_TO_SAFE_WAIT` input/event-end assembly and effect build/apply dispatch moved into the existing `runtime.charge.runtime.desulfation_completion` owner; controller retains `decide_desulfation` and `_main_target(temp)`. Identity rejection preserves the exact CONTINUE reason; event-end capture failure is read-only; action values/order and continuation fields are preserved. Focused/full validation and source-only scope are recorded in `D123_SPRINT25_EVIDENCE_20261019.md`.
+- [x] Sprint 26 verified Storage/DONE persistence intent now crosses the canonical save boundary explicitly from the frozen verified-completion applicator; removed `_done_transition_source_stage` transient host state. Persisted schema, DONE restore admission, terminal fallback, execution receipt and transaction order are unchanged. See `D123_SPRINT26_EVIDENCE_20261019.md`.
 - [x] Final SAFE_WAIT decision/action construction: Sprint 12 typed authority effect; verified DONE commit remains Sprint 10 owner.
 - [ ] Storage/DONE and Manual integration.
 - [x] Residual COOLING resume typed effect (Sprint 13).
@@ -72,6 +73,7 @@ the current cut and test counts.
 - [x] Sprint 17 residual PREP/COOLING/DONE CV-clock mirror mutation moves to `runtime.charge.runtime.residual_observation.update_residual_cv_clock`; first-CV timestamp retention and CC clearing are unchanged. Focused/full counts recorded in `D123_SPRINT17_EVIDENCE_20261019.md`.
 - [ ] Remaining DONE/IDLE persistence ownership; Storage/DONE and Manual integration. Sprint 16 does not move session serialization or verified Storage completion.
 - [ ] Terminal persistence remains coupled to verified DONE completion and canonical session save; Storage/DONE and Manual integration remain open.
+- [x] Sprint 26 removed implicit DONE Storage inference from mutable controller marker state; only verified SAFE_WAIT completion supplies the explicit `verified_storage_completion` save intent. Broader terminal session serialization ownership and Manual integration remain pending.
 - [ ] Typed stage decisions and effects; execution owns all setters, verified commit, safety
 - [ ] Source parity tests for each stage, fail-closed and replay paths
 

@@ -97,11 +97,10 @@ def apply_final_safe_wait_completion_effect(
     host._safe_wait_start = 0.0
     host._final_safe_wait = None
     host._recovery_safe_wait = None
-    host._done_transition_source_stage = effect.source_stage
-    try:
-        host._save_session(effect.voltage_v, effect.current_a, effect.ah)
-    finally:
-        host._done_transition_source_stage = None
+    host._save_session(
+        effect.voltage_v, effect.current_a, effect.ah,
+        verified_storage_completion=True,
+    )
     return dict(effect.result)
 
 

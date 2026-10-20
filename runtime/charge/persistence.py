@@ -232,7 +232,11 @@ def retire_controller_session(host: Any, *, session_id: str, battery_id: str | N
         host._clear_restored_targets()
     return True
 
-def save_session(host: Any, voltage: float, current: float, ah: float, *, session_file: str = SESSION_FILE) -> None:
+def save_session(
+    host: Any, voltage: float, current: float, ah: float, *,
+    session_file: str = SESSION_FILE,
+    verified_storage_completion: bool = False,
+) -> None:
         """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
         if bool(getattr(host, "_recovery_session_retirement_pending", False)):
             logger.error("Session save blocked while recovery retirement outcome is uncertain")
@@ -241,11 +245,7 @@ def save_session(host: Any, voltage: float, current: float, ah: float, *, sessio
             return
 
         if host.current_stage == host.STAGE_DONE:
-            source_stage = getattr(host, "_done_transition_source_stage", None)
-            if (
-                source_stage == host.STAGE_SAFE_WAIT
-                and getattr(host, "previous_stage", None) == host.STAGE_SAFE_WAIT
-            ):
+            if verified_storage_completion:
                 _set_done_outcome(
                     host,
                     DONE_COMPLETION_STORAGE,

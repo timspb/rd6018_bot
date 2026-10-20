@@ -132,6 +132,14 @@ class FinalSafeWaitCompletionEffectTests(unittest.TestCase):
         ]
         self.assertEqual(len(calls), 1)
 
+    def test_verified_storage_intent_is_explicit_at_canonical_save_boundary(self):
+        persistence_source = (ROOT / "runtime/charge/persistence.py").read_text(encoding="utf-8")
+        completion_source = inspect.getsource(owner.apply_final_safe_wait_completion_effect)
+        self.assertNotIn("_done_transition_source_stage", persistence_source)
+        self.assertNotIn("_done_transition_source_stage", completion_source)
+        self.assertIn("verified_storage_completion=True", completion_source)
+        self.assertNotIn("_done_transition_source_stage", (ROOT / "runtime/charge/controller_state.py").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

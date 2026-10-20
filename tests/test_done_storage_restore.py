@@ -47,14 +47,15 @@ class DoneStorageRestoreTests(unittest.TestCase):
         controller.current_stage = controller.STAGE_SAFE_WAIT
         controller._safe_wait_target_v = 13.8
         controller._safe_wait_target_i = 1.0
-        controller._done_transition_source_stage = controller.STAGE_SAFE_WAIT
         controller.current_stage = controller.STAGE_DONE
         # Simulate the exact historical hazard: the last physical readback is still
         # the old Mix program when SAFE_WAIT queues Storage programming + Output ON.
         controller._device_set_voltage = 16.5
         controller._device_set_current = 2.0
         with self._patch_session_file(path):
-            controller._save_session(13.4, 0.0, 1.5)
+            controller._save_session(
+                13.4, 0.0, 1.5, verified_storage_completion=True
+            )
         return app, controller
 
     def test_storage_done_persists_explicit_on_intent_and_canonical_storage_target(self):

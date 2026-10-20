@@ -357,8 +357,14 @@ class ProductionChargeController(ManagedChargeController):
 
         self._v2_cooling_pause = None
 
-    def _save_session(self, voltage: float, current: float, ah: float) -> None:
-        super()._save_session(voltage, current, ah)
+    def _save_session(
+        self, voltage: float, current: float, ah: float, *,
+        verified_storage_completion: bool = False,
+    ) -> None:
+        super()._save_session(
+            voltage, current, ah,
+            verified_storage_completion=verified_storage_completion,
+        )
 
     def _session_document_extensions(self, document: Dict[str, Any]) -> Dict[str, Any]:
         """Return V2 continuation metadata for the canonical atomic session write."""

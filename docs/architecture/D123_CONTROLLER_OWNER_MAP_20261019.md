@@ -310,13 +310,15 @@ branch now constructs a frozen `FinalSafeWaitCompletionEffect` through
 `runtime/charge/runtime/final_safe_wait_completion` and invokes that module's
 single applicator.
 
-The typed owner validates the same continuation/session identity, generation
-and start timestamp before mutation. It then performs the same DONE stage edge,
-restored-target and SAFE_WAIT mirror clearing, DONE-source marker and canonical
-session save. Stage history still changes through the existing
-`current_stage`/session owner before persistence; `_done_transition_source_stage`
-is cleared in `finally`, including save failure. The effect contains only the
-completion result metadata; it has no physical intents or setters. Receipt
+At Sprint 10, the typed owner validated the same continuation/session identity,
+generation and start timestamp before mutation. It then performed the same DONE
+stage edge, restored-target and SAFE_WAIT mirror clearing, DONE-source marker
+and canonical session save. Stage history changed through the existing
+`current_stage`/session owner before persistence; the temporary
+`_done_transition_source_stage` was cleared in `finally`, including save
+failure. Sprint 26 below removes that transient marker in favor of explicit
+verified Storage intent at the canonical save boundary. The effect contained
+only completion result metadata and had no physical intents or setters. Receipt
 rejection leaves the controller pending in SAFE_WAIT, and physical transaction
 failure never invokes the commit route. Persisted Storage completion intent,
 session keys, recovery behavior, Guard and execution ordering are unchanged.
@@ -602,3 +604,24 @@ targets, clocks, samples, action payload and commit ordering are preserved.
 The owner has no RD setter or execution-port dependency. SAFE_WAIT recovery and
 final, MAIN, MIX, tick, P2 and P4 were outside this cut. See
 `D123_SPRINT25_EVIDENCE_20261019.md`.
+
+### Sprint 26 verified Storage terminal persistence intent
+
+The verified final SAFE_WAIT completion owner now passes explicit
+`verified_storage_completion=True` through the controller's canonical save
+boundary into `runtime.charge.persistence.save_session`. Persistence no longer
+infers Storage authority from the transient `_done_transition_source_stage`
+host marker; that field and its initialization/cleanup were removed. The
+explicit intent is emitted only after the existing session-bound verified
+enable receipt has built the frozen completion effect. Canonical persistence
+still owns schema and atomic write; execution-port receipt validation,
+transaction ordering, restore admission, terminal OFF fallback and all stored
+keys are unchanged. Focused completion/Storage/restore/Guard coverage passed
+**21 tests**; full offline discovery passed **2,416 tests / 3 skipped**;
+compileall and diff-check PASS. Exact source-only record:
+`D123_SPRINT26_EVIDENCE_20261019.md`.
+
+Broader terminal session serialization ownership, Storage/DONE integration,
+Manual integration and eventual application-owned tick remain open. P2 MAIN
+Guard restore admission remains deferred/fail-closed; P3 is not complete and P4
+has not started.

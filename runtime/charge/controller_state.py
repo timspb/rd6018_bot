@@ -119,7 +119,6 @@ def initialize_controller_state(
     host._done_completion_kind = None
     host._done_output_intent = "off"
     host._done_outcome_authoritative = False
-    host._done_transition_source_stage = None
 
 
 __all__ = [
