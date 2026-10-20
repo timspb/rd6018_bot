@@ -1,10 +1,12 @@
 import types
 import unittest
+from unittest.mock import AsyncMock
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from battery_fault_engine import DiagnosticAuthority
 from application.charge_stage_tick import apply_charge_stage_authority
+from application.charge_session_tick import refresh_pre_tick_diagnostics
 from diagnostic_controller import DiagnosticProductionChargeController
 from pb_domain import ChargeIntent
 from production_controller import ProductionChargeController
@@ -102,6 +104,20 @@ class DiagnosticControllerTests(unittest.TestCase):
             AuthorityDecision(AuthorityAction.ENTER_DESULFATION, "fixture")
         )
         self.assertIsNotNone(veto)
+
+    def test_controller_has_no_tick_override(self):
+        self.assertNotIn("tick", DiagnosticProductionChargeController.__dict__)
+
+    def test_application_awaits_stored_diagnostic_refresh(self):
+        async def scenario():
+            controller = self._controller()
+            controller._refresh_stored_diagnostics = AsyncMock()
+            await refresh_pre_tick_diagnostics(controller)
+            controller._refresh_stored_diagnostics.assert_awaited_once_with()
+
+        import asyncio
+
+        asyncio.run(scenario())
 
     def test_restore_contract_propagates_through_mix_and_cooling_wrappers(self):
         controller = self._controller()

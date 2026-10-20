@@ -40,6 +40,13 @@ from signal_analyzer import SignalEvent
 logger = logging.getLogger("rd6018.application.charge_tick")
 
 
+async def refresh_pre_tick_diagnostics(host: Any) -> None:
+    """Refresh controller-backed diagnostic inputs before automatic decisions."""
+    refresh = getattr(host, "_refresh_stored_diagnostics", None)
+    if callable(refresh):
+        await refresh()
+
+
 async def run_charge_session_tick(
     host: Any,
     voltage: float,
@@ -53,6 +60,7 @@ async def run_charge_session_tick(
     manual_active: bool = False,
 ) -> Dict[str, Any]:
     """Sequence one tick without owning chemistry decisions or hardware writes."""
+    await refresh_pre_tick_diagnostics(host)
     stage_before = host.current_stage
     target_before = host._v2_target_voltage_v
     if target_before is None and stage_before not in {

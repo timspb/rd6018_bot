@@ -123,7 +123,3 @@ class DiagnosticProductionChargeController(
             AuthorityAction.STOP_AND_DIAGNOSE,
             f"diagnostic_hv_block:{reasons}",
         )
-
-    async def tick(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        await self._refresh_stored_diagnostics()
-        return await super().tick(*args, **kwargs)
