@@ -10,10 +10,10 @@ device was accessed or modified.
 ```text
 bot.py
   -> runtime.production_runtime (one module composition/lifecycle)
-       constructs charge_controller = ManagedChargeController(...)
-       runtime loop invokes charge_controller.tick(...)
-         -> controller invokes its one session ShadowRecoveryRuntime.observe(...)
-         -> runtime.charge.evidence.MainSampleEvidenceEvaluator.assess(...)
+       constructs charge_controller = ProductionChargeController(...)
+       runtime loop invokes application.charge_session_tick.run_charge_session_tick(...)
+         -> the one production session host supplies state and production extensions
+         -> application routes through canonical stage/evidence owners
   -> runtime.charge.runtime.main_scaffold.apply_main_authority_tick(...)
   -> runtime.charge.runtime.recovery_scaffold.apply_desulfation_authority_tick(...)
        -> runtime.charge.strategy.decide_main_transition(...)
@@ -31,21 +31,26 @@ runtime.physical.connectors.esp_direct / Native adapter stack
   -> direct ESP Native physical truth; not queried during this source-only sprint
 ```
 
-The exact production construction is `runtime/production_runtime.py:342`; the
-periodic call is `runtime/production_runtime.py:2939`. The runner gates the call
+The exact production construction is `runtime/production_runtime.py:344`; the
+periodic call is `runtime/production_runtime.py:2894`. The runner gates the call
 on `session_recovery_guard.may_run_automatic_control()`. `bot.py` remains the
-entrypoint. `ManagedChargeController.tick` is still a transitional session
-orchestrator and stage/effect owner; moving one evidence boundary does not retire
-that architecture debt.
+entrypoint. `ManagedChargeController.tick` was removed in Sprint 48. Sprint 50
+also removed the active runtime construction of the base facade: the one
+production session host is `ProductionChargeController`.
 
 There is one production charging FSM and one instance, but it is not yet the
-target application-owned tick orchestration described by
+target fully application-owned session/state lifecycle described by
 `docs/V3_MODULAR_ARCHITECTURE.md`. `runtime.charge.strategy.main_authority` owns
 the pure MAIN transition decision; `runtime.charge.runtime.main_scaffold`
 assembles its inputs and dispatches existing typed effects. The controller
 retains stage admission and one owner call. Durable session save/restore is delegated to
 `runtime.charge.persistence`, with production extension fields supplied by
-`production_controller.py`. The main-guard journal uses
+`production_controller.py`. `ProductionChargeController` still subclasses
+`ManagedChargeController` for the existing state, lifecycle, and restore surface;
+the base class is therefore a remaining source dependency, but production no
+longer constructs that facade. Removing inheritance would require a separate
+session/state/lifecycle migration. Ordinary-session restore remains a separate
+P2 boundary and guarded restore remains fail-closed/deferred. The main-guard journal uses
 `runtime.charge.session_atomic`. The application execution port is the only
 actuation transaction boundary. `runtime.safety` remains independent.
 Direct ESP physical observation is owned by the existing
@@ -83,6 +88,16 @@ already migrated.
 
 Sprint 49 also removed `_bank_fault_risk_snapshot`: Diagnostic AUTO now calls the canonical `runtime.charge.diagnostics.bank_fault_risk_snapshot` directly. This was a read-only diagnostic adapter; risk calculation and policy are unchanged.
 
+Sprint 50 removes direct production construction of `ManagedChargeController`.
+The single runtime host is now `ProductionChargeController`, with the existing
+`application.charge_session_tick` automatic tick route. Static and behavioral
+entrypoint gates cover its import/construction. The subclass still inherits
+base state/lifecycle/session restore; this remaining dependency is explicitly
+not a second FSM or instance. Moving that boundary is deferred because current
+ordinary restore and MAIN Guard restore admission are not yet owned by a
+canonical application/session lifecycle. See
+`D123_SPRINT50_EVIDENCE_20261020.md`.
+
 Methods are grouped by responsibility above and current source line ranges are
 included; no declaration is omitted. Baseline `charge_controller.py` was 2,594
 LOC with 85 AST method declarations/84 unique names. After the D123 cut it is
@@ -95,9 +110,10 @@ have direct references, while many others are called internally.
 
 ## ProductionChargeController transitional surface
 
-`runtime.production_runtime` currently instantiates `ManagedChargeController`
-directly; `ProductionChargeController` is retained in diagnostic/standalone/test
-paths. Its unique active responsibilities are recipe-envelope target clamping,
+`runtime.production_runtime` constructs `ProductionChargeController`; it does
+not directly instantiate `ManagedChargeController`. `ProductionChargeController`
+remains a subclass of that base because state, lifecycle, session restore, and
+other P2 responsibilities have not been migrated. Its unique active responsibilities are recipe-envelope target clamping,
 continuous tail-hold policy, cooling pause snapshot/restore, finish-evidence and
 runtime-signal session extensions, production tick wrapper, and fail-closed
 restore/notification adaptation. These remain transitional production behavior

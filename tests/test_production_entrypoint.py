@@ -49,6 +49,26 @@ class V2EntrypointTests(unittest.TestCase):
         self.assertFalse(hasattr(bot, "charge_controller"))
         self.assertIsInstance(production_runtime.charge_controller, ProductionChargeController)
 
+    def test_production_runtime_constructs_only_the_production_session_host(self):
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "runtime/production_runtime.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imports = [node for node in tree.body if isinstance(node, ast.ImportFrom)
+                   and node.module in {"charge_controller", "production_controller"}]
+        self.assertEqual(
+            [(node.module, alias.name) for node in imports for alias in node.names],
+            [("production_controller", "ProductionChargeController")],
+        )
+        constructions = [node.value for node in tree.body if isinstance(node, ast.Assign)
+                         and any(isinstance(target, ast.Name) and target.id == "charge_controller"
+                                 for target in node.targets)]
+        self.assertEqual(len(constructions), 1)
+        self.assertIsInstance(constructions[0], ast.Call)
+        self.assertIsInstance(constructions[0].func, ast.Name)
+        self.assertEqual(constructions[0].func.id, "ProductionChargeController")
+
     def test_bot_no_longer_aliases_or_mutates_legacy_module_identity(self):
         from pathlib import Path
 
