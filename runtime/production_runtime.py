@@ -56,6 +56,7 @@ from runtime.charge.link_session_recovery import (
 )
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
 from application.main_guard_runtime import execute_due_main_guard
+from application.charge_session_tick import run_charge_session_tick
 from runtime.charge.strategy.main_guard_admission import (
     admit_main_guard_shadow, read_canonical_session,
 )
@@ -2890,7 +2891,8 @@ async def data_logger() -> None:
                                         "MAIN Guard reduction not verified: %s; OFF=%s",
                                         outcome.reason, outcome.off_confirmed,
                                     )
-                    actions = (await charge_controller.tick(
+                    actions = (await run_charge_session_tick(
+                        charge_controller,
                         battery_v, i, temp_ext, is_cv, ah, output_switch,
                         manual_off_active=_has_manual_off_condition(),
                         is_cc=is_cc,

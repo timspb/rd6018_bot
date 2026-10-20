@@ -185,7 +185,7 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
                 "recovery_execution.restore_idle_link",
                 "recovery_execution.restore_output_on",
             }
-            if ("charge_controller.tick" in calls and
+            if ("run_charge_session_tick" in calls and
                 calls.count("charge_controller.try_restore_session") >= 2 and
                 recovery_effects <= set(calls)):
                 candidates.append(node)
@@ -240,7 +240,7 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
                 ast.unparse(n.func) for stmt in node.body for n in ast.walk(stmt)
                 if isinstance(n, ast.Call)
             }
-            if {"charge_controller.tick", "_apply_controller_output_actions"} <= calls:
+            if {"run_charge_session_tick", "_apply_controller_output_actions"} <= calls:
                 locked.append(node)
         # Outer recovery/decision owner and its nested task-reentrant tick
         # scope both legitimately contain this call pair.

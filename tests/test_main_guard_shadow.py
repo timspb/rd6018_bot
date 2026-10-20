@@ -153,7 +153,7 @@ class MainGuardShadowTests(unittest.TestCase):
                 continue
             calls = [ast.unparse(c.func) for s in node.body for c in ast.walk(s)
                      if isinstance(c, ast.Call)]
-            if "_main_guard_shadow.observe" in calls and "charge_controller.tick" in calls:
+            if "_main_guard_shadow.observe" in calls and "run_charge_session_tick" in calls:
                 found = True
         self.assertTrue(found)
         source = path.read_text(encoding="utf-8")
