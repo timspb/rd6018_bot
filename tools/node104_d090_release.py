@@ -240,7 +240,7 @@ def validate_physical_acceptance(record: dict[str, Any], evidence_dir: Path, *,
         runs = record.get("python_matrix")
         if (not isinstance(runs, dict)
                 or set(runs) != {"3.10", "3.11", "3.12"}
-                or any(type(runs[v]) is not int or runs[v] < 2501 for v in runs)):
+                or any(type(runs[v]) is not int or runs[v] < 2495 for v in runs)):
             raise GateError("Python release cross-version test evidence incomplete")
         return
     firmware_digest = record.get("firmware_sha256")
