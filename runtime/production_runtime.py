@@ -2586,6 +2586,10 @@ async def data_logger() -> None:
                 # (battery_mode не требуем — после потери связи мы сами выключили
                 # выход).  An active in-memory session is resumed in place; only an
                 # IDLE session goes through persisted-session reconstruction.
+                # First fresh observation after process start cannot authorize a
+                # persisted-session Output ON. Actual later link recovery is distinct.
+                cold_start = not getattr(charge_controller, "_d125_startup_observation_seen", False)
+                charge_controller._d125_startup_observation_seen = True
                 recovery_route = choose_recovery_route(RecoveryRouteInput(
                     was_unavailable=charge_controller._was_unavailable,
                     stage=charge_controller.current_stage,
@@ -2617,6 +2621,7 @@ async def data_logger() -> None:
                         route=recovery_route,
                         restored=True,
                         auto_enable_authorized=True,
+                        cold_start=cold_start,
                         safe_wait=False,
                         ovp_triggered=ovp_triggered,
                         ocp_triggered=ocp_triggered,
@@ -2660,6 +2665,7 @@ async def data_logger() -> None:
                             route=recovery_route,
                             restored=True,
                             auto_enable_authorized=_restore_allows_auto_enable(charge_controller),
+                            cold_start=cold_start,
                             safe_wait=charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT,
                             ovp_triggered=ovp_triggered,
                             ocp_triggered=ocp_triggered,
@@ -2729,6 +2735,7 @@ async def data_logger() -> None:
                             route=recovery_route,
                             restored=True,
                             auto_enable_authorized=_restore_allows_auto_enable(charge_controller),
+                            cold_start=cold_start,
                             safe_wait=charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT,
                             ovp_triggered=ovp_triggered,
                             ocp_triggered=ocp_triggered,

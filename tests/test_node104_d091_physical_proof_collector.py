@@ -37,6 +37,28 @@ def snapshot():
             'source_nonces': ('ha-unique', 'esp-unique')}
 
 
+class PreservedSessionSoftwareReleaseTests(unittest.TestCase):
+    def test_nonterminal_only_allowed_for_software_release(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/'session.json'
+            p.write_text(json.dumps({'stage':'Main Charge','v2_trace_session_id':'id','v2_battery_id':'battery'}))
+            with self.assertRaises(M.ProofError): M._session_state(p)
+            self.assertIs(M._session_state(p,software_release=True),False)
+    def test_invalid_session_never_accepted(self):
+        import json,tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/'session.json'
+            for content in ('{}','not-json',json.dumps({'stage':'Main Charge','v2_trace_session_id':'id'})):
+                p.write_text(content)
+                with self.assertRaises(M.ProofError): M._session_state(p,software_release=True)
+    def test_symlink_not_accepted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/'source';p.write_text('{}')
+            link=Path(folder)/'link';link.symlink_to(p)
+            with self.assertRaises(M.ProofError):M._session_state(link,software_release=True)
+
 class CollectorProofTests(unittest.TestCase):
     def assert_rejected(self, mutate):
         value = snapshot()

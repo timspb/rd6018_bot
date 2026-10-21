@@ -1009,7 +1009,7 @@ def main(argv: list[str] | None = None) -> int:
     python = Path(release.ROOT) / 'venv' / 'bin' / 'python'
 
     def read_proof() -> release.PhysicalOffProof:
-        proof_env = ({**os.environ, "D090_EXPECTED_ESP_VERSION": pinned.firmware}
+        proof_env = ({**os.environ, "D090_EXPECTED_ESP_VERSION": pinned.firmware, "D090_SOFTWARE_RELEASE": "1"}
                      if software_profile else None)
         raw = subprocess.check_output([str(python), str(collector)], text=True,
                                       stderr=subprocess.STDOUT, timeout=15,

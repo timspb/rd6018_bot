@@ -42,6 +42,7 @@ class RecoveryAuthorizationInput:
     ovp_triggered: bool
     ocp_triggered: bool
     input_voltage_ok: bool
+    cold_start: bool = False
 
 
 def choose_recovery_route(state: RecoveryRouteInput) -> RecoveryRoute:
@@ -68,6 +69,9 @@ def choose_recovery_route(state: RecoveryRouteInput) -> RecoveryRoute:
 
 def authorize_recovery_action(state: RecoveryAuthorizationInput) -> RecoveryAction:
     """Choose the post-restore action without interpreting telemetry or stage rules."""
+    if state.cold_start:
+        # Persisted session is not permission to energize after a process restart.
+        return RecoveryAction.SKIP
     if state.route is RecoveryRoute.ACTIVE_LINK:
         return (
             RecoveryAction.REENABLE_ACTIVE

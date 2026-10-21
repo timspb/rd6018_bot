@@ -92,7 +92,7 @@ def _bool(value: Any) -> bool:
     return value
 
 
-def _session_state(path: Path) -> bool:
+def _session_state(path: Path, *, software_release: bool = False) -> bool:
     if not path.exists():
         return False
     if path.is_symlink() or not path.is_file():
@@ -111,6 +111,15 @@ def _session_state(path: Path) -> bool:
             and type(data.get('verified_off_transaction_id')) is str
             and type(data.get('session_id')) is str and 'battery_id' in data
             and type(data.get('retired_utc')) is str):
+        return False
+    # D090 Python-only release preserves the original session byte-for-byte.
+    # This is NOT an authorization to resume charging. HA/native OFF and
+    # hardware lease/fault assertions are independently checked by assembler.
+    if software_release and (type(data.get('v2_trace_session_id')) is str
+            and data.get('v2_trace_session_id') and
+            type(data.get('v2_battery_id')) is str and data.get('v2_battery_id') and
+            type(data.get('stage')) is str and data.get('stage') and
+            data.get('state') != 'retired'):
         return False
     raise ProofError('session document may represent an active charge session')
 
@@ -430,7 +439,9 @@ async def collect_live() -> dict[str, Any]:
             'service_main_pid': pid, 'matching_bot_process_count': proc_count,
             'physical_device_count': len(physical_ids), 'device_info': info,
             'ha': ha_snapshot, 'esp': esp_snapshot, 'edge': edge,
-            'active_session': _session_state(session_path), 'journal_clear': True,
+            'active_session': _session_state(
+                session_path, software_release=os.environ.get('D090_SOFTWARE_RELEASE') == '1'
+            ), 'journal_clear': True,
             'source_nonces': (uuid.uuid4().hex, uuid.uuid4().hex),
         }
         _journal_state(journal_path)
