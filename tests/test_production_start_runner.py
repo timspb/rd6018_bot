@@ -224,6 +224,35 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(received[0][0].context.correlation_metadata["trace_id"], "trace-propagated")
         self.assertEqual(received[0][1].profile, "AGM")
 
+    def test_default_adapter_preserves_transaction_denial_feedback(self):
+        async def fake_owner(_app, event, _pending):
+            await event.message.answer("Запуск заблокирован: сохранённая сессия в карантине.")
+            return False
+
+        transaction = StartTransactionAdapter().prepare(
+            _request().plan,
+            trace_id="trace-denied-feedback",
+        )
+        outcome = asyncio.run(
+            StartTransactionRunner(app="app", transaction_owner=fake_owner)(transaction)
+        )
+
+        self.assertFalse(outcome.started)
+        self.assertEqual(
+            outcome.reason,
+            "Запуск заблокирован: сохранённая сессия в карантине.",
+        )
+
+    def test_default_adapter_keeps_generic_reason_when_owner_returns_false_silently(self):
+        async def fake_owner(_app, _event, _pending):
+            return False
+
+        transaction = StartTransactionAdapter().prepare(_request().plan, trace_id="trace-no-feedback")
+        outcome = asyncio.run(
+            StartTransactionRunner(app="app", transaction_owner=fake_owner)(transaction)
+        )
+        self.assertEqual(outcome.reason, "start_transaction_denied_or_failed")
+
 
 
 if __name__ == "__main__":

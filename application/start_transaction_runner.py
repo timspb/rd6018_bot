@@ -19,8 +19,14 @@ class _ProductionMessage:
 
     def __init__(self, chat_id: str) -> None:
         self.chat = SimpleNamespace(id=int(chat_id) if str(chat_id).isdigit() else 0)
+        self.last_answer: str | None = None
 
     async def answer(self, *args: Any, **kwargs: Any) -> None:
+        # The transaction owner already owns operator feedback. Capture its
+        # existing response so the outer production route can deliver it once.
+        # Do not send here: the callback route sends the normalized result.
+        if args and isinstance(args[0], str):
+            self.last_answer = args[0]
         return None
 
 
@@ -63,10 +69,14 @@ class StartTransactionRunner:
             )
         owner = self.transaction_owner or start_profile_transactional
         started = await owner(self.app, event, pending)
+        message = getattr(event, "message", None)
+        reason = "started" if started else (
+            getattr(message, "last_answer", None) or "start_transaction_denied_or_failed"
+        )
         return StartTransactionOutcome(
             trace_id=transaction.trace_id,
             started=bool(started),
-            reason="started" if started else "start_transaction_denied_or_failed",
+            reason=reason,
         )
 
 
