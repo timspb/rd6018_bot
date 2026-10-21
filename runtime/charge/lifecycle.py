@@ -157,6 +157,10 @@ def start_custom_charge(
 def stop_charge(host: Any, *, clear_session: bool = True) -> None:
     prev = host.current_stage
     if prev == host.STAGE_IDLE:
+        # An already-idle controller may still retain an orphaned on-disk
+        # session after a verified physical STOP. Honor explicit cleanup.
+        if clear_session:
+            host._clear_session_file()
         return
     host.current_stage = host.STAGE_IDLE
     host._clear_restored_targets()
