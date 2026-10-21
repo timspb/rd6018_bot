@@ -208,6 +208,9 @@ def _atomic_copy(source: Path, target: Path) -> None:
 
 
 class SystemdService:
+    def __init__(self, pinned: release.ReleaseManifest | None = None):
+        self.pinned = release.PINNED if pinned is None else pinned
+
     def _run(self, *args: str) -> str:
         return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT, timeout=60).strip()
 
@@ -233,7 +236,7 @@ class SystemdService:
 
     def stable(self, expected_sha: str) -> bool:
         # Permanent D090 release admission never accepts a D104 trial source.
-        if expected_sha not in (release.SOURCE_SHA, release.OLD_SHA):
+        if expected_sha not in (self.pinned.source_sha, self.pinned.old_source_sha):
             return False
         return self._stable_process(expected_sha)
 
@@ -282,7 +285,10 @@ class D090Transaction:
                  offline: bool = False,
                  trial_edge_proof: Callable[[], TrialOffProof] | None = None,
                  trial_socket_ready: Callable[[], bool] | None = None,
-                 release_admission: Callable[[], None] | None = None):
+                 release_admission: Callable[[], None] | None = None,
+                 pinned: release.ReleaseManifest | None = None,
+                 software_release: bool = False,
+                 preimage_inventory_sha256: str | None = None):
         self.root = root
         self.service = service
         self.proof = proof
@@ -290,7 +296,14 @@ class D090Transaction:
         self.acceptance = acceptance
         # Release-specific admission belongs to this existing transaction owner.
         # No external signer or independent deployment authority is introduced.
+        if software_release and (release_admission is None or pinned is None or
+                                 not preimage_inventory_sha256 or len(preimage_inventory_sha256) != 64):
+            raise TransactionError('software release requires exact profile/preimage and admission policy')
         self.release_admission = release_admission or (lambda: None)
+        self.pinned = release.PINNED if pinned is None else pinned
+        self.software_release = bool(software_release)
+        self.preimage_inventory_sha256 = (preimage_inventory_sha256 if software_release
+                                           else PREIMAGE_APP_INVENTORY_SHA256)
         self.venv_builder = venv_builder
         self.failpoint = failpoint or (lambda _: None)
         self.space_check = space_check or self._space_check
@@ -410,20 +423,20 @@ class D090Transaction:
         if self.root == Path(release.ROOT):
             if self.root.resolve() != Path(release.ROOT):
                 raise TransactionError('production root identity mismatch')
-            if digest(self.root / '.env') != release.PINNED.service_environment_sha256:
+            if digest(self.root / '.env') != self.pinned.service_environment_sha256:
                 raise TransactionError('production service environment digest differs from pin')
-            if self._unit_digest() != release.PINNED.systemd_unit_sha256:
+            if self._unit_digest() != self.pinned.systemd_unit_sha256:
                 raise TransactionError('production systemd unit digest differs from pin')
             if not isinstance(self.service, SystemdService) or not self.service.layout_valid():
                 raise TransactionError('systemd working directory/protection/ExecStart/drop-ins differ from pin')
-            verify_pinned_preimage_app(self.root / 'app')
+            verify_pinned_preimage_app(self.root / 'app', self.preimage_inventory_sha256)
         for name in ('app', 'state', 'venv', 'backups'):
             path = self.root / name
             if not path.is_dir() or path.is_symlink() or path.stat().st_dev != self.root.stat().st_dev:
                 raise TransactionError(f'ordinary same-filesystem layout required: {name}')
         if self.journal.exists() or self.journal.is_symlink():
             raise TransactionError('existing/incomplete D090 journal requires recovery')
-        if marker.read_text(encoding='ascii').strip() != release.OLD_SHA:
+        if marker.read_text(encoding='ascii').strip() != self.pinned.old_source_sha:
             raise TransactionError('deployed marker does not match pinned pre-image SHA')
 
     def _phase(self, record: dict[str, object], phase: str) -> None:
@@ -437,11 +450,13 @@ class D090Transaction:
         """Read-only gates and independent candidate build, before service stop."""
         self.release_admission()
         self._layout()
-        manifest = release.verify_staged_release(staged_release)
-        if manifest['source_sha'] != release.SOURCE_SHA:
+        manifest = release.verify_staged_release(staged_release, pinned=self.pinned)
+        if manifest['source_sha'] != self.pinned.source_sha:
             raise TransactionError('candidate source SHA is not the pinned D090 source')
         self.acceptance()
-        release.validate_physical_acceptance(acceptance_record, evidence_dir)
+        release.validate_physical_acceptance(
+            acceptance_record, evidence_dir, pinned=self.pinned,
+            software_release=self.software_release)
         if not self.service.active() or self.service.main_pid() <= 0:
             raise TransactionError('expected active deployed service before preparation')
         self._read_proof(require_service_stopped=False)
@@ -455,8 +470,8 @@ class D090Transaction:
         _durable_tree(candidate)
         _sync_dir(self.root)
         self.space_check(sum(p.stat().st_size for p in self.root.rglob('*') if p.is_file()))
-        return {'transaction': transaction, 'candidate': str(candidate), 'source_sha': release.SOURCE_SHA,
-                'manifest_sha256': release.PINNED.staging_manifest_sha256,
+        return {'transaction': transaction, 'candidate': str(candidate), 'source_sha': self.pinned.source_sha,
+                'manifest_sha256': self.pinned.staging_manifest_sha256,
                 'baseline': self._baseline(), 'candidate_inventory': inventory(candidate)}
 
     def _baseline(self) -> dict[str, object]:
@@ -496,19 +511,21 @@ class D090Transaction:
         self._layout()
         # Physical acceptance and a fresh independent pre-stop observation are
         # rechecked immediately before authorizing the service stop.
-        manifest = release.verify_staged_release(staged_release)
-        if manifest['source_sha'] != release.SOURCE_SHA:
+        manifest = release.verify_staged_release(staged_release, pinned=self.pinned)
+        if manifest['source_sha'] != self.pinned.source_sha:
             raise TransactionError('candidate source SHA is not the pinned D090 source')
         self.acceptance()
-        release.validate_physical_acceptance(acceptance_record, evidence_dir)
+        release.validate_physical_acceptance(
+            acceptance_record, evidence_dir, pinned=self.pinned,
+            software_release=self.software_release)
         if not self.service.active() or self.service.main_pid() <= 0:
             raise TransactionError('service state changed after preparation')
         self._read_proof(require_service_stopped=False)
         self._assert_baseline(prepared['baseline'])
         candidate = Path(str(prepared['candidate']))
         transaction = prepared.get('transaction')
-        if (prepared.get('source_sha') != release.SOURCE_SHA
-                or prepared.get('manifest_sha256') != release.PINNED.staging_manifest_sha256
+        if (prepared.get('source_sha') != self.pinned.source_sha
+                or prepared.get('manifest_sha256') != self.pinned.staging_manifest_sha256
                 or type(transaction) is not str or len(transaction) != 32
                 or any(char not in '0123456789abcdef' for char in transaction)
                 or candidate != self.root / ('candidate-' + transaction)):
@@ -519,8 +536,8 @@ class D090Transaction:
             raise TransactionError('prepared application bytes differ from the verified staged release')
         self.candidate_validate(candidate / 'venv' / 'bin' / 'python', candidate / 'app')
         backup = self.backup_root / ('d090-' + transaction)
-        record: dict[str, object] = {'schema': 1, 'node': release.NODE, 'source_sha': release.SOURCE_SHA,
-            'old_sha': release.OLD_SHA, 'transaction': transaction, 'phase': 'PREPARED',
+        record: dict[str, object] = {'schema': 1, 'node': release.NODE, 'source_sha': self.pinned.source_sha,
+            'old_sha': self.pinned.old_source_sha, 'transaction': transaction, 'phase': 'PREPARED',
             'candidate': candidate.name, 'backup': backup.name, 'baseline': prepared['baseline']}
         _atomic_json(self.journal, record)
         try:
@@ -562,12 +579,12 @@ class D090Transaction:
             self._phase(record, 'NEW_VENV_RENAMED')
             self.service.start()
             self._phase(record, 'STARTED')
-            if not self.service.stable(release.SOURCE_SHA):
+            if not self.service.stable(self.pinned.source_sha):
                 raise TransactionError('new service stability/one-process/OFF/lease proof missing')
             self._read_proof(require_service_stopped=False)
             self._assert_baseline(prepared['baseline'], allow_marker=True)
             self.failpoint('post-start')
-            _atomic_text(self.root / MARKER, release.SOURCE_SHA)
+            _atomic_text(self.root / MARKER, self.pinned.source_sha)
             self._phase(record, 'COMMITTED')
             return record
         except BaseException:
@@ -606,7 +623,7 @@ class D090Transaction:
         d102.verify_source(staged_release, pin=TRIAL_PIN)
         if not self.service.active() or self.service.main_pid() <= 0:
             raise TransactionError("trial requires stable original service")
-        if not self.service.stable(release.OLD_SHA):
+        if not self.service.stable(self.pinned.old_source_sha):
             raise TransactionError("trial original service identity not stable")
         edge = self._trial_read_proofs(service_stopped=False)
         baseline = self._baseline()
@@ -633,7 +650,7 @@ class D090Transaction:
         record: dict[str, object] = {
             "schema": TRIAL_SCHEMA, "purpose": TRIAL_PURPOSE, "node": release.NODE,
             "transaction": ident, "source_sha": TRIAL_SOURCE_SHA,
-            "old_sha": release.OLD_SHA, "manifest_sha256": TRIAL_PIN.manifest_sha256,
+            "old_sha": self.pinned.old_source_sha, "manifest_sha256": TRIAL_PIN.manifest_sha256,
             "archive_sha256": TRIAL_PIN.archive_sha256, "phase": "PREPARED",
             "candidate": candidate.name, "backup": "d104-" + ident,
             "baseline": baseline, "candidate_inventory": inventory(candidate),
@@ -712,7 +729,7 @@ class D090Transaction:
         ident = record.get("transaction")
         if (record.get("purpose") != TRIAL_PURPOSE or record.get("node") != release.NODE
                 or record.get("source_sha") != TRIAL_SOURCE_SHA
-                or record.get("old_sha") != release.OLD_SHA
+                or record.get("old_sha") != self.pinned.old_source_sha
                 or record.get("manifest_sha256") != TRIAL_PIN.manifest_sha256
                 or record.get("archive_sha256") != TRIAL_PIN.archive_sha256
                 or type(ident) is not str or len(ident) != 32
@@ -739,7 +756,7 @@ class D090Transaction:
                 raise TransactionError("terminal trial backup missing/corrupt")
             self._assert_baseline(baseline)
             self._trial_read_proofs(reference=edges, service_stopped=False)
-            if not self.service.active() or not self.service.stable(release.OLD_SHA):
+            if not self.service.active() or not self.service.stable(self.pinned.old_source_sha):
                 raise TransactionError("restored old service no longer stable")
             return record
         # If a complete backup has not been durably journaled, the app/venv
@@ -756,7 +773,7 @@ class D090Transaction:
             self._assert_baseline(baseline)
             if self.service.main_pid() == 0:
                 self.service.start()
-            if not self.service.active() or not self.service.stable(release.OLD_SHA):
+            if not self.service.active() or not self.service.stable(self.pinned.old_source_sha):
                 raise TransactionError("trial original preimage not stable")
             self._trial_read_proofs(reference=edges, service_stopped=False)
             record["rollback_without_backup"] = True
@@ -818,7 +835,7 @@ class D090Transaction:
         self._trial_read_proofs(reference=edges, service_stopped=True)
         self.failpoint("trial-restore-before-old-start")
         self.service.start()
-        if not self.service.stable(release.OLD_SHA):
+        if not self.service.stable(self.pinned.old_source_sha):
             raise TransactionError("restored old service unstable")
         self._trial_read_proofs(reference=edges, service_stopped=False)
         self._phase(record, TRIAL_FINAL_PHASE)
@@ -838,7 +855,7 @@ class D090Transaction:
         if isinstance(record, dict) and record.get("schema") == TRIAL_SCHEMA:
             return self._recover_trial(record)
         if (type(record) is not dict or type(record.get('schema')) is not int or record.get('schema') != 1 or record.get('node') != release.NODE
-                or record.get('source_sha') != release.SOURCE_SHA or record.get('old_sha') != release.OLD_SHA
+                or record.get('source_sha') != self.pinned.source_sha or record.get('old_sha') != self.pinned.old_source_sha
                 or type(record.get('transaction')) is not str or len(record['transaction']) != 32
                 or any(char not in '0123456789abcdef' for char in record['transaction'])
                 or record.get('phase') not in PHASES):
@@ -861,7 +878,7 @@ class D090Transaction:
             self._assert_baseline(baseline)
             if self.service.main_pid() == 0:
                 self.service.start()
-            if not self.service.active() or not self.service.stable(release.OLD_SHA):
+            if not self.service.active() or not self.service.stable(self.pinned.old_source_sha):
                 raise TransactionError('pre-image service not positively stable; remain contained')
             self._read_proof(require_service_stopped=False)
             record['rollback_without_backup'] = True
@@ -876,7 +893,7 @@ class D090Transaction:
                 if type(baseline) is not dict:
                     raise TransactionError('pre-backup rollback lacks baseline; operator review required')
                 self._assert_baseline(baseline)
-                if not self.service.active() or not self.service.stable(release.OLD_SHA):
+                if not self.service.active() or not self.service.stable(self.pinned.old_source_sha):
                     raise TransactionError('pre-image service is not stable after pre-backup rollback')
                 self._read_proof(require_service_stopped=False)
                 return record
@@ -904,7 +921,7 @@ class D090Transaction:
                 or (self.root / MARKER).is_symlink() or not (self.root / MARKER).is_file()):
             raise TransactionError('environment/marker path changed; service remains stopped')
         current_marker = digest(self.root / MARKER)
-        candidate_marker = hashlib.sha256((release.SOURCE_SHA + '\n').encode()).hexdigest()
+        candidate_marker = hashlib.sha256((self.pinned.source_sha + '\n').encode()).hexdigest()
         if (digest(self.root / '.env') != record['baseline']['env']
                 or self._unit_digest() != record['baseline']['unit']
                 or inventory(self.root / 'state') != record['baseline']['state']
@@ -928,7 +945,7 @@ class D090Transaction:
         self._read_proof(require_service_stopped=True)
         self.service.start()
         self._read_proof(require_service_stopped=False)
-        if not self.service.active() or self.service.main_pid() <= 0 or not self.service.stable(release.OLD_SHA):
+        if not self.service.active() or self.service.main_pid() <= 0 or not self.service.stable(self.pinned.old_source_sha):
             raise TransactionError('restored service not positively stable; inspect contained state')
         record['phase'] = 'ROLLED_BACK'
         _atomic_json(self.journal, record)
@@ -958,8 +975,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--acceptance', type=Path)
     parser.add_argument('--evidence-dir', type=Path)
     parser.add_argument('--proof-collector', type=Path)
+    parser.add_argument('--python-release-profile', type=Path)
     args = parser.parse_args(argv)
     production_host_check()
+    software_profile = args.python_release_profile is not None
+    if software_profile:
+        from node104_d124_release_profile import load_software_release_profile
+        pinned, preimage_sha, profile_record = load_software_release_profile(args.python_release_profile)
+        def check_release_policy() -> None:
+            if (profile_record["mode"] != "python_control_change" or
+                profile_record["pin"]["source_sha"] != pinned.source_sha or
+                profile_record["pin"]["old_source_sha"] != pinned.old_source_sha):
+                raise TransactionError("software release profile changed during admission")
+    else:
+        pinned, preimage_sha = release.PINNED, None
+        check_release_policy = None
     if not args.proof_collector or READ_ONLY_PROOF_COLLECTOR_SHA256 is None:
         parser.error('pinned independent read-only proof collector is not configured; D090 remains BLOCKED')
     collector = args.proof_collector
@@ -967,18 +997,23 @@ def main(argv: list[str] | None = None) -> int:
         collector.resolve(strict=True).relative_to(Path(release.ROOT).resolve(strict=True))
     except (OSError, ValueError):
         parser.error('proof collector must be inside the pinned production root')
-    if collector.is_symlink() or not collector.is_file() or digest(collector) != READ_ONLY_PROOF_COLLECTOR_SHA256:
+    expected_collector_sha = (profile_record["proof_collector_sha256"] if software_profile
+                              else READ_ONLY_PROOF_COLLECTOR_SHA256)
+    if collector.is_symlink() or not collector.is_file() or digest(collector) != expected_collector_sha:
         parser.error('proof collector differs from its reviewed SHA256 pin')
     if args.phase != 'recover':
-        if not args.release or not args.acceptance or not args.evidence_dir:
-            parser.error('--release, --acceptance and --evidence-dir are required')
-        if release.PINNED.firmware_digest is None or release.PHYSICAL_SIGNER_KEY_SHA256 is None:
-            parser.error('exact firmware digest and signed physical acceptance trust root are not configured; D090 remains BLOCKED')
+        if not args.release or not args.acceptance or (not args.evidence_dir and not software_profile):
+            parser.error('--release and --acceptance required; physical release also requires --evidence-dir')
+        if not software_profile and (release.PINNED.firmware_digest is None or release.PHYSICAL_SIGNER_KEY_SHA256 is None):
+            parser.error('legacy physical release remains blocked without required physical evidence')
     python = Path(release.ROOT) / 'venv' / 'bin' / 'python'
 
     def read_proof() -> release.PhysicalOffProof:
+        proof_env = ({**os.environ, "D090_EXPECTED_ESP_VERSION": pinned.firmware}
+                     if software_profile else None)
         raw = subprocess.check_output([str(python), str(collector)], text=True,
-                                      stderr=subprocess.STDOUT, timeout=15)
+                                      stderr=subprocess.STDOUT, timeout=15,
+                                      env=proof_env)
         value = json.loads(raw)
         required = {field for field in release.PhysicalOffProof.__dataclass_fields__}
         if type(value) is not dict or set(value) != required:
@@ -986,9 +1021,11 @@ def main(argv: list[str] | None = None) -> int:
         value['source_nonces'] = tuple(value['source_nonces']) if type(value['source_nonces']) is list else value['source_nonces']
         return release.PhysicalOffProof(**value)
 
-    executor = D090Transaction(Path(release.ROOT), service=SystemdService(), proof=read_proof,
+    executor = D090Transaction(Path(release.ROOT), service=SystemdService(pinned), proof=read_proof,
         host_check=production_host_check, acceptance=lambda: None,
-        venv_builder=production_venv_builder)
+        venv_builder=production_venv_builder, pinned=pinned,
+        software_release=software_profile, preimage_inventory_sha256=preimage_sha,
+        release_admission=check_release_policy)
     if args.phase == 'recover':
         result = executor.recover()
     else:
@@ -1000,10 +1037,10 @@ def main(argv: list[str] | None = None) -> int:
             raise TransactionError('physical acceptance record must be an object')
         if args.phase == 'prepare':
             result = executor.prepare(args.release, acceptance_record=acceptance_record,
-                                      evidence_dir=args.evidence_dir)
+                                      evidence_dir=args.evidence_dir or args.python_release_profile.parent)
         else:
             result = executor.activate(args.release, acceptance_record=acceptance_record,
-                                       evidence_dir=args.evidence_dir)
+                                       evidence_dir=args.evidence_dir or args.python_release_profile.parent)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

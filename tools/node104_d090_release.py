@@ -106,8 +106,9 @@ def _safe_member(name: str) -> None:
         raise GateError(f"unsafe release path: {name!r}")
 
 
-def verify_staged_release(release: Path) -> dict[str, Any]:
+def verify_staged_release(release: Path, *, pinned: ReleaseManifest | None = None) -> dict[str, Any]:
     """Verify the exact staged source before any host-specific operation."""
+    pin = PINNED if pinned is None else pinned
     manifest_path = release / "RELEASE_MANIFEST.json"
     marker_path = release / "STAGED_OK"
     archive = release / "source.tar"
@@ -120,15 +121,15 @@ def verify_staged_release(release: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise GateError(f"staging metadata invalid: {exc}") from exc
     manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
-    if manifest_hash != PINNED.staging_manifest_sha256:
+    if manifest_hash != pin.staging_manifest_sha256:
         raise GateError("staged manifest digest differs from D090 pin")
     if marker.get("manifest_sha256") != manifest_hash or marker.get("tree_verified") is not True:
         raise GateError("staging completion marker does not bind the manifest")
-    if manifest.get("source_sha") != PINNED.source_sha or manifest.get("node") != NODE or manifest.get("service") != "rd6018-bot":
+    if manifest.get("source_sha") != pin.source_sha or manifest.get("node") != NODE or manifest.get("service") != "rd6018-bot":
         raise GateError("staged release identity/SHA mismatch")
     if sha256_file(archive) != manifest.get("archive_sha256"):
         raise GateError("source archive digest differs from manifest")
-    if sha256_file(archive) != PINNED.source_archive_sha256:
+    if sha256_file(archive) != pin.source_archive_sha256:
         raise GateError("source archive digest differs from D090 pin")
     declared: set[str] = set()
     with tarfile.open(archive, "r:") as bundle:
@@ -220,14 +221,32 @@ def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
         raise GateError("exactly one independent physical node owner and no active persisted session required")
 
 
-def validate_physical_acceptance(record: dict[str, Any], evidence_dir: Path) -> None:
+def validate_physical_acceptance(record: dict[str, Any], evidence_dir: Path, *,
+                                 pinned: ReleaseManifest | None = None,
+                                 software_release: bool = False) -> None:
     """Require exact source+firmware compiled/flashed physical case artifacts."""
-    if record.get("source_sha") != SOURCE_SHA or record.get("firmware") != FIRMWARE:
+    pin = PINNED if pinned is None else pinned
+    if record.get("source_sha") != pin.source_sha or record.get("firmware") != pin.firmware:
         raise GateError("exact Python/ESPHome pairing acceptance is missing")
+    if software_release:
+        # Python-only release: targeted validation, not a new firmware flash or
+        # a repetition of all existing D065 hardware-fault experiments.
+        if (record.get("classification") != "python_control_change"
+                or record.get("old_source_sha") != pin.old_source_sha
+                or record.get("firmware_unchanged") is not True
+                or record.get("targeted_regression_pass") is not True
+                or record.get("operator_firmware_correspondence_confirmed") is not True):
+            raise GateError("Python release scope/targeted evidence is incomplete")
+        runs = record.get("python_matrix")
+        if (not isinstance(runs, dict)
+                or set(runs) != {"3.10", "3.11", "3.12"}
+                or any(type(runs[v]) is not int or runs[v] < 2501 for v in runs)):
+            raise GateError("Python release cross-version test evidence incomplete")
+        return
     firmware_digest = record.get("firmware_sha256")
     if not isinstance(firmware_digest, str) or len(firmware_digest) != 64:
         raise GateError("firmware binary digest is not pinned by acceptance evidence")
-    if PINNED.firmware_digest is None or firmware_digest != PINNED.firmware_digest:
+    if pin.firmware_digest is None or firmware_digest != pin.firmware_digest:
         raise GateError("firmware digest has no reviewed D090 trust pin")
     signer_hash = record.get("signer_key_sha256")
     signature_name = record.get("signature_file")
