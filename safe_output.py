@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from time import perf_counter
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, FrozenSet, Optional, Protocol
@@ -529,6 +530,7 @@ class SafeOutputCoordinator:
             ("current", self.adapter.set_current, request.current_a),
         )
         for name, setter, value in operations:
+            stage_started = perf_counter()
             try:
                 ok = await setter(value)
             except Exception as exc:
@@ -537,6 +539,7 @@ class SafeOutputCoordinator:
                     f"failed to program {name}={value:.3f}: {type(exc).__name__}: {exc}",
                     force_off=True,
                 )
+            logger.info("START_TIMING set_%s_ms=%.1f", name, (perf_counter() - stage_started) * 1000)
             if not ok:
                 return await self._failure(
                     frozenset({SafetyViolation.PROGRAMMING_FAILED}),
@@ -544,10 +547,13 @@ class SafeOutputCoordinator:
                     force_off=True,
                 )
 
+        stage_started = perf_counter()
         _programmed, readback = await self.confirm_programmed_readback(request)
+        logger.info("START_TIMING programmed_readback_ms=%.1f", (perf_counter() - stage_started) * 1000)
         if not readback.allowed:
             return await self._failure(readback.violations, readback.detail, force_off=True)
 
+        stage_started = perf_counter()
         try:
             enabled = await self.adapter.turn_on()
         except Exception as exc:
@@ -556,6 +562,7 @@ class SafeOutputCoordinator:
                 f"output enable raised {type(exc).__name__}: {exc}",
                 force_off=True,
             )
+        logger.info("START_TIMING output_on_ms=%.1f", (perf_counter() - stage_started) * 1000)
         if not enabled:
             return await self._failure(
                 frozenset({SafetyViolation.OUTPUT_ENABLE_FAILED}),
@@ -565,6 +572,7 @@ class SafeOutputCoordinator:
 
         if self.readback_delay_s:
             await asyncio.sleep(self.readback_delay_s)
+        stage_started = perf_counter()
         try:
             final_live = await self.adapter.get_all_live()
         except Exception as exc:
@@ -578,6 +586,7 @@ class SafeOutputCoordinator:
                 f"post-enable telemetry failed: {type(exc).__name__}: {exc}",
                 force_off=True,
             )
+        logger.info("START_TIMING final_readback_ms=%.1f", (perf_counter() - stage_started) * 1000)
         final = snapshot_from_live(
             final_live,
             require_programming_freshness=True,
