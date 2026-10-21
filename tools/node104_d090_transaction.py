@@ -281,12 +281,16 @@ class D090Transaction:
                  candidate_validate: Callable[[Path, Path], None] | None = None,
                  offline: bool = False,
                  trial_edge_proof: Callable[[], TrialOffProof] | None = None,
-                 trial_socket_ready: Callable[[], bool] | None = None):
+                 trial_socket_ready: Callable[[], bool] | None = None,
+                 release_admission: Callable[[], None] | None = None):
         self.root = root
         self.service = service
         self.proof = proof
         self.host_check = host_check
         self.acceptance = acceptance
+        # Release-specific admission belongs to this existing transaction owner.
+        # No external signer or independent deployment authority is introduced.
+        self.release_admission = release_admission or (lambda: None)
         self.venv_builder = venv_builder
         self.failpoint = failpoint or (lambda _: None)
         self.space_check = space_check or self._space_check
@@ -431,6 +435,7 @@ class D090Transaction:
     @_transaction_locked
     def prepare(self, staged_release: Path, *, acceptance_record: dict[str, object], evidence_dir: Path) -> dict[str, object]:
         """Read-only gates and independent candidate build, before service stop."""
+        self.release_admission()
         self._layout()
         manifest = release.verify_staged_release(staged_release)
         if manifest['source_sha'] != release.SOURCE_SHA:
@@ -487,6 +492,7 @@ class D090Transaction:
     def activate(self, staged_release: Path, *, acceptance_record: dict[str, object], evidence_dir: Path,
                  prepared: dict[str, object] | None = None) -> dict[str, object]:
         prepared = prepared or self.prepare(staged_release, acceptance_record=acceptance_record, evidence_dir=evidence_dir)
+        self.release_admission()
         self._layout()
         # Physical acceptance and a fresh independent pre-stop observation are
         # rechecked immediately before authorizing the service stop.
