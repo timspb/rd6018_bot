@@ -186,6 +186,7 @@ def clear_session_file(host: Any, *, session_file: str = SESSION_FILE) -> None:
 
 def retire_controller_session(host: Any, *, session_id: str, battery_id: str | None,
                               off_transaction_id: str,
+                              expected_document_sha256: str | None = None,
                               session_file: str = SESSION_FILE) -> bool:
     """Durably replace the exact active session with a non-restorable tombstone.
 
@@ -193,8 +194,12 @@ def retire_controller_session(host: Any, *, session_id: str, battery_id: str | N
     app owner lock. The controller is made IDLE only after file+directory fsync.
     """
     path = Path(session_file)
-    with path.open("r", encoding="utf-8") as stream:
-        current = json.load(stream)
+    raw = path.read_bytes()
+    if expected_document_sha256 is not None:
+        import hashlib
+        if hashlib.sha256(raw).hexdigest() != expected_document_sha256:
+            return False
+    current = json.loads(raw.decode("utf-8"))
     if not isinstance(current, dict) or current.get("state") == "retired":
         return False
     if not isinstance(off_transaction_id, str) or not off_transaction_id.strip():

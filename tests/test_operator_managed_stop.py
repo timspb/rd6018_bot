@@ -7,6 +7,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import operator_hmi as hmi
 from runtime import production_runtime
 from operator_managed_stop import _replace_legacy_power_toggle, _stop_exact_session
+from operator_managed_stop import _stop_orphan_main_guard
 from runtime_safety import OutputOffNotConfirmed
 
 
@@ -37,6 +38,76 @@ class FakeManual:
 
 
 class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_orphan_main_guard_stop_requires_fresh_proof_and_retires_once(self):
+        from application.operator_recovery_clearance import VerifiedOffEvidence
+        from application.guard_execution_owner_lock import GuardExecutionOwnerLock
+        binding = {"session_id": "S1", "battery_id": "B1", "document_sha256": "digest"}
+        state = {"binding": binding, "retired": False, "valid": True}
+
+        class Retirement:
+            def __init__(self, app): self.app = app
+            def orphan_binding(self): return None if state["retired"] else dict(state["binding"])
+            def validate(self, candidate): return state["valid"] and candidate == state["binding"]
+            def retire(self, sid, *, binding, off_evidence):
+                if not self.validate(binding) or not isinstance(off_evidence, VerifiedOffEvidence): return None
+                state["retired"] = True
+                return types.SimpleNamespace(session_id=sid)
+            def finalize(self, sid): self.app.charge_controller._guarded_restore_candidate = None
+
+        class Port:
+            def __init__(self): self._guard_owner_lock = GuardExecutionOwnerLock(); self.calls = 0
+            async def request_verified_off_evidence(self):
+                self.calls += 1
+                return VerifiedOffEvidence("tx-1", __import__("time").monotonic())
+
+        controller = types.SimpleNamespace(current_stage="IDLE", STAGE_IDLE="IDLE",
+                                           _guarded_restore_candidate=types.SimpleNamespace(session_id="S1"))
+        app = types.SimpleNamespace(charge_controller=controller, manual_session_manager=None,
+                                    _hard_stop_charge=None)
+        port = Port()
+        with patch("operator_managed_stop._orphan_retirement", side_effect=lambda _app: Retirement(_app)), \
+             patch("application.execution_port.get_or_create_execution_port", return_value=port), \
+             patch("operator_managed_stop._active_session_token", return_value=None):
+            token = "orphan-main:S1:B1:digest"
+            ok, _ = await _stop_orphan_main_guard(app, token)
+            self.assertTrue(ok)
+            self.assertEqual(port.calls, 1)
+            self.assertIsNone(controller._guarded_restore_candidate)
+            again, _ = await _stop_orphan_main_guard(app, token)
+            self.assertFalse(again)
+            self.assertEqual(port.calls, 1)
+
+    async def test_orphan_stop_rejects_stale_identity_no_native_proof_and_active_race(self):
+        from application.guard_execution_owner_lock import GuardExecutionOwnerLock
+        binding = {"session_id": "S1", "battery_id": "B1", "document_sha256": "digest"}
+        state = {"valid": True, "changed": False}
+
+        class Retirement:
+            def orphan_binding(self):
+                if state["changed"]: return {**binding, "document_sha256": "replacement"}
+                return dict(binding)
+            def validate(self, candidate): return state["valid"]
+            def retire(self, *args, **kwargs): return None
+
+        class Port:
+            def __init__(self, proof): self._guard_owner_lock = GuardExecutionOwnerLock(); self.calls = 0; self.proof = proof
+            async def request_verified_off_evidence(self):
+                self.calls += 1
+                if case == "identity_changed_during_off": state["valid"] = False
+                return self.proof
+
+        app = types.SimpleNamespace(charge_controller=types.SimpleNamespace(current_stage="IDLE", STAGE_IDLE="IDLE"))
+        token = "orphan-main:S1:B1:digest"
+        for case in ("stale", "no_proof", "active_race", "identity_changed_during_off"):
+            state.update(valid=True, changed=(case == "stale"))
+            port = Port(None)
+            with patch("operator_managed_stop._orphan_retirement", return_value=Retirement()), \
+                 patch("application.execution_port.get_or_create_execution_port", return_value=port), \
+                 patch("operator_managed_stop._active_session_token", return_value="auto:race" if case == "active_race" else None):
+                ok, _ = await _stop_orphan_main_guard(app, token)
+                self.assertFalse(ok)
+                self.assertEqual(port.calls, 0 if case in {"stale", "active_race"} else 1)
+
     def test_historical_power_toggle_handler_and_helper_are_retired(self):
         import inspect
 

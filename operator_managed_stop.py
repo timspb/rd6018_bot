@@ -65,6 +65,64 @@ def _session_label(token: str) -> str:
     return "managed"
 
 
+def _orphan_retirement(app: Any):
+    from application.controller_session_retirement import _ControllerSessionRetirement
+    return _ControllerSessionRetirement(app)
+
+
+def _orphan_stop_token(app: Any) -> str | None:
+    binding = _orphan_retirement(app).orphan_binding()
+    if binding is None:
+        return None
+    return "orphan-main:" + binding["session_id"] + ":" + binding["battery_id"] + ":" + binding["document_sha256"]
+
+
+async def _stop_orphan_main_guard(app: Any, expected_token: str) -> tuple[bool, str]:
+    from application.operator_recovery_clearance import VerifiedOffEvidence
+    from application.execution_port import get_or_create_execution_port
+    import math
+    import time
+
+    retirement = _orphan_retirement(app)
+    binding = retirement.orphan_binding()
+    if binding is None:
+        return False, "Persisted MAIN session is absent or has changed."
+    token = "orphan-main:" + binding["session_id"] + ":" + binding["battery_id"] + ":" + binding["document_sha256"]
+    if token != expected_token:
+        return False, "Подтверждение устарело: persisted session изменилась."
+    port = get_or_create_execution_port(app)
+    lock = getattr(port, "_guard_owner_lock", None)
+    if lock is None:
+        return False, "Canonical execution lock is unavailable."
+    async with lock:
+        if _active_session_token(app) is not None:
+            return False, "Управляемая сессия стала активной; orphan STOP отменён."
+        controller = app.charge_controller
+        if getattr(controller, "current_stage", controller.STAGE_IDLE) != controller.STAGE_IDLE:
+            return False, "Controller session became active; orphan STOP отменён."
+        if not retirement.validate(binding):
+            return False, "Persisted session identity changed; STOP отменён до команды."
+        try:
+            evidence = await port.request_verified_off_evidence()
+        except Exception as exc:
+            return False, f"Fresh Native verified OFF evidence unavailable: {type(exc).__name__}."
+        now = time.monotonic()
+        if (not isinstance(evidence, VerifiedOffEvidence)
+                or not evidence.transaction_id.strip()
+                or not isinstance(evidence.issued_monotonic, (int, float))
+                or not math.isfinite(evidence.issued_monotonic)
+                or evidence.issued_monotonic > now or now - evidence.issued_monotonic > 30.0):
+            return False, "Fresh Native verified OFF evidence unavailable; session retained."
+        retired = retirement.retire(binding["session_id"], binding=binding, off_evidence=evidence)
+        if retired is None:
+            return False, "Persisted session identity changed before durable retirement."
+        try:
+            retirement.finalize(binding["session_id"])
+        except Exception:
+            return False, "Durable retirement committed; guarded restore cleanup failed."
+        return True, "Orphan MAIN Guard retired durably after fresh Native Output OFF proof."
+
+
 async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]:
     """Stop only the session for which the operator confirmed destructive action.
 
@@ -74,6 +132,8 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
     """
     current = _active_session_token(app)
     if current is None:
+        if expected_token.startswith("orphan-main:"):
+            return await _stop_orphan_main_guard(app, expected_token)
         return False, "Управляемая сессия уже не активна или ownership неоднозначен."
     if current != expected_token:
         return False, "Подтверждение устарело: активная сессия изменилась. Команда не выполнена."
@@ -185,6 +245,17 @@ def install_operator_managed_stop(app: Any) -> None:
         )
         if actions is not None:
             return base
+        if (state.authority not in {hmi.HmiAuthority.AUTO, hmi.HmiAuthority.MANUAL}
+                and _active_session_token(app_arg) is None
+                and _orphan_stop_token(app_arg) is not None):
+            # An orphan persisted MAIN Guard has no live AUTO ownership, but
+            # must remain stoppable from the operator's existing STOP control.
+            rows = [list(row) for row in base.inline_keyboard]
+            rows.append([InlineKeyboardButton(
+                text="🛑 Завершить сохранённую сессию",
+                callback_data=STOP_CONFIRM_CALLBACK,
+            )])
+            return InlineKeyboardMarkup(inline_keyboard=rows)
         return _replace_legacy_power_toggle(base, state)
 
     hmi.build_operator_keyboard = stop_only_keyboard
@@ -216,15 +287,16 @@ def install_operator_managed_stop(app: Any) -> None:
     async def _managed_stop_confirm(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        if not await _route_stop_intent(app, call):
-            return
         token = _active_session_token(app)
-        if token is None:
-            await call.answer(
-                "Нет однозначной активной managed-сессии",
-                show_alert=True,
-            )
+        if token is not None and not await _route_stop_intent(app, call):
             return
+        if token is None:
+            # Persisted-only STOP has no active charge intent to route; the
+            # checked orphan path below owns exact-session retirement.
+            token = _orphan_stop_token(app)
+            if token is None:
+                await call.answer("Нет активной сессии или подтверждённого orphan MAIN Guard", show_alert=True)
+                return
         if not confirmations.issue_for_call(call, token):
             await call.answer(
                 "Не удалось привязать подтверждение к текущему чату",
@@ -232,10 +304,10 @@ def install_operator_managed_stop(app: Any) -> None:
             )
             return
         await call.answer()
-        label = _session_label(token)
+        label = "orphan persisted MAIN Guard" if token.startswith("orphan-main:") else _session_label(token)
         await call.message.answer(
             "<b>Остановить заряд?</b>\n\n"
-            f"Будет остановлена только текущая сессия <b>{html.escape(label)}</b>. "
+            f"Будет остановлена только подтверждённая запись сессии <b>{html.escape(label)}</b>. "
             "Команда выполняет verified Output OFF и не может включить выход. "
             "Подтверждение действительно ограниченное время и только в этом чате.",
             parse_mode=app.ParseMode.HTML,
@@ -277,7 +349,7 @@ def install_operator_managed_stop(app: Any) -> None:
             return
 
         current = _active_session_token(app)
-        if current != expected:
+        if current != expected and not (current is None and expected.startswith("orphan-main:")):
             await call.answer(
                 "Сессия изменилась — остановка отменена",
                 show_alert=True,
