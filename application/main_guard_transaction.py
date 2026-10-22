@@ -41,10 +41,13 @@ class MainGuardExecutionResult:
     reason: str
     off_confirmed: bool = False
     hardware_write_invoked: bool = False
+    diagnostic: Mapping[str, Any] | None = None
 
 
 class MainGuardExecutionFault(RuntimeError):
-    pass
+    def __init__(self, reason: str, *, diagnostic: Mapping[str, Any] | None = None):
+        super().__init__(reason)
+        self.diagnostic = diagnostic
 
 
 class _ConfirmedPrewriteFault(MainGuardExecutionFault):
@@ -186,14 +189,44 @@ async def execute_main_guard_reduction(
             if not isinstance(after, Mapping):
                 raise MainGuardExecutionFault("postflight_unavailable")
             measured, actual_i, actual_ocp = _positive_on_snapshot(after)
+            postflight_now = float(now())
             updated = guard.commit(
-                proposal_id=proposal.proposal_id, now_s=float(now()),
+                proposal_id=proposal.proposal_id, now_s=postflight_now,
                 measured_current_a=measured, measured_current_fresh=True,
                 current_limit_readback_a=actual_i, current_readback_fresh=True,
                 ocp_limit_a=actual_ocp, ocp_readback_fresh=True,
             )
             if updated.fault or updated.pending is not None:
-                raise MainGuardExecutionFault("postflight_guard_ack_rejected")
+                # Keep the pure guard as the acknowledgement authority, but do
+                # not erase its specific fault at this application boundary.
+                # Values below are limited to the three electrical readbacks
+                # and monotonic proposal times; no credentials or payloads.
+                fault = updated.fault or "proposal_still_pending"
+                expected_ocp = float(proposal.target_limit_a) + EXPECTED_OCP_HEADROOM_A
+                diagnostic = {
+                    "guard_fault": fault,
+                    "now_monotonic_s": postflight_now,
+                    "proposal_created_monotonic_s": float(proposal.created_at_s),
+                    "proposal_deadline_monotonic_s": float(proposal.deadline_s),
+                    "measured_current_a": measured,
+                    "iset_readback_a": actual_i,
+                    "iset_target_a": float(proposal.target_limit_a),
+                    "iset_delta_a": actual_i - float(proposal.target_limit_a),
+                    "ocp_readback_a": actual_ocp,
+                    "ocp_expected_a": expected_ocp,
+                    "ocp_delta_a": actual_ocp - expected_ocp,
+                    "readback_tolerance_a": READBACK_TOLERANCE_A,
+                    "native_age_s": {
+                        key: (after.get("_meta", {}).get(key, {}).get("age_s")
+                              if isinstance(after.get("_meta"), Mapping)
+                              and isinstance(after.get("_meta", {}).get(key), Mapping)
+                              else None)
+                        for key in _REQUIRED_NATIVE_KEYS
+                    },
+                }
+                raise MainGuardExecutionFault(
+                    f"postflight_guard_ack_rejected:{fault}", diagnostic=diagnostic
+                )
             await persist(updated.snapshot())  # post-ACK durable commit
             return MainGuardExecutionResult(updated, True, "readback_and_journal_verified", hardware_write_invoked=True)
         except asyncio.CancelledError:
@@ -220,6 +253,7 @@ async def execute_main_guard_reduction(
                 guard, False, type(exc).__name__ + ":" + str(exc),
                 off_confirmed=off_confirmed,
                 hardware_write_invoked=hardware_write_invoked,
+                diagnostic=getattr(exc, "diagnostic", None),
             )
 
 

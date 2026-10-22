@@ -206,6 +206,27 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.snapshots), 1)
         self.assertIsNotNone(self.snapshots[0]["pending"])
 
+    async def test_postflight_ack_rejection_preserves_guard_fault_and_readback_diagnostic(self):
+        original = self.owner.set_current
+
+        async def quantized_but_outside_guard_tolerance(value):
+            await original(value)
+            # Model a fresh native Iset register report outside the documented
+            # 0.02 A acknowledgement tolerance. Do not weaken that tolerance.
+            self.owner.live["set_current_readback_v2"] = value + 0.03
+
+        self.owner.set_current = quantized_but_outside_guard_tolerance
+        result = await self.transact()
+        self.assertFalse(result.verified)
+        self.assertTrue(result.off_confirmed)
+        self.assertIn("postflight_guard_ack_rejected:programmed_current_readback_mismatch",
+                      result.reason)
+        self.assertEqual(result.diagnostic["iset_target_a"], 5.0)
+        self.assertAlmostEqual(result.diagnostic["iset_delta_a"], 0.03)
+        self.assertEqual(result.diagnostic["readback_tolerance_a"], 0.02)
+        self.assertEqual(self.owner.events[-1], ("OFF",))
+        self.assertEqual(len(self.snapshots), 1)
+
     async def test_persistence_failure_after_hardware_ack_forces_off(self):
         self.fail_commit = True
         result = await self.transact()
