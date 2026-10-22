@@ -122,6 +122,23 @@ class D090TransactionTests(unittest.TestCase):
         self.assertTrue(self.service.running)
         self.assertEqual(before['transaction'], json.loads(self.tx.journal.read_text())['transaction'])
 
+    def test_legacy_started_without_candidate_inventory_is_read_only_fail_closed(self):
+        record = self._started_journal()
+        record.pop('candidate_inventory')
+        TX._atomic_json(self.tx.journal, record)
+        journal_before = self.tx.journal.read_bytes()
+        marker_before = (self.root / TX.MARKER).read_bytes()
+        proof_calls = self.proof_counter
+
+        with self.assertRaisesRegex(TX.TransactionError, 'legacy STARTED journal lacks candidate_inventory'):
+            self.tx.reconcile_started()
+
+        self.assertEqual(journal_before, self.tx.journal.read_bytes())
+        self.assertEqual(marker_before, (self.root / TX.MARKER).read_bytes())
+        self.assertEqual(proof_calls, self.proof_counter)
+        self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+        self.assertTrue(self.service.running)
+
     def test_started_reconciliation_refusals_preserve_service_and_journal(self):
         mutations = ('env', 'unit', 'marker', 'backup')
         for mutation in mutations:

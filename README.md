@@ -10,6 +10,23 @@ ESP-mediated path, not the authority for physical readbacks. See
 `docs/ESP_NATIVE_LIVE_EVIDENCE.md`. If direct ESP access fails, report
 `ESP ACCESS BLOCKED`, never invent fresh OFF proof.
 
+### D144: legacy D090 STARTED journals
+
+D090 reconciliation requires an exact journaled `candidate_inventory` for both
+the candidate app and generated venv. A historical STARTED journal without it
+is recognized and refused read-only. Source `930239c` (D125) kept the inventory
+in its in-memory `prepared` object but omitted it from the initial PREPARED
+journal record; later phase writes therefore could not restore it after a
+crash. The source SHA and release manifest can authenticate the app payload,
+but cannot authenticate the generated venv. Never fill this gap from the
+installed app/venv themselves or hand-edit the journal. Converge only if
+separately preserved candidate artifacts provide independent cryptographic
+identity for both trees; otherwise leave the transaction contained and use
+the existing D090 recovery path only after its normal fresh proof and backup
+checks pass. Recovery/reconciliation does not clear the process-local D084
+software quarantine. D090's edge boot-quarantine proof concerns hardware and
+must remain independently enforced.
+
 
 This repository contains the current modular production controller for an RD6018 power supply used for evidence-driven lead-acid charging/recovery and explicit general-purpose PSU ownership.
 

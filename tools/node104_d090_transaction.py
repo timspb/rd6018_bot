@@ -919,6 +919,17 @@ if not result.wasSuccessful():
         candidate_inventory = record.get('candidate_inventory')
         expected = record.get('backup_inventory')
         backup = self.backup_root / record['backup']
+        if candidate_inventory is None:
+            # D125 (930239c) wrote STARTED without carrying the prepared
+            # candidate inventory into the journal. The source SHA and
+            # RELEASE_MANIFEST authenticate the app payload, but do not
+            # authenticate the generated candidate venv. Never reconstruct
+            # an exact inventory from the currently installed tree itself.
+            raise TransactionError(
+                'legacy STARTED journal lacks candidate_inventory; '
+                'exact app+venv identity cannot be independently established; '
+                'remain contained and use documented D090 recovery'
+            )
         if (type(baseline) is not dict or type(candidate_inventory) is not dict
                 or type(candidate_inventory.get('app')) is not dict
                 or type(candidate_inventory.get('venv')) is not dict
