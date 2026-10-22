@@ -74,6 +74,24 @@ class CollectorProofTests(unittest.TestCase):
             'edge_boot_quarantine', 'physical_node_owner_count', 'active_session', 'source_nonces'})
         self.assertEqual(len(set(result['source_nonces'])), 2)
 
+    def test_active_session_and_quarantine_are_admitted_only_for_preserving_recovery(self):
+        value = snapshot()
+        value['active_session'] = True
+        value['journal_clear'] = False
+        with self.assertRaises(M.ProofError):
+            M.assemble_proof(value)
+        result = M.assemble_proof(value, state_preserving_recovery=True)
+        self.assertTrue(result['active_session'])
+        self.assertFalse(result['edge_lease_armed'])
+
+    def test_preserving_recovery_still_rejects_unsafe_physical_evidence(self):
+        value = snapshot()
+        value['active_session'] = True
+        value['journal_clear'] = False
+        value['esp']['output_state'] = 1
+        with self.assertRaisesRegex(M.ProofError, 'R18'):
+            M.assemble_proof(value, state_preserving_recovery=True)
+
     def test_native_state_stale_unknown_and_wrong_type_fail(self):
         self.assert_rejected(lambda s: s['esp']['output_meta'].__setitem__('age_s', 9))
         self.assert_rejected(lambda s: s['esp']['output_meta'].__setitem__('status', 'unknown'))

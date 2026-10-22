@@ -112,6 +112,119 @@ class D090TransactionTests(unittest.TestCase):
         TX._atomic_json(self.tx.journal, record)
         return record
 
+    def _software_recovery_executor(self):
+        def proof():
+            self.proof_counter += 1
+            return release.PhysicalOffProof(
+                time.time(), release.MACHINE_ID, self.service.main_pid(), True,
+                0.0, 0.0, True, 0.0, 0.0, True, False, False, 1, True,
+                (f'recovery-ha:{self.proof_counter}', f'recovery-esp:{self.proof_counter}'))
+        self.tx = TX.D090Transaction(
+            self.root, service=self.service, proof=proof, host_check=lambda: None,
+            acceptance=lambda: None, venv_builder=self.build_venv,
+            space_check=lambda _: None, candidate_validate=lambda *_: None,
+            offline=True, software_release=True, pinned=release.PINNED,
+            preimage_inventory_sha256='a' * 64,
+            release_admission=lambda: None)
+        return self.tx
+
+    def test_software_recovery_preserves_current_session_and_d084_quarantine(self):
+        self._started_journal()
+        session = self.root / 'state' / 'charge_session.json'
+        quarantine = self.root / 'state' / 'session_recovery_quarantine.json'
+        session.write_text('{"session_id":"e18eb85-current","stage":"Main Charge","state":"active"}\n')
+        quarantine.write_text('{"owner":"runtime.charge.recovery_quarantine_journal","schema_version":1,"quarantined":true,"incident_id":"b6b90c17","reason":"D084 active","identity":{"session_id":"e18eb85-current"}}\n')
+        live_state_before = TX.inventory(self.root / 'state')
+
+        result = self._software_recovery_executor().recover()
+
+        self.assertEqual('ROLLED_BACK', result['phase'])
+        self.assertEqual('old-app', (self.root / 'app' / 'version').read_text())
+        self.assertEqual('old-venv', (self.root / 'venv' / 'runtime').read_text())
+        self.assertEqual(live_state_before, TX.inventory(self.root / 'state'))
+        self.assertIn('e18eb85-current', session.read_text())
+        self.assertIn('b6b90c17', quarantine.read_text())
+        self.assertEqual(live_state_before, result['recovery_state_inventory'])
+        self.assertEqual((1, 1), (self.service.stops, self.service.starts))
+
+    def test_software_recovery_uses_distinct_pre_stop_stopped_and_post_start_proofs(self):
+        self._started_journal()
+        (self.root / 'state' / 'charge_session.json').write_text(
+            '{"session_id":"e18eb85-current","stage":"Main Charge","state":"active"}\n')
+        (self.root / 'state' / 'session_recovery_quarantine.json').write_text(
+            '{"owner":"runtime.charge.recovery_quarantine_journal","schema_version":1,"quarantined":true,"incident_id":"b6b90c17","reason":"D084 active","identity":{"session_id":"e18eb85-current"}}\n')
+        tx = self._software_recovery_executor()
+        events = []
+        original_proof, original_stop, original_start = tx.proof, self.service.stop, self.service.start
+        def proof():
+            events.append(('proof', self.service.running))
+            return original_proof()
+        def stop():
+            events.append(('stop', self.service.running))
+            original_stop()
+        def start():
+            events.append(('start', self.service.running))
+            original_start()
+        tx.proof, self.service.stop, self.service.start = proof, stop, start
+
+        tx.recover()
+
+        self.assertEqual(['proof', 'stop', 'proof', 'proof', 'start', 'proof'],
+                         [event[0] for event in events])
+        self.assertEqual([True, True, False, False, False, True],
+                         [event[1] for event in events])
+
+    def test_software_recovery_refuses_unstable_running_owner_before_stop(self):
+        self._started_journal()
+        tx = self._software_recovery_executor()
+        tx.service.stable = lambda _: False
+        with self.assertRaisesRegex(TX.TransactionError, 'not positively stable'):
+            tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+
+    def test_software_recovery_refuses_stale_or_unsafe_proof_before_stop(self):
+        self._started_journal()
+        tx = self._software_recovery_executor()
+        valid = tx.proof()
+        tx.proof = lambda: replace(valid, captured_at_epoch=time.time() - 45)
+        journal_before = tx.journal.read_bytes()
+        with self.assertRaisesRegex(release.GateError, 'expired'):
+            tx.recover()
+        self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+        self.assertTrue(self.service.running)
+        self.assertEqual(journal_before, tx.journal.read_bytes())
+
+        tx.proof = lambda: replace(valid, esp128_output_off=False)
+        with self.assertRaisesRegex(release.GateError, 'OFF proof'):
+            tx.recover()
+        self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+        self.assertTrue(self.service.running)
+
+    def test_software_recovery_refuses_state_drift_after_durable_snapshot(self):
+        self._started_journal()
+        (self.root / 'state' / 'charge_session.json').write_text(
+            '{"session_id":"e18eb85-current","stage":"Main Charge","state":"active"}\n')
+        (self.root / 'state' / 'session_recovery_quarantine.json').write_text(
+            '{"owner":"runtime.charge.recovery_quarantine_journal","schema_version":1,"quarantined":true,"incident_id":"b6b90c17","reason":"D084 active","identity":{"session_id":"e18eb85-current"}}\n')
+        tx = self._software_recovery_executor()
+        def mutate_after_snapshot(point):
+            if point == 'after-recovery-state-snapshot':
+                (self.root / 'state' / 'session_recovery_quarantine.json').write_text(
+                    '{"owner":"runtime.charge.recovery_quarantine_journal","schema_version":1,"quarantined":true,"incident_id":"b6b90c17","reason":"changed","identity":{"session_id":"e18eb85-current"}}\n')
+                raise RuntimeError('simulated interruption after snapshot')
+        tx.failpoint = mutate_after_snapshot
+        with self.assertRaisesRegex(RuntimeError, 'after snapshot'):
+            tx.recover()
+        self.assertFalse(self.service.running)
+        self.assertEqual(0, self.service.starts)
+        tx.failpoint = lambda _: None
+        with self.assertRaisesRegex(TX.TransactionError, 'state differs from its durable stopped snapshot'):
+            tx.recover()
+        self.assertFalse(self.service.running)
+        self.assertEqual(0, self.service.starts)
+        self.assertIn('recovery_state_inventory', json.loads(tx.journal.read_text()))
+
     def test_started_reconciliation_commits_without_service_lifecycle_change(self):
         before = self._started_journal()
         result = self.tx.reconcile_started()

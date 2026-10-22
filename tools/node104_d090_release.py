@@ -188,7 +188,8 @@ class PhysicalOffProof:
 
 
 def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
-                          require_service_stopped: bool = True) -> None:
+                          require_service_stopped: bool = True,
+                          allow_active_session: bool = False) -> None:
     """Validate fresh, independent, post-stop evidence; never reads hardware."""
     now = time.time() if now is None else now
     if not isinstance(proof, PhysicalOffProof):
@@ -217,7 +218,8 @@ def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
             raise GateError("both independent output voltage/current readings must be zero")
     if proof.edge_lease_armed or proof.edge_boot_quarantine:
         raise GateError("edge lease must be disarmed and boot quarantine clear")
-    if type(proof.physical_node_owner_count) is not int or proof.physical_node_owner_count != 1 or proof.active_session:
+    if (type(proof.physical_node_owner_count) is not int or proof.physical_node_owner_count != 1
+            or (proof.active_session and not allow_active_session)):
         raise GateError("exactly one independent physical node owner and no active persisted session required")
 
 

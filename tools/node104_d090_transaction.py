@@ -39,7 +39,7 @@ PHASES = ('PREPARED', 'STOPPED', 'BACKUP_DURABLE', 'CANDIDATE_READY',
 # Must be set from the separately captured and reviewed exact installed app
 # inventory. The old source tree is absent locally, so D090 leaves this OPEN.
 PREIMAGE_APP_INVENTORY_SHA256: str | None = 'ef24cf5a66abe0991e4e5ceb04988c25806ee9a74d9025ebde00bf3161919171'
-READ_ONLY_PROOF_COLLECTOR_SHA256: str | None = 'c6bf8f456c06da75816976946a9129ccd7619237b6e482874c25a4aa9951ace8'
+READ_ONLY_PROOF_COLLECTOR_SHA256: str | None = '36035de75a8ba822315b83dd018ba1e21ceea2293d70c7d14f51dd93bb3a419b'
 
 # Reviewed D103 *test candidate*, never a D090 production release pin.
 # The D104 trial has no production CLI entry point until a separately reviewed
@@ -331,6 +331,16 @@ class D090Transaction:
         self._proof_nonces.update(proof.source_nonces)
         return proof
 
+    def _read_recovery_proof(self, *, require_service_stopped: bool = True) -> release.PhysicalOffProof:
+        """Fresh physical OFF proof may describe live state we are preserving."""
+        proof = self.proof()
+        release.validate_physical_off(proof, require_service_stopped=require_service_stopped,
+                                      allow_active_session=self.software_release)
+        if any(nonce in self._proof_nonces for nonce in proof.source_nonces):
+            raise TransactionError('physical proof challenge reused within transaction')
+        self._proof_nonces.update(proof.source_nonces)
+        return proof
+
     def _trial_read_proofs(self, reference: dict[str, object] | None = None,
                            *, service_stopped: bool) -> TrialOffProof:
         self._read_proof(require_service_stopped=service_stopped)
@@ -540,6 +550,36 @@ if not result.wasSuccessful():
         if path.is_symlink() or not path.is_file():
             raise TransactionError('service unit unavailable or unsafe')
         return digest(path)
+
+    @staticmethod
+    def _assert_active_recovery_state(state_root: Path) -> None:
+        session = state_root / 'charge_session.json'
+        quarantine = state_root / 'session_recovery_quarantine.json'
+        for path in (session, quarantine):
+            if path.is_symlink() or not path.is_file():
+                raise TransactionError(f'live recovery state document missing/unsafe: {path.name}')
+        try:
+            session_doc = json.loads(session.read_text(encoding='utf-8'))
+            quarantine_doc = json.loads(quarantine.read_text(encoding='utf-8'))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise TransactionError('live recovery session/quarantine document is corrupt') from exc
+        session_id = (session_doc.get('session_id') or session_doc.get('v2_trace_session_id')) \
+            if type(session_doc) is dict else None
+        if (type(session_doc) is not dict or session_doc.get('state') == 'retired'
+                or type(session_id) is not str or not session_id.strip()
+                or type(session_doc.get('stage')) is not str or not session_doc['stage'].strip()):
+            raise TransactionError('live charge session is absent, retired, or unknown')
+        if (type(quarantine_doc) is not dict
+                or quarantine_doc.get('owner') != 'runtime.charge.recovery_quarantine_journal'
+                or quarantine_doc.get('schema_version') != 1
+                or quarantine_doc.get('quarantined') is not True
+                or type(quarantine_doc.get('reason')) is not str or not quarantine_doc['reason'].strip()
+                or type(quarantine_doc.get('incident_id')) is not str or not quarantine_doc['incident_id'].strip()
+                or type(quarantine_doc.get('identity')) is not dict):
+            raise TransactionError('live D084 recovery quarantine is absent, retired, or unknown')
+        incident_session = quarantine_doc['identity'].get('session_id')
+        if incident_session is not None and incident_session != session_id:
+            raise TransactionError('live D084 quarantine belongs to a different charge session')
 
     @_transaction_locked
     def activate(self, staged_release: Path, *, acceptance_record: dict[str, object], evidence_dir: Path,
@@ -1037,10 +1077,23 @@ if not result.wasSuccessful():
             if not backup.is_dir() or backup.is_symlink() or type(expected) is not dict or inventory(backup) != expected:
                 raise TransactionError('backup missing/corrupt; terminal transaction requires operator review')
             return record
-        if self.service.main_pid() != 0:
+        if self.software_release and self.service.active():
+            pid = self.service.main_pid()
+            if pid <= 0:
+                raise TransactionError('active service has no positive MainPID; recovery refused')
+            marker_value = (self.root / MARKER).read_text(encoding='ascii').strip()
+            if marker_value not in (self.pinned.source_sha, self.pinned.old_source_sha) or not self.service.stable(marker_value):
+                raise TransactionError('running service is not positively stable at a pinned SHA; recovery refused')
+            self._read_recovery_proof(require_service_stopped=False)
+        if self.service.active():
+            if self.service.main_pid() <= 0:
+                raise TransactionError('active service has no positive MainPID; recovery refused')
             self.service.stop()
         if self.service.main_pid() != 0: raise TransactionError('process remains live; recovery contained')
-        self._read_proof(require_service_stopped=True)
+        if self.software_release:
+            self._read_recovery_proof()
+        else:
+            self._read_proof(require_service_stopped=True)
         if not backup.is_dir() or backup.is_symlink() or type(expected) is not dict or inventory(backup) != expected:
             raise TransactionError('backup missing/corrupt; service remains stopped')
         for name in ('.env', MARKER, 'service.unit'):
@@ -1061,13 +1114,28 @@ if not result.wasSuccessful():
         candidate_marker = hashlib.sha256((self.pinned.source_sha + '\n').encode()).hexdigest()
         if (digest(self.root / '.env') != record['baseline']['env']
                 or self._unit_digest() != record['baseline']['unit']
-                or (inventory(self.root / 'state') != (inventory(backup / 'state') if self.software_release
-                                                       else record['baseline']['state']))
+                or (not self.software_release and inventory(self.root / 'state') != record['baseline']['state'])
                 or current_marker not in (record['baseline']['marker'], candidate_marker)):
             raise TransactionError('environment/unit/state/marker changed; service remains stopped')
-        # Restore every inventoried component through sibling directories and
-        # atomic renames; preserve state and venv exactly from the backup.
-        for name in ('app', 'state', 'venv'):
+        # Software recovery snapshots the stopped live state and never copies
+        # the historical backup state over it. This preserves newer sessions
+        # and sticky recovery quarantine across code rollback.
+        if self.software_release:
+            self._assert_active_recovery_state(self.root / 'state')
+            state_now = inventory(self.root / 'state')
+            state_snapshot = record.get('recovery_state_inventory')
+            if state_snapshot is None:
+                record['recovery_state_inventory'] = state_now
+                record['recovery_state_captured_at_epoch'] = time.time()
+                record['recovery_state_transaction'] = record['transaction']
+                _atomic_json(self.journal, record)
+                self.failpoint('after-recovery-state-snapshot')
+            elif type(state_snapshot) is not dict or state_now != state_snapshot:
+                raise TransactionError('live recovery state differs from its durable stopped snapshot; remain contained')
+        # Restore only executable code/environment. Runtime state belongs to
+        # the live session and is not a rollback artifact for software releases.
+        restore_names = ('app', 'venv') if self.software_release else ('app', 'state', 'venv')
+        for name in restore_names:
             replacement = self.root / ('restore-' + name + '-' + str(record['transaction']))
             if replacement.exists(): shutil.rmtree(replacement)
             shutil.copytree(backup / name, replacement, symlinks=True)
@@ -1080,9 +1148,19 @@ if not result.wasSuccessful():
         _atomic_copy(backup / MARKER, self.root / MARKER)
         if self._unit_digest() != digest(backup / 'service.unit'):
             raise TransactionError('service unit changed; remain contained')
-        self._read_proof(require_service_stopped=True)
+        if self.software_release:
+            if inventory(self.root / 'state') != record['recovery_state_inventory']:
+                raise TransactionError('live recovery state changed before service restart; remain contained')
+            self._read_recovery_proof()
+        else:
+            self._read_proof(require_service_stopped=True)
         self.service.start()
-        self._read_proof(require_service_stopped=False)
+        if self.software_release:
+            if inventory(self.root / 'state') != record['recovery_state_inventory']:
+                raise TransactionError('live recovery state changed during service start')
+            self._read_recovery_proof(require_service_stopped=False)
+        else:
+            self._read_proof(require_service_stopped=False)
         if not self.service.active() or self.service.main_pid() <= 0 or not self.service.stable(self.pinned.old_source_sha):
             raise TransactionError('restored service not positively stable; inspect contained state')
         record['phase'] = 'ROLLED_BACK'
@@ -1147,8 +1225,11 @@ def main(argv: list[str] | None = None) -> int:
     python = Path(release.ROOT) / 'venv' / 'bin' / 'python'
 
     def read_proof() -> release.PhysicalOffProof:
-        proof_env = ({**os.environ, "D090_EXPECTED_ESP_VERSION": pinned.firmware, "D090_SOFTWARE_RELEASE": "1"}
-                     if software_profile else None)
+        proof_env = {**os.environ, "D090_EXPECTED_ESP_VERSION": pinned.firmware}
+        if software_profile:
+            proof_env["D090_SOFTWARE_RELEASE"] = "1"
+        if software_profile and args.phase == 'recover':
+            proof_env["D090_STATE_PRESERVING_RECOVERY"] = "1"
         raw = subprocess.check_output([str(python), str(collector)], text=True,
                                       stderr=subprocess.STDOUT, timeout=15,
                                       env=proof_env)

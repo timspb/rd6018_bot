@@ -126,6 +126,61 @@ journals, impossible rename states, and uninitialized or arbitrary CLI roots
 are blocked. Green simulation tests are software evidence only and do not
 authorize deployment or physical validation.
 
+## D146: recover a Python release while preserving live state
+
+Use the existing D090 transaction owner and its existing node104 service. This
+path is for a journaled Python release recovery where current
+`charge_session.json` and an active D084 `session_recovery_quarantine.json`
+must survive. It restores the journaled `app/`, `venv/`, `.env` and deployment
+marker under D090's existing journal/backup checks. It never restores
+`state/` from the historical backup. The durable recovery journal records the
+exact post-stop state inventory before code replacement.
+
+Before running recovery, the existing owner must:
+
+1. Capture a new direct ESP Native subscription and verify matching device
+   identity, fresh `SensorState` R18 OFF and zero measured U/I, fresh edge
+   callbacks showing lease disarmed, no trip/boot quarantine/autonomous mode,
+   900 s lease TTL and Modbus age at most 20 s. Read R16, setpoints, OVP/OCP
+   and battery voltage as documented in `ESP_NATIVE_LIVE_EVIDENCE.md`.
+2. Confirm the existing service is active with one positive MainPID and stable
+   at the journal's pinned source or old SHA. Recovery takes a separate fresh
+   physical proof after stop; pre-stop evidence is never reused.
+3. Confirm the current session document is active and the D084 quarantine
+   document is a valid active incident. The stopped state inventory is
+   recorded and checked again before restart. Missing, corrupt, changed or
+   retired documents block recovery.
+4. Use the verified D090 journal, exact backup inventory, current source
+   profile and proof-collector SHA. Do not alter the 900 s lease, firmware,
+   R16/OVP/OCP, `.env`, service unit, or deployment/release authorization.
+
+Run the existing D090 owner from node104 with its already reviewed profile and
+collector paths (substitute the exact installed paths and profile SHA):
+
+```bash
+sudo /opt/services/rd6018-bot/venv/bin/python \
+  /opt/services/rd6018-bot/tools/node104_d090_transaction.py recover \
+  --python-release-profile /opt/services/rd6018-bot/d090/<reviewed-profile>.json \
+  --proof-collector /opt/services/rd6018-bot/d090/node104_d091_physical_proof_collector.py
+```
+
+The D090 owner stops the existing service only after stable pre-stop identity
+and fresh physical proof pass, requires another fresh Native proof while
+stopped, verifies the complete backup and current-state snapshot, restores only
+the old app and virtualenv, then obtains a fresh post-start proof and positive
+service stability. A pre-stop refusal leaves service lifecycle untouched.
+Failures after stopping leave the service stopped; a failed post-start proof or
+stability check requires operator review of the current service and journal.
+Do not invoke recovery repeatedly to work around a failed gate; diagnose the
+recorded condition and obtain new live proof before a deliberate retry. This
+procedure does not clear D084 or resume the session. The restored process must
+remain fail-closed under the preserved quarantine.
+
+This repository-side worker performs no node104 file or service operation.
+The live ESP proof, service stop/start, and recovery are exclusively for the
+existing authorized owner after this source change has been reviewed and
+deployed through its normal D090 process.
+
 ## Install requested revision
 
 For the requested revision:

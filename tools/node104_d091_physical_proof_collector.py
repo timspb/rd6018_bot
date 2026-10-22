@@ -150,7 +150,7 @@ def _journal_state(path: Path) -> None:
     raise ProofError('quarantine journal is active or has unknown schema')
 
 
-def assemble_proof(snapshot: dict[str, Any]) -> dict[str, Any]:
+def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool = False) -> dict[str, Any]:
     """Validate independent fake/live snapshots and return exact D090 JSON schema."""
     if type(snapshot) is not dict:
         raise ProofError('snapshot must be an object')
@@ -208,9 +208,9 @@ def assemble_proof(snapshot: dict[str, Any]) -> dict[str, Any]:
                 raise ProofError('edge lease TTL is not 900 seconds')
         elif _bool(record.get('value')):
             raise ProofError('edge containment/authority/fault flag is asserted: ' + key)
-    if snapshot.get('active_session') is not False:
+    if snapshot.get('active_session') is not False and not state_preserving_recovery:
         raise ProofError('active or uncertain session document')
-    if snapshot.get('journal_clear') is not True:
+    if snapshot.get('journal_clear') is not True and not state_preserving_recovery:
         raise ProofError('quarantine journal is active or uncertain')
     nonces = snapshot.get('source_nonces')
     if type(nonces) is not tuple or len(nonces) != 2 or any(type(n) is not str or not n for n in nonces) or len(set(nonces)) != 2:
@@ -220,7 +220,8 @@ def assemble_proof(snapshot: dict[str, Any]) -> dict[str, Any]:
         'ha102_output_off': True, 'ha102_voltage_v': float(ha['voltage']), 'ha102_current_a': float(ha['current']),
         'esp128_output_off': True, 'esp128_voltage_v': float(esp['voltage']), 'esp128_current_a': float(esp['current']),
         'native_sensor_state_fresh': True, 'edge_lease_armed': False, 'edge_boot_quarantine': False,
-        'physical_node_owner_count': 1, 'active_session': False, 'source_nonces': list(nonces),
+        'physical_node_owner_count': 1, 'active_session': snapshot['active_session'],
+        'source_nonces': list(nonces),
     }
 
 
@@ -434,17 +435,33 @@ async def collect_live() -> dict[str, Any]:
         }
         session_path = Path(os.getenv('RD6018_STATE_DIR', str(ROOT / 'state'))) / 'charge_session.json'
         journal_path = session_path.parent / 'session_recovery_quarantine.json'
+        recovery_mode = os.environ.get('D090_STATE_PRESERVING_RECOVERY') == '1'
+        if recovery_mode:
+            if session_path.exists():
+                if session_path.is_symlink() or not session_path.is_file():
+                    raise ProofError('session document is not a regular file')
+                try:
+                    session_data = json.loads(session_path.read_text(encoding='utf-8'))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    raise ProofError('session document is unreadable')
+                if type(session_data) is not dict:
+                    raise ProofError('session document schema is unknown')
+                active_session = session_data.get('state') != 'retired'
+            else:
+                active_session = False
+        else:
+            active_session = _session_state(
+                session_path, software_release=os.environ.get('D090_SOFTWARE_RELEASE') == '1')
         snapshot = {
             'captured_at_epoch': time.time(), 'host_machine_id': Path('/etc/machine-id').read_text().strip(),
             'service_main_pid': pid, 'matching_bot_process_count': proc_count,
             'physical_device_count': len(physical_ids), 'device_info': info,
             'ha': ha_snapshot, 'esp': esp_snapshot, 'edge': edge,
-            'active_session': _session_state(
-                session_path, software_release=os.environ.get('D090_SOFTWARE_RELEASE') == '1'
-            ), 'journal_clear': True,
+            'active_session': active_session, 'journal_clear': recovery_mode,
             'source_nonces': (uuid.uuid4().hex, uuid.uuid4().hex),
         }
-        _journal_state(journal_path)
+        if not recovery_mode:
+            _journal_state(journal_path)
         return snapshot
     finally:
         await asyncio.gather(ha.close(), esp.close(), return_exceptions=True)
@@ -452,7 +469,9 @@ async def collect_live() -> dict[str, Any]:
 
 def main() -> int:
     try:
-        result = assemble_proof(asyncio.run(asyncio.wait_for(collect_live(), timeout=35)))
+        result = assemble_proof(
+            asyncio.run(asyncio.wait_for(collect_live(), timeout=35)),
+            state_preserving_recovery=os.environ.get('D090_STATE_PRESERVING_RECOVERY') == '1')
         print(json.dumps(result, sort_keys=True, separators=(',', ':'), allow_nan=False))
         return 0
     except Exception as exc:
