@@ -223,6 +223,15 @@ async def execute_main_guard_reduction(
                               else None)
                         for key in _REQUIRED_NATIVE_KEYS
                     },
+                    "native_evidence": {
+                        key: {
+                            field: after.get("_meta", {}).get(key, {}).get(field)
+                            for field in ("source", "native_type", "subscription_timestamp_monotonic")
+                        }
+                        for key in _REQUIRED_NATIVE_KEYS
+                        if isinstance(after.get("_meta"), Mapping)
+                        and isinstance(after.get("_meta", {}).get(key), Mapping)
+                    },
                 }
                 raise MainGuardExecutionFault(
                     f"postflight_guard_ack_rejected:{fault}", diagnostic=diagnostic

@@ -2895,8 +2895,9 @@ async def data_logger() -> None:
                                     )
                                 else:
                                     logger.warning(
-                                        "MAIN Guard reduction not verified: %s; OFF=%s",
+                                        "MAIN Guard reduction not verified: %s; OFF=%s; diagnostic=%s",
                                         outcome.reason, outcome.off_confirmed,
+                                        outcome.diagnostic,
                                     )
                     actions = (await run_charge_session_tick(
                         charge_controller,
