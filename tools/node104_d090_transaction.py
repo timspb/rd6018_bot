@@ -576,7 +576,8 @@ if not result.wasSuccessful():
         backup = self.backup_root / ('d090-' + transaction)
         record: dict[str, object] = {'schema': 1, 'node': release.NODE, 'source_sha': self.pinned.source_sha,
             'old_sha': self.pinned.old_source_sha, 'transaction': transaction, 'phase': 'PREPARED',
-            'candidate': candidate.name, 'backup': backup.name, 'baseline': prepared['baseline']}
+            'candidate': candidate.name, 'candidate_inventory': prepared['candidate_inventory'],
+            'backup': backup.name, 'baseline': prepared['baseline']}
         _atomic_json(self.journal, record)
         try:
             self.failpoint('after-journal-before-stop')
@@ -887,6 +888,86 @@ if not result.wasSuccessful():
         return record
 
     @_transaction_locked
+    def reconcile_started(self) -> dict[str, object]:
+        """Non-disruptively finish a fully verified STARTED candidate transaction.
+
+        This is intentionally separate from recover(): every failed check is
+        read-only, while recover() retains its historical rollback semantics.
+        """
+        if not self.offline and (self.root != Path(release.ROOT) or self.host_check is not production_host_check):
+            raise TransactionError('production reconciliation requires the pinned root and node identity verifier')
+        self.host_check()
+        if (self.root.is_symlink() or not self.root.is_dir() or self.backup_root.is_symlink()
+                or not self.backup_root.is_dir()):
+            raise TransactionError('unsafe reconciliation root/layout')
+        if not self.journal.is_file() or self.journal.is_symlink():
+            raise TransactionError('journal missing/corrupt')
+        try:
+            record = json.loads(self.journal.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise TransactionError('journal corrupt') from exc
+        if (type(record) is not dict or type(record.get('schema')) is not int or record.get('schema') != 1
+                or record.get('node') != release.NODE or record.get('phase') != 'STARTED'
+                or record.get('source_sha') != self.pinned.source_sha
+                or record.get('old_sha') != self.pinned.old_source_sha
+                or type(record.get('transaction')) is not str or len(record['transaction']) != 32
+                or any(c not in '0123456789abcdef' for c in record['transaction'])
+                or record.get('backup') != 'd090-' + record['transaction']
+                or record.get('candidate') != 'candidate-' + record['transaction']):
+            raise TransactionError('STARTED journal identity invalid')
+        baseline = record.get('baseline')
+        candidate_inventory = record.get('candidate_inventory')
+        expected = record.get('backup_inventory')
+        backup = self.backup_root / record['backup']
+        if (type(baseline) is not dict or type(candidate_inventory) is not dict
+                or type(candidate_inventory.get('app')) is not dict
+                or type(candidate_inventory.get('venv')) is not dict
+                or type(expected) is not dict or backup.is_symlink()
+                or not backup.is_dir() or inventory(backup) != expected):
+            raise TransactionError('durable backup missing/corrupt')
+        for name in ('.env', MARKER, 'service.unit'):
+            path = backup / name
+            if path.is_symlink() or not path.is_file():
+                raise TransactionError(f'backup configuration unsafe: {name}')
+        if (inventory(backup / 'app') != baseline.get('app')
+                or inventory(backup / 'venv') != baseline.get('venv')
+                or digest(backup / '.env') != baseline.get('env')
+                or digest(backup / 'service.unit') != baseline.get('unit')
+                or digest(backup / MARKER) != baseline.get('marker')):
+            raise TransactionError('backup differs from recorded pre-transaction identity')
+        marker = self.root / MARKER
+        env = self.root / '.env'
+        if (marker.is_symlink() or env.is_symlink() or not marker.is_file() or not env.is_file()
+                or marker.read_text(encoding='ascii').strip() != self.pinned.old_source_sha
+                or digest(env) != baseline.get('env') or self._unit_digest() != baseline.get('unit')):
+            raise TransactionError('live environment/unit/marker differs; refusing reconciliation')
+        # A newly acquired native OFF proof validates fresh OFF, zero U/I,
+        # unarmed lease, correct node and absence of active session/quarantine.
+        proof = self._read_proof(require_service_stopped=False)
+        if proof.service_main_pid != self.service.main_pid():
+            raise TransactionError('fresh physical proof is bound to another service process')
+        if (not self.service.active() or self.service.main_pid() <= 0
+                or not self.service.stable(self.pinned.source_sha)):
+            raise TransactionError('candidate service is not positively stable')
+        if (inventory(self.root / 'app') != candidate_inventory['app']
+                or inventory(self.root / 'venv') != candidate_inventory['venv']):
+            raise TransactionError('live app/venv differ from the journaled exact candidate inventory')
+        # Re-read journal identity immediately before the sole state change.
+        try:
+            latest = json.loads(self.journal.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise TransactionError('journal identity changed during reconciliation') from exc
+        if latest != record:
+            raise TransactionError('journal identity changed during reconciliation')
+        self.failpoint('before-reconcile-marker')
+        _atomic_text(marker, self.pinned.source_sha)
+        self.failpoint('after-reconcile-marker')
+        record['phase'] = 'COMMITTED'
+        record['reconciled_without_restart'] = True
+        _atomic_json(self.journal, record)
+        return record
+
+    @_transaction_locked
     def recover(self) -> dict[str, object]:
         if not self.offline and (self.root != Path(release.ROOT) or self.host_check is not production_host_check):
             raise TransactionError('production recovery requires the pinned root and node identity verifier')
@@ -1016,7 +1097,7 @@ def production_venv_builder(path: Path, app: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', choices=('prepare', 'activate', 'recover'))
+    parser.add_argument('phase', choices=('prepare', 'activate', 'recover', 'verify-reconcile-started'))
     parser.add_argument('--release', type=Path)
     parser.add_argument('--acceptance', type=Path)
     parser.add_argument('--evidence-dir', type=Path)
@@ -1047,7 +1128,7 @@ def main(argv: list[str] | None = None) -> int:
                               else READ_ONLY_PROOF_COLLECTOR_SHA256)
     if collector.is_symlink() or not collector.is_file() or digest(collector) != expected_collector_sha:
         parser.error('proof collector differs from its reviewed SHA256 pin')
-    if args.phase != 'recover':
+    if args.phase not in ('recover', 'verify-reconcile-started'):
         if not args.release or not args.acceptance or (not args.evidence_dir and not software_profile):
             parser.error('--release and --acceptance required; physical release also requires --evidence-dir')
         if not software_profile and (release.PINNED.firmware_digest is None or release.PHYSICAL_SIGNER_KEY_SHA256 is None):
@@ -1074,6 +1155,8 @@ def main(argv: list[str] | None = None) -> int:
         release_admission=check_release_policy)
     if args.phase == 'recover':
         result = executor.recover()
+    elif args.phase == 'verify-reconcile-started':
+        result = executor.reconcile_started()
     else:
         try:
             acceptance_record = json.loads(args.acceptance.read_text(encoding='utf-8'))

@@ -88,6 +88,30 @@ service only after another fresh OFF proof. Missing or corrupt evidence leaves
 the service contained. Completed recovery is idempotent and still checks the
 backup inventory.
 
+### Explicit STARTED reconciliation
+
+`verify-reconcile-started` is a separate, narrow command for the crash window
+after candidate startup but before `.deploy_sha` and the journal reached
+`COMMITTED`. It accepts only a schema-1 `STARTED` journal matching immutable
+node/source/old-source pins and a transaction-specific durable backup with its
+complete recorded inventory. It also requires unchanged `.env` and service unit,
+the old marker, fresh independent native OFF/zero-U/I/unarmed proof,
+and a positively stable candidate process. Any failed check refuses without
+stopping the service or changing the journal. Success advances the marker and
+journal without restarting the service. Ordinary `recover` is unchanged and
+retains rollback behavior. This command does not clear D084 or any other
+application quarantine.
+
+Invocation remains gated on the configured pinned read-only proof collector:
+
+```bash
+python tools/node104_d090_transaction.py verify-reconcile-started --proof-collector PATH [--python-release-profile PATH]
+```
+
+This is source-only software behavior, not deployment approval or physical
+validation. Obtain current direct ESP Native evidence before a live operational
+check.
+
 The service adapter checks systemd active state, MainPID, zero restarts, exactly
 one `/proc` bot process, and healthy polling startup logs. The independent
 physical proof then checks Output OFF and disarmed lease, while the transaction

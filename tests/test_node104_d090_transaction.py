@@ -88,6 +88,66 @@ class D090TransactionTests(unittest.TestCase):
             prepared = self.tx.prepare(self.staged, acceptance_record={}, evidence_dir=self.root)
             return self.tx.activate(self.staged, acceptance_record={}, evidence_dir=self.root, prepared=prepared)
 
+    def _started_journal(self):
+        baseline = self.tx._baseline()
+        ident = '818df047a6e64a22905d6da900162a86'
+        backup = self.root / 'backups' / ('d090-' + ident)
+        backup.mkdir()
+        for name in ('app', 'state', 'venv'):
+            import shutil
+            shutil.copytree(self.root / name, backup / name, symlinks=True)
+        for name in ('.env', TX.MARKER):
+            import shutil
+            shutil.copy2(self.root / name, backup / name)
+        import shutil
+        shutil.copy2(self.root / 'service.unit', backup / 'service.unit')
+        (self.root / 'app' / 'version').write_text('candidate-app')
+        (self.root / 'venv' / 'runtime').write_text('candidate-venv')
+        record = {'schema': 1, 'node': release.NODE, 'source_sha': release.SOURCE_SHA,
+                  'old_sha': release.OLD_SHA, 'transaction': ident, 'phase': 'STARTED',
+                  'candidate': 'candidate-' + ident, 'backup': backup.name,
+                  'candidate_inventory': {'app': TX.inventory(self.root / 'app'),
+                                          'venv': TX.inventory(self.root / 'venv')},
+                  'baseline': baseline, 'backup_inventory': TX.inventory(backup)}
+        TX._atomic_json(self.tx.journal, record)
+        return record
+
+    def test_started_reconciliation_commits_without_service_lifecycle_change(self):
+        before = self._started_journal()
+        result = self.tx.reconcile_started()
+        self.assertEqual('COMMITTED', result['phase'])
+        self.assertTrue(result['reconciled_without_restart'])
+        self.assertEqual(release.SOURCE_SHA, (self.root / TX.MARKER).read_text().strip())
+        self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+        self.assertTrue(self.service.running)
+        self.assertEqual(before['transaction'], json.loads(self.tx.journal.read_text())['transaction'])
+
+    def test_started_reconciliation_refusals_preserve_service_and_journal(self):
+        mutations = ('env', 'unit', 'marker', 'backup')
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.tearDown(); self.setUp()
+                self._started_journal()
+                journal_before = self.tx.journal.read_bytes()
+                if mutation == 'env': (self.root / '.env').write_text('TOKEN=changed\n')
+                elif mutation == 'unit': (self.root / 'service.unit').write_text('changed')
+                elif mutation == 'marker': (self.root / TX.MARKER).write_text(release.SOURCE_SHA + '\n')
+                else: (self.root / 'backups' / json.loads(journal_before)['backup'] / 'app' / 'version').write_text('tampered')
+                with self.assertRaises(TX.TransactionError): self.tx.reconcile_started()
+                self.assertEqual(journal_before, self.tx.journal.read_bytes())
+                self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+                self.assertTrue(self.service.running)
+
+    def test_started_reconciliation_failure_before_marker_is_read_only(self):
+        self._started_journal()
+        journal_before = self.tx.journal.read_bytes()
+        self.tx.failpoint = lambda point: (_ for _ in ()).throw(RuntimeError('injected')) if point == 'before-reconcile-marker' else None
+        with self.assertRaisesRegex(RuntimeError, 'injected'):
+            self.tx.reconcile_started()
+        self.assertEqual(journal_before, self.tx.journal.read_bytes())
+        self.assertEqual(release.OLD_SHA, (self.root / TX.MARKER).read_text().strip())
+        self.assertEqual((0, 0), (self.service.stops, self.service.starts))
+
     def test_healthy_transaction_commits_exact_sha_and_preserves_runtime_inputs(self):
         state_before = (self.root / 'state' / 'battery.db').read_bytes()
         env_before = (self.root / '.env').read_bytes()
