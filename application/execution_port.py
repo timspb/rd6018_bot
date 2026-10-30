@@ -8,6 +8,7 @@ existing execution owner, verifies readback, and records the correlation envelop
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import wraps
 from dataclasses import dataclass
 from time import time
@@ -22,6 +23,8 @@ from .guard_execution_owner_lock import GuardExecutionOwnerLock
 from .operator_recovery_clearance import VerifiedOffEvidence
 from .session_recovery_guard import SessionRecoveryGuard
 
+
+_clearance_logger = logging.getLogger('rd6018.recovery_clearance')
 
 NATIVE_OFF_EVIDENCE_TIMEOUT_S = 10.0
 NATIVE_OFF_EVIDENCE_POLL_INTERVAL_S = 0.20
@@ -233,17 +236,26 @@ class ExecutionPort:
     async def request_verified_off_evidence(self) -> VerifiedOffEvidence | None:
         """Clearance-only proof from a post-completion native ESPHome callback."""
         import math
-        if not await self.request_verified_off():
+        try:
+            off_ok = await self.request_verified_off()
+        except Exception as exc:
+            _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_exception type=%s", type(exc).__name__)
+            return None
+        if not off_ok:
+            _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_rejected")
             return None
         off_completed_at = _time.monotonic()
         reader = getattr(self.execution_owner, "get_native_physical_output_report", None)
         if not callable(reader):
+            _clearance_logger.warning("CLEARANCE_OFF_FAILED step=native_reader_missing")
             return None
         deadline = asyncio.get_running_loop().time() + NATIVE_OFF_EVIDENCE_TIMEOUT_S
+        last_reason = "no_native_report"
         while True:
             try:
                 report = await reader()
-            except Exception:
+            except Exception as exc:
+                last_reason = 'native_reader_exception:' + type(exc).__name__
                 report = None
             if isinstance(report, tuple) and len(report) == 2:
                 value, meta = report
@@ -273,7 +285,14 @@ class ExecutionPort:
                             and meta.get("native_type") == "SensorState"
                             and str(meta.get("status", "")).lower() == "ok"):
                         return VerifiedOffEvidence(f"execution-port-off:{_time.time_ns()}", _time.monotonic())
+                    last_reason = (
+                        "native_state_invalid" if not valid_value else
+                        "no_post_off_callback" if not valid_timestamp else
+                        "native_callback_stale" if not (fresh_by_clock and valid_age) else
+                        "native_type_or_status_invalid"
+                    )
             if asyncio.get_running_loop().time() >= deadline:
+                _clearance_logger.warning("CLEARANCE_OFF_FAILED step=native_evidence_timeout reason=%s", last_reason)
                 return None
             await asyncio.sleep(min(NATIVE_OFF_EVIDENCE_POLL_INTERVAL_S,
                                     max(0.0, deadline - asyncio.get_running_loop().time())))
