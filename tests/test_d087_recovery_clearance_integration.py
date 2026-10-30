@@ -237,5 +237,38 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
         asyncio.run(exercise())
 
 
+    def test_clearance_reports_off_failure_without_retiring_session(self):
+        from application.operator_recovery_clearance import AuthorizedRecoveryOperator
+        from types import SimpleNamespace
+        class Port:
+            session_recovery_guard = SimpleNamespace(quarantined=True)
+            last_off_clearance_failure = "turn_off_OutputOffNotConfirmed: no fresh heartbeat"
+            _guard_owner_lock = GuardExecutionOwnerLock()
+            async def request_verified_off_evidence(self):
+                return None
+        class Retirement:
+            def __init__(self): self.retired = False
+            def session_id(self): return "S1"
+            def validate(self, binding): return True
+            def retire(self, *args, **kwargs):
+                self.retired = True
+                raise AssertionError("retirement forbidden without OFF receipt")
+        class Journal:
+            def incident_binding(self):
+                return {"session_id": "S1", "battery_id": "B1", "incident_id": "I1"}
+        class Authority:
+            def authorize_clearance(self, context):
+                return AuthorizedRecoveryOperator("operator-1")
+        retirement = Retirement()
+        service = OperatorRecoveryClearanceService(
+            execution_port=Port(), journal=Journal(),
+            operator_authority=Authority(), session_retirement=retirement)
+        result = asyncio.run(service.clear(SimpleNamespace(incident_id="I1")))
+        self.assertFalse(result.cleared)
+        self.assertIn("no fresh heartbeat", result.reason)
+        self.assertFalse(retirement.retired)
+
+
+
 if __name__ == "__main__":
     unittest.main()

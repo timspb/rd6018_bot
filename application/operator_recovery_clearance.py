@@ -90,6 +90,9 @@ class OperatorRecoveryClearanceService:
                     or not math.isfinite(evidence.issued_monotonic)
                     or evidence.issued_monotonic > now
                     or now - evidence.issued_monotonic > 30.0):
+                detail = getattr(self._port, "last_off_clearance_failure", None)
+                if isinstance(detail, str) and detail:
+                    return RecoveryClearanceResult(False, "fresh_off_evidence_unavailable: " + detail[:160])
                 return RecoveryClearanceResult(False, "fresh_off_evidence_unavailable")
             try:
                 retired = retire_fn(session_id, binding=binding, off_evidence=evidence)
