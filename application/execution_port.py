@@ -243,7 +243,7 @@ class ExecutionPort:
         try:
             off_ok = await self.request_verified_off()
         except Exception as exc:
-            reason = str(exc).strip().replace("\\n", " ")[:120]
+            reason = " ".join(str(exc).split())[:120]
             self.last_off_clearance_failure = (
                 "turn_off_" + type(exc).__name__ +
                 (": " + reason if reason else "")
