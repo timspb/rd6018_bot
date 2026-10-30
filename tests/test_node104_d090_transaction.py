@@ -371,7 +371,41 @@ class D090TransactionTests(unittest.TestCase):
             self.tx.recover()
         self.assertFalse(self.service.running)
 
-    def test_backup_corruption_blocks_recovery_and_leaves_service_stopped(self):
+    def test_d134_started_live_state_drift_rejected_without_stop(self):
+        self._started_journal()
+        original_journal = self.tx.journal.read_bytes()
+        (self.root / 'state' / 'battery.db').write_bytes(b'new-retired-session-state')
+        stops_before = self.service.stops
+        with self.assertRaisesRegex(TX.TransactionError, 'live preimage drift'):
+            self.tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual(self.service.stops, stops_before)
+        self.assertEqual(self.tx.journal.read_bytes(), original_journal)
+
+    def test_d134_started_corrupt_backup_rejected_without_stop(self):
+        record = self._started_journal()
+        backup_app = self.root / 'backups' / record['backup'] / 'app' / 'version'
+        backup_app.write_text('corrupt-backup')
+        original_journal = self.tx.journal.read_bytes()
+        with self.assertRaisesRegex(TX.TransactionError, 'backup inventory mismatch'):
+            self.tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual(self.service.stops, 0)
+        self.assertEqual(self.tx.journal.read_bytes(), original_journal)
+
+    def test_d134_started_missing_baseline_rejected_without_stop(self):
+        self._started_journal()
+        record = json.loads(self.tx.journal.read_text())
+        record.pop('baseline')
+        self.tx.journal.write_text(json.dumps(record))
+        original_journal = self.tx.journal.read_bytes()
+        with self.assertRaisesRegex(TX.TransactionError, 'journal incomplete'):
+            self.tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual(self.service.stops, 0)
+        self.assertEqual(self.tx.journal.read_bytes(), original_journal)
+
+    def test_backup_corruption_blocks_recovery_and_preserves_running_service(self):
         with self.assertRaisesRegex(RuntimeError, 'injected fault'):
             self._run(failpoint='before-swap')
         record = json.loads(self.tx.journal.read_text())
@@ -379,9 +413,9 @@ class D090TransactionTests(unittest.TestCase):
         backup_app.write_text('tampered')
         record['phase'] = 'NEW_APP_RENAMED'  # model a process crash before automatic recovery
         self.tx.journal.write_text(json.dumps(record))
-        with self.assertRaisesRegex(TX.TransactionError, 'backup missing/corrupt'):
+        with self.assertRaisesRegex(TX.TransactionError, 'backup (missing/corrupt|inventory mismatch)'):
             self.tx.recover()
-        self.assertFalse(self.service.running)
+        self.assertTrue(self.service.running)
 
     def test_bad_source_or_host_fails_before_service_mutation(self):
         with patch.object(release, 'verify_staged_release', return_value={'source_sha': '0' * 40}):

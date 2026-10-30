@@ -1077,6 +1077,43 @@ if not result.wasSuccessful():
             if not backup.is_dir() or backup.is_symlink() or type(expected) is not dict or inventory(backup) != expected:
                 raise TransactionError('backup missing/corrupt; terminal transaction requires operator review')
             return record
+        # D134: validate complete on-disk rollback evidence before taking
+        # a healthy service down. Historical STARTED records and current
+        # state may drift independently; such drift must not cause downtime.
+        baseline = record.get('baseline')
+        if type(baseline) is not dict or type(expected) is not dict:
+            raise TransactionError('recovery journal incomplete; live service preserved')
+        if not backup.is_dir() or backup.is_symlink():
+            raise TransactionError('recovery backup missing; live service preserved')
+        for name in ('.env', MARKER, 'service.unit'):
+            part = backup / name
+            if part.is_symlink() or not part.is_file():
+                raise TransactionError('recovery backup configuration incomplete; live service preserved: ' + name)
+        for name in ('app', 'state', 'venv'):
+            part = backup / name
+            if part.is_symlink() or not part.is_dir():
+                raise TransactionError('recovery backup component incomplete; live service preserved: ' + name)
+        if inventory(backup) != expected:
+            raise TransactionError('recovery backup inventory mismatch; live service preserved')
+        if (digest(backup / '.env') != baseline.get('env')
+                or digest(backup / 'service.unit') != baseline.get('unit')
+                or digest(backup / MARKER) != baseline.get('marker')
+                or inventory(backup / 'app') != baseline.get('app')
+                or inventory(backup / 'venv') != baseline.get('venv')
+                or (not self.software_release and inventory(backup / 'state') != baseline.get('state'))):
+            raise TransactionError('recovery backup baseline mismatch; live service preserved')
+        marker = self.root / MARKER
+        env = self.root / '.env'
+        if (marker.is_symlink() or not marker.is_file()
+                or env.is_symlink() or not env.is_file()):
+            raise TransactionError('recovery live environment/marker unavailable; live service preserved')
+        current_marker = digest(marker)
+        candidate_marker = hashlib.sha256((self.pinned.source_sha + '\n').encode()).hexdigest()
+        if (digest(env) != baseline.get('env')
+                or self._unit_digest() != baseline.get('unit')
+                or (not self.software_release and inventory(self.root / 'state') != baseline.get('state'))
+                or current_marker not in (baseline.get('marker'), candidate_marker)):
+            raise TransactionError('recovery live preimage drift; live service preserved')
         if self.software_release and self.service.active():
             pid = self.service.main_pid()
             if pid <= 0:
