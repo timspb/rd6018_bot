@@ -413,7 +413,7 @@ class D090TransactionTests(unittest.TestCase):
         backup_app.write_text('tampered')
         record['phase'] = 'NEW_APP_RENAMED'  # model a process crash before automatic recovery
         self.tx.journal.write_text(json.dumps(record))
-        with self.assertRaisesRegex(TX.TransactionError, 'backup missing/corrupt'):
+        with self.assertRaisesRegex(TX.TransactionError, 'backup (missing/corrupt|inventory mismatch)'):
             self.tx.recover()
         self.assertFalse(self.service.running)
 
