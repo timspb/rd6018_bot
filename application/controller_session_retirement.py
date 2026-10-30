@@ -92,8 +92,32 @@ class _ControllerSessionRetirement:
                                           battery_id=binding.get("battery_id"), now_s=time.time())
                 except Exception:
                     return False
-                if guard.fault is not None or guard.pending is not None:
+                if guard.fault is not None:
                     return False
+                if guard.pending is not None:
+                    # The failed postflight ACK can leave a durable pending
+                    # proposal. It is not authorization to resume charging.
+                    # Retirement is allowed only for this exact quarantined
+                    # session; the coordinator still requires fresh verified
+                    # Output OFF evidence before committing retirement.
+                    recovery_guard = getattr(
+                        getattr(self.app, "execution_port", None),
+                        "session_recovery_guard", None,
+                    )
+                    journal = getattr(self.app, "recovery_quarantine_journal", None)
+                    if not getattr(recovery_guard, "quarantined", False) or journal is None:
+                        return False
+                    try:
+                        incident = journal.incident_binding()
+                    except Exception:
+                        return False
+                    if (incident.get("session_id") != session_id
+                            or incident.get("battery_id") != binding.get("battery_id")
+                            or incident.get("incident_id") != binding.get("incident_id")
+                            or not str(incident.get("reason", "")).startswith(
+                                "main_guard_current_ocp_transaction_unconfirmed:"
+                            )):
+                        return False
         return True
 
     def retire(self, session_id, *, binding, off_evidence):
