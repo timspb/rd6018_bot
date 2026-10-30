@@ -236,17 +236,28 @@ class ExecutionPort:
     async def request_verified_off_evidence(self) -> VerifiedOffEvidence | None:
         """Clearance-only proof from a post-completion native ESPHome callback."""
         import math
+        # Clearance returns only a typed OFF receipt on success. On failure,
+        # retain a bounded diagnostic reason for the operator UI; this is
+        # never usable as evidence or authorization to resume charging.
+        self.last_off_clearance_failure = None
         try:
             off_ok = await self.request_verified_off()
         except Exception as exc:
+            reason = str(exc).strip().replace("\\n", " ")[:120]
+            self.last_off_clearance_failure = (
+                "turn_off_" + type(exc).__name__ +
+                (": " + reason if reason else "")
+            )
             _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_exception type=%s detail=%s", type(exc).__name__, str(exc)[:240])
             return None
         if not off_ok:
+            self.last_off_clearance_failure = "turn_off_rejected"
             _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_rejected")
             return None
         off_completed_at = _time.monotonic()
         reader = getattr(self.execution_owner, "get_native_physical_output_report", None)
         if not callable(reader):
+            self.last_off_clearance_failure = "native_reader_missing"
             _clearance_logger.warning("CLEARANCE_OFF_FAILED step=native_reader_missing")
             return None
         deadline = asyncio.get_running_loop().time() + NATIVE_OFF_EVIDENCE_TIMEOUT_S
@@ -292,6 +303,7 @@ class ExecutionPort:
                         "native_type_or_status_invalid"
                     )
             if asyncio.get_running_loop().time() >= deadline:
+                self.last_off_clearance_failure = "native_evidence_timeout:" + last_reason
                 _clearance_logger.warning("CLEARANCE_OFF_FAILED step=native_evidence_timeout reason=%s", last_reason)
                 return None
             await asyncio.sleep(min(NATIVE_OFF_EVIDENCE_POLL_INTERVAL_S,
