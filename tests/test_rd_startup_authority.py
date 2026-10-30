@@ -125,6 +125,29 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(gate.managed_actuation_ready)
         self.assertEqual(app.hass.turn_on_calls, 0)
 
+    async def test_quarantined_managed_startup_allows_off_only(self):
+        app, manager, _guard, gate = self.make()
+        app.session_recovery_guard = types.SimpleNamespace(quarantined=True)
+        gate.candidate_autonomous = False
+        self.assertFalse(gate.managed_actuation_ready)
+        self.assertTrue(await app.hass.turn_off("switch.test"))
+        self.assertEqual(app.hass.turn_off_calls, 1)
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.turn_on("switch.test")
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.set_current(1.0)
+        app.session_recovery_guard.quarantined = False
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.turn_off("switch.test")
+        app.session_recovery_guard.quarantined = True
+        manager._edge_autonomous = True
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.turn_off("switch.test")
+        manager._edge_autonomous = False
+        gate.candidate_autonomous = None
+        with self.assertRaises(RuntimeSafetyError):
+            await app.hass.turn_off("switch.test")
+
     async def test_managed_recovery_may_use_verified_off_then_reopens_control(self):
         app, manager, _guard, gate = self.make()
         recovery_calls = 0
