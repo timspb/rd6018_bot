@@ -123,6 +123,15 @@ class RdStartupAuthorityGate:
         async def turn_on(entity_id: Optional[str] = None) -> bool:
             return await guarded("Output ON", original_turn_on, entity_id)
         async def turn_off(entity_id: Optional[str] = None) -> bool:
+            # A durable quarantine can prevent managed startup reconciliation.
+            # The operator's verified-OFF clearance must still reach the
+            # existing safety-wrapped OFF owner. This grants OFF only, never
+            # ON, setpoints, or ordinary managed control.
+            recovery_guard = getattr(self.app, "session_recovery_guard", None)
+            quarantined = getattr(recovery_guard, "quarantined", False) is True
+            if (quarantined and self.candidate_autonomous is False
+                    and getattr(self.manager, "edge_autonomous", None) is False):
+                return bool(await original_turn_off(entity_id))
             return await guarded("Output OFF", original_turn_off, entity_id)
         async def set_voltage(value: float) -> bool:
             return await guarded("voltage write", original_set_voltage, value)
