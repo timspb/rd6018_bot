@@ -69,7 +69,7 @@ def inspect(root: Path, *, pid: int | None = None) -> dict[str, object]:
     if pid is not None:
         if not isinstance(pid, int) or pid <= 0:
             raise ValueError("invalid PID")
-        cmdline = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\\0")
+        cmdline = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
         expected = str(root / "app/bot.py").encode()
         pid_identity = {"pid": pid, "entrypoint_match": expected in cmdline}
         if not pid_identity["entrypoint_match"]:
