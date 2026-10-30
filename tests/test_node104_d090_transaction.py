@@ -371,6 +371,40 @@ class D090TransactionTests(unittest.TestCase):
             self.tx.recover()
         self.assertFalse(self.service.running)
 
+    def test_d134_started_live_state_drift_rejected_without_stop(self):
+        self._started_journal()
+        original_journal = self.tx.journal.read_bytes()
+        (self.root / 'state' / 'battery.db').write_bytes(b'new-retired-session-state')
+        stops_before = self.service.stops
+        with self.assertRaisesRegex(TX.TransactionError, 'live preimage drift'):
+            self.tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual(self.service.stops, stops_before)
+        self.assertEqual(self.tx.journal.read_bytes(), original_journal)
+
+    def test_d134_started_corrupt_backup_rejected_without_stop(self):
+        record = self._started_journal()
+        backup_app = self.root / 'backups' / record['backup'] / 'app' / 'version'
+        backup_app.write_text('corrupt-backup')
+        original_journal = self.tx.journal.read_bytes()
+        with self.assertRaisesRegex(TX.TransactionError, 'backup inventory mismatch'):
+            self.tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual(self.service.stops, 0)
+        self.assertEqual(self.tx.journal.read_bytes(), original_journal)
+
+    def test_d134_started_missing_baseline_rejected_without_stop(self):
+        self._started_journal()
+        record = json.loads(self.tx.journal.read_text())
+        record.pop('baseline')
+        self.tx.journal.write_text(json.dumps(record))
+        original_journal = self.tx.journal.read_bytes()
+        with self.assertRaisesRegex(TX.TransactionError, 'journal incomplete'):
+            self.tx.recover()
+        self.assertTrue(self.service.running)
+        self.assertEqual(self.service.stops, 0)
+        self.assertEqual(self.tx.journal.read_bytes(), original_journal)
+
     def test_backup_corruption_blocks_recovery_and_leaves_service_stopped(self):
         with self.assertRaisesRegex(RuntimeError, 'injected fault'):
             self._run(failpoint='before-swap')
