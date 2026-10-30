@@ -239,7 +239,7 @@ class ExecutionPort:
         try:
             off_ok = await self.request_verified_off()
         except Exception as exc:
-            _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_exception type=%s", type(exc).__name__)
+            _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_exception type=%s detail=%s", type(exc).__name__, str(exc)[:240])
             return None
         if not off_ok:
             _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_rejected")
