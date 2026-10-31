@@ -33,6 +33,8 @@ class D147PinnedCollectorTests(unittest.TestCase):
 
     def test_corrupt_existing_copy_never_overwritten(self):
         self.install()
+        # Fixture-only tampering: production pin remains read-only.
+        self.destination.chmod(0o600)
         self.destination.write_bytes(b"tampered")
         with self.assertRaises(subject.CollectorPinError):
             self.install()
