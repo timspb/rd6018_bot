@@ -292,17 +292,40 @@ async def _device_info(client: Any) -> dict[str, Any]:
     return info
 
 
-def _cached_native_state(esp: Any, inventory: tuple[Any, ...], object_id: str) -> tuple[Any, dict[str, Any]]:
-    """Read the old transport's callback cache without a newer private method."""
-    entity = next((item for item in inventory if str(getattr(item, 'object_id', '')) == object_id), None)
+def _cached_native_state(esp: Any, inventory: tuple[Any, ...], object_id: str,
+                         expected_entity_type: str | None = None) -> tuple[Any, dict[str, Any]]:
+    """Read one typed native callback from the transport's keyed cache."""
+    info_for_state = {
+        'SensorState': 'SensorInfo', 'NumberState': 'NumberInfo',
+        'BinarySensorState': 'BinarySensorInfo', 'SwitchState': 'SwitchInfo',
+    }
+    candidates = [item for item in inventory
+                  if str(getattr(item, 'object_id', '')) == object_id
+                  and (expected_entity_type is None
+                       or type(item).__name__ == expected_entity_type)]
+    cache = getattr(esp, '_state_cache', {})
+    entries = []
+    for candidate in candidates:
+        identity = (type(candidate).__name__, int(candidate.key))
+        # Accept the old object_id cache shape for existing lightweight callers.
+        values = cache.get(identity)
+        if values is None and len(candidates) == 1:
+            values = cache.get(object_id)
+        state_type = getattr(esp, '_state_types', {}).get(identity)
+        if state_type is None and len(candidates) == 1:
+            state_type = getattr(esp, '_state_types', {}).get(object_id)
+        if type(values) is dict and state_type in values:
+            legacy_single_entity = len(candidates) == 1 and values is cache.get(object_id)
+            if (info_for_state.get(state_type) == type(candidate).__name__
+                    or legacy_single_entity):
+                entries.append((candidate, values, state_type, identity))
+    entity = entries[0][0] if len(entries) == 1 else None
     if entity is None or getattr(entity, 'device_id', None) is None:
         raise ProofError('required native entity identity is absent: ' + object_id)
-    cache = getattr(esp, '_state_cache', {})
-    updated_at = getattr(esp, '_state_updated_at', {}).get(object_id)
-    state_type = getattr(esp, '_state_types', {}).get(object_id)
-    values = cache.get(object_id)
-    if type(values) is not dict or state_type not in values:
-        raise ProofError('required native callback is absent: ' + object_id)
+    _, values, state_type, identity = entries[0]
+    updated_at = getattr(esp, '_state_updated_at', {}).get(identity)
+    if updated_at is None and len(candidates) == 1:
+        updated_at = getattr(esp, '_state_updated_at', {}).get(object_id)
     age = None if updated_at is None else max(0.0, time.monotonic() - updated_at)
     return values[state_type], {'source': 'esp_native_api', 'object_id': object_id,
         'status': 'ok', 'native_type': state_type, 'entity_type': type(entity).__name__,
@@ -318,8 +341,11 @@ async def _fresh_measured_sensor_callbacks(esp: Any, inventory: tuple[Any, ...],
     selected: dict[int, tuple[str, Any]] = {}
     for name in MEASURED_SENSOR_KEYS:
         object_id = object_ids.get(name)
-        entity = next((item for item in inventory if str(getattr(item, 'object_id', '')) == object_id), None)
-        if entity is None or type(entity).__name__ != 'SensorInfo':
+        matching = [item for item in inventory
+                    if str(getattr(item, 'object_id', '')) == object_id
+                    and type(item).__name__ == 'SensorInfo']
+        entity = matching[0] if len(matching) == 1 else None
+        if entity is None:
             raise ProofError('measured native entity is absent or not SensorInfo: ' + str(object_id))
         key = int(entity.key)
         if key in selected:
