@@ -54,3 +54,14 @@ class D144Tests(unittest.TestCase):
         (self.root/'app/x').write_text('drift')
         with self.assertRaises(TransitionError):self.tx().run()
         self.assertEqual(self.service.stops,0)
+
+    def test_crash_restore_preserves_new_state(self):
+        def crash(phase):
+            if phase=='AFTER_NEW_APP_RENAME_BEFORE_JOURNAL':
+                raise RuntimeError('crash')
+        with self.assertRaises(RuntimeError):self.tx(crash).run()
+        (self.root/'state/session').write_text('RETIRED updated')
+        self.assertEqual(self.tx().recover()['phase'],'RESTORED')
+        self.assertEqual(inventory(self.root/'app'),self.old['app'])
+        self.assertEqual(inventory(self.root/'venv'),self.old['venv'])
+        self.assertEqual((self.root/'state/session').read_text(),'RETIRED updated')
