@@ -37,6 +37,24 @@ NATIVE_EDGE = {
     "modbus_age_s": "edge_modbus_age",
 }
 
+# D106 observes the current node104 firmware contract. Keep this identity
+# independent of D091's historical default (2.2-autonomous-authority), which
+# remains useful to older D090 callers that explicitly pin their release.
+EXPECTED_DEVICE_INFO = {
+    "project_name": "timspb.rd6018-pb-recovery-v2",
+    "project_version": "2.3-ha-canonical",
+    "name": "rd6018-controller",
+    "model": "esp01_1m",
+}
+
+
+def _validate_device_info(device_info: dict) -> None:
+    """Fail closed unless Native API identifies the canonical node104 ESP."""
+    if type(device_info) is not dict or any(
+            device_info.get(key) != expected
+            for key, expected in EXPECTED_DEVICE_INFO.items()):
+        raise ro.ProofError("native ESP device firmware identity mismatch")
+
 
 def _physical_value(field: str, value: object, *, ha: bool) -> object:
     if field == "autonomous" or field == "lease_armed":
@@ -137,14 +155,7 @@ async def collect_live() -> dict:
     try:
         await asyncio.wait_for(esp.discover(), timeout=8)
         device_info = await ro._device_info(esp.client)
-        for key, value in (
-            ("project_name", ro.EXPECTED_PROJECT),
-            ("project_version", ro.EXPECTED_VERSION),
-            ("name", ro.EXPECTED_NAME),
-            ("model", ro.EXPECTED_MODEL),
-        ):
-            if device_info.get(key) != value:
-                raise ro.ProofError("native ESP device firmware identity mismatch")
+        _validate_device_info(device_info)
         inventory = tuple(esp.entities)
         if not inventory or any(getattr(e, "device_id", None) is None for e in inventory):
             raise ro.ProofError("native inventory lacks pinned device identity")
