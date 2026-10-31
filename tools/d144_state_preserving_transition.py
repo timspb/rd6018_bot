@@ -180,6 +180,22 @@ class OwnerTransition:
                 raise TransitionError("installed release identity drift")
         if record["phase"] == "RESTORED":
             return record
+        # Crash after PREPARED, before a durable backup: no service stop or
+        # rename has been authorized. Only settle if the exact original bytes
+        # and the original running service can be positively verified.
+        backup_path = self.root / record["backup"]
+        if (record["phase"] == "PREPARED"
+                and not backup_path.exists() and not backup_path.is_symlink()):
+            for name in PARTS:
+                if inventory(self._component(name)) != record["before"][name]:
+                    raise TransitionError("PREPARED original preimage drift")
+            if not self.service.active() or self.service.main_pid() <= 0:
+                raise TransitionError("PREPARED service not positively running")
+            self.evidence(require_stopped=False)
+            if not self.restored_stable():
+                raise TransitionError("PREPARED original service stability unproved")
+            self._phase(record, "RESTORED")
+            return record
         backup = self._verify_backup(record)
         self.evidence(require_stopped=self.service.main_pid() == 0)
         if self.service.main_pid() != 0:
