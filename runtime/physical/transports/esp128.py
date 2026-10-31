@@ -69,7 +69,12 @@ class ESPHomeTransport(ReadOnlyTransport):
             return
         state_type = type(state).__name__
         value = getattr(state, "state", None)
+        expected_info = {"SensorState": "SensorInfo", "NumberState": "NumberInfo",
+                         "BinarySensorState": "BinarySensorInfo", "SwitchState": "SwitchInfo",
+                         "TextSensorState": "TextSensorInfo"}.get(state_type)
         for entity in self._entities_by_key.get(int(key), ()):
+            if type(entity).__name__ != expected_info:
+                continue
             identity = (type(entity).__name__, int(entity.key))
             self._state_cache.setdefault(identity, {})[state_type] = value
             self._state_updated_at[identity] = time.monotonic()
