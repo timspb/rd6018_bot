@@ -92,9 +92,11 @@ class OfflineTransition:
             previous = self.root / ("d139-old-" + key)
             installed.rename(previous)
             _sync_dir(self.root)
+            self.failpoint("AFTER_OLD_" + key.upper() + "_RENAME_BEFORE_JOURNAL")
             self._phase(doc, "OLD_" + key.upper() + "_RENAMED")
             (candidate / key).rename(installed)
             _sync_dir(self.root)
+            self.failpoint("AFTER_NEW_" + key.upper() + "_RENAME_BEFORE_JOURNAL")
             self._phase(doc, "NEW_" + key.upper() + "_RENAMED")
         for key in COMPONENTS:
             if inventory(self.root / key) != wanted[key]:
