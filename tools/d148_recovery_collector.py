@@ -22,7 +22,9 @@ class RecoveryCollectorError(RuntimeError):
     pass
 
 
-def verify(source: Path = DEST, *, expected: str = D138_SHA256) -> dict:
+def verify(source: Path = DEST, *, expected: str | None = None) -> dict:
+    if expected is None:
+        expected = D138_SHA256
     if (source.is_symlink() or not source.is_file()
             or source.parent.is_symlink()
             or source.parent.stat().st_mode & 0o022
