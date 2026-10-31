@@ -14,6 +14,7 @@ import uuid
 from tools.node104_d090_transaction import _atomic_json, _durable_tree, _sync_dir, inventory
 
 JOURNAL = "D144_TRANSACTION.json"
+INSTALLED_IDENTITY = "D144_INSTALLED_RELEASE.json"
 PARTS = ("app", "venv")
 PHASES = ("PREPARED", "BACKUP_DURABLE", "STOPPED",
           "OLD_APP_RENAMED", "NEW_APP_RENAMED",
@@ -28,7 +29,8 @@ class TransitionError(RuntimeError):
 class OwnerTransition:
     def __init__(self, root: Path, service, *, candidate: Path,
                  evidence, expected_before: dict, expected_candidate: dict,
-                 legacy_journal_sha256: str, candidate_stable, restored_stable, failpoint=None):
+                 legacy_journal_sha256: str, candidate_stable, restored_stable,
+                 release_identity: dict, failpoint=None):
         self.root, self.service, self.candidate = root, service, candidate
         self.evidence = evidence
         self.expected_before = expected_before
@@ -37,6 +39,8 @@ class OwnerTransition:
         self.failpoint = failpoint or (lambda _: None)
         self.candidate_stable = candidate_stable
         self.restored_stable = restored_stable
+        self.release_identity = release_identity
+        self.identity_path = root / INSTALLED_IDENTITY
         self.journal = root / JOURNAL
 
     def _phase(self, record, phase):
@@ -70,6 +74,15 @@ class OwnerTransition:
         if self.root.stat().st_dev != self.candidate.stat().st_dev:
             raise TransitionError("cross-filesystem candidate")
         self._verify_legacy()
+        if (type(self.release_identity) is not dict or
+                self.release_identity.get("schema") != "D144_RELEASE_IDENTITY_V1" or
+                type(self.release_identity.get("source_sha")) is not str or
+                len(self.release_identity["source_sha"]) != 40 or
+                type(self.release_identity.get("candidate_identity_sha256")) is not str or
+                len(self.release_identity["candidate_identity_sha256"]) != 64):
+            raise TransitionError("reviewed release identity missing")
+        if self.identity_path.exists() or self.identity_path.is_symlink():
+            raise TransitionError("installed release identity already exists")
         for name in PARTS:
             if inventory(self._component(name)) != self.expected_before[name]:
                 raise TransitionError("live installed component drift: " + name)
@@ -93,7 +106,8 @@ class OwnerTransition:
                   "before": self.expected_before,
                   "candidate": self.expected_candidate,
                   "legacy_sha256": self.legacy_hash,
-                  "backup": "d144-backup"}
+                  "backup": "d144-backup",
+                  "release_identity": self.release_identity}
         _atomic_json(self.journal, record)
         self.failpoint("PREPARED")
         backup = self.root / "d144-backup"
@@ -129,6 +143,10 @@ class OwnerTransition:
         if not self.candidate_stable():
             raise TransitionError("new service not positively stable")
         self._verify_legacy()
+        identity = dict(self.release_identity)
+        identity["transaction"] = record["transaction"]
+        _atomic_json(self.identity_path, identity)
+        self.failpoint("AFTER_IDENTITY_BEFORE_COMMIT")
         self._phase(record, "COMMITTED")
         return record
 
@@ -150,9 +168,16 @@ class OwnerTransition:
                 or record.get("phase") not in PHASES
                 or record.get("backup") != "d144-backup"
                 or record.get("legacy_sha256") != self.legacy_hash
-                or record.get("before") != self.expected_before):
+                or record.get("before") != self.expected_before
+                or record.get("release_identity") != self.release_identity):
             raise TransitionError("D144 journal identity invalid")
         self._verify_legacy()
+        if self.identity_path.exists() or self.identity_path.is_symlink():
+            expected_identity = dict(self.release_identity)
+            expected_identity["transaction"] = record["transaction"]
+            if (self.identity_path.is_symlink() or not self.identity_path.is_file()
+                    or json.loads(self.identity_path.read_text()) != expected_identity):
+                raise TransitionError("installed release identity drift")
         if record["phase"] == "RESTORED":
             return record
         backup = self._verify_backup(record)
@@ -183,5 +208,8 @@ class OwnerTransition:
         self.service.start()
         if not self.restored_stable():
             raise TransitionError("restored service not stable")
+        if self.identity_path.is_file():
+            self.identity_path.unlink()
+            _sync_dir(self.root)
         self._phase(record, "RESTORED")
         return record
