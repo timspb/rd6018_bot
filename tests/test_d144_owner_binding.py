@@ -76,5 +76,83 @@ class D144OwnerBindingTests(unittest.TestCase):
                     preimage_sha256=PREIMAGE, collector=self.root / "collector")
 
 
+    def test_execute_rejects_offline_owner_before_staging(self):
+        self.owner.offline = True
+        with self.assertRaises(binding.d090.TransactionError):
+            binding.execute_under_owner(self.owner, stage=self.root,
+                                        preimage_sha256=PREIMAGE,
+                                        collector=self.root / "collector")
+        self.assertFalse((self.root / "candidate-d144").exists())
+
+    def test_execute_copies_candidate_before_engine_and_uses_lock(self):
+        from unittest.mock import MagicMock
+        import tools.d144_state_preserving_transition as engine
+        import tools.d140_disk_guard as capacity
+        (self.root / "app").mkdir()
+        (self.root / "venv").mkdir()
+        (self.root / "D090_TRANSACTION.json").write_text('{"phase":"STARTED"}')
+        stage = self.root / "stage"
+        (stage / "tree").mkdir(parents=True)
+        (stage / "venv").mkdir()
+        (stage / "tree" / "bot.py").write_text("candidate")
+        (stage / "venv" / "pyvenv.cfg").write_text("venv")
+        proof = {"status":"PREPARE_ONLY_PASS",
+                 "candidate_identity_sha256":"a" * 64}
+        def check_engine(*args, **kwargs):
+            self.assertEqual(self.owner._lock_depth, 1)
+            candidate = kwargs["candidate"]
+            self.assertEqual((candidate / "app" / "bot.py").read_text(), "candidate")
+            self.assertEqual((candidate / "venv" / "pyvenv.cfg").read_text(), "venv")
+            self.assertEqual(kwargs["release_identity"]["source_sha"], SOURCE)
+            return SimpleNamespace(run=lambda: {"phase":"COMMITTED"})
+        with patch.object(binding, "prepare_only", return_value=proof), \
+             patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
+             patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor:
+            result = binding.execute_under_owner(self.owner, stage=stage,
+                      preimage_sha256=PREIMAGE, collector=self.root / "collector")
+        self.assertEqual(result["phase"],"COMMITTED")
+        self.assertEqual(ctor.call_count,1)
+        self.assertEqual(self.owner._lock_depth,0)
+        self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
+
+
+    def test_recover_refuses_wrong_candidate_identity_before_service_access(self):
+        import tools.d144_state_preserving_transition as engine
+        (self.root / "D144_TRANSACTION.json").write_text(
+            '{"schema":"D144_STATE_PRESERVING_V1","release_identity":'
+            '{"schema":"D144_RELEASE_IDENTITY_V1","source_sha":"'+SOURCE+'",'
+            '"candidate_identity_sha256":"'+('a'*64)+'"}}')
+        with patch.object(engine, "OwnerTransition") as ctor:
+            with self.assertRaises(binding.d090.TransactionError):
+                binding.recover_under_owner(
+                    self.owner, expected_candidate_identity_sha256='b'*64)
+            ctor.assert_not_called()
+
+    def test_recovery_uses_owner_lock_and_fresh_recovery_callback(self):
+        import tools.d144_state_preserving_transition as engine
+        from unittest.mock import MagicMock
+        record = {
+            "schema":"D144_STATE_PRESERVING_V1",
+            "release_identity": {
+                "schema":"D144_RELEASE_IDENTITY_V1",
+                "source_sha":SOURCE, "candidate_identity_sha256":"a"*64},
+            "before":{"app":{},"venv":{}},
+            "candidate":{"app":{},"venv":{}},
+        }
+        import json
+        (self.root / "D090_TRANSACTION.json").write_text('{"phase":"STARTED"}')
+        (self.root / "D144_TRANSACTION.json").write_text(json.dumps(record))
+        self.owner._read_recovery_proof = lambda *,require_service_stopped: "fresh"
+        def construct(*args, **kwargs):
+            self.assertEqual(self.owner._lock_depth,1)
+            self.assertEqual(kwargs["evidence"](require_stopped=True),"fresh")
+            return SimpleNamespace(recover=lambda:{"phase":"RESTORED"})
+        with patch.object(engine, "OwnerTransition", side_effect=construct):
+            result = binding.recover_under_owner(
+                self.owner, expected_candidate_identity_sha256='a'*64)
+        self.assertEqual(result["phase"],"RESTORED")
+        self.assertEqual(self.owner._lock_depth,0)
+
+
 if __name__ == "__main__":
     unittest.main()
