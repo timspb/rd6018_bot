@@ -65,3 +65,17 @@ class D144Tests(unittest.TestCase):
         self.assertEqual(inventory(self.root/'app'),self.old['app'])
         self.assertEqual(inventory(self.root/'venv'),self.old['venv'])
         self.assertEqual((self.root/'state/session').read_text(),'RETIRED updated')
+
+    def test_crash_boundaries(self):
+        points=('BACKUP_DURABLE','STOPPED','OLD_APP_RENAMED',
+                'NEW_APP_RENAMED','OLD_VENV_RENAMED',
+                'NEW_VENV_RENAMED','STARTED')
+        for point in points:
+            with self.subTest(point=point):
+                self.setUp()
+                def fail(label):
+                    if label==point:raise RuntimeError('crash')
+                with self.assertRaises(RuntimeError):self.tx(fail).run()
+                self.assertEqual(self.tx().recover()['phase'],'RESTORED')
+                for name in ('app','venv'):
+                    self.assertEqual(inventory(self.root/name),self.old[name])
