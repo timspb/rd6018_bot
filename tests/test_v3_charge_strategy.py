@@ -10,6 +10,7 @@ from runtime.charge.strategy import (
     MixPolicy, MixPolicyConfig, PlateauDetector, PlateauDetectorConfig,
     RecoveryPolicy, RecoveryPolicyConfig, StrategyRuntimeState,
 )
+from runtime.charge.profiles.recipe import factory_recipe
 
 
 class V3ChargeStrategyTests(unittest.TestCase):
@@ -113,6 +114,33 @@ class V3ChargeStrategyTests(unittest.TestCase):
         result = self.strategy.evaluate(state, Measurements(16.5, 0.5, 25.0, 2.0), mix_mode="CV")
         self.assertEqual("MIX_CV_DELTA_CONFIRMED", result.reason)
         self.assertTrue(self.strategy.evaluate(state, Measurements(16.5, 0.5, 25.0, 12.0), mix_mode="CV").completed)
+
+    def test_factory_mix_delta_needs_three_persistent_spaced_confirmations(self):
+        recipe = factory_recipe("EFB").recipe.mix
+        self.assertEqual(60.0, recipe.config.cc.confirmation_interval_seconds)
+        self.assertEqual(60.0, recipe.config.cv.confirmation_interval_seconds)
+
+        cc = recipe.cc
+        cc.evaluate(Measurements(16.5, 2.0, 25.0, 0.0))  # establish Vmax
+        for t in (1.0, 2.0, 30.0, 59.0):
+            self.assertEqual("MIX_CC_DELTA_WAIT", cc.evaluate(Measurements(16.46, 2.0, 25.0, t)).reason)
+        self.assertEqual(1, cc.state.confirmation_count)
+        cc.evaluate(Measurements(16.5, 2.0, 25.0, 60.0))  # rebound breaks evidence
+        self.assertEqual(0, cc.state.confirmation_count)
+        cc.evaluate(Measurements(16.46, 2.0, 25.0, 61.0))
+        self.assertEqual("MIX_CC_DELTA_WAIT", cc.evaluate(Measurements(16.46, 2.0, 25.0, 121.0)).reason)
+        self.assertEqual("MIX_CC_DELTA_CONFIRMED", cc.evaluate(Measurements(16.46, 2.0, 25.0, 181.0)).reason)
+
+        cv = recipe.cv
+        cv.evaluate(Measurements(16.5, 0.3, 25.0, 0.0))  # establish Imin
+        for t in (1.0, 2.0, 30.0, 59.0):
+            self.assertEqual("MIX_CV_DELTA_WAIT", cv.evaluate(Measurements(16.5, 0.4, 25.0, t)).reason)
+        self.assertEqual(1, cv.state.confirmation_count)
+        cv.evaluate(Measurements(16.5, 0.3, 25.0, 60.0))  # current falls back
+        self.assertEqual(0, cv.state.confirmation_count)
+        cv.evaluate(Measurements(16.5, 0.4, 25.0, 61.0))
+        self.assertEqual("MIX_CV_DELTA_WAIT", cv.evaluate(Measurements(16.5, 0.4, 25.0, 121.0)).reason)
+        self.assertEqual("MIX_CV_DELTA_CONFIRMED", cv.evaluate(Measurements(16.5, 0.4, 25.0, 181.0)).reason)
 
     def test_mix_cv_current_containment_starts_after_mix_delay(self):
         cv = replace(self.strategy.recipe.mix.config.cv, hold_seconds=7200.0, confirmations_required=10)
