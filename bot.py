@@ -263,6 +263,7 @@ class ProductionComposition:
             install_home_command(
                 app,
                 render_home=app._build_and_send_dashboard,
+                show_charge_menu=lambda: not app.charge_controller.is_active,
             )
             install_journal_screen(
                 app,

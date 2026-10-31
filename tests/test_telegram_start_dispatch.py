@@ -76,6 +76,7 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
             graph_live,
             graph_render,
             patch.object(Bot, "__call__", new=fake_telegram_api),
+            patch.object(app.charge_controller, "_current_stage", app.charge_controller.STAGE_MAIN, create=True),
         ):
             await app.dp.feed_update(app.bot, self._start_update())
 
@@ -107,6 +108,7 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
             graph_live,
             graph_render,
             patch.object(Bot, "__call__", new=fake_telegram_api),
+            patch.object(app.charge_controller, "_current_stage", app.charge_controller.STAGE_MAIN, create=True),
         ):
             await app.dp.feed_update(app.bot, self._start_update())
 
@@ -115,6 +117,25 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.user_dashboard[1], 89)
         self.assertEqual(app.chat_dashboard[1], 89)
         self.assertEqual(manager.panel_id(1), 89)
+
+    async def test_start_idle_opens_charge_program_menu(self):
+        sent = []
+        async def fake_api(_bot, method, *args, **kwargs):
+            if isinstance(method, SendMessage):
+                sent.append(method)
+                return SimpleNamespace(message_id=98)
+            if isinstance(method, DeleteMessage):
+                return True
+            raise AssertionError(f"unexpected Telegram method: {type(method).__name__}")
+        with (
+            patch.object(app.charge_controller, "_current_stage", app.charge_controller.STAGE_IDLE, create=True),
+            patch.object(Bot, "__call__", new=fake_api),
+        ):
+            await app.dp.feed_update(app.bot, self._start_update())
+        self.assertTrue(sent)
+        callbacks = [button.callback_data for row in sent[-1].reply_markup.inline_keyboard for button in row]
+        self.assertIn("ui:nav.batteries", callbacks)
+        self.assertIn("ui:charge.select_profile?profile=Ca%2FCa", callbacks)
 
     async def test_start_preserves_primary_error_when_text_fallback_also_fails(self):
         """A total Telegram outage must not be converted into false handled success."""

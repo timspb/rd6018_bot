@@ -15,6 +15,7 @@ def install_home_command(
     app: Any,
     *,
     render_home: Callable[..., Awaitable[int]],
+    show_charge_menu: Callable[[], bool] | None = None,
 ) -> None:
     """Install /start without historical controller or physical dependencies."""
 
@@ -31,6 +32,11 @@ def install_home_command(
         app.last_chat_id = chat_id
         app.last_user_id = user_id
         logger.info("Command /start from %s", user_id)
+
+        if (show_charge_menu is not None and show_charge_menu()
+                and callable(getattr(app, "_v3_modes_command_handler", None))):
+            await app._v3_modes_command_handler(message)
+            return
 
         old_id = app.user_dashboard.get(user_id) if user_id else app.chat_dashboard.get(chat_id)
         if old_id:
