@@ -37,3 +37,9 @@ class D144Tests(unittest.TestCase):
     def proof(self, *, require_stopped):
         if require_stopped and self.service.main_pid()!=0:
             raise TransitionError('service unexpectedly active')
+
+    def tx(self, failpoint=None):
+        return OwnerTransition(self.root, self.service, candidate=self.candidate,
+            evidence=self.proof, expected_before=self.old, expected_candidate=self.new,
+            legacy_journal_sha256=digest(self.root/'D090_TRANSACTION.json'),
+            failpoint=failpoint)
