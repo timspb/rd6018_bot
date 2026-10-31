@@ -116,5 +116,43 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
 
 
+    def test_recover_refuses_wrong_candidate_identity_before_service_access(self):
+        import tools.d144_state_preserving_transition as engine
+        (self.root / "D144_TRANSACTION.json").write_text(
+            '{"schema":"D144_STATE_PRESERVING_V1","release_identity":'
+            '{"schema":"D144_RELEASE_IDENTITY_V1","source_sha":"'+SOURCE+'",'
+            '"candidate_identity_sha256":"'+('a'*64)+'"}}')
+        with patch.object(engine, "OwnerTransition") as ctor:
+            with self.assertRaises(binding.d090.TransactionError):
+                binding.recover_under_owner(
+                    self.owner, expected_candidate_identity_sha256='b'*64)
+            ctor.assert_not_called()
+
+    def test_recovery_uses_owner_lock_and_fresh_recovery_callback(self):
+        import tools.d144_state_preserving_transition as engine
+        from unittest.mock import MagicMock
+        record = {
+            "schema":"D144_STATE_PRESERVING_V1",
+            "release_identity": {
+                "schema":"D144_RELEASE_IDENTITY_V1",
+                "source_sha":SOURCE, "candidate_identity_sha256":"a"*64},
+            "before":{"app":{},"venv":{}},
+            "candidate":{"app":{},"venv":{}},
+        }
+        import json
+        (self.root / "D090_TRANSACTION.json").write_text('{"phase":"STARTED"}')
+        (self.root / "D144_TRANSACTION.json").write_text(json.dumps(record))
+        self.owner._read_recovery_proof = lambda *,require_service_stopped: "fresh"
+        def construct(*args, **kwargs):
+            self.assertEqual(self.owner._lock_depth,1)
+            self.assertEqual(kwargs["evidence"](require_stopped=True),"fresh")
+            return SimpleNamespace(recover=lambda:{"phase":"RESTORED"})
+        with patch.object(engine, "OwnerTransition", side_effect=construct):
+            result = binding.recover_under_owner(
+                self.owner, expected_candidate_identity_sha256='a'*64)
+        self.assertEqual(result["phase"],"RESTORED")
+        self.assertEqual(self.owner._lock_depth,0)
+
+
 if __name__ == "__main__":
     unittest.main()
