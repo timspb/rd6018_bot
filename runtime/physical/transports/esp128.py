@@ -87,6 +87,22 @@ class ESPHomeTransport(ReadOnlyTransport):
             self._state_reported_at[identity] = time.time()
             self._state_types[identity] = state_type
 
+            # Keep the read-only object_id cache shape used by pinned D147/D148
+            # collectors. ESPHome object_ids can collide across domains, so
+            # measurements own that projection whenever a SensorInfo exists;
+            # a colliding NumberState can never replace a measured SensorState.
+            object_id = str(entity.object_id)
+            candidates = [item for entities in self._entities_by_key.values()
+                          for item in entities if str(item.object_id) == object_id]
+            sensors = [item for item in candidates if type(item).__name__ == "SensorInfo"]
+            legacy_entity = sensors[0] if len(sensors) == 1 else (
+                candidates[0] if len(candidates) == 1 else None)
+            if legacy_entity is entity:
+                self._state_cache[object_id] = {state_type: value}
+                self._state_updated_at[object_id] = self._state_updated_at[identity]
+                self._state_reported_at[object_id] = self._state_reported_at[identity]
+                self._state_types[object_id] = state_type
+
     def _edge_object_id(self, entity_id: str) -> str | None:
         """Resolve a HA-shaped lease ID to the configured native object ID."""
         configured = self.config.edge_entities

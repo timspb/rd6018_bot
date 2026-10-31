@@ -294,6 +294,17 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(live["_meta"]["configured_voltage"]["native_type"], "NumberState")
             self.assertEqual(live["_meta"]["voltage"]["key"], 1)
             self.assertEqual(live["_meta"]["configured_voltage"]["key"], 20)
+            # Pinned D147/D148 readers use the former object_id-keyed cache
+            # directly. Its collision projection must remain the measured
+            # SensorState even when the NumberState callback arrives later.
+            self.assertEqual(transport._state_cache["rd_voltage"], {"SensorState": 0.0})
+            self.assertEqual(transport._state_types["rd_voltage"], "SensorState")
+            legacy_entity = next(item for item in transport.entities
+                                 if item.object_id == "rd_voltage")
+            legacy_values = transport._state_cache.get(legacy_entity.object_id)
+            legacy_type = transport._state_types.get(legacy_entity.object_id)
+            self.assertEqual(type(legacy_entity).__name__, "SensorInfo")
+            self.assertEqual(legacy_values[legacy_type], 0.0)
             measured_state, measured_meta = await transport.get_entity_state("sensor.rd_voltage")
             setpoint_state, setpoint_meta = await transport.get_entity_state("number.rd_voltage")
             self.assertEqual((measured_state, measured_meta["key"]), (0.0, 1))
