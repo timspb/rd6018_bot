@@ -211,20 +211,14 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
         tr = self.esp.transport
         tr.guard = self.guard
         tr.config.entities['output_state'] = 'fake.output'
-        SensorInfo = type('SensorInfo', (), {})
-        SensorState = type('SensorState', (), {})
-        entity = SensorInfo()
-        entity.object_id, entity.key, entity.device_id = 'fake.output', 1, 0
-        tr._entities_by_key = {1: [entity]}
+        tr._entities_by_key = {1: [tr.entities[0]]}
         tr._state_cache, tr._state_updated_at, tr._state_reported_at, tr._state_types = {}, {}, {}, {}
         # Canonical callback uses time.monotonic; use its real times without sleeping.
         from unittest.mock import patch
         with patch('runtime.physical.transports.esp128.time.monotonic', self.clock):
             for t in (100., 106., 112.):
                 self.clock.value = t
-                callback = SensorState()
-                callback.key, callback.state = 1, 0
-                tr._on_state(callback)
+                tr._on_state(NS(key=1, state=0))
             self.guard.require_transition(True)
             tr._on_connection_closed(None)
             with self.assertRaises(Blocked): self.guard.require_transition(True)
