@@ -101,3 +101,39 @@ class D144Tests(unittest.TestCase):
         with self.assertRaises(TransitionError):
             self.tx().run()
         self.assertEqual(self.service.stops,0)
+
+    def test_prepared_crash_before_backup_settles_without_stop(self):
+        def crash(point):
+            if point == 'PREPARED':
+                raise RuntimeError('injected')
+        with self.assertRaises(RuntimeError):
+            self.tx(crash).run()
+        stops = self.service.stops
+        self.assertEqual(self.tx().recover()['phase'], 'RESTORED')
+        self.assertEqual(self.service.stops, stops)
+        self.assertEqual(inventory(self.root/'app'), self.old['app'])
+        self.assertEqual(inventory(self.root/'venv'), self.old['venv'])
+
+    def test_prepared_crash_drift_refuses_without_stop(self):
+        def crash(point):
+            if point == 'PREPARED':
+                raise RuntimeError('injected')
+        with self.assertRaises(RuntimeError):
+            self.tx(crash).run()
+        (self.root/'app/x').write_text('unexpected')
+        stops = self.service.stops
+        with self.assertRaises(TransitionError):
+            self.tx().recover()
+        self.assertEqual(self.service.stops, stops)
+
+    def test_prepared_crash_stopped_service_refuses(self):
+        def crash(point):
+            if point == 'PREPARED':
+                raise RuntimeError('injected')
+        with self.assertRaises(RuntimeError):
+            self.tx(crash).run()
+        self.service.stop()
+        stops = self.service.stops
+        with self.assertRaises(TransitionError):
+            self.tx().recover()
+        self.assertEqual(self.service.stops, stops)
