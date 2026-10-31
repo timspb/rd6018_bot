@@ -46,6 +46,7 @@ class MixExitRuntimeState:
     observed_vmax: Optional[float] = None
     observed_imin: Optional[float] = None
     confirmation_count: int = 0
+    last_confirmation_at: Optional[float] = None
     hold_started_at: Optional[float] = None
     containment: MixCurrentContainmentState = field(default_factory=MixCurrentContainmentState)
 
@@ -113,6 +114,7 @@ class CCMixExitPolicy:
             self.state.phase = "unarmed"
             self.state.observed_vmax = None
             self.state.confirmation_count = 0
+            self.state.last_confirmation_at = None
             return self._active("MIX_CC_DELTA_CENSORED_CURRENT_LIMIT")
         if self.state.phase == "unarmed":
             if measurements.voltage < self.config.vmax_voltage:
@@ -121,8 +123,10 @@ class CCMixExitPolicy:
             self.state.phase = "tracking"
             return self._active("MIX_CC_VMAX_CONFIRMED")
         if self.state.phase == "tracking":
-            if self.state.observed_vmax is not None and measurements.voltage <= self.state.observed_vmax - self.config.delta_voltage:
-                self.state.confirmation_count += 1
+            delta_present = (self.state.observed_vmax is not None
+                             and measurements.voltage <= self.state.observed_vmax - self.config.delta_voltage)
+            _confirm_spaced(self.state, delta_present, measurements.time,
+                            self.config.confirmation_interval_seconds)
             if self.state.confirmation_count >= self.config.confirmations_required:
                 self.state.phase = "hold"
                 self.state.hold_started_at = measurements.time
@@ -153,8 +157,10 @@ class CVMixExitPolicy:
             self.state.phase = "tracking"
             return self._active("MIX_CV_IMIN_CONFIRMED")
         if self.state.phase == "tracking":
-            if self.state.observed_imin is not None and measurements.current >= self.state.observed_imin + self.config.delta_current:
-                self.state.confirmation_count += 1
+            delta_present = (self.state.observed_imin is not None
+                             and measurements.current >= self.state.observed_imin + self.config.delta_current)
+            _confirm_spaced(self.state, delta_present, measurements.time,
+                            self.config.confirmation_interval_seconds)
             if self.state.confirmation_count >= self.config.confirmations_required:
                 self.state.phase = "hold"
                 self.state.hold_started_at = measurements.time
@@ -169,6 +175,17 @@ class CVMixExitPolicy:
 
     def _active(self, reason: str) -> ChargeIntent:
         return ChargeIntent(self.config.target_voltage, self.config.target_current, self.config.active_stage, False, reason)
+
+
+def _confirm_spaced(state: MixExitRuntimeState, delta_present: bool,
+                    now: float | None, interval: float) -> None:
+    if not delta_present or now is None:
+        state.confirmation_count = 0
+        state.last_confirmation_at = None
+        return
+    if state.last_confirmation_at is None or now - state.last_confirmation_at >= interval:
+        state.confirmation_count += 1
+        state.last_confirmation_at = now
 
 
 @dataclass(frozen=True)
