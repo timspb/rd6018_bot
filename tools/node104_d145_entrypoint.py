@@ -24,13 +24,13 @@ try:
     import node104_d090_transaction as d090
     from node104_d124_release_profile import load_software_release_profile
     from d144_owner_binding import execute_under_owner, prepare_only, recover_under_owner
-    from d149_observer_router import D147_SHA, ReadOnlyObserverRouter
+    from d149_observer_router import D147_SHA, D148_SHA, ReadOnlyObserverRouter
 except ModuleNotFoundError:
     from tools import node104_d090_release as release
     from tools import node104_d090_transaction as d090
     from tools.node104_d124_release_profile import load_software_release_profile
     from tools.d144_owner_binding import execute_under_owner, prepare_only, recover_under_owner
-    from tools.d149_observer_router import D147_SHA, ReadOnlyObserverRouter
+    from tools.d149_observer_router import D147_SHA, D148_SHA, ReadOnlyObserverRouter
 
 
 PROFILE_SHA256 = "a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47"
@@ -87,6 +87,19 @@ def build_owner(profile_path: Path):
     )
 
 
+def verify_pinned_observer(root: Path, relative_path: str, expected_sha256: str) -> Path:
+    """Fail closed unless a frozen observer is present before a phase starts."""
+    path = root / relative_path
+    parent = path.parent
+    if (parent.is_symlink() or not parent.is_dir()
+            or parent.stat().st_mode & 0o022
+            or path.is_symlink() or not path.is_file()
+            or path.stat().st_mode & 0o222
+            or _profile_digest(path) != expected_sha256):
+        raise d090.TransactionError("pinned D147/D148 observer missing or changed")
+    return path
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=("prepare", "execute", "recover"))
@@ -100,19 +113,22 @@ def main(argv: list[str] | None = None) -> int:
     d090.production_host_check()
     owner = build_owner(args.profile)
     root = Path(release.ROOT)
-    observer = root / "d147-proof/node104_d091_physical_proof_collector.py"
-    if observer.is_symlink() or not observer.is_file() or _profile_digest(observer) != D147_SHA:
-        raise d090.TransactionError("D147 pre-stop observer missing or changed")
+    observer = verify_pinned_observer(
+        root, "d147-proof/node104_d091_physical_proof_collector.py", D147_SHA)
 
     if args.phase == "prepare":
         result = prepare_only(
             owner, stage=args.stage, source_sha=SOURCE_SHA,
             preimage_sha256=PREIMAGE_INVENTORY_SHA256, collector=observer)
     elif args.phase == "execute":
+        verify_pinned_observer(
+            root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)
         result = execute_under_owner(
             owner, stage=args.stage, preimage_sha256=PREIMAGE_INVENTORY_SHA256,
             collector=observer)
     else:
+        verify_pinned_observer(
+            root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)
         result = recover_under_owner(
             owner, expected_candidate_identity_sha256=CANDIDATE_IDENTITY_SHA256)
     print(json.dumps(result, indent=2, sort_keys=True))
