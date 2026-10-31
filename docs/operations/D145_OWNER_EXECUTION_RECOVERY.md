@@ -27,4 +27,27 @@ An interrupted `PREPARED` phase without any backup now settles as `RESTORED` **o
 - End-to-end recovery using a stopped real `SystemdService`, immediately fresh ESP Native measurements, and a precise old/new release source profile is not yet accepted.
 - The prepared D138 build predates D139–D145 commits; installing it would not install later deployment-tool changes. That is intentional only if the intended application version remains pinned to D138.
 
+## D145/D146 canonical entrypoint source integration
+
+`tools/node104_d145_entrypoint.py` provides the narrow `prepare`, `execute`,
+and `recover` CLI over this owner binding. It pins the D146 D138 source SHA,
+installed preimage inventory, candidate identity, D147 observer, firmware,
+and 900/300-second lease contract. It checks the profile digest at load and
+again on every D090 admission. The execution and recovery phases call only
+`prepare_only`, `execute_under_owner`, and `recover_under_owner`; the
+historical D090 activate/recover paths are not exposed.
+
+The entrypoint checks the pinned node104 host identity before transaction
+construction and requires the exact D147 observer under the production root.
+No phase was invoked against node104 during this source integration. Focused
+local software tests cover profile pinning, tamper/symlink rejection, owner
+binding, and the restricted command set; this is not production or physical
+acceptance.
+
+The tracked D146 profile currently hashes to
+`a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47`. This
+differs from the historical `cabf0a0d...` digest recorded above, so the
+entrypoint pins the exact current tracked bytes. Reconcile the historical
+profile evidence before treating those older records as current proof.
+
 **Operational decision:** do not invoke a production cutover on node104 from this merge. New production activation requires an exact profile, a narrow supported CLI/operational entrypoint, and full real-system recovery testing. Never rewrite D090 to COMMITTED, delete the only rollback copy, or change Output, setpoints, OVP/OCP or the 900-second lease merely to pass admission.
