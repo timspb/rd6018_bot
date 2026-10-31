@@ -42,7 +42,9 @@ class D144Tests(unittest.TestCase):
         return OwnerTransition(self.root, self.service, candidate=self.candidate,
             evidence=self.proof, expected_before=self.old, expected_candidate=self.new,
             legacy_journal_sha256=digest(self.root/'D090_TRANSACTION.json'),
-            candidate_stable=self.service.stable, restored_stable=self.service.stable, failpoint=failpoint)
+            candidate_stable=self.service.stable, restored_stable=self.service.stable,
+            release_identity={'schema':'D144_RELEASE_IDENTITY_V1','source_sha':'d351c208cbf8666f881a4660df6a0b211170e857','candidate_identity_sha256':'a'*64},
+            failpoint=failpoint)
 
     def test_cutover_preserves_state(self):
         self.assertEqual(self.tx().run()['phase'],'COMMITTED')
