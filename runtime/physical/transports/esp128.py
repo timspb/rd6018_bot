@@ -354,7 +354,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             expected = "SensorInfo" if source in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
-            } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
+            } else "BinarySensorInfo" if source == "autonomous_mode" else "NumberInfo"
             entity = next((candidate for candidate in self.entities
                            if str(candidate.object_id) == str(object_id)
                            and type(candidate).__name__ == expected), None)
