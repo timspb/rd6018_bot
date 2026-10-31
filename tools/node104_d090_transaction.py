@@ -618,6 +618,12 @@ if not result.wasSuccessful():
             'old_sha': self.pinned.old_source_sha, 'transaction': transaction, 'phase': 'PREPARED',
             'candidate': candidate.name, 'candidate_inventory': prepared['candidate_inventory'],
             'backup': backup.name, 'baseline': prepared['baseline']}
+        # D140: on software-only releases require room for an additional
+        # complete app+venv rollback copy before writing an activation journal
+        # or stopping the healthy service. This is not hardware admission.
+        if self.software_release:
+            import d140_disk_guard
+            d140_disk_guard.require_capacity(self.root, candidate)
         _atomic_json(self.journal, record)
         try:
             self.failpoint('after-journal-before-stop')
