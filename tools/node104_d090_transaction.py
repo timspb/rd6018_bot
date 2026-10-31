@@ -377,6 +377,32 @@ class D090Transaction:
         if self.trial_edge_proof is None:
             raise TransactionError("trial recovery requires independent edge proof")
 
+    def d143_offline_cutover(self, *, failpoint=None) -> dict[str, object]:
+        """D143: invoke D139 only through the existing locked transaction owner.
+
+        Deliberately impossible for live node104: no production entry point.
+        D090's historical journal remains untouched; the common transaction
+        lock prevents simultaneous D090 and offline D139 mutation.
+        """
+        if (not self.offline or self.root == Path(release.ROOT)
+                or self.root.is_symlink() or not self.root.is_dir()
+                or not getattr(self.service, 'd139_offline_fixture', False)):
+            raise TransactionError('D143 cutover is offline-only; production disabled')
+        from tools.d139_offline_transaction import OfflineTransition
+        with self._locked():
+            return OfflineTransition(self.root, self.service,
+                                     failpoint=failpoint).activate_fixture()
+
+    def d143_offline_recover(self) -> dict[str, object]:
+        """Recover the isolated D139 ledger under the SAME D090 owner lock."""
+        if (not self.offline or self.root == Path(release.ROOT)
+                or self.root.is_symlink() or not self.root.is_dir()
+                or not getattr(self.service, 'd139_offline_fixture', False)):
+            raise TransactionError('D143 recovery is offline-only; production disabled')
+        from tools.d139_offline_transaction import OfflineTransition
+        with self._locked():
+            return OfflineTransition(self.root, self.service).recover_fixture()
+
     @contextmanager
     def _locked(self):
         if self._lock_depth:
