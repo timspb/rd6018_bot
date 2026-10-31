@@ -9,6 +9,10 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from pathlib import Path
+
+# Running this file as a script sets sys.path[0] to tools/, not the repository.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main() -> int:
