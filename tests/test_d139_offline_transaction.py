@@ -56,9 +56,12 @@ class D139Tests(unittest.TestCase):
         self.assert_legacy_untouched()
 
     def test_crash_boundaries_preserve_state_and_restore(self):
-        for point in ("BACKUP_DURABLE", "STOPPED", "OLD_APP_RENAMED",
-                      "NEW_APP_RENAMED", "OLD_VENV_RENAMED",
-                      "NEW_VENV_RENAMED", "CANDIDATE_RUNNING"):
+        for point in ("BACKUP_DURABLE", "STOPPED",
+                      "AFTER_OLD_APP_RENAME_BEFORE_JOURNAL", "OLD_APP_RENAMED",
+                      "AFTER_NEW_APP_RENAME_BEFORE_JOURNAL", "NEW_APP_RENAMED",
+                      "AFTER_OLD_VENV_RENAME_BEFORE_JOURNAL", "OLD_VENV_RENAMED",
+                      "AFTER_NEW_VENV_RENAME_BEFORE_JOURNAL", "NEW_VENV_RENAMED",
+                      "CANDIDATE_RUNNING"):
             with self.subTest(point=point):
                 self.setUp()
                 def fail(name):
