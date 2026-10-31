@@ -30,6 +30,8 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.service.layout_valid = lambda: True
         self.service.main_pid = lambda: 12345
         self.owner.service = self.service
+        self.owner.proof = lambda: 'original'
+        self.owner._read_proof = lambda *,require_service_stopped: 'fresh'
         self.check = lambda: None
         self.owner.host_check = self.check
         self.gates = patch.multiple(binding.d090, production_host_check=self.check)
@@ -104,7 +106,11 @@ class D144OwnerBindingTests(unittest.TestCase):
             self.assertEqual((candidate / "app" / "bot.py").read_text(), "candidate")
             self.assertEqual((candidate / "venv" / "pyvenv.cfg").read_text(), "venv")
             self.assertEqual(kwargs["release_identity"]["source_sha"], SOURCE)
-            return SimpleNamespace(run=lambda: {"phase":"COMMITTED"})
+            def run_fixture():
+                for stopped in (False, False, True, False):
+                    self.assertEqual(kwargs["evidence"](require_stopped=stopped), "fresh")
+                return {"phase":"COMMITTED"}
+            return SimpleNamespace(run=run_fixture)
         with patch.object(binding, "prepare_only", return_value=proof), \
              patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
              patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor:
@@ -113,6 +119,7 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.assertEqual(result["phase"],"COMMITTED")
         self.assertEqual(ctor.call_count,1)
         self.assertEqual(self.owner._lock_depth,0)
+        self.assertEqual(self.owner.proof(), 'original')
         self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
 
 
@@ -152,6 +159,33 @@ class D144OwnerBindingTests(unittest.TestCase):
                 self.owner, expected_candidate_identity_sha256='a'*64)
         self.assertEqual(result["phase"],"RESTORED")
         self.assertEqual(self.owner._lock_depth,0)
+
+
+    def test_execute_restores_original_proof_after_failure(self):
+        import tools.d144_state_preserving_transition as engine
+        import tools.d140_disk_guard as capacity
+        (self.root / "app").mkdir()
+        (self.root / "venv").mkdir()
+        (self.root / "D090_TRANSACTION.json").write_text('{"phase":"STARTED"}')
+        stage = self.root / "stage"
+        (stage / "tree").mkdir(parents=True)
+        (stage / "venv").mkdir()
+        (stage / "tree" / "bot.py").write_text("candidate")
+        (stage / "venv" / "pyvenv.cfg").write_text("venv")
+        self.owner._read_proof = lambda *,require_service_stopped: (_ for _ in ()).throw(RuntimeError("fresh proof failed"))
+        def construct(*args, **kwargs):
+            return SimpleNamespace(run=lambda: kwargs["evidence"](require_stopped=False))
+        with patch.object(binding, "prepare_only", return_value={
+                "status":"PREPARE_ONLY_PASS","candidate_identity_sha256":"a"*64}), \
+             patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
+             patch.object(engine, "OwnerTransition", side_effect=construct):
+            with self.assertRaisesRegex(RuntimeError, "fresh proof failed"):
+                binding.execute_under_owner(self.owner, stage=stage,
+                    preimage_sha256=PREIMAGE, collector=self.root / "collector")
+        self.assertEqual(self.owner.proof(), "original")
+        self.assertEqual(self.owner._lock_depth, 0)
+        self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
+
 
 
 if __name__ == "__main__":

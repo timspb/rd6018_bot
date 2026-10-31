@@ -62,6 +62,7 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
         raise d090.TransactionError("D145 production owner binding invalid")
     from tools.d140_disk_guard import require_capacity
     from tools.d144_state_preserving_transition import OwnerTransition
+    from tools.d149_observer_router import ReadOnlyObserverRouter
     import shutil
 
     with owner._locked():
@@ -94,10 +95,24 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             "source_sha": owner.pinned.source_sha,
             "candidate_identity_sha256": prepared["candidate_identity_sha256"],
         }
+        router = ReadOnlyObserverRouter(owner.root)
+        previous_proof = owner.proof
+        proof_index = [0]
+        phases = ("PRE_STOP", "PRE_STOP", "STOPPED", "POST_START")
         def fresh_proof(*, require_stopped: bool):
-            # Every invocation creates new Native/HA readings and validates
-            # distinct source nonces in the canonical D090 transaction owner.
-            return owner._read_proof(require_service_stopped=require_stopped)
+            # Exactly two pre-stop reads, one stopped-service proof, and one
+            # restarted-service proof. Never substitute another phase.
+            index = proof_index[0]
+            if index >= len(phases):
+                raise d090.TransactionError("unexpected D149 proof count")
+            phase = phases[index]
+            if bool(require_stopped) != (phase == "STOPPED"):
+                raise d090.TransactionError("D149 physical proof phase mismatch")
+            router.select(phase)
+            owner.proof = router
+            result = owner._read_proof(require_service_stopped=require_stopped)
+            proof_index[0] += 1
+            return result
         transition = OwnerTransition(
             owner.root, owner.service, candidate=candidate,
             evidence=fresh_proof, expected_before=before,
@@ -106,7 +121,13 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
             restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
             release_identity=identity, failpoint=failpoint)
-        return transition.run()
+        try:
+            result = transition.run()
+            if proof_index[0] != len(phases):
+                raise d090.TransactionError("D149 proof sequence incomplete")
+            return result
+        finally:
+            owner.proof = previous_proof
 
 
 def recover_under_owner(owner: d090.D090Transaction, *,
@@ -123,6 +144,7 @@ def recover_under_owner(owner: d090.D090Transaction, *,
         raise d090.TransactionError("D145 recovery owner binding invalid")
     from tools.d144_state_preserving_transition import OwnerTransition, JOURNAL
     import json
+    from tools.d149_observer_router import ReadOnlyObserverRouter
     with owner._locked():
         owner.host_check()
         path = owner.root / JOURNAL
@@ -145,7 +167,11 @@ def recover_under_owner(owner: d090.D090Transaction, *,
             raise d090.TransactionError("D145 backup/candidate manifest missing")
         # Recovery has independent fresh Native/HA proof and DOES NOT
         # roll back any data in state/. Old D090 remains historical.
+        router = ReadOnlyObserverRouter(owner.root)
+        router.select("RECOVERY")
+        previous_proof = owner.proof
         def fresh_recovery_proof(*, require_stopped: bool):
+            owner.proof = router
             return owner._read_recovery_proof(require_service_stopped=require_stopped)
         transition = OwnerTransition(
             owner.root, owner.service, candidate=owner.root / "candidate-d144",
@@ -155,4 +181,7 @@ def recover_under_owner(owner: d090.D090Transaction, *,
             candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
             restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
             release_identity=identity)
-        return transition.recover()
+        try:
+            return transition.recover()
+        finally:
+            owner.proof = previous_proof
