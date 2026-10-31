@@ -266,6 +266,14 @@ class MainCurrentGuardTests(unittest.TestCase):
         s, _ = s.observe(now_s=1800 + ACK_TIMEOUT_S + 1, output_on=True, measured_current_a=4, fresh=True)
         self.assertEqual(s.fault, "proposal_ack_timeout")
 
+    def test_ack_cannot_move_observation_clock_backward(self):
+        s, proposal = self.due(self.make(), current=4)
+        s, _ = s.observe(now_s=1850, output_on=True, measured_current_a=4, fresh=True)
+        self.assertEqual(s.last_observed_at_s, 1850)
+        rolled_back = self.ack(s, proposal, now=1801)
+        self.assertEqual(rolled_back.fault, "proposal_ack_timeout_or_clock_rollback")
+        self.assertEqual(rolled_back.hardware_limit_a, 7.2)
+
     def test_replay_wrong_proposal_id_fails_closed(self):
         s, p = self.due(self.make(), current=4)
         s = self.ack(s, p)
