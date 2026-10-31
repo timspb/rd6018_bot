@@ -29,3 +29,7 @@ class D144Tests(unittest.TestCase):
             (self.root/p).mkdir(parents=True)
         for p,v in (("app/x","old"),("venv/x","old"),("candidate/app/x","new"),("candidate/venv/x","new"),("state/session","RETIRED"),("D090_TRANSACTION.json",'{"phase":"STARTED"}'),(".deploy_sha","legacy")):
             (self.root/p).write_text(v)
+
+        self.old={p:inventory(self.root/p) for p in ("app","venv")}
+        self.new={p:inventory(self.candidate/p) for p in ("app","venv")}
+        self.service=FakeService()
