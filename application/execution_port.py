@@ -217,16 +217,23 @@ class ExecutionPort:
 
     @_serialized_normal_execution
     async def execute_main_current_guard_reduction(self, **transaction: Any) -> Any:
-        """Opt-in MAIN Guard current/OCP transaction on the same execution owner.
-
-        No production caller is installed. Persist/lock/readback authority must
-        be supplied by the canonical runtime before enabling this path.
-        """
+        """Execute one due MAIN Guard current/OCP reduction on this owner."""
         if self._recovery_quarantined():
             return None
         from .main_guard_transaction import execute_main_guard_reduction
 
         return await execute_main_guard_reduction(self, **transaction)
+
+    @_serialized_normal_execution
+    async def execute_desulfation_main_return(self, **transaction: Any) -> Any:
+        """Run guarded DESULFATION -> MAIN restoration in the existing port."""
+        if self._recovery_quarantined():
+            return None
+        from .main_guard_transaction import execute_main_guard_desulfation_return
+
+        return await execute_main_guard_desulfation_return(
+            self, execution_lock=self._guard_owner_lock, **transaction,
+        )
 
     async def request_verified_off(self) -> bool:
         """Delegate one verified Output-OFF transaction to the production owner."""

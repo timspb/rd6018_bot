@@ -105,8 +105,32 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
         if old_revision != expected_revision:
             raise GuardJournalError("stale_canonical_checkpoint_revision")
         if guard.segment_id != old.segment_id:
-            raise GuardJournalError("new_main_epoch_requires_owner_receipt")
-        if guard.hardware_limit_a > old.hardware_limit_a + READBACK_TOLERANCE_A:
+            verified_return_shape = (
+                document.get("stage") == "Безопасное ожидание"
+                and guard.fault is None and guard.pending is None
+                and guard.hardware_limit_a == guard.initial_limit_a
+                and guard.accrued_output_on_s == 0.0
+                and guard.last_output_on is False and guard.last_stage_main is True
+                and guard.last_observed_at_s is not None
+            )
+            interrupted_return_compensation = (
+                document.get("stage") == "Безопасное ожидание"
+                and guard.fault is None and guard.pending is None
+                and guard.hardware_limit_a <= old.hardware_limit_a
+                and guard.accrued_output_on_s == 0.0
+                and guard.last_output_on is False and guard.last_stage_main is True
+                and guard.last_observed_at_s is not None
+            )
+            if not (verified_return_shape or interrupted_return_compensation):
+                raise GuardJournalError("new_main_epoch_requires_verified_desulfation_return")
+        verified_return = (
+            guard.segment_id != old.segment_id
+            and document.get("stage") == "Безопасное ожидание"
+            and guard.hardware_limit_a == guard.initial_limit_a
+            and old.hardware_limit_a < guard.hardware_limit_a
+        )
+        if (guard.hardware_limit_a > old.hardware_limit_a + READBACK_TOLERANCE_A
+                and not verified_return):
             raise GuardJournalError("guard_ceiling_cannot_be_enlarged")
         if guard.proposal_sequence < old.proposal_sequence:
             raise GuardJournalError("proposal_sequence_rollback")
