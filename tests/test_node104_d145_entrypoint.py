@@ -39,6 +39,45 @@ class D145D146EntrypointTests(unittest.TestCase):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         self.assertEqual(digest, entrypoint.PROFILE_SHA256)
 
+    def test_pinned_observer_requires_exact_read_only_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            observer_dir = root / "d147-proof"
+            observer_dir.mkdir()
+            observer = observer_dir / "observer.py"
+            observer.write_bytes(b"reviewed observer")
+            observer.chmod(0o444)
+            digest = hashlib.sha256(observer.read_bytes()).hexdigest()
+
+            self.assertEqual(
+                entrypoint.verify_pinned_observer(root, "d147-proof/observer.py", digest),
+                observer,
+            )
+            with self.assertRaisesRegex(entrypoint.d090.TransactionError, "observer"):
+                entrypoint.verify_pinned_observer(
+                    root, "d147-proof/observer.py", "0" * 64)
+
+    def test_pinned_observer_rejects_missing_writable_and_symlink_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            observer_dir = root / "d147-proof"
+            observer_dir.mkdir()
+            missing = observer_dir / "missing.py"
+            with self.assertRaisesRegex(entrypoint.d090.TransactionError, "observer"):
+                entrypoint.verify_pinned_observer(root, "d147-proof/missing.py", "0" * 64)
+
+            observer = observer_dir / "observer.py"
+            observer.write_bytes(b"observer")
+            digest = hashlib.sha256(observer.read_bytes()).hexdigest()
+            with self.assertRaisesRegex(entrypoint.d090.TransactionError, "observer"):
+                entrypoint.verify_pinned_observer(root, "d147-proof/observer.py", digest)
+
+            observer.chmod(0o444)
+            link = observer_dir / "link.py"
+            link.symlink_to(observer)
+            with self.assertRaisesRegex(entrypoint.d090.TransactionError, "observer"):
+                entrypoint.verify_pinned_observer(root, "d147-proof/link.py", digest)
+
     def test_builder_binds_software_release_to_existing_d090_owner(self):
         owner = entrypoint.build_owner(entrypoint.default_profile())
         self.assertIsInstance(owner, entrypoint.d090.D090Transaction)
