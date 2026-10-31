@@ -116,6 +116,11 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
         if (prior.get("v2_trace_session_id") != session_id
                 or prior.get("v2_battery_id") != battery_id):
             raise GuardJournalError("stale_guard_from_different_session")
+        saved_snapshot = saved.get("snapshot") if isinstance(saved, Mapping) else None
+        if (isinstance(saved_snapshot, Mapping)
+                and saved_snapshot.get("segment_id") != current.segment_id
+                and getattr(host, "_main_current_guard_revision", None) != saved.get("revision")):
+            raise GuardJournalError("desulfation_return_checkpoint_revision_changed")
         result[GUARD_KEY] = saved
         expected_revision = saved.get("revision")
     # Persisting a guarded MAIN session with a wider target would let a later
