@@ -51,6 +51,8 @@ class D144Tests(unittest.TestCase):
         self.assertEqual((self.root/'app/x').read_text(),'new')
         self.assertEqual((self.root/'state/session').read_text(),'RETIRED')
         self.assertEqual((self.root/'.deploy_sha').read_text(),'legacy')
+        marker=json.loads((self.root/'D144_INSTALLED_RELEASE.json').read_text())
+        self.assertEqual(marker['source_sha'],'d351c208cbf8666f881a4660df6a0b211170e857')
 
     def test_drift_rejected_before_stop(self):
         (self.root/'app/x').write_text('drift')
@@ -81,3 +83,21 @@ class D144Tests(unittest.TestCase):
                 self.assertEqual(self.tx().recover()['phase'],'RESTORED')
                 for name in ('app','venv'):
                     self.assertEqual(inventory(self.root/name),self.old[name])
+
+    def test_crash_between_identity_and_commit_restores_marker(self):
+        def fail(point):
+            if point=='AFTER_IDENTITY_BEFORE_COMMIT':
+                raise RuntimeError('crash before commit')
+        with self.assertRaisesRegex(RuntimeError,'crash'):
+            self.tx(fail).run()
+        self.assertTrue((self.root/'D144_INSTALLED_RELEASE.json').is_file())
+        (self.root/'state/session').write_text('RETIRED updated')
+        self.assertEqual(self.tx().recover()['phase'],'RESTORED')
+        self.assertFalse((self.root/'D144_INSTALLED_RELEASE.json').exists())
+        self.assertEqual((self.root/'state/session').read_text(),'RETIRED updated')
+
+    def test_unexpected_identity_rejected_before_stop(self):
+        (self.root/'D144_INSTALLED_RELEASE.json').write_text('{}')
+        with self.assertRaises(TransitionError):
+            self.tx().run()
+        self.assertEqual(self.service.stops,0)
