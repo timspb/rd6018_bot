@@ -88,7 +88,13 @@ def _ha_record(field: str, entity_id: str, data: dict, now: float) -> dict:
 def _native_record(field: str, object_id: str, esp, inventory, now: float) -> dict:
     if not object_id:
         raise ro.ProofError("missing native entity mapping: " + field)
-    value, meta = ro._cached_native_state(esp, inventory, object_id)
+    expected_entity_type = (
+        "BinarySensorInfo" if field == "lease_armed"
+        else "NumberInfo" if field in {"set_voltage_v", "set_current_a", "ovp_v", "ocp_a"}
+        else "SensorInfo"
+    )
+    value, meta = ro._cached_native_state(
+        esp, inventory, object_id, expected_entity_type=expected_entity_type)
     ro._fresh(meta)
     age = ro._number(meta.get("age_s"))
     if age > ro.MAX_SOURCE_AGE_S:

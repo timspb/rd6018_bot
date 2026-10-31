@@ -22,10 +22,12 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.entities: tuple[Any, ...] = ()
         self.services: tuple[Any, ...] = ()
         self._entities_by_key: dict[int, list[Any]] = {}
-        self._state_cache: dict[str, dict[str, Any]] = {}
-        self._state_updated_at: dict[str, float] = {}
-        self._state_reported_at: dict[str, float] = {}
-        self._state_types: dict[str, str] = {}
+        # Native keys identify callback streams. object_id is not unique across
+        # ESPHome domains (for example SensorInfo and NumberInfo can collide).
+        self._state_cache: dict[tuple[str, int], dict[str, Any]] = {}
+        self._state_updated_at: dict[tuple[str, int], float] = {}
+        self._state_reported_at: dict[tuple[str, int], float] = {}
+        self._state_types: dict[tuple[str, int], str] = {}
         self._state_subscription_remover: Callable[[], None] | None = None
         self._connection_closed_remover: Callable[[], None] | None = None
         self._state_subscription_lock = asyncio.Lock()
@@ -67,12 +69,23 @@ class ESPHomeTransport(ReadOnlyTransport):
             return
         state_type = type(state).__name__
         value = getattr(state, "state", None)
+        # Compatibility with the existing D061 output guard. Output state is a
+        # dedicated sensor; keep its legacy timestamp lookup without sharing
+        # voltage/current measurements with number setpoints.
+        output_id = self.config.entities.get("output_state")
+        if any(str(entity.object_id) == output_id for entity in self._entities_by_key.get(int(key), ())):
+            self._state_updated_at[output_id] = time.monotonic()
+        expected_info = {"SensorState": "SensorInfo", "NumberState": "NumberInfo",
+                         "BinarySensorState": "BinarySensorInfo", "SwitchState": "SwitchInfo",
+                         "TextSensorState": "TextSensorInfo"}.get(state_type)
         for entity in self._entities_by_key.get(int(key), ()):
-            object_id = str(entity.object_id)
-            self._state_cache.setdefault(object_id, {})[state_type] = value
-            self._state_updated_at[object_id] = time.monotonic()
-            self._state_reported_at[object_id] = time.time()
-            self._state_types[object_id] = state_type
+            if type(entity).__name__ != expected_info:
+                continue
+            identity = (type(entity).__name__, int(entity.key))
+            self._state_cache.setdefault(identity, {})[state_type] = value
+            self._state_updated_at[identity] = time.monotonic()
+            self._state_reported_at[identity] = time.time()
+            self._state_types[identity] = state_type
 
     def _edge_object_id(self, entity_id: str) -> str | None:
         """Resolve a HA-shaped lease ID to the configured native object ID."""
@@ -130,7 +143,12 @@ class ESPHomeTransport(ReadOnlyTransport):
         await self._ensure_state_subscription()
         await asyncio.sleep(0.5)
         object_id = self._read_object_id(entity_id)
-        return self._read_subscribed_state(object_id)
+        domain = str(entity_id).split(".", 1)[0]
+        expected = {
+            "sensor": "SensorInfo", "number": "NumberInfo",
+            "binary_sensor": "BinarySensorInfo", "switch": "SwitchInfo",
+        }.get(domain)
+        return self._read_subscribed_state(object_id, expected)
 
     async def get_button_info(self, entity_id: str) -> dict[str, Any]:
         """Read native inventory for one explicitly configured edge button.
@@ -165,12 +183,22 @@ class ESPHomeTransport(ReadOnlyTransport):
             "device_id": int(entity.device_id),
         }
 
-    def _read_subscribed_state(self, object_id: str | None) -> tuple[Any, dict[str, Any]]:
-        entity = next((item for item in self.entities if str(item.object_id) == object_id), None)
+    def _read_subscribed_state(self, object_id: str | None,
+                               expected_entity_type: str | None = None) -> tuple[Any, dict[str, Any]]:
+        matches = [item for item in self.entities
+                   if str(item.object_id) == object_id
+                   and (expected_entity_type is None
+                        or type(item).__name__ == expected_entity_type)]
+        entity = matches[0] if len(matches) == 1 else None
         base = {"source": "esp_native_api", "object_id": object_id}
-        if entity is None or object_id is None:
+        if object_id is None:
             return None, {**base, "status": "missing", "age_s": None}
-        values = self._state_cache.get(object_id, {})
+        if entity is None:
+            has_object_id = any(str(item.object_id) == object_id for item in self.entities)
+            return None, {**base, "status": "wrong_entity_type" if has_object_id
+                          else "missing", "age_s": None}
+        identity = (type(entity).__name__, int(entity.key))
+        values = self._state_cache.get(identity, {})
         if not values:
             return None, {
                 **base,
@@ -178,9 +206,9 @@ class ESPHomeTransport(ReadOnlyTransport):
                 "native_type": type(entity).__name__,
                 "age_s": None,
             }
-        state_type = self._state_types.get(object_id, "")
+        state_type = self._state_types.get(identity, "")
         value = values.get(state_type)
-        updated = self._state_updated_at.get(object_id)
+        updated = self._state_updated_at.get(identity)
         age_s = None if updated is None else max(0.0, time.monotonic() - updated)
         return value, {
             **base,
@@ -202,7 +230,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         await self._ensure_state_subscription()
         await asyncio.sleep(0.5)
         object_id = self.config.entities.get("output_state")
-        value, meta = self._read_subscribed_state(object_id)
+        value, meta = self._read_subscribed_state(object_id, "SensorInfo")
         if meta.get("status") != "ok":
             return value, meta
         if meta.get("native_type") != "SensorState":
@@ -269,15 +297,13 @@ class ESPHomeTransport(ReadOnlyTransport):
         await self._ensure_state_subscription()
         await asyncio.sleep(0.5)
         def value(name):
-            wanted = self.config.entities.get(name)
-            values = self._state_cache.get(str(wanted), {})
-            preferred = "SensorState" if name in {"voltage", "current", "temperature", "output_state"} else "NumberState"
-            if preferred in values:
-                return values[preferred]
-            if values:
-                return next(reversed(values.values()))
-            return None
-        result = {key: value(key) for key in self.config.entities}
+            expected = "SensorInfo" if name in {
+                "voltage", "current", "temperature", "output_state", "protection_code",
+                "autonomous_mode", "battery_voltage", "temp_int", "temp_ext", "power",
+            } else "NumberInfo"
+            return self._read_subscribed_state(self.config.entities.get(name), expected)
+        reads = {key: value(key) for key in self.config.entities}
+        result = {key: item[0] for key, item in reads.items()}
         result["output_state_code_v2"] = result.get("output_state")
         result["switch"] = "on" if result.get("output_state") not in (None, 0, 0.0, "0") else "off"
         result["set_voltage_readback_v2"] = result.get("configured_voltage")
@@ -309,7 +335,15 @@ class ESPHomeTransport(ReadOnlyTransport):
         for name, item in result.items():
             source = aliases.get(name, name)
             object_id = self.config.entities.get(source)
-            updated = self._state_updated_at.get(str(object_id))
+            expected = "SensorInfo" if source in {
+                "voltage", "current", "temperature", "output_state", "protection_code",
+                "autonomous_mode", "battery_voltage", "temp_int", "temp_ext", "power",
+            } else "NumberInfo"
+            entity = next((candidate for candidate in self.entities
+                           if str(candidate.object_id) == str(object_id)
+                           and type(candidate).__name__ == expected), None)
+            identity = ((expected, int(entity.key)) if entity is not None else None)
+            updated = self._state_updated_at.get(identity)
             age = (monotonic_now - updated
                    if isinstance(updated, (float, int))
                    and not isinstance(updated, bool) else None)
@@ -317,17 +351,21 @@ class ESPHomeTransport(ReadOnlyTransport):
             report = {
                 "status": "ok" if item is not None and valid_age else "unknown",
                 "source": "esp_native_api",
-                "native_type": self._state_types.get(str(object_id)),
+                "native_type": self._state_types.get(identity),
                 "age_s": age if valid_age else None,
                 "fetched_at": wall_now,
                 "source_key": "output_state_code_v2" if source == "output_state" else source,
             }
+            selected_meta = reads.get(source, (None, {}))[1]
+            for key in ("entity_type", "key", "device_id"):
+                if key in selected_meta:
+                    report[key] = selected_meta[key]
             if isinstance(updated, (int, float)) and not isinstance(updated, bool):
                 report["subscription_timestamp_monotonic"] = updated
             # A stored native callback timestamp must not drift on subsequent
             # cache reads. Otherwise tiny clock-conversion jitter could forge
             # a post-command heartbeat even when the sensor never updated.
-            reported_at = self._state_reported_at.get(str(object_id))
+            reported_at = self._state_reported_at.get(identity)
             if (valid_age and isinstance(reported_at, (float, int))
                     and not isinstance(reported_at, bool)
                     and 0 < reported_at < float('inf')):
