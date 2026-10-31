@@ -16,3 +16,6 @@ class FakeService:
 class D144Tests(unittest.TestCase):
     def test_engine_has_separate_journal(self):
         self.assertEqual(__import__("tools.d144_state_preserving_transition",fromlist=["JOURNAL"]).JOURNAL,"D144_TRANSACTION.json")
+
+    def test_stub(self):
+        self.assertTrue(True)
