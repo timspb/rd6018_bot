@@ -6,6 +6,8 @@ from tools.d139_offline_transaction import OfflineTransition, D139Error, SENTINE
 
 
 class FakeService:
+    d139_offline_fixture = True
+
     def __init__(self):
         self.active = True
         self.starts = 0
@@ -94,6 +96,23 @@ class D139Tests(unittest.TestCase):
             t.recover_fixture()
         self.assertEqual(self.service.stops, stops_before)
         self.assert_legacy_untouched()
+
+    def test_recovery_preserves_new_session_data(self):
+        t = OfflineTransition(self.root, self.service)
+        t.activate_fixture()
+        # A resumed service can persist new state after candidate START.
+        (self.root / "state/session.json").write_text("RETIRED with new diagnostic")
+        t.recover_fixture()
+        self.assertEqual((self.root / "state/session.json").read_text(),
+                         "RETIRED with new diagnostic")
+        self.assertEqual((self.root / "app/version").read_text(), "old source")
+        self.assertEqual((self.root / "venv/version").read_text(), "old environment")
+
+    def test_non_fixture_service_denied(self):
+        service = FakeService()
+        service.d139_offline_fixture = False
+        with self.assertRaisesRegex(D139Error, "isolated"):
+            OfflineTransition(self.root, service)
 
     def test_missing_fixture_sentinel(self):
         (self.root / SENTINEL).unlink()
