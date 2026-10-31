@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from aiogram import F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -31,6 +32,16 @@ from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.charge.profiles.manual import has_manual_profile
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
+
+async def _ack_callback(call: Any, *args: Any, **kwargs: Any) -> None:
+    """Expired Telegram callback acknowledgement must not abort navigation."""
+    try:
+        await call.answer(*args, **kwargs)
+    except TelegramBadRequest as exc:
+        reason = str(exc).lower()
+        if "query is too old" not in reason and "query id is invalid" not in reason:
+            raise
+
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
@@ -239,7 +250,7 @@ async def _route_profile_intent(app: Any, call: Any, profile: str) -> bool:
         OperatorIntent(OperatorIntentKind.SELECT_CHARGE_PROFILE, "telegram", user, {"profile": profile})
     )
     if getattr(result, "status", None) == "rejected":
-        await call.answer("Профиль недоступен", show_alert=True)
+        await _ack_callback(call, "Профиль недоступен", show_alert=True)
         return False
     return True
 
@@ -402,7 +413,7 @@ def install_ui_support(app: Any) -> None:
     async def status_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         live = await app.hass.get_all_live()
         snap = app.charge_controller.ui_support_snapshot()
         text = format_active_evidence(
@@ -424,7 +435,7 @@ def install_ui_support(app: Any) -> None:
     async def batteries_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         records = [r for r in await list_batteries(limit=20) if profile_for_chemistry(r.identity.chemistry)]
         _battery_pages[user_id] = records
@@ -455,7 +466,7 @@ def install_ui_support(app: Any) -> None:
     async def battery_add_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         _new_battery_input.add(user_id)
         await _safe_answer(
@@ -475,7 +486,7 @@ def install_ui_support(app: Any) -> None:
     async def battery_select_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         raw = (call.data or "").replace("v2_battery_", "", 1)
         if raw.startswith("id_"):
@@ -533,9 +544,9 @@ def install_ui_support(app: Any) -> None:
     async def _select_quick_profile(call: Any, profile: str) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         if profile not in {"Ca/Ca", "EFB", "AGM"}:
-            await call.answer("Неизвестный профиль", show_alert=True)
+            await _ack_callback(call, "Неизвестный профиль", show_alert=True)
             return
         if not await _route_profile_intent(app, call, profile):
             return
@@ -561,11 +572,11 @@ def install_ui_support(app: Any) -> None:
     async def quick_intent_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         profile = _pending_profile.get(user_id)
         if not profile:
-            await call.answer("Сначала выберите профиль", show_alert=True)
+            await _ack_callback(call, "Сначала выберите профиль", show_alert=True)
             return
         intent = _parse_intent((call.data or "").replace("v2_quick_intent_", "", 1))
         _pending_intent[user_id] = intent
@@ -586,7 +597,7 @@ def install_ui_support(app: Any) -> None:
             return
         if trace is not None:
             trace.info("QUICK_START_TRACE chat_guard=PASS")
-        await call.answer()
+        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         message = getattr(call, "message", None)
         if trace is not None:
@@ -604,13 +615,13 @@ def install_ui_support(app: Any) -> None:
                     pending.battery_id,
                 )
         if pending is None:
-            await call.answer("Preview устарел — выберите режим заново", show_alert=True)
+            await _ack_callback(call, "Preview устарел — выберите режим заново", show_alert=True)
             return
         route = getattr(app, "_v3_production_start_route", None)
         if trace is not None:
             trace.info("QUICK_START_TRACE route=%s", "FOUND" if route is not None else "MISSING")
         if route is None:
-            await call.answer("START route is not installed", show_alert=True)
+            await _ack_callback(call, "START route is not installed", show_alert=True)
             return
         intent = OperatorIntent(
             OperatorIntentKind.START_CHARGE,
@@ -680,15 +691,15 @@ def install_ui_support(app: Any) -> None:
     async def battery_intent_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         record = _selected_battery.get(user_id)
         if record is None:
-            await call.answer("Сначала выберите АКБ", show_alert=True)
+            await _ack_callback(call, "Сначала выберите АКБ", show_alert=True)
             return
         profile = profile_for_chemistry(record.identity.chemistry)
         if profile is None:
-            await call.answer("Для этой химии пока нет auto-profile", show_alert=True)
+            await _ack_callback(call, "Для этой химии пока нет auto-profile", show_alert=True)
             return
         intent = _parse_intent((call.data or "").replace("v2_bat_intent_", "", 1))
         pending = PendingStart(
@@ -712,4 +723,3 @@ def install_ui_support(app: Any) -> None:
             reply_markup=_preview_keyboard("v2_battery_start"),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
-
