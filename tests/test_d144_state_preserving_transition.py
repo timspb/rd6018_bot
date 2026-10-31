@@ -43,3 +43,14 @@ class D144Tests(unittest.TestCase):
             evidence=self.proof, expected_before=self.old, expected_candidate=self.new,
             legacy_journal_sha256=digest(self.root/'D090_TRANSACTION.json'),
             failpoint=failpoint)
+
+    def test_cutover_preserves_state(self):
+        self.assertEqual(self.tx().run()['phase'],'COMMITTED')
+        self.assertEqual((self.root/'app/x').read_text(),'new')
+        self.assertEqual((self.root/'state/session').read_text(),'RETIRED')
+        self.assertEqual((self.root/'.deploy_sha').read_text(),'legacy')
+
+    def test_drift_rejected_before_stop(self):
+        (self.root/'app/x').write_text('drift')
+        with self.assertRaises(TransitionError):self.tx().run()
+        self.assertEqual(self.service.stops,0)
