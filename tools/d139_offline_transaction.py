@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 from pathlib import Path
 
 from tools.node104_d090_transaction import (
@@ -28,8 +29,10 @@ class OfflineTransition:
         self.root = root
         self.service = service
         self.failpoint = failpoint or (lambda name: None)
-        if (str(root).startswith("/opt/services") or root.is_symlink()
-                or not root.is_dir() or not (root / SENTINEL).is_file()):
+        if (root.is_symlink() or not root.is_dir()
+                or not root.resolve().is_relative_to(Path(tempfile.gettempdir()).resolve())
+                or not (root / SENTINEL).is_file()
+                or getattr(service, "d139_offline_fixture", False) is not True):
             raise D139Error("D139 only permits isolated fixture roots")
         if not callable(getattr(service, "stop", None)) or not callable(getattr(service, "start", None)):
             raise D139Error("isolated service adapter missing")
