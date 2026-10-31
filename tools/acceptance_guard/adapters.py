@@ -22,10 +22,11 @@ class GuardedNativeTransport(ESPHomeTransport):
         super()._on_state(state)
         wanted = self.config.entities.get('output_state')
         for entity in self._entities_by_key.get(int(state.key), ()):
-            if str(entity.object_id) == wanted:
+            if str(entity.object_id) == wanted and type(entity).__name__ == 'SensorInfo' and type(state).__name__ == 'SensorState':
                 value = getattr(state, 'state', None)
-                self.guard.observe(value == 1, self._state_updated_at[wanted],
-                    valid=not getattr(state, 'missing_state', False) and value in (0, 1))
+                updated = self._state_updated_at.get(('SensorInfo', int(entity.key)))
+                self.guard.observe(value == 1, updated,
+                    valid=updated is not None and not getattr(state, 'missing_state', False) and value in (0, 1))
 
     def _on_connection_closed(self, event):
         self.guard.observe(None, None, valid=False)
