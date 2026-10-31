@@ -104,6 +104,44 @@ def _native_record(field: str, object_id: str, esp, inventory, now: float) -> di
     }}
 
 
+def _native_callback_record(field: str, callback: tuple, inventory, now: float) -> dict:
+    """Build a measurement from its keyed SensorState callback, never the ID cache.
+
+    ESPHome may expose a measured SensorInfo and a configured NumberInfo with
+    the same object_id. The transport cache is keyed by object_id and its
+    latest type/key can therefore belong to the configured number instead of
+    the measured sensor. The fresh callback has an unambiguous native key.
+    """
+    value, meta = callback
+    if type(meta) is not dict or meta.get("source") != "esp_native_api":
+        raise ro.ProofError("native measurement callback source mismatch: " + field)
+    ro._fresh(meta, native=True)
+    age = ro._number(meta.get("age_s"))
+    if age > ro.MAX_SOURCE_AGE_S:
+        raise ro.ProofError("native typed callback stale: " + field)
+    object_id, key, device_id = meta.get("object_id"), meta.get("key"), meta.get("device_id")
+    if (type(object_id) is not str or type(key) is not int or type(device_id) is not int
+            or meta.get("entity_type") != "SensorInfo"):
+        raise ro.ProofError("native measurement callback identity/type mismatch: " + field)
+    matches = [entity for entity in inventory
+               if getattr(entity, "object_id", None) == object_id
+               and getattr(entity, "key", None) == key]
+    if (len(matches) != 1 or type(matches[0]).__name__ != "SensorInfo"
+            or type(getattr(matches[0], "device_id", None)) is not int
+            or matches[0].device_id != device_id):
+        raise ro.ProofError("native measurement inventory identity mismatch: " + field)
+    timestamp = ro._number(meta.get("subscription_timestamp_monotonic"))
+    reported = _physical_value(field, value, ha=False)
+    return {"value": reported, "meta": {
+        "source": "esp_native_api", "object_id": field,
+        "actual_object_id": object_id, "native_type": "SensorState",
+        "entity_type": "SensorInfo", "native_key": key,
+        "device_id": device_id, "status": "ok",
+        "subscription_timestamp_monotonic": timestamp,
+        "reported_at_epoch": now - age,
+    }}
+
+
 def _validate_callback_cache_generation(field: str, callback: tuple, cached: dict) -> None:
     """Check callback/cache provenance without equating two different readings.
 
@@ -174,14 +212,14 @@ async def collect_live() -> dict:
         for field, config_key in NATIVE_EDGE.items():
             native[field] = _native_record(field, edge_config.get(config_key),
                                            esp, inventory, now)
-        # Validate that the mandatory measured sensor values are from new
-        # callback subscriptions, not an earlier cached snapshot.
+        # The keyed callback is authoritative for measurements. The ID cache
+        # can point at a colliding NumberInfo entry for voltage/current.
         for field, callback in (
             ("output_r18", native_measurements["output_state"]),
             ("voltage_v", native_measurements["voltage"]),
             ("current_a", native_measurements["current"]),
         ):
-            _validate_callback_cache_generation(field, callback, native[field])
+            native[field] = _native_callback_record(field, callback, inventory, now)
         required_ha = {
             field: hc.entities.get(ENTITY[field]) for field in projection.HA_FIELDS}
         if not all(required_ha.values()):
