@@ -76,5 +76,45 @@ class D144OwnerBindingTests(unittest.TestCase):
                     preimage_sha256=PREIMAGE, collector=self.root / "collector")
 
 
+    def test_execute_rejects_offline_owner_before_staging(self):
+        self.owner.offline = True
+        with self.assertRaises(binding.d090.TransactionError):
+            binding.execute_under_owner(self.owner, stage=self.root,
+                                        preimage_sha256=PREIMAGE,
+                                        collector=self.root / "collector")
+        self.assertFalse((self.root / "candidate-d144").exists())
+
+    def test_execute_copies_candidate_before_engine_and_uses_lock(self):
+        from unittest.mock import MagicMock
+        import tools.d144_state_preserving_transition as engine
+        import tools.d140_disk_guard as capacity
+        (self.root / "app").mkdir()
+        (self.root / "venv").mkdir()
+        (self.root / "D090_TRANSACTION.json").write_text('{"phase":"STARTED"}')
+        stage = self.root / "stage"
+        (stage / "tree").mkdir(parents=True)
+        (stage / "venv").mkdir()
+        (stage / "tree" / "bot.py").write_text("candidate")
+        (stage / "venv" / "pyvenv.cfg").write_text("venv")
+        proof = {"status":"PREPARE_ONLY_PASS",
+                 "candidate_identity_sha256":"a" * 64}
+        def check_engine(*args, **kwargs):
+            self.assertEqual(self.owner._lock_depth, 1)
+            candidate = kwargs["candidate"]
+            self.assertEqual((candidate / "app" / "bot.py").read_text(), "candidate")
+            self.assertEqual((candidate / "venv" / "pyvenv.cfg").read_text(), "venv")
+            self.assertEqual(kwargs["release_identity"]["source_sha"], SOURCE)
+            return SimpleNamespace(run=lambda: {"phase":"COMMITTED"})
+        with patch.object(binding, "prepare_only", return_value=proof), \
+             patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
+             patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor:
+            result = binding.execute_under_owner(self.owner, stage=stage,
+                      preimage_sha256=PREIMAGE, collector=self.root / "collector")
+        self.assertEqual(result["phase"],"COMMITTED")
+        self.assertEqual(ctor.call_count,1)
+        self.assertEqual(self.owner._lock_depth,0)
+        self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
