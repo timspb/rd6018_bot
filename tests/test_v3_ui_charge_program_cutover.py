@@ -185,6 +185,34 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
             self.assertIn(fragment, source)
 
 
+class ExpiredBatteryCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_expired_ack_does_not_abort_navigation(self):
+        from aiogram.exceptions import TelegramBadRequest
+        from aiogram.methods import AnswerCallbackQuery
+        from production_bot_ui import _ack_callback
+        from unittest.mock import AsyncMock
+        call = AsyncMock()
+        call.answer.side_effect = TelegramBadRequest(
+            method=AnswerCallbackQuery(callback_query_id="expired"),
+            message="query is too old and response timeout expired or query ID is invalid",
+        )
+        await _ack_callback(call)
+        call.answer.assert_awaited_once()
+
+    async def test_unrelated_bad_request_propagates(self):
+        from aiogram.exceptions import TelegramBadRequest
+        from aiogram.methods import AnswerCallbackQuery
+        from production_bot_ui import _ack_callback
+        from unittest.mock import AsyncMock
+        call = AsyncMock()
+        call.answer.side_effect = TelegramBadRequest(
+            method=AnswerCallbackQuery(callback_query_id="bad"),
+            message="chat not found",
+        )
+        with self.assertRaises(TelegramBadRequest):
+            await _ack_callback(call)
+
+
 class V3ChargeProgramTelegramTests(unittest.IsolatedAsyncioTestCase):
     async def test_command_and_open_callback_render_canonical_screen(self):
         app = _App()
