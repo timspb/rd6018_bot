@@ -59,5 +59,14 @@ class D147PinnedCollectorTests(unittest.TestCase):
         self.assertFalse(self.destination.exists())
 
 
+    def test_existing_copy_under_symlink_directory_is_refused(self):
+        self.install()
+        link=self.root/"alias"
+        link.symlink_to(self.destination.parent,target_is_directory=True)
+        with self.assertRaises(subject.CollectorPinError):
+            subject.install(source=self.source,destination=link/"collector.py",
+                            host_check=lambda: None)
+
+
 if __name__=="__main__":
     unittest.main()
