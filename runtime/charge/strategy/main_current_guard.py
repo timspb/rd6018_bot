@@ -192,9 +192,10 @@ class MainCurrentGuard:
             return self._faulted("desulfation_return_while_unsafe")
         if self.last_observed_at_s is not None and now < self.last_observed_at_s:
             return self._faulted("clock_rollback")
-        if (from_stage.upper() != "DESULFATION" or to_stage.upper() != "MAIN"
-                or not segment_id or segment_id == self.segment_id
-                or not output_off_proven or not readbacks_fresh):
+        if (type(output_off_proven) is not bool or output_off_proven is not True
+                or type(readbacks_fresh) is not bool or readbacks_fresh is not True
+                or from_stage.upper() != "DESULFATION" or to_stage.upper() != "MAIN"
+                or not segment_id or segment_id == self.segment_id):
             return self._faulted("desulfation_return_boundary_unproven")
         try:
             new_i = _finite(current_readback_a, "current readback")
