@@ -69,6 +69,12 @@ class ESPHomeTransport(ReadOnlyTransport):
             return
         state_type = type(state).__name__
         value = getattr(state, "state", None)
+        # Compatibility with the existing D061 output guard. Output state is a
+        # dedicated sensor; keep its legacy timestamp lookup without sharing
+        # voltage/current measurements with number setpoints.
+        output_id = self.config.entities.get("output_state")
+        if any(str(entity.object_id) == output_id for entity in self._entities_by_key.get(int(key), ())):
+            self._state_updated_at[output_id] = time.monotonic()
         expected_info = {"SensorState": "SensorInfo", "NumberState": "NumberInfo",
                          "BinarySensorState": "BinarySensorInfo", "SwitchState": "SwitchInfo",
                          "TextSensorState": "TextSensorInfo"}.get(state_type)
