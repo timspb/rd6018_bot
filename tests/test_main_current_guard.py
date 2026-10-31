@@ -170,6 +170,22 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertIsNotNone(unproved.fault)
         self.assertEqual(unproved.hardware_limit_a, 5)
 
+    def test_desulfation_return_rejects_truthy_non_boolean_proofs(self):
+        s, p = self.due(self.make(), current=4)
+        s = self.ack(s, p)
+        for off_proof, fresh_proof in (("true", True), (1, True), (True, "fresh"),
+                                       (True, 1)):
+            with self.subTest(off_proof=off_proof, fresh_proof=fresh_proof):
+                rejected = s.return_after_verified_desulfation(
+                    now_s=2100, from_stage="DESULFATION", to_stage="MAIN",
+                    output_off_proven=off_proof, current_readback_a=7.2,
+                    ocp_readback_a=7.3, readbacks_fresh=fresh_proof,
+                    segment_id="return-2",
+                )
+                self.assertEqual(rejected.hardware_limit_a, 5)
+                self.assertEqual(rejected.fault,
+                                 "desulfation_return_boundary_unproven")
+
     def test_missing_ocp_headroom_is_not_accepted_as_commit(self):
         s, p = self.due(self.make(), current=4)
         bad = self.ack(s, p, ocp=p.target_limit_a)
