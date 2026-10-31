@@ -107,3 +107,52 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
             release_identity=identity, failpoint=failpoint)
         return transition.run()
+
+
+def recover_under_owner(owner: d090.D090Transaction, *,
+                        expected_candidate_identity_sha256: str) -> dict:
+    """Recover an interrupted D144 ledger under canonical D090 lock.
+
+    Recovery does not require D142's preimage (which may already have been
+    replaced) and never invokes the original historical D090 recover().
+    """
+    if (owner.offline or owner.root != Path(d090.release.ROOT)
+            or owner.host_check is not d090.production_host_check
+            or not owner.software_release
+            or not isinstance(owner.service, d090.SystemdService)):
+        raise d090.TransactionError("D145 recovery owner binding invalid")
+    from tools.d144_state_preserving_transition import OwnerTransition, JOURNAL
+    import json
+    with owner._locked():
+        owner.host_check()
+        path = owner.root / JOURNAL
+        if path.is_symlink() or not path.is_file():
+            raise d090.TransactionError("D145 durable recovery journal missing")
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as e:
+            raise d090.TransactionError("D145 durable recovery journal invalid") from e
+        identity = record.get("release_identity")
+        if (record.get("schema") != "D144_STATE_PRESERVING_V1"
+                or not isinstance(identity, dict)
+                or identity.get("schema") != "D144_RELEASE_IDENTITY_V1"
+                or identity.get("source_sha") != owner.pinned.source_sha
+                or identity.get("candidate_identity_sha256") != expected_candidate_identity_sha256):
+            raise d090.TransactionError("D145 candidate identity changed")
+        before = record.get("before")
+        candidate_manifest = record.get("candidate")
+        if not isinstance(before, dict) or not isinstance(candidate_manifest, dict):
+            raise d090.TransactionError("D145 backup/candidate manifest missing")
+        # Recovery has independent fresh Native/HA proof and DOES NOT
+        # roll back any data in state/. Old D090 remains historical.
+        def fresh_recovery_proof(*, require_stopped: bool):
+            return owner._read_recovery_proof(require_service_stopped=require_stopped)
+        transition = OwnerTransition(
+            owner.root, owner.service, candidate=owner.root / "candidate-d144",
+            evidence=fresh_recovery_proof, expected_before=before,
+            expected_candidate=candidate_manifest,
+            legacy_journal_sha256=d090.digest(owner.journal),
+            candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
+            restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
+            release_identity=identity)
+        return transition.recover()
