@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,10 +19,32 @@ class SensorState(_SensorState):
     pass
 
 
+class BinarySensorState(_SensorState):
+    pass
+
+
+class SensorInfo:
+    def __init__(self, key, object_id, device_id=1):
+        self.key, self.object_id, self.device_id = key, object_id, device_id
+
+
+class BinarySensorInfo(SensorInfo):
+    pass
+
+
 class _NumberState:
     def __init__(self, key, state):
         self.key = key
         self.state = state
+
+
+class NumberState(_NumberState):
+    pass
+
+
+class NumberInfo:
+    def __init__(self, key, object_id, device_id=1):
+        self.key, self.object_id, self.device_id = key, object_id, device_id
 
 
 class _ButtonInfo:
@@ -69,16 +92,16 @@ class _FakeClient:
 
     async def list_entities_services(self):
         entities = [
-            SimpleNamespace(key=1, object_id="rd_voltage", device_id=1),
-            SimpleNamespace(key=2, object_id="rd_current", device_id=1),
-            SimpleNamespace(key=3, object_id="rd_output", device_id=1),
-            SimpleNamespace(key=4, object_id="rd_set_voltage", device_id=1),
-            SimpleNamespace(key=10, object_id="safety_lease_armed", device_id=0),
-            SimpleNamespace(key=11, object_id="safety_lease_tripped", device_id=0),
-            SimpleNamespace(key=12, object_id="safety_boot_quarantine", device_id=0),
-            SimpleNamespace(key=13, object_id="safety_lease_generation", device_id=0),
-            SimpleNamespace(key=14, object_id="safety_modbus_age", device_id=0),
-            SimpleNamespace(key=15, object_id="safety_lease_remaining", device_id=0),
+            SensorInfo(1, "rd_voltage"),
+            SensorInfo(2, "rd_current"),
+            SensorInfo(3, "rd_output"),
+            NumberInfo(4, "rd_set_voltage"),
+            BinarySensorInfo(10, "safety_lease_armed", 0),
+            BinarySensorInfo(11, "safety_lease_tripped", 0),
+            BinarySensorInfo(12, "safety_boot_quarantine", 0),
+            SensorInfo(13, "safety_lease_generation", 0),
+            SensorInfo(14, "safety_modbus_age", 0),
+            SensorInfo(15, "safety_lease_remaining", 0),
             ButtonInfo(16, "safety_lease_renew", 0),
             ButtonInfo(17, "safety_lease_disarm", 0),
             ButtonInfo(18, "safety_lease_release_to_hands_off", 0),
@@ -92,16 +115,16 @@ class _FakeClient:
             raise RuntimeError("subscription failed")
         self.callbacks.add(callback)
         if type(self).emit_initial:
-            callback(_SensorState(1, 12.7))
-            callback(_SensorState(2, 0.0))
+            callback(SensorState(1, 12.7))
+            callback(SensorState(2, 0.0))
             callback(SensorState(3, 0.0))
-            callback(_NumberState(4, 14.7))
-            callback(_SensorState(10, 0.0))
-            callback(_SensorState(11, 0.0))
-            callback(_SensorState(12, 0.0))
-            callback(_SensorState(13, 2.0))
-            callback(_SensorState(14, 3.0))
-            callback(_SensorState(15, 0.0))
+            callback(NumberState(4, 14.7))
+            callback(BinarySensorState(10, False))
+            callback(BinarySensorState(11, False))
+            callback(BinarySensorState(12, False))
+            callback(SensorState(13, 2.0))
+            callback(SensorState(14, 3.0))
+            callback(SensorState(15, 0.0))
 
         def remove():
             type(self).remove_calls += 1
@@ -213,7 +236,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_native_output_age_not_advertised_fresh(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         await transport.get_live_values()
-        transport._state_updated_at["rd_output"] -= 30.0
+        transport._state_updated_at[("SensorInfo", 3)] -= 30.0
         live = await transport.get_live_values()
         self.assertGreaterEqual(live["_meta"]["output_state_code_v2"]["age_s"], 30.0)
         self.assertEqual(live["_meta"]["output_state_code_v2"]["last_reported"],
@@ -232,11 +255,64 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         await transport.get_live_values()
         client = _FakeClient.instances[0]
-        client.callbacks.copy().pop()(_SensorState(1, 13.1))
+        client.callbacks.copy().pop()(SensorState(1, 13.1))
         live = await transport.get_live_values()
         self.assertEqual(live["voltage"], 13.1)
-        self.assertEqual(len(transport._state_cache["rd_voltage"]), 1)
+        self.assertEqual(len(transport._state_cache[("SensorInfo", 1)]), 1)
         await transport.close()
+
+    async def test_same_object_id_sensor_and_number_keep_independent_typed_cache_for_d106(self):
+        config = _config()
+        config.entities["configured_voltage"] = "rd_voltage"
+        original = _FakeClient.list_entities_services
+
+        async def colliding_inventory(client):
+            entities, services = await original(client)
+            entities.extend((NumberInfo(20, "rd_voltage"),))
+            return entities, services
+
+        def colliding_subscription(self, callback):
+            type(self).subscribe_calls += 1
+            self.callbacks.add(callback)
+            callback(SensorState(1, 0.0))
+            callback(NumberState(20, 14.72))
+            callback(SensorState(2, 0.0))
+            callback(SensorState(3, 0.0))
+            for key in (10, 11, 12):
+                callback(BinarySensorState(key, False))
+            for key in (13, 14, 15):
+                callback(SensorState(key, 0.0))
+            return lambda: self.callbacks.discard(callback)
+
+        with patch.object(_FakeClient, "list_entities_services", colliding_inventory), \
+                patch.object(_FakeClient, "subscribe_states", colliding_subscription):
+            transport = ESPHomeTransport(config, RDConfig(60.0, 18.0, 1000.0))
+            live = await transport.get_live_values()
+            self.assertEqual(live["voltage"], 0.0)
+            self.assertEqual(live["configured_voltage"], 14.72)
+            self.assertEqual(live["_meta"]["voltage"]["native_type"], "SensorState")
+            self.assertEqual(live["_meta"]["configured_voltage"]["native_type"], "NumberState")
+            self.assertEqual(live["_meta"]["voltage"]["key"], 1)
+            self.assertEqual(live["_meta"]["configured_voltage"]["key"], 20)
+            measured_state, measured_meta = await transport.get_entity_state("sensor.rd_voltage")
+            setpoint_state, setpoint_meta = await transport.get_entity_state("number.rd_voltage")
+            self.assertEqual((measured_state, measured_meta["key"]), (0.0, 1))
+            self.assertEqual((setpoint_state, setpoint_meta["key"]), (14.72, 20))
+
+            # D106's normal native record helper must identify SensorInfo from
+            # the colliding inventory by type and key, not reject both entries.
+            from tools import node104_d106_live_observer as d106
+            measured = d106._native_record("voltage_v", "rd_voltage", transport,
+                                           tuple(transport.entities), time.time())
+            self.assertEqual(measured["value"], 0.0)
+            self.assertEqual(measured["meta"]["entity_type"], "SensorInfo")
+            self.assertEqual(measured["meta"]["native_key"], 1)
+            setpoint = d106._native_record("set_voltage_v", "rd_voltage", transport,
+                                          tuple(transport.entities), time.time())
+            self.assertEqual(setpoint["value"], 14.72)
+            self.assertEqual(setpoint["meta"]["entity_type"], "NumberInfo")
+            self.assertEqual(setpoint["meta"]["native_key"], 20)
+            await transport.close()
 
     async def test_concurrent_reads_still_use_one_subscription(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
@@ -357,7 +433,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         _FakeClient.emit_initial = True
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         await transport._ensure_state_subscription()
-        transport._state_updated_at["rd_output"] -= 9.0
+        transport._state_updated_at[("SensorInfo", 3)] -= 9.0
         value, attrs = await transport.get_physical_output_report()
         self.assertIsNone(value)
         self.assertEqual(attrs["status"], "stale")
