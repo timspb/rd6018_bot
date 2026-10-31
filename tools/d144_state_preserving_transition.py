@@ -28,13 +28,15 @@ class TransitionError(RuntimeError):
 class OwnerTransition:
     def __init__(self, root: Path, service, *, candidate: Path,
                  evidence, expected_before: dict, expected_candidate: dict,
-                 legacy_journal_sha256: str, failpoint=None):
+                 legacy_journal_sha256: str, candidate_stable, restored_stable, failpoint=None):
         self.root, self.service, self.candidate = root, service, candidate
         self.evidence = evidence
         self.expected_before = expected_before
         self.expected_candidate = expected_candidate
         self.legacy_hash = legacy_journal_sha256
         self.failpoint = failpoint or (lambda _: None)
+        self.candidate_stable = candidate_stable
+        self.restored_stable = restored_stable
         self.journal = root / JOURNAL
 
     def _phase(self, record, phase):
@@ -124,7 +126,7 @@ class OwnerTransition:
         self.service.start()
         self._phase(record, "STARTED")
         self.evidence(require_stopped=False)
-        if not self.service.stable():
+        if not self.candidate_stable():
             raise TransitionError("new service not positively stable")
         self._verify_legacy()
         self._phase(record, "COMMITTED")
@@ -179,7 +181,7 @@ class OwnerTransition:
                 raise TransitionError("restored bytes mismatch: " + name)
         # Never alter state, legacy journal, or deployment marker.
         self.service.start()
-        if not self.service.stable():
+        if not self.restored_stable():
             raise TransitionError("restored service not stable")
         self._phase(record, "RESTORED")
         return record
