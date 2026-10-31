@@ -44,10 +44,21 @@ local software tests cover profile pinning, tamper/symlink rejection, owner
 binding, and the restricted command set; this is not production or physical
 acceptance.
 
-The tracked D146 profile currently hashes to
-`a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47`. This
-differs from the historical `cabf0a0d...` digest recorded above, so the
-entrypoint pins the exact current tracked bytes. Reconcile the historical
-profile evidence before treating those older records as current proof.
+The tracked D146 profile hashes to
+`a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47`; the
+historical prepared copy hashes to
+`cabf0a0dfd8f92e50dd72926bedf5836394e9f61f14f6a00611ea5a3e977b8eb`. The
+historical copy remains in the local evidence directory named in
+`D146_SOURCE_PAIRED_PROFILE.md`. Parsing both files yields identical JSON;
+their serialized bytes differ. The entrypoint correctly pins the tracked
+bytes, so this is a serialization/evidence mismatch rather than a profile
+content discrepancy.
 
-**Operational decision:** do not invoke a production cutover on node104 from this merge. New production activation requires an exact profile, a narrow supported CLI/operational entrypoint, and full real-system recovery testing. Never rewrite D090 to COMMITTED, delete the only rollback copy, or change Output, setpoints, OVP/OCP or the 900-second lease merely to pass admission.
+The owner binding uses the D149 phase-aware router: D147 for both PRE_STOP
+proofs and D148 for STOPPED, POST_START, and RECOVERY. The CLI now checks the
+exact read-only D148 artifact before entering `execute` or `recover`, so a
+missing or changed recovery observer fails before transaction code can stop
+the service. The router still rechecks its phase-specific digest at each
+collection.
+
+**Operational decision:** no production cutover was performed by this source integration. Before any later activation, require a fresh direct ESP Native read, actual stopped-service recovery/systemd acceptance, and the applicable production prechecks. Never rewrite D090 to COMMITTED, delete the only rollback copy, or change Output, setpoints, OVP/OCP or the 900-second lease merely to pass admission.

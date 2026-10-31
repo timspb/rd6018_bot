@@ -10,7 +10,7 @@ The existing canonical D090Transaction remains the only transaction owner and lo
 
 On node104, **28/28 isolated D144/D145/D149 tests PASS**, using fixture services and directories only. No actual service stop, candidate activation or physical output operation performed.
 
-Remaining production gates: exact D146 profile must be loaded into the owner, a narrow authenticated entrypoint must be implemented, rollback after actual systemd interruption must be demonstrated, and post-start physical readback must be accepted in the real service. D149 is source-only until then.
+At the time of the original D149 evidence, production gates still included source-paired entrypoint integration. D145 now provides that entrypoint and pins the tracked D146 profile. Actual stopped-service recovery/systemd interruption acceptance and post-start physical readback remain unproven. D149 routing is source-integrated; its recorded node observations are historical evidence and are not a current physical read.
 
 
 ## Additional live read-only observation
