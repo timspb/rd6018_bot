@@ -34,27 +34,51 @@ async def execute_controller_action_batch(
     now: Callable[[], float] = time.time,
 ) -> Optional[bool]:
     """Run physical action batch, then commit only its verified transition."""
-    execution = await execution_port.execute_controller_actions(
-        actions,
-        live,
-        max_stage_current_a=float(max_stage_current_a),
-        ocp_offset_a=float(ocp_offset_a),
-        idle_safe_ocp_a=float(idle_safe_ocp_a),
-        stabilize_delay_s=float(stabilize_delay_s),
-        recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-        has_ovp=bool(has_ovp),
-        has_ocp=bool(has_ocp),
-    )
-    enabled = execution.enabled
+    transition = actions.get("verified_enable_transition")
+    guard = getattr(controller, "_main_current_guard", None)
+    guarded_desulfation_return = False
+    if (isinstance(transition, dict)
+            and transition.get("kind") == "recovery_safe_wait_to_main"
+            and guard is not None
+            and callable(getattr(execution_port, "execute_desulfation_main_return", None))):
+        guarded_desulfation_return = True
+        execution = await execution_port.execute_desulfation_main_return(
+            controller=controller, actions=actions, now=time.monotonic,
+            max_stage_current_a=float(max_stage_current_a),
+            recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+            has_ovp=bool(has_ovp), has_ocp=bool(has_ocp),
+            ocp_offset_a=float(ocp_offset_a),
+            stabilize_delay_s=float(stabilize_delay_s),
+            battery_v=float(battery_v), current=float(current), ah=float(ah),
+        )
+        if execution is not None and not execution.verified:
+            logger.warning("Guarded desulfation MAIN return denied: %s", execution.reason)
+        enabled = bool(execution is not None and execution.verified)
+        final_targets_missing = False
+        final_verification_failed = bool(execution is not None and not execution.verified)
+    else:
+        execution = await execution_port.execute_controller_actions(
+            actions,
+            live,
+            max_stage_current_a=float(max_stage_current_a),
+            ocp_offset_a=float(ocp_offset_a),
+            idle_safe_ocp_a=float(idle_safe_ocp_a),
+            stabilize_delay_s=float(stabilize_delay_s),
+            recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+            has_ovp=bool(has_ovp),
+            has_ocp=bool(has_ocp),
+        )
+        enabled = execution.enabled
+        final_targets_missing = execution.final_targets_missing
+        final_verification_failed = execution.final_verification_failed
 
     if actions.get("turn_on") and not enabled:
         logger.warning("Controller Output ON request was not verified; stage commit withheld")
-    if execution.final_targets_missing:
+    if final_targets_missing:
         logger.error("Final startup protection verification lacks V/I/OVP target")
-    elif execution.final_verification_failed:
+    elif final_verification_failed:
         logger.error("Final OVP/OCP/V/I verification failed after startup settle; forcing OFF")
 
-    transition = actions.get("verified_enable_transition")
     if isinstance(transition, dict):
         commit = None
         if enabled:
@@ -74,6 +98,9 @@ async def execute_controller_action_batch(
             if not enabled and transition.get("kind") == "recovery_safe_wait_to_main":
                 off_proved = bool(await execution_port.request_verified_off())
                 if off_proved:
+                    if guarded_desulfation_return:
+                        logger.error("Guarded recovery MAIN return failed; durable SAFE_WAIT retained for retry")
+                        return False
                     controller.stop(clear_session=True)
                     logger.error("Recovery SAFE_WAIT enable failed; verified OFF and retired session")
                     return False
