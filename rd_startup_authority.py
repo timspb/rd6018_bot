@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import logging
 from typing import Any, Awaitable, Callable, Optional
 
 from runtime_safety import RuntimeSafetyError
+
+logger = logging.getLogger("rd6018.startup_authority")
 
 
 class RdStartupAuthorityGate:
@@ -240,6 +243,7 @@ class RdStartupAuthorityGate:
         self.managed_recovery_complete = True
         self.reconciliation_error = ""
         self.manager._edge_autonomous = False
+        logger.info("Managed startup authority ready: reconciliation and recovery complete")
 
     async def reconcile(
         self,
