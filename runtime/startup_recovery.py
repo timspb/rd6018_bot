@@ -11,9 +11,12 @@ import asyncio
 from dataclasses import replace
 from functools import wraps
 import hashlib
+import logging
 from pathlib import Path
 import time
 from typing import Any
+
+logger = logging.getLogger("rd6018.startup_recovery")
 
 from application.execution_port import get_or_create_execution_port
 from diagnostic_persistence import recover_diagnostic_persistence
@@ -51,14 +54,19 @@ class StartupRecovery:
 
     async def recover_managed_startup_authority(self) -> bool:
         if not get_or_create_execution_port(self.app).session_recovery_guard.may_run_automatic_control():
+            logger.warning("Managed startup recovery blocked: session recovery guard")
             return False
         if not await self.managed_mix.recover_startup():
+            logger.warning("Managed startup recovery blocked: managed_mix")
             return False
         if not await self.managed_live.recover_startup():
+            logger.warning("Managed startup recovery blocked: managed_live")
             return False
         if self.live_observer is not None and not await self.live_observer.recover_startup():
+            logger.warning("Managed startup recovery blocked: live_observer")
             return False
         await recover_diagnostic_persistence(self.app)
+        logger.info("Managed startup recovery completed")
         return True
 
     @_serialized_deferred_restore
