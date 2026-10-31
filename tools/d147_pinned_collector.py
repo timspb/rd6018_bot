@@ -30,6 +30,10 @@ def _read_regular(path: Path) -> bytes:
 
 
 def verify(snapshot: Path = SNAPSHOT) -> dict[str, object]:
+    parent = snapshot.parent
+    if (parent.is_symlink() or not parent.is_dir()
+            or parent.stat().st_mode & 0o022):
+        raise CollectorPinError("collector directory unsafe")
     data = _read_regular(snapshot)
     if _digest(data) != EXPECTED_SHA256:
         raise CollectorPinError("pinned collector content drift")
