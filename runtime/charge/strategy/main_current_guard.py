@@ -151,7 +151,12 @@ class MainCurrentGuard:
             return self
         if pending is None or pending.proposal_id != proposal_id:
             return self._faulted("ambiguous_or_wrong_proposal_ack")
-        if now < pending.created_at_s or now > pending.deadline_s:
+        # Observations received while awaiting the hardware acknowledgement
+        # advance last_observed_at_s without accruing MAIN time. An ack must
+        # not move that clock backward, or the next fresh sample could count
+        # an interval that has already been observed.
+        if (now < pending.created_at_s or now > pending.deadline_s
+                or (self.last_observed_at_s is not None and now < self.last_observed_at_s)):
             return self._faulted("proposal_ack_timeout_or_clock_rollback")
         try:
             current = _finite(measured_current_a, "measured current")
