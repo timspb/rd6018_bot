@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import inspect
+import logging
 from typing import Callable
 
 from pb_domain import BatteryCondition, ChargeIntent
@@ -17,6 +18,8 @@ from .start_transaction_adapter import (
     StartTransactionOutcome,
 )
 
+
+logger = logging.getLogger("rd6018.start")
 
 StartTransactionCallable = Callable[[object], StartTransactionOutcome]
 
@@ -40,6 +43,7 @@ class ProductionStartRunner:
                 if close is not None:
                     close()
         except Exception as exc:  # runner failures are normalized, not leaked
+            logger.exception("START transaction runner failed; trace_id=%s session_id=%s", request.trace_id, request.session_id)
             outcome = StartTransactionOutcome(
                 trace_id=request.trace_id,
                 reason=f"runner_failed:{type(exc).__name__}",
@@ -64,6 +68,7 @@ class ProductionStartRunner:
             if inspect.isawaitable(outcome):
                 outcome = await outcome
         except Exception as exc:  # runner failures are normalized, not leaked
+            logger.exception("START transaction runner failed; trace_id=%s session_id=%s", request.trace_id, request.session_id)
             outcome = StartTransactionOutcome(
                 trace_id=request.trace_id,
                 reason=f"runner_failed:{type(exc).__name__}",
