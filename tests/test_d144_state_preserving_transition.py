@@ -19,3 +19,13 @@ class D144Tests(unittest.TestCase):
 
     def test_stub(self):
         self.assertTrue(True)
+
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        self.candidate=self.root/"candidate"
+        for p in ("app","venv","state","candidate/app","candidate/venv"):
+            (self.root/p).mkdir(parents=True)
+        for p,v in (("app/x","old"),("venv/x","old"),("candidate/app/x","new"),("candidate/venv/x","new"),("state/session","RETIRED"),("D090_TRANSACTION.json",'{"phase":"STARTED"}'),(".deploy_sha","legacy")):
+            (self.root/p).write_text(v)
