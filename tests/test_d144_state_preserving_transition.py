@@ -33,3 +33,7 @@ class D144Tests(unittest.TestCase):
         self.old={p:inventory(self.root/p) for p in ("app","venv")}
         self.new={p:inventory(self.candidate/p) for p in ("app","venv")}
         self.service=FakeService()
+
+    def proof(self, *, require_stopped):
+        if require_stopped and self.service.main_pid()!=0:
+            raise TransitionError('service unexpectedly active')
