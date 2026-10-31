@@ -11,3 +11,12 @@ The existing canonical D090Transaction remains the only transaction owner and lo
 On node104, **28/28 isolated D144/D145/D149 tests PASS**, using fixture services and directories only. No actual service stop, candidate activation or physical output operation performed.
 
 Remaining production gates: exact D146 profile must be loaded into the owner, a narrow authenticated entrypoint must be implemented, rollback after actual systemd interruption must be demonstrated, and post-start physical readback must be accepted in the real service. D149 is source-only until then.
+
+
+## Additional live read-only observation
+
+The D149 router was invoked on node104 using both `PRE_STOP` (D147) and `RECOVERY` (D148) with the real service Python environment. Both independently returned fresh HA102/ESP128 physical OFF, zero outputs, unarmed lease and two source nonces. The service stayed on PID `162141`.
+
+The node104 *installed* legacy `node104_d090_release.validate_physical_off` does not accept the newer optional `allow_active_session` argument in GitHub main. This was discovered during the initial read-only probe; the probe was corrected to use the common validation interface because no active session existed. Therefore, do not launch recovery using the old installed D090 Python module; use the exact source-paired D145/D149 release owner and review the recovery signature before production cutover.
+
+On node104, **29/29** isolated tests PASS after adding a negative test proving the owner callback and lock are restored following proof failure. Full CI matrix Python 3.10/3.11/3.12 PASS.
