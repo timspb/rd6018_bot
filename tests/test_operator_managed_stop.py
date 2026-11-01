@@ -38,6 +38,22 @@ class FakeManual:
 
 
 class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stale_orphan_stop_after_clearance_is_idempotent_only_for_same_session(self):
+        from operator_managed_stop import _orphan_stop_already_retired
+        retired = types.SimpleNamespace(_document=lambda: {"owner": "runtime.charge.persistence",
+            "state": "retired", "retirement_kind": "operator_recovery_clearance",
+            "output_intent": "verified_off", "verified_off_transaction_id": "tx1",
+            "session_id": "S1", "battery_id": "B1"})
+        self.assertTrue(_orphan_stop_already_retired(retired, "orphan-main:S1:B1:sha"))
+        self.assertFalse(_orphan_stop_already_retired(retired, "orphan-main:S2:B1:sha"))
+        self.assertFalse(_orphan_stop_already_retired(retired, "orphan-main:S1extra:B1:sha"))
+        with patch("operator_managed_stop._orphan_retirement", return_value=types.SimpleNamespace(
+                orphan_binding=lambda: None, _document=retired._document)):
+            ok, message = await _stop_orphan_main_guard(types.SimpleNamespace(), "orphan-main:S1:B1:sha")
+            self.assertTrue(ok)
+            self.assertIn("уже завершена", message)
+
+
     async def test_orphan_main_guard_stop_requires_fresh_proof_and_retires_once(self):
         from application.operator_recovery_clearance import VerifiedOffEvidence
         from application.guard_execution_owner_lock import GuardExecutionOwnerLock

@@ -71,6 +71,25 @@ def _orphan_retirement(app: Any):
     return _ControllerSessionRetirement(app)
 
 
+def _orphan_stop_already_retired(retirement: Any, expected_token: str) -> bool:
+    """A stale STOP succeeds only for the exact durably retired session."""
+    try:
+        document = retirement._document()
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+    return (isinstance(document, dict)
+            and document.get("owner") == "runtime.charge.persistence"
+            and document.get("state") == "retired"
+            and document.get("retirement_kind") == "operator_recovery_clearance"
+            and document.get("output_intent") == "verified_off"
+            and isinstance(document.get("verified_off_transaction_id"), str)
+            and bool(document["verified_off_transaction_id"].strip())
+            and isinstance(document.get("session_id"), str)
+            and isinstance(document.get("battery_id"), str)
+            and expected_token.startswith("orphan-main:" + document["session_id"] + ":"
+                                          + document["battery_id"] + ":"))
+
+
 def _orphan_stop_token(app: Any) -> str | None:
     binding = _orphan_retirement(app).orphan_binding()
     if binding is None:
@@ -87,6 +106,8 @@ async def _stop_orphan_main_guard(app: Any, expected_token: str) -> tuple[bool, 
     retirement = _orphan_retirement(app)
     binding = retirement.orphan_binding()
     if binding is None:
+        if _orphan_stop_already_retired(retirement, expected_token):
+            return True, "Сессия уже завершена; повторный STOP не требуется."
         return False, "Persisted MAIN session is absent or has changed."
     token = "orphan-main:" + binding["session_id"] + ":" + binding["battery_id"] + ":" + binding["document_sha256"]
     if token != expected_token:
@@ -102,6 +123,8 @@ async def _stop_orphan_main_guard(app: Any, expected_token: str) -> tuple[bool, 
         if getattr(controller, "current_stage", controller.STAGE_IDLE) != controller.STAGE_IDLE:
             return False, "Controller session became active; orphan STOP отменён."
         if not retirement.validate(binding):
+            if _orphan_stop_already_retired(retirement, expected_token):
+                return True, "Сессия уже завершена; повторный STOP не требуется."
             return False, "Persisted session identity changed; STOP отменён до команды."
         try:
             evidence = await port.request_verified_off_evidence()
