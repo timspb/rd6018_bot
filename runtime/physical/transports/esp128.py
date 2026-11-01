@@ -316,6 +316,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             expected = "SensorInfo" if name in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
+                "configured_voltage", "configured_current", "ovp", "ocp",
             } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
             return self._read_subscribed_state(self.config.entities.get(name), expected)
         reads = {key: value(key) for key in self.config.entities}
@@ -354,6 +355,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             expected = "SensorInfo" if source in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
+                "configured_voltage", "configured_current", "ovp", "ocp",
             } else "BinarySensorInfo" if source == "autonomous_mode" else "NumberInfo"
             entity = next((candidate for candidate in self.entities
                            if str(candidate.object_id) == str(object_id)
