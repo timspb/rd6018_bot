@@ -196,6 +196,22 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.owner.events, [("OFF",)])
         self.assertEqual(self.snapshots, [])
 
+    async def test_native_ocp_callback_converges_after_setter_returns(self):
+        original = self.owner.set_ocp
+        target = {}
+        async def delayed_callback(value):
+            target["value"] = value
+            self.owner.events.append(("set_ocp", round(value, 3)))
+            async def publish():
+                await asyncio.sleep(0.3)
+                self.owner.live["ocp_readback_v2"] = value
+            asyncio.create_task(publish())
+        self.owner.set_ocp = delayed_callback
+        result = await self.transact()
+        self.assertTrue(result.verified)
+        self.assertEqual(self.owner.live["ocp_readback_v2"], target["value"])
+        self.assertEqual(self.owner.events, [("set_current", 5.0), ("set_ocp", 5.1)])
+
     async def test_unconfirmed_setter_fail_closed_and_no_commit(self):
         self.owner.mirror = False
         result = await self.transact()

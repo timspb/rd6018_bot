@@ -17,6 +17,9 @@ from runtime.charge.strategy.main_current_guard import (
 SaveSnapshot = Callable[[dict[str, Any]], Awaitable[None]]
 Now = Callable[[], float]
 MAX_READBACK_AGE_S = 10.0
+# ESP Native setter completion may precede its independent sensor callback.
+POSTWRITE_CONVERGENCE_S = 5.0
+POSTWRITE_POLL_S = 0.25
 
 
 @dataclass(frozen=True)
@@ -181,10 +184,22 @@ async def execute_main_guard_reduction(
                 has_ocp=True,
                 stabilize_delay_s=stabilize_delay_s,
             )
-            after = await port.execution_owner.get_all_live()
-            if not isinstance(after, Mapping):
-                raise MainGuardExecutionFault("postflight_unavailable")
-            measured, actual_i, actual_ocp = _positive_on_snapshot(after)
+            # A completed setter is not an acknowledgement from the independent
+            # ESP Native sensor stream. Give callbacks a short bounded window
+            # to converge; never relax readback tolerance or suppress OFF on
+            # persistent disagreement, loss of output, or a protection trip.
+            deadline = asyncio.get_running_loop().time() + POSTWRITE_CONVERGENCE_S
+            while True:
+                after = await port.execution_owner.get_all_live()
+                if not isinstance(after, Mapping):
+                    raise MainGuardExecutionFault("postflight_unavailable")
+                measured, actual_i, actual_ocp = _positive_on_snapshot(after)
+                if (abs(actual_i - current_target) <= READBACK_TOLERANCE_A
+                        and abs(actual_ocp - ocp_target) <= READBACK_TOLERANCE_A):
+                    break
+                if asyncio.get_running_loop().time() >= deadline:
+                    break
+                await asyncio.sleep(POSTWRITE_POLL_S)
             postflight_now = float(now())
             updated = guard.commit(
                 proposal_id=proposal.proposal_id, now_s=postflight_now,
