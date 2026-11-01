@@ -379,8 +379,8 @@ class OperatorHmiTests(unittest.TestCase):
             self.assertNotIn("operator_details", [callback for row in rows for callback in row])
         else:
             # Isolated compatibility imports retain the historical builder.
-            self.assertEqual(rows[1], ["logs", "ui:nav.diagnostics"])
-            self.assertEqual(rows[2], ["refresh", "ui:nav.analysis"])
+            self.assertEqual(rows[1], ["ui:nav.journal", "ui:nav.diagnostics"])
+            self.assertEqual(rows[2], ["operator_refresh", "ui:nav.analysis"])
 
     def test_manual_mix_panel_shows_reference_delta_and_bounded_hold(self):
         app = FakeApp(observer=None, hands_off=False)
