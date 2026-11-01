@@ -125,6 +125,7 @@ async def configure_commands(runtime: TelegramRuntime) -> None:
     """Register the stable operator command surface for the Telegram adapter."""
     await runtime.bot.set_my_commands([
         BotCommand(command="start", description="Открыть дашборд"),
+        BotCommand(command="recovery_clear", description="Снять аварийную блокировку (D084)"),
         BotCommand(command="modes", description="Выбрать режим заряда"),
         BotCommand(command="off", description="Условие выключения (preset/команда)"),
         BotCommand(command="logs", description="Последние события"),
