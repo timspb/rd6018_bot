@@ -316,7 +316,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             # Configurations may expose programmable values as NumberInfo,
             # while the production ESP reports dedicated readback sensors.
             # Preserve NumberInfo precedence when object IDs collide.
-            if name in {"configured_voltage", "configured_current", "ovp", "ocp"}:
+            if name in {"configured_voltage", "configured_current", "ovp", "ocp", "regulation_code"}:
                 kinds = {type(e).__name__ for e in self.entities
                          if str(e.object_id) == str(object_id)}
                 return "NumberInfo" if "NumberInfo" in kinds else "SensorInfo"
