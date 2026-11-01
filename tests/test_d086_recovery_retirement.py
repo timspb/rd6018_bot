@@ -77,6 +77,21 @@ class RecoveryRetirementJournalTests(unittest.TestCase):
             self.assertEqual(tombstone["retirement"]["battery_id"], "battery-A")
             self.assertFalse(journal.load().quarantined)
 
+    def test_new_incident_after_retirement_preserves_prior_tombstone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "q.json"
+            journal = RecoveryQuarantineJournal(path)
+            self.incident(path)
+            journal.retire(operator_id="op", session_id="session-A", confirmed_off_evidence="off-1")
+            retired = path.read_bytes()
+            journal = RecoveryQuarantineJournal(path, app=SimpleNamespace(
+                charge_controller=SimpleNamespace(session_id="session-B", battery_id="battery-A")))
+            journal.persist("second charge incident")
+            self.assertTrue(journal.load().quarantined)
+            self.assertEqual(journal.incident_binding()["reason"], "second charge incident")
+            self.assertNotEqual(journal.incident_binding()["incident_id"], "incident-A")
+            self.assertEqual((path.parent / "q.json.retired-incident-A").read_bytes(), retired)
+
     def test_tombstone_unknown_fields_and_missing_provenance_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "q.json"

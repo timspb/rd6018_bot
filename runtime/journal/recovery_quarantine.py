@@ -83,7 +83,24 @@ class RecoveryQuarantineJournal:
                 if (isinstance(current, dict) and current.get("owner") == OWNER
                         and current.get("schema_version") == RETIREMENT_SCHEMA_VERSION
                         and current.get("state") == "retired"):
-                    raise RuntimeError("recovery retirement tombstone is immutable")
+                    if self.load().quarantined:
+                        raise RuntimeError("invalid retired tombstone; refuse overwrite")
+                    retirement = current["retirement"]
+                    new_session = self._identity().get("session_id")
+                    if (not new_session or new_session == retirement["session_id"]):
+                        raise RuntimeError("new incident requires a distinct active session")
+                    # Preserve the prior retired incident as an immutable hard link
+                    # before publishing a new, independently bound incident.
+                    # Exclusive link creation fails closed on collision or I/O error.
+                    old_id = current.get("retirement", {}).get("incident_id")
+                    if not isinstance(old_id, str) or not old_id or any(
+                            char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for char in old_id):
+                        raise RuntimeError("invalid retired incident archive identity")
+                    archive = self.path.with_name(self.path.name + ".retired-" + old_id)
+                    if not archive.exists():
+                        os.link(self.path, archive)
+                    elif archive.read_bytes() != self.path.read_bytes():
+                        raise RuntimeError("retired incident archive conflict")
             except json.JSONDecodeError:
                 pass
         existing = self._read_incident()
