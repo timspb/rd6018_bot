@@ -312,13 +312,23 @@ class ESPHomeTransport(ReadOnlyTransport):
     async def get_live_values(self) -> dict[str, Any]:
         await self._ensure_state_subscription()
         await asyncio.sleep(0.5)
+        def expected_type(name, object_id):
+            # Configurations may expose programmable values as NumberInfo,
+            # while the production ESP reports dedicated readback sensors.
+            # Preserve NumberInfo precedence when object IDs collide.
+            if name in {"configured_voltage", "configured_current", "ovp", "ocp"}:
+                kinds = {type(e).__name__ for e in self.entities
+                         if str(e.object_id) == str(object_id)}
+                return "NumberInfo" if "NumberInfo" in kinds else "SensorInfo"
+            return None
         def value(name):
             expected = "SensorInfo" if name in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
             } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
-            return self._read_subscribed_state(self.config.entities.get(name), expected)
+            object_id = self.config.entities.get(name)
+            return self._read_subscribed_state(object_id, expected_type(name, object_id) or expected)
         reads = {key: value(key) for key in self.config.entities}
         result = {key: item[0] for key, item in reads.items()}
         result["output_state_code_v2"] = result.get("output_state")
@@ -357,6 +367,7 @@ class ESPHomeTransport(ReadOnlyTransport):
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
             } else "BinarySensorInfo" if source == "autonomous_mode" else "NumberInfo"
+            expected = expected_type(source, object_id) or expected
             entity = next((candidate for candidate in self.entities
                            if str(candidate.object_id) == str(object_id)
                            and type(candidate).__name__ == expected), None)
