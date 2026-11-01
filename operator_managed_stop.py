@@ -12,6 +12,7 @@ from operator_confirmation import ConfirmationStore
 from rd_hands_off_release import _active_session_token, _auto_active, _manual_active
 from application.intents import OperatorIntent, OperatorIntentKind
 from runtime_safety import OutputOffNotConfirmed
+from charging_log import log_verified_auto_stop
 
 
 STOP_CONFIRM_CALLBACK = "operator_managed_stop"
@@ -179,6 +180,12 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
         clear = getattr(app, "_clear_manual_off", None)
         if callable(clear):
             clear()
+        try:
+            log_verified_auto_stop(expected_token)
+        except Exception:
+            # History failure must not undo a physically verified safe STOP.
+            import logging
+            logging.getLogger("rd6018.operator_stop").exception("Verified STOP history append failed")
         return True, "AUTO остановлен; Output OFF подтверждён."
 
     return False, "Неизвестный managed owner; команда не выполнена."
