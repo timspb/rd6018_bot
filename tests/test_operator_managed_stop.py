@@ -172,7 +172,9 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
             _hard_stop_charge=hard_stop,
             _clear_manual_off=lambda: calls.append("clear_off"),
         )
-        ok, detail = await _stop_exact_session(app, "auto:auto-1")
+        with patch("operator_managed_stop.log_verified_auto_stop") as record_stop:
+            ok, detail = await _stop_exact_session(app, "auto:auto-1")
+        record_stop.assert_called_once_with("auto:auto-1")
         self.assertTrue(ok)
         self.assertIn("Output OFF", detail)
         self.assertEqual(calls, ["hard_stop", "clear_off"])
