@@ -292,6 +292,24 @@ def log_event(
     _ensure_logger().info(line)
 
 
+
+def log_verified_auto_stop(session_token: str) -> None:
+    """Write a terminal AUTO event only after verified OFF and session retirement.
+
+    The STOP owner has no validated final measurement tuple; show unavailable
+    fields explicitly instead of forging zero-voltage/current/Ah values.
+    """
+    try:
+        ts = format_datetime_user_tz(fmt="%Y-%m-%d %H:%M:%S")
+    except Exception:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    token = str(session_token).replace("\\n", " ").replace("\\r", " ").replace("|", "/")
+    _ensure_logger().info(
+        f"[{ts}] | {'Idle':12} | {'—':>5} | {'—':>5} | {'—':>5} | {'—':>6} | "
+        f"SESSION_STOP | reason=operator_verified_auto_stop | session={token} | output=verified_off"
+    )
+
+
 def _format_duration(seconds: float) -> str:
     """Форматировать длительность: Xч Yм или Xм."""
     if seconds < 60:
