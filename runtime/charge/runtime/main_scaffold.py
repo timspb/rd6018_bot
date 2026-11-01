@@ -352,10 +352,8 @@ async def run_authoritative_main_scaffold(
 
     if host._stage_start_ah == 0:
         host._stage_start_ah = ah
-        if "log_event" not in actions:
-            actions["log_event"] = (
-                f"START | Емкость: {host.ah_capacity}Ah | profile={host.battery_type}"
-            )
+        # Session entry is already recorded by SESSION_START/V2_START.
+        # Zero accumulated Ah must not generate START on every tick.
 
     return actions
 
