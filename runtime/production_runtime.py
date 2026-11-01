@@ -101,6 +101,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("rd6018")
+# Keep third-party libraries at INFO; capture detailed RD6018 diagnostics only.
+logger.setLevel(logging.DEBUG)
 
 # Production chemistry never grants or denies authority from PSU input voltage.
 # Vin remains telemetry/health context only.  Keep the historical symbol because
