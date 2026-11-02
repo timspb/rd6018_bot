@@ -244,7 +244,7 @@ class ProductionComposition:
             from runtime.safety.variables import MAX_STAGE_CURRENT_A as _RecipeMaxCurrent
             from config import MAX_MANUAL_VOLTAGE as _RecipeMaxVoltage
             app._user_recipe_catalog = RecipeCatalog(RecipeLibrary(
-                    _RecipePath(__file__).resolve().parent / "state" / "user_recipes",
+                    _RecipePath(__file__).resolve().parent.parent / "state" / "user_recipes",
                     max_voltage_v=float(_RecipeMaxVoltage),
                     max_current_a=float(_RecipeMaxCurrent.default),
                 ))
