@@ -138,6 +138,14 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                     data = f"recipes:condition:{name}:{version}:{index}:{key}"
                     if len(data.encode("utf-8")) <= 64:
                         rows.append([InlineKeyboardButton(text=f"Шаг {index+1} условие {label}", callback_data=data)])
+            key = next(iter(step["until"]))
+            if key in {"current_lte", "voltage_gte"}:
+                for direction, sign in (("minus", "-"), ("plus", "+")):
+                    data = f"recipes:threshold:{name}:{version}:{index}:{direction}"
+                    if len(data.encode("utf-8")) <= 64:
+                        rows.append([InlineKeyboardButton(
+                            text=f"Шаг {index+1} порог {sign}0.1", callback_data=data,
+                        )])
             choices = [("delete", "Удалить")]
             if index > 0:
                 choices.append(("up", "Вверх"))
@@ -158,6 +166,31 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.message.answer(
             "Изменение уставок создаст новую версию (В/А).",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows[:35]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:threshold:"))
+    async def change_threshold(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_version, raw_index, direction = str(call.data).split(":")
+            version, index = int(raw_version), int(raw_index)
+            recipe = catalog.library.load(name, version)
+            condition, current = next(iter(recipe.steps[index]["until"].items()))
+            if condition not in {"current_lte", "voltage_gte"} or direction not in {"plus", "minus"}:
+                raise ValueError("unsupported threshold edit")
+            value = round(current + (0.1 if direction == "plus" else -0.1), 4)
+            if value < 0:
+                raise ValueError("threshold cannot be negative")
+            updated = edit_step(catalog, name, version, index,
+                                field="until:" + condition, value=value)
+        except (ValueError, KeyError, IndexError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Порог {condition}: {value:g}, версия {updated.version}.",
+            reply_markup=recipe_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:condition:"))
