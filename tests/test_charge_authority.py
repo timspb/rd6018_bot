@@ -22,7 +22,7 @@ def assessment(state, *, c_rate=0.004, threshold=0.28):
 def main_decision(**overrides):
     params = dict(
         profile="EFB",
-        intent=ChargeIntent.NORMAL,
+        intent=ChargeIntent.RECOVERY,
         first_stage=assessment(FirstStageState.BULK_OR_TAPER),
         policy_decision=RecoveryDecision.CONTINUE,
         seconds_since_current_min=None,
@@ -35,9 +35,10 @@ def main_decision(**overrides):
 
 
 class V2MainAuthorityTests(unittest.TestCase):
-    def test_normal_is_v1_compatible_and_plateau_can_enter_recovery(self):
-        result = main_decision(first_stage=assessment(FirstStageState.STUCK_PLATEAU))
-        self.assertEqual(result.action, AuthorityAction.ENTER_DESULFATION)
+    def test_normal_plateau_never_enters_recovery(self):
+        result = main_decision(intent=ChargeIntent.NORMAL,
+                               first_stage=assessment(FirstStageState.STUCK_PLATEAU))
+        self.assertEqual(result.action, AuthorityAction.CONTINUE)
 
     def test_diagnostic_plateau_never_creates_hv(self):
         result = main_decision(
@@ -101,8 +102,9 @@ class V2MainAuthorityTests(unittest.TestCase):
         )
         self.assertEqual(result.action, AuthorityAction.ADVANCE_AGM_STEP)
 
-    def test_normal_final_tail_enters_mix(self):
+    def test_normal_final_tail_completes_without_mix(self):
         result = main_decision(
+            intent=ChargeIntent.NORMAL,
             profile="AGM",
             first_stage=assessment(FirstStageState.TAIL_READY),
             seconds_since_current_min=2 * 3600,
@@ -111,7 +113,7 @@ class V2MainAuthorityTests(unittest.TestCase):
             agm_stage_count=4,
             max_desulf_attempts=4,
         )
-        self.assertEqual(result.action, AuthorityAction.ENTER_MIX)
+        self.assertEqual(result.action, AuthorityAction.COMPLETE_NORMAL)
 
     def test_diagnostic_final_tail_finishes_without_mix(self):
         result = main_decision(

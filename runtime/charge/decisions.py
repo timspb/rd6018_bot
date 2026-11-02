@@ -16,6 +16,7 @@ class AuthorityAction(str, Enum):
     ENTER_MIX = "enter_mix"
     START_FINISH_HOLD = "start_finish_hold"
     COMPLETE_TO_SAFE_WAIT = "complete_to_safe_wait"
+    COMPLETE_NORMAL = "complete_normal"
     STOP_AND_DIAGNOSE = "stop_and_diagnose"
 
 

@@ -68,6 +68,8 @@ def decide_main_transition(
         and main_limit_s is not None
         and float(main_elapsed_s) >= float(main_limit_s)
     ):
+        if intent_key == "normal":
+            return AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, "main_timeout_normal_review")
         if not hv_allowed:
             return AuthorityDecision(
                 AuthorityAction.STOP_AND_DIAGNOSE,
@@ -108,6 +110,8 @@ def decide_main_transition(
         )
 
     if first_stage.state == FirstStageState.STUCK_PLATEAU:
+        if intent_key == "normal":
+            return AuthorityDecision(AuthorityAction.CONTINUE, "normal_plateau_wait_for_tail")
         if not hv_allowed:
             return AuthorityDecision(
                 AuthorityAction.STOP_AND_DIAGNOSE,
@@ -140,10 +144,12 @@ def decide_main_transition(
                 AuthorityAction.ADVANCE_AGM_STEP,
                 "agm_tail_hold_complete_advance_voltage_step",
             )
+        if intent_key == "normal":
+            return AuthorityDecision(AuthorityAction.COMPLETE_NORMAL, "main_tail_hold_complete_normal")
         if hv_allowed:
             return AuthorityDecision(
                 AuthorityAction.ENTER_MIX,
-                "main_tail_hold_complete_standard_mix",
+                "main_tail_hold_complete_recovery_mix",
             )
         return AuthorityDecision(
             AuthorityAction.COMPLETE_TO_SAFE_WAIT,

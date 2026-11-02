@@ -58,15 +58,16 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         controller._last_known_output_on = True
         return controller
 
-    async def test_normal_tail_enters_standard_mix(self):
+    async def test_normal_tail_completes_without_mix(self):
         now = 10000.0
         controller = self._controller(intent=ChargeIntent.NORMAL, now=now)
         controller._v2_runtime = FixedRuntime(analysis_at(now, voltage=14.8, current=0.20, current_min=0.20, seconds_since_min=3 * 3600))
         with patch("charge_controller.time.time", return_value=now), patch("charge_controller.time.time", return_value=now):
             actions = await run_charge_session_tick(controller, 14.8, 0.20, 25.0, True, 20.0, True, is_cc=False)
-        self.assertEqual(controller.current_stage, controller.STAGE_MIX)
-        self.assertAlmostEqual(actions.get("set_voltage"), 16.5)
-        self.assertEqual(actions["recovery_shadow"]["authority_decision"]["action"], "enter_mix")
+        self.assertEqual(controller.current_stage, controller.STAGE_DONE)
+        self.assertTrue(actions.get("turn_off"))
+        self.assertNotIn("set_voltage", actions)
+        self.assertEqual(actions["recovery_shadow"]["authority_decision"]["action"], "complete_normal")
 
     async def test_recovery_tail_enters_mix(self):
         now = 20000.0

@@ -115,6 +115,11 @@ def apply_main_authority_tick(
             target_voltage_v=target_v, target_current_a=target_i,
             ovp_v=limits["set_ovp"], ocp_a=limits["set_ocp"], actions=actions,
         )
+    elif decision.action == AuthorityAction.COMPLETE_NORMAL:
+        from runtime.charge.runtime.normal_completion import complete_normal_charge
+        complete_normal_charge(host, actions=actions, now=timestamp_s,
+                               voltage=voltage, current=current, temp=temp, ah=ah,
+                               reason=decision.reason)
     elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
         target_v, target_i = host._storage_target()
         if not apply_main_completion_to_safe_wait(
