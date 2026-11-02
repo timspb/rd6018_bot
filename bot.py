@@ -243,13 +243,12 @@ class ProductionComposition:
             from pathlib import Path as _RecipePath
             from runtime.safety.variables import MAX_STAGE_CURRENT_A as _RecipeMaxCurrent
             from config import MAX_MANUAL_VOLTAGE as _RecipeMaxVoltage
-            install_recipe_catalog_commands(
-                app, catalog=RecipeCatalog(RecipeLibrary(
+            app._user_recipe_catalog = RecipeCatalog(RecipeLibrary(
                     _RecipePath(__file__).resolve().parent / "state" / "user_recipes",
                     max_voltage_v=float(_RecipeMaxVoltage),
                     max_current_a=float(_RecipeMaxCurrent.default),
-                )),
-            )
+                ))
+            install_recipe_catalog_commands(app, catalog=app._user_recipe_catalog)
             install_charge_program_screen(
                 app,
                 profile_selector=app._select_quick_profile,

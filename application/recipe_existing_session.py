@@ -10,6 +10,8 @@ from typing import Any, Mapping
 
 from application.execution_intent.models import SafetyContext
 from application.recipe_restart_limits import existing_start_limits
+from application.recipe_execution_adapter import RecipeExecutionIdentity
+from runtime.charge.programs.recipe_preflight import inspect_recipe
 from application.recipe_session_lifecycle import (
     RecipeSession, advance_durable_recipe_session,
 )
@@ -25,6 +27,37 @@ class ExistingRecipeBinding:
     state_path: str | Path
     journal_path: str | Path | None = None
     measurement_path: str | Path | None = None
+
+
+def prepare_existing_recipe_binding(*, catalog, recipe_id: str, version: int,
+                                    port: Any, identity: RecipeExecutionIdentity,
+                                    safety_context: SafetyContext, voltage_ceiling_v: float,
+                                    state_path: str | Path,
+                                    journal_path: str | Path | None = None,
+                                    measurement_path: str | Path | None = None) -> ExistingRecipeBinding:
+    """Resolve immutable version under an already-successful START owner.
+
+    Only prepares a binding. Caller decides when it becomes authoritative;
+    this operation never enables hardware or changes active stages.
+    """
+    recipe = catalog.library.load(recipe_id, version)
+    report = inspect_recipe(recipe)
+    if not report.admissible_structure:
+        raise ValueError('; '.join(report.problems))
+    if not identity.session_id or not identity.trace_id:
+        raise ValueError('existing START identity required')
+    if not isinstance(safety_context, SafetyContext):
+        raise ValueError('START safety context required')
+    if not voltage_ceiling_v > 0:
+        raise ValueError('invalid active session ceiling')
+    for step in recipe.steps:
+        if step['action'] == 'set' and step['params']['voltage_v'] > voltage_ceiling_v:
+            raise ValueError('recipe exceeds active session voltage ceiling')
+    if Path(state_path).exists():
+        raise ValueError('runner state already exists; no automatic takeover')
+    return ExistingRecipeBinding(RecipeSession(recipe, identity), port, safety_context,
+                                 voltage_ceiling_v, state_path, journal_path,
+                                 measurement_path)
 
 
 async def advance_in_existing_session(
