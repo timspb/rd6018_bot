@@ -7,7 +7,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
-from runtime.charge.programs.recipe_editor import edit_step
+from runtime.charge.programs.recipe_editor import edit_step, insert_step
 
 
 def catalog_markup(catalog: RecipeCatalog) -> InlineKeyboardMarkup:
@@ -127,11 +127,39 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                             text=f"Шаг {index+1} {label} {sign}0.1",
                             callback_data=data,
                         )])
+        for kind, label in (("set", "Добавить SET"), ("off", "Добавить OFF"), ("wait", "Добавить WAIT")):
+            data = f"recipes:append:{name}:{version}:{kind}"
+            if len(data.encode("utf-8")) <= 64:
+                rows.append([InlineKeyboardButton(text=label, callback_data=data)])
         rows.append([InlineKeyboardButton(text="Назад", callback_data=f"recipes:view:{name}:{version}")])
         await call.answer()
         await call.message.answer(
             "Изменение уставок создаст новую версию (В/А).",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows[:35]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:append:"))
+    async def append_step(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_version, kind = str(call.data).split(":")
+            version = int(raw_version)
+            recipe = catalog.library.load(name, version)
+            if kind not in {"set", "off", "wait"}:
+                raise ValueError("unknown step")
+            # Conservative editable defaults; creation does not actuate hardware.
+            params = {"voltage_v": min(12.0, catalog.library.max_voltage_v),
+                      "current_a": min(0.5, catalog.library.max_current_a)} if kind == "set" else {}
+            step = {"action": kind, "params": params, "until": {"after_seconds": 60}}
+            updated = insert_step(catalog, name, version, len(recipe.steps), step)
+        except (ValueError, OSError, KeyError, IndexError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Добавлен {kind.upper()}: {updated.recipe_id} v{updated.version}. Зарядка не запущена.",
+            reply_markup=recipe_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:adjust:"))
