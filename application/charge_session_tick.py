@@ -106,6 +106,11 @@ async def run_charge_session_tick(
             measurement_path=recipe_binding.measurement_path,
         )
         recipe_binding.session = updated
+        if updated.state.completed:
+            # Terminal OFF has been acknowledged by the existing execution port.
+            # Retire the controller through its normal session lifecycle.
+            host.stop(clear_session=True)
+            host._existing_recipe_execution_binding = None
         host.last_update_time = time.time()
         return {}
     production_cooling = hasattr(host, "_v2_cooling_pause")
