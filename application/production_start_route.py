@@ -69,6 +69,10 @@ class ProductionStartRouteAdapter:
                 "operator": intent.user,
                 "intent": request.intent,
                 "condition": request.condition,
+                "intent_metadata": {
+                    "user_recipe_id": intent.parameters.get("user_recipe_id"),
+                    "user_recipe_version": intent.parameters.get("user_recipe_version"),
+                },
             }
             if self.mode is ProductionStartMode.ACTIVE:
                 port_result = await self.port.submit_active(

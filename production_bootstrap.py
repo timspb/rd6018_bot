@@ -284,6 +284,8 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
                 "battery_id": pending.battery_id,
                 "intent": pending.intent,
                 "condition": pending.condition,
+                "user_recipe_id": pending.recipe_id,
+                "user_recipe_version": pending.recipe_version,
             },
         )
         result = await app._v3_production_start_route.submit(intent)
