@@ -13,6 +13,7 @@ import time
 from typing import Any, Dict, Optional
 
 from application.recipe_policy import chemistry_for_profile
+from application.recipe_tick_observer import observe_recipe_tick
 from application.charge_stage_tick import apply_charge_stage_authority, run_charge_stage_tick
 from application.production_session_extensions import (
     apply_continuous_tail_hold,
@@ -70,6 +71,9 @@ async def run_charge_session_tick(
     manual_active: bool = False,
 ) -> Dict[str, Any]:
     """Run application tick plus production Cooling pause/resume orchestration."""
+    if getattr(host, "_recipe_observation_binding", None) is not None:
+        observe_recipe_tick(host, timestamp_s=time.time(), voltage=voltage,
+                            current=current, temperature=temp_ext)
     if bool(getattr(host, "_guarded_restore_activated_off", False)):
         # An admitted guarded session is software-active only. It cannot enter
         # background decision/setpoint/enable orchestration without a separate
