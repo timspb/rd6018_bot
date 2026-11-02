@@ -38,3 +38,33 @@ def insert_step(catalog: RecipeCatalog, recipe_id: str, source_version: int,
     steps = deepcopy(list(source.steps))
     steps.insert(index, deepcopy(step))
     return catalog.next_version(recipe_id, steps)
+
+
+def transform_steps(catalog: RecipeCatalog, recipe_id: str, version: int,
+                    operation: str, index: int, *,
+                    destination: int | None = None,
+                    condition: str | None = None, threshold: float | None = None):
+    """Delete, move, or replace a condition without touching earlier versions."""
+    from .recipe_schema import CONDITIONS
+    versions = catalog.library.versions(recipe_id)
+    if not versions or version != versions[-1]:
+        raise ValueError("stale recipe revision")
+    source = catalog.library.load(recipe_id, version)
+    steps = deepcopy(list(source.steps))
+    if type(index) is not int or not 0 <= index < len(steps):
+        raise ValueError("invalid step index")
+    if operation == "delete":
+        if len(steps) == 1:
+            raise ValueError("recipe must retain at least one step")
+        steps.pop(index)
+    elif operation == "move":
+        if type(destination) is not int or not 0 <= destination < len(steps):
+            raise ValueError("invalid destination")
+        steps.insert(destination, steps.pop(index))
+    elif operation == "condition":
+        if condition not in CONDITIONS | {"after_seconds"}:
+            raise ValueError("unsupported condition")
+        steps[index]["until"] = {condition: threshold}
+    else:
+        raise ValueError("unsupported operation")
+    return catalog.next_version(recipe_id, steps)
