@@ -8,6 +8,7 @@ from typing import Any
 from aiogram.filters import Command
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
+from runtime.charge.programs.recipe_editor import edit_step
 from runtime.ui.telegram.recipe_buttons import catalog_markup, install_recipe_buttons
 
 
@@ -129,5 +130,29 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
             await message.answer("Рецепт слишком длинный для одного сообщения.")
             return
         await message.answer(text, parse_mode=app.ParseMode.HTML)
+
+    @app.router.message(Command("recipe_set"))
+    async def _set_field(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split()
+        if len(parts) != 6:
+            await message.answer("Формат: /recipe_set имя версия шаг поле значение")
+            return
+        try:
+            name, version, index, field, raw_value = parts[1:]
+            if field not in {"voltage_v", "current_a", "after_seconds",
+                             "voltage_gte", "voltage_lte", "current_gte",
+                             "current_lte", "temperature_gte", "temperature_lte"}:
+                raise ValueError("unsupported field")
+            field = field if field in {"voltage_v", "current_a"} else "until:" + field
+            value = float(raw_value.replace(",", "."))
+            result = edit_step(catalog, name, int(version), int(index) - 1,
+                               field=field, value=value)
+        except (ValueError, IndexError, FileNotFoundError, OSError) as exc:
+            await message.answer(f"Изменение отклонено: {html.escape(str(exc))}",
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        await message.answer(f"Сохранена {html.escape(result.recipe_id)} v{result.version}")
 
     app._recipe_catalog_commands_installed = True
