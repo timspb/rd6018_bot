@@ -14,6 +14,7 @@ from application.recipe_execution_adapter import (
 from runtime.charge.programs.recipe_dispatch import ActionReceipt
 from runtime.charge.programs.recipe_runner import RunnerState, confirm, tick
 from runtime.charge.programs.recipe_schema import Recipe
+from runtime.charge.programs.recipe_preflight import inspect_recipe
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,11 @@ async def advance_recipe_session(
     """Advance one step through canonical port; never perform START."""
     if not session.admission_epoch or session.admission_epoch != admitted_epoch:
         raise PermissionError("session admission epoch mismatch")
+    if not session.identity.session_id or not session.identity.trace_id:
+        raise PermissionError("missing existing session identity")
+    report = inspect_recipe(session.recipe)
+    if not report.admissible_structure:
+        raise ValueError("recipe preflight failed: " + "; ".join(report.problems))
     result = tick(session.recipe, session.state, now_s=now_s,
                   measurements=measurements)
     if result.command is None:

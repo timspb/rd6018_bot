@@ -56,3 +56,16 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             session, port=port, now_s=113, measurements={}, admitted_epoch="epoch")
         self.assertTrue(session.state.completed)
         self.assertTrue(receipt.output_off)
+
+    async def test_preflight_blocks_wait_after_live_set(self):
+        bad = parse_recipe({"id": "unsafe-order", "version": 1, "steps": [
+            {"action": "set", "params": {"voltage_v": 14.7, "current_a": 1},
+             "until": {"after_seconds": 2}},
+            {"action": "wait", "params": {}, "until": {"after_seconds": 2}},
+        ]}, max_voltage_v=15.5, max_current_a=7.2)
+        port = FakePort()
+        session = RecipeSession(bad, self.identity, admission_epoch="epoch")
+        with self.assertRaises(ValueError):
+            await advance_recipe_session(session, port=port, now_s=100,
+                                         measurements={}, admitted_epoch="epoch")
+        self.assertEqual(port.calls, [])
