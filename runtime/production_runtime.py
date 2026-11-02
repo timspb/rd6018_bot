@@ -3028,11 +3028,15 @@ async def data_logger() -> None:
                     logger.critical("Link lost during active charge: emergency shutdown")
                 
                 try:
-                    await _runtime_execution_port().request_verified_off()
+                    off_confirmed = await _runtime_execution_port().request_verified_off()
+                    if not off_confirmed:
+                        raise RuntimeError('emergency OFF was not verified')
                     await _apply_idle_protection()
-                except Exception:
-                    pass
-                
+                except Exception as off_exc:
+                    logger.exception('LINK_LOST_EMERGENCY_OFF_FAILED; session retained: %s', off_exc)
+                    await asyncio.sleep(30)
+                    continue
+
                 if charge_controller.is_active:
                     charge_controller.stop(clear_session=False)
                     log_event(
