@@ -239,6 +239,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     )
 
     prep_skipped = False
+    enable_attempted = False
     try:
         target_v, target_i, prep_skipped = _select_initial_auto_target(
             app,
@@ -291,6 +292,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             identity=execution_identity,
             limits_reference="recipe_envelope",
         )
+        enable_attempted = True
         result = await get_or_create_execution_port(app).enable(
             execution_intent,
             identity=execution_identity,
@@ -299,6 +301,11 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             recipe_voltage_ceiling_v=float(envelope.voltage_ceiling_v),
         )
     except Exception as exc:
+        if not enable_attempted:
+            app.charge_controller.stop(clear_session=True)
+            await message.answer('START отменён до включения: ' +
+                                 html.escape(str(exc)), parse_mode=app.ParseMode.HTML)
+            return False
         off_confirmed = await _confirm_failed_start_is_off(
             app,
             identity=execution_identity,
