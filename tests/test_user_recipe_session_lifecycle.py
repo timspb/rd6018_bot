@@ -1,3 +1,4 @@
+from application.execution_intent.models import SafetyContext
 import unittest
 from types import SimpleNamespace
 
@@ -35,7 +36,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         session = RecipeSession(self.recipe, self.identity)
         with self.assertRaises(RuntimeError):
             await advance_recipe_session(session, port=port, now_s=100,
-                                         measurements={}, )
+                                         measurements={}, safety_context=SafetyContext(), )
         self.assertEqual(port.calls, [])
         restored = restore_recipe_session(recipe=self.recipe, identity=self.identity,
                                           state=RunnerState())
@@ -46,17 +47,17 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         session = RecipeSession(self.recipe, self.identity)
         session, receipt = await advance_recipe_session(
             session, port=port, now_s=100, measurements={},
-            persist_state=lambda state: None)
+            safety_context=SafetyContext(), persist_state=lambda state: None)
         self.assertTrue(receipt.verified)
         self.assertEqual(port.calls[0][0], "set")
         session, receipt = await advance_recipe_session(
             session, port=port, now_s=110, measurements={},
-            persist_state=lambda state: None)
+            safety_context=SafetyContext(), persist_state=lambda state: None)
         self.assertTrue(receipt.output_off)
         self.assertEqual(port.calls[1][0], "off")
         session, receipt = await advance_recipe_session(
             session, port=port, now_s=113, measurements={},
-            persist_state=lambda state: None)
+            safety_context=SafetyContext(), persist_state=lambda state: None)
         self.assertTrue(session.state.completed)
         self.assertTrue(receipt.output_off)
 
@@ -70,7 +71,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         session = RecipeSession(bad, self.identity)
         with self.assertRaises(ValueError):
             await advance_recipe_session(session, port=port, now_s=100,
-                                         measurements={}, )
+                                         measurements={}, safety_context=SafetyContext(), )
         self.assertEqual(port.calls, [])
 
     async def test_write_ahead_failure_prevents_hardware_command(self):
@@ -81,5 +82,5 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(OSError):
             await advance_recipe_session(
                 session, port=port, now_s=100, measurements={},
-                 persist_state=fail_write)
+                 safety_context=SafetyContext(), persist_state=fail_write)
         self.assertEqual(port.calls, [])

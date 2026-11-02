@@ -1,3 +1,4 @@
+from application.execution_intent.models import SafetyContext
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,7 +28,7 @@ class JournalTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await advance_durable_recipe_session(
                     session, port=InterruptedPort(), now_s=100, measurements={},
-                     state_path=state, journal_path=journal)
+                     safety_context=SafetyContext(), state_path=state, journal_path=journal)
             events = read_events(journal)
             self.assertEqual([x["event"] for x in events], ["PENDING", "INTERRUPTED"])
             self.assertEqual(events[0]["action_id"], events[1]["action_id"])

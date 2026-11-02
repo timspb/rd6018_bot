@@ -19,6 +19,7 @@ from runtime.charge.programs.recipe_preflight import inspect_recipe
 from runtime.charge.programs.recipe_runner_store import save_runner, load_runner
 from runtime.charge.programs.recipe_journal import append_event
 from runtime.charge.programs.recipe_measurements import record_measurement
+from application.execution_intent.models import SafetyContext
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,7 @@ class RecipeSession:
 
 async def advance_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
-    measurements: Mapping[str, float],
+    measurements: Mapping[str, float], safety_context: SafetyContext,
     persist_state: Callable[[RunnerState], None] | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
     """Advance one step through canonical port; never perform START."""
@@ -57,6 +58,7 @@ async def advance_recipe_session(
     persist_state(result.state)
     receipt = await execute_recipe_action(
         port=port, pending=result.command, identity=session.identity,
+        safety_context=safety_context,
     )
     next_state = confirm(result.state, receipt, confirmed_at_s=now_s)
     persist_state(next_state)
@@ -75,7 +77,7 @@ def restore_recipe_session(*, recipe: Recipe,
 
 async def advance_durable_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
-    measurements: Mapping[str, float],
+    measurements: Mapping[str, float], safety_context: SafetyContext,
     state_path: str | Path, journal_path: str | Path | None = None,
     measurement_path: str | Path | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
@@ -103,6 +105,7 @@ async def advance_durable_recipe_session(
     try:
         updated, receipt = await advance_recipe_session(
             session, port=port, now_s=now_s, measurements=measurements,
+            safety_context=safety_context,
             persist_state=persist,
         )
     except Exception as exc:

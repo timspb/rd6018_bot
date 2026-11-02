@@ -1,3 +1,4 @@
+from application.execution_intent.models import SafetyContext
 import asyncio
 import unittest
 from types import SimpleNamespace
@@ -26,7 +27,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                                 {"voltage_v": 14.7, "current_a": 2})
         with self.assertRaises(ValueError):
             await execute_recipe_action(port=port, pending=pending,
-                                        identity=RecipeExecutionIdentity("", "t"))
+                                        identity=RecipeExecutionIdentity("", "t"), safety_context=SafetyContext())
         self.assertEqual(port.calls, [])
 
     async def test_uses_existing_port_and_correlated_receipt(self):
@@ -35,11 +36,11 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         pending = PendingAction("digest", 0, "id-set", "set",
                                 {"voltage_v": 14.7, "current_a": 2})
         receipt = await execute_recipe_action(port=port, pending=pending,
-                                              identity=identity)
+                                              identity=identity, safety_context=SafetyContext())
         self.assertTrue(receipt.verified)
         self.assertEqual(port.calls[0][1].source_decision_id, "id-set")
         off = PendingAction("digest", 1, "id-off", "off", {})
         receipt = await execute_recipe_action(port=port, pending=off,
-                                              identity=identity)
+                                              identity=identity, safety_context=SafetyContext())
         self.assertTrue(receipt.output_off)
         self.assertEqual(port.calls[1][0], "off")

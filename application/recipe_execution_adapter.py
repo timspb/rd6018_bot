@@ -15,7 +15,8 @@ class RecipeExecutionIdentity:
 
 
 async def execute_recipe_action(*, port: Any, pending: PendingAction,
-                                identity: RecipeExecutionIdentity) -> ActionReceipt:
+                                identity: RecipeExecutionIdentity,
+                                safety_context: SafetyContext) -> ActionReceipt:
     """Execute only within an externally admitted, already-active session.
 
     Setpoints never enable the output; OFF uses the existing verified OFF path.
@@ -23,6 +24,8 @@ async def execute_recipe_action(*, port: Any, pending: PendingAction,
     """
     if not identity.session_id or not identity.trace_id:
         raise ValueError("existing charge session identity required")
+    if not isinstance(safety_context, SafetyContext):
+        raise ValueError("existing execution safety context required")
     if pending.operation == "wait":
         return ActionReceipt(pending.action_id, True, True, False)
     if pending.operation not in {"set", "off"}:
@@ -35,11 +38,7 @@ async def execute_recipe_action(*, port: Any, pending: PendingAction,
         requested_voltage_v=v, requested_current_a=i,
         requested_mode="RECIPE_ACTIVE" if pending.operation == "set" else "RECIPE_OFF",
         source_decision_id=pending.action_id,
-        safety_context=SafetyContext(
-            telemetry_state="FRESH", lease_state="V2_PHYSICAL_OWNER",
-            verification_state="REQUIRED",
-            limits_reference="recipe_prevalidated_existing_session",
-        ),
+        safety_context=safety_context,
     )
     if pending.operation == "off":
         result = await port.disable(intent, identity=identity, reason="recipe_step_off")

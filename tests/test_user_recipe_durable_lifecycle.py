@@ -1,3 +1,4 @@
+from application.execution_intent.models import SafetyContext
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,7 +35,7 @@ class DurableLifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await advance_durable_recipe_session(
                     session, port=port, now_s=100, measurements={},
-                     state_path=path)
+                     safety_context=SafetyContext(), state_path=path)
             self.assertEqual(port.calls, 1)
             saved = load_runner(path, recipe)
             self.assertIsNotNone(saved.pending)
@@ -44,5 +45,5 @@ class DurableLifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await advance_durable_recipe_session(
                     restored, port=port, now_s=101, measurements={},
-                     state_path=path)
+                     safety_context=SafetyContext(), state_path=path)
             self.assertEqual(port.calls, 1)
