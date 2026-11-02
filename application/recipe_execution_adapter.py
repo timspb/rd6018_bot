@@ -16,7 +16,8 @@ class RecipeExecutionIdentity:
 
 async def execute_recipe_action(*, port: Any, pending: PendingAction,
                                 identity: RecipeExecutionIdentity,
-                                safety_context: SafetyContext) -> ActionReceipt:
+                                safety_context: SafetyContext,
+                                restart_limits: tuple[float, float, float] | None = None) -> ActionReceipt:
     """Execute only within an externally admitted, already-active session.
 
     Setpoints never enable the output; OFF uses the existing verified OFF path.
@@ -45,7 +46,23 @@ async def execute_recipe_action(*, port: Any, pending: PendingAction,
     if pending.operation == "off":
         result = await port.disable(intent, identity=identity, reason="recipe_step_off")
     else:
-        result = await port.apply_intent(intent, identity=identity)
+        # Reuse the existing physical owner for OFF -> ON, never fabricate OVP/OCP.
+        owner = getattr(port, "execution_owner", None)
+        if owner is not None:
+            live = await owner.get_all_live()
+            switch = str(live.get("switch", "")).lower()
+            if switch not in {"on", "true", "1", "off", "false", "0"}:
+                return ActionReceipt(pending.action_id, False, False, False)
+            if switch in {"off", "false", "0"}:
+                if restart_limits is None:
+                    return ActionReceipt(pending.action_id, False, False, False)
+                ovp_v, ocp_a, ceiling_v = restart_limits
+                result = await port.enable(intent, identity=identity, ovp_v=ovp_v,
+                                           ocp_a=ocp_a, recipe_voltage_ceiling_v=ceiling_v)
+            else:
+                result = await port.apply_intent(intent, identity=identity)
+        else:
+            result = await port.apply_intent(intent, identity=identity)
     return ActionReceipt(
         action_id=pending.action_id,
         accepted=bool(result.accepted),

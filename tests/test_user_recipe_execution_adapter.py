@@ -30,6 +30,40 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                                         identity=RecipeExecutionIdentity("", "t"), safety_context=SafetyContext())
         self.assertEqual(port.calls, [])
 
+    async def test_off_to_set_uses_existing_enable_with_existing_limits(self):
+        from types import SimpleNamespace
+        class Port(FakePort):
+            def __init__(self):
+                super().__init__()
+                self.execution_owner = SimpleNamespace(get_all_live=self.live)
+            async def live(self):
+                return {"switch": "off"}
+            async def enable(self, intent, *, identity, ovp_v, ocp_a, recipe_voltage_ceiling_v):
+                self.calls.append(("enable", ovp_v, ocp_a, recipe_voltage_ceiling_v))
+                return SimpleNamespace(accepted=True, verified=True)
+        port = Port()
+        pending = PendingAction("digest", 0, "id-restart", "set",
+                                {"voltage_v": 14.7, "current_a": 2})
+        receipt = await execute_recipe_action(
+            port=port, pending=pending, identity=RecipeExecutionIdentity("s", "t"),
+            safety_context=SafetyContext(), restart_limits=(15.2, 3.0, 14.9))
+        self.assertTrue(receipt.verified)
+        self.assertEqual(port.calls, [("enable", 15.2, 3.0, 14.9)])
+
+    async def test_off_to_set_without_limits_does_not_enable(self):
+        from types import SimpleNamespace
+        port = FakePort()
+        async def live():
+            return {"switch": "off"}
+        port.execution_owner = SimpleNamespace(get_all_live=live)
+        pending = PendingAction("digest", 0, "id-restart", "set",
+                                {"voltage_v": 14.7, "current_a": 2})
+        receipt = await execute_recipe_action(
+            port=port, pending=pending, identity=RecipeExecutionIdentity("s", "t"),
+            safety_context=SafetyContext())
+        self.assertFalse(receipt.accepted)
+        self.assertEqual(port.calls, [])
+
     async def test_existing_restore_latch_blocks_set_without_hardware_call(self):
         from application.execution_intent.models import SafetyContext
         port = FakePort()
