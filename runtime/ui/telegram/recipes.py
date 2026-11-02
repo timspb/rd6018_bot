@@ -9,6 +9,7 @@ from aiogram.filters import Command
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
+from runtime.charge.programs.recipe_preflight import inspect_recipe
 from runtime.ui.telegram.recipe_buttons import catalog_markup, install_recipe_buttons
 
 
@@ -220,5 +221,27 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
             await message.answer(f"Условие отклонено: {html.escape(str(exc))}", parse_mode=app.ParseMode.HTML)
             return
         await message.answer(f"Сохранена {html.escape(result.recipe_id)} v{result.version}")
+
+    @app.router.message(Command("recipe_check"))
+    async def _check_recipe(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split()
+        if len(parts) != 3:
+            await message.answer("Формат: /recipe_check имя версия")
+            return
+        try:
+            recipe = catalog.library.load(parts[1], int(parts[2]))
+            report = inspect_recipe(recipe)
+        except (ValueError, OSError) as exc:
+            await message.answer(f"Проверка отклонена: {html.escape(str(exc))}",
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        verdict = "Структура PASS" if report.admissible_structure else "Структура FAIL"
+        issues = [*report.problems, *report.warnings]
+        details = "\n".join(html.escape(item) for item in issues)
+        await message.answer(f"{verdict}: {html.escape(recipe.recipe_id)} v{recipe.version}\\n"
+                             f"{details}\\nЭто не разрешение аппаратного START.",
+                             parse_mode=app.ParseMode.HTML)
 
     app._recipe_catalog_commands_installed = True
