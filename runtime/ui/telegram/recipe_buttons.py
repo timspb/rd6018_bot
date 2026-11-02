@@ -51,12 +51,12 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
             return
         issues = [*report.problems, *report.warnings]
         verdict = "PASS" if report.admissible_structure else "FAIL"
-        details = "\\n".join(html.escape(issue) for issue in issues)
+        details = "\n".join(html.escape(issue) for issue in issues)
         await call.answer()
         await call.message.answer(
-            f"Проверка структуры: {verdict} — {html.escape(recipe.recipe_id)} v{recipe.version}\\n"
+            f"Проверка структуры: {verdict} — {html.escape(recipe.recipe_id)} v{recipe.version}\n"
             + (details or "Ошибок структуры нет.")
-            + "\\nЭто проверка сценария, не разрешение запуска оборудования.",
+            + "\nЭто проверка сценария, не разрешение запуска оборудования.",
             parse_mode=app.ParseMode.HTML,
             reply_markup=recipe_markup(recipe.recipe_id, recipe.version),
         )
