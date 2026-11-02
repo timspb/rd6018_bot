@@ -17,6 +17,7 @@ from runtime.charge.programs.recipe_runner import RunnerState, confirm, tick
 from runtime.charge.programs.recipe_schema import Recipe
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 from runtime.charge.programs.recipe_runner_store import save_runner, load_runner
+from runtime.charge.programs.recipe_journal import append_event
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ def restore_recipe_session(*, recipe: Recipe,
 async def advance_durable_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
     measurements: Mapping[str, float], admitted_epoch: str,
-    state_path: str | Path,
+    state_path: str | Path, journal_path: str | Path | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
     """Use the concrete fsynced runner store, not an unverified callback."""
     path = Path(state_path)
@@ -85,11 +86,34 @@ async def advance_durable_recipe_session(
             raise RuntimeError("runner state differs from durable record")
     elif session.state != RunnerState():
         raise RuntimeError("progress exists without durable record")
-    return await advance_recipe_session(
-        session, port=port, now_s=now_s, measurements=measurements,
-        admitted_epoch=admitted_epoch,
-        persist_state=lambda state: save_runner(path, session.recipe, state),
-    )
+    def persist(state: RunnerState) -> None:
+        save_runner(path, session.recipe, state)
+        if journal_path is not None and state.pending is not None:
+            append_event(journal_path, session_id=session.identity.session_id,
+                         recipe_id=session.recipe.recipe_id, version=session.recipe.version,
+                         digest=session.recipe.digest, event="PENDING",
+                         action_id=state.pending.action_id)
+    try:
+        updated, receipt = await advance_recipe_session(
+            session, port=port, now_s=now_s, measurements=measurements,
+            admitted_epoch=admitted_epoch, persist_state=persist,
+        )
+    except Exception as exc:
+        if journal_path is not None and path.exists():
+            saved = load_runner(path, session.recipe)
+            if saved.pending is not None:
+                append_event(journal_path, session_id=session.identity.session_id,
+                             recipe_id=session.recipe.recipe_id, version=session.recipe.version,
+                             digest=session.recipe.digest, event="INTERRUPTED",
+                             action_id=saved.pending.action_id, detail=type(exc).__name__)
+        raise
+    if journal_path is not None and receipt is not None:
+        append_event(journal_path, session_id=session.identity.session_id,
+                     recipe_id=session.recipe.recipe_id, version=session.recipe.version,
+                     digest=session.recipe.digest,
+                     event="VERIFIED" if receipt.verified else "UNVERIFIED",
+                     action_id=receipt.action_id)
+    return updated, receipt
 
 
 def restore_durable_recipe_session(*, recipe: Recipe,
