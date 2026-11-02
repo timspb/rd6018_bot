@@ -18,6 +18,7 @@ from runtime.charge.programs.recipe_schema import Recipe
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 from runtime.charge.programs.recipe_runner_store import save_runner, load_runner
 from runtime.charge.programs.recipe_journal import append_event
+from runtime.charge.programs.recipe_measurements import record_measurement
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ async def advance_durable_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
     measurements: Mapping[str, float], admitted_epoch: str,
     state_path: str | Path, journal_path: str | Path | None = None,
+    measurement_path: str | Path | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
     """Use the concrete fsynced runner store, not an unverified callback."""
     path = Path(state_path)
@@ -86,6 +88,12 @@ async def advance_durable_recipe_session(
             raise RuntimeError("runner state differs from durable record")
     elif session.state != RunnerState():
         raise RuntimeError("progress exists without durable record")
+    if measurement_path is not None:
+        record_measurement(
+            measurement_path, recipe=session.recipe,
+            session_id=session.identity.session_id,
+            timestamp_s=now_s, values=measurements,
+        )
     def persist(state: RunnerState) -> None:
         save_runner(path, session.recipe, state)
         if journal_path is not None and state.pending is not None:
