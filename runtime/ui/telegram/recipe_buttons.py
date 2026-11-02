@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+from uuid import uuid4
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -19,6 +20,7 @@ def catalog_markup(catalog: RecipeCatalog) -> InlineKeyboardMarkup:
                 text=f"{name} · v{versions[-1]}",
                 callback_data=f"recipes:view:{name}:{versions[-1]}",
             )])
+    rows.append([InlineKeyboardButton(text="Создать черновик", callback_data="recipes:create")])
     rows.append([InlineKeyboardButton(text="Обновить", callback_data="recipes:list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -33,6 +35,27 @@ def recipe_markup(recipe_id: str, version: int) -> InlineKeyboardMarkup:
 def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
         return
+
+    @app.router.callback_query(F.data == "recipes:create")
+    async def create_draft(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        name = "draft_" + uuid4().hex[:10]
+        try:
+            recipe = catalog.library.save({
+                "id": name, "version": 1,
+                "steps": [{"action": "off", "params": {},
+                           "until": {"after_seconds": 1}}],
+            })
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Черновик {name} v1 создан. Первый шаг — OFF; зарядка не запущена. "
+            "Добавляйте шаги через /recipe_insert или редактор.",
+            reply_markup=recipe_markup(recipe.recipe_id, recipe.version),
+        )
 
     @app.router.callback_query(F.data == "recipes:list")
     async def show_list(call):
