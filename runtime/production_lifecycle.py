@@ -21,6 +21,7 @@ class ProductionRuntimeLifecycle:
     def __init__(self, app: Any, telegram_runtime: Any) -> None:
         self.app = app
         self.telegram_runtime = telegram_runtime
+        self._background_tasks: tuple[asyncio.Task[object], ...] = ()
 
     async def _periodic_db_cleanup(self) -> None:
         while True:
@@ -36,6 +37,19 @@ class ProductionRuntimeLifecycle:
         """Preserve the V2 shutdown order without owning domain semantics."""
         app = self.app
         app.logger.info("Shutting down gracefully...")
+        for task in self._background_tasks:
+            task.cancel()
+        if self._background_tasks:
+            done, pending = await asyncio.wait(self._background_tasks, timeout=5.0)
+            for task in done:
+                if not task.cancelled():
+                    try:
+                        task.result()
+                    except Exception as ex:
+                        app.logger.warning("Background task shutdown: %s", ex)
+            if pending:
+                app.logger.warning("Background tasks did not stop: %s",
+                                   [task.get_coro().__qualname__ for task in pending])
         async with get_or_create_execution_port(app)._guard_owner_lock:
             try:
                 if app.charge_controller.is_active:
@@ -59,7 +73,7 @@ class ProductionRuntimeLifecycle:
         execution_port = get_or_create_execution_port(app)
         await app.init_db()
         app.rotate_if_needed()
-        start_background_tasks(self._periodic_db_cleanup)
+        self._background_tasks = start_background_tasks(self._periodic_db_cleanup)
         try:
             n = app.trim_log_older_than_days(30)
             if n > 0:
@@ -136,7 +150,7 @@ class ProductionRuntimeLifecycle:
 
         app.dp.include_router(app.router)
         await app.configure_commands(self.telegram_runtime)
-        start_background_tasks(
+        self._background_tasks += start_background_tasks(
             app.data_logger,
             app.charge_monitor,
             app.soft_watchdog_loop,
