@@ -6,7 +6,7 @@ A caller must own charge-session admission and provide its existing ExecutionPor
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Callable
 
 from application.recipe_execution_adapter import (
     RecipeExecutionIdentity, execute_recipe_action,
@@ -28,6 +28,7 @@ class RecipeSession:
 async def advance_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
     measurements: Mapping[str, float], admitted_epoch: str,
+    persist_state: Callable[[RunnerState], None] | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
     """Advance one step through canonical port; never perform START."""
     if not session.admission_epoch or session.admission_epoch != admitted_epoch:
@@ -46,11 +47,16 @@ async def advance_recipe_session(
     # This includes restoring a previously pending step after interruption.
     if session.state.pending is not None:
         raise RuntimeError("pending hardware action needs owner reconciliation")
+    # Write-ahead pending state must survive process loss before physical I/O.
+    if persist_state is None:
+        raise RuntimeError("durable write-ahead state required for recipe hardware commands")
+    persist_state(result.state)
     receipt = await execute_recipe_action(
         port=port, pending=result.command, identity=session.identity,
         admitted=True,
     )
     next_state = confirm(result.state, receipt, confirmed_at_s=now_s)
+    persist_state(next_state)
     return RecipeSession(session.recipe, session.identity, next_state,
                          session.admission_epoch), receipt
 
