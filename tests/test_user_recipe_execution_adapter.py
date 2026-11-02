@@ -30,6 +30,19 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                                         identity=RecipeExecutionIdentity("", "t"), safety_context=SafetyContext())
         self.assertEqual(port.calls, [])
 
+    async def test_existing_restore_latch_blocks_set_without_hardware_call(self):
+        from application.execution_intent.models import SafetyContext
+        port = FakePort()
+        port.guarded_restore_activated_off = True
+        pending = PendingAction("digest", 0, "id-set", "set",
+                                {"voltage_v": 14.7, "current_a": 2})
+        receipt = await execute_recipe_action(
+            port=port, pending=pending, identity=RecipeExecutionIdentity("s", "t"),
+            safety_context=SafetyContext())
+        self.assertFalse(receipt.accepted)
+        self.assertFalse(receipt.verified)
+        self.assertEqual(port.calls, [])
+
     async def test_uses_existing_port_and_correlated_receipt(self):
         port = FakePort()
         identity = RecipeExecutionIdentity("s", "t")

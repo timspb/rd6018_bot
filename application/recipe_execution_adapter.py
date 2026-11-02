@@ -31,6 +31,8 @@ async def execute_recipe_action(*, port: Any, pending: PendingAction,
     if pending.operation not in {"set", "off"}:
         raise ValueError("unsupported recipe operation")
     if pending.operation == "set":
+        if getattr(port, "guarded_restore_activated_off", False):
+            return ActionReceipt(pending.action_id, False, False, False)
         v, i = pending.parameters["voltage_v"], pending.parameters["current_a"]
     else:
         v, i = 0.0, 0.0
