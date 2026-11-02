@@ -19,6 +19,9 @@ from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
 from runtime.ui.telegram.analysis import install_analysis_screen
 from runtime.ui.telegram.charge import install_charge_program_screen
+from runtime.ui.telegram.recipes import install_recipe_catalog_commands
+from runtime.charge.programs.recipe_library import RecipeLibrary
+from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.ui.telegram.custom import install_custom_cancel_route
 from runtime.ui.telegram.details import install_operator_details_screen
 from runtime.ui.telegram.entities import install_entities_screen
@@ -236,6 +239,17 @@ class ProductionComposition:
         )
         app.operator_interface = operator_interface
         if _ui_support_enabled:
+            # Recipe library UI is isolated; no commands start or resume charging.
+            from pathlib import Path as _RecipePath
+            from runtime.safety.variables import MAX_STAGE_CURRENT_A as _RecipeMaxCurrent
+            from config import MAX_MANUAL_VOLTAGE as _RecipeMaxVoltage
+            install_recipe_catalog_commands(
+                app, catalog=RecipeCatalog(RecipeLibrary(
+                    _RecipePath(__file__).resolve().parent.parent / "state" / "user_recipes",
+                    max_voltage_v=float(_RecipeMaxVoltage),
+                    max_current_a=float(_RecipeMaxCurrent.default),
+                )),
+            )
             install_charge_program_screen(
                 app,
                 profile_selector=app._select_quick_profile,
