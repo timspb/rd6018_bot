@@ -35,8 +35,10 @@ class RecipeTerminalTickTests(unittest.IsolatedAsyncioTestCase):
         host=SimpleNamespace(is_active=True,stop=Mock(),_existing_recipe_execution_binding=binding)
         with patch("application.recipe_existing_session.advance_in_existing_session",
                    new_callable=AsyncMock,side_effect=ConnectionError("hardware uncertain")) as advance:
-            for _ in range(3):
-                self.assertEqual(await run_charge_session_tick(host,14.7,0.1,25.,True,0.),{})
+            first = await run_charge_session_tick(host,14.7,0.1,25.,True,0.)
+            self.assertIn('ConnectionError', first['notify'])
+            for _ in range(2):
+                self.assertEqual(await run_charge_session_tick(host,14.7,0.1,25.,True,0.), {})
             advance.assert_awaited_once()
         host.stop.assert_not_called()
         self.assertIs(host._existing_recipe_execution_binding,binding)

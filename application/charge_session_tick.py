@@ -114,7 +114,9 @@ async def run_charge_session_tick(
             host._recipe_tick_fault = f'{type(exc).__name__}: {exc}'
             logging.getLogger('rd6018.recipe').exception('Recipe tick stopped; no automatic fallback')
             host.last_update_time = time.time()
-            return {}
+            return {'notify': ('⚠️ Пользовательский рецепт остановлен: ' +
+                               host._recipe_tick_fault[:250] +
+                               '. Автоматическое продолжение отключено.')}
         recipe_binding.session = updated
         if updated.state.completed:
             # Terminal OFF has been acknowledged by the existing execution port.
