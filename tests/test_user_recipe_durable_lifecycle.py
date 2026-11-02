@@ -30,19 +30,19 @@ class DurableLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "runner.json"
             port = InterruptedPort()
-            session = RecipeSession(recipe, identity, admission_epoch="epoch")
+            session = RecipeSession(recipe, identity)
             with self.assertRaises(RuntimeError):
                 await advance_durable_recipe_session(
                     session, port=port, now_s=100, measurements={},
-                    admitted_epoch="epoch", state_path=path)
+                     state_path=path)
             self.assertEqual(port.calls, 1)
             saved = load_runner(path, recipe)
             self.assertIsNotNone(saved.pending)
             restored = restore_durable_recipe_session(
                 recipe=recipe, identity=identity, state_path=path)
-            self.assertEqual(restored.admission_epoch, "")
-            with self.assertRaises(PermissionError):
+            self.assertTrue(restored.restored_inactive)
+            with self.assertRaises(RuntimeError):
                 await advance_durable_recipe_session(
                     restored, port=port, now_s=101, measurements={},
-                    admitted_epoch="epoch", state_path=path)
+                     state_path=path)
             self.assertEqual(port.calls, 1)

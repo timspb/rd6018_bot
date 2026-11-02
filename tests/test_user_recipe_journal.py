@@ -23,11 +23,11 @@ class JournalTests(unittest.IsolatedAsyncioTestCase):
             journal = Path(folder) / "events.jsonl"
             state = Path(folder) / "runner.json"
             session = RecipeSession(recipe, RecipeExecutionIdentity("s", "t"),
-                                    admission_epoch="epoch")
+                                    )
             with self.assertRaises(RuntimeError):
                 await advance_durable_recipe_session(
                     session, port=InterruptedPort(), now_s=100, measurements={},
-                    admitted_epoch="epoch", state_path=state, journal_path=journal)
+                     state_path=state, journal_path=journal)
             events = read_events(journal)
             self.assertEqual([x["event"] for x in events], ["PENDING", "INTERRUPTED"])
             self.assertEqual(events[0]["action_id"], events[1]["action_id"])

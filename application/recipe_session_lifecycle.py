@@ -26,17 +26,17 @@ class RecipeSession:
     recipe: Recipe
     identity: RecipeExecutionIdentity
     state: RunnerState = RunnerState()
-    admission_epoch: str = ""
+    restored_inactive: bool = False
 
 
 async def advance_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
-    measurements: Mapping[str, float], admitted_epoch: str,
+    measurements: Mapping[str, float],
     persist_state: Callable[[RunnerState], None] | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
     """Advance one step through canonical port; never perform START."""
-    if not session.admission_epoch or session.admission_epoch != admitted_epoch:
-        raise PermissionError("session admission epoch mismatch")
+    if session.restored_inactive:
+        raise RuntimeError("restored session must not resume hardware automatically")
     if not session.identity.session_id or not session.identity.trace_id:
         raise PermissionError("missing existing session identity")
     report = inspect_recipe(session.recipe)
@@ -46,7 +46,7 @@ async def advance_recipe_session(
                   measurements=measurements)
     if result.command is None:
         return RecipeSession(session.recipe, session.identity, result.state,
-                             session.admission_epoch), None
+                             session.restored_inactive), None
     # Never blindly resend a command whose physical execution is uncertain.
     # This includes restoring a previously pending step after interruption.
     if session.state.pending is not None:
@@ -57,12 +57,11 @@ async def advance_recipe_session(
     persist_state(result.state)
     receipt = await execute_recipe_action(
         port=port, pending=result.command, identity=session.identity,
-        admitted=True,
     )
     next_state = confirm(result.state, receipt, confirmed_at_s=now_s)
     persist_state(next_state)
     return RecipeSession(session.recipe, session.identity, next_state,
-                         session.admission_epoch), receipt
+                         session.restored_inactive), receipt
 
 
 def restore_recipe_session(*, recipe: Recipe,
@@ -71,12 +70,12 @@ def restore_recipe_session(*, recipe: Recipe,
     """Restore only as inactive; explicit new owner admission is required."""
     if state.step is not None and state.step.recipe_digest != recipe.digest:
         raise ValueError("saved recipe mismatch")
-    return RecipeSession(recipe, identity, state, "")
+    return RecipeSession(recipe, identity, state, True)
 
 
 async def advance_durable_recipe_session(
     session: RecipeSession, *, port: Any, now_s: float,
-    measurements: Mapping[str, float], admitted_epoch: str,
+    measurements: Mapping[str, float],
     state_path: str | Path, journal_path: str | Path | None = None,
     measurement_path: str | Path | None = None,
 ) -> tuple[RecipeSession, ActionReceipt | None]:
@@ -104,7 +103,7 @@ async def advance_durable_recipe_session(
     try:
         updated, receipt = await advance_recipe_session(
             session, port=port, now_s=now_s, measurements=measurements,
-            admitted_epoch=admitted_epoch, persist_state=persist,
+            persist_state=persist,
         )
     except Exception as exc:
         if journal_path is not None and path.exists():

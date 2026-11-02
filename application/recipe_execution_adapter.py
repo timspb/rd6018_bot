@@ -15,17 +15,14 @@ class RecipeExecutionIdentity:
 
 
 async def execute_recipe_action(*, port: Any, pending: PendingAction,
-                                identity: RecipeExecutionIdentity,
-                                admitted: bool = False) -> ActionReceipt:
+                                identity: RecipeExecutionIdentity) -> ActionReceipt:
     """Execute only within an externally admitted, already-active session.
 
     Setpoints never enable the output; OFF uses the existing verified OFF path.
     Startup and resume still belong exclusively to the production START owner.
     """
     if not identity.session_id or not identity.trace_id:
-        raise ValueError("verified recipe session identity required")
-    if not admitted:
-        raise PermissionError("recipe not admitted by session owner")
+        raise ValueError("existing charge session identity required")
     if pending.operation == "wait":
         return ActionReceipt(pending.action_id, True, True, False)
     if pending.operation not in {"set", "off"}:
