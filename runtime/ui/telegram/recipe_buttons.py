@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
+from runtime.charge.programs.recipe_preflight import inspect_recipe
 
 
 def catalog_markup(catalog: RecipeCatalog) -> InlineKeyboardMarkup:
@@ -29,12 +30,36 @@ def recipe_markup(recipe_id: str, version: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="◀ Библиотека", callback_data="recipes:list")],
         [InlineKeyboardButton(text="Редактор шагов", callback_data=f"recipes:edit:{recipe_id}:{version}")],
+        [InlineKeyboardButton(text="Проверить рецепт", callback_data=f"recipes:check:{recipe_id}:{version}")],
         [InlineKeyboardButton(text="Копировать: инструкция", callback_data=f"recipes:copyhelp:{recipe_id}:{version}")],
     ])
 
 def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
         return
+
+    @app.router.callback_query(F.data.startswith("recipes:check:"))
+    async def check_recipe(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, version = str(call.data).split(":")
+            recipe = catalog.library.load(name, int(version))
+            report = inspect_recipe(recipe)
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        issues = [*report.problems, *report.warnings]
+        verdict = "PASS" if report.admissible_structure else "FAIL"
+        details = "\\n".join(html.escape(issue) for issue in issues)
+        await call.answer()
+        await call.message.answer(
+            f"Проверка структуры: {verdict} — {html.escape(recipe.recipe_id)} v{recipe.version}\\n"
+            + (details or "Ошибок структуры нет.")
+            + "\\nЭто проверка сценария, не разрешение запуска оборудования.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=recipe_markup(recipe.recipe_id, recipe.version),
+        )
 
     @app.router.callback_query(F.data == "recipes:create")
     async def create_draft(call):
