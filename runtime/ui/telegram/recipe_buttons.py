@@ -133,6 +133,11 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                     data = f"recipes:time:{name}:{version}:{index}:{change}"
                     if len(data.encode("utf-8")) <= 64:
                         rows.append([InlineKeyboardButton(text=f"Шаг {index+1} время {label}", callback_data=data)])
+            if step["action"] == "set":
+                for key, label in (("current_lte", "I ≤"), ("voltage_gte", "U ≥"), ("after_seconds", "Таймер")):
+                    data = f"recipes:condition:{name}:{version}:{index}:{key}"
+                    if len(data.encode("utf-8")) <= 64:
+                        rows.append([InlineKeyboardButton(text=f"Шаг {index+1} условие {label}", callback_data=data)])
             choices = [("delete", "Удалить")]
             if index > 0:
                 choices.append(("up", "Вверх"))
@@ -153,6 +158,30 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.message.answer(
             "Изменение уставок создаст новую версию (В/А).",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows[:35]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:condition:"))
+    async def change_condition(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_version, raw_index, condition = str(call.data).split(":")
+            version, index = int(raw_version), int(raw_index)
+            recipe = catalog.library.load(name, version)
+            if recipe.steps[index]["action"] != "set":
+                raise ValueError("condition applies to SET")
+            values = {"current_lte": 0.2, "voltage_gte": 12.0, "after_seconds": 60.0}
+            if condition not in values:
+                raise ValueError("unsupported condition")
+            updated = transform_steps(catalog, name, version, "condition", index,
+                                      condition=condition, threshold=values[condition])
+        except (ValueError, IndexError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Условие {condition} задано, версия {updated.version}. Измените порог при необходимости.",
+            reply_markup=recipe_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:time:"))
