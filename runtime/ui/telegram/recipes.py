@@ -8,7 +8,7 @@ from typing import Any
 from aiogram.filters import Command
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
-from runtime.charge.programs.recipe_editor import edit_step
+from runtime.charge.programs.recipe_editor import edit_step, insert_step
 from runtime.ui.telegram.recipe_buttons import catalog_markup, install_recipe_buttons
 
 
@@ -154,5 +154,23 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
                                  parse_mode=app.ParseMode.HTML)
             return
         await message.answer(f"Сохранена {html.escape(result.recipe_id)} v{result.version}")
+
+    @app.router.message(Command("recipe_insert"))
+    async def _insert(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split(maxsplit=4)
+        if len(parts) != 5:
+            await message.answer("Формат: /recipe_insert имя версия позиция JSON_шага")
+            return
+        try:
+            name, version, position, raw = parts[1:]
+            step = json.loads(raw)
+            updated = insert_step(catalog, name, int(version), int(position) - 1, step)
+        except (ValueError, TypeError, IndexError, OSError) as exc:
+            await message.answer(f"Вставка отклонена: {html.escape(str(exc))}",
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        await message.answer(f"Создана {html.escape(updated.recipe_id)} v{updated.version}")
 
     app._recipe_catalog_commands_installed = True
