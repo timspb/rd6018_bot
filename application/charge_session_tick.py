@@ -96,15 +96,25 @@ async def run_charge_session_tick(
         values = {"voltage": voltage, "current": current}
         if temp_ext is not None:
             values["temperature"] = temp_ext
-        updated, receipt = await advance_in_existing_session(
-            recipe_binding.session, host=host, port=recipe_binding.port,
-            now_s=time.time(), measurements=values,
-            safety_context=recipe_binding.safety_context,
-            voltage_ceiling_v=recipe_binding.voltage_ceiling_v,
-            state_path=recipe_binding.state_path,
-            journal_path=recipe_binding.journal_path,
-            measurement_path=recipe_binding.measurement_path,
-        )
+        if getattr(host, '_recipe_tick_fault', None) is not None:
+            host.last_update_time = time.time()
+            return {}
+        try:
+            updated, receipt = await advance_in_existing_session(
+                recipe_binding.session, host=host, port=recipe_binding.port,
+                now_s=time.time(), measurements=values,
+                safety_context=recipe_binding.safety_context,
+                voltage_ceiling_v=recipe_binding.voltage_ceiling_v,
+                state_path=recipe_binding.state_path,
+                journal_path=recipe_binding.journal_path,
+                measurement_path=recipe_binding.measurement_path,
+            )
+        except Exception as exc:
+            import logging
+            host._recipe_tick_fault = f'{type(exc).__name__}: {exc}'
+            logging.getLogger('rd6018.recipe').exception('Recipe tick stopped; no automatic fallback')
+            host.last_update_time = time.time()
+            return {}
         recipe_binding.session = updated
         if updated.state.completed:
             # Terminal OFF has been acknowledged by the existing execution port.

@@ -225,6 +225,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
 
     # A previous recipe must never take control of a new charge session.
     app.charge_controller._existing_recipe_execution_binding = None
+    app.charge_controller._recipe_tick_fault = None
     app.charge_controller.configure_recovery_context(
         battery_id=pending.battery_id,
         intent=pending.intent,

@@ -25,6 +25,23 @@ class RecipeTerminalTickTests(unittest.IsolatedAsyncioTestCase):
         host.stop.assert_called_once_with(clear_session=True)
         self.assertIsNone(host._existing_recipe_execution_binding)
 
+    async def test_failed_tick_does_not_fallback_or_retry(self):
+        recipe = parse_recipe({"id":"test","version":1,"steps":[
+            {"action":"set","params":{"voltage_v":14.7,"current_a":1.0},
+             "until":{"after_seconds":1}}
+        ]},max_voltage_v=15.5,max_current_a=7.2)
+        session=RecipeSession(recipe,RecipeExecutionIdentity("session","trace"))
+        binding=ExistingRecipeBinding(session,object(),SafetyContext(),15.5,"state.json")
+        host=SimpleNamespace(is_active=True,stop=Mock(),_existing_recipe_execution_binding=binding)
+        with patch("application.recipe_existing_session.advance_in_existing_session",
+                   new_callable=AsyncMock,side_effect=ConnectionError("hardware uncertain")) as advance:
+            for _ in range(3):
+                self.assertEqual(await run_charge_session_tick(host,14.7,0.1,25.,True,0.),{})
+            advance.assert_awaited_once()
+        host.stop.assert_not_called()
+        self.assertIs(host._existing_recipe_execution_binding,binding)
+        self.assertIn("ConnectionError",host._recipe_tick_fault)
+
     async def test_unfinished_does_not_stop(self):
         recipe = parse_recipe({"id":"test","version":1,"steps":[
             {"action":"off","params":{},"until":{"after_seconds":1}}
