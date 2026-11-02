@@ -128,6 +128,11 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                             callback_data=data,
                         )])
         for index, step in enumerate(recipe.steps):
+            if "after_seconds" in step["until"]:
+                for change, label in (("minus", "-60с"), ("plus", "+60с")):
+                    data = f"recipes:time:{name}:{version}:{index}:{change}"
+                    if len(data.encode("utf-8")) <= 64:
+                        rows.append([InlineKeyboardButton(text=f"Шаг {index+1} время {label}", callback_data=data)])
             choices = [("delete", "Удалить")]
             if index > 0:
                 choices.append(("up", "Вверх"))
@@ -148,6 +153,31 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.message.answer(
             "Изменение уставок создаст новую версию (В/А).",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows[:35]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:time:"))
+    async def change_time(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_version, raw_index, direction = str(call.data).split(":")
+            version, index = int(raw_version), int(raw_index)
+            recipe = catalog.library.load(name, version)
+            if direction not in {"plus", "minus"}:
+                raise ValueError("invalid direction")
+            current = recipe.steps[index]["until"]["after_seconds"]
+            new_value = current + (60 if direction == "plus" else -60)
+            if new_value <= 0:
+                raise ValueError("duration must be positive")
+            updated = edit_step(catalog, name, version, index,
+                                field="until:after_seconds", value=new_value)
+        except (ValueError, KeyError, IndexError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Время шага {index+1}: {new_value:g} с, версия {updated.version}.",
+            reply_markup=recipe_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:step:"))
