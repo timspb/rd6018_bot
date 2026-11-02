@@ -84,6 +84,27 @@ async def run_charge_session_tick(
     if callable(authority_suspended) and authority_suspended():
         host.last_update_time = time.time()
         return {}
+    recipe_binding = getattr(host, "_existing_recipe_execution_binding", None)
+    if recipe_binding is not None:
+        # Mutually exclusive with the legacy stage decision loop.
+        from application.recipe_existing_session import ExistingRecipeBinding, advance_in_existing_session
+        if not isinstance(recipe_binding, ExistingRecipeBinding) or not host.is_active:
+            raise RuntimeError("recipe tick requires existing active charge session binding")
+        values = {"voltage": voltage, "current": current}
+        if temp_ext is not None:
+            values["temperature"] = temp_ext
+        updated, receipt = await advance_in_existing_session(
+            recipe_binding.session, host=host, port=recipe_binding.port,
+            now_s=time.time(), measurements=values,
+            safety_context=recipe_binding.safety_context,
+            voltage_ceiling_v=recipe_binding.voltage_ceiling_v,
+            state_path=recipe_binding.state_path,
+            journal_path=recipe_binding.journal_path,
+            measurement_path=recipe_binding.measurement_path,
+        )
+        recipe_binding.session = updated
+        host.last_update_time = time.time()
+        return {}
     production_cooling = hasattr(host, "_v2_cooling_pause")
     if production_cooling and host.is_active and host.battery_type != host.PROFILE_CUSTOM:
         host._last_hourly_report = time.time()

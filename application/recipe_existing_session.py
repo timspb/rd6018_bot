@@ -4,6 +4,7 @@ This is a callable adapter, not a new loop, START path, or session owner.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -13,6 +14,17 @@ from application.recipe_session_lifecycle import (
     RecipeSession, advance_durable_recipe_session,
 )
 from runtime.charge.programs.recipe_runner import tick
+
+
+@dataclass
+class ExistingRecipeBinding:
+    session: RecipeSession
+    port: Any
+    safety_context: SafetyContext
+    voltage_ceiling_v: float
+    state_path: str | Path
+    journal_path: str | Path | None = None
+    measurement_path: str | Path | None = None
 
 
 async def advance_in_existing_session(
