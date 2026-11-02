@@ -8,6 +8,7 @@ from typing import Any
 from aiogram.filters import Command
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
+from runtime.ui.telegram.recipe_buttons import catalog_markup, install_recipe_buttons
 
 
 def format_catalog(catalog: RecipeCatalog) -> str:
@@ -32,11 +33,14 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
     async def _allowed(message: Any) -> bool:
         return bool(await app._check_chat_and_respond(message))
 
+    install_recipe_buttons(app, catalog=catalog)
+
     @app.router.message(Command("recipes"))
     async def _recipes(message: Any) -> None:
         if not await _allowed(message):
             return
-        await message.answer(format_catalog(catalog), parse_mode=app.ParseMode.HTML)
+        await message.answer(format_catalog(catalog), parse_mode=app.ParseMode.HTML,
+                             reply_markup=catalog_markup(catalog))
     @app.router.message(Command("recipe_copy"))
     async def _copy(message: Any) -> None:
         if not await _allowed(message):
