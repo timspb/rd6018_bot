@@ -2726,7 +2726,8 @@ async def data_logger() -> None:
                             logger.warning("Link restored but no session; output still on I=%.2fA", i)
 
                 # Выход уже включён, но бот в IDLE (перезапуск бота или ручное включение) — подхватываем сессию без turn_on
-                if not recovery_guard.quarantined and recovery_route is RecoveryRoute.IDLE_OUTPUT_ON:
+                if (not recovery_guard.quarantined and recovery_route is RecoveryRoute.IDLE_OUTPUT_ON
+                        and os.path.isfile(SESSION_FILE)):
                     ok, msg = charge_controller.try_restore_session(
                         battery_v, i, ah, output_is_on=output_on,
                         is_cv=is_cv, is_cc=is_cc,
