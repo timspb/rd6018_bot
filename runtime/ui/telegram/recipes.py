@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import json
 from typing import Any
 
 from aiogram.filters import Command
@@ -67,5 +68,62 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
                                  parse_mode=app.ParseMode.HTML)
             return
         await message.answer(f"Рецепт {html.escape(parts[1])} архивирован; версии сохранены.")
+
+    @app.router.message(Command("recipe_new"))
+    async def _new(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split(maxsplit=2)
+        if len(parts) != 3:
+            await message.answer("Формат: /recipe_new имя JSON_массива_шагов")
+            return
+        try:
+            steps = json.loads(parts[2])
+            result = catalog.library.save({"id": parts[1], "version": 1, "steps": steps})
+        except (ValueError, TypeError, FileExistsError, OSError) as exc:
+            await message.answer(f"Сохранение отклонено: {html.escape(str(exc))}",
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        await message.answer(f"Создан рецепт {html.escape(result.recipe_id)} v1")
+
+    @app.router.message(Command("recipe_version"))
+    async def _version(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split(maxsplit=2)
+        if len(parts) != 3:
+            await message.answer("Формат: /recipe_version имя JSON_массива_шагов")
+            return
+        try:
+            result = catalog.next_version(parts[1], json.loads(parts[2]))
+        except (ValueError, TypeError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await message.answer(f"Новая версия отклонена: {html.escape(str(exc))}",
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        await message.answer(f"Сохранена {html.escape(result.recipe_id)} v{result.version}")
+
+    @app.router.message(Command("recipe_show"))
+    async def _show(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split()
+        if len(parts) != 3:
+            await message.answer("Формат: /recipe_show имя версия")
+            return
+        try:
+            recipe = catalog.library.load(parts[1], int(parts[2]))
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await message.answer(f"Просмотр отклонён: {html.escape(str(exc))}",
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        lines = [f"<b>{html.escape(recipe.recipe_id)} v{recipe.version}</b>"]
+        for index, step in enumerate(recipe.steps, 1):
+            details = json.dumps(step, ensure_ascii=False, sort_keys=True)
+            lines.append(f"{index}. <code>{html.escape(details)}</code>")
+        text = "\n".join(lines)
+        if len(text) > 3800:
+            await message.answer("Рецепт слишком длинный для одного сообщения.")
+            return
+        await message.answer(text, parse_mode=app.ParseMode.HTML)
 
     app._recipe_catalog_commands_installed = True
