@@ -7,7 +7,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
-from runtime.charge.programs.recipe_editor import edit_step, insert_step
+from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
 
 
 def catalog_markup(catalog: RecipeCatalog) -> InlineKeyboardMarkup:
@@ -127,6 +127,18 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                             text=f"Шаг {index+1} {label} {sign}0.1",
                             callback_data=data,
                         )])
+        for index, step in enumerate(recipe.steps):
+            choices = [("delete", "Удалить")]
+            if index > 0:
+                choices.append(("up", "Вверх"))
+            if index + 1 < len(recipe.steps):
+                choices.append(("down", "Вниз"))
+            for action, label in choices:
+                data = f"recipes:step:{name}:{version}:{index}:{action}"
+                if len(data.encode("utf-8")) <= 64:
+                    rows.append([InlineKeyboardButton(
+                        text=f"Шаг {index+1} {label}", callback_data=data,
+                    )])
         for kind, label in (("set", "Добавить SET"), ("off", "Добавить OFF"), ("wait", "Добавить WAIT")):
             data = f"recipes:append:{name}:{version}:{kind}"
             if len(data.encode("utf-8")) <= 64:
@@ -136,6 +148,31 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.message.answer(
             "Изменение уставок создаст новую версию (В/А).",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows[:35]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:step:"))
+    async def change_step(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, version_text, index_text, action = str(call.data).split(":")
+            version, index = int(version_text), int(index_text)
+            if action == "delete":
+                updated = transform_steps(catalog, name, version, "delete", index)
+            elif action in {"up", "down"}:
+                updated = transform_steps(
+                    catalog, name, version, "move", index,
+                    destination=index + (-1 if action == "up" else 1),
+                )
+            else:
+                raise ValueError("unsupported step action")
+        except (ValueError, IndexError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Сохранена версия {updated.version}. Предыдущая версия не изменена.",
+            reply_markup=recipe_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:append:"))
