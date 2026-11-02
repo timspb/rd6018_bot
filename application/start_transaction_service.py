@@ -261,6 +261,28 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             expert_high_voltage=False,
         )
 
+        recipe_binding = None
+        if getattr(pending, 'recipe_id', None) is not None:
+            from pathlib import Path
+            from application.recipe_existing_session import prepare_existing_recipe_binding
+            from application.recipe_execution_adapter import RecipeExecutionIdentity
+            recipe_binding = prepare_existing_recipe_binding(
+                catalog=app._user_recipe_catalog,
+                recipe_id=str(pending.recipe_id),
+                version=int(pending.recipe_version),
+                port=get_or_create_execution_port(app),
+                identity=RecipeExecutionIdentity(execution_identity.session_id,
+                                                 execution_identity.trace_id),
+                safety_context=_execution_intent(
+                    voltage_v=float(target_v), current_a=float(app._cap_current(target_i)),
+                    mode="AUTO_START", identity=execution_identity,
+                    limits_reference="recipe_envelope").safety_context,
+                voltage_ceiling_v=float(envelope.voltage_ceiling_v),
+                state_path=(Path(app._user_recipe_catalog.library.root) /
+                            '_runs' / execution_identity.session_id.replace(':', '_') /
+                            'runner.json'),
+            )
+
         requested_i = float(app._cap_current(target_i))
         execution_intent = _execution_intent(
             voltage_v=float(target_v),
@@ -318,32 +340,8 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         )
         return False
 
-    if getattr(pending, 'recipe_id', None) is not None:
-        from pathlib import Path
-        from application.recipe_existing_session import prepare_existing_recipe_binding
-        from application.recipe_execution_adapter import RecipeExecutionIdentity
-        selection = str(pending.recipe_id)
-        version = int(pending.recipe_version)
-        owner = app.charge_controller
-        try:
-            binding = prepare_existing_recipe_binding(
-                catalog=app._user_recipe_catalog, recipe_id=selection, version=version,
-                port=get_or_create_execution_port(app),
-                identity=RecipeExecutionIdentity(execution_identity.session_id,
-                                                 execution_identity.trace_id),
-                safety_context=execution_intent.safety_context,
-                voltage_ceiling_v=float(envelope.voltage_ceiling_v),
-                state_path=(Path(app._user_recipe_catalog.library.root) /
-                            '_runs' / execution_identity.session_id.replace(':', '_') /
-                            'runner.json'),
-            )
-        except Exception as exc:
-            app.logger.error('Recipe binding after verified START failed: %s', exc)
-            await message.answer('Рецепт не подключён после START: ' +
-                                 html.escape(str(exc)), parse_mode=app.ParseMode.HTML)
-            # Existing verified START remains owned by the standard controller.
-        else:
-            owner._existing_recipe_execution_binding = binding
+    if recipe_binding is not None:
+        app.charge_controller._existing_recipe_execution_binding = recipe_binding
 
     app.last_checkpoint_time = app.time.time()
     app.last_chat_id = message.chat.id
