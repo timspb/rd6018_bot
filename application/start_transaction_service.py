@@ -223,6 +223,8 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             "OPERATOR_PAUSE_RETIRED_FOR_NEW_SESSION",
         )
 
+    # A previous recipe must never take control of a new charge session.
+    app.charge_controller._existing_recipe_execution_binding = None
     app.charge_controller.configure_recovery_context(
         battery_id=pending.battery_id,
         intent=pending.intent,
@@ -315,6 +317,33 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             parse_mode=app.ParseMode.HTML,
         )
         return False
+
+    if getattr(pending, 'recipe_id', None) is not None:
+        from pathlib import Path
+        from application.recipe_existing_session import prepare_existing_recipe_binding
+        from application.recipe_execution_adapter import RecipeExecutionIdentity
+        selection = str(pending.recipe_id)
+        version = int(pending.recipe_version)
+        owner = app.charge_controller
+        try:
+            binding = prepare_existing_recipe_binding(
+                catalog=app._user_recipe_catalog, recipe_id=selection, version=version,
+                port=get_or_create_execution_port(app),
+                identity=RecipeExecutionIdentity(execution_identity.session_id,
+                                                 execution_identity.trace_id),
+                safety_context=execution_intent.safety_context,
+                voltage_ceiling_v=float(envelope.voltage_ceiling_v),
+                state_path=(Path(app._user_recipe_catalog.library.root) /
+                            '_runs' / execution_identity.session_id.replace(':', '_') /
+                            'runner.json'),
+            )
+        except Exception as exc:
+            app.logger.error('Recipe binding after verified START failed: %s', exc)
+            await message.answer('Рецепт не подключён после START: ' +
+                                 html.escape(str(exc)), parse_mode=app.ParseMode.HTML)
+            # Existing verified START remains owned by the standard controller.
+        else:
+            owner._existing_recipe_execution_binding = binding
 
     app.last_checkpoint_time = app.time.time()
     app.last_chat_id = message.chat.id

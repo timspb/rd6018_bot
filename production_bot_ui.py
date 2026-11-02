@@ -53,6 +53,8 @@ class PendingStart:
     intent: ChargeIntent
     battery_id: str
     condition: BatteryCondition
+    recipe_id: str | None = None
+    recipe_version: int | None = None
 
 
 _pending_profile: Dict[int, str] = {}

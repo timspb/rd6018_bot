@@ -88,8 +88,11 @@ async def run_charge_session_tick(
     if recipe_binding is not None:
         # Mutually exclusive with the legacy stage decision loop.
         from application.recipe_existing_session import ExistingRecipeBinding, advance_in_existing_session
-        if not isinstance(recipe_binding, ExistingRecipeBinding) or not host.is_active:
-            raise RuntimeError("recipe tick requires existing active charge session binding")
+        if not host.is_active:
+            host._existing_recipe_execution_binding = None
+            return {}
+        if not isinstance(recipe_binding, ExistingRecipeBinding):
+            raise RuntimeError("invalid recipe execution binding")
         values = {"voltage": voltage, "current": current}
         if temp_ext is not None:
             values["temperature"] = temp_ext
