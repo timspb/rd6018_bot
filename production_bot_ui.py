@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -178,6 +178,25 @@ def _preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
         ]
     )
+
+
+def _recipe_preview_keyboard(app: Any, start_callback: str) -> InlineKeyboardMarkup:
+    original = _preview_keyboard(start_callback)
+    catalog = getattr(app, '_user_recipe_catalog', None)
+    if catalog is None:
+        return original
+    rows = list(original.inline_keyboard)
+    choices = []
+    for name in catalog.active_recipes():
+        versions = catalog.library.versions(name)
+        if not versions:
+            continue
+        version = versions[-1]
+        data = f'v2_recipe_pick:{name}:{version}'
+        if len(data.encode('utf-8')) <= 64:
+            choices.append(InlineKeyboardButton(text=f'Рецепт {name} v{version}', callback_data=data))
+    rows[1:1] = [[choice] for choice in choices[:12]]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _parse_intent(value: str) -> ChargeIntent:
@@ -689,6 +708,34 @@ def install_ui_support(app: Any) -> None:
         if trace is not None:
             trace.info("QUICK_START_TRACE response=ACCEPTED")
 
+    @app.router.callback_query(F.data.startswith("v2_recipe_pick:"))
+    async def pick_recipe_handler(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        pending = _pending_start.get(user_id)
+        catalog = getattr(app, "_user_recipe_catalog", None)
+        if pending is None or catalog is None:
+            await _ack_callback(call, "Сначала выберите АКБ и режим", show_alert=True)
+            return
+        try:
+            _, name, version_text = str(call.data).split(":")
+            version = int(version_text)
+            if name not in catalog.active_recipes():
+                raise ValueError("Рецепт архивирован")
+            recipe = catalog.library.load(name, version)
+            from runtime.charge.programs.recipe_preflight import inspect_recipe
+            report = inspect_recipe(recipe)
+            if not report.admissible_structure:
+                raise ValueError("; ".join(report.problems))
+        except (ValueError, OSError) as exc:
+            await _ack_callback(call, str(exc)[:180], show_alert=True)
+            return
+        _pending_start[user_id] = replace(pending, recipe_id=name, recipe_version=version)
+        await _ack_callback(call)
+        await _safe_answer(call, f"Выбран {name} v{version}. START запустит этот рецепт.",
+                           reply_markup=_preview_keyboard("v2_battery_start"))
+
     @app.router.callback_query(F.data.startswith("v2_bat_intent_"))
     async def battery_intent_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -722,6 +769,6 @@ def install_ui_support(app: Any) -> None:
         await _safe_answer(
             call,
             f"{format_battery_card(record)}\n\n{preview.text}",
-            reply_markup=_preview_keyboard("v2_battery_start"),
+            reply_markup=_recipe_preview_keyboard(app, "v2_battery_start"),
         )
         await _refresh_dashboard_after_selection(app, call, user_id)
