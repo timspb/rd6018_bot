@@ -387,6 +387,34 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         return False
 
     if recipe_binding is not None:
+        # The verified START already applied the recipe's initial SET.
+        # Persist that step as entered before allowing the next tick:
+        # otherwise the runner would issue the identical physical SET again.
+        try:
+            from dataclasses import replace
+            from runtime.charge.programs.recipe_engine import StepState
+            from runtime.charge.programs.recipe_runner import RunnerState
+            from runtime.charge.programs.recipe_runner_store import save_runner
+            recipe = recipe_binding.session.recipe
+            initialized = RunnerState(
+                step=StepState(recipe.digest, 0, float(app.time.time()))
+            )
+            save_runner(recipe_binding.state_path, recipe, initialized)
+            recipe_binding.session = replace(recipe_binding.session, state=initialized)
+        except Exception as exc:
+            off_confirmed = await _confirm_failed_start_is_off(
+                app, identity=execution_identity, mode="AUTO_START",
+            )
+            if off_confirmed:
+                app.charge_controller.stop(clear_session=True)
+            await message.answer(
+                "❌ Сохранение начального состояния рецепта не удалось "
+                f"({html.escape(type(exc).__name__)}). "
+                + ("Output OFF подтверждён." if off_confirmed
+                   else "🚨 Output OFF не подтверждён; проверьте RD6018 вручную."),
+                parse_mode=app.ParseMode.HTML,
+            )
+            return False
         app.charge_controller._existing_recipe_execution_binding = recipe_binding
 
     app.last_checkpoint_time = app.time.time()

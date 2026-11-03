@@ -28,6 +28,10 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
                 recipe_id="chosen", recipe_version=1,
             )
             result = await start_profile_transactional(app, message, pending)
+            if result:
+                from runtime.charge.programs.recipe_runner_store import load_runner
+                binding = app.charge_controller._existing_recipe_execution_binding
+                app.test_initial_runner_state = load_runner(binding.state_path, binding.session.recipe)
             return app, message, result
 
     async def test_initial_set_is_used_by_physical_enable_not_profile(self):
@@ -40,8 +44,50 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
         binding = app.charge_controller._existing_recipe_execution_binding
         self.assertEqual(binding.session.recipe.recipe_id, "chosen")
         self.assertEqual(binding.session.recipe.steps[0]["params"]["voltage_v"], 13.8)
+        self.assertIsNotNone(binding.session.state.step)
+        self.assertEqual(binding.session.state.step.step_index, 0)
+        self.assertIsNone(binding.session.state.pending)
+        self.assertEqual(app.test_initial_runner_state, binding.session.state)
+        from runtime.charge.programs.recipe_runner import tick
+        first_tick = tick(binding.session.recipe, binding.session.state,
+                          now_s=binding.session.state.step.entered_at_s + 1,
+                          measurements={"voltage": 13.8, "current": 0.1})
+        self.assertIsNone(first_tick.command, "first tick must not replay verified SET")
         self.assertIn("USER_RECIPE_FIRST_SET=13.800V,1.200A", app.events[-1][-1])
         self.assertIn("Первый SET рецепта: 13.80 В / 1.20 А", msg.answers[-1][0])
+
+    async def test_runner_persistence_failure_contained_by_verified_off(self):
+        from unittest.mock import AsyncMock, patch
+        with patch(
+            "runtime.charge.programs.recipe_runner_store.save_runner",
+            side_effect=OSError("test write failed"),
+        ), patch(
+            "application.start_transaction_service._confirm_failed_start_is_off",
+            new_callable=AsyncMock, return_value=True,
+        ) as off:
+            app, msg, result = await self._exercise(voltage=13.8, current=1.2)
+        self.assertFalse(result)
+        self.assertTrue(app.charge_controller.stopped)
+        self.assertIsNone(getattr(app.charge_controller,
+                                  "_existing_recipe_execution_binding", None))
+        off.assert_awaited_once()
+        self.assertIn("Output OFF подтверждён", msg.answers[-1][0])
+
+    async def test_runner_persistence_failure_unverified_off_reports_risk(self):
+        from unittest.mock import AsyncMock, patch
+        with patch(
+            "runtime.charge.programs.recipe_runner_store.save_runner",
+            side_effect=OSError("test write failed"),
+        ), patch(
+            "application.start_transaction_service._confirm_failed_start_is_off",
+            new_callable=AsyncMock, return_value=False,
+        ):
+            app, msg, result = await self._exercise(voltage=13.8, current=1.2)
+        self.assertFalse(result)
+        self.assertFalse(app.charge_controller.stopped)
+        self.assertIsNone(getattr(app.charge_controller,
+                                  "_existing_recipe_execution_binding", None))
+        self.assertIn("не подтверждён", msg.answers[-1][0])
 
     async def test_voltage_exceeds_active_battery_envelope_no_enable(self):
         app, msg, result = await self._exercise(voltage=17.0, current=1.2)
