@@ -7,6 +7,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
+from runtime.charge.programs.native_recipe_catalog import get_native_recipe, native_recipes
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 
@@ -39,8 +40,27 @@ def catalog_markup(catalog: RecipeCatalog, *, page: int = 0,
             text="Следующие ▶", callback_data=f"recipes:list:{page+1}"))
     if navigation:
         rows.append(navigation)
+    rows.append([InlineKeyboardButton(
+        text="⚙️ Штатные программы (12)",
+        callback_data="recipes:native:list",
+    )])
     rows.append([InlineKeyboardButton(text="Создать черновик", callback_data="recipes:create")])
     rows.append([InlineKeyboardButton(text="Обновить", callback_data=f"recipes:list:{page}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def native_recipe_markup() -> InlineKeyboardMarkup:
+    """Browse native variants without mutation, START or custom-recipe actions."""
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{entry.profile} · {entry.intent}",
+            callback_data=f"recipes:native:view:{entry.recipe_id}",
+        )]
+        for entry in native_recipes()
+    ]
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Мои рецепты", callback_data="recipes:list",
+    )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -80,6 +100,47 @@ def editor_page(rows: list, *, name: str, version: int, page: int,
 def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
         return
+
+    @app.router.callback_query(F.data == "recipes:native:list")
+    async def native_catalog(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        await call.answer()
+        await call.message.answer(
+            "⚙️ <b>Штатные программы</b>\n"
+            "Действующие алгоритмы, только просмотр. "
+            "Редактируемые пользовательские рецепты доступны отдельно.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=native_recipe_markup(),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:native:view:"))
+    async def native_recipe_details(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            recipe_id = str(call.data).removeprefix("recipes:native:view:")
+            entry = get_native_recipe(recipe_id)
+        except KeyError:
+            await call.answer("Штатная программа не найдена", show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<b>{html.escape(entry.profile)} · {html.escape(entry.intent)}</b>\n"
+            "Тип: штатный динамический рецепт\n"
+            "Исполнение: существующий контроллер MAIN / Recovery / MIX\n"
+            "Возможные стадии: "
+            + html.escape(", ".join(entry.stages))
+            + "\nРедактирование и запуск из библиотеки недоступны. "
+              "Для обычного запуска используйте выбор АКБ и режима.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Штатные программы",
+                                      callback_data="recipes:native:list")],
+                [InlineKeyboardButton(text="Мои рецепты",
+                                      callback_data="recipes:list")],
+            ]),
+        )
 
     @app.router.callback_query(F.data.startswith("recipes:check:"))
     async def check_recipe(call):
