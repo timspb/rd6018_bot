@@ -93,3 +93,19 @@ acceptance claimed; node104 not deployed.
 Next: remaining MAIN/MIX transition/finish timing parameters and any other
 declared native options still rejected as not executable. Preserve a single
 owner per decision and ensure runtime/UI metadata reflects effective values.
+
+## Implementation update — 2026-11-03 pinned MAIN transition policy
+
+The canonical MAIN transition dispatch in runtime/charge/runtime/main_scaffold.py
+now consumes pinned native-copy values for fallback_hours, chemistry-specific
+tail_hold_hours, and chemistry-specific max_recovery_attempts. The same
+decide_main_transition strategy remains the only transition owner, including
+its fail/stop behavior; a session without a pinned copy retains original
+defaults. Updated executable-key admission rejects unwired settings, while
+still rejecting MAIN current settings above 0.1C.
+
+Focused Linux result: **61 PASS and 377 subtests PASS** for MAIN policy, Guard,
+START, native execution parity, persistence/restore and controller paths.
+No full-suite PASS claimed. Changes remain local-only; node104 untouched.
+Next task: MIX finish-hold time settings and effective runtime timer reporting,
+then remaining native parameters and the clean full suite.

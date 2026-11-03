@@ -56,16 +56,20 @@ def apply_main_authority_tick(
         main_fallback_seconds, standard_tail_hold_seconds,
     )
 
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
+    native_main = native_target_parameters(host, "MAIN_POLICY")
     required_hold = (
         agm_tail_hold_seconds()
         if host.battery_type == host.PROFILE_AGM
         else standard_tail_hold_seconds()
     )
+    required_hold = float(native_main.get("tail_hold_hours", required_hold / 3600.0)) * 3600.0
     max_desulf = (
         int(AGM_MAX_RECOVERY_ATTEMPTS.default)
         if host.battery_type == host.PROFILE_AGM
         else int(STANDARD_MAX_RECOVERY_ATTEMPTS.default)
     )
+    max_desulf = int(native_main.get("max_recovery_attempts", max_desulf))
     decision = decide_main_transition(
         profile=host.battery_type,
         intent=host._v2_intent,
@@ -78,7 +82,7 @@ def apply_main_authority_tick(
         desulf_attempts=host.antisulfate_count,
         max_desulf_attempts=max_desulf,
         main_elapsed_s=max(0.0, float(timestamp_s) - float(host.stage_start_time)),
-        main_limit_s=main_fallback_seconds(),
+        main_limit_s=float(native_main.get("fallback_hours", main_fallback_seconds() / 3600.0)) * 3600.0,
         current_a=float(current),
         is_cv=bool(is_cv),
     )
@@ -339,7 +343,10 @@ async def run_authoritative_main_scaffold(
     if not manual_off_active and now - host._last_hourly_report >= report_interval:
         host._last_hourly_report = now
         current_hrs = elapsed / 3600.0
-        max_hrs = main_fallback_seconds() / 3600.0
+        from runtime.charge.programs.native_recipe_session import native_target_parameters
+        max_hrs = native_target_parameters(host, "MAIN_POLICY").get(
+            "fallback_hours", main_fallback_seconds() / 3600.0,
+        )
         report = (
             f"⏳ Прошло {current_hrs:.1f}ч из {max_hrs:.0f} лимита этапа. "
             f"Ток: {current:.2f} А, T: {temp:.1f}°C, Ah: {ah:.2f}."

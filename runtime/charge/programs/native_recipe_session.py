@@ -92,6 +92,17 @@ def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
     allowed.update(key for key in voltage_keys if key is not None)
     if entry.intent == "diagnostic":
         allowed = {key for key in allowed if not key.startswith("charge.mix.")}
+    allowed.update({"charge.main.fallback_hours"})
+    if entry.profile == "AGM":
+        allowed.update({
+            "charge.main.agm_tail_hold_hours",
+            "charge.main.agm_max_recovery_attempts",
+        })
+    else:
+        allowed.update({
+            "charge.main.standard_tail_hold_hours",
+            "charge.main.standard_max_recovery_attempts",
+        })
     overrides = dict(draft.overrides)
     unsupported = set(overrides) - allowed
     if unsupported:
@@ -187,6 +198,20 @@ def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
             )
             if key in values
         }
+    if stage == "MAIN_POLICY":
+        tail = ("charge.main.agm_tail_hold_hours" if profile == "AGM"
+                else "charge.main.standard_tail_hold_hours")
+        budget = ("charge.main.agm_max_recovery_attempts" if profile == "AGM"
+                  else "charge.main.standard_max_recovery_attempts")
+        result = {}
+        for key, field in (
+            ("charge.main.fallback_hours", "fallback_hours"),
+            (tail, "tail_hold_hours"),
+            (budget, "max_recovery_attempts"),
+        ):
+            if key in values:
+                result[field] = int(values[key]) if field == "max_recovery_attempts" else float(values[key])
+        return result
     if stage == "MAIN":
         name = {"Ca/Ca": "charge.main.ca_voltage_v",
                 "EFB": "charge.main.efb_voltage_v"}.get(profile)
