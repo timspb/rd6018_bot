@@ -1,4 +1,4 @@
-﻿"""Compare production stage execution against native recipe dispatch on real controllers.
+"""Compare production stage execution against native recipe dispatch on real controllers.
 
 A separate controller is used per route. No RD6018 hardware or service calls.
 """

@@ -368,7 +368,7 @@ class ProductionControllerTests(unittest.TestCase):
                 (now, 16.25),
             )
             with patch("charge_controller.SESSION_FILE", session_file), patch("charge_controller.SESSION_FILE", session_file), patch(
-                "application.charge_session_tick.run_charge_stage_tick", new=no_legacy_scaffold
+                "application.charge_stage_tick.run_charge_stage_tick", new=no_legacy_scaffold
             ), patch("battery_diagnostics_store.list_specific_gravity", new=AsyncMock(return_value=[])):
                 for timestamp_s, voltage_v in samples:
                     controller.last_update_time = timestamp_s
