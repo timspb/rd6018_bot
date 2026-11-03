@@ -98,6 +98,7 @@ def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
         allowed.update({
             "charge.main.agm_tail_hold_hours",
             "charge.main.agm_max_recovery_attempts",
+            "charge.main.agm_timeout_tail_current_a",
         })
     else:
         allowed.update({
@@ -212,6 +213,10 @@ def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
         ):
             if key in values:
                 result[field] = int(values[key]) if field == "max_recovery_attempts" else float(values[key])
+        if profile == "AGM" and "charge.main.agm_timeout_tail_current_a" in values:
+            result["agm_timeout_tail_current_a"] = float(
+                values["charge.main.agm_timeout_tail_current_a"]
+            )
         return result
     if stage == "MAIN":
         name = {"Ca/Ca": "charge.main.ca_voltage_v",

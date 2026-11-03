@@ -44,6 +44,7 @@ def decide_main_transition(
     main_limit_s: Optional[float] = None,
     current_a: Optional[float] = None,
     is_cv: bool = False,
+    agm_timeout_tail_current_a: Optional[float] = None,
 ) -> AuthorityDecision:
     """Choose the authoritative MAIN transition.
 
@@ -82,7 +83,11 @@ def decide_main_transition(
             )
         if profile_upper == "AGM":
             current = float(current_a) if current_a is not None else float("inf")
-            if bool(is_cv) and current <= float(AGM_TIMEOUT_TAIL_CURRENT_A.default):
+            tail_ceiling = float(
+                AGM_TIMEOUT_TAIL_CURRENT_A.default
+                if agm_timeout_tail_current_a is None else agm_timeout_tail_current_a
+            )
+            if bool(is_cv) and current <= tail_ceiling:
                 return AuthorityDecision(
                     AuthorityAction.ENTER_MIX,
                     "agm_main_timeout_low_current_cv_mix",

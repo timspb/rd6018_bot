@@ -45,6 +45,10 @@ def native_recipe_parameters(recipe_id: str) -> tuple[VariableSpec, ...]:
     ]
     if main_voltage is not None:
         specs.insert(0, main_voltage)
+    else:
+        # This AGM-specific threshold is used by MAIN timeout continuation;
+        # generic MAIN fallback voltage is not used by the AGM step program.
+        specs.append(main_variables.AGM_TIMEOUT_TAIL_CURRENT_A)
     if entry.intent != "diagnostic":
         specs += [
             desulfation_variables.DESULFATION_DURATION_HOURS,

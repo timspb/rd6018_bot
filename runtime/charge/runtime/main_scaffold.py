@@ -85,6 +85,7 @@ def apply_main_authority_tick(
         main_limit_s=float(native_main.get("fallback_hours", main_fallback_seconds() / 3600.0)) * 3600.0,
         current_a=float(current),
         is_cv=bool(is_cv),
+        agm_timeout_tail_current_a=native_main.get("agm_timeout_tail_current_a"),
     )
     if decision_veto is not None:
         veto = decision_veto(decision)

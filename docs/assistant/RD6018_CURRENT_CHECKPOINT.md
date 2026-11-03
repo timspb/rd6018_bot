@@ -155,3 +155,23 @@ do not claim all physical behavior is editable yet. Run a clean full test
 suite with correct dependencies, then stage a controlled node104 deployment
 only after exact baseline and live hands_off checks. Continue checkpoint edits
 in every completed code stage.
+
+## Implementation update — 2026-11-03 AGM timeout tail-CV threshold
+
+The existing runtime MAIN timeout strategy now consumes the optional pinned
+AGM-only parameter charge.main.agm_timeout_tail_current_a. This is **not** a
+change to the unconditional timeout policy: at the MAIN timeout, AGM
+continues to MIX only with verified CV and current at or below the selected
+threshold; otherwise the existing STOP_AND_DIAGNOSE path remains in force.
+Unpinned and non-AGM profiles retain original behavior. AGM stepped MAIN
+voltage table remains canonical and non-editable via the current scalar
+native recipe drafts; do not misrepresent it as editable.
+
+Focused Linux suite: **59 PASS, 170 subtests PASS**, including AGM policy,
+native catalog, START/restore, safety guard, and controller regression.
+Changes local-only, node104 not updated, no physical commands sent. A clean
+full-suite pass remains outstanding; do not claim deployment readiness.
+
+Next: inspect full-suite failures in a reproducible isolated Python
+environment, distinguish missing dependencies/stale tests from actual
+regressions. Keep the checkpoint current in each completed stage.
