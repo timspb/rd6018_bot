@@ -336,10 +336,10 @@ async def run_authoritative_recovery_scaffold(
         OPERATOR_REPORT_INTERVAL_S.default
     ):
         host._last_hourly_report = now
-        max_seconds = (
-            desulfation_duration_seconds()
-            if stage_before == host.STAGE_DESULFATION
-            else safe_wait_max_seconds()
+        from runtime.charge.runtime.support import _effective_recovery_max_seconds
+        max_seconds = _effective_recovery_max_seconds(
+            host, stage=("DESULFATION" if stage_before == host.STAGE_DESULFATION
+                         else "SAFE_WAIT"),
         )
         report = (
             f"⏳ Прошло {elapsed / 3600.0:.1f}ч из {max_seconds / 3600.0:.0f} лимита этапа. "

@@ -74,3 +74,22 @@ MAIN transition controls and MIX finish timing; ensure UI and timer display
 reports effective pinned values, not only canonical defaults; perform full
 clean-suite evaluation before any deployment. Continue updating this file
 with each implementation stage.
+
+## Implementation update — 2026-11-03 effective recovery timer display
+
+The runtime timer presentation in runtime/charge/runtime/support.py now reports
+the **effective pinned** DESULFATION and SAFE_WAIT durations (when present);
+both target_finish_time and stage_max_hours use the active session snapshot
+and keep established defaults for unpinned AUTO. The periodic recovery
+notification in runtime/charge/runtime/recovery_scaffold.py uses the same
+canonical effective duration. No change to stage decision owners, safety
+guards, or actuator routing.
+
+Focused Linux tests: **23 PASS and 290 subtests PASS** before commit,
+including dynamic SAFE_WAIT/Desulfation settings, timer presentation,
+continuation/restoration parity and existing START. No full-suite or physical
+acceptance claimed; node104 not deployed.
+
+Next: remaining MAIN/MIX transition/finish timing parameters and any other
+declared native options still rejected as not executable. Preserve a single
+owner per decision and ensure runtime/UI metadata reflects effective values.

@@ -28,11 +28,22 @@ def current_targets(host: Any, temp_c: Optional[float] = None) -> Tuple[float, f
     return (14.0, 1.0)
 
 
+def _effective_recovery_max_seconds(host: Any, *, stage: str) -> float:
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
+    if stage == "DESULFATION":
+        params = native_target_parameters(host, stage)
+        return float(params.get("duration_hours", desulfation_duration_seconds() / 3600.0)) * 3600.0
+    if stage == "SAFE_WAIT":
+        params = native_target_parameters(host, stage)
+        return float(params.get("max_hours", safe_wait_max_seconds() / 3600.0)) * 3600.0
+    raise ValueError("unsupported recovery timer stage")
+
+
 def target_finish_time(host: Any) -> Optional[float]:
     if host.current_stage == host.STAGE_SAFE_WAIT:
-        return host._safe_wait_start + safe_wait_max_seconds()
+        return host._safe_wait_start + _effective_recovery_max_seconds(host, stage="SAFE_WAIT")
     if host.current_stage == host.STAGE_DESULFATION:
-        return host.stage_start_time + desulfation_duration_seconds()
+        return host.stage_start_time + _effective_recovery_max_seconds(host, stage="DESULFATION")
     if host.current_stage == host.STAGE_MIX:
         if host.finish_timer_start is not None:
             return host.finish_timer_start + mix_finish_hold_seconds()
@@ -44,14 +55,14 @@ def target_finish_time(host: Any) -> Optional[float]:
 
 def stage_max_hours(host: Any) -> Optional[float]:
     if host.current_stage == host.STAGE_DESULFATION:
-        return desulfation_duration_seconds() / 3600.0
+        return _effective_recovery_max_seconds(host, stage="DESULFATION") / 3600.0
     if host.current_stage == host.STAGE_MIX:
         if host.finish_timer_start is not None:
             return mix_finish_hold_seconds() / 3600.0
         hours = mix_max_active_hours(host.battery_type)
         return float(hours) if hours is not None else mix_finish_hold_seconds() / 3600.0
     if host.current_stage == host.STAGE_SAFE_WAIT:
-        return safe_wait_max_seconds() / 3600.0
+        return _effective_recovery_max_seconds(host, stage="SAFE_WAIT") / 3600.0
     return None
 
 
