@@ -1,4 +1,4 @@
-﻿"""Native recipe target changes pass through canonical MAIN/MIX and safety bounds."""
+"""Native recipe target changes pass through canonical MAIN/MIX and safety bounds."""
 import tempfile
 import unittest
 from dataclasses import replace

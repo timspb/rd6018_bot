@@ -1,4 +1,4 @@
-﻿"""Read-only native recipe browser does not mutate user library or charge state."""
+"""Read-only native recipe browser does not mutate user library or charge state."""
 import tempfile
 import unittest
 

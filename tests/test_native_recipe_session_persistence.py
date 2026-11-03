@@ -1,4 +1,4 @@
-﻿"""Native recipe snapshot uses the existing canonical session writer and restore."""
+"""Native recipe snapshot uses the existing canonical session writer and restore."""
 import json
 from pathlib import Path
 import tempfile

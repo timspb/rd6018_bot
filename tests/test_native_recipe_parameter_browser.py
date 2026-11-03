@@ -1,4 +1,4 @@
-﻿"""Canonical native settings browser reflects real module-owned declarations."""
+"""Canonical native settings browser reflects real module-owned declarations."""
 import tempfile
 import unittest
 

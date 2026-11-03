@@ -1,4 +1,4 @@
-﻿"""Telegram native recipe clone/edit/show is durable and never applies a draft."""
+"""Telegram native recipe clone/edit/show is durable and never applies a draft."""
 import tempfile
 import types
 import unittest

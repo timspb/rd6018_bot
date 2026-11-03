@@ -175,3 +175,23 @@ full-suite pass remains outstanding; do not claim deployment readiness.
 Next: inspect full-suite failures in a reproducible isolated Python
 environment, distinguish missing dependencies/stale tests from actual
 regressions. Keep the checkpoint current in each completed stage.
+
+## 2026-11-04 full-suite hygiene checkpoint
+
+Full Linux suite on a clean, detached fa005f5 Git worktree completed with
+2848 PASS, 1 FAIL, 3 SKIPPED, 1666 subtests PASS in 164.44s.
+The sole failure was D123 trace-context source AST scanning: a tracked Python
+file carried UTF-8 BOM and ast.parse raised U+FEFF. The earlier dirty working
+copy run was unreliable (2836 PASS, 8 FAIL, 5 ERROR) because source formatting,
+historical pinned archive bytes, and generated artifacts differed; do not cite
+that as a production regression.
+
+Five tracked test-only Python files were found with leading UTF-8 BOM; their
+BOM bytes were removed without changing Python logic. Focused Linux D123
+suite after repair: 8 PASS. The full suite has NOT yet been rerun against
+the new hygiene commit, so clean full PASS is not claimed yet.
+
+No node104 deployment, no physical commands, no charge setpoint changes.
+The local branch remains ahead of own GitHub origin. Next: clean full suite on
+exact hygiene HEAD, then compare live node104 baseline with planned deployed
+files before any production changes. Update this checkpoint in each stage.
