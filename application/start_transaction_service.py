@@ -194,6 +194,30 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         )
         return False
 
+    # The existing profile START energizes Output before the recipe runner
+    # receives its first step. OFF/WAIT-first drafts must never take that path.
+    if getattr(pending, "recipe_id", None) is not None:
+        try:
+            catalog = app._user_recipe_catalog
+            selected = catalog.library.load(
+                str(pending.recipe_id), int(pending.recipe_version)
+            )
+            from runtime.charge.programs.recipe_preflight import inspect_recipe
+            report = inspect_recipe(selected)
+            if not report.admissible_structure:
+                raise ValueError("; ".join(report.problems))
+            if selected.steps[0]["action"] != "set":
+                raise ValueError(
+                    "Для START первый шаг пользовательского рецепта должен быть SET. "
+                    "Черновик OFF не запускается и не включает Output."
+                )
+        except (AttributeError, TypeError, ValueError, OSError) as exc:
+            await message.answer(
+                "❌ Рецепт не готов к START: " + html.escape(str(exc)),
+                parse_mode=app.ParseMode.HTML,
+            )
+            return False
+
     battery_v = snapshot.battery_voltage_v
     current = snapshot.current_a
     temp_ext = snapshot.temp_ext_c
