@@ -195,3 +195,29 @@ No node104 deployment, no physical commands, no charge setpoint changes.
 The local branch remains ahead of own GitHub origin. Next: clean full suite on
 exact hygiene HEAD, then compare live node104 baseline with planned deployed
 files before any production changes. Update this checkpoint in each stage.
+
+## 2026-11-04 — Full repository regression PASS at exact HEAD
+
+After removing UTF-8 BOM from five tracked test-only Python files in commit
+c637922, reran the **entire** pytest suite in a separate clean detached Git
+worktree /tmp/rd6018-clean-c637922 with HEAD c637922 (not the dirty
+Windows worktree). The result is **2849 passed, 3 skipped, 5 warnings,
+1666 subtests passed, 0 failed, 0 errors**, duration 169.61 s.
+Evidence log: /tmp/rd6018-full-clean-c637922.log on HOME-PC WSL.
+The earlier 1-failure clean run at fa005f5 was solely an AST source scan
+tripping on UTF-8 BOM; this is now resolved. Historical D061/D145 pinned
+archive problems observed on the mixed Windows worktree did NOT occur in
+the clean worktree. Do not change those historical pins.
+
+Production boundary is unchanged: node104 has **not** received the local
+native recipe migration commits, control mode last read-only observed
+hands_off, and no hardware commands or setpoint writes were sent.
+Source/test PASS is not physical acceptance or authorization to interrupt
+an ongoing charge.
+
+Follow-up priority: verify the exact code and runtime state on node104
+read-only, compare production baseline with current local HEAD, confirm
+existing charge/graphs/bot behavior, then prepare a minimal deployment
+plan preserving the active charge session and the existing single owner.
+Review the accumulated gap to own origin/main before push; no foreign
+upstream push. Keep this checkpoint updated with each subsequent stage.
