@@ -46,5 +46,8 @@ def native_recipe_parameters(recipe_id: str) -> tuple[VariableSpec, ...]:
             mix_voltage, mix_variables.MIX_CURRENT_C_RATE,
             mix_variables.MIX_FINISH_HOLD_HOURS,
         ]
-    specs.append(safe_wait_variables.SAFE_WAIT_MAX_HOURS)
+    specs.extend((
+        safe_wait_variables.SAFE_WAIT_MAX_HOURS,
+        safe_wait_variables.SAFE_WAIT_TARGET_MARGIN_V,
+    ))
     return tuple(specs)

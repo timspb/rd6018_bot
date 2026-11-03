@@ -78,6 +78,8 @@ def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
     allowed = {"charge.main.current_c_rate", "charge.mix.current_c_rate"}
     if entry.intent != "diagnostic":
         allowed.update({
+            "charge.safe_wait.maximum_hours",
+            "charge.safe_wait.target_margin_v",
             "charge.desulfation.duration_hours",
             "charge.desulfation.base_voltage_v",
             "charge.desulfation.current_c_rate",
@@ -166,6 +168,15 @@ def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
         return {}
     values = dict(selection.overrides)
     profile = selection.profile
+    if stage == "SAFE_WAIT":
+        return {
+            argument: float(values[key])
+            for key, argument in (
+                ("charge.safe_wait.maximum_hours", "max_hours"),
+                ("charge.safe_wait.target_margin_v", "target_margin_v"),
+            )
+            if key in values
+        }
     if stage == "DESULFATION":
         return {
             argument: float(values[key])

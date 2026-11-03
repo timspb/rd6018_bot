@@ -110,9 +110,11 @@ def apply_recovery_safe_wait_authority(
     output_is_off = normalize_output_on(output_is_on) is False
     if output_is_off:
         host._record_safe_wait_sample(now, voltage, current, temp)
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
     decision = decide_recovery_safe_wait(
         continuation, now_s=now, voltage_v=voltage,
         output_is_off=output_is_off,
+        **native_target_parameters(host, "SAFE_WAIT"),
     )
     if decision.action == RecoverySafeWaitAction.WAIT:
         return AuthorityDecision(AuthorityAction.CONTINUE, decision.reason)

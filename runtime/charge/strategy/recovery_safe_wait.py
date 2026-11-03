@@ -96,8 +96,11 @@ def decide_recovery_safe_wait(
     now_s: float,
     voltage_v: float,
     output_is_off: bool,
+    max_hours: float | None = None,
+    target_margin_v: float | None = None,
 ) -> RecoverySafeWaitDecision:
-    threshold = float(continuation.target_voltage_v) - float(SAFE_WAIT_TARGET_MARGIN_V.default)
+    margin = float(SAFE_WAIT_TARGET_MARGIN_V.default if target_margin_v is None else target_margin_v)
+    threshold = float(continuation.target_voltage_v) - margin
     wait_elapsed = max(0.0, float(now_s) - float(continuation.started_at))
     if not output_is_off:
         return RecoverySafeWaitDecision(
@@ -113,7 +116,8 @@ def decide_recovery_safe_wait(
             wait_elapsed,
             threshold,
         )
-    if wait_elapsed + 1e-6 >= safe_wait_max_seconds():
+    limit = safe_wait_max_seconds() if max_hours is None else max(0.0, float(max_hours)) * 3600.0
+    if wait_elapsed + 1e-6 >= limit:
         return RecoverySafeWaitDecision(
             RecoverySafeWaitAction.REQUEST_MAIN_ENABLE,
             "timeout",

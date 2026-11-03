@@ -51,3 +51,26 @@ After **every substantive RD6018 stage/commit** update this checkpoint with (a) 
 The following additional **local-only** native-copy parameters now use the original DESULFATION owner: `charge.desulfation.base_voltage_v`, `charge.desulfation.current_c_rate`, and `charge.desulfation.duration_hours`. They flow through `charge_controller._desulf_target()` and `runtime.charge.runtime.recovery_scaffold.apply_desulfation_authority_tick()` into canonical `select_desulfation_target` / `decide_desulfation`. The pre-existing temperature compensation, current ceiling, recipe bounding, and safe-wait transition owner remain unchanged. Normal AUTO without an explicit pinned selection uses original defaults. Diagnostic intent cannot select these parameters.
 
 Focused Linux evidence before commit: **28 PASS, 137 subtests PASS**, including production restoration/START selection and DESULFATION strategy tests. This is not a full-suite PASS or physical proof. No node104 deployment or actuator operations. Remaining priority: SAFE_WAIT relaxation margin/timeout settings and other still-draft-only parameters, plus a clean isolated full suite; update this checkpoint with each subsequent stage.
+
+## Implementation update — 2026-11-03 SAFE_WAIT relaxation
+
+The canonical Recovery and Final SAFE_WAIT strategy owners now accept optional
+pinned copy settings charge.safe_wait.maximum_hours and
+charge.safe_wait.target_margin_v through
+native_target_parameters(host, "SAFE_WAIT"). The existing runtime dispatch
+and continuation/verified enable path are preserved. Output OFF freshness
+remains mandatory even when the timeout is reached. No pinned copy means the
+unchanged canonical defaults. Diagnostic native copies do not admit these
+settings for execution.
+
+Focused Linux regression at pre-commit state: **50 tests PASS and 437 subtests
+PASS**, covering recovery/final SAFE_WAIT decisions, stale continuation parity,
+session restore, START selection, and controller baselines. No full-suite PASS
+claimed. This implementation is local-only; node104 is untouched, and its
+last verified hands_off state remains timestamped earlier in this checkpoint.
+
+Next: complete the remaining still-unwired native recipe settings including
+MAIN transition controls and MIX finish timing; ensure UI and timer display
+reports effective pinned values, not only canonical defaults; perform full
+clean-suite evaluation before any deployment. Continue updating this file
+with each implementation stage.

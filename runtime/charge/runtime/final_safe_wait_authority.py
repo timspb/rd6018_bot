@@ -47,6 +47,7 @@ def apply_final_safe_wait_authority(
         voltage_v=voltage,
         output_is_off=output_is_off,
         add_phase_limits=host._add_phase_limits,
+        **_native_safe_wait_settings(host),
     )
     if effect is None:
         reason = "final_safe_wait_continuation_invalid"
@@ -71,6 +72,11 @@ def apply_final_safe_wait_authority(
     )
 
 
+def _native_safe_wait_settings(host) -> dict[str, float]:
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
+    return native_target_parameters(host, "SAFE_WAIT")
+
+
 @dataclass(frozen=True)
 class FinalSafeWaitAuthorityEffect:
     decision: FinalSafeWaitDecision
@@ -90,6 +96,8 @@ def build_final_safe_wait_authority_effect(
     voltage_v: float,
     output_is_off: bool,
     add_phase_limits,
+    max_hours: float | None = None,
+    target_margin_v: float | None = None,
 ) -> Optional[FinalSafeWaitAuthorityEffect]:
     """Validate the continuation, decide relaxation, and assemble its request."""
     if continuation is None or current_stage != safe_wait_stage or not validate_final_continuation(
@@ -106,6 +114,8 @@ def build_final_safe_wait_authority_effect(
         now_s=now_s,
         voltage_v=voltage_v,
         output_is_off=output_is_off,
+        max_hours=max_hours,
+        target_margin_v=target_margin_v,
     )
     actions: dict[str, object] = {}
     if decision.action == FinalSafeWaitAction.REQUEST_STORAGE_ENABLE:
