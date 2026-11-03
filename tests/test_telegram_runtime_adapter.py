@@ -34,7 +34,7 @@ class TelegramRuntimeAdapterTests(unittest.TestCase):
         asyncio.run(configure_commands(runtime))
 
         self.assertEqual([command.command for command in calls[0]], [
-            "start", "modes", "off", "logs", "ai", "stats", "help", "entities",
+            "start", "recovery_clear", "modes", "off", "logs", "ai", "stats", "help", "entities",
         ])
 
     def test_adapter_has_no_runtime_or_physical_imports(self):
