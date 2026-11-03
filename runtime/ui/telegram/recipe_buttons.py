@@ -34,6 +34,31 @@ def recipe_markup(recipe_id: str, version: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Копировать: инструкция", callback_data=f"recipes:copyhelp:{recipe_id}:{version}")],
     ])
 
+
+def editor_page(rows: list, *, name: str, version: int, page: int,
+                page_size: int = 30) -> InlineKeyboardMarkup:
+    """Paginate editable controls; always retain a way back to the recipe."""
+    if page_size < 1 or not rows:
+        raise ValueError("empty editor controls or invalid page size")
+    pages = (len(rows) + page_size - 1) // page_size
+    if page < 0 or page >= pages:
+        raise ValueError("editor page outside available range")
+    selected = list(rows[page * page_size:(page + 1) * page_size])
+    navigation = []
+    for target, label in ((page - 1, "Назад к кнопкам"),
+                          (page + 1, "Следующие кнопки")):
+        if 0 <= target < pages:
+            data = f"recipes:edit:{name}:{version}:{target}"
+            if len(data.encode("utf-8")) <= 64:
+                navigation.append(InlineKeyboardButton(text=label, callback_data=data))
+    if navigation:
+        selected.append(navigation)
+    back = f"recipes:view:{name}:{version}"
+    if len(back.encode("utf-8")) <= 64:
+        selected.append([InlineKeyboardButton(text="К рецепту", callback_data=back)])
+    return InlineKeyboardMarkup(inline_keyboard=selected)
+
+
 def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
         return
@@ -135,7 +160,11 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         if not await app._check_chat_and_respond(call):
             return
         try:
-            _, _, name, version = str(call.data).split(":")
+            parts = str(call.data).split(":")
+            if len(parts) not in (4, 5):
+                raise ValueError("invalid editor callback")
+            _, _, name, version = parts[:4]
+            page = int(parts[4]) if len(parts) == 5 else 0
             recipe = catalog.library.load(name, int(version))
         except (ValueError, OSError):
             await call.answer("Рецепт не найден", show_alert=True)
@@ -186,11 +215,15 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
             data = f"recipes:append:{name}:{version}:{kind}"
             if len(data.encode("utf-8")) <= 64:
                 rows.append([InlineKeyboardButton(text=label, callback_data=data)])
-        rows.append([InlineKeyboardButton(text="Назад", callback_data=f"recipes:view:{name}:{version}")])
+        try:
+            markup = editor_page(rows, name=name, version=int(version), page=page)
+        except ValueError as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
         await call.answer()
         await call.message.answer(
             "Изменение уставок создаст новую версию (В/А).",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows[:35]),
+            reply_markup=markup,
         )
 
     @app.router.callback_query(F.data.startswith("recipes:threshold:"))
