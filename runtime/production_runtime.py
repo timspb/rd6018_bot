@@ -260,11 +260,10 @@ hass = _DeferredHassClient()
 def _charge_notify(msg: str, critical: bool = True) -> None:
     """Отправка уведомления в Telegram. critical=True — после него дашборд только по кнопке ОБНОВИТЬ; critical=False — сразу шлём дашборд последним сообщением."""
     global last_chat_id, last_notification_signature, last_notification_at
-    if last_chat_id is None:
-        if NOTIFY_CHAT_ID is not None:
-            last_chat_id = NOTIFY_CHAT_ID
-        elif len(ALLOWED_CHAT_IDS) == 1 and ALLOWED_CHAT_IDS[0] > 0:
-            last_chat_id = ALLOWED_CHAT_IDS[0]
+    if NOTIFY_CHAT_ID is not None:
+        last_chat_id = NOTIFY_CHAT_ID
+    elif last_chat_id is None and len(ALLOWED_CHAT_IDS) == 1 and ALLOWED_CHAT_IDS[0] > 0:
+        last_chat_id = ALLOWED_CHAT_IDS[0]
     if last_chat_id and msg:
         enriched = msg
         if last_live_context and "📊 Факт:" not in msg:
