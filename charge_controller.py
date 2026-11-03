@@ -314,10 +314,12 @@ class ManagedChargeController:
                     self._custom_main_current,
                 ),
             ), hv=False)
+        from runtime.charge.programs.native_recipe_session import native_target_parameters
         target = select_main_target(
             profile=self.battery_type,
             capacity_ah=float(self.ah_capacity),
             agm_stage_idx=int(self._agm_stage_idx),
+            **native_target_parameters(self, "MAIN"),
         )
         current_target = target.current_a
         # A verified, session-bound MAIN Guard ceiling is monotone. After
@@ -460,9 +462,11 @@ class ManagedChargeController:
 
     def _mix_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular MIX target."""
+        from runtime.charge.programs.native_recipe_session import native_target_parameters
         target = select_mix_target(
             profile=self.battery_type,
             capacity_ah=float(self.ah_capacity),
+            **native_target_parameters(self, "MIX"),
         )
         result = (
             self._apply_temperature_compensation(target.voltage_v, temp_c),

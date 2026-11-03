@@ -118,3 +118,40 @@ def restore_native_selection(document: dict, *, profile: str, intent: Any):
     if selection.profile != profile or selection.intent != intent_name:
         raise ValueError("native recipe persisted session mismatch")
     return selection
+
+
+def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
+    """Return optional pinned MAIN/MIX target inputs for canonical owners.
+
+    The immutable library snapshot is validated against the active session at
+    each use. Other stage parameters remain at their established defaults.
+    Target compensation, Guard ratchet and safety envelope are not bypassed.
+    """
+    selection = native_selection_for_session(
+        host, profile=getattr(host, "battery_type", None),
+        intent=getattr(host, "_v2_intent", None),
+    )
+    if selection is None:
+        return {}
+    values = dict(selection.overrides)
+    profile = selection.profile
+    if stage == "MAIN":
+        name = {"Ca/Ca": "charge.main.ca_voltage_v",
+                "EFB": "charge.main.efb_voltage_v"}.get(profile)
+        result = {}
+        if name and name in values:
+            result["base_voltage_v"] = float(values[name])
+        if "charge.main.current_c_rate" in values:
+            result["current_c_rate"] = float(values["charge.main.current_c_rate"])
+        return result
+    if stage == "MIX":
+        name = {"Ca/Ca": "charge.mix.ca_voltage_v",
+                "EFB": "charge.mix.efb_voltage_v",
+                "AGM": "charge.mix.agm_voltage_v"}[profile]
+        result = {}
+        if name in values:
+            result["base_voltage_v"] = float(values[name])
+        if "charge.mix.current_c_rate" in values:
+            result["current_c_rate"] = float(values["charge.mix.current_c_rate"])
+        return result
+    raise ValueError("unsupported native target stage")

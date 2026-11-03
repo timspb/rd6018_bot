@@ -31,6 +31,8 @@ def select_main_target(
     capacity_ah: float,
     agm_stage_idx: int = 0,
     current_ceiling_a: float | None = None,
+    base_voltage_v: float | None = None,
+    current_c_rate: float | None = None,
 ) -> MainTarget:
     """Return the accepted MAIN base target for one battery profile."""
     capacity = max(1.0, float(capacity_ah))
@@ -41,7 +43,7 @@ def select_main_target(
     )
     current = min(
         ceiling,
-        capacity * float(MAIN_CURRENT_C_RATE.default),
+        capacity * float(MAIN_CURRENT_C_RATE.default if current_c_rate is None else current_c_rate),
     )
 
     profile_upper = str(profile).strip().upper()
@@ -56,6 +58,8 @@ def select_main_target(
     else:
         voltage = float(DEFAULT_MAIN_VOLTAGE_V.default)
 
+    if base_voltage_v is not None:
+        voltage = float(base_voltage_v)
     return MainTarget(voltage_v=voltage, current_a=current)
 
 

@@ -294,7 +294,9 @@ class MixTarget:
     current_a: float
 
 
-def select_mix_target(*, profile: str, capacity_ah: float) -> MixTarget:
+def select_mix_target(*, profile: str, capacity_ah: float,
+                      base_voltage_v: float | None = None,
+                      current_c_rate: float | None = None) -> MixTarget:
     # Import lazily: runtime.safety.__init__ imports the charge battery/strategy
     # graph, so a module-level safety import would create a package cycle.
     from runtime.safety.variables import MAX_STAGE_CURRENT_A
@@ -305,10 +307,12 @@ def select_mix_target(*, profile: str, capacity_ah: float) -> MixTarget:
         voltage = float(EFB_MIX_VOLTAGE_V.default)
     else:
         voltage = float(CA_MIX_VOLTAGE_V.default)
+    if base_voltage_v is not None:
+        voltage = float(base_voltage_v)
     capacity = max(1.0, float(capacity_ah))
     current = max(
         float(MIX_MIN_CURRENT_A.default),
-        capacity * float(MIX_CURRENT_C_RATE.default),
+        capacity * float(MIX_CURRENT_C_RATE.default if current_c_rate is None else current_c_rate),
     )
     current = min(current, float(MAX_STAGE_CURRENT_A.default))
     return MixTarget(voltage_v=voltage, current_a=current)
