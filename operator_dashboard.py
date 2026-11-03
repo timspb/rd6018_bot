@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import html
 import os
+import time
 from dataclasses import replace
+from aiogram.types import InlineKeyboardButton
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
@@ -44,6 +46,26 @@ def _charge_session_active(app: Any) -> bool:
     return observer is not None and str(getattr(observer, "state", "")) in {"active", "off_pending"}
 
 
+
+def _hands_off_graph_monitoring(app: Any) -> bool:
+    manager = getattr(app, "rd_control_mode_manager", None)
+    return bool(manager is not None and getattr(manager, "hands_off", False))
+
+
+def _graph_display_allowed(app: Any) -> bool:
+    """Viewing saved telemetry never requires owning an active charge session."""
+    return _charge_session_active(app) or _hands_off_graph_monitoring(app)
+
+
+def _graph_query_params(app: Any, user_id: int):
+    mode, since, limit = app._chart_query_params(user_id)
+    if _hands_off_graph_monitoring(app) and not _charge_session_active(app):
+        # There is no managed session start time. Offer a truthful 24h history
+        # rather than calling the synthetic last-2h fallback a "session".
+        if app._chart_range_for_user(user_id) == app.CHART_RANGE_SESSION:
+            return app.CHART_RANGE_SESSION, time.time() - 24 * 3600, 500
+    return mode, since, limit
+
 def _panel_actions(actions, *, dark: bool):
     """Apply presentation-only visibility rules to the immutable action view."""
     if actions is None or not dark:
@@ -78,6 +100,12 @@ def _hide_active_release_button(markup: Any) -> Any:
 def _graph_toolbar(app: Any, user_id: int, actions=None):
     graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
     top_row = list(graph_rows[0]) if graph_rows else []
+    if _hands_off_graph_monitoring(app) and not _charge_session_active(app) and len(top_row) >= 3:
+        original = top_row[2]
+        top_row[2] = InlineKeyboardButton(
+            text=original.text.replace("Сессия", "24ч"),
+            callback_data=original.callback_data,
+        )
     if actions is not None and any(
         item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
     ):
@@ -398,9 +426,9 @@ def install_operator_graph_dashboard(app: Any) -> None:
 
     async def render_graph_workspace(app_arg: Any, call: Any, user_id: int) -> None:
         """Keep graph range changes to one logical workspace message."""
-        if not _charge_session_active(app_arg):
+        if not _graph_display_allowed(app_arg):
             return
-        _chart_mode, graph_since, limit_pts = app_arg._chart_query_params(user_id)
+        _chart_mode, graph_since, limit_pts = _graph_query_params(app_arg, user_id)
         times, voltages, currents, temps = await app_arg.get_graph_data_with_temp(
             limit=limit_pts,
             since_timestamp=graph_since,
@@ -487,9 +515,9 @@ def install_operator_graph_dashboard(app: Any) -> None:
         reply_markup: Any,
     ) -> Optional[int]:
         """Publish one photo message containing both graph and charge panel."""
-        if not _charge_session_active(app):
+        if not _graph_display_allowed(app):
             return None
-        _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+        _chart_mode, graph_since, limit_pts = _graph_query_params(app, user_id)
         times, voltages, currents, temps = await app.get_graph_data_with_temp(
             limit=limit_pts,
             since_timestamp=graph_since,
@@ -528,11 +556,11 @@ def install_operator_graph_dashboard(app: Any) -> None:
         graph_message_id = app.user_graph_dashboard.get(user_id)
         if not graph_message_id:
             return
-        if not _charge_session_active(app):
+        if not _graph_display_allowed(app):
             await retire_graph_workspace_for_user(chat_id, user_id)
             return
         async with app._graph_update_lock:
-            _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
+            _chart_mode, graph_since, limit_pts = _graph_query_params(app, user_id)
             times, voltages, currents, temps = await app.get_graph_data_with_temp(
                 limit=limit_pts,
                 since_timestamp=graph_since,
@@ -618,7 +646,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         # the tracked dashboard while the graph workspace has not been created
         # yet.  Promote that same message to the single graph+panel workspace;
         # do not leave a second text panel behind.
-        if _charge_session_active(app) and not app.user_graph_dashboard.get(user_id):
+        if _graph_display_allowed(app) and not app.user_graph_dashboard.get(user_id):
             builder = getattr(app, "_build_and_send_dashboard", None)
             if callable(builder):
                 return await builder(
@@ -637,7 +665,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             else _main_graph_markup(app, state, user_id, actions)
         )
         is_graph_message = app.user_graph_dashboard.get(user_id) == message_id
-        if is_graph_message and _charge_session_active(app):
+        if is_graph_message and _graph_display_allowed(app):
             markup = _active_graph_panel_markup(app, state, user_id, panel_actions)
         elif is_graph_message:
             await retire_graph_workspace_for_user(chat_id, user_id)
@@ -778,7 +806,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         # workspace, retire that
         # message first so the new graph is immediately followed by the new
         # charge panel in Telegram's append-only message order.
-        graph_allowed = _charge_session_active(app)
+        graph_allowed = _graph_display_allowed(app)
         target = old_msg_id or anchor_msg_id
         tracked_panel = app.user_dashboard.get(user_id) or app.chat_dashboard.get(chat_id)
         if target is None:
