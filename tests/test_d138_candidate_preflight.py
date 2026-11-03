@@ -44,6 +44,62 @@ class D138CandidateTests(unittest.TestCase):
             return inspect_candidate(root=self.root,stage=self.stage,pid=123,
                                      source_sha=SOURCE,preimage_sha256=PREIMAGE)
 
+    def test_real_d137_v2_retirement_without_session_flows_to_d138(self):
+        # End-to-end OFF-history *state* observation, not physical OFF proof.
+        # The real node104 has a v2 retired quarantine, no charge session,
+        # and a historical D090 STARTED journal.
+        from tools.d137_observed_preimage import observed_preimage
+        from types import SimpleNamespace
+        (self.root / "app").mkdir()
+        (self.root / "app" / "bot.py").write_text("fixture")
+        (self.root / "venv" / "bin").mkdir(parents=True)
+        (self.root / "venv" / "bin" / "python").write_text("fixture")
+        (self.root / "state").mkdir()
+        (self.root / "state" / "session_recovery_quarantine.json").write_text(
+            json.dumps({
+                "owner": "runtime.charge.recovery_quarantine_journal",
+                "schema_version": 2, "state": "retired", "quarantined": False,
+                "retirement": {
+                    "session_id": "prior-session",
+                    "confirmed_off_evidence": "old-off-evidence",
+                    "retired_utc": "2026-11-01T10:35:56Z",
+                },
+            })
+        )
+        (self.root / "D090_TRANSACTION.json").write_text(json.dumps({
+            "phase": "STARTED",
+            "transaction": "legacy",
+            "source_sha": "930239c670899e14ccb09154d99baf77df90da10",
+        }))
+        (self.root / ".deploy_sha").write_text("58321a866dd68195bf8264d1d9ebe7c18a60748f")
+        original_read = Path.read_bytes
+        def proc_and_disk_read(path):
+            if str(path) == "/proc/123/cmdline":
+                return str(self.root / "app" / "bot.py").encode() + bytes([0])
+            return original_read(path)
+        def proc_call(cmd, **kwargs):
+            if "-m" in cmd:
+                return SimpleNamespace(returncode=0, stdout="No broken requirements found.")
+            return SimpleNamespace(returncode=0, stdout="(3, 11)\n")
+        with patch.object(Path, "read_bytes", proc_and_disk_read), \
+             patch("tools.d138_candidate_preflight.inventory_venv",
+                   return_value={"regular_files": 101, "tree_sha256": "b"*64}), \
+             patch("tools.d138_candidate_preflight.subprocess.run", side_effect=proc_call), \
+             patch("tools.d138_candidate_preflight.shutil.disk_usage",
+                   return_value=SimpleNamespace(free=500*1024*1024)):
+            observed = observed_preimage(self.root, pid=123)
+            self.assertTrue(observed["retired_session"]["session_absent"])
+            self.assertEqual(observed["retired_session"]["session_id"], "prior-session")
+            result = inspect_candidate(
+                root=self.root, stage=self.stage, pid=123,
+                source_sha=SOURCE,
+                preimage_sha256=observed["preimage_sha256"],
+            )
+        self.assertEqual(result["status"], "SOURCE_AND_VENV_PREPARED_NOT_ACTIVATED")
+        self.assertFalse(result["admitted_for_activation"])
+        self.assertTrue((self.root / "D090_TRANSACTION.json").is_file())
+        self.assertFalse((self.root / "state" / "charge_session.json").exists())
+
     def test_prepared_is_never_actuation_admission(self):
         result=self.run_preflight()
         self.assertFalse(result["admitted_for_activation"])

@@ -28,23 +28,46 @@ def observed_preimage(root: Path, *, pid: int) -> dict[str, object]:
     marker = root / ".deploy_sha"
     session_path = root / "state" / "charge_session.json"
     quarantine_path = root / "state" / "session_recovery_quarantine.json"
-    tracked = [journal_path, marker, session_path, quarantine_path]
+    tracked = [journal_path, marker, quarantine_path]
     if any(p.is_symlink() or not p.is_file() for p in tracked):
         raise ValueError("unsafe or absent durable state")
+    if session_path.is_symlink():
+        raise ValueError("unsafe session symlink")
+    session_present = session_path.is_file()
+    if session_path.exists() and not session_present:
+        raise ValueError("unsafe session path")
+    if session_present:
+        tracked.append(session_path)
     before = {str(p): sha256(p) for p in tracked}
     argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
     if str(app / "bot.py").encode() not in argv:
         raise ValueError("process does not run the installed application")
-    session = read_small_json(session_path)
+    session = read_small_json(session_path) if session_present else None
     quarantine = read_small_json(quarantine_path)
     journal = read_small_json(journal_path)
     retirement = quarantine.get("retirement")
-    if (session.get("state") != "retired" or session.get("stage") != "RETIRED"
-            or quarantine.get("quarantined") is not False
-            or not isinstance(retirement, dict)
-            or retirement.get("session_id") != session.get("session_id")
-            or retirement.get("confirmed_off_evidence") != session.get("verified_off_transaction_id")):
+    if not isinstance(retirement, dict) or quarantine.get("quarantined") is not False:
         raise ValueError("durable retirement and verified-OFF identity do not agree")
+    if session_present:
+        if (session.get("state") != "retired" or session.get("stage") != "RETIRED"
+                or retirement.get("session_id") != session.get("session_id")
+                or retirement.get("confirmed_off_evidence") != session.get("verified_off_transaction_id")):
+            raise ValueError("durable retirement and verified-OFF identity do not agree")
+    else:
+        # The canonical controller can retire an old managed session and later
+        # remove charge_session.json. Observe this fact directly; never create
+        # a fake tombstone. Physical Output OFF is independently assessed by
+        # the existing D142/D091 owner before any service stop.
+        if (quarantine.get("schema_version") != 2
+                or quarantine.get("state") != "retired"
+                or quarantine.get("owner") != "runtime.charge.recovery_quarantine_journal"
+                or not isinstance(retirement.get("session_id"), str)
+                or not retirement["session_id"].strip()
+                or not isinstance(retirement.get("confirmed_off_evidence"), str)
+                or not retirement["confirmed_off_evidence"].strip()
+                or not isinstance(retirement.get("retired_utc"), str)
+                or not retirement["retired_utc"].strip()):
+            raise ValueError("missing-session retirement record is not authentic")
     if (journal.get("phase") != "STARTED"
             or isinstance(journal.get("candidate_inventory"), dict)):
         raise ValueError("unexpected historical D090 transaction state")
@@ -76,9 +99,11 @@ def observed_preimage(root: Path, *, pid: int) -> dict[str, object]:
             "candidate_inventory_present": False
         },
         "retired_session": {
-            "session_id": session.get("session_id"),
-            "off_evidence": session.get("verified_off_transaction_id"),
-            "session_sha256": before[str(session_path)],
+            "session_id": session.get("session_id") if session_present else retirement["session_id"],
+            "off_evidence": (session.get("verified_off_transaction_id")
+                             if session_present else retirement["confirmed_off_evidence"]),
+            "session_sha256": before[str(session_path)] if session_present else None,
+            "session_absent": not session_present,
             "quarantine_sha256": before[str(quarantine_path)]
         }
     }

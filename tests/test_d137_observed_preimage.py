@@ -56,10 +56,64 @@ class D137Tests(unittest.TestCase):
             self.fixture(root)
             (root / "state" / "charge_session.json").unlink()
             journal_before = (root / "D090_TRANSACTION.json").read_bytes()
-            with self.assertRaisesRegex(ValueError, "unsafe or absent durable state"):
+            with self.assertRaisesRegex(ValueError, "missing-session retirement record is not authentic"):
                 self.capture(root)
             self.assertEqual((root / "D090_TRANSACTION.json").read_bytes(),
                              journal_before)
+
+    def test_authentic_v2_retirement_without_session_is_observed_not_fabricated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / "state" / "charge_session.json").unlink()
+            path = root / "state" / "session_recovery_quarantine.json"
+            path.write_text(json.dumps({
+                "owner": "runtime.charge.recovery_quarantine_journal",
+                "schema_version": 2,
+                "state": "retired",
+                "quarantined": False,
+                "retirement": {
+                    "session_id": "s",
+                    "confirmed_off_evidence": "off-verified",
+                    "retired_utc": "2026-11-01T10:35:56Z",
+                    "incident_id": "case-1",
+                },
+            }))
+            original = {str(x.relative_to(root)):x.read_bytes()
+                        for x in root.rglob("*") if x.is_file()}
+            payload = self.capture(root)
+            self.assertTrue(payload["retired_session"]["session_absent"])
+            self.assertIsNone(payload["retired_session"]["session_sha256"])
+            self.assertEqual(payload["retired_session"]["session_id"], "s")
+            self.assertEqual(payload["retired_session"]["off_evidence"], "off-verified")
+            self.assertEqual(original, {str(x.relative_to(root)):x.read_bytes()
+                                        for x in root.rglob("*") if x.is_file()})
+            self.assertEqual(payload["preimage_sha256"],self.capture(root)["preimage_sha256"])
+
+    def test_missing_session_with_quarantined_or_unknown_retirement_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / "state" / "charge_session.json").unlink()
+            path = root / "state" / "session_recovery_quarantine.json"
+            for patch in ({"schema_version": 1, "state": "retired"},
+                          {"schema_version": 2, "state": "retired", "quarantined": True},
+                          {"schema_version": 2, "state": "retired", "quarantined": False}):
+                data = {
+                    "owner": "runtime.charge.recovery_quarantine_journal",
+                    "schema_version": 2, "state": "retired",
+                    "quarantined": False,
+                    "retirement": {"session_id": "s",
+                                   "confirmed_off_evidence": "off-verified",
+                                   "retired_utc": "2026-11-01T10:35:56Z"},
+                }
+                data.update(patch)
+                if patch.get("quarantined") is False:
+                    data["retirement"]["confirmed_off_evidence"] = ""
+                path.write_text(json.dumps(data))
+                with self.subTest(patch=patch):
+                    with self.assertRaises(ValueError):
+                        self.capture(root)
 
     def test_quarantine_is_not_automatically_cleared_by_observer(self):
         with tempfile.TemporaryDirectory() as tmp:
