@@ -460,6 +460,18 @@ def restore_session(
 
         if not isinstance(data, dict):
             return False, None
+        # Verify optional immutable native recipe selection *before* restoring
+        # any controller fields. A corrupted or wrong-profile snapshot cannot
+        # silently become a normal AUTO session.
+        from runtime.charge.programs.native_recipe_session import (
+            restore_native_selection,
+        )
+        try:
+            selected_native = restore_native_selection(
+                data, profile=data.get("profile"), intent=data.get("v2_intent"),
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            return False, f"Native recipe session selection invalid: {exc}"
         # A recovery-retired record is terminal evidence, never an old session.
         # Reject before mutating any controller fields.
         if data.get("owner") == "runtime.charge.persistence" and data.get("state") == "retired":
@@ -518,6 +530,7 @@ def restore_session(
             host._clear_session_file()
             return False, None
 
+        host._native_recipe_session_selection = selected_native
         host._stage_tracking_enabled = False
         host.battery_type = data.get("profile", host.PROFILE_CA)
         host.ah_capacity = int(data.get("ah_limit", 60))

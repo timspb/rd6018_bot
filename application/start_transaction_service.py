@@ -252,6 +252,9 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     # A previous recipe must never take control of a new charge session.
     app.charge_controller._existing_recipe_execution_binding = None
     app.charge_controller._recipe_tick_fault = None
+    # A selected native-recipe snapshot belongs only to its original session.
+    # A new START must not inherit a previous session's draft overrides.
+    app.charge_controller._native_recipe_session_selection = None
     app.charge_controller.configure_recovery_context(
         battery_id=pending.battery_id,
         intent=pending.intent,

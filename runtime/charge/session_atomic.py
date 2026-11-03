@@ -71,6 +71,19 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
             if not isinstance(extra, Mapping):
                 raise TypeError("session document extension must return a mapping")
             result.update(extra)
+    # A native recipe is a pinned *data* selection, never an execution grant.
+    # Include it in the same canonical atomic session write (no sidecar).
+    from runtime.charge.programs.native_recipe_session import (
+        SESSION_KEY, native_selection_for_session,
+    )
+    selected = native_selection_for_session(
+        host, profile=getattr(host, "battery_type", None),
+        intent=getattr(host, "_v2_intent", None),
+    )
+    if selected is None:
+        result.pop(SESSION_KEY, None)
+    else:
+        result[SESSION_KEY] = selected.to_document()
     session_id = getattr(host, "_v2_trace_session_id", None)
     started = getattr(host, "_v2_trace_started_at", None)
     battery_id = getattr(host, "_v2_battery_id", None)

@@ -88,3 +88,33 @@ def select_native_recipe_version(
         profile=entry.profile, intent=entry.intent, overrides=draft.overrides,
         content_sha256=_digest(payload),
     )
+
+
+# The canonical session document has a single optional native recipe binding.
+# It never stores an activation grant or authorizes a hardware command.
+SESSION_KEY = "native_recipe_selection_v1"
+
+
+def native_selection_for_session(host: Any, *, profile: str, intent: Any):
+    """Ensure the pinned copy can only belong to the current profile/intent."""
+    selection = getattr(host, "_native_recipe_session_selection", None)
+    if selection is None:
+        return None
+    if not isinstance(selection, NativeRecipeSessionSelection):
+        raise ValueError("invalid native recipe session selection")
+    checked = NativeRecipeSessionSelection.from_document(selection.to_document())
+    intent_name = str(getattr(intent, "value", intent)).lower()
+    if checked.profile != profile or checked.intent != intent_name:
+        raise ValueError("native recipe selection belongs to a different session")
+    return checked
+
+
+def restore_native_selection(document: dict, *, profile: str, intent: Any):
+    """Validate optional persisted binding before restoring controller state."""
+    if SESSION_KEY not in document:
+        return None
+    selection = NativeRecipeSessionSelection.from_document(document[SESSION_KEY])
+    intent_name = str(getattr(intent, "value", intent)).lower()
+    if selection.profile != profile or selection.intent != intent_name:
+        raise ValueError("native recipe persisted session mismatch")
+    return selection
