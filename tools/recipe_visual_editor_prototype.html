@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RD6018 — визуальный редактор рецептов</title>
+<style>
+:root{font:15px/1.4 system-ui,sans-serif;color:#183028;background:#e9f5e9}*{box-sizing:border-box}
+body{margin:0 auto;max-width:1550px;padding:22px}.head,.panel{background:#fff;border:1px solid #d3e2d5;border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 2px 8px #1649260c}
+h1{font-size:24px;margin:0}h2{font-size:17px;margin:0 0 12px}small,.muted{color:#667c6b}.head{display:flex;justify-content:space-between;align-items:center;gap:16px}.status{color:#8c5816;background:#fff4d7;padding:8px 12px;border-radius:8px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}button,.button{cursor:pointer;border:1px solid #81ae8c;background:#e8f6ea;color:#175e2c;padding:7px 12px;border-radius:8px;font:inherit}button:hover{background:#d1efd8}button.danger{color:#9a2929;border-color:#e6abab;background:#fff7f7}
+input,select{font:inherit;padding:7px 5px;border:1px solid #b5d0ba;border-radius:6px;min-width:0;width:100%;background:white}input[type=checkbox]{width:auto;accent-color:#328750}
+.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:1150px}th,td{padding:6px 5px;border-bottom:1px solid #ebf1eb;text-align:left}th{font-size:12px;color:#50735b}tr:hover{background:#f4f9f3}
+td.narrow{width:40px}td.operation{width:114px}td.condition{width:182px}td.actions{white-space:nowrap;width:125px}td.actions button{padding:5px 8px}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:16px}.legend{display:flex;gap:22px;align-items:center}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}.u{background:#3293b3}.i{background:#ed9a43}
+svg{width:100%;height:auto;display:block;border:1px solid #e2ece5;border-radius:8px;background:#fbfdfb}pre{overflow:auto;max-height:320px;background:#f6f9f6;padding:12px;border-radius:8px;font-size:12px}
+.note{color:#56715c;font-size:13px;margin-top:10px}.err{color:#b12727}@media(max-width:950px){.grid{grid-template-columns:1fr}.head{display:block}}
+</style></head><body>
+<div class="head"><div><h1>RD6018 · Конструктор зарядных рецептов</h1><small>Прототип визуального редактора · без подключения к оборудованию</small></div><div class="status">Только проектирование · START/OFF недоступны</div></div>
+<div class="panel"><div class="toolbar"><label style="width:220px">Название<input id="name" value="Мой зарядный цикл"></label><label style="width:155px">АКБ<select id="chem"><option>Ca/Ca</option><option>EFB</option><option>AGM</option></select></label><label style="width:120px">Ёмкость, А·ч<input id="cap" type="number" min="1" max="500" value="72"></label><label style="width:145px">Повторения<input id="repeats" type="number" min="0" max="100" value="0"></label><button id="add">+ Добавить этап</button><button id="export">Экспорт JSON</button><button id="importBtn">Импорт JSON</button><input id="importFile" type="file" accept=".json,application/json" hidden></div></div>
+<div class="panel"><h2>Этапы программы</h2><div class="tablewrap"><table><thead><tr><th>№</th><th>Вкл.</th><th>Режим</th><th>U, В</th><th>I, А</th><th>Предел, мин</th><th>Условие перехода</th><th>Порог</th><th>Тип этапа</th><th>Управление</th></tr></thead><tbody id="rows"></tbody></table></div><div class="note">Штатные MAIN, Recovery, MIX и SAFE_WAIT сохраняют динамическую логику. Уставки и время здесь — проектные параметры, а не разрешение на применение.</div></div>
+<div class="grid"><div class="panel"><h2>Предварительный профиль зарядки</h2><div class="legend"><span><i class="dot u"></i>Напряжение, В</span><span><i class="dot i"></i>Ток, А</span><span class="muted">Схема уставок, не прогноз измерений</span></div><svg id="plot" viewBox="0 0 860 360" role="img" aria-label="График уставок напряжения и тока"></svg></div><div class="panel"><h2>Представление рецепта</h2><div id="summary" class="muted"></div><pre id="json"></pre><div id="error" class="err" aria-live="polite"></div></div></div>
+<script>
+"use strict";
+const stages=[
+ {on:true,kind:"set",mode:"MAIN",v:14.7,i:7.2,min:180,cond:"current_lte",threshold:1.0},
+ {on:false,kind:"native",mode:"RECOVERY_SAFE_WAIT",v:0,i:0,min:120,cond:"voltage_lte",threshold:13.5},
+ {on:true,kind:"native",mode:"MIX",v:16.5,i:2.0,min:150,cond:"current_lte",threshold:0.5},
+ {on:false,kind:"native",mode:"FINAL_SAFE_WAIT",v:0,i:0,min:120,cond:"after_seconds",threshold:7200}
+];
+const options=(items,val)=>items.map(x=>'<option value="'+x+'"'+(x===val?' selected':'')+'>'+x+'</option>').join("");
+const safe=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const modes=["PREP","MAIN","DESULFATION","RECOVERY_SAFE_WAIT","MIX","FINAL_SAFE_WAIT","COOLING","DONE","CUSTOM"];
+const conds=["after_seconds","voltage_gte","voltage_lte","current_gte","current_lte","temperature_gte","temperature_lte"];
+const kinds=["set","off","wait","native"];
+function render(){
+ document.querySelector("#rows").innerHTML=stages.map((s,k)=>'<tr><td>'+(k+1)+'</td><td><input data-k="'+k+'" data-f="on" type="checkbox" '+(s.on?'checked':'')+'></td>'+
+ '<td><select data-k="'+k+'" data-f="mode">'+options(modes,s.mode)+'</select></td>'+
+ ["v","i","min"].map(f=>'<td><input data-k="'+k+'" data-f="'+f+'" type="number" step="0.1" min="0" value="'+safe(s[f])+'"></td>').join("")+
+ '<td class="condition"><select data-k="'+k+'" data-f="cond">'+options(conds,s.cond)+'</select></td>'+
+ '<td><input data-k="'+k+'" data-f="threshold" type="number" step="0.1" value="'+safe(s.threshold)+'"></td>'+
+ '<td><select data-k="'+k+'" data-f="kind">'+options(kinds,s.kind)+'</select></td>'+
+ '<td class="actions"><button data-act="up" data-k="'+k+'">↑</button> <button data-act="down" data-k="'+k+'">↓</button> <button data-act="del" data-k="'+k+'" class="danger">×</button></td></tr>').join("");
+ draw();
+}
+function model(){return {schema:"rd6018.recipe_visual_draft.v1",name:document.querySelector("#name").value,chemistry:document.querySelector("#chem").value,capacity_ah:Number(document.querySelector("#cap").value),repeat_count:Number(document.querySelector("#repeats").value),stages:stages.map(s=>({...s}))};}
+function valid(s){return Number.isFinite(s.v)&&s.v>=0&&Number.isFinite(s.i)&&s.i>=0&&Number.isFinite(s.min)&&s.min>=0&&Number.isFinite(s.threshold)&&s.threshold>=0;}
+function draw(){
+ const svg=document.querySelector("#plot"),W=860,H=360,L=58,R=58,T=28,B=49;
+ const sum=stages.reduce((a,s)=>a+Math.max(0,Number(s.min)||0),0)||1;
+ let cursor=0;const x=t=>L+(W-L-R)*t/sum, yV=v=>H-B-(H-T-B)*v/20, yI=i=>H-B-(H-T-B)*i/18;
+ let out='';for(let v=0;v<=20;v+=5){let y=yV(v);out+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" stroke="#e1eae2"/><text x="8" y="'+(y+4)+'" font-size="13" fill="#3293b3">'+v+' В</text>';}
+ for(let i=0;i<=18;i+=6){let y=yI(i);out+='<text x="'+(W-R+7)+'" y="'+(y+4)+'" font-size="13" fill="#da842a">'+i+' А</text>';}
+ let uv=[],iv=[];stages.forEach((s,k)=>{const start=x(cursor);cursor+=Math.max(0,Number(s.min)||0);const end=x(cursor),v=s.on?Number(s.v)||0:0,i=s.on?Number(s.i)||0:0;out+='<rect x="'+start+'" y="'+T+'" width="'+Math.max(1,end-start)+'" height="'+(H-T-B)+'" fill="'+(k%2?'#f1f7f1':'#f9fcf9')+'" opacity=".7"/><line x1="'+start+'" x2="'+start+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#c9ddcd" stroke-dasharray="3 5"/><text x="'+(start+4)+'" y="'+(H-B+19)+'" font-size="11" fill="#536b59">'+safe(s.mode.slice(0,13))+'</text>';uv.push(start+','+yV(v),end+','+yV(v));iv.push(start+','+yI(i),end+','+yI(i));});
+ out+='<polyline points="'+uv.join(' ')+'" stroke="#3293b3" stroke-width="3" fill="none"/><polyline points="'+iv.join(' ')+'" stroke="#ed9a43" stroke-width="3" fill="none"/><text x="'+(W/2-25)+'" y="'+(H-8)+'" font-size="13">Время, мин</text>';
+ svg.innerHTML=out;
+ document.querySelector("#json").textContent=JSON.stringify(model(),null,2);
+ document.querySelector("#summary").textContent=stages.length+' этапов · '+sum.toFixed(0)+' мин · только черновик';
+ document.querySelector("#error").textContent=stages.every(valid)?"":"Некорректные числовые значения одного из этапов.";
+}
+document.querySelector("#rows").addEventListener("change",e=>{let el=e.target,k=Number(el.dataset.k),f=el.dataset.f;if(!Number.isInteger(k)||!f||!stages[k])return;stages[k][f]=f==="on"?el.checked:["v","i","min","threshold"].includes(f)?Number(el.value):el.value;draw();});
+document.querySelector("#rows").addEventListener("click",e=>{let el=e.target,k=Number(el.dataset.k),act=el.dataset.act;if(!act||!stages[k])return;if(act==="del"){stages.splice(k,1)}else if(act==="up"&&k>0){[stages[k],stages[k-1]]=[stages[k-1],stages[k]]}else if(act==="down"&&k<stages.length-1){[stages[k],stages[k+1]]=[stages[k+1],stages[k]]}render();});
+document.querySelector("#add").addEventListener("click",()=>{stages.push({on:false,kind:"wait",mode:"CUSTOM",v:0,i:0,min:30,cond:"after_seconds",threshold:1800});render();});
+for(const id of ["name","chem","cap","repeats"])document.getElementById(id).addEventListener("input",draw);
+document.querySelector("#export").addEventListener("click",()=>{if(!stages.every(valid)){document.querySelector("#error").textContent="Сначала исправьте числовые поля.";return;}let json=JSON.stringify(model(),null,2),a=document.createElement("a"),url=URL.createObjectURL(new Blob([json],{type:"application/json"}));a.href=url;a.download="rd6018-recipe-draft.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+document.querySelector("#importBtn").addEventListener("click",()=>document.querySelector("#importFile").click());
+document.querySelector("#importFile").addEventListener("change",async e=>{try{let file=e.target.files[0];if(!file)return;let obj=JSON.parse(await file.text());if(obj.schema!=="rd6018.recipe_visual_draft.v1"||!Array.isArray(obj.stages)||obj.stages.length>100||!obj.stages.every(s=>typeof s.on==="boolean"&&modes.includes(s.mode)&&kinds.includes(s.kind)&&conds.includes(s.cond)&&["v","i","min","threshold"].every(f=>typeof s[f]==="number"&&Number.isFinite(s[f])&&s[f]>=0)))throw Error("Формат или значения файла не поддерживаются");stages.splice(0,stages.length,...obj.stages);for(let [id,val] of [["name",obj.name],["chem",obj.chemistry],["cap",obj.capacity_ah],["repeats",obj.repeat_count]])if(val!==undefined)document.getElementById(id).value=val;render();}catch(err){document.querySelector("#error").textContent="Ошибка импорта: "+err.message;}finally{e.target.value="";}});
+render();
+</script></body></html>
