@@ -11,18 +11,36 @@ from runtime.charge.programs.recipe_editor import edit_step, insert_step, transf
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 
 
-def catalog_markup(catalog: RecipeCatalog) -> InlineKeyboardMarkup:
-    names = catalog.active_recipes()
-    rows = []
-    for name in names[:30]:
+def catalog_markup(catalog: RecipeCatalog, *, page: int = 0,
+                   page_size: int = 20) -> InlineKeyboardMarkup:
+    """Show every active recipe over multiple pages, retaining library actions."""
+    if page_size < 1:
+        raise ValueError("invalid catalog page size")
+    entries = []
+    for name in catalog.active_recipes():
         versions = catalog.library.versions(name)
-        if versions and len(f"recipes:view:{name}:{versions[-1]}".encode("utf-8")) <= 64:
-            rows.append([InlineKeyboardButton(
-                text=f"{name} · v{versions[-1]}",
-                callback_data=f"recipes:view:{name}:{versions[-1]}",
-            )])
+        if versions:
+            callback = f"recipes:view:{name}:{versions[-1]}"
+            if len(callback.encode("utf-8")) <= 64:
+                entries.append((name, versions[-1], callback))
+    pages = max(1, (len(entries) + page_size - 1) // page_size)
+    if not 0 <= page < pages:
+        raise ValueError("catalog page outside available range")
+    rows = [
+        [InlineKeyboardButton(text=f"{name} · v{version}", callback_data=callback)]
+        for name, version, callback in entries[page * page_size:(page + 1) * page_size]
+    ]
+    navigation = []
+    if page > 0:
+        navigation.append(InlineKeyboardButton(
+            text="◀ Предыдущие", callback_data=f"recipes:list:{page-1}"))
+    if page + 1 < pages:
+        navigation.append(InlineKeyboardButton(
+            text="Следующие ▶", callback_data=f"recipes:list:{page+1}"))
+    if navigation:
+        rows.append(navigation)
     rows.append([InlineKeyboardButton(text="Создать черновик", callback_data="recipes:create")])
-    rows.append([InlineKeyboardButton(text="Обновить", callback_data="recipes:list")])
+    rows.append([InlineKeyboardButton(text="Обновить", callback_data=f"recipes:list:{page}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -107,14 +125,23 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
             reply_markup=recipe_markup(recipe.recipe_id, recipe.version),
         )
 
-    @app.router.callback_query(F.data == "recipes:list")
+    @app.router.callback_query(F.data.startswith("recipes:list"))
     async def show_list(call):
         if not await app._check_chat_and_respond(call):
+            return
+        try:
+            parts = str(call.data).split(":")
+            if len(parts) not in (2, 3) or parts[:2] != ["recipes", "list"]:
+                raise ValueError("invalid catalog callback")
+            page = int(parts[2]) if len(parts) == 3 else 0
+            markup = catalog_markup(catalog, page=page)
+        except ValueError as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
             return
         await call.answer()
         await call.message.answer(
             "Мои пользовательские рецепты (без запуска зарядки):",
-            reply_markup=catalog_markup(catalog),
+            reply_markup=markup,
         )
 
     @app.router.callback_query(F.data.startswith("recipes:view:"))
