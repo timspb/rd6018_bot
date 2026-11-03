@@ -133,7 +133,9 @@ def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, acti
 def _active_graph_panel_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
     """Keep graph ranges and active-charge controls on the same photo message."""
     graph_rows = [_graph_toolbar(app, user_id, actions)]
-    panel_markup = hmi.build_operator_keyboard(app, state, actions=actions)
+    # Preserve canonical ownership composition for the graph-backed panel.
+    # The V3 action list omits HANDS_OFF live Pb adoption.
+    panel_markup = hmi.build_operator_keyboard(app, state)
     panel_rows = list(panel_markup.inline_keyboard)
     panel_rows = [
         [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
