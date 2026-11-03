@@ -67,6 +67,22 @@ def _parse_allowed_chat_ids() -> tuple:
 
 ALLOWED_CHAT_IDS = _parse_allowed_chat_ids()
 
+
+def _configured_notify_chat_id() -> int | None:
+    raw = (os.getenv('NOTIFY_CHAT_ID') or '').strip()
+    if not raw:
+        return None
+    try:
+        chat_id = int(raw)
+    except ValueError:
+        return None
+    if chat_id == 0 or (ALLOWED_CHAT_IDS and chat_id not in ALLOWED_CHAT_IDS):
+        return None
+    return chat_id
+
+
+NOTIFY_CHAT_ID = _configured_notify_chat_id()
+
 # РњР°РїРїРёРЅРі СЃСѓС‰РЅРѕСЃС‚РµР№ HA (RD6018).
 # Legacy СЃСѓС‰РЅРѕСЃС‚Рё РѕСЃС‚Р°РІР»РµРЅС‹ РґР»СЏ Р±РµСЃС€РѕРІРЅРѕР№ РјРёРіСЂР°С†РёРё. РџСѓР±Р»РёС‡РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё РёР·
 # esphome/packages/rd6018_telemetry_v2.yaml СЃРѕР·РґР°СЋС‚СЃСЏ production HA РїРѕРґ
