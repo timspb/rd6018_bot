@@ -65,6 +65,7 @@ OPERATOR_UI_COMPONENTS = {
     "install_operator_managed_stop",
     "install_operator_navigation_recovery",
     "install_operator_output_truth",
+    "install_recipe_catalog_commands",
     "install_service_details_screen",
     "install_stats_screen",
 }
