@@ -997,3 +997,25 @@ PR #29 points to the verified ERADICATION-06 branch head. The static production
 execution gate is closed: live physical writes are confined to the approved
 execution/physical implementation stack, while quarantined recovery
 compatibility modules remain unreachable from the production graph.
+
+## 2026-11-03 — Current recipe migration and active handoff
+
+The current, continuously maintained execution handoff is
+`docs/assistant/RD6018_CURRENT_CHECKPOINT.md`. Read it **first** for current
+recipe migration status, exact deployed-vs-local code, test evidence, node104
+hands_off state, and next tasks. Older sections of this historical runbook
+record prior architecture and acceptance; they are not necessarily current.
+
+Migration canon: existing native stage owners MAIN / Recovery / MIX / SAFE_WAIT
+remain the only charge algorithms; versioned native copies carry validated
+parameter overrides and an immutable session snapshot in the canonical atomic
+charge_session.json. Unpinned AUTO and separate user SET/OFF recipes retain
+existing behavior. Dynamic Recovery and SAFE_WAIT parameter wiring is still
+pending. The visual editor prototype at
+`tools/recipe_visual_editor_prototype.html` is retained but deferred.
+
+**Documentation procedure:** for each completed RD6018 implementation stage,
+update the current checkpoint **in the same stage/commit**. State exactly what
+was changed, what tests passed or failed, which files are deployed, and which
+remain local. Change this project runbook whenever ownership/canon changes.
+Never conflate repository-level tests with physical evidence.

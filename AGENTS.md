@@ -52,6 +52,17 @@ Do not add a second production entrypoint or compatibility runtime.
 
 Do not add environment flags or forwarding shims that resurrect superseded owners.
 
+## Active RD6018 checkpoint (mandatory)
+
+**Before starting or continuing any RD6018 task**, read
+`docs/assistant/RD6018_CURRENT_CHECKPOINT.md`. After **every substantive
+implementation stage**, update that checkpoint **in the same commit or stage**
+with exact code HEAD, test evidence, node104 hands_off/deployment status,
+local vs origin gap, remaining blockers, and next work. Keep the project
+runbook in sync when architecture/canon changes. Do not count historical
+handoffs as current state. Retain the independent visual-editor prototype
+without diverting from native recipe completion.
+
 ## Source of truth
 
 Read these before changing control behavior:
