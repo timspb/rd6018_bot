@@ -45,3 +45,9 @@ The visual drag-and-drop-style recipe editor is explicitly **deferred**, not aba
 ## Mandatory continuity discipline
 
 After **every substantive RD6018 stage/commit** update this checkpoint with (a) commit HEAD and local/remote delta, (b) exact implementation and constraints, (c) test results and remaining failures, (d) timestamped node104 deployment/control state and what is NOT deployed, and (e) next executable task. Update docs/V3_PROJECT_RUNBOOK.md when changing project canon or architecture. Documentation is part of the same stage: avoid code-only handoffs and avoid describing unverified hardware behavior. At a new chat, open this checkpoint before making changes.
+
+## Implementation update — 2026-11-03 DESULFATION parameters
+
+The following additional **local-only** native-copy parameters now use the original DESULFATION owner: `charge.desulfation.base_voltage_v`, `charge.desulfation.current_c_rate`, and `charge.desulfation.duration_hours`. They flow through `charge_controller._desulf_target()` and `runtime.charge.runtime.recovery_scaffold.apply_desulfation_authority_tick()` into canonical `select_desulfation_target` / `decide_desulfation`. The pre-existing temperature compensation, current ceiling, recipe bounding, and safe-wait transition owner remain unchanged. Normal AUTO without an explicit pinned selection uses original defaults. Diagnostic intent cannot select these parameters.
+
+Focused Linux evidence before commit: **28 PASS, 137 subtests PASS**, including production restoration/START selection and DESULFATION strategy tests. This is not a full-suite PASS or physical proof. No node104 deployment or actuator operations. Remaining priority: SAFE_WAIT relaxation margin/timeout settings and other still-draft-only parameters, plus a clean isolated full suite; update this checkpoint with each subsequent stage.

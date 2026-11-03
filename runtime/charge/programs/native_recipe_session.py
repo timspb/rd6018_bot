@@ -76,6 +76,12 @@ def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
     """Never accept saved options that the current stage owners would ignore."""
     entry = get_native_recipe(draft.base_recipe_id)
     allowed = {"charge.main.current_c_rate", "charge.mix.current_c_rate"}
+    if entry.intent != "diagnostic":
+        allowed.update({
+            "charge.desulfation.duration_hours",
+            "charge.desulfation.base_voltage_v",
+            "charge.desulfation.current_c_rate",
+        })
     voltage_keys = {
         "Ca/Ca": ("charge.main.ca_voltage_v", "charge.mix.ca_voltage_v"),
         "EFB": ("charge.main.efb_voltage_v", "charge.mix.efb_voltage_v"),
@@ -160,6 +166,16 @@ def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
         return {}
     values = dict(selection.overrides)
     profile = selection.profile
+    if stage == "DESULFATION":
+        return {
+            argument: float(values[key])
+            for key, argument in (
+                ("charge.desulfation.base_voltage_v", "base_voltage_v"),
+                ("charge.desulfation.current_c_rate", "current_c_rate"),
+                ("charge.desulfation.duration_hours", "duration_hours"),
+            )
+            if key in values
+        }
     if stage == "MAIN":
         name = {"Ca/Ca": "charge.main.ca_voltage_v",
                 "EFB": "charge.main.efb_voltage_v"}.get(profile)

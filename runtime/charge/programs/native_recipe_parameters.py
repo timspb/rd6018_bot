@@ -1,7 +1,7 @@
 """Metadata from real module-owned settings for native charge recipes.
 
-The runtime has no session-specific override loader yet. Values are displayed
-as canonical defaults, not as effective/active overrides.
+Values are canonical defaults; only a documented subset is wired to pinned
+session execution. Display is not evidence of active physical settings.
 """
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ def native_recipe_parameters(recipe_id: str) -> tuple[VariableSpec, ...]:
     ]
     if entry.intent != "diagnostic":
         specs += [
+            desulfation_variables.DESULFATION_DURATION_HOURS,
             desulfation_variables.DESULFATION_BASE_VOLTAGE_V,
             desulfation_variables.DESULFATION_CURRENT_C_RATE,
             mix_voltage, mix_variables.MIX_CURRENT_C_RATE,

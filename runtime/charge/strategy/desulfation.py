@@ -31,22 +31,27 @@ class DesulfationTarget:
     current_a: float
 
 
-def select_desulfation_target(*, capacity_ah: float) -> DesulfationTarget:
+def select_desulfation_target(*, capacity_ah: float,
+                              base_voltage_v: float | None = None,
+                              current_c_rate: float | None = None) -> DesulfationTarget:
     capacity = max(1.0, float(capacity_ah))
     current = max(
         float(DESULFATION_MIN_CURRENT_A.default),
-        capacity * float(DESULFATION_CURRENT_C_RATE.default),
+        capacity * float(DESULFATION_CURRENT_C_RATE.default if current_c_rate is None else current_c_rate),
     )
     current = min(current, float(MAX_STAGE_CURRENT_A.default))
     return DesulfationTarget(
-        voltage_v=float(DESULFATION_BASE_VOLTAGE_V.default),
+        voltage_v=float(DESULFATION_BASE_VOLTAGE_V.default if base_voltage_v is None else base_voltage_v),
         current_a=current,
     )
 
 
-def decide_desulfation(*, active_elapsed_s: float) -> DesulfationDecision:
+def decide_desulfation(*, active_elapsed_s: float,
+                        duration_hours: float | None = None) -> DesulfationDecision:
     elapsed = max(0.0, float(active_elapsed_s))
-    if elapsed + 1e-6 < desulfation_duration_seconds():
+    limit = (desulfation_duration_seconds() if duration_hours is None
+             else max(0.0, float(duration_hours)) * 3600.0)
+    if elapsed + 1e-6 < limit:
         return DesulfationDecision(
             DesulfationAction.CONTINUE,
             "bounded_intermediate_recovery_active",

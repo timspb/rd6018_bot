@@ -453,7 +453,12 @@ class ManagedChargeController:
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular DESULFATION target."""
-        target = select_desulfation_target(capacity_ah=float(self.ah_capacity))
+        from runtime.charge.programs.native_recipe_session import native_target_parameters
+        params = native_target_parameters(self, "DESULFATION")
+        target = select_desulfation_target(
+            capacity_ah=float(self.ah_capacity),
+            **{key: value for key, value in params.items() if key != "duration_hours"},
+        )
         result = (
             self._apply_temperature_compensation(target.voltage_v, temp_c),
             target.current_a,

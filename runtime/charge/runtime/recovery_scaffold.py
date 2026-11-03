@@ -44,10 +44,13 @@ def apply_desulfation_authority_tick(
         DesulfationAction, decide_desulfation,
     )
 
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
+    params = native_target_parameters(host, "DESULFATION")
     decision = decide_desulfation(
         active_elapsed_s=max(
             0.0, float(timestamp_s) - float(host.stage_start_time),
-        )
+        ),
+        duration_hours=params.get("duration_hours"),
     )
     if decision.action == DesulfationAction.COMPLETE_TO_SAFE_WAIT:
         target_v, target_i = host._main_target(temp)
