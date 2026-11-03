@@ -274,11 +274,11 @@ async def get_graph_data_with_temp(
         if n <= limit:
             times, voltages, currents, temps = raw_times, raw_v, raw_i, raw_t
         else:
-            step = n / limit
+            # Preserve both ends of the visible history. The old n/limit
+            # stride omitted the latest sample, delaying graph freshness
+            # and cache-key changes on long (e.g. 24h) windows.
             for idx in range(limit):
-                i = int(idx * step)
-                if i >= n:
-                    break
+                i = n - 1 if limit == 1 else round(idx * (n - 1) / (limit - 1))
                 times.append(raw_times[i])
                 voltages.append(raw_v[i])
                 currents.append(raw_i[i])
