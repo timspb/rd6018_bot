@@ -221,3 +221,22 @@ existing charge/graphs/bot behavior, then prepare a minimal deployment
 plan preserving the active charge session and the existing single owner.
 Review the accumulated gap to own origin/main before push; no foreign
 upstream push. Keep this checkpoint updated with each subsequent stage.
+
+## 2026-11-04 node104 read-only baseline after full regression
+
+Read-only node104 probe (remote clock 2026-11-03T14:16:24Z): service active,
+MainPID=196930, NRestarts=0, persisted control mode hands_off version 1.
+The installed runtime/ui/telegram/recipe_buttons.py SHA-256 was
+2f57c300be58de75fe6f3c03d2f67a093250b510e7c1b75f8d1ef664b7a3ca01,
+consistent with an older deployed recipe UI. Polling startup was observed
+in service journal; a later TelegramNetworkError request timeout at 13:37:46
+was recorded. This isolated log error is not evidence that polling was
+permanently down; monitor before asserting Telegram health.
+New native-copy execution, START binding, and editor files remain local only.
+
+The source branch HEAD immediately before this entry is 3cd4ead, with 121
+commits ahead of own origin/main; no push was attempted. Untracked local file
+charge_session.json.mix-authority.json was observed with an inactive
+test-like session (145 bytes), but has NOT been deleted while historical pytest
+processes remain visible. Keep it out of commits and investigate ownership
+before cleanup. Do not deploy or touch the live physical charge.
