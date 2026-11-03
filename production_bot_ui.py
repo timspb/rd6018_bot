@@ -198,7 +198,7 @@ def _recipe_preview_keyboard(app: Any, start_callback: str) -> InlineKeyboardMar
     if choices:
         rows[1:1] = [[choice] for choice in choices[:12]]
     else:
-        rows.insert(1, [InlineKeyboardButton(text='Создать рецепт', callback_data='recipes:list')])
+        rows.insert(1, [InlineKeyboardButton(text='Создать рецепт', callback_data='recipes:create')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
