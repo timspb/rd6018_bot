@@ -127,6 +127,7 @@ async def configure_commands(runtime: TelegramRuntime) -> None:
         BotCommand(command="start", description="Открыть дашборд"),
         BotCommand(command="recovery_clear", description="Снять аварийную блокировку (D084)"),
         BotCommand(command="modes", description="Выбрать режим заряда"),
+        BotCommand(command="recipes", description="Мои пользовательские рецепты"),
         BotCommand(command="off", description="Условие выключения (preset/команда)"),
         BotCommand(command="logs", description="Последние события"),
         BotCommand(command="ai", description="AI анализ телеметрии"),
