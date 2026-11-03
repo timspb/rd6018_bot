@@ -8,6 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.native_recipe_catalog import get_native_recipe, native_recipes
+from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 
@@ -137,8 +138,45 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬅️ Штатные программы",
                                       callback_data="recipes:native:list")],
+                [InlineKeyboardButton(
+                    text="⚙️ Параметры",
+                    callback_data=f"recipes:native:params:{entry.recipe_id}")],
                 [InlineKeyboardButton(text="Мои рецепты",
                                       callback_data="recipes:list")],
+            ]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:native:params:"))
+    async def native_recipe_parameters_view(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            recipe_id = str(call.data).removeprefix("recipes:native:params:")
+            entry = get_native_recipe(recipe_id)
+            specs = native_recipe_parameters(recipe_id)
+        except KeyError:
+            await call.answer("Штатный рецепт не найден", show_alert=True)
+            return
+        await call.answer()
+        lines = [f"<b>Параметры: {html.escape(entry.profile)} · "
+                 f"{html.escape(entry.intent)}</b>",
+                 "Текущие значения объявлений (не активная версия настроек):"]
+        for spec in specs:
+            bound = (f"{spec.minimum if spec.minimum is not None else '—'}…"
+                     f"{spec.maximum if spec.maximum is not None else '—'}")
+            lines.append(
+                f"<code>{html.escape(spec.key)}</code>: "
+                f"{html.escape(str(spec.default))} {html.escape(spec.unit)} "
+                f"({html.escape(bound)})"
+            )
+        lines.append("Изменения пока не применяются к контроллеру.")
+        await call.message.answer(
+            "\n".join(lines), parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="⬅️ Штатный рецепт",
+                    callback_data=f"recipes:native:view:{entry.recipe_id}",
+                )],
             ]),
         )
 
