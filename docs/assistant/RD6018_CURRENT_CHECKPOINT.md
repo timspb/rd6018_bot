@@ -258,3 +258,15 @@ Only a complete coherent runtime source release may be considered, after
 isolated candidate tests and exact live recheck. No node104 writes, service
 restart or physical actuator calls occurred. Next: inspect existing installer
 and build full source release manifest. Keep this checkpoint current.
+
+## 2026-11-04 offline candidate and D123 source-archive test
+
+Exact source candidate was produced locally by the existing
+tools/node104_atomic_deploy.py stage command at HEAD 82659d5. Verified archive
+and release manifest; no node104 access or service action during staging.
+Full source-only archive suite: 2842 passed, 9 skipped, 1 failed, 1658
+subtests passed. Sole failure was D123 git-archive untracked-fixture test
+requiring a .git checkout, which does not exist in a deployment source.tar.
+The test is now conditionally skipped in archives but still executes in Git
+checkouts; 5 D123 tests passed in a local checkout. Next: commit, restage
+exact HEAD, and re-run archive and clean-checkout tests. Do not deploy yet.

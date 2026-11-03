@@ -57,3 +57,22 @@ do not delete it while an old test owns it. Do not push into foreign upstreams.
 
 Next: locate and validate the existing release installer, generate a complete
 source manifest, and test in isolation before a controlled deployment window.
+
+## Offline candidate trial
+
+The existing tools/node104_atomic_deploy.py stage command produced a verified
+local candidate from exact HEAD 82659d5, under
+/tmp/rd6018-release-candidate-20261104 on HOME-PC WSL only (not on node104).
+Its complete source.tar is about 9 MB, with a 251 KB release manifest.
+The stage constructor checked archive digest and all unpacked source hashes.
+
+Full pytest inside the source-only archive gave 2842 passed, 9 skipped,
+1 failed, 1658 subtests passed. The lone failure was an old D123 test
+calling git rev-parse from inside an archive that intentionally lacks .git.
+The D123 VCS-only fixture has now been correctly scoped with skipUnless to
+a Git checkout, while still running in CI/source worktrees. The five
+other D123 source-release tests pass in the Git worktree (5 passed).
+This is a test-environment contract adjustment, not a bypass of charger
+behavior. Re-stage and re-test from the next committed source HEAD.
+
+Do not infer a production deployment from this offline candidate.

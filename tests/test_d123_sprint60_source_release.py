@@ -3,6 +3,7 @@ import ast
 from pathlib import Path
 import tempfile
 import unittest
+import shutil
 
 from tools.node104_atomic_deploy import source_manifest
 
@@ -25,6 +26,10 @@ class Sprint60SourceReleaseTests(unittest.TestCase):
         self.assertNotIn("rglob(", manifest)
         self.assertIn("requirements.txt", [p.name for p in ROOT.glob("requirements*.txt")])
 
+    @unittest.skipUnless(
+        (ROOT / ".git").exists() and shutil.which("git") is not None,
+        "git-archive inclusion fixture needs a VCS checkout, not a source release",
+    )
     def test_untracked_authority_fixture_is_excluded_by_existing_archiver(self):
         with tempfile.TemporaryDirectory(prefix="d123-untracked-", dir=ROOT) as name:
             fixture = ROOT / name / "tests" / "untracked_authority.py"
