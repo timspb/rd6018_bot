@@ -196,6 +196,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
 
     # The existing profile START energizes Output before the recipe runner
     # receives its first step. OFF/WAIT-first drafts must never take that path.
+    selected_recipe = None
     if getattr(pending, "recipe_id", None) is not None:
         try:
             catalog = app._user_recipe_catalog
@@ -211,6 +212,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
                     "Для START первый шаг пользовательского рецепта должен быть SET. "
                     "Черновик OFF не запускается и не включает Output."
                 )
+            selected_recipe = selected
         except (AttributeError, TypeError, ValueError, OSError) as exc:
             await message.answer(
                 "❌ Рецепт не готов к START: " + html.escape(str(exc)),
@@ -287,8 +289,20 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             expert_high_voltage=False,
         )
 
+        # For a selected recipe, energize directly at its first SET target.
+        # Using normal PREP/MAIN targets here could briefly apply a different
+        # (possibly higher) voltage/current before the recipe's first tick.
+        if selected_recipe is not None:
+            first = selected_recipe.steps[0]["params"]
+            target_v, target_i = float(first["voltage_v"]), float(first["current_a"])
+            if target_v > float(envelope.voltage_ceiling_v):
+                raise ValueError("initial recipe SET exceeds battery voltage ceiling")
+            capped_i = float(app._cap_current(target_i))
+            if abs(capped_i - target_i) > 1e-6:
+                raise ValueError("initial recipe SET exceeds active current limit")
+
         recipe_binding = None
-        if getattr(pending, 'recipe_id', None) is not None:
+        if selected_recipe is not None:
             from pathlib import Path
             from application.recipe_existing_session import prepare_existing_recipe_binding
             from application.recipe_execution_adapter import RecipeExecutionIdentity
@@ -379,9 +393,13 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     app.last_chat_id = message.chat.id
     app.last_user_id = user_id
     start_reason = (
-        f"V2_START | PREP_SKIPPED_INITIAL_VOLTAGE={battery_v:.3f}V | "
-        if prep_skipped
-        else "V2_START | PREP_REQUIRED | "
+        f"V2_START | USER_RECIPE_FIRST_SET={target_v:.3f}V,{requested_i:.3f}A | "
+        if recipe_binding is not None
+        else (
+            f"V2_START | PREP_SKIPPED_INITIAL_VOLTAGE={battery_v:.3f}V | "
+            if prep_skipped
+            else "V2_START | PREP_REQUIRED | "
+        )
     )
     app.log_event(
         app.charge_controller.current_stage,
@@ -392,9 +410,13 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         f"{start_reason}intent={pending.intent.value} battery={pending.battery_id}",
     )
     prep_line = (
-        f"\nPREP пропущен: Uакб={battery_v:.2f} V ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
-        if prep_skipped
-        else f"\nPREP: мягкий ток до Uакб ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
+        f"\nПервый SET рецепта: {target_v:.2f} В / {requested_i:.2f} А."
+        if recipe_binding is not None
+        else (
+            f"\nPREP пропущен: Uакб={battery_v:.2f} V ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
+            if prep_skipped
+            else f"\nPREP: мягкий ток до Uакб ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
+        )
     )
     await message.answer(
         f"✅ <b>Заряд запущен</b>\n"
