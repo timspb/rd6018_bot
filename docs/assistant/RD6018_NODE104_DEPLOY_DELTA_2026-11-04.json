@@ -1,0 +1,369 @@
+{
+  "schema": 1,
+  "source_head": "91c72df25b60a9435ad066385b9a4e5e39ecdedb",
+  "production_root": "/opt/services/rd6018-bot/app",
+  "mode": "read_only_hash_inventory",
+  "summary": {
+    "files": 59,
+    "same": 13,
+    "different": 40,
+    "absent": 6,
+    "unknown": 0
+  },
+  "files": [
+    {
+      "path": "application/charge_session_tick.py",
+      "status": "same",
+      "local_sha256": "515efe20c1f910399bd8c040e3ca654f70120e6234517df9d54824671c50dc66",
+      "remote_sha256": "515efe20c1f910399bd8c040e3ca654f70120e6234517df9d54824671c50dc66"
+    },
+    {
+      "path": "application/main_guard_transaction.py",
+      "status": "same",
+      "local_sha256": "226d072a864dcddb05fe0ecb051a38b8e5e68b74a131e012bf161e8643269b52",
+      "remote_sha256": "226d072a864dcddb05fe0ecb051a38b8e5e68b74a131e012bf161e8643269b52"
+    },
+    {
+      "path": "application/production_start_route.py",
+      "status": "different",
+      "local_sha256": "f91b573aa16a0fccfc8a712afd10c2adbffcc68da5517ae800408d4cb4e60e64",
+      "remote_sha256": "1502fe92ee6d9d36531438a53cfb488efc66efd4cda828dae4813fa28a794cae"
+    },
+    {
+      "path": "application/recipe_execution_adapter.py",
+      "status": "different",
+      "local_sha256": "07658c44a8fa374af0246fab1f4913b4be919a6a7c56fe041e98eaf6ae7fc11e",
+      "remote_sha256": "560b72e3312189bdd3946f293b4c0843524f041387d3f21dbd88bb9ca63ba7ec"
+    },
+    {
+      "path": "application/recipe_existing_session.py",
+      "status": "same",
+      "local_sha256": "3244b78f70a9cf70088e6b3d703cbd5ca11ed355cf39227af2f4a9a8203ea1ee",
+      "remote_sha256": "3244b78f70a9cf70088e6b3d703cbd5ca11ed355cf39227af2f4a9a8203ea1ee"
+    },
+    {
+      "path": "application/recipe_restart_limits.py",
+      "status": "different",
+      "local_sha256": "094418807a13ccc30fe7b11ce1b0fb5792cd29ef7bd8064287fcb1d85e070612",
+      "remote_sha256": "401cac48f707d9d31c1444b26f7c04616248052caca52d3a20cf597f46f17e20"
+    },
+    {
+      "path": "application/recipe_session_lifecycle.py",
+      "status": "different",
+      "local_sha256": "d1e11f1d9ef991bff670db899cd2d56c4e951e6a5b555d474803ee348a302b75",
+      "remote_sha256": "58c8553789bd607a993c62ffd0e2ae32310c3406ebd9ec421308a2a60028b52d"
+    },
+    {
+      "path": "application/recipe_tick_observer.py",
+      "status": "different",
+      "local_sha256": "bb0b327aef5deb8b03455b89f14a52526021d088eb7d69448cec7042576f5eb5",
+      "remote_sha256": "763621762732f486e898bc7196487369ab646a5b610d01896c2b51ee440ef271"
+    },
+    {
+      "path": "application/start_transaction_runner.py",
+      "status": "different",
+      "local_sha256": "7b1dcc8e4021a1eb8baa9ba1afa06c94f8a64c6a8df046a2ed267d05eadd3680",
+      "remote_sha256": "fc069e34cefe2fec08f9fb53340090e2a21a02764ab12315d53f9b4f9aa13b91"
+    },
+    {
+      "path": "application/start_transaction_service.py",
+      "status": "different",
+      "local_sha256": "8c258f9003c581efaca049202a57a6db82c1c8a3763912a009f7a4753ef339b5",
+      "remote_sha256": "7b8027778b7516ba0d0fa5ef22572ac8d4949daf3265dc79ce9e12fbcef5b316"
+    },
+    {
+      "path": "bot.py",
+      "status": "different",
+      "local_sha256": "0df06ed56fdd60e3e24ee9edaf3bbeec4e2e2898d035647a6b0c200855907d11",
+      "remote_sha256": "035c2edd189643c85163f9fd44d3a8b91e5db911c874d17ac6c3544b81b837c8"
+    },
+    {
+      "path": "charge_controller.py",
+      "status": "different",
+      "local_sha256": "36aeaa0d1e0934d3a9f40d645f55121a656e6c3fc02a4e5d89023c1d24b12042",
+      "remote_sha256": "f615267c0587e816f4d4ff80d67c460ee308448027cd353e2fd3538b5d551c1b"
+    },
+    {
+      "path": "config.py",
+      "status": "different",
+      "local_sha256": "3e8ae7539b69511c689767b2fa4da44e3a42f9269208f5ecc6b8b8180e80438e",
+      "remote_sha256": "b835cf9047143ca571d8554d48929d921abb0ef001761ab880a5c31636896d43"
+    },
+    {
+      "path": "database.py",
+      "status": "same",
+      "local_sha256": "8566f451f0cbd3390473890427b591ee4859512e0c24246d838030b83ff32a79",
+      "remote_sha256": "8566f451f0cbd3390473890427b591ee4859512e0c24246d838030b83ff32a79"
+    },
+    {
+      "path": "operator_dashboard.py",
+      "status": "same",
+      "local_sha256": "07e556eb099ca3e5f676855a796fe4cf73e5609e7f92c6a3aef616749c57f3da",
+      "remote_sha256": "07e556eb099ca3e5f676855a796fe4cf73e5609e7f92c6a3aef616749c57f3da"
+    },
+    {
+      "path": "operator_managed_stop.py",
+      "status": "same",
+      "local_sha256": "8f84111c0b604eacbe74d3fbb8792f338d1539d51fe450f1d90c434a909839a9",
+      "remote_sha256": "8f84111c0b604eacbe74d3fbb8792f338d1539d51fe450f1d90c434a909839a9"
+    },
+    {
+      "path": "operator_navigation_recovery.py",
+      "status": "same",
+      "local_sha256": "ca32eb21478f52ba9d9603f4488fe972dcdc04bc8f98a37fc0efb3e20040ba7f",
+      "remote_sha256": "ca32eb21478f52ba9d9603f4488fe972dcdc04bc8f98a37fc0efb3e20040ba7f"
+    },
+    {
+      "path": "production_bootstrap.py",
+      "status": "different",
+      "local_sha256": "0cd98ef2632d18d7d40c34aa7129379b614aa3bc0e2b0d2ea2939b284d5e185d",
+      "remote_sha256": "306fc558eba185c4c1db982d8c714c45dcd81a93115876b6ddedbe2ec8cec92e"
+    },
+    {
+      "path": "production_bot_ui.py",
+      "status": "different",
+      "local_sha256": "e387debc6cef2bbd32de697d5ea6e3f282478b0427368c0500f170750ea1735d",
+      "remote_sha256": "35ff3bc217ec917cf50d9d769db597bf29586e11f75fa785ddd225f7ebd0efc5"
+    },
+    {
+      "path": "runtime/charge/decisions.py",
+      "status": "different",
+      "local_sha256": "418e42d2e485bf54a7bf5ffb6fb672c8c94834bb04910d113b71fdcf2f456ebe",
+      "remote_sha256": "bb765b6c296005b4a080b3671e1fa94142fd54f270647d8770c61bee6f828536"
+    },
+    {
+      "path": "runtime/charge/persistence.py",
+      "status": "different",
+      "local_sha256": "ad458a7399baa945fcb02a78017e16023d87887b8a956a564857f77a84f67f24",
+      "remote_sha256": "11630a06f97e0e47592feabdaa4036cde9116ddc2113a7214e265a619a31a877"
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_catalog.py",
+      "status": "same",
+      "local_sha256": "7eb85282ec41a92dee13ebd78bd023e6ca71267b0379fcdd929259ebbee8d903",
+      "remote_sha256": "7eb85282ec41a92dee13ebd78bd023e6ca71267b0379fcdd929259ebbee8d903"
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_draft.py",
+      "status": "absent",
+      "local_sha256": "431edbca90f3b716cc309c1757beef5954e25cd56748311f019459ce0fb7dd6f",
+      "remote_sha256": null
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_draft_library.py",
+      "status": "absent",
+      "local_sha256": "a04d3a27bda8269e0df6579087a41ac2e0fe0a104eeff2122ed1d79b7458add0",
+      "remote_sha256": null
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_parameters.py",
+      "status": "absent",
+      "local_sha256": "7d853748342d029df90f81976c924d2c22e9623a24ab96e6a0001abd31e42383",
+      "remote_sha256": null
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_policy.py",
+      "status": "absent",
+      "local_sha256": "5ddeddaad86e008e87c9c416c39fa24bf80299a78829c65469e98c5036580cca",
+      "remote_sha256": null
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_runtime.py",
+      "status": "same",
+      "local_sha256": "c84d553e73baea3a3d7850e6579812a2a107729b35b97d179335696eddc02c6e",
+      "remote_sha256": "c84d553e73baea3a3d7850e6579812a2a107729b35b97d179335696eddc02c6e"
+    },
+    {
+      "path": "runtime/charge/programs/native_recipe_session.py",
+      "status": "absent",
+      "local_sha256": "e883189aa13ceac27ca95305488ba55555ea2f13d6e4e55e820d4904c0d3fd2c",
+      "remote_sha256": null
+    },
+    {
+      "path": "runtime/charge/programs/recipe_catalog.py",
+      "status": "different",
+      "local_sha256": "9b58986a4117fd25be28f5972ab39434576de88a5fae51cfa472e1186a0b4469",
+      "remote_sha256": "44289d39e1168c1e406a8f01cd6fb50f160e93400ce2aff4d417796baa8f832d"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_checkpoint.py",
+      "status": "different",
+      "local_sha256": "1e6a1c21cb558fb55c197fa838018e4c96c147f0c6a8a2fb8a58d098b53c18dc",
+      "remote_sha256": "1c81a8e98dbb946f5b1738eb4cf538a7b65f84f7293f7ae8d8e2e211667a1b56"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_dispatch.py",
+      "status": "different",
+      "local_sha256": "f485fcb572e1af8566a0fd51a6af8d89045e6bccd2cfea5813c7cde61bf4d7d9",
+      "remote_sha256": "042751c6f1a371761ee36cf0572cf8fee06e3f98ca6256279cf4ea2f93d6c150"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_editor.py",
+      "status": "different",
+      "local_sha256": "dfa7c9b4bfe770d7d9987c90b10732dc8d05f9b4a0ca7e7fda9bcc5800a6a6ea",
+      "remote_sha256": "ca8872ca5e528f9a3396205338e241d49d2eb476f953eef010c103860f6e7232"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_engine.py",
+      "status": "different",
+      "local_sha256": "86d13c8850da717e5cb204a73db3f3b4e1df4e212fde95d424247ba9c06e0217",
+      "remote_sha256": "de3815f411573b90c9ded8d68db0c3998ea67f08ef4e8e1925a5d0d438872d19"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_journal.py",
+      "status": "different",
+      "local_sha256": "b8063da91708d44f4f3ac82fcbba2d0890e8943b1cb3124a07f55a6545d173b6",
+      "remote_sha256": "8fe1de5d921c73b0749d3e6730c7f47378902b188bb0298447dbd8a39955ce5d"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_library.py",
+      "status": "same",
+      "local_sha256": "288f7f2d717f963920b0d2ca54a4b56a3cdde2f7c867b6d47f8bfc9a1938cbd1",
+      "remote_sha256": "288f7f2d717f963920b0d2ca54a4b56a3cdde2f7c867b6d47f8bfc9a1938cbd1"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_measurements.py",
+      "status": "different",
+      "local_sha256": "5f53f439d9491e80a4b6ddcb2bca9f70c3e01e71c24eeae9737a4c92233676dc",
+      "remote_sha256": "309f1da65f9615775fdd208df2af39cd8e09b0bf0d343269c5092e7db79411b9"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_preflight.py",
+      "status": "different",
+      "local_sha256": "095d71f1290951a6fbb2d435985b4128482501a663e04692024c6fca5a73f5ac",
+      "remote_sha256": "0f7d3d9d2dad4326b7125ddd6d7e3e1f9e3453347ae045c5ef35bb5ccefda07b"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_runner.py",
+      "status": "different",
+      "local_sha256": "487f038e42852acf5c551a832b4e21d880d8eb4ed4aab8ee19576b05eecea3e8",
+      "remote_sha256": "465acab51bd78673b5adc7afbeeeb05121c90e32a87e58ac847c53d7fa514fed"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_runner_store.py",
+      "status": "different",
+      "local_sha256": "8badcd52b1415630782fdf40734cbc66a4b89d3dcf68c8a7ba6050d88e5c0d4e",
+      "remote_sha256": "a08d6f1fb70fa2f6cd13ad2928916fee610b32d34c52f3798a3442161407c80e"
+    },
+    {
+      "path": "runtime/charge/programs/recipe_schema.py",
+      "status": "different",
+      "local_sha256": "7b3c925b807c77887764085610bb9c68b96d986c93f508756e9627f9efa1413e",
+      "remote_sha256": "177dd15f2d575a33c135696d49d713f6dda23f235f3f1ce9d46cfd4457820fbb"
+    },
+    {
+      "path": "runtime/charge/runtime/final_safe_wait_authority.py",
+      "status": "different",
+      "local_sha256": "6e2eb8a66dbd3d249092f0577455d99341e637faf213bf3f956e8d6d4b23d7bb",
+      "remote_sha256": "484ab5b6cc11e0852eaa30efdae651c00dd221511b6f47aad6c344796ef21a7c"
+    },
+    {
+      "path": "runtime/charge/runtime/main_scaffold.py",
+      "status": "different",
+      "local_sha256": "cfb1766a93aead67af2dda55c593607024029b2b8d0f740ec0cf264404cffb31",
+      "remote_sha256": "6250dacbcd889e49ab1c07d94b04298d0e2684240cab7bb195c30096d965a25d"
+    },
+    {
+      "path": "runtime/charge/runtime/mix_scaffold.py",
+      "status": "different",
+      "local_sha256": "380b085dea63153b7b83aaee7bcc7368dfc22d65e704d1ecc27856739910339d",
+      "remote_sha256": "ff77ea13e02fc248b7b1a28a36f91d7716157034a841889f0624954fd7034e63"
+    },
+    {
+      "path": "runtime/charge/runtime/normal_completion.py",
+      "status": "absent",
+      "local_sha256": "d666e2f1f40a988904129ddf15629dbef2c8300652515b67e1468e6c67eee401",
+      "remote_sha256": null
+    },
+    {
+      "path": "runtime/charge/runtime/recovery_scaffold.py",
+      "status": "different",
+      "local_sha256": "3d119d0c085ef5dfad792e283551a0920b4d2edbdc53125e5ee6311dc0490665",
+      "remote_sha256": "32d015f4a8df79c0f6c73214e43b55c8117283f49192f28cc9719d0679d271e4"
+    },
+    {
+      "path": "runtime/charge/runtime/support.py",
+      "status": "different",
+      "local_sha256": "f9ab24429603250cdef687c30926302d151e3bafc4eeddc2766abd0fc4387141",
+      "remote_sha256": "9936a2d1af7f6dca7965e38ba4a5590ed0f0b180d6cad853164e3a34c0718664"
+    },
+    {
+      "path": "runtime/charge/session_atomic.py",
+      "status": "different",
+      "local_sha256": "3b11eda2b677ca7e60b9b5714b00cf0c5632fec18f0486c18da33f1601e3bba4",
+      "remote_sha256": "f9f4ab4c5de67f311a9607d5d084b43c7cc0f21ee70a5298695fa2d3e7739581"
+    },
+    {
+      "path": "runtime/charge/strategy/desulfation.py",
+      "status": "different",
+      "local_sha256": "04e3bd567394c91b49c72689bebb7e14c5e54f52fd9d17ac37932e0e9ff885e4",
+      "remote_sha256": "a2e2324a223fadf06f90777dcbe0250801cf7823aec45eb085f1aee1e2aa5b45"
+    },
+    {
+      "path": "runtime/charge/strategy/final_safe_wait.py",
+      "status": "different",
+      "local_sha256": "001a80a7ac8a89511f8baac85180b6fed9a9e2ec053738a439bbfeaa269e06ef",
+      "remote_sha256": "f8eb05951a475c3915f2f233fabd471c312915b08b6286e5ff1cc262ac78b156"
+    },
+    {
+      "path": "runtime/charge/strategy/main_authority.py",
+      "status": "different",
+      "local_sha256": "6da45497ec1331d0772a33d5365caf5908c3896320801585e8b258cf04e410fb",
+      "remote_sha256": "46ae51239a8a8d2dbfaece9673beb575a06712cf1578739df73179f04ecf7b45"
+    },
+    {
+      "path": "runtime/charge/strategy/main_targets.py",
+      "status": "different",
+      "local_sha256": "217e8c70ec3f5c973fae625aa11d54ce49cd5c15b9ac417e97a59d4fa21eee14",
+      "remote_sha256": "2902ad6069f2cb2e682cba40625f9830fd87d77ef88bec25f2706057f231ce89"
+    },
+    {
+      "path": "runtime/charge/strategy/mix.py",
+      "status": "different",
+      "local_sha256": "efa57549a36305866b0e8d9a4a4e785055f07abb194416db3bff23724576a649",
+      "remote_sha256": "2427080be1f2d9a4fd7a6e70f98f2c22bed1698462384798d6cd4b9856ed36b9"
+    },
+    {
+      "path": "runtime/charge/strategy/recovery_safe_wait.py",
+      "status": "different",
+      "local_sha256": "a1a1b8fd0c8a341be519b7fbf37e3d50afb316ca5a7be5512ac7c515d192e6e5",
+      "remote_sha256": "1bef7b2b7d5694f8b2b0c4ce33463da3a68f832c8b27dd9ceed3a0444b54a398"
+    },
+    {
+      "path": "runtime/journal/recovery_quarantine.py",
+      "status": "same",
+      "local_sha256": "9f0b8c538926f825b25b754ec033caf8e5e1219b93e96db66435e364f2867552",
+      "remote_sha256": "9f0b8c538926f825b25b754ec033caf8e5e1219b93e96db66435e364f2867552"
+    },
+    {
+      "path": "runtime/production_lifecycle.py",
+      "status": "same",
+      "local_sha256": "81db870b0673d26dfd76454e37dbe6e86eedfdaa7d16a7a34f8dfc05bf8ccf33",
+      "remote_sha256": "81db870b0673d26dfd76454e37dbe6e86eedfdaa7d16a7a34f8dfc05bf8ccf33"
+    },
+    {
+      "path": "runtime/production_runtime.py",
+      "status": "different",
+      "local_sha256": "51d2b5af7e131f36e7a482c2ceebc2011203beec258e61b31bf8e6a244e7f542",
+      "remote_sha256": "f4e544d4bebdbd8079fecef9729042a704b28b13bfaa9bb695fbfa1091eabeaa"
+    },
+    {
+      "path": "runtime/ui/telegram/recipe_buttons.py",
+      "status": "different",
+      "local_sha256": "0171b6899474ce3db9d51795affbcffbbdbd48f287edfe51f9cd323707567f9f",
+      "remote_sha256": "2f57c300be58de75fe6f3c03d2f67a093250b510e7c1b75f8d1ef664b7a3ca01"
+    },
+    {
+      "path": "runtime/ui/telegram/recipes.py",
+      "status": "different",
+      "local_sha256": "07b317db441ae0c7377bf0b6fffc2277cae0f3cec6fa78afaffa938b2a87b826",
+      "remote_sha256": "3004787fb9e6fd632c58ff22971f181d3339eb0336386ccc61ecac6fe102cc7b"
+    },
+    {
+      "path": "telegram/runtime.py",
+      "status": "same",
+      "local_sha256": "d53fcddc903fce9b7be845d9cbc4bb6bbe2b6fc67c48cef581823e7b46e31390",
+      "remote_sha256": "d53fcddc903fce9b7be845d9cbc4bb6bbe2b6fc67c48cef581823e7b46e31390"
+    }
+  ]
+}

@@ -240,3 +240,21 @@ charge_session.json.mix-authority.json was observed with an inactive
 test-like session (145 bytes), but has NOT been deleted while historical pytest
 processes remain visible. Keep it out of commits and investigate ownership
 before cleanup. Do not deploy or touch the live physical charge.
+
+## 2026-11-04 — Full node104 source-delta and activation boundaries
+
+Pinned-host-key read-only source SHA256 comparison to production (remote clock
+2026-11-03 14:22 UTC) includes **59 runtime files**: 13 identical, 40
+different, 6 absent, no unknown. The machine-readable per-file manifest is
+docs/assistant/RD6018_NODE104_DEPLOY_DELTA_2026-11-04.json.
+The corresponding plan is
+docs/assistant/RD6018_NODE104_DEPLOY_PLAN_2026-11-04.md.
+Service uses root-owned app and rd6018-writable state; rd6018.db,
+user_recipes, quarantines and MIX authority state are present. No active
+charge_session.json located in the checked paths. hands_off remains enabled.
+Do not infer that no external charge is underway.
+
+Only a complete coherent runtime source release may be considered, after
+isolated candidate tests and exact live recheck. No node104 writes, service
+restart or physical actuator calls occurred. Next: inspect existing installer
+and build full source release manifest. Keep this checkpoint current.
