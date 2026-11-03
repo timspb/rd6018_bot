@@ -119,6 +119,8 @@ class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(call.message.photo_answers), 1)
         self.assertEqual(call.message.text_answers, [])
         self.assertEqual(call.message.photo_answers[0][1]["caption"], "")
+        self.assertEqual(app.user_graph_dashboard[1], 78)
+        self.assertEqual(app.chat_graph_dashboard[10], 78)
 
     async def test_empty_range_replaces_photo_instead_of_leaving_stale_graph_visible(self):
         app = FakeApp(graph=False)
@@ -129,6 +131,9 @@ class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(call.message.text_answers), 1)
         self.assertEqual(call.message.photo_answers, [])
         self.assertEqual(call.message.text_answers[0][0][0], "Недостаточно данных.")
+        self.assertNotIn(1, app.user_graph_dashboard)
+        self.assertNotIn(10, app.chat_graph_dashboard)
+        self.assertEqual(app.user_dashboard[1], 78)
 
     async def test_empty_text_workspace_is_edited_in_place_when_possible(self):
         app = FakeApp(graph=False, fail_text_edit=False)

@@ -454,11 +454,15 @@ def install_operator_graph_dashboard(app: Any) -> None:
             # the workspace instead of leaving stale plotted data on screen.
             if bool(getattr(call.message, "photo", None)):
                 await retire_graph_workspace_message(app_arg, call)
-                await call.message.answer(
+                sent = await call.message.answer(
                     text,
                     parse_mode=app_arg.ParseMode.HTML,
                     reply_markup=markup,
                 )
+                app_arg.user_graph_dashboard.pop(user_id, None)
+                app_arg.chat_graph_dashboard.pop(call.message.chat.id, None)
+                app_arg.user_dashboard[user_id] = sent.message_id
+                app_arg.chat_dashboard[call.message.chat.id] = sent.message_id
                 return
             try:
                 await app_arg.bot.edit_message_text(
@@ -472,11 +476,15 @@ def install_operator_graph_dashboard(app: Any) -> None:
                 if "message is not modified" in str(exc).lower():
                     return
                 await retire_graph_workspace_message(app_arg, call)
-                await call.message.answer(
+                sent = await call.message.answer(
                     text,
                     parse_mode=app_arg.ParseMode.HTML,
                     reply_markup=markup,
                 )
+                app_arg.user_dashboard[user_id] = sent.message_id
+                app_arg.chat_dashboard[call.message.chat.id] = sent.message_id
+            app_arg.user_graph_dashboard.pop(user_id, None)
+            app_arg.chat_graph_dashboard.pop(call.message.chat.id, None)
             return
 
         photo = app_arg.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
@@ -496,12 +504,18 @@ def install_operator_graph_dashboard(app: Any) -> None:
             if "message is not modified" in str(exc).lower():
                 return
             await retire_graph_workspace_message(app_arg, call)
-            await call.message.answer_photo(
+            sent = await call.message.answer_photo(
                 photo,
                 caption=caption,
                 parse_mode=app_arg.ParseMode.HTML,
                 reply_markup=markup,
             )
+            # A replacement photo has a new Telegram message ID. Keep the
+            # periodic refresh loop bound to that ID, not the deleted image.
+            app_arg.user_graph_dashboard[user_id] = sent.message_id
+            app_arg.chat_graph_dashboard[call.message.chat.id] = sent.message_id
+            app_arg.user_dashboard[user_id] = sent.message_id
+            app_arg.chat_dashboard[call.message.chat.id] = sent.message_id
 
     # operator_hmi handlers resolve these globals at call time, so details, graph
     # workspace and compact caption inherit the final production presentation rules.
