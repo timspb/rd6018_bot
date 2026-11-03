@@ -15,7 +15,7 @@ class NativeParameterBrowserTests(unittest.IsolatedAsyncioTestCase):
         for entry in native_recipes():
             specs = native_recipe_parameters(entry.recipe_id)
             with self.subTest(entry=entry.recipe_id):
-                self.assertGreaterEqual(len(specs), 5)
+                self.assertGreaterEqual(len(specs), 4)
                 self.assertEqual(len({spec.key for spec in specs}), len(specs))
                 self.assertTrue(all(spec.minimum is not None and
                                     spec.maximum is not None for spec in specs))

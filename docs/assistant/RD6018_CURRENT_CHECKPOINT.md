@@ -131,3 +131,27 @@ Next: inventory remaining declared parameters and ensure every executable
 setting actually reaches its decision owner, with effective timer/UI output.
 Repair the reproducible full-suite environment and historical failures before
 staging a deployment. Update this checkpoint in every subsequent code commit.
+
+## Implementation update — 2026-11-03 editable catalog execution parity
+
+The native recipe parameters catalog now exposes only settings that the
+existing production native charge owners can actually consume. In particular,
+AGM uses staged MAIN voltages and does not present the generic fallback
+charge.main.default_voltage_v as editable; DIAGNOSTIC mode does not present
+DESULFATION, MIX or SAFE_WAIT fields. The editable copy of
+charge.main.current_c_rate is bounded at 0.10C without changing the global
+owner's VariableSpec declaration. Draft validation rejects unsupported
+settings before START; no second charging algorithm introduced.
+
+A new execution-parity test enumerates every visible variable in all 12 native
+recipe variants and verifies that its default is accepted for a pinned copy.
+Focused Linux suite: **27 PASS, 216 subtests PASS** before commit. This is
+not full-suite or physical acceptance. node104 remains unchanged; only
+local-source files were updated.
+
+Next: separate audit of remaining production-only knobs (AGM staged voltage
+editing and other advanced transitions) versus current recipe capabilities;
+do not claim all physical behavior is editable yet. Run a clean full test
+suite with correct dependencies, then stage a controlled node104 deployment
+only after exact baseline and live hands_off checks. Continue checkpoint edits
+in every completed code stage.

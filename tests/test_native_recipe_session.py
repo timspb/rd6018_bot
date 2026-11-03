@@ -43,15 +43,11 @@ class NativeRecipeSessionTests(unittest.TestCase):
             )
             for number, (recipe, key, value) in enumerate(variants):
                 name = f"copy_{number}"
-                lib.save(name, 1, document(recipe, {key: value}))
                 with self.subTest(recipe=recipe, key=key):
+                    # Unsupported AGM fallback and >0.1C are excluded from
+                    # the editable catalog before START, not silently ignored.
                     with self.assertRaises(ValueError):
-                        select_native_recipe_version(
-                            lib, name, 1,
-                            profile="AGM" if recipe.startswith("native_agm")
-                                    else "EFB",
-                            intent="normal",
-                        )
+                        lib.save(name, 1, document(recipe, {key: value}))
 
     def test_wrong_profile_intent_and_tampered_snapshot_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
