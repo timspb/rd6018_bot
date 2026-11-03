@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from aiogram import F
+from aiogram.exceptions import TelegramBadRequest
 
 
 def install_operator_navigation_recovery(app: Any) -> None:
@@ -20,7 +21,14 @@ def install_operator_navigation_recovery(app: Any) -> None:
     async def _operator_home(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await call.answer()
+        try:
+            await call.answer()
+        except TelegramBadRequest as exc:
+            # Callback acknowledgement expires during intermittent Telegram API stalls.
+            # Keep navigation available, but do not mask unrelated Telegram errors.
+            detail = str(exc).lower()
+            if "query is too old" not in detail and "query id is invalid" not in detail:
+                raise
         user_id = call.from_user.id if call.from_user else 0
         chat_id = call.message.chat.id
         current_id = call.message.message_id
