@@ -46,6 +46,38 @@ class D142Tests(unittest.TestCase):
         with self.assertRaises(release.GateError):
             validate_snapshot(p, pid=321, now=p["captured_at_epoch"])
 
+    def test_live_hands_off_output_on_is_not_off(self):
+        # A missing managed charge_session.json is NOT evidence that the
+        # hardware output is off. The external charger can remain active
+        # while this bot is deliberately in hands_off mode.
+        proof = self.proof()
+        proof["ha102_output_off"] = False
+        proof["esp128_output_off"] = False
+        proof["ha102_voltage_v"] = 14.67
+        proof["esp128_voltage_v"] = 14.67
+        proof["ha102_current_a"] = 0.05
+        proof["esp128_current_a"] = 0.05
+        with self.assertRaises(release.GateError):
+            validate_snapshot(
+                proof, pid=321, now=proof["captured_at_epoch"],
+            )
+
+    def test_ha_on_refused_even_if_esp_off(self):
+        proof = self.proof()
+        proof["ha102_output_off"] = False
+        proof["ha102_voltage_v"] = 14.67
+        proof["ha102_current_a"] = 0.05
+        with self.assertRaises(release.GateError):
+            validate_snapshot(proof, pid=321, now=proof["captured_at_epoch"])
+
+    def test_esp_on_refused_even_if_ha_off(self):
+        proof = self.proof()
+        proof["esp128_output_off"] = False
+        proof["esp128_voltage_v"] = 14.67
+        proof["esp128_current_a"] = 0.05
+        with self.assertRaises(release.GateError):
+            validate_snapshot(proof, pid=321, now=proof["captured_at_epoch"])
+
     def test_duplicate_independent_nonces_refused(self):
         p = self.proof()
         p["source_nonces"] = ["same", "same"]
