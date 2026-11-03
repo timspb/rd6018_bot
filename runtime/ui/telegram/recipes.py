@@ -8,6 +8,10 @@ from typing import Any
 from aiogram.filters import Command
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
+from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+from runtime.charge.programs.native_recipe_draft import validate_native_draft
+from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
+from runtime.charge.programs.native_recipe_catalog import get_native_recipe
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 from runtime.ui.telegram.recipe_buttons import catalog_markup, install_recipe_buttons
@@ -36,6 +40,101 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
         return bool(await app._check_chat_and_respond(message))
 
     install_recipe_buttons(app, catalog=catalog)
+    native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+
+    @app.router.message(Command("native_copy"))
+    async def _native_copy(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split()
+        if len(parts) != 3:
+            await message.answer("Формат: /native_copy native_efb_normal my_efb")
+            return
+        try:
+            source, name = parts[1:]
+            get_native_recipe(source)
+            draft = native_drafts.save(name, 1, {
+                "schema": 1, "base_recipe_id": source,
+                "execution_kind": "native_authority", "overrides": {},
+            })
+        except (ValueError, KeyError, FileExistsError, OSError) as exc:
+            await message.answer("Ошибка копирования: " + html.escape(str(exc)),
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        await message.answer(
+            f"Сохранена копия <code>{html.escape(name)}</code> v1 "
+            f"из <code>{html.escape(draft.base_recipe_id)}</code>. "
+            "Оригинал не изменён; копия пока не активируется.",
+            parse_mode=app.ParseMode.HTML,
+        )
+
+    @app.router.message(Command("native_set"))
+    async def _native_set(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split()
+        if len(parts) != 4:
+            await message.answer("Формат: /native_set my_efb charge.main.efb_voltage_v 14.8")
+            return
+        try:
+            name, key, raw = parts[1:]
+            versions = native_drafts.versions(name)
+            if not versions:
+                raise FileNotFoundError("копия не найдена")
+            current = native_drafts.load(name, versions[-1])
+            specs = {spec.key: spec for spec in native_recipe_parameters(current.base_recipe_id)}
+            spec = specs.get(key)
+            if spec is None:
+                raise ValueError("параметр недоступен для этого рецепта")
+            value = int(raw) if spec.value_type is int else float(raw.replace(",", "."))
+            # Preserve exact integer type and refuse fractional truncation.
+            if spec.value_type is int and str(value) != raw:
+                raise ValueError("необходимо целое число")
+            overrides = dict(current.overrides)
+            overrides[key] = value
+            changed = validate_native_draft({
+                **current.as_document(), "overrides": overrides,
+            })
+            native_drafts.save(name, versions[-1] + 1, changed.as_document())
+        except (ValueError, KeyError, FileExistsError, FileNotFoundError, OSError) as exc:
+            await message.answer("Ошибка настройки: " + html.escape(str(exc)),
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        await message.answer(
+            f"<code>{html.escape(name)}</code> v{versions[-1] + 1}: "
+            f"<code>{html.escape(key)}</code> = {html.escape(str(value))}. "
+            "Версия сохранена, активная зарядка не изменена.",
+            parse_mode=app.ParseMode.HTML,
+        )
+
+    @app.router.message(Command("native_show"))
+    async def _native_show(message: Any) -> None:
+        if not await _allowed(message):
+            return
+        parts = str(message.text or "").split()
+        if len(parts) != 2:
+            await message.answer("Формат: /native_show my_efb")
+            return
+        try:
+            name = parts[1]
+            versions = native_drafts.versions(name)
+            if not versions:
+                raise FileNotFoundError("копия не найдена")
+            draft = native_drafts.load(name, versions[-1])
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await message.answer("Ошибка просмотра: " + html.escape(str(exc)),
+                                 parse_mode=app.ParseMode.HTML)
+            return
+        overrides = "\n".join(
+            f"<code>{html.escape(k)}</code> = {html.escape(str(v))}"
+            for k, v in draft.overrides
+        ) or "Нет изменений относительно оригинала"
+        await message.answer(
+            f"<b>{html.escape(name)} v{versions[-1]}</b>\n"
+            f"Оригинал: <code>{html.escape(draft.base_recipe_id)}</code>\n"
+            f"{overrides}\nКопия пока не применяется к контроллеру.",
+            parse_mode=app.ParseMode.HTML,
+        )
 
     @app.router.message(Command("recipes"))
     async def _recipes(message: Any) -> None:
