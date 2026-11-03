@@ -289,3 +289,13 @@ a 6-file patch. Do not stop/restart the service or overwrite state during
 an ongoing externally controlled charge. Next stage: inspect exact
 candidate deployment handoff and prepare a reversible activation procedure
 for a safe maintenance window, preserving all operational data.
+
+## 2026-11-04 — production D090/D145 owner reconciliation
+
+Найден существующий production CLI `node104_d090_transaction_live.py`: `prepare`, `activate`, `recover`, `--python-release-profile`. D145 binding входит в того же D090 владельца, использует установленную блокировку и не создаёт отдельный service runner. `tools/node104_atomic_deploy.py` — лишь офлайн-упаковщик.
+
+Свежая read-only проверка node104 (удалённое время 2026-11-03 14:45:41 UTC): `rd6018-bot.service` active, PID 196930, NRestarts=0; `rd_control_mode_v2.json` = `hands_off`. На узле существуют `/opt/services/rd6018-bot/d090/node104_d090_transaction.py`, `app/tools/node104_d124_release_profile.py` и журнал `/opt/services/rd6018-bot/D090_TRANSACTION.json`. Журнал имеет фазу **STARTED**, `source_sha=930239c670899e14ccb09154d99baf77df90da10`, поле `candidate_inventory` отсутствует. При этом `.deploy_sha=58321a866dd68195bf8264d1d9ebe7c18a60748f`. Этот исторический журнал не является корректным новым COMMITTED релизом; его нельзя переписывать или удалять для обхода проверок.
+
+В исходном D090 `_layout()` явно отвергает существующий журнал до нового `prepare/activate`, поэтому запуск новой транзакции прямо сейчас невозможен даже при исправном архиве. Действующий D145 transition ожидает именно исторический `STARTED` без `candidate_inventory`, но требует отдельной сверки его точного профиля source/preimage/collector со свежим node104. Не менять D090 или D145 наугад, не добавлять новые доказательства и авторизации: требуется использовать существующий жизненный цикл и восстановить согласованность активного состояния.
+
+**Развёртывания не было.** Проверенный offline-кандидат `fa60c16` не установлен; аппаратные команды, systemd stop/restart, state/ и журнал D090 не изменены. Следующая конкретная задача: проверить, какой D145 binding реально установлен на node104 и какие операции существующий owner поддерживает для перехода из `STARTED`; сопоставить точный установленный source с D090 marker/preimage; затем связать цельный релиз `fa60c16` с существующим Python-release profile без нового запускающего механизма.

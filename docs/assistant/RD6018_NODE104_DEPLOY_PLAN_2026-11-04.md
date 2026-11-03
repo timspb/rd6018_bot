@@ -96,3 +96,23 @@ The successful offline candidate is not a deployed or activated release.
 No remote service restart, database write, hardware output, or state
 migration took place. The node104 live baseline must be rechecked before
 any installation or switch-over.
+
+## 2026-11-04 — Install mechanism review (local source inspection)
+
+Inspected `tools/node104_atomic_deploy.py` directly. Its module header explicitly says **no production activation, SSH, systemctl, OTA, lease, or actuator operation is implemented**. Supported CLI phases are `manifest`, `preflight`, `stage`, `recover`, and `simulate`; the swap and rollback paths operate only inside a marked simulation root. `stage()` is an appropriate offline packager, **not** a live installer.
+
+The script also retains historical firmware assertions (`2.0-edge-adoption` to `2.2-autonomous-authority`) whereas node104 previously reported ESPHome `2.3-ha-canonical`. Do not use its `preflight` as current device authorization and do not add artificial evidence/signatures to satisfy the old contract. The D090 script is similarly offline and pinned to an obsolete source/firmware revision.
+
+**Corrected deployment boundary:** the fa60c16 source archive is verified offline; there is no identified live deployment executor suitable for this release. The next task is to inspect the actual existing node104 release transaction/handoff (not invent another launcher), validate exact app+state segregation and service lifecycle, and only then arrange a coherent installation without interruption of active external charging. The historical SHA delta is informational and must be refreshed against the production host immediately before activation.
+
+The execution shell connector declined commands in this turn, so no new remote baseline, simulation execution, or Git commit was obtained. This review was performed through direct read-only source inspection. No production writes or hardware actions occurred.
+
+## 2026-11-04 — действующий исполнитель обнаружен (read-only)
+
+На HOME-PC найден реальный производственный владелец `RD6018_V3_SAFE_ACCEPTANCE_LUNA_EVIDENCE/node104_d090_transaction_live.py`. У него есть `prepare/activate/recover` и `--python-release-profile`, поддержанный `tools/node104_d124_release_profile.py`; вспомогательный D145 binding работает внутри того же владельца и блокировки, а не запускает второго бота. `tools/node104_atomic_deploy.py` по-прежнему является только локальным упаковщиком и симулятором.
+
+Read-only на node104 (удалённые часы 2026-11-03 14:45 UTC): `rd6018-bot.service` active, PID 196930, NRestarts=0; control mode `hands_off`. Файлы `/opt/services/rd6018-bot/d090/node104_d090_transaction.py` и `/opt/services/rd6018-bot/app/tools/node104_d124_release_profile.py` присутствуют. Корневой D090-журнал существует, фаза `STARTED`, `source_sha=930239c670899e14ccb09154d99baf77df90da10`, **`candidate_inventory` отсутствует**. Маркер `.deploy_sha=58321a866dd68195bf8264d1d9ebe7c18a60748f` не соответствует исходному SHA журнала. Не трактовать исторический D090 как завершённый COMMITTED и не переписывать журнал ради нового обновления.
+
+Текущий готовый релиз `fa60c16` прошёл 2842 теста в исходном архиве, но **не привязан к производственному D090/D145 профилю**, текущему installed-app inventory и реальному процессу на node104. Для обновления требуется использовать существующий D090/D145 owner с точно собранным Python-release profile, сопоставить предварительный снимок production app/venv и корректно завершить/обойти историческую незавершённую транзакцию средствами самого владельца. Никаких новых криптографических подписей, параллельных оркестраторов или искусственных допусков не вводить. Проверка состояния зарядки перед перезапуском остаётся обязательной как реальный риск, а не формальная авторизация.
+
+**Изменения на node104 отсутствуют**, сервис и аппаратный выход не тронуты. Следующий исполняемый шаг: сравнить конкретные требования `D090Transaction.prepare/activate` и D145 binding с текущим журналом и точным релизным профилем, составить адресный план восстановления связности без нового исполнителя. После этого проверить read-only фактическое управление АКБ и возможность безостановочного переключения (если не подтверждается, оставлять production без изменений).
