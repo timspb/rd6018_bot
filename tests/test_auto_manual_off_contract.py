@@ -26,7 +26,7 @@ class AutoManualOffContractTests(unittest.IsolatedAsyncioTestCase):
             await scaffold(**kwargs)
             return {}
 
-        with patch("application.charge_session_tick.run_charge_stage_tick", new=stage_tick):
+        with patch("application.charge_stage_tick.run_charge_stage_tick", new=stage_tick):
             await run_charge_session_tick(controller,
                 14.8,
                 1.0,

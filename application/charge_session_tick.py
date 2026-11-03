@@ -282,8 +282,14 @@ async def _run_charge_session_tick_body(
 
     # Persistent Manual-OFF is an asynchronous terminal kill condition owned
     # outside AUTO chemistry. It cannot perturb automatic decisions in this tick.
-    actions = await run_charge_stage_tick(
-        host,
+    # Native recipes keep the original production stage owner and host state.
+    # Manual/Custom and sessions without a recognized AUTO intent remain on
+    # the preexisting route. This is not the user recipe SET/OFF runner.
+    from runtime.charge.programs.native_recipe_runtime import (
+        native_recipe_id_for_host, run_native_recipe_tick,
+    )
+    native_recipe_id = native_recipe_id_for_host(host)
+    stage_inputs = dict(
         stage_before=stage_before,
         voltage=voltage,
         current=current,
@@ -295,6 +301,12 @@ async def _run_charge_session_tick_body(
         is_cc=is_cc,
         manual_active=manual_active,
     )
+    if native_recipe_id is None:
+        actions = await run_charge_stage_tick(host, **stage_inputs)
+    else:
+        actions = await run_native_recipe_tick(
+            native_recipe_id, host, **stage_inputs,
+        )
 
     timestamp_s = host.last_update_time or time.time()
     resolved_is_cc = bool(is_cc) if is_cc is not None else not bool(is_cv)
