@@ -239,13 +239,16 @@ async def get_graph_data_with_temp(
 
         db = await get_db()
         if since_iso:
-            session_limit = min(limit * 50, 3000)
+            # Prefer recent samples when a long interval exceeds the fetch cap.
+            # Fetching oldest-first used to freeze the 24h graph's right edge once
+            # the window contained more than 3000 raw measurements.
+            session_limit = max(1, min(limit * 50, 25000))
             async with db.execute(
                 """SELECT timestamp, voltage, current, temp_ext FROM sensor_history
-                   WHERE timestamp >= ? ORDER BY id ASC LIMIT ?""",
+                   WHERE timestamp >= ? ORDER BY id DESC LIMIT ?""",
                 (since_iso, session_limit),
             ) as cursor:
-                rows = await cursor.fetchall()
+                rows = list(reversed(await cursor.fetchall()))
         else:
             async with db.execute(
                 "SELECT timestamp, voltage, current, temp_ext FROM sensor_history ORDER BY id DESC LIMIT ?",

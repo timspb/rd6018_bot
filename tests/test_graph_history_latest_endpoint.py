@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from unittest.mock import patch
 
 import aiosqlite
@@ -36,6 +36,32 @@ class GraphHistoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(t[-1], "2026-11-03T07:11:00Z")
         self.assertAlmostEqual(i[-1], 0.11)
         self.assertEqual(len(v), len(temp))
+
+    async def test_24h_window_over_old_cap_keeps_fresh_edge(self):
+        # With 3100 samples in the selected interval, the original ASC LIMIT 3000
+        # silently froze the graph while the recorder continued writing.
+        from datetime import datetime, timedelta, timezone
+        start = datetime(2026, 11, 4, 0, 0, tzinfo=timezone.utc)
+        data = [
+            (idx + 100, (start + timedelta(seconds=idx * 25)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             14.6, 0.05, 26.0)
+            for idx in range(3100)
+        ]
+        await self.db.executemany(
+            "INSERT INTO sensor_history (id,timestamp,voltage,current,temp_ext) VALUES (?,?,?,?,?)",
+            data,
+        )
+        await self.db.commit()
+        since = (start - timedelta(seconds=10)).timestamp()
+        with patch("database.get_db", return_value=self.db):
+            t, v, i, temp = await database.get_graph_data_with_temp(
+                limit=500, since_timestamp=since
+            )
+        self.assertEqual(len(t), 500)
+        self.assertEqual(t[0], data[0][1])
+        self.assertEqual(t[-1], data[-1][1])
+        self.assertEqual(len(v), len(i))
+        self.assertEqual(len(i), len(temp))
 
     async def test_single_point_requests_newest_not_oldest(self):
         with patch("database.get_db", return_value=self.db):
