@@ -72,6 +72,8 @@ class ProductionStartRouteAdapter:
                 "intent_metadata": {
                     "user_recipe_id": intent.parameters.get("user_recipe_id"),
                     "user_recipe_version": intent.parameters.get("user_recipe_version"),
+                    "native_recipe_name": intent.parameters.get("native_recipe_name"),
+                    "native_recipe_version": intent.parameters.get("native_recipe_version"),
                 },
             }
             if self.mode is ProductionStartMode.ACTIVE:

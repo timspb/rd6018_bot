@@ -52,6 +52,7 @@ class NativeRecipeSessionSelection:
             "base_recipe_id": document["base_recipe_id"],
             "overrides": document["overrides"],
         })
+        require_supported_native_execution(draft)
         entry = get_native_recipe(draft.base_recipe_id)
         if entry.profile != document["profile"] or entry.intent != document["intent"]:
             raise ValueError("native recipe profile/intent mismatch")
@@ -71,11 +72,35 @@ def _digest(payload: dict) -> str:
                              separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
+    """Never accept saved options that the current stage owners would ignore."""
+    entry = get_native_recipe(draft.base_recipe_id)
+    allowed = {"charge.main.current_c_rate", "charge.mix.current_c_rate"}
+    voltage_keys = {
+        "Ca/Ca": ("charge.main.ca_voltage_v", "charge.mix.ca_voltage_v"),
+        "EFB": ("charge.main.efb_voltage_v", "charge.mix.efb_voltage_v"),
+        "AGM": (None, "charge.mix.agm_voltage_v"),
+    }[entry.profile]
+    allowed.update(key for key in voltage_keys if key is not None)
+    if entry.intent == "diagnostic":
+        allowed = {key for key in allowed if not key.startswith("charge.mix.")}
+    overrides = dict(draft.overrides)
+    unsupported = set(overrides) - allowed
+    if unsupported:
+        raise ValueError(
+            "native recipe parameters are not yet wired to production: "
+            + ", ".join(sorted(unsupported))
+        )
+    if overrides.get("charge.main.current_c_rate", 0.0) > 0.10:
+        raise ValueError("native MAIN current must not exceed 0.1C")
+
+
 def select_native_recipe_version(
     library: NativeRecipeDraftLibrary,
     name: str, version: int, *, profile: str, intent: Any,
 ) -> NativeRecipeSessionSelection:
     draft: NativeRecipeDraft = library.load(name, version)
+    require_supported_native_execution(draft)
     entry = get_native_recipe(draft.base_recipe_id)
     intent_name = str(getattr(intent, "value", intent)).lower()
     if profile != entry.profile or intent_name != entry.intent:

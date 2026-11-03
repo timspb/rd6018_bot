@@ -60,6 +60,8 @@ class StartTransactionRunner:
             condition=transaction.condition,
             recipe_id=transaction.intent_metadata.get("user_recipe_id"),
             recipe_version=transaction.intent_metadata.get("user_recipe_version"),
+            native_recipe_name=transaction.intent_metadata.get("native_recipe_name"),
+            native_recipe_version=transaction.intent_metadata.get("native_recipe_version"),
         )
         event = (self.event_factory or build_start_event_context)(transaction)
         if self.event_factory is None or isinstance(event, StartEventContext):

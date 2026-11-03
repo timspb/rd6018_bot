@@ -34,6 +34,26 @@ class NativeRecipeSessionTests(unittest.TestCase):
             with self.assertRaises(FrozenInstanceError):
                 first.version = 9
 
+    def test_ignored_production_parameters_cannot_be_selected_for_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lib = NativeRecipeDraftLibrary(directory)
+            variants = (
+                ("native_efb_normal", "charge.main.standard_tail_hold_hours", 4.0),
+                ("native_agm_normal", "charge.main.default_voltage_v", 14.6),
+                ("native_efb_normal", "charge.main.current_c_rate", 0.20),
+            )
+            for number, (recipe, key, value) in enumerate(variants):
+                name = f"copy_{number}"
+                lib.save(name, 1, document(recipe, {key: value}))
+                with self.subTest(recipe=recipe, key=key):
+                    with self.assertRaises(ValueError):
+                        select_native_recipe_version(
+                            lib, name, 1,
+                            profile="AGM" if recipe.startswith("native_agm")
+                                    else "EFB",
+                            intent="normal",
+                        )
+
     def test_wrong_profile_intent_and_tampered_snapshot_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             lib = NativeRecipeDraftLibrary(directory)

@@ -55,6 +55,8 @@ class PendingStart:
     condition: BatteryCondition
     recipe_id: str | None = None
     recipe_version: int | None = None
+    native_recipe_name: str | None = None
+    native_recipe_version: int | None = None
 
 
 _pending_profile: Dict[int, str] = {}
@@ -195,8 +197,21 @@ def _recipe_preview_keyboard(app: Any, start_callback: str) -> InlineKeyboardMar
         data = f'v2_recipe_pick:{name}:{version}'
         if len(data.encode('utf-8')) <= 64:
             choices.append(InlineKeyboardButton(text=f'Рецепт {name} v{version}', callback_data=data))
+    # Saved native recipe copies reuse the same pending START transaction.
+    from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+    native_store = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+    for name in native_store.list_drafts():
+        versions = native_store.versions(name)
+        if not versions:
+            continue
+        version = versions[-1]
+        data = f"v2_native_pick:{name}:{version}"
+        if len(data.encode("utf-8")) <= 64:
+            choices.append(InlineKeyboardButton(
+                text=f"Штатная копия {name} v{version}", callback_data=data,
+            ))
     if choices:
-        rows[1:1] = [[choice] for choice in choices[:12]]
+        rows[1:1] = [[choice] for choice in choices[:24]]
     else:
         rows.insert(1, [InlineKeyboardButton(text='Создать рецепт', callback_data='recipes:create')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -711,6 +726,39 @@ def install_ui_support(app: Any) -> None:
         if trace is not None:
             trace.info("QUICK_START_TRACE response=ACCEPTED")
 
+    @app.router.callback_query(F.data.startswith("v2_native_pick:"))
+    async def pick_native_recipe_handler(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        pending = _pending_start.get(user_id)
+        catalog = getattr(app, "_user_recipe_catalog", None)
+        if pending is None or catalog is None:
+            await _ack_callback(call, "Нет ожидающего START", show_alert=True)
+            return
+        try:
+            _, name, version_text = str(call.data).split(":")
+            version = int(version_text)
+            from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+            from runtime.charge.programs.native_recipe_session import select_native_recipe_version
+            library = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+            selected = select_native_recipe_version(
+                library, name, version, profile=pending.profile, intent=pending.intent,
+            )
+        except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
+            await _ack_callback(call, str(exc)[:180], show_alert=True)
+            return
+        _pending_start[user_id] = replace(
+            pending, recipe_id=None, recipe_version=None,
+            native_recipe_name=name, native_recipe_version=version,
+        )
+        await _ack_callback(call)
+        await _safe_answer(
+            call, f"Выбрана копия {name} v{version} ({selected.profile} · {selected.intent}). "
+                  "START применит закреплённую версию.",
+            reply_markup=_preview_keyboard("v2_battery_start"),
+        )
+
     @app.router.callback_query(F.data.startswith("v2_recipe_pick:"))
     async def pick_recipe_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
@@ -734,7 +782,10 @@ def install_ui_support(app: Any) -> None:
         except (ValueError, OSError) as exc:
             await _ack_callback(call, str(exc)[:180], show_alert=True)
             return
-        _pending_start[user_id] = replace(pending, recipe_id=name, recipe_version=version)
+        _pending_start[user_id] = replace(
+            pending, recipe_id=name, recipe_version=version,
+            native_recipe_name=None, native_recipe_version=None,
+        )
         await _ack_callback(call)
         await _safe_answer(call, f"Выбран {name} v{version}. START запустит этот рецепт.",
                            reply_markup=_preview_keyboard("v2_battery_start"))

@@ -220,6 +220,31 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             )
             return False
 
+    # Resolve the exact native copy before any physical START. The original
+    # dynamic algorithm remains the owner; only its accepted settings differ.
+    selected_native = None
+    native_name = getattr(pending, "native_recipe_name", None)
+    if native_name is not None:
+        try:
+            if selected_recipe is not None:
+                raise ValueError("native and user step recipes are mutually exclusive")
+            from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+            from runtime.charge.programs.native_recipe_session import select_native_recipe_version
+            catalog = app._user_recipe_catalog
+            library = NativeRecipeDraftLibrary(
+                catalog.library.root.parent / "native_recipe_drafts")
+            selected_native = select_native_recipe_version(
+                library, str(native_name),
+                int(getattr(pending, "native_recipe_version")),
+                profile=pending.profile, intent=pending.intent,
+            )
+        except (AttributeError, TypeError, ValueError, KeyError, OSError) as exc:
+            await message.answer(
+                "❌ Копия штатного рецепта не готова к START: "
+                + html.escape(str(exc)), parse_mode=app.ParseMode.HTML,
+            )
+            return False
+
     battery_v = snapshot.battery_voltage_v
     current = snapshot.current_a
     temp_ext = snapshot.temp_ext_c
@@ -261,6 +286,9 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         condition_before=pending.condition,
     )
     app.charge_controller.start(pending.profile, int(round(pending.capacity_ah)))
+    # The first PREP/MAIN target and the canonical session writer must already
+    # see the same immutable selection. No mid-session live library reads.
+    app.charge_controller._native_recipe_session_selection = selected_native
     execution_identity = _execution_identity(
         app,
         event,
