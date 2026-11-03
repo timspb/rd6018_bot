@@ -54,6 +54,21 @@ class D144Tests(unittest.TestCase):
         marker=json.loads((self.root/'D144_INSTALLED_RELEASE.json').read_text())
         self.assertEqual(marker['source_sha'],'d351c208cbf8666f881a4660df6a0b211170e857')
 
+    def test_realistic_legacy_started_journal_does_not_block_owner_transition(self):
+        legacy = self.root / "D090_TRANSACTION.json"
+        legacy.write_text(json.dumps({
+            "schema": 1,
+            "phase": "STARTED",
+            "source_sha": "930239c670899e14ccb09154d99baf77df90da10",
+            "transaction": "818df047a6e64a22905d6da900162a86",
+        }))
+        self.assertEqual((self.root / ".deploy_sha").read_text(), "legacy")
+        before_legacy = legacy.read_bytes()
+        self.assertEqual(self.tx().run()["phase"], "COMMITTED")
+        self.assertEqual(legacy.read_bytes(), before_legacy)
+        self.assertEqual((self.root / ".deploy_sha").read_text(), "legacy")
+        self.assertEqual((self.root / "state" / "session").read_text(), "RETIRED")
+
     def test_drift_rejected_before_stop(self):
         (self.root/'app/x').write_text('drift')
         with self.assertRaises(TransitionError):self.tx().run()

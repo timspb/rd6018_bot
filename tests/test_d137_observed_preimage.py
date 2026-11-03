@@ -47,6 +47,33 @@ class D137Tests(unittest.TestCase):
             self.assertEqual(before,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob("*") if p.is_file()})
             self.assertEqual(result["preimage_sha256"],self.capture(root)["preimage_sha256"])
 
+    def test_missing_live_session_cannot_be_misreported_as_retired(self):
+        # Observed node104 hands_off state has an old D090 STARTED journal
+        # but no active charge_session.json. Do not invent a tombstone to
+        # satisfy historical D137 preflight.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / "state" / "charge_session.json").unlink()
+            journal_before = (root / "D090_TRANSACTION.json").read_bytes()
+            with self.assertRaisesRegex(ValueError, "unsafe or absent durable state"):
+                self.capture(root)
+            self.assertEqual((root / "D090_TRANSACTION.json").read_bytes(),
+                             journal_before)
+
+    def test_quarantine_is_not_automatically_cleared_by_observer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            path = root / "state" / "session_recovery_quarantine.json"
+            doc = json.loads(path.read_text(encoding="utf8"))
+            doc["quarantined"] = True
+            path.write_text(json.dumps(doc), encoding="utf8")
+            before = path.read_bytes()
+            with self.assertRaisesRegex(ValueError, "verified-OFF"):
+                self.capture(root)
+            self.assertEqual(path.read_bytes(), before)
+
     def test_mismatched_off_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
