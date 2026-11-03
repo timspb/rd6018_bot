@@ -38,7 +38,6 @@ class NativeRecipeSessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             lib = NativeRecipeDraftLibrary(directory)
             variants = (
-                ("native_efb_normal", "charge.mix.finish_hold_hours", 4.0),
                 ("native_agm_normal", "charge.main.default_voltage_v", 14.6),
                 ("native_efb_normal", "charge.main.current_c_rate", 0.20),
             )

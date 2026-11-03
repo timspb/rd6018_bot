@@ -109,3 +109,25 @@ START, native execution parity, persistence/restore and controller paths.
 No full-suite PASS claimed. Changes remain local-only; node104 untouched.
 Next task: MIX finish-hold time settings and effective runtime timer reporting,
 then remaining native parameters and the clean full suite.
+
+## Implementation update — 2026-11-03 MIX finish hold
+
+The native-copy setting charge.mix.finish_hold_hours now reaches the existing
+MIX strategy decision through runtime/charge/runtime/mix_scaffold.py, not a
+new engine. It also controls the runtime's MIX sticky-hold deadline and
+stage_max_hours display in runtime/charge/runtime/support.py. Only native
+copies with supported intent (not diagnostic) admit this override. Unpinned
+MIX keeps the canonical 2-hour default. Later edits to the library cannot
+change an already pinned session. The original delta evidence and active MIX
+limit remain unchanged.
+
+Focused Linux regression before commit: **56 tests PASS and 305 subtests
+PASS** after updating an obsolete test that formerly rejected this key. The
+full repository suite is still NOT green/fully validated. node104 was NOT
+updated, charging actuation was NOT attempted. Last verified node104 state in
+earlier checkpoint is timestamped, not a fresh health claim.
+
+Next: inventory remaining declared parameters and ensure every executable
+setting actually reaches its decision owner, with effective timer/UI output.
+Repair the reproducible full-suite environment and historical failures before
+staging a deployment. Update this checkpoint in every subsequent code commit.

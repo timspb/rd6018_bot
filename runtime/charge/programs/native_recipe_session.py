@@ -80,6 +80,7 @@ def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
         allowed.update({
             "charge.safe_wait.maximum_hours",
             "charge.safe_wait.target_margin_v",
+            "charge.mix.finish_hold_hours",
             "charge.desulfation.duration_hours",
             "charge.desulfation.base_voltage_v",
             "charge.desulfation.current_c_rate",
@@ -221,6 +222,9 @@ def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
         if "charge.main.current_c_rate" in values:
             result["current_c_rate"] = float(values["charge.main.current_c_rate"])
         return result
+    if stage == "MIX_POLICY":
+        key = "charge.mix.finish_hold_hours"
+        return {"finish_hold_hours": float(values[key])} if key in values else {}
     if stage == "MIX":
         name = {"Ca/Ca": "charge.mix.ca_voltage_v",
                 "EFB": "charge.mix.efb_voltage_v",

@@ -50,6 +50,11 @@ def apply_mix_authority_tick(
     from runtime.charge.strategy.mix import decide_mix_transition
     from runtime.charge.strategy.mix_variables import mix_finish_hold_seconds
 
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
+    pinned_mix = native_target_parameters(host, "MIX_POLICY")
+    finish_hold_s = float(
+        pinned_mix.get("finish_hold_hours", mix_finish_hold_seconds() / 3600.0)
+    ) * 3600.0
     metrics = record.analysis.metrics
     mirror = build_mix_evidence_mirror(
         is_cv=bool(is_cv), is_cc=bool(is_cc),
@@ -63,7 +68,7 @@ def apply_mix_authority_tick(
         authority_limit_s=mix_max_active_seconds(host.battery_type),
         finish_hold_started_at=host.finish_timer_start,
         now_s=timestamp_s,
-        finish_hold_s=mix_finish_hold_seconds(),
+        finish_hold_s=finish_hold_s,
     )
     if decision.action == AuthorityAction.START_FINISH_HOLD:
         effect = build_mix_finish_hold_effect(
@@ -77,7 +82,7 @@ def apply_mix_authority_tick(
         apply_mix_finish_hold_effect(host, effect, actions)
         logger.info(
             "CHARGE_EVIDENCE kind=delta event=hold_start mode=%s hold_seconds=%.1f timestamp=%.3f",
-            effect.mode or "unknown", mix_finish_hold_seconds(), timestamp_s,
+            effect.mode or "unknown", finish_hold_s, timestamp_s,
         )
     elif decision.action == AuthorityAction.COMPLETE_TO_SAFE_WAIT:
         storage_v, storage_i = host._storage_target()

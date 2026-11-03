@@ -39,6 +39,12 @@ def _effective_recovery_max_seconds(host: Any, *, stage: str) -> float:
     raise ValueError("unsupported recovery timer stage")
 
 
+def _effective_mix_finish_hold_seconds(host: Any) -> float:
+    from runtime.charge.programs.native_recipe_session import native_target_parameters
+    params = native_target_parameters(host, "MIX_POLICY")
+    return float(params.get("finish_hold_hours", mix_finish_hold_seconds() / 3600.0)) * 3600.0
+
+
 def target_finish_time(host: Any) -> Optional[float]:
     if host.current_stage == host.STAGE_SAFE_WAIT:
         return host._safe_wait_start + _effective_recovery_max_seconds(host, stage="SAFE_WAIT")
@@ -46,7 +52,7 @@ def target_finish_time(host: Any) -> Optional[float]:
         return host.stage_start_time + _effective_recovery_max_seconds(host, stage="DESULFATION")
     if host.current_stage == host.STAGE_MIX:
         if host.finish_timer_start is not None:
-            return host.finish_timer_start + mix_finish_hold_seconds()
+            return host.finish_timer_start + _effective_mix_finish_hold_seconds(host)
         hours = mix_max_active_hours(host.battery_type)
         if hours is not None:
             return host.stage_start_time + hours * 3600.0
@@ -58,7 +64,7 @@ def stage_max_hours(host: Any) -> Optional[float]:
         return _effective_recovery_max_seconds(host, stage="DESULFATION") / 3600.0
     if host.current_stage == host.STAGE_MIX:
         if host.finish_timer_start is not None:
-            return mix_finish_hold_seconds() / 3600.0
+            return _effective_mix_finish_hold_seconds(host) / 3600.0
         hours = mix_max_active_hours(host.battery_type)
         return float(hours) if hours is not None else mix_finish_hold_seconds() / 3600.0
     if host.current_stage == host.STAGE_SAFE_WAIT:

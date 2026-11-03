@@ -105,15 +105,15 @@ class MainPolicyPinnedTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self._decision_inputs(efb)
 
-    def test_unwired_mix_parameter_still_rejected_at_selection(self):
+    def test_mix_finish_parameter_now_accepted_by_canonical_owner(self):
         with tempfile.TemporaryDirectory() as root:
             lib = NativeRecipeDraftLibrary(root)
-            lib.save("unwired", 1, {
+            lib.save("mix_copy", 1, {
                 "schema": 1, "base_recipe_id": "native_efb_normal",
                 "execution_kind": "native_authority",
                 "overrides": {"charge.mix.finish_hold_hours": 4.0},
             })
-            with self.assertRaises(ValueError):
-                select_native_recipe_version(
-                    lib, "unwired", 1, profile="EFB", intent="normal",
-                )
+            selected = select_native_recipe_version(
+                lib, "mix_copy", 1, profile="EFB", intent="normal",
+            )
+            self.assertEqual(dict(selected.overrides)["charge.mix.finish_hold_hours"], 4.0)
