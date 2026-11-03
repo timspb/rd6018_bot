@@ -36,6 +36,56 @@ class NativeRecipePolicy:
         from runtime.charge.strategy.desulfation import select_desulfation_target
         return select_desulfation_target(capacity_ah=capacity_ah)
 
+    def recovery_safe_wait_decision(self, continuation: Any, *,
+                                    session_id: str | None,
+                                    session_generation: float | None,
+                                    expected_source_stage: str,
+                                    expected_next_stage: str,
+                                    now_s: float, voltage_v: float,
+                                    output_is_off: bool):
+        """Use the existing Recovery SAFE_WAIT validator and decision owner."""
+        from runtime.charge.strategy.recovery_safe_wait import (
+            RecoverySafeWaitAction, RecoverySafeWaitDecision,
+            decide_recovery_safe_wait, validate_recovery_continuation,
+        )
+        if not validate_recovery_continuation(
+            continuation, session_id=session_id,
+            session_generation=session_generation,
+            expected_source_stage=expected_source_stage,
+            expected_next_stage=expected_next_stage,
+        ):
+            return RecoverySafeWaitDecision(RecoverySafeWaitAction.REJECT,
+                                            "invalid_continuation", 0.0, 0.0)
+        return decide_recovery_safe_wait(
+            continuation, now_s=now_s, voltage_v=voltage_v,
+            output_is_off=output_is_off,
+        )
+
+    def final_safe_wait_decision(self, continuation: Any, *,
+                                 session_id: str | None,
+                                 session_generation: float | None,
+                                 expected_next_stage: str,
+                                 allowed_source_stages: set[str],
+                                 now_s: float, voltage_v: float,
+                                 output_is_off: bool):
+        """Use the existing Final SAFE_WAIT validator and decision owner."""
+        from runtime.charge.strategy.final_safe_wait import (
+            FinalSafeWaitAction, FinalSafeWaitDecision,
+            decide_final_safe_wait, validate_final_continuation,
+        )
+        if not validate_final_continuation(
+            continuation, session_id=session_id,
+            session_generation=session_generation,
+            expected_next_stage=expected_next_stage,
+            allowed_source_stages=allowed_source_stages,
+        ):
+            return FinalSafeWaitDecision(FinalSafeWaitAction.REJECT,
+                                         "invalid_continuation", 0.0, 0.0)
+        return decide_final_safe_wait(
+            continuation, now_s=now_s, voltage_v=voltage_v,
+            output_is_off=output_is_off,
+        )
+
     def mix_target(self, *, capacity_ah: float):
         """Return the existing chemistry-dependent MIX target.
 
