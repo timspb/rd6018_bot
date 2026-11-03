@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import AnswerCallbackQuery
 from test_operator_navigation_recovery import (

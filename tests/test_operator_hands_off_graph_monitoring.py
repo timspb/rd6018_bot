@@ -1,4 +1,4 @@
-﻿import time
+import time
 import types
 import unittest
 from unittest.mock import patch

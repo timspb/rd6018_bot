@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from aiogram.types import InlineKeyboardButton
 
 from runtime.ui.telegram.recipe_buttons import editor_page

@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog

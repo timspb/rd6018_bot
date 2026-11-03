@@ -1,4 +1,4 @@
-﻿import types
+import types
 import unittest
 from unittest.mock import patch
 
