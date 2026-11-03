@@ -85,8 +85,18 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
             app, msg, result = await self._exercise(voltage=13.8, current=1.2)
         self.assertFalse(result)
         self.assertFalse(app.charge_controller.stopped)
-        self.assertIsNone(getattr(app.charge_controller,
-                                  "_existing_recipe_execution_binding", None))
+        self.assertIsNotNone(app.charge_controller._existing_recipe_execution_binding)
+        self.assertIn("persistence failed", app.charge_controller._recipe_tick_fault)
+        from application.charge_session_tick import run_charge_session_tick
+        from unittest.mock import patch, AsyncMock
+        with patch("application.recipe_existing_session.advance_in_existing_session",
+                   new_callable=AsyncMock) as advance:
+            self.assertEqual(
+                await run_charge_session_tick(
+                    app.charge_controller, 13.8, 0.1, 25.0, True, 0.0
+                ), {}
+            )
+            advance.assert_not_awaited()
         self.assertIn("не подтверждён", msg.answers[-1][0])
 
     async def test_voltage_exceeds_active_battery_envelope_no_enable(self):

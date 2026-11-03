@@ -407,6 +407,15 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             )
             if off_confirmed:
                 app.charge_controller.stop(clear_session=True)
+            else:
+                # Physical Output is uncertain: do not release ownership to
+                # the ordinary profile tick loop. Keep the selected recipe
+                # bound but faulted, so charge_session_tick performs no actions
+                # until the operator resolves the physical state.
+                app.charge_controller._existing_recipe_execution_binding = recipe_binding
+                app.charge_controller._recipe_tick_fault = (
+                    f"initial recipe state persistence failed: {type(exc).__name__}"
+                )
             await message.answer(
                 "❌ Сохранение начального состояния рецепта не удалось "
                 f"({html.escape(type(exc).__name__)}). "
