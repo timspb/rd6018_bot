@@ -26,6 +26,27 @@ class NativeRecipePolicy:
             **evidence,
         )
 
+    def desulfation_decision(self, *, active_elapsed_s: float):
+        """Preserve the bounded recovery strategy's accepted time semantics."""
+        from runtime.charge.strategy.desulfation import decide_desulfation
+        return decide_desulfation(active_elapsed_s=active_elapsed_s)
+
+    def desulfation_target(self, *, capacity_ah: float):
+        """Return the existing recovery target; no actuator operation."""
+        from runtime.charge.strategy.desulfation import select_desulfation_target
+        return select_desulfation_target(capacity_ah=capacity_ah)
+
+    def mix_target(self, *, capacity_ah: float):
+        """Return the existing chemistry-dependent MIX target.
+
+        This does not authorize MIX admission. Production thermal compensation
+        and the live recipe envelope still apply at the execution boundary.
+        """
+        from runtime.charge.strategy.mix import select_mix_target
+        return select_mix_target(
+            profile=self.description.profile, capacity_ah=capacity_ah,
+        )
+
     def mix_decision(self, **evidence: Any):
         """Evaluate MIX by delegating to its existing production owner.
 
