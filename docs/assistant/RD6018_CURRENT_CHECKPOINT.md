@@ -270,3 +270,22 @@ requiring a .git checkout, which does not exist in a deployment source.tar.
 The test is now conditionally skipped in archives but still executes in Git
 checkouts; 5 D123 tests passed in a local checkout. Next: commit, restage
 exact HEAD, and re-run archive and clean-checkout tests. Do not deploy yet.
+
+## 2026-11-04 — Offline staged release full regression PASS
+
+Exact source-only candidate fa60c16 produced by existing
+tools/node104_atomic_deploy.py, archive and full extracted SHA256 manifest
+verified. Full candidate suite: **2842 PASS, 10 skipped, 5 warnings, 1658
+subtests PASS, 0 FAIL/ERROR**, 138.71 s. See evidence log
+/tmp/rd6018-candidate-fa60c16-full.log on HOME-PC WSL. The increased skipped
+count reflects absent .git in the source-only archive; source checkout D123
+tests were 5 PASS. This is offline software acceptance, not physical
+acceptance or node104 deployment.
+
+The current node104 baseline remains hands_off, service running, and source
+runtime mismatch: 59 changed source files of which 40 differ, 6 absent,
+13 identical. Candidate must be treated as one coherent release rather than
+a 6-file patch. Do not stop/restart the service or overwrite state during
+an ongoing externally controlled charge. Next stage: inspect exact
+candidate deployment handoff and prepare a reversible activation procedure
+for a safe maintenance window, preserving all operational data.

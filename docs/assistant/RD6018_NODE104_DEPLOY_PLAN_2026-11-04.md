@@ -76,3 +76,23 @@ This is a test-environment contract adjustment, not a bypass of charger
 behavior. Re-stage and re-test from the next committed source HEAD.
 
 Do not infer a production deployment from this offline candidate.
+
+## Verified release candidate fa60c16
+
+The second candidate was staged by the existing offline
+tools/node104_atomic_deploy.py from exact commit fa60c16 under
+/tmp/rd6018-release-candidate-20261104/release-fa60c16cc4bf3420d29bf0cfad184d9572e6182f-iv_je3jp.
+The staging operation verified the source.tar digest and its complete
+unpacked file SHA256 manifest.
+
+Entire pytest suite inside the unpacked **source-only** candidate:
+**2842 PASS, 10 SKIPPED, 5 WARNINGS, 1658 subtests PASS, 0 failures and
+0 errors** in 138.71 seconds. Evidence:
+HOME-PC WSL /tmp/rd6018-candidate-fa60c16-full.log.
+VCS-dependent tests properly skip in source-only releases; D123 tests pass
+in the local source checkout.
+
+The successful offline candidate is not a deployed or activated release.
+No remote service restart, database write, hardware output, or state
+migration took place. The node104 live baseline must be rechecked before
+any installation or switch-over.
