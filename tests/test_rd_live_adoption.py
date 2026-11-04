@@ -282,6 +282,28 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(manager.guard.live["set_voltage"], 16.55)
             self.assertEqual(manager.guard.live["set_current"], 1.0)
 
+    async def test_off_pending_task_survives_unexpected_observer_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = FakeManager(live_state())
+            observer = HandsOffMixObserver(
+                FakeApp(manager), manager, state_file=f"{tmp}/observer.json", poll_s=0.01
+            )
+            observer.state = LiveMixObserverState.OFF_PENDING
+            calls = []
+
+            async def transient_then_complete():
+                calls.append(observer.last_status)
+                if len(calls) == 1:
+                    raise RuntimeError("synthetic transient runtime error")
+                self.assertIn("OFF_PENDING runtime error", observer.last_status)
+                observer.state = LiveMixObserverState.COMPLETED
+
+            observer.observe_once = transient_then_complete
+            await asyncio.wait_for(observer._run(), timeout=2.0)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(observer.state, LiveMixObserverState.COMPLETED)
+            self.assertEqual(manager.off_calls, 0)
+
     async def test_false_off_confirmation_must_not_complete_or_notify(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_file = f"{tmp}/observer.json"
