@@ -377,7 +377,11 @@ class HandsOffMixObserver:
         # continue toward OFF, never reconstruct or resume the external Mix authority.
         self._persist()
         try:
-            await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
+            confirmed = await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
+            if confirmed is not True:
+                self.last_status = "verified Output OFF still pending: confirmation unavailable"
+                self._persist()
+                return False
         except Exception as exc:
             self.last_status = f"verified Output OFF still pending: {type(exc).__name__}: {exc}"
             self._persist()

@@ -30,11 +30,14 @@ class FakeManager:
         self.guard = FakeGuard(live)
         self.off_calls = 0
         self.fail_off = False
+        self.unconfirmed_off = False
 
     async def operator_output_off(self, entity_id=None):
         self.off_calls += 1
         if self.fail_off:
             raise RuntimeError("synthetic OFF confirmation failure")
+        if self.unconfirmed_off:
+            return False
         self.guard.live["switch"] = "off"
         return True
 
@@ -278,6 +281,36 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(manager.guard.live["switch"], "off")
             self.assertEqual(manager.guard.live["set_voltage"], 16.55)
             self.assertEqual(manager.guard.live["set_current"], 1.0)
+
+    async def test_false_off_confirmation_must_not_complete_or_notify(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_file = f"{tmp}/observer.json"
+            live = live_state()
+            manager = FakeManager(live)
+            app = FakeApp(manager)
+            observer = HandsOffMixObserver(app, manager, state_file=state_file, poll_s=3600)
+            observer.analyzer = AlwaysDeltaAnalyzer()
+            await observer.start(preview_from_live(live), mode=LiveMixObserverMode.DELTA_THEN_OFF)
+            set_source_report(manager, _iso(1.0))
+            await observer.observe_once()
+            observer.finish_hold_started_at_s = time.time() - 2 * 3600.0 - 1.0
+            manager.unconfirmed_off = True
+            set_source_report(manager, _iso(2.0))
+            await observer.observe_once()
+            self.assertEqual(observer.state, LiveMixObserverState.OFF_PENDING)
+            self.assertEqual(manager.off_calls, 1)
+            self.assertEqual(manager.guard.live["switch"], "on")
+            self.assertIn("confirmation unavailable", observer.last_status)
+            with open(state_file, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["state"], "off_pending")
+            self.assertFalse(any("Mix завершён" in notice[0] for notice in app.notices))
+            task = observer._task
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def test_unconfirmed_final_off_persists_and_retries_after_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
