@@ -1,0 +1,202 @@
+views:
+  - title: RD6018 Control
+    path: rd6018-control
+    icon: mdi:battery-charging-60
+    type: sections
+    max_columns: 1
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Аккумулятор
+            icon: mdi:car-battery
+          - type: tile
+            entity: sensor.rd_6018_battery_voltage
+            name: Напряжение АКБ
+            icon: mdi:car-battery
+            vertical: true
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 6
+              rows: 2
+          - type: tile
+            entity: sensor.rd_6018_output_current
+            name: Фактический ток
+            icon: mdi:current-dc
+            vertical: true
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 6
+              rows: 2
+
+          - type: heading
+            heading: Уставки и пределы защиты
+            icon: mdi:tune-vertical
+          - type: tile
+            entity: sensor.rd6018_rd_6018_set_voltage_readback_v2
+            name: Vset
+            icon: mdi:flash-outline
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.rd6018_rd_6018_set_current_readback_v2
+            name: Iset
+            icon: mdi:current-dc
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.rd6018_rd_6018_ovp_readback_v2
+            name: OVP
+            icon: mdi:flash-alert-outline
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.rd6018_rd_6018_ocp_readback_v2
+            name: OCP
+            icon: mdi:current-ac
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+
+          - type: heading
+            heading: Режим и защита
+            icon: mdi:shield-check-outline
+          - type: tile
+            entity: sensor.rd6018_rd_6018_output_state_code_v2
+            name: Выход · код 0/1
+            icon: mdi:power-plug
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: binary_sensor.rd_6018_constant_voltage
+            name: CV
+            icon: mdi:alpha-c-circle-outline
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: binary_sensor.rd_6018_constant_current
+            name: CC
+            icon: mdi:alpha-c-circle-outline
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.rd6018_rd_6018_protection_status_code
+            name: Код защиты
+            icon: mdi:shield-alert-outline
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: binary_sensor.rd_6018_over_voltage_protection
+            name: OVP сработала
+            icon: mdi:flash-alert
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: binary_sensor.rd_6018_over_current_protection
+            name: OCP сработала
+            icon: mdi:current-ac
+            tap_action:
+              action: more-info
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+            grid_options:
+              columns: 3
+          - type: entities
+            title: Состояния безопасности
+            show_header_toggle: false
+            entities:
+              - entity: binary_sensor.rd6018_rd_6018_safety_lease_armed
+                name: Lease armed
+              - entity: sensor.rd6018_rd_6018_safety_lease_remaining
+                name: Остаток lease
+              - entity: sensor.rd6018_rd_6018_safety_modbus_age
+                name: Возраст Modbus
+              - entity: binary_sensor.rd6018_rd_6018_safety_lease_tripped
+                name: Lease trip
+              - entity: binary_sensor.rd6018_rd_6018_safety_boot_quarantine
+                name: Boot quarantine
+              - entity: binary_sensor.rd6018_rd_6018_safety_autonomous_mode
+                name: Autonomous mode
+              - entity: binary_sensor.rd6018_rd_6018_safety_authority_conflict
+                name: Authority conflict
+
+          - type: heading
+            heading: История · 24 часа
+            icon: mdi:chart-line
+          - type: history-graph
+            title: Напряжение АКБ и фактический ток
+            hours_to_show: 24
+            show_names: true
+            entities:
+              - entity: sensor.rd_6018_battery_voltage
+                name: Напряжение АКБ
+              - entity: sensor.rd_6018_output_current
+                name: Фактический ток
+            grid_options:
+              columns: 12
+              rows: 4
