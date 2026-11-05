@@ -747,3 +747,10 @@ the matching D138 tree/Python 3.11 environment, validate a source-paired
 external D145 profile and temporary-root same-owner entrypoint, then acquire
 fresh direct ESP Native evidence and run production prepare. Stop if any owner
 or recovery invariant does not admit.
+
+A further identity correction keeps the validated D091 timestamp/nonces in the
+D137 result record but outside its durable preimage identity hash. D142 still
+requires and validates the fresh Native/HA OFF proof before D137, and D144
+re-collects phase-specific proof. This makes D144's candidate identity stable
+across independently fresh physical observations. Regression: 41 passed, 5
+subtests; compileall passed. Exact source packaging/full suite must be rerun.

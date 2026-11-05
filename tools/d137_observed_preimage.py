@@ -215,7 +215,17 @@ def observed_preimage(root: Path, *, pid: int,
             "automatic_resume_authorized": False,
         } if preserved_guard else None)
     }
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    # The identity digest pins durable app/session/guard bytes. A fresh D091
+    # proof gates admission, but its timestamp and independent source nonces
+    # are observation evidence rather than durable preimage identity. Keep the
+    # validated proof in the returned record while excluding only that transient
+    # subrecord from the stable candidate identity.
+    identity_payload = payload
+    if preserved_guard is not None:
+        identity_payload = json.loads(json.dumps(payload, sort_keys=True,
+                                                  separators=(",", ":"), ensure_ascii=True))
+        identity_payload["preserved_guarded_main"].pop("physical_off_reconciliation")
+    canonical = json.dumps(identity_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     payload["preimage_sha256"] = hashlib.sha256(canonical.encode("ascii")).hexdigest()
     return payload
 

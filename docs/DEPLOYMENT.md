@@ -410,3 +410,9 @@ per-observation digest (including D091 proof nonces and timestamp) and must be
 carried into that run's D138 candidate identity, never compared to the static
 installed-app inventory pin. D144 verifies the static app inventory only after
 D142 has independently validated fresh D091 OFF evidence.
+
+The D137 durable identity digest excludes only the transient timestamp and
+nonces of a D091 proof that D142 has already validated. The proof remains in
+the returned evidence record and is re-collected before each transaction
+phase. This keeps D144's candidate identity stable across the fresh phase
+observations while still requiring each phase's independent physical proof.

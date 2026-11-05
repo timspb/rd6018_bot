@@ -1137,3 +1137,9 @@ guard/session data, or historical transaction was rewritten. Focused D137,
 D138, D142 and D144 checks pass (40 tests, 5 subtests); `compileall` passes.
 This is a local implementation stage only; candidate packaging and node
 admission have not yet been attempted.
+
+D137's stable durable identity digest excludes only the transient D091 proof
+(timestamp and source nonces); D142 still validates that proof before D137,
+returns it as evidence, and D144 re-collects physical proof for each phase.
+This lets the exact candidate identity remain the same across prepare/execute
+while preserving fresh per-phase OFF evidence.

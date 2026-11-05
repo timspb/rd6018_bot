@@ -277,6 +277,28 @@ class D137Tests(unittest.TestCase):
                             ValueError,"state-preserving OFF"):
                         observed_preimage(root,pid=1234,physical_off_reconciliation=proof)
 
+    def test_historical_guard_on_preimage_identity_is_stable_across_fresh_proofs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); self.guarded_main_historical_on_fixture(root)
+            proofs=(self.historical_on_reconciliation(),
+                    self.historical_on_reconciliation())
+            proofs[1]["captured_at_epoch"] -= 0.2
+            proofs[1]["source_nonces"] = ["native-fresh-2", "ha-independent-2"]
+            real_read=Path.read_bytes
+            def fake_argv(path):
+                if str(path)=="/proc/1234/cmdline":
+                    return str(root/"app"/"bot.py").encode()+bytes([0])
+                return real_read(path)
+            results=[]
+            for proof in proofs:
+                with patch.object(Path,"read_bytes",fake_argv):
+                    results.append(observed_preimage(
+                        root,pid=1234,physical_off_reconciliation=proof))
+            self.assertNotEqual(
+                results[0]["preserved_guarded_main"]["physical_off_reconciliation"],
+                results[1]["preserved_guarded_main"]["physical_off_reconciliation"])
+            self.assertEqual(results[0]["preimage_sha256"],results[1]["preimage_sha256"])
+
 
 if __name__=="__main__":
     unittest.main()
