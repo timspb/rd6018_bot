@@ -673,3 +673,59 @@ or deployment pass. Next: reconcile the existing session through its owner so
 its durable Guard state truthfully records OFF while preserving the session,
 then build/review an exact source-paired D145/D146 profile before another fresh
 prepare.
+
+## 2026-11-05 — D137/D142 guarded-MAIN OFF preflight implementation
+
+Exact implementation commit: `cc612fe98206e72714b64510b7928a40abdfada5`
+on short-lived branch `fix/d145-guarded-main-admission` (parent
+`d131ad7bbab1f97f1a012298db79aee1bd78700f`). Local branch is **1 commit ahead
+of origin/main**; no push or integration has occurred. The pre-existing
+untracked `.codex_bootstrap_fix.md` is preserved and excluded from the commit.
+
+D142 now collects and validates fresh D091 Native/HA OFF evidence before
+reading D137/D138 preimage state. A sealed guarded MAIN snapshot may retain its
+historical `last_output_on=true` only when that same D091 proof is fresh, bound
+to the live service PID, independently OFF/zero-U/I, lease disarmed, boot
+quarantine clear, one physical owner, and nonce-distinct. D137 validates the
+persisted snapshot rather than `read_guard()`'s restart-normalized in-memory
+value, binds the D091 OFF reconciliation into the preimage digest, and keeps
+the session, guard, quarantine and historical D090/D144 records byte-for-byte.
+All original guard identity, hash, revision, capacity, stage, pending/fault,
+retirement and service checks remain. The installed guarded restore path still
+requires a separate Native pre-ON reconciliation and armed lease; ordinary
+Output enable remains latched. No auto-START or setpoint authority was added.
+The old D145 profile/source pin `d351c208…` was not modified.
+
+Software evidence at this code HEAD: `compileall` passed before the final
+strict-type-only D137 tightening; the changed modules/tests then passed
+`py_compile`. The focused D137/D138/D142/D143/D144/D145/D149, MAIN pre-ON,
+guarded restore and startup admission suites passed **103 tests, 34 subtests**.
+An ambient full `unittest` invocation was interrupted without a summary. A
+full pytest attempt stopped at the existing D061 exact-source manifest digest
+under the Windows-translated working checkout; it reported 198 passed, 2
+skipped, 24 subtests and one collection/setup error (`untrusted exact-source
+manifest`). This is not a source failure or full pass. Run the full suite from
+the exact Git archive with the isolated dependency environment.
+
+Fresh pre-change node104 evidence was acquired at 2026-11-05 13:15 UTC (D091)
+and 13:20 UTC (full direct Native subscription plus independent HA): service
+PID 213548; ESP `timspb.rd6018-pb-recovery-v2`, `2.3-ha-canonical`, device 0;
+R18 OFF, measured U/I 0/0, battery 12.94 V, Vset/Iset 14.82 V/1.23 A,
+R16=0, OVP/OCP 16.70 V/12.0 A, autonomous=false, lease disarmed/generation
+61/remaining 0 s/TTL 900 s, trip=false, boot quarantine=false, Modbus age
+5.445 s. Native callback ages in the full read were below 1 s and HA agreed.
+Persisted guarded EFB 65 Ah Recovery MAIN session/revision 481 and old D090
+`STARTED` plus prior D144 `COMMITTED` were not modified. No service or
+hardware command was issued. These observations are historical at checkpoint
+time and must be reacquired before production phases.
+
+**Not deployed.** Remaining before actual D144 activation: build an exact
+source-paired D145 profile for the candidate without editing the historical
+profile, build the matching D138 source tree and Python 3.11 venv stage, test
+the exact archive and temporary-root owner path, then invoke that exact staged
+D145 candidate entrypoint outside live `app/` under the canonical D090 root
+lock. Production prepare must pass fresh proof and preserve exact session and
+legacy journals before execute. After restart, verify installed source SHA,
+service health, direct Native R18 OFF and lease OFF; do not start or change
+setpoints. Update checkpoint again with the final deployment result or exact
+owner refusal.
