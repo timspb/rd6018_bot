@@ -1162,3 +1162,25 @@ subrecord from the candidate identity digest while returning it in evidence;
 source/venv inventory and durable guarded session identity remain included.
 Focused D137/D138/D142/D144/D145 suite passes (51 tests, 5 subtests); exact
 archive suite and repeated prepare identity equality remain pending.
+
+## 2026-11-05 — exact D145/D138 candidate admitted for same-owner execution
+
+Exact software source commit `d2aa2a53b8423292ba3abbbdd3261a73f6b2089a` was
+packaged from its Git archive and staged under `/tmp` on node104 with a
+Python 3.11.2 venv; source archive SHA256 is
+`68e35a1ec0819fa113aa347dea8b0d1e03f71a16fd9008c6cc4b19f12ea21c0c`, and the
+D138 source-manifest SHA256 is
+`f93737d9a5cb5eba2623956e28fad79e9668cc1d04b8253c86525f1f7792abb2`. All 1,352
+source entries match and `pip check` is clean. The new external D145 profile
+pins the measured installed app inventory and exact source/manifest bytes;
+the historical d351 profile file was not edited.
+
+The exact archive full suite passed **2,904 tests, 9 skipped, 1 archive-only
+fixture deselected, 1,677 subtests passed**; compileall passed. Repeated D145
+prepare through the same D090 lock and pinned D148 reader passed and returned
+the same candidate identity
+`39407c15c850ecaeff1e8d2261c7d989b8b5be6ab2d4be9bd4307ab69e5af976` on each
+fresh D091 proof. The preserved MAIN Guard is rev481 with historical
+`last_output_on=true`; `automatic_resume_authorized=false`. D144 slot 2 backup,
+journal, candidate and old-component paths were all absent before execution.
+No service stop or actuator change has occurred yet.

@@ -776,3 +776,34 @@ the stable candidate identity digest while returning it in evidence and still
 binding candidate source/venv plus durable session/Guard identity. Focused
 D137/D138/D142/D144/D145: 51 passed, 5 subtests; compileall passed. Full exact
 archive suite and repeat prepare identity check remain to run.
+
+## 2026-11-05 — exact candidate and repeated D145 admission
+
+Exact code source SHA: `d2aa2a53b8423292ba3abbbdd3261a73f6b2089a`. It is a local
+commit on `fix/d145-guarded-main-admission`; local/origin gap to recompute after
+this checkpoint commit. The pre-existing untracked `.codex_bootstrap_fix.md`
+remains untouched. The exact Git archive and candidate full suite passed
+**2,904 PASS, 9 skipped, 1 archive-only fixture deselected, 1,677 subtests**;
+compileall passed. Candidate archive SHA256 is
+`68e35a1ec0819fa113aa347dea8b0d1e03f71a16fd9008c6cc4b19f12ea21c0c` and D138
+manifest SHA256 is
+`f93737d9a5cb5eba2623956e28fad79e9668cc1d04b8253c86525f1f7792abb2`. Node104
+staging contains 1,352 exact source files and a Python 3.11.2 venv with clean
+`pip check`.
+
+A new external source-paired D145 profile pins the measured old `app/`
+inventory (`b1f4db27e7d70f03f2f3197f3a042be39b6bd969614bc4a8869c41f87d0d7a15`);
+the old d351 D146 profile remains byte-for-byte untouched. D145 prepare uses
+existing pinned D148 for the state-preserving proof. Two separate fresh D091
+prepares passed under the same D090 lock and returned stable candidate identity
+`39407c15c850ecaeff1e8d2261c7d989b8b5be6ab2d4be9bd4307ab69e5af976`. Guard
+rev481, capacity 65 Ah, pending/fault null, historical Output-on true, and no
+auto-resume authority are preserved. D144 transaction slot 2 and its backup/
+rename paths are unoccupied. Fresh direct Native and D091 report R18 OFF,
+measured U/I zero, battery 12.92 V, Vset/Iset 14.82/1.23 V, R16=0, OVP/OCP
+16.70/12.0, autonomous false, lease disarmed/generation61/remaining0/TTL900,
+trip/quarantine false, Modbus age 5.36 s; Native callback ages <0.5 s and HA
+agrees. Next: acquire another fresh direct Native read, execute exact staged
+D145 through the same D090 lock, then verify exact installed release identity,
+healthy service and fresh Native OFF/lease OFF without START or setpoint writes.
+Not deployed yet.
