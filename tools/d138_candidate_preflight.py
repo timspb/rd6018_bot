@@ -87,6 +87,8 @@ def inspect_candidate(*, root: Path, stage: Path, pid: int,
         "source_archive_sha256": manifest["source_archive_sha256"],
         "source_manifest_sha256": sha256(manifest_path),
         "source_files": len(expected), "venv": venv_record,
+        "preserved_guarded_main": actual_preimage.get("preserved_guarded_main") is not None,
+        "preserved_guard": actual_preimage.get("preserved_guarded_main"),
         "legacy_d090_untouched": True, "admitted_for_activation": False
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)

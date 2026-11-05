@@ -5,6 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from tools.d137_observed_preimage import observed_preimage
+from runtime.charge.strategy.main_current_guard import MainCurrentGuard
+from runtime.charge.strategy.main_guard_session import attach_guard, GUARD_KEY
+import time
 
 
 class D137Tests(unittest.TestCase):
@@ -157,6 +160,57 @@ class D137Tests(unittest.TestCase):
             first=self.capture(root)["preimage_sha256"]
             (root/"app"/"bot.py").write_text("modified")
             self.assertNotEqual(first,self.capture(root)["preimage_sha256"])
+
+    def guarded_main_fixture(self, root):
+        self.fixture(root)
+        sid, bid, now = "session-main", "battery-65", time.time()
+        doc={"stage":"Main Charge","profile":"EFB","ah_limit":65,
+             "v2_authoritative":True,"v2_trace_session_id":sid,"v2_battery_id":bid}
+        guard=MainCurrentGuard.start(session_id=sid,battery_id=bid,segment_id="main-1",
+            capacity_ah=65,recipe_initial_current_a=6.5,now_s=now)
+        guard,_=guard.observe(now_s=now,output_on=False,measured_current_a=0.0,
+                              fresh=True,stage="MAIN",battery_id=bid)
+        doc=attach_guard(doc,guard,now_s=now,expected_revision=0)
+        (root/"state"/"charge_session.json").write_text(json.dumps(doc))
+        (root/"state"/"session_recovery_quarantine.json").write_text(json.dumps({
+            "owner":"runtime.charge.recovery_quarantine_journal","schema_version":2,
+            "state":"retired","quarantined":False,"retirement":{
+                "operator_id":"operator","session_id":"old-session",
+                "confirmed_off_evidence":"off-receipt","retired_utc":"2026-11-05T00:00:00Z",
+                "incident_id":"incident","incident_reason":"safe-off","battery_id":None}}))
+        return doc
+
+    def test_guarded_main_is_observed_and_byte_pinned_without_resume_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); original=self.guarded_main_fixture(root)
+            before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            result=self.capture(root)
+            proof=result["preserved_guarded_main"]
+            self.assertEqual(proof["session_id"],"session-main")
+            self.assertEqual(proof["revision"],1)
+            self.assertEqual(proof["guard_sha256"],original[GUARD_KEY]["sha256"])
+            self.assertFalse(proof["automatic_resume_authorized"])
+            self.assertEqual(before,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_guarded_main_hash_revision_or_pending_drift_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); good=self.guarded_main_fixture(root)
+            path=root/"state"/"charge_session.json"; doc=json.loads(path.read_text())
+            doc[GUARD_KEY]["sha256"]="0"*64; path.write_text(json.dumps(doc))
+            with self.assertRaisesRegex(ValueError,"guard failed integrity"):
+                self.capture(root)
+            doc=json.loads(json.dumps(good)); doc[GUARD_KEY]["revision"]=0
+            path.write_text(json.dumps(doc))
+            with self.assertRaisesRegex(ValueError,"guard failed integrity"):
+                self.capture(root)
+
+    def test_guarded_main_quarantine_must_be_canonical_and_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); self.guarded_main_fixture(root)
+            path=root/"state"/"session_recovery_quarantine.json"; doc=json.loads(path.read_text())
+            doc["quarantined"]=True; path.write_text(json.dumps(doc))
+            with self.assertRaisesRegex(ValueError,"canonical clear quarantine"):
+                self.capture(root)
 
 
 if __name__=="__main__":

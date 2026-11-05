@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from tools.node104_d090_transaction import digest, inventory
-from tools.d144_state_preserving_transition import OwnerTransition, TransitionError
+from tools.d144_state_preserving_transition import OwnerTransition, TransitionError, transaction_slot
 
 class FakeService:
     def __init__(self): self.running=True; self.stops=0
@@ -46,6 +46,21 @@ class D144Tests(unittest.TestCase):
             release_identity={'schema':'D144_RELEASE_IDENTITY_V1','source_sha':'d351c208cbf8666f881a4660df6a0b211170e857','candidate_identity_sha256':'a'*64},
             failpoint=failpoint)
 
+    def tx_slot(self, slot, candidate, failpoint=None):
+        journal=self.root/("D144_TRANSACTION.json" if slot==1 else f"D144_TRANSACTION_{slot}.json")
+        if journal.is_file():
+            recorded=json.loads(journal.read_text())
+            before,wanted=recorded["before"],recorded["candidate"]
+        else:
+            before={p:inventory(self.root/p) for p in ("app","venv")}
+            wanted={p:inventory(candidate/p) for p in ("app","venv")}
+        return OwnerTransition(self.root,self.service,candidate=candidate,
+            evidence=self.proof,expected_before=before,expected_candidate=wanted,
+            legacy_journal_sha256=digest(self.root/'D090_TRANSACTION.json'),
+            candidate_stable=self.service.stable,restored_stable=self.service.stable,
+            release_identity={'schema':'D144_RELEASE_IDENTITY_V1','source_sha':'a351c208cbf8666f881a4660df6a0b211170e857','candidate_identity_sha256':'b'*64},
+            failpoint=failpoint,slot=slot)
+
     def test_cutover_preserves_state(self):
         self.assertEqual(self.tx().run()['phase'],'COMMITTED')
         self.assertEqual((self.root/'app/x').read_text(),'new')
@@ -53,6 +68,44 @@ class D144Tests(unittest.TestCase):
         self.assertEqual((self.root/'.deploy_sha').read_text(),'legacy')
         marker=json.loads((self.root/'D144_INSTALLED_RELEASE.json').read_text())
         self.assertEqual(marker['source_sha'],'d351c208cbf8666f881a4660df6a0b211170e857')
+
+    def test_repeated_upgrade_appends_history_and_keeps_each_rollback(self):
+        first=self.tx().run()
+        old_journal=(self.root/'D144_TRANSACTION.json').read_bytes()
+        old_identity=(self.root/'D144_INSTALLED_RELEASE.json').read_bytes()
+        old_backup={n:inventory(self.root/'d144-backup'/n) for n in ('app','venv')}
+        candidate=self.root/'candidate-2'
+        for part in ('app','venv'):
+            (candidate/part).mkdir(parents=True)
+            (candidate/part/'x').write_text('release-2')
+        self.assertEqual(transaction_slot(self.root),2)
+        record=self.tx_slot(2,candidate).run()
+        self.assertEqual(record['phase'],'COMMITTED')
+        self.assertEqual((self.root/'app/x').read_text(),'release-2')
+        self.assertEqual((self.root/'D144_TRANSACTION.json').read_bytes(),old_journal)
+        self.assertEqual((self.root/'D144_INSTALLED_RELEASE.json').read_bytes(),old_identity)
+        self.assertEqual({n:inventory(self.root/'d144-backup'/n) for n in ('app','venv')},old_backup)
+        self.assertTrue((self.root/'d144-backup-2').is_dir())
+        self.assertEqual(transaction_slot(self.root),3)
+
+    def test_repeated_upgrade_crash_restores_previous_release_and_preserves_history(self):
+        self.tx().run()
+        old_journal=(self.root/'D144_TRANSACTION.json').read_bytes()
+        candidate=self.root/'candidate-2'
+        for part in ('app','venv'):
+            (candidate/part).mkdir(parents=True)
+            (candidate/part/'x').write_text('release-2')
+        def crash(point):
+            if point=='AFTER_NEW_APP_RENAME_BEFORE_JOURNAL': raise RuntimeError('power loss')
+        with self.assertRaisesRegex(RuntimeError,'power loss'):
+            self.tx_slot(2,candidate,crash).run()
+        state=(self.root/'state/session').read_text()
+        recovered=self.tx_slot(2,candidate).recover()
+        self.assertEqual(recovered['phase'],'RESTORED')
+        self.assertEqual((self.root/'app/x').read_text(),'new')
+        self.assertEqual((self.root/'D144_TRANSACTION.json').read_bytes(),old_journal)
+        self.assertEqual((self.root/'state/session').read_text(),state)
+        self.assertEqual(transaction_slot(self.root),3)
 
     def test_realistic_legacy_started_journal_does_not_block_owner_transition(self):
         legacy = self.root / "D090_TRANSACTION.json"

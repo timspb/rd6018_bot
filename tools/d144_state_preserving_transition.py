@@ -22,6 +22,36 @@ PHASES = ("PREPARED", "BACKUP_DURABLE", "STOPPED",
           "COMMITTED", "RESTORED")
 
 
+def transaction_slot(root: Path) -> int:
+    """Return the next append-only D144 slot; never recycle old evidence."""
+    root = Path(root)
+    found = []
+    for path in root.glob("D144_TRANSACTION*.json"):
+        if path.is_symlink() or not path.is_file():
+            raise TransitionError("unsafe D144 transaction history entry")
+        name = path.name
+        if name == JOURNAL:
+            slot = 1
+        else:
+            suffix = name.removeprefix("D144_TRANSACTION_").removesuffix(".json")
+            if not suffix.isdigit() or str(int(suffix)) != suffix:
+                raise TransitionError("unknown D144 transaction history name")
+            slot = int(suffix)
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise TransitionError("D144 transaction history unreadable") from exc
+        if (record.get("schema") != "D144_STATE_PRESERVING_V1"
+                or record.get("phase") not in ("COMMITTED", "RESTORED")):
+            raise TransitionError("unfinished D144 history requires recovery")
+        found.append(slot)
+    if not found:
+        return 1
+    if sorted(found) != list(range(1, max(found) + 1)):
+        raise TransitionError("D144 transaction history has a slot gap")
+    return max(found) + 1
+
+
 class TransitionError(RuntimeError):
     pass
 
@@ -30,7 +60,7 @@ class OwnerTransition:
     def __init__(self, root: Path, service, *, candidate: Path,
                  evidence, expected_before: dict, expected_candidate: dict,
                  legacy_journal_sha256: str, candidate_stable, restored_stable,
-                 release_identity: dict, failpoint=None):
+                 release_identity: dict, failpoint=None, slot: int = 1):
         self.root, self.service, self.candidate = root, service, candidate
         self.evidence = evidence
         self.expected_before = expected_before
@@ -40,8 +70,16 @@ class OwnerTransition:
         self.candidate_stable = candidate_stable
         self.restored_stable = restored_stable
         self.release_identity = release_identity
-        self.identity_path = root / INSTALLED_IDENTITY
-        self.journal = root / JOURNAL
+        if type(slot) is not int or slot < 1:
+            raise TransitionError("invalid D144 transaction slot")
+        self.slot = slot
+        suffix = "" if slot == 1 else "_" + str(slot)
+        self.identity_path = root / (INSTALLED_IDENTITY.removesuffix(".json") + suffix + ".json")
+        self.journal = root / (JOURNAL.removesuffix(".json") + suffix + ".json")
+        self.backup_name = "d144-backup" if slot == 1 else "d144-backup-" + str(slot)
+
+    def _old_name(self, part):
+        return "d144-old-" + part if self.slot == 1 else "d144-old-" + str(self.slot) + "-" + part
 
     def _phase(self, record, phase):
         record["phase"] = phase
@@ -91,8 +129,13 @@ class OwnerTransition:
         state = self._component("state")
         if self.journal.exists() or self.journal.is_symlink():
             raise TransitionError("new transaction already recorded")
-        if (self.root / "d144-backup").exists():
+        if ((self.root / self.backup_name).exists()
+                or (self.root / self.backup_name).is_symlink()):
             raise TransitionError("backup name already occupied")
+        for name in PARTS:
+            old = self.root / self._old_name(name)
+            if old.exists() or old.is_symlink():
+                raise TransitionError("rollback component name already occupied")
         if not self.service.active():
             raise TransitionError("service not active")
         self.evidence(require_stopped=False)
@@ -106,11 +149,12 @@ class OwnerTransition:
                   "before": self.expected_before,
                   "candidate": self.expected_candidate,
                   "legacy_sha256": self.legacy_hash,
-                  "backup": "d144-backup",
+                  "backup": self.backup_name,
+                  "slot": self.slot,
                   "release_identity": self.release_identity}
         _atomic_json(self.journal, record)
         self.failpoint("PREPARED")
-        backup = self.root / "d144-backup"
+        backup = self.root / self.backup_name
         backup.mkdir(mode=0o700)
         for name in PARTS:
             shutil.copytree(self.root / name, backup / name, symlinks=True)
@@ -126,7 +170,7 @@ class OwnerTransition:
         self._phase(record, "STOPPED")
         self.evidence(require_stopped=True)
         for name in PARTS:
-            self._component(name).rename(self.root / ("d144-old-" + name))
+            self._component(name).rename(self.root / self._old_name(name))
             _sync_dir(self.root)
             self.failpoint("AFTER_OLD_" + name.upper() + "_RENAME_BEFORE_JOURNAL")
             self._phase(record, "OLD_" + name.upper() + "_RENAMED")
@@ -166,7 +210,8 @@ class OwnerTransition:
         record = json.loads(self.journal.read_text())
         if (record.get("schema") != "D144_STATE_PRESERVING_V1"
                 or record.get("phase") not in PHASES
-                or record.get("backup") != "d144-backup"
+                or record.get("backup") != self.backup_name
+                or record.get("slot", self.slot) != self.slot
                 or record.get("legacy_sha256") != self.legacy_hash
                 or record.get("before") != self.expected_before
                 or record.get("release_identity") != self.release_identity):
@@ -205,7 +250,7 @@ class OwnerTransition:
         self.evidence(require_stopped=True)
         for name in PARTS:
             installed = self.root / name
-            old = self.root / ("d144-old-" + name)
+            old = self.root / self._old_name(name)
             if old.exists():
                 if old.is_symlink() or not old.is_dir() or inventory(old) != record["before"][name]:
                     raise TransitionError("old directory corrupted: " + name)

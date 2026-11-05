@@ -57,6 +57,15 @@ class D149RouterTests(unittest.TestCase):
         self.assertEqual(self.calls[-1][0][1], str(self.new))
         self.assertEqual(self.calls[-1][1]["D090_STATE_PRESERVING_RECOVERY"], "1")
 
+    def test_guarded_main_preservation_uses_recovery_proof_on_every_phase(self):
+        router=mod.ReadOnlyObserverRouter(self.root,runner=self.run_fake,
+                                           preserve_active_session=True)
+        for phase in ("PRE_STOP","STOPPED","POST_START"):
+            router.select(phase); router()
+            expected=self.old if phase=="PRE_STOP" else self.new
+            self.assertEqual(self.calls[-1][0][1],str(expected))
+            self.assertEqual(self.calls[-1][1]["D090_STATE_PRESERVING_RECOVERY"],"1")
+
     def test_sha_mismatch_refuses_without_collecting(self):
         self.old.chmod(0o600)
         self.old.write_bytes(b"changed")

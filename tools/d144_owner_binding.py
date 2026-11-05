@@ -42,6 +42,8 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
             "observed_preimage_sha256": preimage_sha256,
             "fresh_d091_off": result["fresh_d091_off"],
             "capacity_pass": result["capacity_pass"],
+            "preserved_guarded_main": bool(result.get("preserved_guarded_main")),
+            "preserved_guard": result.get("preserved_guard"),
             "activation_authorized": False,
         }
 
@@ -61,7 +63,7 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             or not isinstance(owner.service, d090.SystemdService)):
         raise d090.TransactionError("D145 production owner binding invalid")
     from tools.d140_disk_guard import require_capacity
-    from tools.d144_state_preserving_transition import OwnerTransition
+    from tools.d144_state_preserving_transition import OwnerTransition, transaction_slot
     from tools.d149_observer_router import ReadOnlyObserverRouter
     import shutil
 
@@ -73,7 +75,8 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             preimage_sha256=preimage_sha256, collector=collector)
         if prepared.get("status") != "PREPARE_ONLY_PASS":
             raise d090.TransactionError("D145 prepare-only gate failed")
-        candidate = owner.root / "candidate-d144"
+        slot = transaction_slot(owner.root)
+        candidate = owner.root / ("candidate-d144" if slot == 1 else "candidate-d144-" + str(slot))
         if candidate.exists() or candidate.is_symlink():
             raise d090.TransactionError("D145 candidate path already occupied")
         candidate.mkdir(mode=0o700)
@@ -95,7 +98,8 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             "source_sha": owner.pinned.source_sha,
             "candidate_identity_sha256": prepared["candidate_identity_sha256"],
         }
-        router = ReadOnlyObserverRouter(owner.root)
+        router = ReadOnlyObserverRouter(
+            owner.root, preserve_active_session=bool(prepared.get("preserved_guarded_main")))
         previous_proof = owner.proof
         proof_index = [0]
         phases = ("PRE_STOP", "PRE_STOP", "STOPPED", "POST_START")
@@ -110,7 +114,11 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
                 raise d090.TransactionError("D149 physical proof phase mismatch")
             router.select(phase)
             owner.proof = router
-            result = owner._read_proof(require_service_stopped=require_stopped)
+            if prepared.get("preserved_guarded_main"):
+                result = owner._read_recovery_proof(
+                    require_service_stopped=require_stopped)
+            else:
+                result = owner._read_proof(require_service_stopped=require_stopped)
             proof_index[0] += 1
             return result
         transition = OwnerTransition(
@@ -120,7 +128,7 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             legacy_journal_sha256=d090.digest(owner.journal),
             candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
             restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
-            release_identity=identity, failpoint=failpoint)
+            release_identity=identity, failpoint=failpoint, slot=slot)
         try:
             result = transition.run()
             if proof_index[0] != len(phases):
@@ -147,13 +155,26 @@ def recover_under_owner(owner: d090.D090Transaction, *,
     from tools.d149_observer_router import ReadOnlyObserverRouter
     with owner._locked():
         owner.host_check()
-        path = owner.root / JOURNAL
-        if path.is_symlink() or not path.is_file():
-            raise d090.TransactionError("D145 durable recovery journal missing")
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except (ValueError, OSError) as e:
-            raise d090.TransactionError("D145 durable recovery journal invalid") from e
+        matches = []
+        for candidate_path in owner.root.glob("D144_TRANSACTION*.json"):
+            if candidate_path.is_symlink() or not candidate_path.is_file():
+                raise d090.TransactionError("D145 unsafe D144 history entry")
+            try:
+                candidate_record = json.loads(candidate_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise d090.TransactionError("D145 unreadable D144 history entry")
+            candidate_identity = candidate_record.get("release_identity", {})
+            if (candidate_identity.get("source_sha") == owner.pinned.source_sha
+                    and candidate_identity.get("candidate_identity_sha256") == expected_candidate_identity_sha256
+                    and candidate_record.get("phase") not in ("COMMITTED", "RESTORED")):
+                matches.append((candidate_path, candidate_record))
+        if len(matches) != 1:
+            raise d090.TransactionError("D145 interrupted D144 transaction identity missing or ambiguous")
+        path, record = matches[0]
+        if path.name == JOURNAL:
+            slot = 1
+        else:
+            slot = int(path.name.removeprefix("D144_TRANSACTION_").removesuffix(".json"))
         identity = record.get("release_identity")
         if (record.get("schema") != "D144_STATE_PRESERVING_V1"
                 or not isinstance(identity, dict)
@@ -174,13 +195,14 @@ def recover_under_owner(owner: d090.D090Transaction, *,
             owner.proof = router
             return owner._read_recovery_proof(require_service_stopped=require_stopped)
         transition = OwnerTransition(
-            owner.root, owner.service, candidate=owner.root / "candidate-d144",
+            owner.root, owner.service,
+            candidate=owner.root / ("candidate-d144" if slot == 1 else "candidate-d144-" + str(slot)),
             evidence=fresh_recovery_proof, expected_before=before,
             expected_candidate=candidate_manifest,
             legacy_journal_sha256=d090.digest(owner.journal),
             candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
             restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
-            release_identity=identity)
+            release_identity=identity, slot=slot)
         try:
             return transition.recover()
         finally:

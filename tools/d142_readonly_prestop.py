@@ -24,7 +24,8 @@ except ModuleNotFoundError:
 import node104_d090_release as release
 
 
-def validate_snapshot(raw: dict, *, pid: int, now: float) -> None:
+def validate_snapshot(raw: dict, *, pid: int, now: float,
+                      allow_active_session: bool = False) -> None:
     required = set(release.PhysicalOffProof.__dataclass_fields__)
     if type(raw) is not dict or set(raw) != required:
         raise ValueError("D091 proof schema mismatch")
@@ -33,7 +34,8 @@ def validate_snapshot(raw: dict, *, pid: int, now: float) -> None:
     data = dict(raw)
     data["source_nonces"] = tuple(raw["source_nonces"])
     proof = release.PhysicalOffProof(**data)
-    release.validate_physical_off(proof, require_service_stopped=False, now=now)
+    release.validate_physical_off(proof, require_service_stopped=False, now=now,
+                                  allow_active_session=allow_active_session)
     if proof.service_main_pid != pid:
         raise ValueError("D091 proof belongs to another process")
 
@@ -53,6 +55,8 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
             env = dict(os.environ)
             env["D090_EXPECTED_ESP_VERSION"] = "2.3-ha-canonical"
             env["D090_SOFTWARE_RELEASE"] = "1"
+            if candidate.get("preserved_guarded_main") is True:
+                env["D090_STATE_PRESERVING_RECOVERY"] = "1"
             env["PYTHONDONTWRITEBYTECODE"] = "1"
             result = subprocess.run(
                 [str(root / "venv/bin/python"), str(collector)],
@@ -61,7 +65,9 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
                 raise ValueError("fresh D091 observation failed")
             return json.loads(result.stdout)
     raw = collect()
-    validate_snapshot(raw, pid=pid, now=clock())
+    preserve_guarded_main = candidate.get("preserved_guarded_main") is True
+    validate_snapshot(raw, pid=pid, now=clock(),
+                      allow_active_session=preserve_guarded_main)
     argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
     if str(root / "app/bot.py").encode() not in argv:
         raise ValueError("installed service process changed during OFF observation")
@@ -76,6 +82,8 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
         "free_bytes": capacity["observed_free_bytes"],
         "required_bytes": capacity["minimum_free_bytes"],
         "fresh_d091_off": True,
+        "preserved_guarded_main": preserve_guarded_main,
+        "preserved_guard": candidate.get("preserved_guard"),
         "service_pid": pid,
         "proof_captured_at_epoch": raw["captured_at_epoch"],
         "warning": "Transient proof is not a reusable cutover token; reobserve immediately before production stop.",

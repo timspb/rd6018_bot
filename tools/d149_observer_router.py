@@ -25,11 +25,13 @@ class ObserverRouteError(RuntimeError):
     pass
 
 class ReadOnlyObserverRouter:
-    def __init__(self, root: Path, *, runner=None):
+    def __init__(self, root: Path, *, runner=None,
+                 preserve_active_session: bool = False):
         self.root = root
         self.runner = runner or self._run
         self.phase = "PRE_STOP"
         self.calls = 0
+        self.preserve_active_session = bool(preserve_active_session)
 
     def select(self, phase: str) -> None:
         if phase not in ("PRE_STOP", "STOPPED", "POST_START", "RECOVERY"):
@@ -64,7 +66,7 @@ class ReadOnlyObserverRouter:
         env["D090_EXPECTED_ESP_VERSION"] = "2.3-ha-canonical"
         env["D090_SOFTWARE_RELEASE"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        if phase == "RECOVERY":
+        if phase == "RECOVERY" or self.preserve_active_session:
             env["D090_STATE_PRESERVING_RECOVERY"] = "1"
         else:
             env.pop("D090_STATE_PRESERVING_RECOVERY", None)

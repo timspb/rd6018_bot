@@ -30,6 +30,12 @@ class D142Tests(unittest.TestCase):
         p = self.proof()
         validate_snapshot(p, pid=321, now=p["captured_at_epoch"])
 
+    def test_active_session_requires_explicit_guarded_preimage_authority(self):
+        p=self.proof(); p["active_session"]=True
+        with self.assertRaises(release.GateError):
+            validate_snapshot(p,pid=321,now=p["captured_at_epoch"])
+        validate_snapshot(p,pid=321,now=p["captured_at_epoch"],allow_active_session=True)
+
     def test_stale_proof_fail_closed(self):
         p = self.proof()
         with self.assertRaises(release.GateError):
