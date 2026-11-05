@@ -530,3 +530,46 @@ Next: resolve a reviewed state-preserving admission that accepts and byte-pins
 this exact guarded session while preserving every existing D090/D144 owner and
 profile boundary, then obtain the complete required Native field set and repeat
 the owner preflight. Never resume the session or alter battery protections.
+
+## 2026-11-05 — D145 software-only voltage admission trim
+
+Code commit `4a567261265fbd74380d2c4674a12895be5c3e79` narrows the existing
+D090 validator only when called with `software_release=True` by the canonical
+D145 owner. That software-only path no longer requires measured analog output
+voltage; it still requires independent HA and ESP OFF flags, fresh typed Native
+proof, both source charging currents at zero, disarmed lease, clear boot
+quarantine, one physical owner, distinct source nonces, and existing session
+policy. All other calls retain the measured-voltage check. No D106,
+`TrialOffProof`, physical START, configured-setpoint, OVP/OCP or autonomous
+checks were weakened. The existing D145 D147/D148 proof schema did not contain
+those configured values or autonomous state in the first place.
+
+Focused regression after the code change: **26 passed, 1 skipped, 17 subtests
+passed** (`test_node104_d090_release.py`, `test_node104_d145_entrypoint.py`,
+`test_d149_observer_router.py`). Full suite was not rerun for this narrow change.
+
+Fresh pinned-SSH execution of the installed D147 read-only collector on
+node104 acquired new direct ESP Native callbacks and independent HA evidence:
+Native R18 OFF, Native/HA measured U=0.0 V and I=0.0 A, edge lease disarmed,
+boot quarantine clear, one physical ESP identity, service PID 213548. This
+collector invocation did **not** report R16, lease remaining, Modbus age,
+generation, trip, or configured V/I/OVP/OCP; therefore those values are not
+claimed from this read. The persisted guarded MAIN session, historical D090
+`STARTED` journal and existing D144 `COMMITTED` journal remain untouched.
+
+**Not deployed; no D145 prepare or service lifecycle operation was attempted.**
+The installed D145 entrypoint/profile are pinned to the historical source and
+do not admit the new release identity. More importantly, the pinned D147/D148
+collector/proof schema cannot establish the still-required R16=0, lease
+remaining=0 and fresh Modbus age. Those omissions must be addressed with a
+reviewed, versioned observer/profile bound to the same D090/D145 owner before
+production admission. Do not add synthetic fields or resume the guarded MAIN
+session. No actuator, Output, setpoint, lease or journal writes were made.
+
+Repository state after the implementation commit: `main` is three commits ahead
+of `origin/main`; no push performed. The pre-existing untracked
+`.codex_install_scope_task.md` remains untouched. Next: extend and pin the
+existing D145 read-only proof schema to carry actual typed Native R16, lease
+remaining and Modbus-age evidence while dropping only the approved install-only
+analog/setpoint/protection/autonomous requirements; preserve all START and
+trial checks, then rebuild/retest an exact release before any owner prepare.
