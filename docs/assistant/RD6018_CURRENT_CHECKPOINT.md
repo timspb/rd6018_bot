@@ -465,3 +465,32 @@ remains with output OFF, lease disarmed, service active, preserved guarded
 EFB 65 Ah Recovery MAIN session. D090 production transaction state and
 guarded-session restoration must be reconciled through the existing owner
 before an update or restart. No unrequested physical re-energization.
+
+## 2026-11-05 — node104 stage-only after third MAIN→MIX emergency OFF
+
+User explicitly ordered installation and requested dry-run proof. Exact
+`372f4ea81c63fae20700eca85bbfa2aed8991ee9` release was previously
+validated from source archive: 2,888 tests PASS, 10 skipped,
+1,673 subtests PASS, 0 FAIL. This is a full offline regression, not
+physical actuator simulation on node104.
+
+Fresh pinned-SSH node104 inspection at 10:48 UTC:
+- service active PID 213548, zero restarts, production application unchanged;
+- canonical guarded EFB 65 Ah Recovery session remains MAIN, Guard rev 481,
+  pending=False, physical output was OFF at last HA check;
+- `D090_TRANSACTION.json` still `phase=STARTED`,
+  `source_sha=930239c670899e14ccb09154d99baf77df90da10`,
+  **candidate_inventory absent**;
+- `.deploy_sha=58321a866dd68195bf8264d1d9ebe7c18a60748f`;
+- existing D145 entrypoint becomes importable with
+  `PYTHONPATH=/opt/services/rd6018-bot/app` but is pinned to
+  candidate `d351c208...`, not current `372f4ea...`.
+
+Exact archive, RELEASE_MANIFEST.json and STAGED_OK were transferred by pinned
+SSH/SFTP into `/tmp/rd6018-source-372f4ea` on node104, each hash-verified
+on remote. This is **stage-only**, not an active source deployment.
+No service restart, physical START, setpoint write, session modification,
+journal rewrite, or direct app replacement performed. Next production
+step must use the existing D090/D145 owner with a new reviewed exact
+candidate profile and preimage, not the obsolete D145 source pin. Do
+not falsely claim installed. Keep D090 historical evidence unchanged.
