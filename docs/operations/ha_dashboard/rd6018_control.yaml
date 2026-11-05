@@ -1,214 +1,269 @@
 views:
-  - title: RD6018 Control
-    path: rd6018-control
-    icon: mdi:car-battery
-    type: sections
-    max_columns: 2
-    sections:
-      - type: grid
-        cards:
-          - type: heading
-            heading: Аккумулятор
-            icon: mdi:car-battery
-          - type: custom:button-card
-            entity: sensor.rd_6018_battery_voltage
-            name: НАПРЯЖЕНИЕ АКБ
-            icon: mdi:car-battery
-            show_state: true
-            show_label: false
-            state_display: |
-              [[[
-                const n = Number(entity.state);
-                return Number.isFinite(n) ? n.toFixed(2) + ' В' : 'Нет данных';
-              ]]]
-            tap_action: {action: more-info}
-            hold_action: {action: none}
-            double_tap_action: {action: none}
-            styles:
-              card:
-                - height: 138px
-                - border-radius: 16px
-                - padding: 14px
-              grid:
-                - grid-template-areas: '"i n" "s s"'
-                - grid-template-columns: 28px 1fr
-                - grid-template-rows: 28px 1fr
-              icon:
-                - width: 25px
-                - color: var(--primary-color)
-              name:
-                - justify-self: start
-                - font-size: 12px
-                - font-weight: 600
-                - letter-spacing: 0.5px
-              state:
-                - justify-self: center
-                - align-self: center
-                - font-size: clamp(25px, 3vw, 37px)
-                - font-weight: 700
-                - font-variant-numeric: tabular-nums
-            grid_options: {columns: 6, rows: 3}
-          - type: custom:button-card
-            entity: sensor.rd_6018_output_current
-            name: ТОК ЗАРЯДА
-            icon: mdi:current-dc
-            show_state: true
-            state_display: |
-              [[[
-                const n = Number(entity.state);
-                return Number.isFinite(n) ? n.toFixed(2) + ' А' : 'Нет данных';
-              ]]]
-            tap_action: {action: more-info}
-            hold_action: {action: none}
-            double_tap_action: {action: none}
-            styles:
-              card:
-                - height: 138px
-                - border-radius: 16px
-                - padding: 14px
-              grid:
-                - grid-template-areas: '"i n" "s s"'
-                - grid-template-columns: 28px 1fr
-                - grid-template-rows: 28px 1fr
-              icon:
-                - width: 25px
-                - color: var(--primary-color)
-              name:
-                - justify-self: start
-                - font-size: 12px
-                - font-weight: 600
-                - letter-spacing: 0.5px
-              state:
-                - justify-self: center
-                - align-self: center
-                - font-size: clamp(25px, 3vw, 37px)
-                - font-weight: 700
-                - font-variant-numeric: tabular-nums
-            grid_options: {columns: 6, rows: 3}
-          - type: custom:button-card
-            entity: sensor.rd6018_rd_6018_output_state_code_v2
-            name: ВЫХОД
-            icon: mdi:power-plug
-            show_state: true
-            state_display: |
-              [[[
-                if (!entity || ['unknown', 'unavailable'].includes(entity.state)) return 'Нет данных';
-                const n = Number(entity.state);
-                return n === 1 ? 'Включён' : n === 0 ? 'Выключен' : 'Неизвестно';
-              ]]]
-            tap_action: {action: more-info}
-            hold_action: {action: none}
-            double_tap_action: {action: none}
-            styles:
-              card:
-                - border-radius: 12px
-                - height: 82px
-              state:
-                - font-weight: 700
-                - font-size: 17px
-              icon:
-                - color: var(--primary-color)
-            grid_options: {columns: 6, rows: 2}
-          - type: custom:button-card
-            entity: binary_sensor.rd_6018_constant_voltage
-            name: РЕЖИМ
-            icon: mdi:chart-bell-curve-cumulative
-            show_state: true
-            state_display: |
-              [[[
-                const cv = entity.state;
-                const cc = states['binary_sensor.rd_6018_constant_current']?.state;
-                if (cv === 'on') return 'CV · напряжение';
-                if (cc === 'on') return 'CC · ток';
-                return cv === 'unavailable' || cv === 'unknown' ? 'Нет данных' : 'Ожидание';
-              ]]]
-            triggers_update:
-              - binary_sensor.rd_6018_constant_voltage
-              - binary_sensor.rd_6018_constant_current
-            tap_action: {action: more-info}
-            hold_action: {action: none}
-            double_tap_action: {action: none}
-            styles:
-              card:
-                - border-radius: 12px
-                - height: 82px
-              state:
-                - font-weight: 700
-                - font-size: 17px
-            grid_options: {columns: 6, rows: 2}
-          - type: heading
-            heading: Уставки и ограничения
-            icon: mdi:tune
-          - type: entities
-            title: Задано на RD6018 · только чтение
-            show_header_toggle: false
-            entities:
-              - entity: sensor.rd6018_rd_6018_set_voltage_readback_v2
-                name: Напряжение · уставка
-              - entity: sensor.rd6018_rd_6018_set_current_readback_v2
-                name: Ток · ограничение
-              - entity: sensor.rd6018_rd_6018_ovp_readback_v2
-                name: Порог OVP
-              - entity: sensor.rd6018_rd_6018_ocp_readback_v2
-                name: Порог OCP
-            grid_options: {columns: 12, rows: 5}
-          - type: custom:button-card
-            entity: sensor.rd6018_rd_6018_protection_status_code
-            name: ЗАЩИТА
-            icon: mdi:shield-check-outline
-            show_state: true
-            state_display: |
-              [[[
-                const n = Number(entity.state);
-                if (!Number.isFinite(n)) return 'Нет данных';
-                return n === 0 ? 'Норма' : 'Срабатывание · код ' + n;
-              ]]]
-            tap_action: {action: more-info}
-            hold_action: {action: none}
-            double_tap_action: {action: none}
-            styles:
-              card:
-                - border-radius: 12px
-                - height: 75px
-              state:
-                - font-weight: 700
-                - font-size: 16px
-            grid_options: {columns: 12, rows: 2}
-      - type: grid
-        cards:
-          - type: heading
-            heading: История заряда · 24 часа
-            icon: mdi:chart-line
-          - type: history-graph
-            title: Напряжение АКБ · В
-            hours_to_show: 24
-            show_names: false
-            entities:
-              - sensor.rd_6018_battery_voltage
-            grid_options: {columns: 12, rows: 5}
-          - type: history-graph
-            title: Фактический ток · А
-            hours_to_show: 24
-            show_names: false
-            entities:
-              - sensor.rd_6018_output_current
-            grid_options: {columns: 12, rows: 5}
-          - type: heading
-            heading: Состояние связи и безопасности
-            icon: mdi:shield-check
-          - type: entities
-            show_header_toggle: false
-            entities:
-              - entity: binary_sensor.rd6018_rd_6018_safety_lease_armed
-                name: Защитная аренда активна
-              - entity: sensor.rd6018_rd_6018_safety_lease_remaining
-                name: Осталось до продления
-              - entity: sensor.rd6018_rd_6018_safety_modbus_age
-                name: Давность данных Modbus
-              - entity: binary_sensor.rd6018_rd_6018_safety_lease_tripped
-                name: Авария lease
-              - entity: binary_sensor.rd6018_rd_6018_safety_authority_conflict
-                name: Конфликт управления
-              - entity: binary_sensor.rd6018_rd_6018_safety_boot_quarantine
-                name: Карантин загрузки
-            grid_options: {columns: 12, rows: 7}
+- title: RD6018 Control
+  path: rd6018-control
+  icon: mdi:car-battery
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: custom:button-card
+      entity: sensor.rd_6018_battery_voltage
+      name: НАПРЯЖЕНИЕ АКБ
+      icon: mdi:car-battery
+      show_state: true
+      show_label: false
+      state_display: "[[[\n  const n = Number(entity.state);\n  return Number.isFinite(n) ? n.toFixed(2) + ' В' : 'Нет данных';\n\
+        ]]]\n"
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - height: 108px
+        - border-radius: 14px
+        - padding: 12px
+        grid:
+        - grid-template-areas: '"i n" "s s"'
+        - grid-template-columns: 28px 1fr
+        - grid-template-rows: 28px 1fr
+        icon:
+        - width: 25px
+        - color: var(--primary-color)
+        name:
+        - justify-self: start
+        - font-size: 12px
+        - font-weight: 600
+        - letter-spacing: 0.5px
+        state:
+        - justify-self: center
+        - align-self: center
+        - font-size: clamp(25px, 3vw, 37px)
+        - font-weight: 700
+        - font-variant-numeric: tabular-nums
+      grid_options:
+        columns: 6
+    - type: custom:button-card
+      entity: sensor.rd_6018_output_current
+      name: ТОК ЗАРЯДА
+      icon: mdi:current-dc
+      show_state: true
+      state_display: "[[[\n  const n = Number(entity.state);\n  return Number.isFinite(n) ? n.toFixed(2) + ' А' : 'Нет данных';\n\
+        ]]]\n"
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - height: 108px
+        - border-radius: 14px
+        - padding: 12px
+        grid:
+        - grid-template-areas: '"i n" "s s"'
+        - grid-template-columns: 28px 1fr
+        - grid-template-rows: 28px 1fr
+        icon:
+        - width: 25px
+        - color: var(--primary-color)
+        name:
+        - justify-self: start
+        - font-size: 12px
+        - font-weight: 600
+        - letter-spacing: 0.5px
+        state:
+        - justify-self: center
+        - align-self: center
+        - font-size: clamp(25px, 3vw, 37px)
+        - font-weight: 700
+        - font-variant-numeric: tabular-nums
+      grid_options:
+        columns: 6
+    - type: custom:button-card
+      entity: sensor.rd6018_rd_6018_output_state_code_v2
+      name: ВЫХОД
+      icon: mdi:power-plug
+      show_state: true
+      state_display: "[[[\n  if (!entity || ['unknown', 'unavailable'].includes(entity.state)) return 'Нет данных';\n  const\
+        \ n = Number(entity.state);\n  return n === 1 ? 'Включён' : n === 0 ? 'Выключен' : 'Неизвестно';\n]]]\n"
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - border-radius: 12px
+        - height: 72px
+        - padding: 8px
+        - background-color: "[[[\n    if (entity && Number(entity.state) === 1) return 'rgba(46, 170, 93, 0.20)';\n    return\
+            \ 'var(--ha-card-background, var(--card-background-color))';\n]]]"
+        state:
+        - font-weight: '700'
+        - font-size: 15px
+        icon:
+        - color: "[[[\n    return entity && Number(entity.state) === 1 ? '#22a65a' : 'var(--secondary-text-color)';\n]]]"
+      grid_options:
+        columns: 4
+    - type: custom:button-card
+      entity: binary_sensor.rd_6018_constant_voltage
+      name: РЕЖИМ
+      icon: mdi:chart-bell-curve-cumulative
+      show_state: true
+      state_display: "[[[\n  const cv = entity.state;\n  const cc = states['binary_sensor.rd_6018_constant_current']?.state;\n\
+        \  if (cv === 'on') return 'CV · напряжение';\n  if (cc === 'on') return 'CC · ток';\n  return cv === 'unavailable'\
+        \ || cv === 'unknown' ? 'Нет данных' : 'Ожидание';\n]]]\n"
+      triggers_update:
+      - binary_sensor.rd_6018_constant_voltage
+      - binary_sensor.rd_6018_constant_current
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - border-radius: 12px
+        - height: 72px
+        - padding: 8px
+        state:
+        - font-weight: '700'
+        - font-size: 15px
+      grid_options:
+        columns: 4
+    - type: custom:button-card
+      entity: sensor.rd_6018_temperature_external
+      name: ТЕМПЕРАТУРА АКБ
+      icon: mdi:thermometer
+      show_state: true
+      state_display: "[[[\n  if (!entity || ['unknown','unavailable'].includes(entity.state)) return 'Нет данных';\n  const\
+        \ n = Number(entity.state);\n  return Number.isFinite(n) ? n.toFixed(2) + ' °C' : 'Нет данных';\n]]]"
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - border-radius: 12px
+        - height: 72px
+        - padding: 8px
+        name:
+        - font-size: 12px
+        - font-weight: '600'
+        state:
+        - font-size: 17px
+        - font-weight: '700'
+        icon:
+        - width: 21px
+      grid_options:
+        columns: 4
+    - type: custom:button-card
+      entity: sensor.rd6018_rd_6018_set_voltage_readback_v2
+      name: УСТАВКА НАПРЯЖЕНИЯ
+      icon: mdi:flash
+      show_state: true
+      state_display: "[[[\n  if (!entity || ['unknown','unavailable'].includes(entity.state)) return 'Нет данных';\n  const\
+        \ n = Number(entity.state);\n  return Number.isFinite(n) ? n.toFixed(2) + ' В' : 'Нет данных';\n]]]"
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - border-radius: 12px
+        - height: 72px
+        - padding: 8px
+        name:
+        - font-size: 12px
+        - font-weight: '600'
+        state:
+        - font-size: 17px
+        - font-weight: '700'
+        icon:
+        - width: 21px
+      grid_options:
+        columns: 6
+    - type: custom:button-card
+      entity: sensor.rd6018_rd_6018_set_current_readback_v2
+      name: УСТАВКА ТОКА
+      icon: mdi:current-dc
+      show_state: true
+      state_display: "[[[\n  if (!entity || ['unknown','unavailable'].includes(entity.state)) return 'Нет данных';\n  const\
+        \ n = Number(entity.state);\n  return Number.isFinite(n) ? n.toFixed(2) + ' А' : 'Нет данных';\n]]]"
+      tap_action:
+        action: more-info
+      hold_action:
+        action: none
+      double_tap_action:
+        action: none
+      styles:
+        card:
+        - border-radius: 12px
+        - height: 72px
+        - padding: 8px
+        name:
+        - font-size: 12px
+        - font-weight: '600'
+        state:
+        - font-size: 17px
+        - font-weight: '700'
+        icon:
+        - width: 21px
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: История заряда · 24 часа
+      icon: mdi:chart-line
+    - type: history-graph
+      title: Напряжение АКБ · В
+      hours_to_show: 24
+      show_names: false
+      entities:
+      - sensor.rd_6018_battery_voltage
+      grid_options:
+        columns: 12
+        rows: 5
+    - type: history-graph
+      title: Фактический ток · А
+      hours_to_show: 24
+      show_names: false
+      entities:
+      - sensor.rd_6018_output_current
+      grid_options:
+        columns: 12
+        rows: 5
+    - type: entities
+      show_header_toggle: false
+      entities:
+      - type: custom:fold-entity-row
+        head:
+          type: section
+          label: Состояние и диагностика
+        entities:
+        - entity: binary_sensor.rd6018_rd_6018_safety_lease_armed
+          name: Защитная аренда активна
+        - entity: sensor.rd6018_rd_6018_safety_lease_remaining
+          name: Осталось до продления
+        - entity: sensor.rd6018_rd_6018_safety_modbus_age
+          name: Давность данных Modbus
+        - entity: binary_sensor.rd6018_rd_6018_safety_lease_tripped
+          name: Авария lease
+        - entity: binary_sensor.rd6018_rd_6018_safety_authority_conflict
+          name: Конфликт управления
+        - entity: binary_sensor.rd6018_rd_6018_safety_boot_quarantine
+          name: Карантин загрузки
+      grid_options:
+        columns: 12
