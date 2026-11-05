@@ -937,3 +937,40 @@ D144 slot 1 COMMITTED, and the guarded session remain immutable. d2aa2aa is not
 installed. Next: finish exact-source regression, commit owner readiness change,
 then use the authorized existing D145 recovery path with a fresh D148 read and
 verify exact old preimage/RESTORED before building a new candidate.
+
+## 2026-11-06 — readiness fix committed; deployment remains blocked
+
+Owner-readiness implementation commit: `beab527c2f5413962d3bccd8c140f3a0417dca17`.
+Documentation follow-up HEAD: `530ee534d0f7a6557e6005a150653623b24d2c40`,
+branch `fix/d145-guarded-main-admission`, 9 commits ahead of `origin/main`,
+0 behind. Focused D127/D144/D145 tests: **38 PASS**. Targeted compileall and
+`git diff --check`: PASS. The exact full suite was attempted from a clean
+archive. Without dependencies/test environment, 1,636 discovered tests had 234
+import/errors and 2 failures. With temporary requirements venv it ran 2,722
+tests, 10 skipped, and 21 errors because it was invoked with the wrong cwd and
+without `TG_TOKEN`. A corrected cwd + test-only token rerun was stopped after
+9 minutes without completion; no full-suite PASS is claimed. Temporary venv
+and archive are under `/tmp`; no deployment files were changed.
+
+Fresh pinned HOME-PC WSL SSH read at 2026-11-05 17:29:54 UTC via D091 collected
+new direct Native SensorState and HA readbacks: R18 OFF, U/I 0/0, Native fresh,
+lease disarmed, quarantine clear, one owner, service PID 218804. D148 separately
+confirmed guarded session active. D091 reported `active_session=false`, so it
+cannot be used as the state-preserving recovery proof. Installed D106 detailed
+observer was attempted read-only and failed closed because its configured
+entity type expectation rejects actual current Native inventory types (first
+`autonomous_mode`, then configured voltage readback). Consequently battery,
+V/I setpoints, OVP/OCP, R16, generation/remaining/Modbus age, trip and
+autonomous remain unverified in this latest complete read set. This is an
+exact evidence blocker for D145 recovery/deployment under the mandatory Native
+first rule; no recovery or execute command was invoked.
+
+The installed D090/D144 owner files remain at their pre-fix hashes; thus the
+new bounded readiness logic is local only. Existing D144 slot 2 remains
+`STARTED`; D090 `STARTED`, D144 slot 1 `COMMITTED`, and guarded EFB 65 Ah
+Recovery session remain untouched. The active old service remains PID 218804
+per the latest successful observer, and D148 reported Native/HA OFF with zero
+U/I. Do not claim slot 2 settled or d2aa installed. Next work must first fix or
+use a correctly typed existing direct read-only collector to capture the full
+required current Native field set, then stage the exact source/profile and use
+the same D090 lock and D145 owner with bounded readiness to settle slot 2.
