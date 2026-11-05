@@ -20,14 +20,16 @@ MIN_FREE_BYTES = 256 * 1024 * 1024
 
 
 def inspect_candidate(*, root: Path, stage: Path, pid: int,
-                      source_sha: str, preimage_sha256: str) -> dict[str, object]:
+                      source_sha: str, preimage_sha256: str,
+                      observed_preimage_record: dict[str, object] | None = None) -> dict[str, object]:
     if not (len(source_sha) == 40 and all(c in "0123456789abcdef" for c in source_sha)):
         raise ValueError("source SHA invalid")
     if not (len(preimage_sha256) == 64 and all(c in "0123456789abcdef" for c in preimage_sha256)):
         raise ValueError("preimage digest invalid")
     if stage.is_symlink() or not stage.is_dir():
         raise ValueError("candidate staging directory invalid")
-    actual_preimage = observed_preimage(root, pid=pid)
+    actual_preimage = (observed_preimage(root, pid=pid)
+                       if observed_preimage_record is None else observed_preimage_record)
     if actual_preimage["preimage_sha256"] != preimage_sha256:
         raise ValueError("installed composite preimage drift")
     manifest_path = stage / "RELEASE_MANIFEST.json"

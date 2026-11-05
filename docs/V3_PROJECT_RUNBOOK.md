@@ -1085,3 +1085,42 @@ admission, and do not replace release pins without a complete regression.
 Deployment is blocked pending a reviewed admission path that preserves the
 exact active session, the existing transaction journals, and complete fresh
 Native physical evidence. No automatic resume is authorized.
+
+
+## 2026-11-05 — guarded MAIN software-release admission under D142
+
+D142 now obtains and validates a new D091 Native/HA physical OFF proof before
+D137 reads the persisted preimage. An active guarded MAIN snapshot whose sealed
+Guard records historical `last_output_on=true` is admitted only when the same
+D091 proof is fresh, belongs to the current service PID, reports Native and HA
+R18 OFF with zero U/I, the edge lease disarmed, boot quarantine clear, exactly
+one physical node owner, and distinct source nonces. D137 binds that proof into
+the observed preimage digest and keeps the original session/quarantine/journal
+bytes, Guard hash, session/battery identity, revision, capacity, pending/fault,
+and MAIN-stage checks. No persisted value is rewritten.
+
+The deployed startup recovery path still treats Guard restore as OFF-only: it
+requires a new direct Native pre-ON assessment and positively armed lease
+before reconciliation, and `ExecutionPort` latches ordinary Output enable
+until a distinct one-use physical-resume permit is consumed. With the observed
+lease disarmed, automatic resume is blocked. This software-only install does
+not authorize START or setpoint writes.
+
+Fresh node104 observations on 2026-11-05 at 13:15–13:20 UTC, before any service
+operation: service PID 213548; Native identity `timspb.rd6018-pb-recovery-v2`,
+version `2.3-ha-canonical`, device 0; R18=0, measured U/I=0/0, battery
+12.94 V, Vset/Iset=14.82 V/1.23 A, R16=0, OVP/OCP=16.70 V/12.0 A,
+autonomous=false, lease armed=false/generation 61/remaining 0 s/TTL 900 s,
+trip=false, boot quarantine=false, Modbus age 5.445 s. Native callback ages
+were below 1 s in the detailed subscription; the independent D091 proof was
+separately fresh and valid. HA readbacks agreed. These are pre-change
+observations, not post-deployment evidence.
+
+Focused software regression: **103 PASS, 34 subtests PASS** across D137–D145,
+D149, startup Guard admission and pre-ON assessment. `compileall` passed. The
+first ambient full-suite attempt was interrupted without a result; the isolated
+full suite then stopped at the pre-existing D061 exact-source manifest pin
+under the Windows-translated checkout. No node service, session, D090/D144
+journal, RD Output, setpoint or lease was changed. Production D145 remains
+blocked until the exact source-paired D145 profile and D138 tree/Python 3.11
+stage are prepared and the canonical owner accepts a fresh prepare.

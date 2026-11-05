@@ -212,6 +212,71 @@ class D137Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"canonical clear quarantine"):
                 self.capture(root)
 
+    def historical_on_reconciliation(self, pid=1234, captured=None):
+        now = time.time() if captured is None else captured
+        return {
+            "schema": "D142_VALIDATED_D091_OFF_V1", "captured_at_epoch": now,
+            "service_main_pid": pid, "native_sensor_state_fresh": True,
+            "ha102_output_off": True, "ha102_voltage_v": 0.0, "ha102_current_a": 0.0,
+            "esp128_output_off": True, "esp128_voltage_v": 0.0, "esp128_current_a": 0.0,
+            "edge_lease_armed": False, "edge_boot_quarantine": False,
+            "physical_node_owner_count": 1, "active_session": True,
+            "source_nonces": ["native-fresh-1", "ha-independent-1"],
+        }
+
+    def guarded_main_historical_on_fixture(self, root):
+        self.fixture(root)
+        sid, bid, now = "session-main", "battery-65", time.time()
+        doc={"stage":"Main Charge","profile":"EFB","ah_limit":65,
+             "v2_authoritative":True,"v2_trace_session_id":sid,"v2_battery_id":bid}
+        guard=MainCurrentGuard.start(session_id=sid,battery_id=bid,segment_id="main-1",
+            capacity_ah=65,recipe_initial_current_a=6.5,now_s=now)
+        guard,_=guard.observe(now_s=now,output_on=True,measured_current_a=1.0,
+                              fresh=True,stage="MAIN",battery_id=bid)
+        doc=attach_guard(doc,guard,now_s=now,expected_revision=0)
+        (root/"state"/"charge_session.json").write_text(json.dumps(doc))
+        (root/"state"/"session_recovery_quarantine.json").write_text(json.dumps({
+            "owner":"runtime.charge.recovery_quarantine_journal","schema_version":2,
+            "state":"retired","quarantined":False,"retirement":{
+                "operator_id":"operator","session_id":"old-session",
+                "confirmed_off_evidence":"off-receipt","retired_utc":"2026-11-05T00:00:00Z",
+                "incident_id":"incident","incident_reason":"safe-off","battery_id":None}}))
+
+    def test_historical_guard_on_requires_fresh_d091_off_and_is_byte_pinned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); self.guarded_main_historical_on_fixture(root)
+            with self.assertRaisesRegex(ValueError, "state-preserving OFF"):
+                self.capture(root)
+            physical = self.historical_on_reconciliation()
+            original=(root/"state"/"charge_session.json").read_bytes()
+            real_read=Path.read_bytes
+            def fake_argv(path):
+                if str(path)=="/proc/1234/cmdline":
+                    return str(root/"app"/"bot.py").encode()+bytes([0])
+                return real_read(path)
+            with patch.object(Path,"read_bytes",fake_argv):
+                result=observed_preimage(root,pid=1234,physical_off_reconciliation=physical)
+            preserved=result["preserved_guarded_main"]
+            self.assertTrue(preserved["automatic_resume_authorized"] is False)
+            self.assertTrue(preserved["last_output_on"])
+            self.assertEqual(preserved["physical_off_reconciliation"],physical)
+            self.assertEqual((root/"state"/"charge_session.json").read_bytes(),original)
+
+    def test_historical_guard_on_rejects_stale_or_wrong_pid_d091_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); self.guarded_main_historical_on_fixture(root)
+            for proof in (self.historical_on_reconciliation(captured=time.time()-9),
+                          self.historical_on_reconciliation(pid=999)):
+                with self.subTest(proof=proof):
+                    original=Path.read_bytes
+                    def fake_argv(path):
+                        if str(path)=="/proc/1234/cmdline":
+                            return str(root/"app"/"bot.py").encode()+bytes([0])
+                        return original(path)
+                    with patch.object(Path,"read_bytes",fake_argv), self.assertRaisesRegex(
+                            ValueError,"state-preserving OFF"):
+                        observed_preimage(root,pid=1234,physical_off_reconciliation=proof)
+
 
 if __name__=="__main__":
     unittest.main()

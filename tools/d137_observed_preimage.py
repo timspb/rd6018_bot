@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import time
 
@@ -20,7 +21,8 @@ except ModuleNotFoundError:
     from d136_observed_venv import inventory as venv_inventory
 
 
-def observed_preimage(root: Path, *, pid: int) -> dict[str, object]:
+def observed_preimage(root: Path, *, pid: int,
+                      physical_off_reconciliation: dict[str, object] | None = None) -> dict[str, object]:
     if not isinstance(pid, int) or pid <= 0 or root.is_symlink() or not root.is_dir():
         raise ValueError("invalid root or process ID")
     app = root / "app"
@@ -88,14 +90,58 @@ def observed_preimage(root: Path, *, pid: int) -> dict[str, object]:
                 battery_id=session["v2_battery_id"], now_s=time.time())
         except Exception as exc:
             raise ValueError("active MAIN canonical guard failed integrity/identity validation") from exc
+        guard_record = session[GUARD_KEY]
+        # read_guard intentionally resets the restored in-memory observation
+        # to False because restart breaks continuity. Preserve and inspect the
+        # sealed historical snapshot separately; never rewrite it here.
+        persisted_last_output_on = guard_record["snapshot"].get("last_output_on")
+        reconciliation_fields = {
+            "schema", "captured_at_epoch", "service_main_pid", "native_sensor_state_fresh",
+            "ha102_output_off", "ha102_voltage_v", "ha102_current_a", "esp128_output_off",
+            "esp128_voltage_v", "esp128_current_a", "edge_lease_armed", "edge_boot_quarantine",
+            "physical_node_owner_count", "active_session", "source_nonces",
+        }
+        reconciliation_valid = False
+        if isinstance(physical_off_reconciliation, dict):
+            try:
+                captured = physical_off_reconciliation["captured_at_epoch"]
+                nonces = physical_off_reconciliation["source_nonces"]
+                def zero_reading(key):
+                    value = physical_off_reconciliation.get(key)
+                    return (type(value) in (int, float) and math.isfinite(value)
+                            and abs(value) <= .05)
+                reconciliation_valid = (
+                    set(physical_off_reconciliation) == reconciliation_fields
+                    and physical_off_reconciliation.get("schema") == "D142_VALIDATED_D091_OFF_V1"
+                    and type(captured) in (int, float) and math.isfinite(captured)
+                    and 0 <= time.time() - captured <= 8.0
+                    and type(physical_off_reconciliation.get("service_main_pid")) is int
+                    and physical_off_reconciliation.get("service_main_pid") == pid
+                    and physical_off_reconciliation.get("native_sensor_state_fresh") is True
+                    and physical_off_reconciliation.get("ha102_output_off") is True
+                    and physical_off_reconciliation.get("esp128_output_off") is True
+                    and all(zero_reading(key) for key in (
+                        "ha102_voltage_v", "ha102_current_a", "esp128_voltage_v", "esp128_current_a"))
+                    and physical_off_reconciliation.get("edge_lease_armed") is False
+                    and physical_off_reconciliation.get("edge_boot_quarantine") is False
+                    and type(physical_off_reconciliation.get("physical_node_owner_count")) is int
+                    and physical_off_reconciliation.get("physical_node_owner_count") == 1
+                    and physical_off_reconciliation.get("active_session") is True
+                    and type(nonces) is list and len(nonces) == 2
+                    and all(type(n) is str and n for n in nonces) and nonces[0] != nonces[1]
+                )
+            except (KeyError, TypeError, ValueError, OverflowError):
+                reconciliation_valid = False
+        reconciled_historical_on = persisted_last_output_on is True and reconciliation_valid
         if (revision <= 0 or guard.pending is not None or guard.fault is not None
-                or guard.last_output_on is not False or guard.last_stage_main is not True
+                or (persisted_last_output_on is not False and not reconciled_historical_on)
+                or guard.last_stage_main is not True
                 or abs(guard.capacity_ah - float(session["ah_limit"])) > 1e-6):
             raise ValueError("active MAIN guard is pending, faulted, or not state-preserving OFF")
-        guard_record = session[GUARD_KEY]
         preserved_guard = {"session_id": guard.session_id,
                            "battery_id": guard.battery_id,
                            "revision": revision,
+                           "last_output_on": persisted_last_output_on,
                            "guard_sha256": guard_record["sha256"],
                            "guard_snapshot_sha256": hashlib.sha256(json.dumps(
                                guard_record["snapshot"], sort_keys=True,
@@ -165,6 +211,7 @@ def observed_preimage(root: Path, *, pid: int) -> dict[str, object]:
             **preserved_guard,
             "session_sha256": before[str(session_path)],
             "quarantine_sha256": before[str(quarantine_path)],
+            "physical_off_reconciliation": physical_off_reconciliation,
             "automatic_resume_authorized": False,
         } if preserved_guard else None)
     }

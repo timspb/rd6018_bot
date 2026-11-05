@@ -190,6 +190,32 @@ The live ESP proof, service stop/start, and recovery are exclusively for the
 existing authorized owner after this source change has been reviewed and
 deployed through its normal D090 process.
 
+## D145 state-preserving Python installation with a guarded MAIN session
+
+The D145/D144 owner has a separate state-preserving Python-release path. It
+uses the same D090 root and exclusive D090 lock; it does not reconcile or
+rewrite the historical D090 `STARTED` journal. Its exact staged entrypoint may
+be invoked from the D138 candidate tree outside the live `app/`, with an exact
+source-paired D145 profile and the candidate's Python 3.11 virtualenv.
+
+D142 obtains a fresh D091 proof before D137 examines the preimage. Only after
+that proof validates current Native and independent HA R18 OFF, zero measured
+U/I, expected node/service identity, fresh lease-disarmed/clear-quarantine
+state and distinct source nonces may D137 preserve an active guarded MAIN
+whose sealed snapshot still records historical `last_output_on=true`. The
+session and guard bytes remain unchanged and the D091 proof is part of the
+preimage digest. Guard hash, session/battery identity, revision, capacity,
+MAIN stage, and no-pending/no-fault checks remain required. This admission is
+software-state preservation only.
+
+After restart, the existing guarded restore path remains OFF-only. It cannot
+authorize an automatic Output enable: current Native pre-ON evidence and an
+armed lease are required, and ordinary ExecutionPort enable stays latched
+until the separate one-use guarded-resume owner succeeds. A disarmed lease
+therefore blocks automatic resume. This path authorizes neither START nor
+setpoint changes. Every PRE_STOP, STOPPED and POST_START proof is a new
+collection; historical proof and HA-only data are not reusable.
+
 ## Install requested revision
 
 For the requested revision:

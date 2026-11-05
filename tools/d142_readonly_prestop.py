@@ -17,9 +17,11 @@ import time
 try:
     from tools.d138_candidate_preflight import inspect_candidate
     from tools.d140_disk_guard import require_capacity
+    from tools.d137_observed_preimage import observed_preimage
 except ModuleNotFoundError:
     from d138_candidate_preflight import inspect_candidate
     from d140_disk_guard import require_capacity
+    from d137_observed_preimage import observed_preimage
 
 import node104_d090_release as release
 
@@ -44,10 +46,6 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
            preimage_sha256: str, collector: Path,
            collect=None, clock=None) -> dict:
     clock = clock or time.time
-    candidate = inspect_candidate(root=root, stage=stage, pid=pid,
-                                  source_sha=source_sha,
-                                  preimage_sha256=preimage_sha256)
-    capacity = require_capacity(root, stage)
     if collect is None:
         if collector.is_symlink() or not collector.is_file():
             raise ValueError("D091 read-only collector unavailable")
@@ -55,8 +53,10 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
             env = dict(os.environ)
             env["D090_EXPECTED_ESP_VERSION"] = "2.3-ha-canonical"
             env["D090_SOFTWARE_RELEASE"] = "1"
-            if candidate.get("preserved_guarded_main") is True:
-                env["D090_STATE_PRESERVING_RECOVERY"] = "1"
+            # D091 recovery mode is read-only and allows its strict physical
+            # proof to be collected while an active guarded session exists.
+            # D137/D138 still decide whether that persisted session is valid.
+            env["D090_STATE_PRESERVING_RECOVERY"] = "1"
             env["PYTHONDONTWRITEBYTECODE"] = "1"
             result = subprocess.run(
                 [str(root / "venv/bin/python"), str(collector)],
@@ -64,10 +64,33 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
             if result.returncode:
                 raise ValueError("fresh D091 observation failed")
             return json.loads(result.stdout)
+    # Physical evidence comes first. Historical Guard.last_output_on=True is
+    # accepted only after this fresh, independent Native/HA OFF proof passes.
     raw = collect()
-    preserve_guarded_main = candidate.get("preserved_guarded_main") is True
+    active_persisted_session = raw.get("active_session") is True
     validate_snapshot(raw, pid=pid, now=clock(),
-                      allow_active_session=preserve_guarded_main)
+                      allow_active_session=active_persisted_session)
+    reconciliation = None
+    if active_persisted_session:
+        reconciliation = {
+            "schema": "D142_VALIDATED_D091_OFF_V1",
+            **{key: raw[key] for key in (
+                "captured_at_epoch", "service_main_pid", "native_sensor_state_fresh",
+                "ha102_output_off", "ha102_voltage_v", "ha102_current_a",
+                "esp128_output_off", "esp128_voltage_v", "esp128_current_a",
+                "edge_lease_armed", "edge_boot_quarantine",
+                "physical_node_owner_count", "active_session", "source_nonces",
+            )},
+        }
+    preimage = observed_preimage(
+        root, pid=pid, physical_off_reconciliation=reconciliation)
+    if preimage["preimage_sha256"] != preimage_sha256:
+        raise ValueError("installed composite preimage drift")
+    candidate = inspect_candidate(
+        root=root, stage=stage, pid=pid, source_sha=source_sha,
+        preimage_sha256=preimage_sha256, observed_preimage_record=preimage)
+    preserve_guarded_main = candidate.get("preserved_guarded_main") is True
+    capacity = require_capacity(root, stage)
     argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
     if str(root / "app/bot.py").encode() not in argv:
         raise ValueError("installed service process changed during OFF observation")
