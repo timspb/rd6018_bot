@@ -138,6 +138,29 @@ class D142Tests(unittest.TestCase):
             self.assertEqual(events,["fresh_d091","d137","d138"])
             self.assertTrue(result["preserved_guarded_main"])
 
+    def test_fresh_preimage_is_reported_without_static_profile_digest_comparison(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/"app").mkdir(); (root/"app"/"bot.py").write_text("fixture")
+            stage=root/"stage"; stage.mkdir()
+            proof=self.proof()
+            preimage={"preimage_sha256":"d"*64}
+            candidate={"candidate_identity_sha256":"a"*64}
+            original=Path.read_bytes
+            def fake_argv(path):
+                if str(path)=="/proc/321/cmdline":
+                    return str(root/"app"/"bot.py").encode()+bytes([0])
+                return original(path)
+            with patch.object(d142,"observed_preimage",return_value=preimage), \
+                 patch.object(d142,"inspect_candidate",return_value=candidate) as inspect, \
+                 patch.object(d142,"require_capacity",return_value={
+                     "capacity_pass":True,"observed_free_bytes":500,"minimum_free_bytes":1}), \
+                 patch.object(Path,"read_bytes",fake_argv):
+                result=d142.assess(root,stage,pid=321,source_sha="b"*40,
+                    preimage_sha256=None,collector=root/"collector",
+                    collect=lambda: proof)
+            self.assertEqual(result["observed_preimage_sha256"],"d"*64)
+            self.assertEqual(inspect.call_args.kwargs["preimage_sha256"],"d"*64)
+
     def test_active_session_output_on_never_reaches_d137(self):
         proof=self.proof(); proof["active_session"]=True
         proof["esp128_output_off"]=False

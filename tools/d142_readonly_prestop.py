@@ -43,8 +43,8 @@ def validate_snapshot(raw: dict, *, pid: int, now: float,
 
 
 def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
-           preimage_sha256: str, collector: Path,
-           collect=None, clock=None) -> dict:
+           preimage_sha256: str | None, collector: Path,
+           collect=None, clock=None, validate_app_inventory=None) -> dict:
     clock = clock or time.time
     if collect is None:
         if collector.is_symlink() or not collector.is_file():
@@ -70,6 +70,8 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
     active_persisted_session = raw.get("active_session") is True
     validate_snapshot(raw, pid=pid, now=clock(),
                       allow_active_session=active_persisted_session)
+    if validate_app_inventory is not None:
+        validate_app_inventory()
     reconciliation = None
     if active_persisted_session:
         reconciliation = {
@@ -84,11 +86,12 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
         }
     preimage = observed_preimage(
         root, pid=pid, physical_off_reconciliation=reconciliation)
-    if preimage["preimage_sha256"] != preimage_sha256:
+    if (preimage_sha256 is not None
+            and preimage["preimage_sha256"] != preimage_sha256):
         raise ValueError("installed composite preimage drift")
     candidate = inspect_candidate(
         root=root, stage=stage, pid=pid, source_sha=source_sha,
-        preimage_sha256=preimage_sha256, observed_preimage_record=preimage)
+        preimage_sha256=preimage["preimage_sha256"], observed_preimage_record=preimage)
     preserve_guarded_main = candidate.get("preserved_guarded_main") is True
     capacity = require_capacity(root, stage)
     argv = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
@@ -100,7 +103,7 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
         "activation_authorized": False,
         "source_sha": source_sha,
         "candidate_identity_sha256": candidate["candidate_identity_sha256"],
-        "observed_preimage_sha256": preimage_sha256,
+        "observed_preimage_sha256": preimage["preimage_sha256"],
         "capacity_pass": bool(capacity["capacity_pass"]),
         "free_bytes": capacity["observed_free_bytes"],
         "required_bytes": capacity["minimum_free_bytes"],

@@ -31,7 +31,9 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
         if pid <= 0:
             raise d090.TransactionError("D144 invalid service MainPID")
         result = assess(owner.root, stage, pid=pid, source_sha=source_sha,
-                        preimage_sha256=preimage_sha256, collector=collector)
+                        preimage_sha256=None, collector=collector,
+                        validate_app_inventory=lambda: d090.verify_pinned_preimage_app(
+                            owner.root / "app", owner.preimage_inventory_sha256))
         if result.get("preflight") != "PASS_AT_OBSERVATION_ONLY":
             raise d090.TransactionError("D142 pre-stop checks did not pass")
         return {
@@ -39,7 +41,7 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
             "status": "PREPARE_ONLY_PASS",
             "service_pid": pid,
             "candidate_identity_sha256": result["candidate_identity_sha256"],
-            "observed_preimage_sha256": preimage_sha256,
+            "observed_preimage_sha256": result["observed_preimage_sha256"],
             "fresh_d091_off": result["fresh_d091_off"],
             "capacity_pass": result["capacity_pass"],
             "preserved_guarded_main": bool(result.get("preserved_guarded_main")),

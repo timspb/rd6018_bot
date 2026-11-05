@@ -23,6 +23,7 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.owner.offline = False
         self.owner.software_release = True
         self.owner.pinned = SimpleNamespace(source_sha=SOURCE)
+        self.owner.preimage_inventory_sha256 = PREIMAGE
         self.owner._lock_depth = 0
         self.owner.release_admission = lambda: None
         self.service = binding.d090.SystemdService()
@@ -47,8 +48,10 @@ class D144OwnerBindingTests(unittest.TestCase):
             "candidate_identity_sha256": "a" * 64,
             "fresh_d091_off": True,
             "capacity_pass": True,
+            "observed_preimage_sha256": "e" * 64,
         }
-        with patch.object(binding, "assess", return_value=proof) as observed:
+        with patch.object(binding.d090, "verify_pinned_preimage_app"), \
+             patch.object(binding, "assess", return_value=proof) as observed:
             result = binding.prepare_only(
                 self.owner, stage=self.root, source_sha=SOURCE,
                 preimage_sha256=PREIMAGE, collector=self.root / "collector")
@@ -56,6 +59,8 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.assertFalse(result["activation_authorized"])
         self.assertTrue((self.root / "D090_TRANSACTION.lock").is_file())
         self.assertEqual(observed.call_count, 1)
+        self.assertIsNone(observed.call_args.kwargs["preimage_sha256"])
+        self.assertEqual(result["observed_preimage_sha256"], "e" * 64)
         self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
 
     def test_wrong_source_fails_before_observation(self):
@@ -72,7 +77,8 @@ class D144OwnerBindingTests(unittest.TestCase):
                 preimage_sha256=PREIMAGE, collector=self.root / "collector")
 
     def test_incomplete_combined_proof_refused(self):
-        with patch.object(binding, "assess", return_value={"preflight": "BLOCKED"}):
+        with patch.object(binding.d090, "verify_pinned_preimage_app"), \
+             patch.object(binding, "assess", return_value={"preflight": "BLOCKED"}):
             with self.assertRaises(binding.d090.TransactionError):
                 binding.prepare_only(self.owner, stage=self.root, source_sha=SOURCE,
                     preimage_sha256=PREIMAGE, collector=self.root / "collector")

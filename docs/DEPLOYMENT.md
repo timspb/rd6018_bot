@@ -18,6 +18,13 @@ Native acquisition failure means `ESP ACCESS BLOCKED`, not permission to
 deploy without fresh ESP evidence. Read-only Native API diagnostics are not
 hardware writes; all changes remain under the single existing ExecutionPort.
 
+For the D145 same-owner bootstrap, the profile's preimage pin is the installed
+`app/` inventory checked by D090. The D137 physical/session preimage is a fresh
+per-observation digest (including D091 proof nonces and timestamp) and must be
+carried into that run's D138 candidate identity, never compared to the static
+installed-app inventory pin. D144 validates the static app pin under the D090
+lock before D142 collects the fresh D091 proof.
+
 
 This document is for replacing the bot on an existing node. It intentionally does not prescribe a new service layout: discover and preserve the node's current runtime, virtualenv and service manager.
 
@@ -396,3 +403,10 @@ Rollback: <previous SHA / backup path / command>
 ```
 
 Never include tokens or Home Assistant credentials.
+
+For the D145 same-owner bootstrap, the profile's preimage pin is the installed
+`app/` inventory checked by D090. The D137 physical/session preimage is a fresh
+per-observation digest (including D091 proof nonces and timestamp) and must be
+carried into that run's D138 candidate identity, never compared to the static
+installed-app inventory pin. D144 verifies the static app inventory only after
+D142 has independently validated fresh D091 OFF evidence.

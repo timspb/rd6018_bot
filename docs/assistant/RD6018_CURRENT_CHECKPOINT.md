@@ -729,3 +729,21 @@ legacy journals before execute. After restart, verify installed source SHA,
 service health, direct Native R18 OFF and lease OFF; do not start or change
 setpoints. Update checkpoint again with the final deployment result or exact
 owner refusal.
+
+## 2026-11-05 — D145 preimage identity separation
+
+Implementation follow-up separates D090's static installed `app/` inventory
+pin from D137's fresh, nonce/timestamp-bound physical and session preimage.
+D142 now forwards the actual per-run D137 digest into D138; D144 checks the
+static D090 app inventory after D091 has first validated Native/HA OFF. This
+does not change the old D145 profile or persisted state. Added regression
+coverage; focused result 40 passed, 5 subtests, and compileall passed.
+
+Exact code HEAD pending commit on `fix/d145-guarded-main-admission`; origin
+gap must be recomputed afterward. Node104 remains not deployed and current
+physical proof must be reacquired before D145 prepare. Next: commit this stage,
+rebuild exact release archive, run the complete suite from the archive, stage
+the matching D138 tree/Python 3.11 environment, validate a source-paired
+external D145 profile and temporary-root same-owner entrypoint, then acquire
+fresh direct ESP Native evidence and run production prepare. Stop if any owner
+or recovery invariant does not admit.

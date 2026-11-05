@@ -1124,3 +1124,16 @@ under the Windows-translated checkout. No node service, session, D090/D144
 journal, RD Output, setpoint or lease was changed. Production D145 remains
 blocked until the exact source-paired D145 profile and D138 tree/Python 3.11
 stage are prepared and the canonical owner accepts a fresh prepare.
+
+## 2026-11-05 — D145 static app pin versus fresh D137 identity
+
+The release path had incorrectly compared D137's per-observation composite
+digest (which includes the new D091 timestamp and source nonces) to D145's
+static `preimage_inventory_sha256` (the installed `app/` byte inventory).
+These have different lifetimes and meanings. D142 now carries the fresh D137
+digest into D138 and the candidate identity; D144 validates the static
+installed-app inventory after D091 has independently passed. No profile pin,
+guard/session data, or historical transaction was rewritten. Focused D137,
+D138, D142 and D144 checks pass (40 tests, 5 subtests); `compileall` passes.
+This is a local implementation stage only; candidate packaging and node
+admission have not yet been attempted.
