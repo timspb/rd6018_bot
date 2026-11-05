@@ -128,6 +128,15 @@ authorize deployment or physical validation.
 
 ## D146: recover a Python release while preserving live state
 
+For D145 Python-only release admission, measured analog output voltage is not
+an install prerequisite when Native R18 and independent HA both prove Output
+OFF. Both sources must still report zero charging current. This exception is
+limited to `software_release=True` inside the existing D090 owner; ordinary
+hardware release validation and START safety retain measured-voltage checks.
+It does not supply missing edge proof: D147/D148 must still be extended and
+re-pinned before D145 can claim lease-remaining zero, fresh Modbus age, and
+R16 zero. No missing configured or analog values may be synthesized.
+
 Use the existing D090 transaction owner and its existing node104 service. This
 path is for a journaled Python release recovery where current
 `charge_session.json` and an active D084 `session_recovery_quarantine.json`

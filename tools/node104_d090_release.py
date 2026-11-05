@@ -189,7 +189,8 @@ class PhysicalOffProof:
 
 def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
                           require_service_stopped: bool = True,
-                          allow_active_session: bool = False) -> None:
+                          allow_active_session: bool = False,
+                          software_release: bool = False) -> None:
     """Validate fresh, independent, post-stop evidence; never reads hardware."""
     now = time.time() if now is None else now
     if not isinstance(proof, PhysicalOffProof):
@@ -214,8 +215,13 @@ def validate_physical_off(proof: PhysicalOffProof, *, now: float | None = None,
             or len(set(proof.source_nonces)) != 2):
         raise GateError("independent source challenge identifiers missing/reused")
     for voltage, current in ((proof.ha102_voltage_v, proof.ha102_current_a), (proof.esp128_voltage_v, proof.esp128_current_a)):
-        if not _num(voltage) or not _num(current) or abs(voltage) > .05 or abs(current) > .05:
-            raise GateError("both independent output voltage/current readings must be zero")
+        if not _num(current) or abs(current) > .05:
+            raise GateError("both independent charging-current readings must be zero")
+        # A software-only replacement while R18 is OFF does not depend on the
+        # RD6018's analog output-voltage readback. Physical START and ordinary
+        # hardware-release paths retain the original voltage requirement.
+        if not software_release and (not _num(voltage) or abs(voltage) > .05):
+            raise GateError("both independent output voltage readings must be zero")
     if proof.edge_lease_armed or proof.edge_boot_quarantine:
         raise GateError("edge lease must be disarmed and boot quarantine clear")
     if (type(proof.physical_node_owner_count) is not int or proof.physical_node_owner_count != 1

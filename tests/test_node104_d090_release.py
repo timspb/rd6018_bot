@@ -125,6 +125,19 @@ class ReleaseVerification(unittest.TestCase):
         with self.assertRaisesRegex(M.GateError, "not confirmed stopped"):
             M.validate_physical_off(proof, now=now)
 
+    def test_software_release_does_not_require_output_voltage_but_keeps_current(self):
+        now = time.time()
+        proof = M.PhysicalOffProof(now, M.MACHINE_ID, 0, True, None, 0.0,
+                                   True, None, 0.0, True, False, False, 1,
+                                   False, ("ha:nonce1", "esp:nonce2"))
+        M.validate_physical_off(proof, now=now, software_release=True)
+        with self.assertRaisesRegex(M.GateError, "voltage"):
+            M.validate_physical_off(proof, now=now)
+        for altered in (replace(proof, ha102_current_a=0.2),
+                        replace(proof, esp128_current_a=0.2)):
+            with self.subTest(proof=altered), self.assertRaisesRegex(M.GateError, "current"):
+                M.validate_physical_off(altered, now=now, software_release=True)
+
     def test_wrong_staging_sha_manifest_and_symlink_rejected(self):
         with staged_fixture() as stage:
             manifest_path = stage / "RELEASE_MANIFEST.json"

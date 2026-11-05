@@ -335,7 +335,8 @@ class D090Transaction:
         """Fresh physical OFF proof may describe live state we are preserving."""
         proof = self.proof()
         release.validate_physical_off(proof, require_service_stopped=require_service_stopped,
-                                      allow_active_session=self.software_release)
+                                      allow_active_session=self.software_release,
+                                      software_release=self.software_release)
         if any(nonce in self._proof_nonces for nonce in proof.source_nonces):
             raise TransactionError('physical proof challenge reused within transaction')
         self._proof_nonces.update(proof.source_nonces)
