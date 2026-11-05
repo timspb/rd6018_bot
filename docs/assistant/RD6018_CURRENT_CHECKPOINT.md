@@ -980,3 +980,9 @@ commit; the code source remains `beab527c2f5413962d3bccd8c140f3a0417dca17`.
 The readiness fix is committed but not deployed. No node104 service, app/venv,
 transaction journal, session, setpoint, Output or lease write occurred during
 this stage.
+
+Final documentation HEAD for this stage: `3e1b4fe65f03bb5320e38cde42c1b95b6b40b158`,
+12 commits ahead of `origin/main`, 0 behind before this final checkpoint hash
+update. Pre-existing untracked notes `.codex_bootstrap_fix.md`,
+`.codex_r72_d091_deploy.md`, and `.codex_r72_readiness_fix.md` were left
+untouched.
