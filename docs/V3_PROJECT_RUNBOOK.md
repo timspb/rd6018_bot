@@ -1309,3 +1309,17 @@ Python 3.11 environment, create the matching D146 profile, pass D145
 prepare-only, and execute the same-owner D144 transaction after another fresh
 Native + D148 OFF observation. No START, Output enable, setpoint, or lease
 write is authorized or planned.
+
+## 2026-11-06 — beab source/profile prepared locally
+
+An exact source-only D138 package is prepared locally for the committed
+bounded-readiness source `beab527c2f5413962d3bccd8c140f3a0417dca17`: 1,352
+files, archive SHA256
+`c4710ee5e77317b25bb0ceb34b0c05b9d44b49b442d1cb3bbdd72ecc2adfa658`, and
+manifest SHA256
+`3ded71cbc7fe906985d60fbfef9fca9e4045ad388369381b34ddb8bc39af8183`.
+Its D146 profile pins the restored app preimage and is committed alongside
+this checkpoint. It is not yet on node104. The installed `.deploy_sha` remains
+`58321a866dd68195bf8264d1d9ebe7c18a60748f`; slot 2 remains RESTORED. Next
+work is same-owner D145 prepare with a staged Python 3.11 environment, followed
+by the normal D144 transaction after a fresh direct Native and D148 OFF proof.

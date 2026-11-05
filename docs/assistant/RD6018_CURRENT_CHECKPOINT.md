@@ -1045,3 +1045,30 @@ HOME-PC WSL task prompt files `.codex_bootstrap_fix.md`,
 `.codex_r72_d091_deploy.md`, `.codex_r72_next.md`, and
 `.codex_r72_readiness_fix.md` were removed after use. Recovery-only `/tmp`
 staging had bytecode caches removed; it is transient and not production source.
+
+## 2026-11-06 — exact beab source/profile staged locally
+
+The recovery stage above is committed as `7b775d4cba62644a4cf0df1aa8550e9f0c6e8d1d`.
+Prepared, but have not yet transferred to node104, a source-only D138 package
+for exact code commit `beab527c2f5413962d3bccd8c140f3a0417dca17`. It contains
+1,352 regular source files, archive SHA256
+`c4710ee5e77317b25bb0ceb34b0c05b9d44b49b442d1cb3bbdd72ecc2adfa658`, and
+D138 manifest SHA256
+`3ded71cbc7fe906985d60fbfef9fca9e4045ad388369381b34ddb8bc39af8183`.
+The changed-path inventory has 427 entries and classifies as
+`python_control_change`; Python requirement files are identical to the
+previous fully tested d2aa candidate. The new source-paired D146 profile is
+`docs/operations/evidence/D146_D138_NODE104_PROFILE_BEAB527.json`, SHA256
+`47897e673f40f6609c30932ff9d17f62990882a1a498d4ec4d2ec8b6ca78b47a`.
+It pins the actual node104 app preimage inventory
+`b1f4db27e7d70f03f2f3197f3a042be39b6bd969614bc4a8869c41f87d0d7a15`,
+verified read-only against the restored production app after recovery.
+
+This is source/profile preparation only. Node104 still reports `.deploy_sha`
+`58321a866dd68195bf8264d1d9ebe7c18a60748f`; D144 slot 2 is RESTORED, slot 1
+COMMITTED, D090 STARTED, service PID 219592 active with no restarts, and the
+Guard/session checksum remains unchanged. No D145 prepare or execute for beab
+has run yet. Next: transfer the exact archive/tree/manifest to the existing
+node104 `/tmp` D138 stage, reuse the already validated Python 3.11 dependency
+environment because requirements are unchanged, run same-owner D145 prepare,
+then obtain another fresh direct Native plus D148 proof before execute.
