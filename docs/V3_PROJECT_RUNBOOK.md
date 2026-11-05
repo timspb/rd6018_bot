@@ -1143,3 +1143,14 @@ D137's stable durable identity digest excludes only the transient D091 proof
 returns it as evidence, and D144 re-collects physical proof for each phase.
 This lets the exact candidate identity remain the same across prepare/execute
 while preserving fresh per-phase OFF evidence.
+
+## 2026-11-05 — use pinned D148 for guarded-session prepare
+
+The exact external D145 prepare reached D137 with a fresh OFF proof but D147
+reported `active_session=false` while the persisted MAIN session remained
+active. D148, already pinned by D145/D149 for the D144 state-preserving phases,
+reports this same guarded session as active while preserving fresh Native/HA
+OFF evidence. D145 prepare and execute now select that existing pinned D148
+collector; D147 stays pinned and unchanged. No session/journal bytes changed.
+Focused D137/D142/D144/D145 checks pass (45 tests, 5 subtests); complete exact
+archive suite and a D145 prepare through D148 are pending.

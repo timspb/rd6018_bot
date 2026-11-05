@@ -100,6 +100,18 @@ def verify_pinned_observer(root: Path, relative_path: str, expected_sha256: str)
     return path
 
 
+def verify_state_preserving_observer(root: Path) -> Path:
+    """Return the existing exact D148 recovery collector for guarded state.
+
+    D147's legacy software-release projection may report a preserved guarded
+    MAIN session as inactive. D148 reads the same Native/HA OFF contract while
+    truthfully retaining active-session identity, and is already the pinned
+    observer used by D144's stopped/post-start phases.
+    """
+    return verify_pinned_observer(
+        root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=("prepare", "execute", "recover"))
@@ -119,13 +131,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.phase == "prepare":
         result = prepare_only(
             owner, stage=args.stage, source_sha=SOURCE_SHA,
-            preimage_sha256=PREIMAGE_INVENTORY_SHA256, collector=observer)
+            preimage_sha256=PREIMAGE_INVENTORY_SHA256,
+            collector=verify_state_preserving_observer(root))
     elif args.phase == "execute":
-        verify_pinned_observer(
-            root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)
         result = execute_under_owner(
             owner, stage=args.stage, preimage_sha256=PREIMAGE_INVENTORY_SHA256,
-            collector=observer)
+            collector=verify_state_preserving_observer(root))
     else:
         verify_pinned_observer(
             root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)

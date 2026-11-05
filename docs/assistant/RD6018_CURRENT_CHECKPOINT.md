@@ -754,3 +754,17 @@ requires and validates the fresh Native/HA OFF proof before D137, and D144
 re-collects phase-specific proof. This makes D144's candidate identity stable
 across independently fresh physical observations. Regression: 41 passed, 5
 subtests; compileall passed. Exact source packaging/full suite must be rerun.
+
+D145 prepare then exposed a D147/D148 observer distinction: pinned D147 reports
+the guarded MAIN session as inactive, while the already pinned D148 recovery
+collector truthfully reports `active_session=true` with the same strict fresh
+Native/HA OFF proof. D145 prepare and execute now use the existing D148 reader;
+D147's pin remains unchanged and D144 already uses D148 for stopped/post-start
+phases. Guard-only diagnostics showed revision 481, pending/fault null,
+MAIN=true, 65 Ah, historical persisted Output-on=true, and restart-normalized
+memory false. No state was changed. The latest successful direct Native proof
+reported OFF/0 U/0 I, battery 12.92 V, Vset/Iset 14.82/1.23 V/A, R16=0,
+OVP/OCP 16.70/12.0, autonomous=false, lease disarmed generation 61/remaining
+0/TTL900, trip/quarantine false, Modbus age 1.87 s; D091 independently agreed.
+Code stage is focused-tested only (45 tests, 5 subtests); complete suite and
+new exact source archive remain pending.

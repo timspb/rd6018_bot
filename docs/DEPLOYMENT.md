@@ -416,3 +416,10 @@ nonces of a D091 proof that D142 has already validated. The proof remains in
 the returned evidence record and is re-collected before each transaction
 phase. This keeps D144's candidate identity stable across the fresh phase
 observations while still requiring each phase's independent physical proof.
+
+For a preserved active guarded MAIN session, D145 prepare and execute must use
+the already pinned D148 state-preserving D091 collector. The historical D147
+software-release projection can represent that active session as inactive;
+D148 reports the session truthfully and is already used by D144's stopped and
+post-start phases. Both readers still require fresh direct Native/HA OFF and
+clear lease/quarantine evidence.
