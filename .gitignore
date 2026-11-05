@@ -191,3 +191,7 @@ esphome/.esphome/
 
 # Local MIX authority runtime state (never version control)
 charge_session.json.mix-authority.json
+
+# Local vendor hardware resources, not source code
+local_assets/
+infrastructure/wsl/
