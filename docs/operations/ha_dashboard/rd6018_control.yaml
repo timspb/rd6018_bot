@@ -116,9 +116,19 @@ views:
       name: РЕЖИМ
       icon: mdi:chart-bell-curve-cumulative
       show_state: true
-      state_display: "[[[\n  const cv = entity.state;\n  const cc = states['binary_sensor.rd_6018_constant_current']?.state;\n\
-        \  if (cv === 'on') return 'CV · напряжение';\n  if (cc === 'on') return 'CC · ток';\n  return cv === 'unavailable'\
-        \ || cv === 'unknown' ? 'Нет данных' : 'Ожидание';\n]]]\n"
+      state_display: '[[[
+
+        const cv = entity?.state;
+
+        const cc = states[''binary_sensor.rd_6018_constant_current'']?.state;
+
+        if (cv === ''on'') return ''CV'';
+
+        if (cc === ''on'') return ''CC'';
+
+        return cv === ''unknown'' || cv === ''unavailable'' ? ''Нет данных'' : ''Ожидание'';
+
+        ]]]'
       triggers_update:
       - binary_sensor.rd_6018_constant_voltage
       - binary_sensor.rd_6018_constant_current
@@ -140,7 +150,7 @@ views:
         columns: 4
     - type: custom:button-card
       entity: sensor.rd_6018_temperature_external
-      name: ТЕМПЕРАТУРА АКБ
+      name: ТЕМП. АКБ
       icon: mdi:thermometer
       show_state: true
       state_display: "[[[\n  if (!entity || ['unknown','unavailable'].includes(entity.state)) return 'Нет данных';\n  const\
@@ -156,8 +166,25 @@ views:
         - border-radius: 12px
         - height: 72px
         - padding: 8px
+        - background-color: '[[[
+
+            const s = entity?.state;
+
+            if (!s || s === ''unavailable'' || s === ''unknown'') return ''var(--ha-card-background, var(--card-background-color))'';
+
+            const t = Number(s);
+
+            if (!Number.isFinite(t)) return ''var(--ha-card-background, var(--card-background-color))'';
+
+            if (t > 35) return ''rgba(220,38,38,0.50)'';
+
+            if (t > 30) return ''rgba(127,29,29,0.42)'';
+
+            return ''var(--ha-card-background, var(--card-background-color))'';
+
+            ]]]'
         name:
-        - font-size: 12px
+        - font-size: 11px
         - font-weight: '600'
         state:
         - font-size: 17px
