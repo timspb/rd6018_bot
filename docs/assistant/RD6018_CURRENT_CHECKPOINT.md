@@ -363,3 +363,35 @@ Remaining release issue: installed production D090 journal still `STARTED` sourc
 node104 D138 completed on the actual installed preimage and a complete isolated Python 3.11 stage: `source_sha=daa6bff2d8b2997884dbd7102c44a1d266950ba9`, 1340 verified source files, Python 3.11.2 venv with `pip check` PASS (9351 regular files), observed D137 preimage SHA256 `9a3c035495a5f72d76ed7932d1fe2aa2c0e96a2dd97816f386518c9dbca0bd22`, D138 candidate identity `2b7acc9790fd1ed42b88ca4e8bbc01899f495e88f508e55712df0659b098a83c`, D138 manifest SHA256 `88f855475399a599f7e9f22b2c0bfebc2327c25403546cd14015cb17e766b75d`. Root-owned D147 observer was installed using the existing exact pin (`1127e9e3...`) and historical D148 observer (`a738f08e...`) installed from its original legacy stage; both read-only, unchanged service PID 196930. Exact D146 target profile was generated with actual current env/unit hashes and validated (`python_control_change`, 411 paths, no firmware change); SHA256 `a07457a755ceddb44e367ab0273fe53b9b9c94e24a03df39c0b5d87371f34c82`. Frozen existing D145 entrypoint copy for this exact target was staged in `/tmp`, SHA256 `66991fa62fcb1d60f6ecd44253904d7d96c0e976effdb60e46b6ef2ccae4c929`. D145 `prepare` returned **PREPARE_ONLY_PASS**, fresh independent OFF true, capacity true, matching candidate and preimage. No service stop or activation.
 
 Before execute, independently tested D148 `POST_START` and found **failure**: `ProofError: quarantine journal is active or uncertain`. This was traced to the source D091 collector's logical bug: it validated `_journal_state(journal_path)` successfully but then set `snapshot['journal_clear'] = recovery_mode`, which is false for normal POST_START, so `assemble_proof()` invariably rejected even a valid retired v2 quarantine. Corrected local `tools/node104_d091_physical_proof_collector.py` to set clear only after `_journal_state` succeeds; Recovery still reports not cleared without making a false claim. Added focused tests; Linux **39 PASS** (D091, D149, D142). This fix is NOT yet deployed, and the old D148 pin remains archived for recovery. Next: create an exact revised D148 observer pin (versioned, retaining legacy), update D149 routing, rebuild and test a new complete source release and Python 3.11 candidate, then rerun real D145 prepare before any execute. Do not activate stale `daa6bff` candidate: POST_START observer is incompatible with it. Physical actuation untouched, service remains active.
+
+## 2026-11-05 — read-only HA102 RD6018 dashboard
+
+Source/docs implementation commit: `3229f77247758a1c5d093e68a371f2595ef307bf`.
+Added `docs/operations/ha_dashboard/rd6018_control.yaml` and its install and
+entity-mapping runbook. Installed a separate storage dashboard on HA102 at
+`/rd6018-control`; the existing `dashboard-rd6018` remains listed and its
+configuration remains readable. HA version `2026.10.4`; WebSocket save and
+readback matched the source config exactly. All 19 entity IDs were present in
+live `/api/states`; the config uses stock Sections, heading, tile, entities and
+history-graph cards, with zero switch/number entities or service actions. The
+24-hour Recorder query returned measured battery voltage and measured output
+current history. YAML parsed, stock-card/entity checks passed, and the graph is
+configured for all 12 section columns. No automated application tests were
+run; this stage only changes HA dashboard YAML/docs.
+
+The authenticated HA observation at 2026-11-05 08:05 UTC showed Output mirror
+code `1`, HA switch `on`, battery voltage about 14.83 V and measured output
+current about 0.23 A. This is **HA-only secondary telemetry**, not fresh direct
+ESP proof. Direct Native API access was attempted through the existing
+`esp_direct` client but is blocked because the ESPHome API encryption key is
+not available in the existing local runtime/secrets. Record **ESP ACCESS
+BLOCKED**; do not claim physical pass or act on Output based on HA. No output,
+setpoint, lease, battery, service or firmware command was sent.
+
+node104 hands_off and deployment state were not rechecked or changed for this
+HA-only task; the previous node104 evidence in this checkpoint is historical,
+not current proof. Local `main` contains the dashboard source commit above and
+this checkpoint update; `origin/main` has not been changed or pushed. No push
+was attempted. A pre-existing untracked `.codex_ha_ui_task.txt` remains
+untouched. Next: resolve direct ESP Native API access before any
+physical-state verification; dashboard itself is deployed and read-only.
