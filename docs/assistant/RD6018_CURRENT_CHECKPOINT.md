@@ -494,3 +494,39 @@ journal rewrite, or direct app replacement performed. Next production
 step must use the existing D090/D145 owner with a new reviewed exact
 candidate profile and preimage, not the obsolete D145 source pin. Do
 not falsely claim installed. Keep D090 historical evidence unchanged.
+
+## 2026-11-05 11:06 UTC — node104 deployment admission recheck (blocked)
+
+Used pinned-key SSH with `RejectPolicy` and the installed read-only D148/D091
+collector before and after the only attempted production-owner operation.
+Both fresh direct ESP Native subscriptions identified the expected node and
+reported R18 OFF, measured 0.0 V / 0.0 A, lease disarmed and boot quarantine
+false; HA matched. Service remained active at PID 213548 with NRestarts=0.
+The second proof was acquired after D145 prepare refused. No service stop or
+start, actuator command, setpoint write, session edit, D090 edit, or application
+replacement occurred. This collector does not expose R16, configured V/I,
+OVP/OCP, battery voltage, lease generation/remaining/Modbus age, or all edge
+flags; those fields are therefore not claimed as verified in this stage.
+
+Ran the installed D145 `prepare` against `/tmp/rd6018-source-372f4ea`. It
+failed read-only in D137 with `durable retirement and verified-OFF identity do
+not agree`: the canonical guarded EFB 65 Ah Recovery session is still active in
+MAIN, not retired. The run did not reach D138 candidate admission or mutate
+state. Existing D090 remains `STARTED`, source
+`930239c670899e14ccb09154d99baf77df90da10`, no `candidate_inventory`, and
+`.deploy_sha=58321a866dd68195bf8264d1d9ebe7c18a60748f`. Also discovered an
+already `COMMITTED` D144 journal for source `9a1f5ea4784dc37b19156c462e36c3b4a3de81c9`;
+do not overwrite it. Installed D145/profile/D147/D148 hashes remain pinned to
+their existing historical versions, and do not bind the requested `372f4ea`
+candidate. The current guarded session cannot be made to look retired, and the
+372f4ea release identity/pins must not be rewritten without a complete retest.
+
+Exact code release remains `372f4ea81c63fae20700eca85bbfa2aed8991ee9` with
+its prior extracted-release result **2888 PASS, 10 skipped, 1673 subtests
+PASS, 0 FAIL/ERROR**. No new code or test run. Repository HEAD at this stage:
+`3175ee0ed808d2b771c73cbdc6188c1c0d6ee038`; local main and origin/main were
+even before this documentation update. Deployment remains **not completed**.
+Next: resolve a reviewed state-preserving admission that accepts and byte-pins
+this exact guarded session while preserving every existing D090/D144 owner and
+profile boundary, then obtain the complete required Native field set and repeat
+the owner preflight. Never resume the session or alter battery protections.

@@ -1058,3 +1058,30 @@ completed exact-archive Linux full suite **2,888 PASS, 10 skipped,
 1,673 subtests PASS, 0 FAIL**, with all 1,352 release-manifest files
 verified. This validates the source candidate only; node104 remained
 unchanged and current guarded charge session was not resumed.
+
+## 2026-11-05 node104 deployment admission hold
+
+The exact offline-tested release `372f4ea81c63fae20700eca85bbfa2aed8991ee9`
+is staged but **not installed**. A fresh direct Native D148/D091 observation
+before and after a read-only D145 prepare attempt showed R18 OFF and measured
+U/I zero, with lease disarmed and boot quarantine false; HA agreed. The bot
+remained active PID 213548, NRestarts=0. No service lifecycle or physical
+actuator operation occurred. The D148 projection does not include all required
+physical fields (R16, Vset/Iset, OVP/OCP, battery voltage, lease generation,
+remaining time, Modbus age and complete trip/autonomous flags); do not call
+this a complete deployment preflight.
+
+D145 prepare refused before candidate admission because D137 requires a
+retired session matching durable verified-OFF identity, while node104 retains
+the active guarded EFB 65 Ah Recovery MAIN session. The failure was
+`durable retirement and verified-OFF identity do not agree`; no state was
+changed. Existing D090 remains `STARTED` without `candidate_inventory` and
+`.deploy_sha` remains `58321a866dd68195bf8264d1d9ebe7c18a60748f`. A separate
+existing D144 journal is already `COMMITTED` for source
+`9a1f5ea4784dc37b19156c462e36c3b4a3de81c9`; preserve it. Installed D145 and
+its D146/D147/D148 pins are historical and do not authorize the staged
+`372f4ea` release. Do not retire or rewrite the guarded session to satisfy
+admission, and do not replace release pins without a complete regression.
+Deployment is blocked pending a reviewed admission path that preserves the
+exact active session, the existing transaction journals, and complete fresh
+Native physical evidence. No automatic resume is authorized.
