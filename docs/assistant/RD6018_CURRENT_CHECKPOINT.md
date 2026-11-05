@@ -974,3 +974,9 @@ U/I. Do not claim slot 2 settled or d2aa installed. Next work must first fix or
 use a correctly typed existing direct read-only collector to capture the full
 required current Native field set, then stage the exact source/profile and use
 the same D090 lock and D145 owner with bounded readiness to settle slot 2.
+
+Documentation HEAD after the blocker/runbook synchronization is pending this
+commit; the code source remains `beab527c2f5413962d3bccd8c140f3a0417dca17`.
+The readiness fix is committed but not deployed. No node104 service, app/venv,
+transaction journal, session, setpoint, Output or lease write occurred during
+this stage.

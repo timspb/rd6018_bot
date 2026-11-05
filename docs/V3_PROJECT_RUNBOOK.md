@@ -1270,3 +1270,13 @@ recovery acceptance. Timeout, service exit, PID change, duplicate owner, or
 startup faults fail closed. Focused offline tests passed 38 cases; full suite
 and compile evidence are recorded in the current checkpoint when complete.
 This is software owner behavior only and authorizes no physical charging action.
+
+Node104 deployment remains held: the local readiness fix is not installed in
+the external D090 owner, D144 slot 2 is still `STARTED`, and the previous
+release remains active. The latest complete direct Native/D091 + D148 evidence
+confirmed R18 OFF, measured U/I zero and lease disarmed, but detailed D106
+read-only collection failed closed on Native entity type mismatches, and D091
+reported the preserved guarded session inactive. Therefore recovery lacks the
+full fresh physical field set and trustworthy guarded-session proof required
+for D145. No recovery/execute was invoked. Do not claim d2aa installed or slot
+2 settled. Full archive regression has no valid PASS yet; see current checkpoint.
