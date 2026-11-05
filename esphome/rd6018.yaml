@@ -46,11 +46,12 @@ packages:
 esphome:
   name: ${device_name}
   friendly_name: ${device_friendly_name}
+  min_version: "2026.9.1"
   comment: ${device_description}
   name_add_mac_suffix: false
   project:
     name: "timspb.rd6018-pb-recovery-v2"
-    version: "2.2-autonomous-authority"
+    version: "2.3-ha-canonical"
 
 esp8266:
   board: esp01_1m
@@ -404,6 +405,14 @@ switch:
     entity_category: config
 
 text_sensor:
+  - platform: template
+    id: rd6018_firmware_canonical_release
+    name: "Firmware Canonical Release"
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: |-
+      return {"2.3-ha-canonical"};
+
   - platform: wifi_info
     ip_address:
       name: "IP Address"

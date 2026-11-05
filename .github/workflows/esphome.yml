@@ -15,8 +15,8 @@ on:
       - '.github/workflows/esphome.yml'
 
 jobs:
-  compile-rd6018-v2:
-    runs-on: ubuntu-latest
+  compile-rd6018-23:
+    runs-on: [rd6018-ci, rd6018-wsl2]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +33,7 @@ jobs:
       - name: Upload dummy-secrets CI firmware
         uses: actions/upload-artifact@v4
         with:
-          name: rd6018-controller-v2-ci-${{ github.sha }}
-          path: esphome/dist/rd6018-controller-v2.bin
+          name: rd6018-controller-23-CI-NOT-FOR-OTA-${{ github.sha }}
+          path: esphome/dist/rd6018-controller-2.3-ha-canonical.bin
           if-no-files-found: error
           retention-days: 14

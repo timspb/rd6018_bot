@@ -604,3 +604,21 @@ If the new firmware is unsuitable:
 
 Do not use rollback as a reason to bypass managed boot quarantine, verified-OFF
 requirements, explicit AUTONOMOUS authority, or intrinsic protection.
+
+## D111: HA ESPHome 2.3 canonical source and anti-downgrade (2026-10-18)
+
+Source release is `2.3-ha-canonical`, ESPHome builder >=2026.9.1. The primary device YAML remains
+`esphome/rd6018.yaml`, with exactly four local `esphome/packages/*.yaml` includes.
+Only this source set may be installed as HA's `/config/esphome/rd6018.yaml`
+and matching `/config/esphome/packages/*.yaml`. A new ESPHome builder version
+does **not** imply a new RD6018 safety firmware release, and flashing a
+binary from elsewhere without replacing HA's source guarantees a future downgrade.
+
+Use `tools/rd6018_ha23_release.py` to stage immutable, hash-locked local
+configuration. Its HA-local install preserves `secrets.yaml` byte-for-byte,
+backs up the old device YAML and packages, atomically replaces the five files,
+and verifies the release lock. It does not send firmware/Modbus commands.
+Before any HA firmware compile/update, verify the HA source lock; after OTA,
+read actual project version and `Firmware Canonical Release` via ESP Native API.
+CI dummy-credential firmware is **NEVER** an installable production image.
+Refer to `docs/assistant/D111_ESPHOME_23_HA_CANONICAL_20261018.md`.
