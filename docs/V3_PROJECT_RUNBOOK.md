@@ -1345,3 +1345,19 @@ passed. Node104 remains on the prior 58321a release, service PID 219592,
 matching profile for 9d1aa, then follow same-owner D145 prepare and execute
 with fresh direct Native and D148 proof. No START, Output ON, setpoint or lease
 write is authorized.
+
+## 2026-11-06 — exact 9d1aa source/profile prepared locally
+
+The target source is now `9d1aa22243904bc7f9b80f2ae128fc7fc48e193e`; the
+superseded beab profile was removed before transfer. The exact 1,352-file D138
+archive SHA256 is
+`7a88f39e866405b76760fe0c4ae671aa91f4be86e8c577eb9e6e1fa6593ff663`; its
+manifest SHA256 is
+`da04dd3b68fee2e8566ad6140fade2636d1c476d9bf6b890a90efea8888b3de5`. The
+source-paired D146 profile SHA256 is
+`1c55477e693441880b1acfa31d5c2981cfaa775376b080863953d8295aab699a`. This
+package is local only. Node104 remains on 58321a with D144 slot 2 RESTORED and
+service PID 219592. Next, stage the exact archive and the validated Python
+3.11 dependency environment in `/tmp`, then run same-owner D145 prepare. Take
+fresh direct Native and D148 OFF/session evidence again before execute. No
+START, Output enable, setpoint or lease write is authorized.

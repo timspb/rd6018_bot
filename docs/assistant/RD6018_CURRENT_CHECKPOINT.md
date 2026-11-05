@@ -1092,6 +1092,32 @@ source-paired D146 profile against app preimage
 `b1f4db27e7d70f03f2f3197f3a042be39b6bd969614bc4a8869c41f87d0d7a15`, and
 use the existing D145/D090 owner for prepare and any later D144 transaction.
 
+## 2026-11-06 — exact 9d1aa source/profile prepared locally
+
+The beab release profile was superseded and removed before any transfer after
+the software-only D091/D142/D137 proof was corrected. Exact source package for
+code commit `9d1aa22243904bc7f9b80f2ae128fc7fc48e193e` is now prepared locally:
+1,352 files, source archive SHA256
+`7a88f39e866405b76760fe0c4ae671aa91f4be86e8c577eb9e6e1fa6593ff663`, D138
+manifest SHA256
+`da04dd3b68fee2e8566ad6140fade2636d1c476d9bf6b890a90efea8888b3de5`, and
+source-paired D146 profile
+`docs/operations/evidence/D146_D138_NODE104_PROFILE_9D1AA222.json`, SHA256
+`1c55477e693441880b1acfa31d5c2981cfaa775376b080863953d8295aab699a`. The
+profile pins restored app inventory
+`b1f4db27e7d70f03f2f3197f3a042be39b6bd969614bc4a8869c41f87d0d7a15` and the
+existing D147 observer. This exact package has not been transferred or
+prepared on node104.
+
+The D091/D142/D137 scope change and tests are code commit 9d1aa; this
+checkpoint/profile/runbook follow-up is the current documentation commit.
+Production remains `.deploy_sha` 58321a, service PID 219592, D144 slot 2
+RESTORED, slot 1 COMMITTED and D090 STARTED; session checksum is unchanged.
+Before D145 prepare and again before execute, obtain a fresh direct Native
+read of R18/current/R16/lease/trip/quarantine/Modbus and fresh D148 Native/HA
+OFF plus guarded-session proof. Use the existing D145/D090 owner and lock.
+No actuator write is included in this stage.
+
 ## 2026-11-06 — exact beab source/profile staged locally
 
 The recovery stage above is committed as `7b775d4cba62644a4cf0df1aa8550e9f0c6e8d1d`.
