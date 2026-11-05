@@ -18,7 +18,10 @@ from .main_current_guard import MainCurrentGuard, GuardError, READBACK_TOLERANCE
 GUARD_KEY = "main_current_guard_v1"
 JOURNAL_SCHEMA = 1
 ELIGIBLE_STAGES = frozenset({
-    "Main Charge", "Охлаждение", "Десульфатация", "Безопасное ожидание"
+    "Main Charge", "Охлаждение", "Десульфатация", "Безопасное ожидание",
+    # A sealed, existing MAIN journal can continue into final MIX. It does
+    # not grant fresh MAIN Guard authority to a MIX-only session.
+    "Mix Mode",
 })
 
 
@@ -93,6 +96,13 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
         raise GuardJournalError("expected_revision_invalid")
     _identity(document, guard)
     previous = document.get(GUARD_KEY)
+    if document.get("stage") == "Mix Mode":
+        # MIX can preserve an already-validated, revisioned MAIN Guard but
+        # cannot create or erase its ratchet journal on its own.
+        if previous is None or expected_revision <= 0:
+            raise GuardJournalError("mix_requires_existing_main_guard")
+        if guard.pending is not None:
+            raise GuardJournalError("mix_requires_resolved_main_guard")
     if previous is None:
         if expected_revision != 0:
             raise GuardJournalError("missing_existing_guard_checkpoint")

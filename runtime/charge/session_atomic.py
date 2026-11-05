@@ -136,6 +136,14 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
             raise GuardJournalError("desulfation_return_checkpoint_revision_changed")
         result[GUARD_KEY] = saved
         expected_revision = saved.get("revision")
+    if result.get("stage") == getattr(host, "STAGE_MIX", None):
+        # This is a continuation of the existing guarded session, not a new
+        # grant. The previous durable stage must be MAIN or MIX, with the
+        # same guarded identity and a fully resolved current ratchet.
+        if prior.get("stage") not in {
+            getattr(host, "STAGE_MAIN", None), getattr(host, "STAGE_MIX", None)
+        } or saved is None or current.pending is not None:
+            raise GuardJournalError("mix_guard_handoff_requires_resolved_main")
     # Persisting a guarded MAIN session with a wider target would let a later
     # normal stage tick reprogram Iset above the physical ratchet. Reject the
     # entire document, including every unrelated periodic save, rather than

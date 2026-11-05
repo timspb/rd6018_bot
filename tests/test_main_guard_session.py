@@ -96,6 +96,29 @@ class MainGuardSessionContractTests(unittest.TestCase):
         with self.assertRaisesRegex(GuardJournalError, "enlarged"):
             attach_guard(doc, altered, now_s=1803, expected_revision=2)
 
+    def test_mix_guard_cannot_advance_with_unresolved_pending_proposal(self):
+        guard_with_pending, pending = proposed()
+        self.assertIsNotNone(pending)
+        original = attach_guard(identity(), guard_with_pending,
+                                now_s=1801, expected_revision=0)
+        transitioning = dict(original, stage="Mix Mode")
+        with self.assertRaisesRegex(GuardJournalError, "mix_requires_resolved_main_guard"):
+            attach_guard(transitioning, guard_with_pending,
+                         now_s=1802, expected_revision=1)
+
+    def test_mix_guard_does_not_mint_new_authority(self):
+        original = attach_guard(identity(), guard(), now_s=1, expected_revision=0)
+        transferring = dict(original, stage="Mix Mode")
+        transferred = attach_guard(transferring, guard(),
+                                   now_s=2, expected_revision=1)
+        self.assertEqual(transferred[GUARD_KEY]["revision"], 2)
+        current, _ = read_guard(transferred, session_id="sid",
+                                battery_id="bat", now_s=3)
+        self.assertEqual(current.hardware_limit_a, 7.2)
+        with self.assertRaisesRegex(GuardJournalError, "mix_requires_existing_main_guard"):
+            attach_guard(dict(identity(), stage="Mix Mode"),
+                         guard(), now_s=2, expected_revision=0)
+
     def test_pending_cannot_be_erased_without_proven_reduction(self):
         from dataclasses import replace
         g, pending = proposed()

@@ -71,6 +71,50 @@ class AtomicChargeSessionIntegrationTests(unittest.TestCase):
         self.assertEqual(second[GUARD_KEY]["revision"], 2)
         self.assertEqual(second["v2_trace_session_id"], "verified-sid")
 
+    def test_guarded_main_to_final_mix_is_single_atomic_handoff(self):
+        controller = self.controller()
+        controller._main_current_guard = MainCurrentGuard.start(
+            session_id="verified-sid", battery_id="battery-actual",
+            segment_id="main-1", capacity_ah=60, recipe_initial_current_a=6.0,
+        )
+        main = self.save(controller)
+        self.assertEqual(main["stage"], controller.STAGE_MAIN)
+        self.assertEqual(main[GUARD_KEY]["revision"], 1)
+        controller.current_stage = controller.STAGE_MIX
+        mixed = self.save(controller)
+        self.assertEqual(mixed["stage"], controller.STAGE_MIX)
+        self.assertEqual(mixed[GUARD_KEY]["revision"], 2)
+        guard, rev = read_guard(mixed, session_id="verified-sid",
+                               battery_id="battery-actual", now_s=self.now)
+        self.assertEqual(rev, 2)
+        self.assertEqual(guard.hardware_limit_a, 6.0)
+        self.assertEqual(guard.segment_id, "main-1")
+        self.assertFalse(list(self.path.parent.glob(".charge-session-*.tmp")))
+
+    def test_mix_cannot_create_guard_without_previous_main_checkpoint(self):
+        controller = self.controller()
+        controller.current_stage = controller.STAGE_MIX
+        controller._main_current_guard = MainCurrentGuard.start(
+            session_id="verified-sid", battery_id="battery-actual",
+            segment_id="main-1", capacity_ah=60, recipe_initial_current_a=6.0,
+        )
+        with self.assertRaisesRegex(GuardJournalError, "mix_guard_handoff"):
+            self.save(controller)
+        self.assertFalse(self.path.exists())
+
+    def test_mix_save_cannot_drop_or_replace_guard(self):
+        controller = self.controller()
+        controller._main_current_guard = MainCurrentGuard.start(
+            session_id="verified-sid", battery_id="battery-actual",
+            segment_id="main-1", capacity_ah=60, recipe_initial_current_a=6.0,
+        )
+        main = self.save(controller)
+        controller.current_stage = controller.STAGE_MIX
+        controller._main_current_guard = None
+        with self.assertRaisesRegex(GuardJournalError, "existing_guard_not_restored"):
+            self.save(controller)
+        self.assertEqual(json.loads(self.path.read_text()), main)
+
     def test_guard_cannot_disappear_from_live_canonical_document(self):
         controller = self.controller()
         controller._main_current_guard = MainCurrentGuard.start(

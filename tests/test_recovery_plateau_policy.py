@@ -63,3 +63,7 @@ def test_recipe_validates_window_and_noise_bounds():
         PlateauRecipe(min_window_minutes=120, max_window_minutes=90)
     with pytest.raises(ValueError):
         PlateauRecipe(strong_plateau_drop_a=0.03, weak_plateau_drop_a=0.02)
+
+
+def test_sustained_current_rise_is_not_a_recovery_plateau_request():
+    assert evaluate(120, start=.23, end=.28).verdict == PlateauVerdict.INCONCLUSIVE

@@ -88,6 +88,8 @@ def observe_recovery_plateau(
     drop = median(head) - median(tail)
     if elapsed < recipe.min_window_minutes:
         return PlateauResult(PlateauVerdict.OBSERVING, elapsed, drop, "minimum window not reached")
+    if drop < -recipe.strong_plateau_drop_a:
+        return PlateauResult(PlateauVerdict.INCONCLUSIVE, elapsed, drop, "current rise; no automatic escalation")
     if drop <= recipe.strong_plateau_drop_a:
         return PlateauResult(PlateauVerdict.CONFIRMED, elapsed, drop, "stable plateau after 90+ minutes")
     if drop > recipe.weak_plateau_drop_a:

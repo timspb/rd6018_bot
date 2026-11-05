@@ -1032,3 +1032,23 @@ No separate charge loop, no change to AGM or Normal, and no claim of
 electrochemical bank equality from voltage/current plateau alone. Source
 candidate is not deployed to node104; full acceptance pending. Details and
 tests in `docs/assistant/RECOVERY_ADAPTIVE_PLATEAU_2026-11-05.md`.
+
+## 2026-11-05 — EFB Recovery MAIN→MIX guard-journal defect
+
+Node104 read-only evidence confirms a physical incident during the existing
+EFB 65 Ah Recovery charge: on 09:35:08 UTC MAIN completed its legacy
+three-hour low-current tail and switched directly to final MIX; the canonical
+guarded session writer rejected the new stage with
+`ineligible_charge_stage`, followed by emergency verified OFF and edge
+lease disarm. This was not caused by the new 90–120 minute plateau code,
+which has not been installed on node104. Stale MAIN session is retained,
+Guard revision 481, pending=False, fault=False. Direct guarded resume is
+not authorized by the mere presence of a service or JSON session.
+
+The source-only candidate allows an existing validated/revisioned MAIN Guard
+journal to persist through the canonical atomic MAIN→MIX transition while
+forbidding a newly created MIX Guard, unresolved pending proposal or silent
+journal deletion. No alternate serializer, safety owner, or actuator is
+introduced. It is compatible with the single-owner design. Production
+deployment/physical activation are still outstanding; see
+`docs/assistant/RD6018_MAIN_MIX_GUARD_HANDOFF_2026-11-05.md`.

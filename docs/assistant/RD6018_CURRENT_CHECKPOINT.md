@@ -419,3 +419,33 @@ for full regression, inspect live node104 code and session using the canonical
 credential profile, and plan coherent-source rollout without disrupting the
 active EFB 65 Ah charge. See
 `docs/assistant/RECOVERY_ADAPTIVE_PLATEAU_2026-11-05.md`.
+
+## 2026-11-05 09:35 UTC — node104 guarded MAIN → MIX software fault, source-only repair
+
+Verified fresh pinned-key SSH from HOME-PC WSL: node104 `rd6018-bot.service`
+active PID 213548, NRestarts=0, current production source does **not**
+contain adaptive recovery plateau. Running EFB 65 Ah Recovery session
+reached `Main Charge -> Mix Mode` at 09:35:08 UTC by old decision
+`main_tail_hold_complete_recovery_mix`. The canonical writer threw
+`GuardJournalError(ineligible_charge_stage)`, then the generic data_logger
+handler triggered emergency OFF. Output OFF was verified by node104 at
+09:35:16 and lease disarmed at 09:35:18. HA102 at 10:02 UTC confirmed
+13.26 V, 0 A, OFF, lease OFF; controller remains active service-wise but
+is **not charging**. The persisted canonical document remains MAIN, profile
+EFB, 65 Ah, Recovery, with current guard rev 481, no pending operation,
+no guard fault; control mode `pb_managed`. Do not restart service or
+blindly resume this stale guarded session.
+
+Source-only patch to `main_guard_session.py` and `session_atomic.py`:
+allow keeping a previously validated MAIN Guard journal during an atomic
+MAIN→MIX continuation, but forbid creating a new journal in MIX, dropping
+the existing guard, bypassing pending ratchet work or accepting an unrelated
+prior stage. Existing guarded restore admission remains unchanged.
+
+Regression: Windows project Python 113 PASS / 984 subtests, one Windows
+directory-fsync specific failure; Linux focused run 117 PASS / 984 subtests,
+including guarded session and native recipe parity. Additional owner tests
+cover pending guard and growing charging current. Full Linux suite
+to be recorded after completion. No node104 source update, service restart,
+device setpoint change or output command was made. Detailed incident:
+`docs/assistant/RD6018_MAIN_MIX_GUARD_HANDOFF_2026-11-05.md`.
