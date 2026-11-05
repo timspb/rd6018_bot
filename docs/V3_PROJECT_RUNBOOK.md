@@ -1052,3 +1052,9 @@ journal deletion. No alternate serializer, safety owner, or actuator is
 introduced. It is compatible with the single-owner design. Production
 deployment/physical activation are still outstanding; see
 `docs/assistant/RD6018_MAIN_MIX_GUARD_HANDOFF_2026-11-05.md`.
+
+**Offline acceptance checkpoint (2026-11-05):** source SHA `372f4ea`
+completed exact-archive Linux full suite **2,888 PASS, 10 skipped,
+1,673 subtests PASS, 0 FAIL**, with all 1,352 release-manifest files
+verified. This validates the source candidate only; node104 remained
+unchanged and current guarded charge session was not resumed.

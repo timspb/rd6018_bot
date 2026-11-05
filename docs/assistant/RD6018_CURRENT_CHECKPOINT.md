@@ -449,3 +449,19 @@ cover pending guard and growing charging current. Full Linux suite
 to be recorded after completion. No node104 source update, service restart,
 device setpoint change or output command was made. Detailed incident:
 `docs/assistant/RD6018_MAIN_MIX_GUARD_HANDOFF_2026-11-05.md`.
+
+## 2026-11-05 — exact offline MAIN→MIX repair release acceptance
+
+Code commit `372f4ea81c63fae20700eca85bbfa2aed8991ee9` staged offline by
+existing node104 source packager; 1,352 files verified against release
+manifest. Exact extracted Linux release, with subprocess-capable project
+dependency venv: **2,888 PASS, 10 skipped, 5 warnings,
+1,673 subtests PASS, zero FAIL/ERROR**, 147.09 seconds. Source-only
+`.git` tests skipped normally. This supersedes earlier environment-related
+partial/full failures; see incident document for details.
+
+**Not deployed.** Live node104 after software-triggered MAIN→MIX emergency
+remains with output OFF, lease disarmed, service active, preserved guarded
+EFB 65 Ah Recovery MAIN session. D090 production transaction state and
+guarded-session restoration must be reconciled through the existing owner
+before an update or restart. No unrequested physical re-energization.

@@ -59,3 +59,26 @@ simply because the patch compiles: the preserved pre-incident MAIN session
 and guarded restart admission require an explicit, coherent D090 owner path
 and live state revalidation. Any release requires current source manifest,
 backup/rollback proof, selected recipe configuration and physical acceptance.
+
+## Final offline candidate verification
+
+Candidate source commit: `372f4ea81c63fae20700eca85bbfa2aed8991ee9`.
+The existing `tools/node104_atomic_deploy.py stage` produced a local-only,
+source-only artifact at
+`/tmp/rd6018-release-candidate-20261105/release-372f4ea81c63fae20700eca85bbfa2aed8991ee9-9ox24t7d`.
+Archive size 9,543,680 bytes. All **1,352 source files** matched
+RELEASE_MANIFEST.json (content SHA-256, size, and file mode) after extraction
+to /tmp/rd6018-test-372f4ea. No device or installer interaction.
+
+An isolated Linux virtual environment exposing the same dependencies to
+subprocesses completed **2,888 PASS, 10 skipped, 5 warnings,
+1,673 subtests PASS, 0 FAIL/ERROR**, runtime 147.09 s, against that
+exact extracted source archive. Source-only .git tests skipped as designed.
+The earlier single failure was caused by a subprocess not inheriting
+a --target-only aiohttp dependency path; with a proper Python venv the
+previously failing restore test passed 1/1, then the whole suite passed.
+
+This is *offline software acceptance only*. The node104 D090 historical
+STARTED journal and retained guarded MAIN session still need an authorized
+coherent release handoff. No claim of production installation, charging
+resumption, or direct EFB cell-balance measurement.
