@@ -986,3 +986,62 @@ Final documentation HEAD for this stage: `3e1b4fe65f03bb5320e38cde42c1b95b6b40b1
 update. Pre-existing untracked notes `.codex_bootstrap_fix.md`,
 `.codex_r72_d091_deploy.md`, and `.codex_r72_readiness_fix.md` were left
 untouched.
+
+## 2026-11-06 — same-owner recovery completed with bounded readiness
+
+Correction to the prior deployment hold: the requested reduced software-only
+admission is supported by the existing D145 path. The current direct Native
+proof was obtained first from a fresh typed `SensorState`/
+`BinarySensorState` subscription to device 0, identity
+`timspb.rd6018-pb-recovery-v2` / `2.3-ha-canonical`, name
+`rd6018-controller`, model `esp01_1m`. Callback ages were <=3.47 s:
+R18=0, measured U/I=0.0/0.0, R16=0, lease armed=false, generation=61,
+remaining=0 s, lease tripped=false, boot quarantine=false, autonomous=false,
+Modbus age=3.205 s. The D148 Native+HA observation independently reported
+fresh Native state, HA and Native R18 OFF, measured currents 0/0, lease
+disarmed, quarantine clear, exactly one physical node owner, and the guarded
+session active. Voltage, programmed setpoints, OVP/OCP were not used as
+software-update admission conditions. D106 remains a read-only observer with
+an entity-type mapping defect; it was not needed for this proof.
+
+Used the exact existing D145 slot-2 bootstrap/profile and D090 owner lock.
+Only its two temporary recovery modules were replaced with the exact committed
+bounded-readiness files from `beab527c2f5413962d3bccd8c140f3a0417dca17`;
+the production app was not directly edited. D145 verified the STARTED slot-2
+identity and backup, collected a fresh state-preserving D148 proof, restored
+the exact recorded app/venv preimage, restarted the old service, and waited
+for bounded positive readiness. D144 slot 2 is now `RESTORED`, transaction
+`d8660aa810f04c75aed679f1f3aa4cb1`, journal SHA256
+`2a278823e0b5d19a10334f2f0a4763b182d41e7bbf0a0de285754987bb5afdc9`.
+
+Post-recovery, the service is active at PID 219592 with `NRestarts=0`; the
+existing D144 readiness callback accepted the service only after its current
+start-epoch `Start polling` and `Run polling for bot` entries. Fresh direct
+Native callbacks again reported R18=0, U/I=0/0, R16=0, lease disarmed,
+generation=61, remaining=0, trip/quarantine/autonomous=false, and Modbus age
+0.703 s; max callback age was 3.47 s. Fresh D148 confirmed HA/Native OFF,
+currents zero and active guarded session. The EFB 65 Ah Recovery MAIN session
+SHA256 remains `b433bd304d22873dcdc5e3402386ca1c78a2b4ba141c8d241fc0dc7cdbac665a`.
+D090 `STARTED` remains SHA256
+`030f0b7aae43402f523bb57f5acd606e3ab2fe4f7c7d4efd40258b40bde8014e`;
+D144 slot 1 `COMMITTED` remains SHA256
+`b8b64fd8b95261ba80528aa13e838fd5b3085f46a70ceb7371746c932b35a08a`.
+The installed `.deploy_sha` remains `58321a866dd68195bf8264d1d9ebe7c18a60748f`.
+No START, Output enable, setpoint, or lease command was sent. No state,
+Guard, D090, or slot-1 journal was edited.
+
+The only code change in the recovery runner was the already committed
+readiness fix (`beab527c2f5413962d3bccd8c140f3a0417dca17`); its focused 38
+tests, targeted compileall, and `git diff --check` remain the available
+validation. The earlier d2aa candidate full-suite result remains 2,904 PASS,
+9 skipped, 1 archive-only fixture deselected, 1,677 subtests; no full-suite
+PASS is claimed for beab. The software update itself remains pending: next
+stage an exact source-paired beab candidate, run the existing D145 prepare,
+then execute under the same owner only after fresh direct Native + D148 proof.
+Current production remains the 58321a preimage until a D144 COMMITTED record
+and exact installed SHA are verified.
+
+HOME-PC WSL task prompt files `.codex_bootstrap_fix.md`,
+`.codex_r72_d091_deploy.md`, `.codex_r72_next.md`, and
+`.codex_r72_readiness_fix.md` were removed after use. Recovery-only `/tmp`
+staging had bytecode caches removed; it is transient and not production source.

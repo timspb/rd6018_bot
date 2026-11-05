@@ -1280,3 +1280,32 @@ reported the preserved guarded session inactive. Therefore recovery lacks the
 full fresh physical field set and trustworthy guarded-session proof required
 for D145. No recovery/execute was invoked. Do not claim d2aa installed or slot
 2 settled. Full archive regression has no valid PASS yet; see current checkpoint.
+
+## 2026-11-06 — slot-2 recovery complete; bounded release preparation next
+
+The D145 recovery for D144 slot 2 completed under the existing D090 owner lock
+using the committed 120-second current-start-epoch readiness implementation.
+Slot 2 is `RESTORED` with its original app/venv preimage verified; its exact
+journal SHA256 is recorded in the active checkpoint. Node104 still runs the
+previous `.deploy_sha` `58321a866dd68195bf8264d1d9ebe7c18a60748f`, MainPID
+219592, active, `NRestarts=0`.
+
+Fresh direct ESP Native typed callbacks identified device 0 as
+`timspb.rd6018-pb-recovery-v2` / `2.3-ha-canonical`, with R18 OFF, measured
+U/I zero, R16 clear, lease disarmed/generation 61/remaining 0, trip and
+quarantine clear, autonomous false, and recent Modbus age 0.703 s. Independent
+D148 Native+HA evidence confirmed OFF, zero current, one physical owner, and
+the existing guarded EFB Recovery MAIN session active. That session checksum,
+historical D090 STARTED, and D144 slot 1 COMMITTED remain unchanged. The
+software-only admission uses the approved Native/HA output/current and edge
+containment facts; it does not require analog output-voltage, programmed
+setpoint, OVP/OCP or autonomous-mode readbacks.
+
+The bounded-readiness code is still local production source; the recovery
+runner used its exact committed owner modules only in temporary `/tmp`
+execution staging. No application update has been committed on node104. Next
+is to stage the exact `beab527c2f5413962d3bccd8c140f3a0417dca17` source and
+Python 3.11 environment, create the matching D146 profile, pass D145
+prepare-only, and execute the same-owner D144 transaction after another fresh
+Native + D148 OFF observation. No START, Output enable, setpoint, or lease
+write is authorized or planned.
