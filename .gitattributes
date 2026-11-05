@@ -1,2 +1,3 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+docs/operations/evidence/D146_D138_NODE104_PROFILE.json -text

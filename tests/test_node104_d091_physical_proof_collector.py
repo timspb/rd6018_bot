@@ -59,6 +59,42 @@ class PreservedSessionSoftwareReleaseTests(unittest.TestCase):
             link=Path(folder)/'link';link.symlink_to(p)
             with self.assertRaises(M.ProofError):M._session_state(link,software_release=True)
 
+class JournalClearProjectionTests(unittest.TestCase):
+    def test_retired_v2_is_clear_only_after_disk_validation(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "session_recovery_quarantine.json"
+            payload = {
+                "owner": "runtime.charge.recovery_quarantine_journal",
+                "schema_version": 2,
+                "state": "retired",
+                "quarantined": False,
+                "retirement": {
+                    "operator_id": "operator", "session_id": "session",
+                    "confirmed_off_evidence": "verified-off",
+                    "retired_utc": "2026-11-03T12:00:00Z",
+                    "incident_id": "incident", "incident_reason": "resolved",
+                    "battery_id": None,
+                },
+            }
+            path.write_text(json.dumps(payload), encoding="utf8")
+            self.assertTrue(M.verified_journal_clear(path, recovery_mode=False))
+            payload["quarantined"] = True
+            path.write_text(json.dumps(payload), encoding="utf8")
+            with self.assertRaises(M.ProofError):
+                M.verified_journal_clear(path, recovery_mode=False)
+            # Recovery never pretends the journal was clear. It preserves
+            # existing state and relies on separate fresh physical OFF proof.
+            self.assertFalse(M.verified_journal_clear(path, recovery_mode=True))
+
+    def test_no_journal_is_handled_by_existing_canonical_validator(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "quarantine.json"
+            self.assertTrue(M.verified_journal_clear(path, recovery_mode=False))
+            self.assertFalse(M.verified_journal_clear(path, recovery_mode=True))
+
+
 class CollectorProofTests(unittest.TestCase):
     def assert_rejected(self, mutate):
         value = snapshot()

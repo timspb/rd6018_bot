@@ -150,6 +150,16 @@ def _journal_state(path: Path) -> None:
     raise ProofError('quarantine journal is active or has unknown schema')
 
 
+
+def verified_journal_clear(path: Path, *, recovery_mode: bool) -> bool:
+    # In normal mode, mark clear ONLY after the canonical journal validator
+    # accepted the on-disk retirement. Recovery separately preserves state.
+    if recovery_mode:
+        return False
+    _journal_state(path)
+    return True
+
+
 def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool = False) -> dict[str, Any]:
     """Validate independent fake/live snapshots and return exact D090 JSON schema."""
     if type(snapshot) is not dict:
@@ -478,16 +488,15 @@ async def collect_live() -> dict[str, Any]:
         else:
             active_session = _session_state(
                 session_path, software_release=os.environ.get('D090_SOFTWARE_RELEASE') == '1')
+        journal_clear = verified_journal_clear(journal_path, recovery_mode=recovery_mode)
         snapshot = {
             'captured_at_epoch': time.time(), 'host_machine_id': Path('/etc/machine-id').read_text().strip(),
             'service_main_pid': pid, 'matching_bot_process_count': proc_count,
             'physical_device_count': len(physical_ids), 'device_info': info,
             'ha': ha_snapshot, 'esp': esp_snapshot, 'edge': edge,
-            'active_session': active_session, 'journal_clear': recovery_mode,
+            'active_session': active_session, 'journal_clear': journal_clear,
             'source_nonces': (uuid.uuid4().hex, uuid.uuid4().hex),
         }
-        if not recovery_mode:
-            _journal_state(journal_path)
         return snapshot
     finally:
         await asyncio.gather(ha.close(), esp.close(), return_exceptions=True)

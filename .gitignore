@@ -188,3 +188,6 @@ esphome/.esphome/
 # Локальные заметки (кириллица)
 промпт.txt
 сущности.txt
+
+# Local MIX authority runtime state (never version control)
+charge_session.json.mix-authority.json
