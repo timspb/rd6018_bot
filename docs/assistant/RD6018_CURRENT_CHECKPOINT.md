@@ -919,10 +919,11 @@ Focused regression: **38 PASS** across D127 readiness, D144 transition/owner,
 and D145 entrypoint tests. Cases include 41-second delayed startup, bounded
 timeout, stopped service, wrong PID, duplicate bot owner, startup fault/current
 start-epoch polling, rollback/recovery, and immutable legacy/D144 records.
-Full unittest discovery and compileall were started on the Windows-mounted
-checkout but had not completed when this checkpoint was written; no full-suite
-result is claimed. Exact code HEAD and final test result will be recorded in the
-commit that closes this stage.
+Exact code HEAD for this readiness change is
+`beab527c2f5413962d3bccd8c140f3a0417dca17`, 9 commits ahead of
+`origin/main`, 0 behind. Targeted compileall and `git diff --check` passed. Full
+unittest discovery remains in progress on the Windows-mounted checkout after
+more than three minutes with no result; no full-suite result is claimed.
 
 Fresh owner-provided read-only D148 observation via the pinned HOME-PC WSL
 Paramiko SSH profile (RejectPolicy + known_hosts), 2026-11-05 17:23:02 UTC:
