@@ -217,8 +217,8 @@ class D137Tests(unittest.TestCase):
         return {
             "schema": "D142_VALIDATED_D091_OFF_V1", "captured_at_epoch": now,
             "service_main_pid": pid, "native_sensor_state_fresh": True,
-            "ha102_output_off": True, "ha102_voltage_v": 0.0, "ha102_current_a": 0.0,
-            "esp128_output_off": True, "esp128_voltage_v": 0.0, "esp128_current_a": 0.0,
+            "ha102_output_off": True, "ha102_current_a": 0.0,
+            "esp128_output_off": True, "esp128_current_a": 0.0,
             "edge_lease_armed": False, "edge_boot_quarantine": False,
             "physical_node_owner_count": 1, "active_session": True,
             "source_nonces": ["native-fresh-1", "ha-independent-1"],

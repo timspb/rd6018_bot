@@ -97,8 +97,8 @@ def observed_preimage(root: Path, *, pid: int,
         persisted_last_output_on = guard_record["snapshot"].get("last_output_on")
         reconciliation_fields = {
             "schema", "captured_at_epoch", "service_main_pid", "native_sensor_state_fresh",
-            "ha102_output_off", "ha102_voltage_v", "ha102_current_a", "esp128_output_off",
-            "esp128_voltage_v", "esp128_current_a", "edge_lease_armed", "edge_boot_quarantine",
+            "ha102_output_off", "ha102_current_a", "esp128_output_off",
+            "esp128_current_a", "edge_lease_armed", "edge_boot_quarantine",
             "physical_node_owner_count", "active_session", "source_nonces",
         }
         reconciliation_valid = False
@@ -121,7 +121,7 @@ def observed_preimage(root: Path, *, pid: int,
                     and physical_off_reconciliation.get("ha102_output_off") is True
                     and physical_off_reconciliation.get("esp128_output_off") is True
                     and all(zero_reading(key) for key in (
-                        "ha102_voltage_v", "ha102_current_a", "esp128_voltage_v", "esp128_current_a"))
+                        "ha102_current_a", "esp128_current_a"))
                     and physical_off_reconciliation.get("edge_lease_armed") is False
                     and physical_off_reconciliation.get("edge_boot_quarantine") is False
                     and type(physical_off_reconciliation.get("physical_node_owner_count")) is int

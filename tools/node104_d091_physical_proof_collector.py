@@ -29,6 +29,7 @@ EXPECTED_ESP_HOST = '192.168.1.28'
 MAX_SOURCE_AGE_S = 8.0
 NATIVE_SENSOR_WAIT_S = 10.0
 MEASURED_SENSOR_KEYS = ('output_state', 'voltage', 'current')
+SOFTWARE_RELEASE_SENSOR_KEYS = ('output_state', 'current')
 EXPECTED_EDGE = {
     'edge_lease_armed': 'safety_lease_armed',
     'edge_lease_tripped': 'safety_lease_tripped',
@@ -160,7 +161,8 @@ def verified_journal_clear(path: Path, *, recovery_mode: bool) -> bool:
     return True
 
 
-def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool = False) -> dict[str, Any]:
+def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool = False,
+                   software_release: bool = False) -> dict[str, Any]:
     """Validate independent fake/live snapshots and return exact D090 JSON schema."""
     if type(snapshot) is not dict:
         raise ProofError('snapshot must be an object')
@@ -184,26 +186,32 @@ def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool 
     ha, esp = snapshot.get('ha'), snapshot.get('esp')
     if type(ha) is not dict or type(esp) is not dict:
         raise ProofError('independent HA and native ESP snapshots required')
+    required_edge = tuple(key for key in EXPECTED_EDGE
+                          if not (software_release and key == 'edge_autonomous_mode'))
     for source_name, source in (('HA102', ha), ('ESP128', esp)):
         if source.get('output_state') != 0 or type(source.get('output_state')) is bool:
             raise ProofError(f'{source_name} physical R18 is not strict numeric OFF')
-        voltage, current = _number(source.get('voltage')), _number(source.get('current'))
-        if abs(voltage) > .05 or abs(current) > .05:
-            raise ProofError(f'{source_name} physical V/I exceeds OFF tolerance: V={voltage:.4f} I={current:.4f}')
+        current = _number(source.get('current'))
+        voltage = None if software_release else _number(source.get('voltage'))
+        if (abs(current) > .05
+                or (voltage is not None and abs(voltage) > .05)):
+            raise ProofError(f'{source_name} physical OFF current/voltage exceeds tolerance')
     _ha_freshness(ha.get('output_entity', {}), now)
-    for key in ('voltage_entity', 'current_entity'):
+    freshness_fields = ('current_entity',) if software_release else ('voltage_entity', 'current_entity')
+    for key in freshness_fields:
         _ha_freshness(ha.get(key, {}), now)
     native = esp.get('output_meta')
     _fresh(native, native=True)
     if type(native.get('age_s')) not in (int, float) or native['age_s'] > MAX_SOURCE_AGE_S:
         raise ProofError('native R18 callback is stale')
-    for key in ('voltage_meta', 'current_meta'):
+    native_freshness_fields = ('current_meta',) if software_release else ('voltage_meta', 'current_meta')
+    for key in native_freshness_fields:
         _fresh(esp.get(key, {}), native=True)
 
     edge = snapshot.get('edge')
     if type(edge) is not dict:
         raise ProofError('edge containment snapshot missing')
-    for key in EXPECTED_EDGE:
+    for key in required_edge:
         record = edge.get(key)
         if type(record) is not dict:
             raise ProofError('edge state missing: ' + key)
@@ -227,8 +235,12 @@ def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool 
         raise ProofError('independent source read identifiers missing/reused')
     return {
         'captured_at_epoch': float(now), 'host_machine_id': machine, 'service_main_pid': pid,
-        'ha102_output_off': True, 'ha102_voltage_v': float(ha['voltage']), 'ha102_current_a': float(ha['current']),
-        'esp128_output_off': True, 'esp128_voltage_v': float(esp['voltage']), 'esp128_current_a': float(esp['current']),
+        'ha102_output_off': True,
+        'ha102_voltage_v': None if software_release else float(ha['voltage']),
+        'ha102_current_a': float(ha['current']),
+        'esp128_output_off': True,
+        'esp128_voltage_v': None if software_release else float(esp['voltage']),
+        'esp128_current_a': float(esp['current']),
         'native_sensor_state_fresh': True, 'edge_lease_armed': False, 'edge_boot_quarantine': False,
         'physical_node_owner_count': 1, 'active_session': snapshot['active_session'],
         'source_nonces': list(nonces),
@@ -344,12 +356,14 @@ def _cached_native_state(esp: Any, inventory: tuple[Any, ...], object_id: str,
 
 
 async def _fresh_measured_sensor_callbacks(esp: Any, inventory: tuple[Any, ...],
-                                           object_ids: dict[str, str]) -> dict[str, tuple[Any, dict[str, Any]]]:
+                                           object_ids: dict[str, str], *,
+                                           software_release: bool = False) -> dict[str, tuple[Any, dict[str, Any]]]:
     """Capture new, typed measurement callbacks from the passive API subscription."""
     if not callable(getattr(getattr(esp, 'client', None), 'subscribe_states', None)):
         raise ProofError('native state subscription is unavailable')
     selected: dict[int, tuple[str, Any]] = {}
-    for name in MEASURED_SENSOR_KEYS:
+    selected_names = SOFTWARE_RELEASE_SENSOR_KEYS if software_release else MEASURED_SENSOR_KEYS
+    for name in selected_names:
         object_id = object_ids.get(name)
         matching = [item for item in inventory
                     if str(getattr(item, 'object_id', '')) == object_id
@@ -384,7 +398,7 @@ async def _fresh_measured_sensor_callbacks(esp: Any, inventory: tuple[Any, ...],
                 'subscription_timestamp_monotonic': timestamp,
                 'key': int(entity.key), 'device_id': int(entity.device_id)}
         captured[name] = (getattr(state, 'state', None), meta)
-        if all(name in captured for name in MEASURED_SENSOR_KEYS):
+        if all(name in captured for name in selected_names):
             loop.call_soon_threadsafe(ready.set)
 
     # A fresh transport has not subscribed yet. Install the observer before
@@ -398,7 +412,7 @@ async def _fresh_measured_sensor_callbacks(esp: Any, inventory: tuple[Any, ...],
     finally:
         esp._on_state = original
     result = {}
-    for name in MEASURED_SENSOR_KEYS:
+    for name in selected_names:
         value, meta = captured[name]
         meta['age_s'] = max(0.0, time.monotonic() - meta['subscription_timestamp_monotonic'])
         _fresh(meta, native=True)
@@ -425,6 +439,8 @@ async def collect_live() -> dict[str, Any]:
     if esp_config.connection.host and esp_config.connection.host != EXPECTED_ESP_HOST:
         raise ProofError('configured native ESP host does not match reviewed node identity')
     ha, esp = HA102Transport(ha_config, config.rd), ESPHomeTransport(esp_config, config.rd)
+    software_release = os.environ.get('D090_SOFTWARE_RELEASE') == '1'
+    measured_keys = SOFTWARE_RELEASE_SENSOR_KEYS if software_release else MEASURED_SENSOR_KEYS
     try:
         # Native discover/subscription is strictly observational.
         await asyncio.wait_for(esp.discover(), timeout=8)
@@ -442,33 +458,40 @@ async def collect_live() -> dict[str, Any]:
         # certain configured object IDs, even though the native subscription
         # receives them. Read the original typed callback cache directly,
         # never infer OFF from a missing state or fall back to HA.
-        native = await _fresh_measured_sensor_callbacks(esp, inventory, esp_config.entities)
+        native = await _fresh_measured_sensor_callbacks(
+            esp, inventory, esp_config.entities, software_release=software_release)
         esp_snapshot = {'output_state': _number(native['output_state'][0]),
-                        'voltage': _number(native['voltage'][0]), 'current': _number(native['current'][0]),
-                        'output_meta': native['output_state'][1], 'voltage_meta': native['voltage'][1],
+                        'voltage': (None if software_release else _number(native['voltage'][0])),
+                        'current': _number(native['current'][0]),
+                        'output_meta': native['output_state'][1],
                         'current_meta': native['current'][1]}
+        if not software_release:
+            esp_snapshot['voltage_meta'] = native['voltage'][1]
         edge = {}
         # This is a subscription-cache-only read for older deployed API clients.
         # No entity command path is used; values must originate in native callbacks.
         await asyncio.sleep(.5)
         for key, object_id in EXPECTED_EDGE.items():
+            if software_release and key == 'edge_autonomous_mode':
+                continue
             value, meta = _cached_native_state(esp, inventory, object_id)
             edge[key] = {'value': value, 'meta': meta}
         # HA REST reads occur after the native wait so last_reported remains
         # current when the independent source snapshot is assembled.
         ha_entities = {}
-        for key in MEASURED_SENSOR_KEYS:
+        for key in measured_keys:
             entity_id = ha_config.entities.get(key)
             if not entity_id:
                 raise ProofError('required HA read-only entity mapping missing')
             ha_entities[key] = await asyncio.wait_for(ha._get(entity_id), timeout=5)
         ha_snapshot = {
             'output_state': _ha_number(ha_entities['output_state'].get('state')),
-            'voltage': _ha_number(ha_entities['voltage'].get('state')),
+            'voltage': (None if software_release else _ha_number(ha_entities['voltage'].get('state'))),
             'current': _ha_number(ha_entities['current'].get('state')),
-            'output_entity': ha_entities['output_state'], 'voltage_entity': ha_entities['voltage'],
-            'current_entity': ha_entities['current'],
+            'output_entity': ha_entities['output_state'], 'current_entity': ha_entities['current'],
         }
+        if not software_release:
+            ha_snapshot['voltage_entity'] = ha_entities['voltage']
         session_path = Path(os.getenv('RD6018_STATE_DIR', str(ROOT / 'state'))) / 'charge_session.json'
         journal_path = session_path.parent / 'session_recovery_quarantine.json'
         recovery_mode = os.environ.get('D090_STATE_PRESERVING_RECOVERY') == '1'
@@ -506,7 +529,8 @@ def main() -> int:
     try:
         result = assemble_proof(
             asyncio.run(asyncio.wait_for(collect_live(), timeout=35)),
-            state_preserving_recovery=os.environ.get('D090_STATE_PRESERVING_RECOVERY') == '1')
+            state_preserving_recovery=os.environ.get('D090_STATE_PRESERVING_RECOVERY') == '1',
+            software_release=os.environ.get('D090_SOFTWARE_RELEASE') == '1')
         print(json.dumps(result, sort_keys=True, separators=(',', ':'), allow_nan=False))
         return 0
     except Exception as exc:

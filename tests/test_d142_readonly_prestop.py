@@ -33,6 +33,12 @@ class D142Tests(unittest.TestCase):
         p = self.proof()
         validate_snapshot(p, pid=321, now=p["captured_at_epoch"])
 
+    def test_software_release_does_not_require_voltage_readback(self):
+        p = self.proof()
+        p["ha102_voltage_v"] = None
+        p["esp128_voltage_v"] = None
+        validate_snapshot(p, pid=321, now=p["captured_at_epoch"], software_release=True)
+
     def test_active_session_requires_explicit_guarded_preimage_authority(self):
         p=self.proof(); p["active_session"]=True
         with self.assertRaises(release.GateError):

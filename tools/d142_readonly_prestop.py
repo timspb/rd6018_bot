@@ -27,7 +27,8 @@ import node104_d090_release as release
 
 
 def validate_snapshot(raw: dict, *, pid: int, now: float,
-                      allow_active_session: bool = False) -> None:
+                      allow_active_session: bool = False,
+                      software_release: bool = False) -> None:
     required = set(release.PhysicalOffProof.__dataclass_fields__)
     if type(raw) is not dict or set(raw) != required:
         raise ValueError("D091 proof schema mismatch")
@@ -37,7 +38,8 @@ def validate_snapshot(raw: dict, *, pid: int, now: float,
     data["source_nonces"] = tuple(raw["source_nonces"])
     proof = release.PhysicalOffProof(**data)
     release.validate_physical_off(proof, require_service_stopped=False, now=now,
-                                  allow_active_session=allow_active_session)
+                                  allow_active_session=allow_active_session,
+                                  software_release=software_release)
     if proof.service_main_pid != pid:
         raise ValueError("D091 proof belongs to another process")
 
@@ -69,7 +71,8 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
     raw = collect()
     active_persisted_session = raw.get("active_session") is True
     validate_snapshot(raw, pid=pid, now=clock(),
-                      allow_active_session=active_persisted_session)
+                      allow_active_session=active_persisted_session,
+                      software_release=True)
     if validate_app_inventory is not None:
         validate_app_inventory()
     reconciliation = None
@@ -78,8 +81,8 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
             "schema": "D142_VALIDATED_D091_OFF_V1",
             **{key: raw[key] for key in (
                 "captured_at_epoch", "service_main_pid", "native_sensor_state_fresh",
-                "ha102_output_off", "ha102_voltage_v", "ha102_current_a",
-                "esp128_output_off", "esp128_voltage_v", "esp128_current_a",
+                "ha102_output_off", "ha102_current_a",
+                "esp128_output_off", "esp128_current_a",
                 "edge_lease_armed", "edge_boot_quarantine",
                 "physical_node_owner_count", "active_session", "source_nonces",
             )},

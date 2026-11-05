@@ -174,10 +174,10 @@ class PhysicalOffProof:
     host_machine_id: str
     service_main_pid: int
     ha102_output_off: bool
-    ha102_voltage_v: float
+    ha102_voltage_v: float | None
     ha102_current_a: float
     esp128_output_off: bool
-    esp128_voltage_v: float
+    esp128_voltage_v: float | None
     esp128_current_a: float
     native_sensor_state_fresh: bool
     edge_lease_armed: bool

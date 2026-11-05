@@ -120,6 +120,24 @@ class CollectorProofTests(unittest.TestCase):
         self.assertTrue(result['active_session'])
         self.assertFalse(result['edge_lease_armed'])
 
+    def test_software_release_uses_only_output_current_and_required_edges(self):
+        value = snapshot()
+        value['ha'].pop('voltage_entity')
+        value['ha'].pop('voltage')
+        value['esp'].pop('voltage_meta')
+        value['esp'].pop('voltage')
+        value['edge'].pop('edge_autonomous_mode')
+        value['active_session'] = True
+        value['journal_clear'] = False
+        result = M.assemble_proof(
+            value, state_preserving_recovery=True, software_release=True)
+        self.assertIsNone(result['ha102_voltage_v'])
+        self.assertIsNone(result['esp128_voltage_v'])
+        self.assertTrue(result['ha102_output_off'])
+        self.assertTrue(result['esp128_output_off'])
+        self.assertEqual(result['ha102_current_a'], 0.0)
+        self.assertEqual(result['esp128_current_a'], 0.0)
+
     def test_preserving_recovery_still_rejects_unsafe_physical_evidence(self):
         value = snapshot()
         value['active_session'] = True
@@ -263,6 +281,15 @@ class CollectorProofTests(unittest.TestCase):
                         esp._state_updated_at['output_voltage'])
         self.assertLess(values['current'][1]['subscription_timestamp_monotonic'],
                         esp._state_updated_at['output_current'])
+
+        esp._state_subscription_remover = None
+        esp._state_subscription_lock = asyncio.Lock()
+        release_values = asyncio.run(M._fresh_measured_sensor_callbacks(
+            esp, inventory,
+            {'output_state': 'output_state_code_v2', 'voltage': 'output_voltage',
+             'current': 'output_current'}, software_release=True))
+        self.assertEqual(set(release_values), {'output_state', 'current'})
+        self.assertEqual([release_values[k][0] for k in ('output_state', 'current')], [0, 0.0])
 
     def test_measured_values_reject_numberstate_only_wrong_key_and_no_subscription(self):
         import asyncio
