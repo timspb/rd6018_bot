@@ -61,3 +61,7 @@ Direct ESP Native API access was blocked during this task because the existing
 local ESPHome encryption key was unavailable. HA showed Output ON at the time
 of inspection; this is only a secondary HA observation, not physical
 verification. No output operation was attempted.
+
+## Компактная ревизия v2 по проверке на экране — 2026-11-05
+
+По фактическим скриншотам устранены три UX-дефекта: узкая колонка (`max_columns: 1`), вывод сырого `output_state_code_v2=1.0` вместо человеческого состояния выхода, графики разных единиц в тесной общей карточке. Теперь Sections `max_columns: 2`, две независимые области для показаний/параметров и графиков/безопасности, раздельные 24-часовые графики В и А. Крупные измерения и статус выхода/режима/защиты представлены через **уже установленный** `custom:button-card`, исключительно как read-only (`more-info`, без toggle/сервисных вызовов). Статусы имеют явные unknown/unavailable. Убраны бинарные OVP/OCP-дубликаты и большая часть длинного списка диагностических сущностей с основной области. Подтверждено WebSocket HA: `lovelace/config/save` + readback точное совпадение, `sections=2`, `max_columns=2`, старая `dashboard-rd6018` не затронута. Показания HA не заменяют прямую аппаратную проверку ESP. Проверка реального рендера на устройствах пользователя ещё необходима.
