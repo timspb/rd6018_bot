@@ -1323,3 +1323,25 @@ this checkpoint. It is not yet on node104. The installed `.deploy_sha` remains
 `58321a866dd68195bf8264d1d9ebe7c18a60748f`; slot 2 remains RESTORED. Next
 work is same-owner D145 prepare with a staged Python 3.11 environment, followed
 by the normal D144 transaction after a fresh direct Native and D148 OFF proof.
+
+## 2026-11-06 — software-release proof excludes cancelled readbacks
+
+The previous beab profile was superseded before transfer after review found
+that the shared D091/D142/D137 pre-stop proof still made voltage and
+autonomous-mode entity identity mandatory for software-only release. Code
+commit `9d1aa22243904bc7f9b80f2ae128fc7fc48e193e` scopes those fields out only
+when `D090_SOFTWARE_RELEASE=1`: fresh typed Native and HA R18/current remain
+required, along with the existing D090 owner, edge containment, service,
+session-integrity and source-identity checks. General D091 validation keeps
+its existing physical voltage and autonomous-mode checks. Guarded MAIN
+reconciliation now validates current zero and OFF identity without relying on
+an analog voltage readback.
+
+The target source is now exactly 9d1aa; the earlier beab candidate was never
+transferred. Focused checks passed 59 tests with 1 skipped across D091, D142,
+D137 and D090 release validation; targeted `py_compile` and `git diff --check`
+passed. Node104 remains on the prior 58321a release, service PID 219592,
+`NRestarts=0`; D144 slot 2 is RESTORED. Next stage a Python 3.11 candidate and
+matching profile for 9d1aa, then follow same-owner D145 prepare and execute
+with fresh direct Native and D148 proof. No START, Output ON, setpoint or lease
+write is authorized.

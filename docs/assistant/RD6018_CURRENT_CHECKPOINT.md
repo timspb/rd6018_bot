@@ -1046,6 +1046,52 @@ HOME-PC WSL task prompt files `.codex_bootstrap_fix.md`,
 `.codex_r72_readiness_fix.md` were removed after use. Recovery-only `/tmp`
 staging had bytecode caches removed; it is transient and not production source.
 
+## 2026-11-06 — software-release proof scope aligned; exact target advanced
+
+The D145 software-release path still read and required output voltage and the
+autonomous-mode entity through shared D091/D142/D137 code. This conflicted
+with the explicit software-only admission already given. The previous local
+beab profile/archive was therefore superseded before any transfer and its
+profile artifact was removed. No candidate bytes were installed.
+
+Code commit `9d1aa22243904bc7f9b80f2ae128fc7fc48e193e` now makes the D091
+software-release collector subscribe only to fresh typed Native R18/current
+callbacks and independently read HA R18/current; it skips voltage and
+autonomous-mode identity entirely for that mode. Ordinary D091 callers retain
+their existing voltage/autonomous checks. D142 invokes the explicit
+software-release validator, whose proof permits voltage fields to be absent;
+D137's guarded-MAIN physical reconciliation binds Native/HA OFF and zero
+current without analog voltage. Lease/trip/quarantine/authority/fault checks,
+freshness, device identity, independent HA corroboration, active guarded
+session integrity and no-auto-resume remain enforced. The required fresh
+Native R16 and Modbus observations remain a separate direct ESP Native
+precheck; they are not fabricated from D091 or D106.
+
+Focused verification after this exact implementation: **59 tests PASS,
+1 skipped** across D091 proof collection (22), D142 pre-stop (14), D137
+observed preimage (14), and D090 release validation (9); `py_compile` and
+`git diff --check` passed. No full-suite PASS is claimed for this new source;
+the earlier d2aa exact archive result remains 2,904 PASS, 9 skipped,
+1 archive-only fixture deselected, 1,677 subtests. The code source to stage is
+now exactly `9d1aa22243904bc7f9b80f2ae128fc7fc48e193e`, not beab.
+
+Production remains `.deploy_sha` `58321a866dd68195bf8264d1d9ebe7c18a60748f`,
+service PID 219592, active with `NRestarts=0`; D144 slot 2 is RESTORED,
+slot 1 COMMITTED, and D090 STARTED is unchanged. The guarded EFB65Ah Recovery
+MAIN checksum remains
+`b433bd304d22873dcdc5e3402386ca1c78a2b4ba141c8d241fc0dc7cdbac665a`.
+Latest post-recovery direct Native proof reported R18=0, U/I=0/0, R16=0,
+lease disarmed/generation 61/remaining 0, trip/quarantine clear, autonomous
+false and Modbus age 0.703 s; D148 independently confirmed Native/HA OFF,
+zero current and active session. Obtain a fresh direct Native + D148 proof
+again immediately before any D145 execute. No START, Output enable, setpoint,
+or lease write occurred.
+
+Next: stage exact 9d1aa source and Python 3.11 dependencies, generate a fresh
+source-paired D146 profile against app preimage
+`b1f4db27e7d70f03f2f3197f3a042be39b6bd969614bc4a8869c41f87d0d7a15`, and
+use the existing D145/D090 owner for prepare and any later D144 transaction.
+
 ## 2026-11-06 — exact beab source/profile staged locally
 
 The recovery stage above is committed as `7b775d4cba62644a4cf0df1aa8550e9f0c6e8d1d`.
