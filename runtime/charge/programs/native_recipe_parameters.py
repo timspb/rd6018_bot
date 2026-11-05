@@ -61,4 +61,7 @@ def native_recipe_parameters(recipe_id: str) -> tuple[VariableSpec, ...]:
             safe_wait_variables.SAFE_WAIT_MAX_HOURS,
             safe_wait_variables.SAFE_WAIT_TARGET_MARGIN_V,
         ))
+    if profile == "EFB" and entry.intent in {"recovery", "conditioning"}:
+        from runtime.charge.evidence.recovery_plateau_variables import ALL
+        specs.extend(ALL)
     return tuple(specs)

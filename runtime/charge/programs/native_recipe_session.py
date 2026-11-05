@@ -105,7 +105,24 @@ def require_supported_native_execution(draft: NativeRecipeDraft) -> None:
             "charge.main.standard_tail_hold_hours",
             "charge.main.standard_max_recovery_attempts",
         })
+    if entry.profile == "EFB" and entry.intent in {"recovery", "conditioning"}:
+        from runtime.charge.evidence.recovery_plateau_variables import ALL
+        allowed.update(spec.key for spec in ALL)
     overrides = dict(draft.overrides)
+    if "charge.recovery_plateau.enabled" in overrides:
+        if overrides["charge.recovery_plateau.enabled"] == 1:
+            from runtime.charge.evidence.recovery_plateau_variables import (
+                MIN_WINDOW_MINUTES, MAX_WINDOW_MINUTES, STRONG_DROP_A,
+                WEAK_DROP_A, END_SEGMENT_MINUTES,
+            )
+            from runtime.charge.evidence.recovery_plateau_policy import PlateauRecipe
+            PlateauRecipe(
+                min_window_minutes=overrides.get(MIN_WINDOW_MINUTES.key, MIN_WINDOW_MINUTES.default),
+                max_window_minutes=overrides.get(MAX_WINDOW_MINUTES.key, MAX_WINDOW_MINUTES.default),
+                end_segment_minutes=overrides.get(END_SEGMENT_MINUTES.key, END_SEGMENT_MINUTES.default),
+                strong_plateau_drop_a=overrides.get(STRONG_DROP_A.key, STRONG_DROP_A.default),
+                weak_plateau_drop_a=overrides.get(WEAK_DROP_A.key, WEAK_DROP_A.default),
+            )
     unsupported = set(overrides) - allowed
     if unsupported:
         raise ValueError(
@@ -217,6 +234,17 @@ def native_target_parameters(host: Any, stage: str) -> dict[str, float]:
             result["agm_timeout_tail_current_a"] = float(
                 values["charge.main.agm_timeout_tail_current_a"]
             )
+        if profile == "EFB" and selection.intent in {"recovery", "conditioning"}:
+            for key, field in (
+                ("charge.recovery_plateau.enabled", "adaptive_plateau_enabled"),
+                ("charge.recovery_plateau.min_window_minutes", "min_window_minutes"),
+                ("charge.recovery_plateau.max_window_minutes", "max_window_minutes"),
+                ("charge.recovery_plateau.strong_plateau_drop_a", "strong_plateau_drop_a"),
+                ("charge.recovery_plateau.weak_plateau_drop_a", "weak_plateau_drop_a"),
+                ("charge.recovery_plateau.end_segment_minutes", "end_segment_minutes"),
+            ):
+                if key in values:
+                    result[field] = values[key]
         return result
     if stage == "MAIN":
         name = {"Ca/Ca": "charge.main.ca_voltage_v",

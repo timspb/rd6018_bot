@@ -86,6 +86,10 @@ def apply_main_authority_tick(
         current_a=float(current),
         is_cv=bool(is_cv),
         agm_timeout_tail_current_a=native_main.get("agm_timeout_tail_current_a"),
+        adaptive_recovery_enabled=native_main.get("adaptive_plateau_enabled", 0) == 1,
+        adaptive_recovery_plateau=getattr(
+            getattr(host, "_recovery_plateau_latest", None), "verdict", None
+        ).value if getattr(host, "_recovery_plateau_latest", None) is not None else None,
     )
     if decision_veto is not None:
         veto = decision_veto(decision)

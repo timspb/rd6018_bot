@@ -1019,3 +1019,16 @@ update the current checkpoint **in the same stage/commit**. State exactly what
 was changed, what tests passed or failed, which files are deployed, and which
 remain local. Change this project runbook whenever ownership/canon changes.
 Never conflate repository-level tests with physical evidence.
+
+## 2026-11-05 — EFB Recovery adaptive plateau integration candidate
+
+Canonical stage ownership remains single: MAIN tick measures, `main_authority`
+selects existing DESULFATION/MIX effect, SafetyEngine and existing stage
+recipes own actuation. Recovery plateau policy (90–120 min, bounded history)
+is only enabled through an explicitly pinned EFB Recovery/Conditioning
+native recipe; unpinned mode retains existing behavior. Configurable metadata
+lives in `runtime/charge/evidence/recovery_plateau_variables.py`.
+No separate charge loop, no change to AGM or Normal, and no claim of
+electrochemical bank equality from voltage/current plateau alone. Source
+candidate is not deployed to node104; full acceptance pending. Details and
+tests in `docs/assistant/RECOVERY_ADAPTIVE_PLATEAU_2026-11-05.md`.

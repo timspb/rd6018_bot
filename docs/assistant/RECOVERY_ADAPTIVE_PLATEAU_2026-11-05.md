@@ -50,3 +50,47 @@ version and live session intent/stage, defining timestamp persistence across
 restarts, replaying noisy/gapped histories, and obtaining safety review.
 Do not create a second controller or auto-enable HIGH-V merely because a
 low-current plateau was detected.
+
+## 2026-11-05 implementation continuation — existing owner/recipe binding
+
+The off-line candidate now integrates into the **existing** MAIN observation tick
+at `application/charge_session_tick.py`, using a host-local bounded
+`RecoveryPlateauObserver`. The observer records an
+`efb_recovery_plateau_shadow` diagnostic result, resets on CV discontinuity,
+stage, target, session, telemetry gap or process restart. A single fresh tick
+cannot reuse another session's plateau verdict. No second stage controller.
+
+The canonical `decide_main_transition` remains the **only** authority deciding
+ENTER_DESULFATION or ENTER_MIX. A pinned EFB Recovery/Conditioning native
+recipe can opt in with `charge.recovery_plateau.enabled: 1`, with 90/120
+minute and drop thresholds configurable under `charge.recovery_plateau.*`.
+Unpinned default is **disabled** (0), preserving existing legacy decisions.
+While opt-in is enabled, a confirmed low-current plateau can select the
+existing intermediate Recovery effect within the existing attempt budget, or
+the existing final Mix when the budget is consumed. A missing, progressing
+or inconclusive plateau never creates a new high-voltage request, and the
+legacy 40-minute / 0.004C path is bypassed only in this opted-in mode.
+Existing timeout, safety veto, stage targets, Main guard, cooling, chemistry
+envelope, and charge ownership still apply. A confirmed plateau is not proof
+that individual battery cells have equalized.
+
+The 90–120 minute observation state is **process-local only**: after a restart
+a fresh full window is required (conservative). It is not falsely restored
+from a 15-minute analyzer window. Before production deployment, check actual
+node104 code, current EFB Recovery session/intent, and real temperature
+source freshness and pre-HV safety. The dry-run/history replay is not
+manufacturer endorsement of any high-voltage schedule.
+
+Focused WSL tests on current candidate: **42 passed, 177 subtests passed**,
+including native recipe draft/session/provenance and policy parity. A broader
+native-recipe regression **did not collect** because the system WSL Python
+lacked optional runtime dependencies `aiogram` and `dotenv` (14 collection
+errors); not counted as an algorithm regression or a full-suite PASS.
+Node104 live read-only SSH verification attempted through the existing
+credential source, but authentication failed; installed version and charge
+session are thus **not verified in this stage**. No node104 write/restart,
+no physical output or charge change, no release activation.
+
+Pending: full production-dependency test environment, fresh node104 inspection,
+review of installed runtime delta, coherent candidate release and controlled
+rollout preserving current charging state. Deploy cannot be claimed yet.

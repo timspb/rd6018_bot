@@ -45,6 +45,8 @@ def decide_main_transition(
     current_a: Optional[float] = None,
     is_cv: bool = False,
     agm_timeout_tail_current_a: Optional[float] = None,
+    adaptive_recovery_plateau: str | None = None,
+    adaptive_recovery_enabled: bool = False,
 ) -> AuthorityDecision:
     """Choose the authoritative MAIN transition.
 
@@ -113,6 +115,25 @@ def decide_main_transition(
             AuthorityAction.STOP_AND_DIAGNOSE,
             f"main_{first_stage.state.value}",
         )
+
+    if (adaptive_recovery_enabled and profile_upper == "EFB"
+            and intent_key in {"recovery", "conditioning"}):
+        # One existing MAIN owner. The observer cannot authorize HV.
+        # Existing recipe, budget, safety veto, temperature and actuation
+        # boundaries remain mandatory.
+        if adaptive_recovery_plateau == "confirmed":
+            if desulf_attempts < max_desulf_attempts:
+                return AuthorityDecision(
+                    AuthorityAction.ENTER_DESULFATION,
+                    "efb_adaptive_plateau_intermediate_recovery",
+                )
+            return AuthorityDecision(
+                AuthorityAction.ENTER_MIX,
+                "efb_adaptive_plateau_budget_exhausted_final_mix",
+            )
+        # In opt-in EFB Recovery, legacy 40m and 0.004C are not
+        # transition gates. No new HV on invalid/inconclusive data.
+        return AuthorityDecision(AuthorityAction.CONTINUE, "efb_adaptive_plateau_observing")
 
     if first_stage.state == FirstStageState.STUCK_PLATEAU:
         if intent_key == "normal":

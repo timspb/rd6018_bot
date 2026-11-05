@@ -399,3 +399,23 @@ physical-state verification; dashboard itself is deployed and read-only.
 ## 2026-11-05 — EFB Recovery adaptive plateau (shadow only)
 
 Operator approved dynamic 90–120 min observation instead of 45 min for EFB 65 Ah Recovery; physically confirmed 24 °C at discussion time. Added pure non-actuating `runtime/charge/evidence/recovery_plateau_policy.py` and unit tests; it does not block plateau detection using the historical `0.004C` tail threshold. First/last 15 min median comparison: <=0.01 A at >=90 min confirms; 0.01–0.02 A continues toward 120 min, then stays inconclusive; >0.02 A means charging progress. No second engine, no production stage binding, no node104 deployment, no hardware actuation. Historical HA current replay confirmed a flat low-current trace around 100–117 min, but temperature/CV continuity was assumed in this read-only replay and is not live safety evidence. Full details: `docs/assistant/RECOVERY_ADAPTIVE_PLATEAU_2026-11-05.md`.
+
+## 2026-11-05 continuation — adaptive EFB Recovery recipe candidate
+
+The 90–120-minute `RecoveryPlateauObserver` is now integrated **in source**
+with existing `application/charge_session_tick.py`; it is a bounded
+process-local observation, not an independent controller. Pinned EFB
+Recovery/Conditioning recipe opt-in (default disabled) and variable metadata
+are wired to existing `main_authority` and its established DESULFATION/MIX
+stage effects, keeping stage owner, attempts, thermal/communication veto,
+and existing voltage/current/safety envelopes. No unpinned behavior change.
+
+Off-line source focused regression **42 PASS, 177 subtests PASS**; the broader
+suite stopped at collection due to unavailable `aiogram` / `dotenv`
+in system WSL Python. Read-only node104 SSH access attempted but credential
+authentication failed; live node104 session/code **unverified**. No deployment
+or physical charge changes. Next: restore established project test environment
+for full regression, inspect live node104 code and session using the canonical
+credential profile, and plan coherent-source rollout without disrupting the
+active EFB 65 Ah charge. See
+`docs/assistant/RECOVERY_ADAPTIVE_PLATEAU_2026-11-05.md`.
