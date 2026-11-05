@@ -807,3 +807,24 @@ agrees. Next: acquire another fresh direct Native read, execute exact staged
 D145 through the same D090 lock, then verify exact installed release identity,
 healthy service and fresh Native OFF/lease OFF without START or setpoint writes.
 Not deployed yet.
+
+## 2026-11-06 — deployment admission stopped on fresh D091 identity failure
+
+The pre-execution direct ESP Native subscription succeeded against the reviewed
+device identity `timspb.rd6018-pb-recovery-v2` / `2.3-ha-canonical`, name
+`rd6018-controller`, model `esp01_1m`, device 0. The fresh callbacks were
+typed Native SensorState/BinarySensorState and <2 s old. R18=0, U=0.0 V,
+I=0.0 A, battery=12.92 V, Vset/Iset=14.82/1.23 V/A, R16=0, OVP/OCP=16.70/12.0,
+autonomous=false, lease armed=false, generation=61, remaining=0, TTL=900,
+trip/quarantine=false; Modbus age=4.206 s. The production service was active
+(PID 213548). Immediately after this, the fresh D091 Native+HA collector failed
+closed with `ProofError: ESPHome device identity/project does not match
+reviewed node`. Therefore exact D145 execute was **not invoked**; no service,
+app/venv, D090/D144 journal, Guard/session, or actuator state was changed.
+The direct Native observation is not a substitute for failed independent D091
+admission. Deployment remains blocked until the installed collector's identity
+configuration is reconciled and a fresh D091 pass is obtained. Do not retry
+execute from this evidence. Exact candidate source remains
+`d2aa2a53b8423292ba3abbbdd3261a73f6b2089a`; full archive suite evidence above
+is unchanged. Branch is 7 commits ahead of origin/main; `.codex_bootstrap_fix.md`
+remains pre-existing and untracked.

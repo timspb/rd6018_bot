@@ -1184,3 +1184,14 @@ fresh D091 proof. The preserved MAIN Guard is rev481 with historical
 `last_output_on=true`; `automatic_resume_authorized=false`. D144 slot 2 backup,
 journal, candidate and old-component paths were all absent before execution.
 No service stop or actuator change has occurred yet.
+
+Deployment attempt on 2026-11-06 stopped before D145 execute. Fresh direct ESP
+Native data passed identity, freshness and OFF/zero checks (R18 OFF, U/I zero,
+lease disarmed, generation 61, remaining 0, trip/quarantine/autonomous false),
+but the independent fresh D091 Native+HA collector failed with
+`ProofError: ESPHome device identity/project does not match reviewed node`.
+No production files, service state, D090/D144 journal, Guard/session, or
+actuator state were changed. Resolve the installed collector's identity
+configuration and obtain a new D091 pass before attempting the same staged
+D145 executor. The detailed physical evidence and exact candidate/test hashes
+are recorded in `docs/assistant/RD6018_CURRENT_CHECKPOINT.md`.
