@@ -1154,3 +1154,11 @@ OFF evidence. D145 prepare and execute now select that existing pinned D148
 collector; D147 stays pinned and unchanged. No session/journal bytes changed.
 Focused D137/D142/D144/D145 checks pass (45 tests, 5 subtests); complete exact
 archive suite and a D145 prepare through D148 are pending.
+
+The first two D145 prepares passed the D148/D137 guarded-state gate but
+produced different D138 candidate IDs because D138 copied transient D091
+nonces/timestamp into its durable identity payload. D138 now excludes only that
+subrecord from the candidate identity digest while returning it in evidence;
+source/venv inventory and durable guarded session identity remain included.
+Focused D137/D138/D142/D144/D145 suite passes (51 tests, 5 subtests); exact
+archive suite and repeated prepare identity equality remain pending.

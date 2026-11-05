@@ -93,7 +93,16 @@ def inspect_candidate(*, root: Path, stage: Path, pid: int,
         "preserved_guard": actual_preimage.get("preserved_guarded_main"),
         "legacy_d090_untouched": True, "admitted_for_activation": False
     }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    # Bind the stable guarded-session identity into the release identity, but
+    # do not make the identity depend on the per-observation D091 timestamp or
+    # source nonces. D142 validates and returns that fresh proof separately on
+    # every prepare/execute; D144 also obtains new proof at each phase.
+    identity_payload = payload
+    if payload["preserved_guarded_main"] is True:
+        identity_payload = json.loads(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+        identity_payload["preserved_guard"].pop("physical_off_reconciliation")
+    encoded = json.dumps(identity_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     payload["candidate_identity_sha256"] = hashlib.sha256(encoded.encode("ascii")).hexdigest()
     return payload
 

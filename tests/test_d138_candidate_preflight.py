@@ -33,11 +33,12 @@ class D138CandidateTests(unittest.TestCase):
         (self.stage/"venv"/"bin").mkdir(parents=True)
         (self.stage/"venv"/"bin"/"python").write_text("fixture")
 
-    def run_preflight(self, *, preimage=PREIMAGE, installed=True):
+    def run_preflight(self, *, preimage=PREIMAGE, observed_record=None, installed=True):
         def subproc(cmd,**kw):
             if "-m" in cmd:return SimpleNamespace(returncode=0,stdout="No broken requirements found.")
             return SimpleNamespace(returncode=0,stdout="(3, 11)\n")
-        with patch("tools.d138_candidate_preflight.observed_preimage",return_value={"preimage_sha256":preimage}), \
+        actual=observed_record or {"preimage_sha256":preimage}
+        with patch("tools.d138_candidate_preflight.observed_preimage",return_value=actual), \
              patch("tools.d138_candidate_preflight.inventory_venv",return_value={"regular_files":101,"tree_sha256":"b"*64}), \
              patch("tools.d138_candidate_preflight.subprocess.run",side_effect=subproc), \
              patch("tools.d138_candidate_preflight.shutil.disk_usage",return_value=SimpleNamespace(free=500*1024*1024)):
@@ -105,6 +106,20 @@ class D138CandidateTests(unittest.TestCase):
         self.assertFalse(result["admitted_for_activation"])
         self.assertEqual(result["status"],"SOURCE_AND_VENV_PREPARED_NOT_ACTIVATED")
         self.assertEqual(result["source_files"],1)
+
+    def test_guarded_candidate_identity_is_stable_across_fresh_d091_proofs(self):
+        first={"schema":"D142_VALIDATED_D091_OFF_V1","captured_at_epoch":1,
+               "source_nonces":["native-1","ha-1"]}
+        second={"schema":"D142_VALIDATED_D091_OFF_V1","captured_at_epoch":2,
+                "source_nonces":["native-2","ha-2"]}
+        records=[{"preimage_sha256":PREIMAGE,"preserved_guarded_main":{
+                      "session_id":"session","revision":481,
+                      "physical_off_reconciliation":proof}}
+                 for proof in (first,second)]
+        results=[self.run_preflight(observed_record=record) for record in records]
+        self.assertEqual(results[0]["candidate_identity_sha256"],
+                         results[1]["candidate_identity_sha256"])
+        self.assertNotEqual(results[0]["preserved_guard"],results[1]["preserved_guard"])
 
     def test_live_preimage_drift_fails_closed(self):
         with self.assertRaisesRegex(ValueError,"preimage drift"):

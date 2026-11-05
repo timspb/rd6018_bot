@@ -768,3 +768,11 @@ OVP/OCP 16.70/12.0, autonomous=false, lease disarmed generation 61/remaining
 0/TTL900, trip/quarantine false, Modbus age 1.87 s; D091 independently agreed.
 Code stage is focused-tested only (45 tests, 5 subtests); complete suite and
 new exact source archive remain pending.
+
+Two D145 prepares both passed D148/D142 and preserved MAIN rev481 without
+resume authority. Their candidate IDs differed because D138 included fresh
+D091 timestamp/nonces. D138 now omits only this transient proof subrecord from
+the stable candidate identity digest while returning it in evidence and still
+binding candidate source/venv plus durable session/Guard identity. Focused
+D137/D138/D142/D144/D145: 51 passed, 5 subtests; compileall passed. Full exact
+archive suite and repeat prepare identity check remain to run.

@@ -423,3 +423,9 @@ software-release projection can represent that active session as inactive;
 D148 reports the session truthfully and is already used by D144's stopped and
 post-start phases. Both readers still require fresh direct Native/HA OFF and
 clear lease/quarantine evidence.
+
+D138's durable candidate identity, like D137's preimage identity, omits only
+the transient D091 timestamp and source nonces. It still carries the stable
+session/Guard identity and exact candidate source/venv inventories. The live
+D091 proof remains in the D138 prepare evidence and is reacquired by D144 for
+each transaction phase.
