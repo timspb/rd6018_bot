@@ -239,14 +239,18 @@ class SystemdService:
         if expected_sha not in (self.pinned.source_sha, self.pinned.old_source_sha):
             return False
         # Startup must reach readiness; systemd Started only confirms launch.
-        deadline = time.monotonic() + 90.0
+        deadline = time.monotonic() + 120.0
         while time.monotonic() < deadline:
-            if self._stable_process(expected_sha):
-                return True
-            if not self.active() or self.main_pid() <= 0:
+            if not self.active():
                 return False
-            time.sleep(2)
-        return self._stable_process(expected_sha)
+            pid = self.main_pid()
+            if pid > 0 and self._stable_process(expected_sha, expected_pid=pid):
+                # Close the race where systemd changes MainPID during the
+                # readiness observation. A restart is never accepted as ready.
+                if self.active() and self.main_pid() == pid:
+                    return True
+            time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
+        return False
 
     def stable_trial(self, expected_sha: str) -> bool:
         # Exact trial-only check, not a widened permanent release pin.
@@ -259,8 +263,11 @@ class SystemdService:
             return False
         return self._stable_process(expected_sha)
 
-    def _stable_process(self, expected_sha: str) -> bool:
-        if not self.active() or self.main_pid() <= 0:
+    def _stable_process(self, expected_sha: str, *, expected_pid: int | None = None) -> bool:
+        if not self.active():
+            return False
+        pid = self.main_pid()
+        if pid <= 0 or (expected_pid is not None and pid != expected_pid):
             return False
         if self._run('systemctl', 'show', release.SERVICE, '-p', 'NRestarts', '--value') != '0':
             return False
@@ -275,12 +282,21 @@ class SystemdService:
                 continue
             if expected_script in argv:
                 processes.append(int(proc.name))
-        if processes != [self.main_pid()]:
+        if processes != [pid]:
             return False
-        logs = self._run('journalctl', '-u', release.SERVICE, '--since', '-30 seconds', '--no-pager', '-o', 'cat')
+        # ActiveEnterTimestamp is the current systemd start epoch. Polling
+        # readiness must be observed after this start, regardless of how long
+        # application initialization takes.
+        started = self._run('systemctl', 'show', release.SERVICE,
+                            '-p', 'ActiveEnterTimestamp', '--value')
+        if not started or started == 'n/a':
+            return False
+        logs = self._run('journalctl', '-u', release.SERVICE, '--since', started,
+                         '--no-pager', '-o', 'cat')
         if any(text in logs for text in ('Traceback (most recent call last)', 'Unauthorized', 'database is locked')):
             return False
-        return any(text in logs for text in ('Start polling', 'Run polling for bot'))
+        return (self.main_pid() == pid
+                and any(text in logs for text in ('Start polling', 'Run polling for bot')))
 
 
 class D090Transaction:

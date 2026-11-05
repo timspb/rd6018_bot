@@ -828,3 +828,111 @@ execute from this evidence. Exact candidate source remains
 `d2aa2a53b8423292ba3abbbdd3261a73f6b2089a`; full archive suite evidence above
 is unchanged. Branch is 7 commits ahead of origin/main; `.codex_bootstrap_fix.md`
 remains pre-existing and untracked.
+
+
+## 2026-11-06 — D145 environment confirmed; candidate rolled back, slot 2 pending
+
+Code HEAD remains `6ef8a85b65dd301c34cfc1ca6ab25b50f8dfe4d1` on
+`fix/d145-guarded-main-admission`, 8 commits ahead of `origin/main`, 0 behind.
+The pre-existing untracked `.codex_bootstrap_fix.md` and
+`.codex_r72_d091_deploy.md` were not touched. No source code or tests changed
+in this operational stage; the runbook was updated with the evidence below.
+
+Inspected the exact D145 candidate path. `tools/d142_readonly_prestop.py`
+passes `D090_EXPECTED_ESP_VERSION=2.3-ha-canonical`, software-release mode and
+state-preserving-recovery mode to its fresh D091 child. `tools/d149_observer_router.py`
+also explicitly passes `2.3-ha-canonical`; D091's `2.2-autonomous-authority`
+fallback applies only to callers that omit the variable. Exact D145 prepare
+passed D091/D137/D138 with stable candidate identity
+`39407c15c850ecaeff1e8d2261c7d989b8b5be6ab2d4be9bd4307ab69e5af976`.
+Therefore the earlier D091 version refusal was not reproduced via actual D145.
+One attempt failed before D091 because the frozen launcher lacked candidate
+import paths; a later invocation added 39 bytecode files to the temporary
+source stage. Only those `__pycache__` files were removed, and all later
+candidate invocations used `PYTHONDONTWRITEBYTECODE=1`; the exact source
+manifest then passed. The archive's earlier full test result remains
+2,904 PASS, 9 skipped, 1 archive-only fixture deselected, 1,677 subtests;
+that suite was not rerun in this operational stage.
+
+After a fresh direct ESP Native identity/OFF read and unchanged D090/D144
+preflight, authorized exact D145 execute began slot 2 and swapped in the
+candidate, but D144 did not reach COMMITTED. The command output was not
+captured, so do not claim a specific execute exception. Durable state is
+`D144_TRANSACTION_2.json` phase `STARTED`, transaction
+`d8660aa810f04c75aed679f1f3aa4cb1`, source
+`d2aa2a53b8423292ba3abbbdd3261a73f6b2089a`, candidate identity `39407c15…`;
+`D144_INSTALLED_RELEASE_2.json` is absent. Fresh direct Native and D091
+post-start reads reported Output OFF and zero U/I.
+
+Invoked existing D145 recovery under the same D090 root lock. It restored app
+and venv exactly to the D144 transaction's `before` inventory and started the
+previous service, then returned the exact error
+`TransitionError: restored service not stable`. A later read after startup
+readiness logs appeared reported `_stable_process(old_source_sha)=true`.
+Recovery could not update slot 2 to `RESTORED`; its phase remains `STARTED`, and
+its exact backup remains. Do not edit D144 or infer successful deployment.
+
+Final fresh physical evidence, 2026-11-05 17:11:11 UTC, was direct ESP Native
+`SensorState`/`BinarySensorState`, identity
+`timspb.rd6018-pb-recovery-v2` / `2.3-ha-canonical`, name
+`rd6018-controller`, model `esp01_1m`, device 0; callback ages <=0.56 s.
+R18=0, measured U/I=0/0, battery=12.90 V, Vset/Iset=14.82/1.23 V,
+OVP/OCP=16.70/12.0, R16=0, autonomous=false, lease disarmed/generation
+61/remaining 0/TTL 900, trip/quarantine=false, Modbus age=5.006 s. D091 at
+17:11:14 UTC independently reported fresh Native and HA Output OFF/0 V/0 A,
+lease disarmed, quarantine clear, active guarded session and service PID
+218804. Service is active, one bot process, NRestarts=0. The guarded EFB
+65 Ah Recovery MAIN session remains revision 481 and unchanged; session SHA256
+`b433bd304d22873dcdc5e3402386ca1c78a2b4ba141c8d241fc0dc7cdbac665a`.
+
+D090 remains `STARTED`, unchanged SHA256
+`030f0b7aae43402f523bb57f5acd606e3ab2fe4f7c7d4efd40258b40bde8014e`.
+Pre-existing D144 slot 1 remains COMMITTED and unchanged SHA256
+`b8b64fd8b95261ba80528aa13e838fd5b3085f46a70ceb7371746c932b35a08a`.
+D144 slot 2 SHA256 is
+`e864c72a8ddb2270776c0457557a4e5c0a1138fc24c8ebe5d37506cda43666e1`.
+Current app/venv match slot 2's original preimage, not the d2aa candidate.
+
+Deployment is **not committed**. Exact remaining blocker: D144 slot 2 is
+unfinished. The execute exception was not captured, so its failure point is
+unknown. The D145 recovery returned the exact one-shot error
+`restored service not stable`; the previous service later became stable, but
+the owner has no safe resume/commit path for this unfinished ledger. Do not
+rerun execute, hand-edit the ledger, or claim d2aa is installed. Next: review
+and test bounded post-start readiness handling in the existing D145 owner,
+then resolve slot 2 through that same owner. No charger START/ON/setpoint/lease
+writes occurred.
+
+## 2026-11-06 — bounded readiness owner fix; recovery still pending
+
+Current source work is local on `fix/d145-guarded-main-admission`; no deployment
+or transaction command was issued in this implementation stage. The D090
+`SystemdService` now allows up to 120 seconds for positive readiness, polls the
+current systemd MainPID, requires exactly one `app/bot.py` owner, NRestarts=0,
+active service and a polling log after the current `ActiveEnterTimestamp`, and
+fails closed on startup faults, PID changes, service exit, or timeout. D144
+candidate and rollback/recovery callbacks now use that bounded owner readiness
+method instead of the one-shot private predicate. This fixes the observed
+sliding-30-second journal window and covers both successful cutover and restore.
+
+Focused regression: **38 PASS** across D127 readiness, D144 transition/owner,
+and D145 entrypoint tests. Cases include 41-second delayed startup, bounded
+timeout, stopped service, wrong PID, duplicate bot owner, startup fault/current
+start-epoch polling, rollback/recovery, and immutable legacy/D144 records.
+Full unittest discovery and compileall were started on the Windows-mounted
+checkout but had not completed when this checkpoint was written; no full-suite
+result is claimed. Exact code HEAD and final test result will be recorded in the
+commit that closes this stage.
+
+Fresh owner-provided read-only D148 observation via the pinned HOME-PC WSL
+Paramiko SSH profile (RejectPolicy + known_hosts), 2026-11-05 17:23:02 UTC:
+Native and HA both report R18 OFF and measured U/I 0/0; Native sensor state is
+fresh; edge lease disarmed; boot quarantine clear; one physical node owner,
+service MainPID 218804, active guarded session. This D148 projection does not
+report battery, setpoints, OVP/OCP, R16, generation/remaining/Modbus age, or
+trip/autonomous values, so none are newly claimed here. No actuator command was
+sent. D144 slot 2 remains STARTED pending same-owner recovery; D090 STARTED,
+D144 slot 1 COMMITTED, and the guarded session remain immutable. d2aa2aa is not
+installed. Next: finish exact-source regression, commit owner readiness change,
+then use the authorized existing D145 recovery path with a fresh D148 read and
+verify exact old preimage/RESTORED before building a new candidate.

@@ -1195,3 +1195,78 @@ actuator state were changed. Resolve the installed collector's identity
 configuration and obtain a new D091 pass before attempting the same staged
 D145 executor. The detailed physical evidence and exact candidate/test hashes
 are recorded in `docs/assistant/RD6018_CURRENT_CHECKPOINT.md`.
+
+
+## 2026-11-06 — D145 firmware environment verified; cutover did not commit
+
+Correction/continuation of the preceding attempt: the exact D145/D142 path
+sets `D090_EXPECTED_ESP_VERSION=2.3-ha-canonical` before launching D091, and
+D149 sets the same value for its phase-specific D147/D148 reads. D142 also
+sets software-release and state-preserving-recovery mode. The D091 collector's
+`2.2-autonomous-authority` fallback is reached only when a caller omits that
+environment variable. Running the exact staged D145 `prepare` with its source
+tree on `PYTHONPATH` passed fresh D091, D137 and D138 and returned the unchanged
+candidate identity `39407c15c850ecaeff1e8d2261c7d989b8b5be6ab2d4be9bd4307ab69e5af976`.
+The previous D091 project/version refusal was not reproduced on this actual
+D145 path. A first launcher attempt did not reach D091 because its import path
+was incomplete. A later attempt added 39 `__pycache__` files to the temporary
+source stage; those files were removed, and subsequent invocations used
+`PYTHONDONTWRITEBYTECODE=1`. The staged source manifest then passed.
+
+The authorized D145 execute started the candidate and wrote append-only
+`D144_TRANSACTION_2.json`, but did not reach COMMITTED or create
+`D144_INSTALLED_RELEASE_2.json`. The command output was not captured, so the
+exact execute exception is unavailable. Durable state is transaction
+`d8660aa810f04c75aed679f1f3aa4cb1`, phase `STARTED`, source
+`d2aa2a53b8423292ba3abbbdd3261a73f6b2089a`. Fresh post-start D091 and direct
+ESP Native observations reported Output OFF. The app/venv candidate inventory
+was exact at that point.
+
+The same source-paired D145 recovery command ran under the canonical D090 lock.
+It restored app and venv byte-for-byte to the transaction's original preimage
+and restarted the previous service, but returned
+`TransitionError: restored service not stable`. A later read reported the old
+service stable (`_stable_process` true) after readiness logs appeared. Since
+the one-shot recovery check had already failed, D144 slot 2 remains `STARTED`
+and its backup remains. Do not edit this journal or claim a completed
+deployment. Current app/venv match the D144 preimage, service is active at PID
+218804 with NRestarts=0, and the previous-source marker is
+`58321a866dd68195bf8264d1d9ebe7c18a60748f`.
+
+Fresh final direct Native subscription at 2026-11-05 17:11:11 UTC identified
+`timspb.rd6018-pb-recovery-v2` / `2.3-ha-canonical`, `rd6018-controller`,
+`esp01_1m`, device 0. Callback ages were <=0.56 s: R18=0, measured U/I=0/0,
+battery=12.90 V, Vset/Iset=14.82/1.23 V, OVP/OCP=16.70/12.0, R16=0,
+autonomous=false, lease armed=false/generation=61/remaining=0/TTL=900,
+trip/quarantine=false, Modbus age=5.006 s. Independent D091 at 17:11:14 UTC
+reported Native and HA Output OFF, 0 V/0 A, fresh Native state, lease
+disarmed, clear quarantine, active guarded session and service PID 218804.
+The EFB 65 Ah Recovery MAIN session/revision 481 remained byte-identical
+(session SHA256 `b433bd304d22873dcdc5e3402386ca1c78a2b4ba141c8d241fc0dc7cdbac665a`).
+Historical D090 `STARTED` remains byte-identical (SHA256
+`030f0b7aae43402f523bb57f5acd606e3ab2fe4f7c7d4efd40258b40bde8014e`), and
+the earlier D144 slot 1 COMMITTED record remains byte-identical (SHA256
+`b8b64fd8b95261ba80528aa13e838fd5b3085f46a70ceb7371746c932b35a08a`). D144
+slot 2 SHA256 is `e864c72a8ddb2270776c0457557a4e5c0a1138fc24c8ebe5d37506cda43666e1`.
+
+Deployment result: **not committed**. The D091 version environment is verified.
+D144 slot 2 is incomplete; the execute exception was not captured, so its
+failure point is unknown. Recovery returned the exact one-shot error
+`restored service not stable`; the prior service later became stable, but the
+owner has no safe resume/commit path for this unfinished ledger. Do not rerun
+execute or manually advance it. Next work must review and test bounded
+post-start readiness handling in the existing D145 owner, then settle slot 2
+only through the same owner. No charger START, Output ON, setpoint write, lease
+write, session edit, D090 edit, or prior D144 slot 1 edit occurred.
+
+## 2026-11-06 — D090/D144 bounded service readiness
+
+The owner readiness predicate now waits up to 120 seconds after systemd start
+and requires an active service, stable positive MainPID, exactly one matching
+`bot.py` process, `NRestarts=0`, a current-start `ActiveEnterTimestamp`-bounded
+journal containing the actual polling-ready message, and no startup fault. The
+same bounded predicate is used by D144 for candidate acceptance and rollback /
+recovery acceptance. Timeout, service exit, PID change, duplicate owner, or
+startup faults fail closed. Focused offline tests passed 38 cases; full suite
+and compile evidence are recorded in the current checkpoint when complete.
+This is software owner behavior only and authorizes no physical charging action.

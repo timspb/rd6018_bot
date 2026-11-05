@@ -128,8 +128,8 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             evidence=fresh_proof, expected_before=before,
             expected_candidate=wanted,
             legacy_journal_sha256=d090.digest(owner.journal),
-            candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
-            restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
+            candidate_stable=lambda: owner.service.stable(owner.pinned.source_sha),
+            restored_stable=lambda: owner.service.stable(owner.pinned.old_source_sha),
             release_identity=identity, failpoint=failpoint, slot=slot)
         try:
             result = transition.run()
@@ -202,8 +202,8 @@ def recover_under_owner(owner: d090.D090Transaction, *,
             evidence=fresh_recovery_proof, expected_before=before,
             expected_candidate=candidate_manifest,
             legacy_journal_sha256=d090.digest(owner.journal),
-            candidate_stable=lambda: owner.service._stable_process(owner.pinned.source_sha),
-            restored_stable=lambda: owner.service._stable_process(owner.pinned.old_source_sha),
+            candidate_stable=lambda: owner.service.stable(owner.pinned.source_sha),
+            restored_stable=lambda: owner.service.stable(owner.pinned.old_source_sha),
             release_identity=identity, slot=slot)
         try:
             return transition.recover()
