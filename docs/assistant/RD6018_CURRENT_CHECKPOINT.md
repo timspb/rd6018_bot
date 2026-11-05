@@ -573,3 +573,103 @@ existing D145 read-only proof schema to carry actual typed Native R16, lease
 remaining and Modbus-age evidence while dropping only the approved install-only
 analog/setpoint/protection/autonomous requirements; preserve all START and
 trial checks, then rebuild/retest an exact release before any owner prepare.
+
+## 2026-11-05 12:34 UTC — requested D090/D144/D145 install attempt blocked
+
+Current repository source identity is `f31f134063d46f29cf5bd08205aaba79cf37b7bd`;
+local `main` and `origin/main` are equal. The existing local D145 entrypoint is
+still immutably pinned to source `d351c208cbf8666f881a4660df6a0b211170e857`,
+profile SHA-256 `a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47`,
+preimage `9651e979e6394fd53ee373010f845ba00e7ccbbfa85a7a313b95893a0edea444`,
+and historical D147/D148 collector hashes. It does not admit the current
+source identity. The previously recorded guarded EFB 65 Ah Recovery MAIN
+session, historical D090 `STARTED` journal and existing D144 `COMMITTED`
+journal were not freshly re-read in this attempt.
+
+Fresh direct ESP Native evidence and live node104 preflight could not be
+acquired: the existing pinned SSH profile is unavailable in both the current
+shell and Windows runner (`RD6018_D061_PROFILE` absent; no configured profile
+file found at the standard locations). No alternate SSH trust path was used.
+Therefore live OFF, zero current, lease state and preserved-session identity
+are **not freshly verified** in this attempt; state is **ESP ACCESS BLOCKED**.
+The installed D147/D148 schema was also previously documented as lacking the
+reduced software-only proof's required lease remaining and Modbus-age fields;
+that is historical evidence, not a fresh callback.
+
+Focused D090/D144/D145 and pinned-observer regression on this source: **84
+tests passed, 1 skipped**, via `python3 -m unittest` (the `python` command is
+not installed in this shell). This validates local transaction guards only.
+No D145 prepare/execute command could be run on node104, no service or journal
+was touched, and no charger/lease/setpoint command was issued. Deployment is
+**not completed** and production is left unchanged. No temporary deployment
+files were created. Next: restore the already-approved pinned SSH profile and
+review a D145 source/profile/observer pin that admits the exact current release;
+then freshly collect Native evidence and let the existing owner decide prepare.
+
+## 2026-11-05 12:42 UTC — correction: pinned SSH worked; current prepare blocked
+
+Correction to the preceding 12:34 note: the pinned SSH profile was present and
+working. WSL `paramiko` connected with `RejectPolicy` and the pinned
+`known_hosts`; no secret values were printed. node104 identity matched the
+production node (`rd6018-bot`, machine ID
+`d2a570f751e14d8cbc654b5c4559ce24`). The earlier **ESP ACCESS BLOCKED**
+statement is withdrawn.
+
+Fresh installed read-only D091 proof at 12:41:46 UTC used the direct ESP
+Native subscription and independent HA observation. Both reported R18 OFF,
+measured U/I = 0.0/0.0, lease armed=false, boot quarantine=false, one physical
+node owner, and native sensor states fresh; service PID 213548. A separate
+read-only subscription through the installed `ESPHomeTransport` then captured
+the full mapped Native inventory at 12:44:59 UTC: device
+`timspb.rd6018-pb-recovery-v2` / `2.3-ha-canonical`, `rd6018-controller`,
+`esp01_1m`, device ID 0. Fresh callback ages were 0.04–0.96 s. R18
+`output_state_code_v2=0`; measured U/I `0.0 V / 0.0 A`; battery `12.96 V`;
+configured V/I `14.82 V / 1.23 A`; OVP/OCP `16.7 V / 12.0 A`; R16
+`protection_status_code=0`; autonomous=false; lease armed=false, generation
+61, remaining 0 s, TTL 900 s, Modbus age 2.469 s; trip=false and boot
+quarantine=false. The detailed D106 projection still failed closed because its
+autonomous-field type expectation is `SensorInfo`, while the actual fresh
+Native entity is correctly typed `BinarySensorInfo`.
+
+Read-only persisted state remains the guarded EFB 65 Ah Recovery session in
+`Main Charge`, trace `e66a2003…`, Guard revision 481. The persisted guard
+snapshot still says `last_output_on=true` (no pending proposal/fault), while
+the physical Native read says OFF. This mismatch is not repaired or
+overwritten. The clear/retired quarantine record identifies a different
+session. Existing D090 remains `STARTED` (`930239c6…`, no candidate inventory;
+journal SHA-256 `030f0b7a…`), and the prior D144 journal remains `COMMITTED` for
+source `9a1f5ea4…`; neither journal was changed. The existing `.deploy_sha`
+marker still contains `58321a866dd68195bf8264d1d9ebe7c18a60748f`; it is a
+legacy marker, not proof that installed bytes match one source commit.
+
+Ran the ordinary installed D145 `prepare` as root through pinned SSH using the
+already staged `372f4ea` candidate path. It reached D142/D137 and stopped with
+`durable retirement and verified-OFF identity do not agree`; it did not reach
+fresh proof collection or mutate production. Installed D137 SHA-256 is
+`c421675c…` and lacks the newer preserved-guarded-session branch. The newer
+local D137 branch also requires the persisted MAIN Guard to record
+`last_output_on=false`, which the current session does not. Therefore the
+fresh physical OFF sample does not authorize a safe state-preserving service
+restart. Installed D145 SHA-256 is `5f751ff8…`, pinned to historical D146
+source `d351c208…`, not repository HEAD.
+
+Focused D090/D144/D145/D149 tests on current source: **50 passed, 1 skipped**.
+Packaged exact HEAD `f31f134063d46f29cf5bd08205aaba79cf37b7bd` with the existing
+offline packager at
+`/tmp/rd6018-release-candidate-20261105/release-f31f134063d46f29cf5bd08205aaba79cf37b7bd-2i7w2me0`;
+manifest, archive and stage marker were created locally. This artifact has no
+matching D145/D146 production profile and was not transferred or installed.
+After prepare refused, a new D091 Native/HA read again reported OFF and zero
+U/I; service stayed active at PID 213548 with NRestarts=0. No service
+stop/restart, session/journal edit, actuator command, lease write, or setpoint
+change occurred.
+
+Deployment is held on the exact source/profile mismatch and the persisted
+Guard OFF mismatch. Do not rewrite profile pins, quarantine, session, guard,
+D090 journal or committed D144 history to manufacture admission. Repository
+implementation HEAD remains `f31f134063d46f29cf5bd08205aaba79cf37b7bd`;
+local `main` and `origin/main` are even. Focused results are not a full-suite
+or deployment pass. Next: reconcile the existing session through its owner so
+its durable Guard state truthfully records OFF while preserving the session,
+then build/review an exact source-paired D145/D146 profile before another fresh
+prepare.
