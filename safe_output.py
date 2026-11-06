@@ -370,7 +370,7 @@ class SafetySupervisor:
                     f"measured output voltage {telemetry.output_voltage_v:.3f} exceeds "
                     f"working ceiling {measured_v_limit:.3f}"
                 )
-            if request.ovp_v is not None and telemetry.output_voltage_v > request.ovp_v + p.protection_readback_tolerance:
+            if request.ovp_v is not None and request.ovp_v > 0 and telemetry.output_voltage_v > request.ovp_v + p.protection_readback_tolerance:
                 violations.add(SafetyViolation.MEASURED_OUTPUT_OVER_LIMIT)
                 details.append(
                     f"measured output voltage {telemetry.output_voltage_v:.3f} exceeds "
@@ -383,7 +383,7 @@ class SafetySupervisor:
                 f"measured current {telemetry.current_a:.3f} exceeds working ceiling "
                 f"{p.absolute_current_ceiling_a:.3f}"
             )
-        if request.ocp_a is not None and telemetry.current_a > request.ocp_a + p.protection_readback_tolerance:
+        if request.ocp_a is not None and request.ocp_a > 0 and telemetry.current_a > request.ocp_a + p.protection_readback_tolerance:
             violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
             details.append(
                 f"measured current {telemetry.current_a:.3f} exceeds configured OCP "

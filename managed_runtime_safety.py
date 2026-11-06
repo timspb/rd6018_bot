@@ -379,21 +379,22 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             return f"measured output voltage {actual_v:.3f}V exceeds recipe ceiling {recipe_ceiling:.3f}V"
         if actual_v > self.policy.absolute_voltage_ceiling_v + self.READBACK_TOLERANCE:
             return f"measured output voltage {actual_v:.3f}V exceeds absolute ceiling"
-        if actual_v > ovp + self.READBACK_TOLERANCE:
+        # Zero disables OVP in RD60xx; it is not a zero-volt limit.
+        if ovp > 0 and actual_v > ovp + self.READBACK_TOLERANCE:
             return f"measured output voltage {actual_v:.3f}V exceeds configured OVP {ovp:.3f}V"
         if set_i <= 0 or set_i > float(MAX_STAGE_CURRENT) + self.READBACK_TOLERANCE:
             return f"set current {set_i:.3f}A exceeds runtime envelope"
         if actual_i > self.policy.absolute_current_ceiling_a + self.READBACK_TOLERANCE:
             return f"measured current {actual_i:.3f}A exceeds absolute working-current envelope"
-        if actual_i > ocp + self.READBACK_TOLERANCE:
+        if ocp > 0 and actual_i > ocp + self.READBACK_TOLERANCE:
             return f"measured current {actual_i:.3f}A exceeds configured OCP {ocp:.3f}A"
         if ovp > self.policy.absolute_ovp_ceiling_v + self.READBACK_TOLERANCE:
             return f"OVP {ovp:.3f}V exceeds absolute protection ceiling"
         if ocp > self.policy.absolute_ocp_ceiling_a + self.READBACK_TOLERANCE:
             return f"OCP {ocp:.3f}A exceeds absolute protection ceiling"
-        if ovp + self.READBACK_TOLERANCE < set_v + self.PROTECTION_MARGIN:
+        if ovp > 0 and ovp + self.READBACK_TOLERANCE < set_v + self.PROTECTION_MARGIN:
             return f"OVP {ovp:.3f}V does not protect set voltage {set_v:.3f}V"
-        if ocp + self.READBACK_TOLERANCE < set_i + self.PROTECTION_MARGIN:
+        if ocp > 0 and ocp + self.READBACK_TOLERANCE < set_i + self.PROTECTION_MARGIN:
             return f"OCP {ocp:.3f}A does not protect set current {set_i:.3f}A"
         return None
 

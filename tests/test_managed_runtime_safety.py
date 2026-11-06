@@ -257,6 +257,26 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             await guard.get_all_live()
         self.assertEqual(app.hass.turn_off_calls, 0)
 
+    async def test_disabled_ovp_ocp_do_not_trip_normal_live_envelope(self):
+        live = self._with_freshness(self._live())
+        live.update(voltage=14.72, current=0.21, ovp=0.0, ocp=0.0,
+                    ovp_readback_v2=0.0, ocp_readback_v2=0.0)
+        app = self._app(live)
+        guard = self._guard(app)
+        self.assertIsNone(guard._runtime_envelope_error(live))
+        await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_enabled_ovp_ocp_still_enforce_real_overlimit(self):
+        live = self._with_freshness(self._live())
+        app = self._app(live)
+        guard = self._guard(app)
+        live.update(ovp=13.0, ovp_readback_v2=13.0)
+        self.assertIn('configured OVP', guard._runtime_envelope_error(live))
+        live.update(ovp=0.0, ovp_readback_v2=0.0,
+                    ocp=1.0, ocp_readback_v2=1.0)
+        self.assertIn('configured OCP', guard._runtime_envelope_error(live))
+
     async def test_measured_output_voltage_over_recipe_ceiling_fails_closed(self):
         live = self._live()
         live["voltage"] = 16.7
