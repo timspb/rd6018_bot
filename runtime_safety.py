@@ -93,6 +93,9 @@ class RuntimeSafetyGuard:
     READBACK_VERIFY_ATTEMPTS = 8
     READBACK_VERIFY_DELAY_S = 0.20
     CURRENT_READBACK_VERIFY_TIMEOUT_S = PROGRAMMED_CURRENT_READBACK_TIMEOUT_S
+    # Voltage/OVP/OCP V2 mirrors share the Modbus heartbeat with current.
+    # Eight 200-ms reads cannot cover even one nominal 5-second mirror cycle.
+    REGISTER_READBACK_VERIFY_TIMEOUT_S = PROGRAMMED_CURRENT_READBACK_TIMEOUT_S
     READBACK_TOLERANCE = 0.08
     PROTECTION_MARGIN = 0.05
     ORPHAN_OUTPUT_GRACE_S = 45.0
@@ -570,7 +573,9 @@ class RuntimeSafetyGuard:
         ok = bool(await self._raw_set_ovp(requested))
         if not ok:
             return await self._setter_failed("OVP", requested, output_state)
-        if output_state is True and not await self._verify_numeric("ovp", requested):
+        if output_state is True and not await self._verify_numeric(
+            "ovp", requested, timeout_s=self.REGISTER_READBACK_VERIFY_TIMEOUT_S,
+        ):
             return await self._setter_failed("OVP readback", requested, output_state)
         return True
 
@@ -582,7 +587,9 @@ class RuntimeSafetyGuard:
         ok = bool(await self._raw_set_ocp(requested))
         if not ok:
             return await self._setter_failed("OCP", requested, output_state)
-        if output_state is True and not await self._verify_numeric("ocp", requested):
+        if output_state is True and not await self._verify_numeric(
+            "ocp", requested, timeout_s=self.REGISTER_READBACK_VERIFY_TIMEOUT_S,
+        ):
             return await self._setter_failed("OCP readback", requested, output_state)
         return True
 
@@ -603,7 +610,9 @@ class RuntimeSafetyGuard:
         ok = bool(await self._raw_set_voltage(requested))
         if not ok:
             return await self._setter_failed("voltage", requested, output_state)
-        if output_state is True and not await self._verify_numeric("set_voltage", requested):
+        if output_state is True and not await self._verify_numeric(
+            "set_voltage", requested, timeout_s=self.REGISTER_READBACK_VERIFY_TIMEOUT_S,
+        ):
             return await self._setter_failed("voltage readback", requested, output_state)
         return True
 
