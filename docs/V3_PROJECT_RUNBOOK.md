@@ -1400,3 +1400,6 @@ The canonical Telegram panel remains graph-backed; journal/menu/detail callbacks
 ## 2026-11-07 — journal event-loop isolation follow-up
 
 Canonical Telegram journal events now load through the existing `EventJournalReadService.aread()` async boundary; callback errors are visible and pages respect Telegram payload limits. The callback acceptance test fixture no longer routes synthetic selections into real Telegram sends or cancels unrelated event-loop tasks. Source-only, not installed on node104; details and verification limits in docs/assistant/RD6018_CURRENT_CHECKPOINT.md.
+## 2026-11-07 — charging journal real session start boundary
+
+`SESSION_START` remains the authoritative event-log session boundary even when the same production START later logs `V2_START | PREP_SKIPPED...`. `V2_START` alone is a legacy fallback boundary. This fixes the Telegram journal appearing to contain only PREP_SKIPPED. See checkpoint for regression evidence; source not yet installed on node104.

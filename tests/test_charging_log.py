@@ -141,5 +141,45 @@ class ChargingLogTests(unittest.TestCase):
         self.assertIn("V2_AGM_STEP_3", "\n".join(events))
 
 
+    def test_production_start_marker_keeps_session_header_and_main_events(self):
+        charging_log.log_session_header(
+            "start", "Main Charge", 0, 0, 0, 0, "EFB", 80,
+            "MAIN 14.84V -> MIX", meta={"session_reason": "User Command"},
+        )
+        charging_log.log_event(
+            "Main Charge", 12.91, 0, 24, 0,
+            "V2_START | PREP_SKIPPED_INITIAL_VOLTAGE=12.910V | intent=recovery",
+        )
+        charging_log.log_event("Main Charge", 14.85, 0.22, 24, 0.5, "MAIN_CV_HOLD")
+        events = charging_log.get_current_session_events()
+        self.assertEqual(len(events), 3)
+        self.assertIn("SESSION_START", events[0])
+        self.assertIn("PREP_SKIPPED_INITIAL_VOLTAGE", events[1])
+        self.assertIn("MAIN_CV_HOLD", events[2])
+        self.assertEqual(len(charging_log.get_recent_events(20)), 3)
+
+    def test_new_session_header_overrides_previous_session(self):
+        for index in range(2):
+            charging_log.log_session_header(
+                "start", "Main Charge", 0, 0, 0, 0, "EFB", 80,
+                f"session={index}",
+            )
+            charging_log.log_event(
+                "Main Charge", 12.91, 0, 24, 0,
+                f"V2_START | PREP_SKIPPED_INITIAL_VOLTAGE=12.910V | number={index}",
+            )
+        events = charging_log.get_current_session_events()
+        self.assertEqual(len(events), 2)
+        self.assertIn("session=1", events[0])
+        self.assertIn("number=1", events[1])
+
+    def test_legacy_v2_only_start_uses_latest_boundary(self):
+        for index in range(2):
+            charging_log.log_event("Main Charge", 12.9, 0, 24, 0, f"V2_START | number={index}")
+            charging_log.log_event("Main Charge", 14.8, 0.2, 24, 0.1, "TRACK")
+        events = charging_log.get_current_session_events()
+        self.assertEqual(len(events), 2)
+        self.assertIn("number=1", events[0])
+
 if __name__ == "__main__":
     unittest.main()

@@ -81,11 +81,14 @@ def _find_current_session_start_idx(lines: list[str]) -> int:
     session and must not hide the preceding AGM stages from the operator log.
     """
     last_start_idx = -1
+    last_v2_start_idx = -1
     last_restore_idx = -1
     for idx, line in enumerate(lines):
         event = _event_from_log_line(line)
-        if event.startswith("SESSION_START") or event.startswith("V2_START"):
+        if event.startswith("SESSION_START"):
             last_start_idx = idx
+        elif event.startswith("V2_START"):
+            last_v2_start_idx = idx
         elif event == "START" or (
             event.startswith("START | Емкость:")
             and "auto-restore" not in event.casefold()
@@ -93,7 +96,9 @@ def _find_current_session_start_idx(lines: list[str]) -> int:
             last_start_idx = idx
         elif event.startswith("SESSION_RESTORE") or event.startswith("RESTORE"):
             last_restore_idx = idx
-    return last_start_idx if last_start_idx != -1 else last_restore_idx
+    if last_start_idx != -1:
+        return last_start_idx
+    return last_v2_start_idx if last_v2_start_idx != -1 else last_restore_idx
 
 
 def _extract_current_session_lines(lines: list[str]) -> list[str]:
