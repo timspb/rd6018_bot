@@ -683,6 +683,34 @@ def install_operator_graph_dashboard(app: Any) -> None:
         is_graph_message = app.user_graph_dashboard.get(user_id) == message_id
         if is_graph_message and _graph_display_allowed(app):
             markup = _active_graph_panel_markup(app, state, user_id, panel_actions)
+            # Back/navigation updates only the graph caption and controls. Rebuilding
+            # history here made returning from the journal wait on database/chart work.
+            try:
+                await app.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=caption,
+                    reply_markup=markup,
+                    parse_mode=app.ParseMode.HTML,
+                )
+                return int(message_id)
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    return int(message_id)
+                await retire_graph_workspace_for_user(chat_id, user_id)
+                try:
+                    await app.bot.delete_message(chat_id, message_id)
+                except Exception:
+                    pass
+                builder = getattr(app, "_build_and_send_dashboard", None)
+                if callable(builder):
+                    return await builder(
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        old_msg_id=None,
+                        anchor_msg_id=None,
+                    )
+                return None
         elif is_graph_message:
             await retire_graph_workspace_for_user(chat_id, user_id)
             sent = await app.bot.send_message(
@@ -902,5 +930,53 @@ def install_operator_graph_dashboard(app: Any) -> None:
         app.chat_dashboard[chat_id] = sent.message_id
         return int(sent.message_id)
 
+    async def restore_dashboard_to_bottom(chat_id: int, user_id: int) -> int:
+        """Recreate the dashboard after a secondary screen so it is last in chat.
+
+        Telegram cannot reorder an existing message. Retire the tracked dashboard
+        and graph together, then let the same production renderer recreate the
+        current photo chart/control panel (or its text fallback) after the journal.
+        """
+        cancel_refresh = getattr(app, "cancel_dashboard_after_60", None)
+        if callable(cancel_refresh):
+            cancel_refresh(chat_id)
+
+        async def rebuild() -> int:
+            ids = {
+                value for value in (
+                    app.user_dashboard.get(user_id),
+                    app.chat_dashboard.get(chat_id),
+                    app.user_graph_dashboard.get(user_id),
+                    app.chat_graph_dashboard.get(chat_id),
+                ) if value is not None
+            }
+            for mapping, key in (
+                (app.user_dashboard, user_id),
+                (app.chat_dashboard, chat_id),
+                (app.user_graph_dashboard, user_id),
+                (app.chat_graph_dashboard, chat_id),
+            ):
+                mapping.pop(key, None)
+            app._graph_cache_keys.pop(user_id, None)
+            for message_id in ids:
+                try:
+                    await app.bot.delete_message(chat_id, int(message_id))
+                except Exception:
+                    # A deleted/stale Telegram message is already retired for ordering.
+                    pass
+            return await build_and_send_graph_dashboard(
+                chat_id=chat_id,
+                user_id=user_id,
+                old_msg_id=None,
+                anchor_msg_id=None,
+            )
+
+        lock_getter = getattr(app, "dashboard_lifecycle_lock", None)
+        if not callable(lock_getter):
+            return await rebuild()
+        async with lock_getter(chat_id):
+            return await rebuild()
+
     app._build_and_send_dashboard = build_and_send_graph_dashboard
+    app._restore_dashboard_to_bottom = restore_dashboard_to_bottom
     app._operator_graph_dashboard_installed = True

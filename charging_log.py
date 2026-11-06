@@ -419,3 +419,19 @@ def get_recent_events(limit: int = 50) -> list:
         return significant_events[-limit:] if significant_events else []
     except Exception:
         return []
+
+
+def get_current_session_events() -> list[str]:
+    """Return every raw event line in the current session for the operator journal.
+
+    Unlike ``get_recent_events`` this read model does not cap the result or hide
+    CHECKPOINT entries. Presentation may group routine entries, but the source
+    does not silently discard evidence. File errors propagate to the read service.
+    """
+    if not os.path.exists(LOG_FILE):
+        return []
+    with open(LOG_FILE, "r", encoding="utf-8") as log_file:
+        lines = log_file.readlines()
+    start_idx = _find_current_session_start_idx(lines)
+    session_lines = lines[start_idx:] if start_idx >= 0 else lines
+    return [line.strip() for line in session_lines if line.strip()]

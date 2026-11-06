@@ -38,6 +38,11 @@ def install_home_command(
             await app._v3_modes_command_handler(message)
             return
 
+        restore = getattr(app, "_restore_dashboard_to_bottom", None)
+        if callable(restore):
+            await restore(chat_id, user_id)
+            return
+
         old_id = app.user_dashboard.get(user_id) if user_id else app.chat_dashboard.get(chat_id)
         if old_id:
             try:

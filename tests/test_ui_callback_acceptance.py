@@ -75,6 +75,9 @@ class UIActuallyDispatchedAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.chat_guard = patch.object(app, "_check_chat_and_respond", new=AsyncMock(return_value=True))
         self.chat_guard.start()
         self.addCleanup(self.chat_guard.stop)
+        self.dashboard_restore = patch.object(app, "_restore_dashboard_to_bottom", new=AsyncMock())
+        self.dashboard_restore.start()
+        self.addCleanup(self.dashboard_restore.stop)
 
     async def test_battery_absent_and_present_selection_are_real_callback_dispatches(self):
         empty = _Call("v2_batteries")

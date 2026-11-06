@@ -283,6 +283,7 @@ class ProductionComposition:
                 interface=operator_interface,
                 home_handler=app._operator_home_handler,
                 retire_graph_tracking=app._retire_graph_tracking_for_message,
+                restore_dashboard=app._restore_dashboard_to_bottom,
             )
             install_off_conditions_screen(
                 app,

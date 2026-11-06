@@ -186,6 +186,7 @@ async def exercise_safe_callbacks() -> list[dict[str, object]]:
         stack.enter_context(patch.object(interface, "get_operator_snapshot", new=AsyncMock(return_value=fake_operator_snapshot)))
         stack.enter_context(patch.object(app, "_refresh_operator_panel", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_build_and_send_dashboard", new=AsyncMock()))
+        stack.enter_context(patch.object(app, "_restore_dashboard_to_bottom", new=AsyncMock()))
         stack.enter_context(patch("operator_hmi._render_graph_workspace", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_operator_pause_toggle", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_operator_pause_active", return_value=False))

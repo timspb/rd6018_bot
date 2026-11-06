@@ -161,6 +161,11 @@ def format_journal_event(event_line: str) -> str:
     """Format one accepted charge event using the established operator notation."""
 
     try:
+        if len(event_line) > 350:
+            event_line = (
+                event_line[:347]
+                + "… [запись сокращена; полная строка сохранена в журнале]"
+            )
         parts = event_line.split(" | ")
         if len(parts) < 6:
             return f"<code>{html.escape(event_line)}</code>"
@@ -245,7 +250,7 @@ def format_journal_event(event_line: str) -> str:
             icon = "⚠️"
         return f"[{time_only}] {icon} <b>{stage_escaped}</b>: {html.escape(event)}"
     except Exception:
-        return f"<code>{html.escape(event_line[:100])}</code>"
+        return f"<code>{html.escape(event_line)}</code>"
 
 
 def render_journal_text(events: Iterable[str], *, shown: int = 25) -> str:
@@ -255,10 +260,18 @@ def render_journal_text(events: Iterable[str], *, shown: int = 25) -> str:
     if not normalized:
         return "<b>📝 Логи событий</b>\n\nНет событий."
     lines = ["<b>📝 Логи событий</b>\n"]
+    hidden = 0
     for event in normalized[-max(0, int(shown)):]:
         formatted = format_journal_event(event)
         if formatted.strip():
             lines.append(formatted)
+        else:
+            hidden += 1
     if len(lines) <= 1:
-        return "<b>📝 Логи событий</b>\n\nТолько служебные события."
+        detail = "Только служебные события."
+        if hidden:
+            detail += f"\nℹ️ Скрыто периодических/служебных записей: {hidden}."
+        return f"<b>📝 Логи событий</b>\n\n{detail}"
+    if hidden:
+        lines.append(f"<i>Скрыто периодических/служебных записей на этой странице: {hidden}.</i>")
     return "\n".join(lines)

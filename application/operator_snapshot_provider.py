@@ -178,7 +178,7 @@ class OperatorSnapshotProvider:
         except (TypeError, ValueError):
             return None
 
-    async def get_event_journal(self, limit: int = 50) -> JournalView:
+    async def get_event_journal(self, limit: int | None = 50) -> JournalView:
         return self._event_journal_reader.read(limit)
 
     async def get_entity_statuses(self) -> EntityStatusView:

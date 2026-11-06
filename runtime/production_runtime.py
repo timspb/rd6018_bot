@@ -2259,30 +2259,58 @@ async def _edit_or_send_charge_workspace(
 
 async def send_dashboard_to_chat(chat_id: int, user_id: int = 0) -> int:
     """Отправить дашборд в чат (последним сообщением). Используется после некритичных уведомлений."""
-    old_msg_id = user_dashboard.get(user_id) if user_id else None
-    if old_msg_id is None:
-        old_msg_id = chat_dashboard.get(chat_id)
-    return await _build_and_send_dashboard(chat_id, user_id, old_msg_id)
+    async with dashboard_lifecycle_lock(chat_id):
+        old_msg_id = user_dashboard.get(user_id) if user_id else None
+        if old_msg_id is None:
+            old_msg_id = chat_dashboard.get(chat_id)
+        return await _build_and_send_dashboard(chat_id, user_id, old_msg_id)
 
 
 # Через столько секунд после некритичного сообщения обновлять дашборд (чтобы сверху не висел текст)
 DASHBOARD_AFTER_MSG_SEC = 60.0
+_dashboard_refresh_tasks: Dict[int, asyncio.Task] = {}
+_dashboard_refresh_generation: Dict[int, int] = {}
+_dashboard_lifecycle_locks: Dict[int, asyncio.Lock] = {}
 
 
-async def _delayed_dashboard_task(chat_id: int, user_id: int, delay: float) -> None:
+def dashboard_lifecycle_lock(chat_id: int) -> asyncio.Lock:
+    return _dashboard_lifecycle_locks.setdefault(int(chat_id), asyncio.Lock())
+
+
+def cancel_dashboard_after_60(chat_id: int) -> None:
+    """Invalidate and cancel a pending low-priority dashboard refresh for a chat."""
+    chat_id = int(chat_id)
+    _dashboard_refresh_generation[chat_id] = _dashboard_refresh_generation.get(chat_id, 0) + 1
+    task = _dashboard_refresh_tasks.pop(chat_id, None)
+    if task is not None and not task.done() and task is not asyncio.current_task():
+        task.cancel()
+
+
+async def _delayed_dashboard_task(
+    chat_id: int, user_id: int, delay: float, generation: int,
+) -> None:
     """Через delay сек отправить короткий дашборд в чат (последним сообщением)."""
     try:
         await asyncio.sleep(delay)
+        if _dashboard_refresh_generation.get(chat_id, 0) != generation:
+            return
         await send_dashboard_to_chat(chat_id, user_id)
     except Exception as ex:
         logger.debug("delayed dashboard after msg: %s", ex)
+    finally:
+        if _dashboard_refresh_tasks.get(chat_id) is asyncio.current_task():
+            _dashboard_refresh_tasks.pop(chat_id, None)
 
 
 def schedule_dashboard_after_60(chat_id: int, user_id: int = 0) -> None:
     """Запланировать обновление дашборда через 60 с (после любого некритичного ответа)."""
     if not chat_id:
         return
-    asyncio.create_task(_delayed_dashboard_task(chat_id, user_id, DASHBOARD_AFTER_MSG_SEC))
+    cancel_dashboard_after_60(chat_id)
+    generation = _dashboard_refresh_generation[chat_id]
+    _dashboard_refresh_tasks[chat_id] = asyncio.create_task(
+        _delayed_dashboard_task(chat_id, user_id, DASHBOARD_AFTER_MSG_SEC, generation)
+    )
 
 
 async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:

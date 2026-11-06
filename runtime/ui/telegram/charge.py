@@ -17,6 +17,7 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
+from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 CHARGE_CALLBACK_DATA = callback_data_for(UIAction.OPEN_CHARGE)
@@ -71,8 +72,7 @@ def install_charge_program_screen(
             parse_mode=app.ParseMode.HTML,
             reply_markup=render_screen_markup(screen),
         )
-        if schedule and schedule_refresh is not None:
-            schedule_refresh(chat_id, user_id)
+        await restore_dashboard_to_bottom(app, chat_id, user_id)
 
     @app.router.message(Command("modes"))
     async def _modes_command(message: Any) -> None:

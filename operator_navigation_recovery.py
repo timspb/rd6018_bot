@@ -52,10 +52,16 @@ def install_operator_navigation_recovery(app: Any) -> None:
         refresh = getattr(app, "_refresh_operator_panel", None)
         if callable(refresh):
             try:
-                await refresh(chat_id, user_id, target)
-                return
+                refreshed = await refresh(chat_id, user_id, target)
+                if refreshed is not None:
+                    return
             except Exception:
                 pass
+
+        restore = getattr(app, "_restore_dashboard_to_bottom", None)
+        if callable(restore):
+            await restore(chat_id, user_id)
+            return
 
         build = getattr(app, "_build_and_send_dashboard", None)
         if callable(build):

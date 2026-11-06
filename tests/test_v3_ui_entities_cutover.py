@@ -72,6 +72,8 @@ class _Router:
 
 class _Message:
     def __init__(self) -> None:
+        self.chat = SimpleNamespace(id=10)
+        self.from_user = SimpleNamespace(id=7)
         self.answers = []
         self.edits = []
 

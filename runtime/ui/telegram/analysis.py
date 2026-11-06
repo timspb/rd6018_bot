@@ -15,6 +15,7 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
+from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 ANALYSIS_CALLBACK_DATA = callback_data_for(UIAction.OPEN_ANALYSIS)
@@ -35,13 +36,18 @@ def install_analysis_screen(
     if not route.navigation_only:
         raise RuntimeError("analysis UI action must remain navigation-only")
 
-    async def _render_analysis(message: Any) -> None:
+    async def _render_analysis(message: Any, user_id: int) -> None:
         rendered = await analysis_provider()
         screen = build_analysis_screen(rendered)
         await message.answer(
             render_screen_text(screen),
             parse_mode=app.ParseMode.HTML,
             reply_markup=render_screen_markup(screen),
+        )
+        await restore_dashboard_to_bottom(
+            app,
+            int(message.chat.id),
+            int(user_id),
         )
 
     @app.router.callback_query(F.data == ANALYSIS_CALLBACK_DATA)
@@ -52,13 +58,13 @@ def install_analysis_screen(
             await call.answer()
         except Exception:
             pass
-        await _render_analysis(call.message)
+        await _render_analysis(call.message, int(call.from_user.id if call.from_user else 0))
 
     @app.router.message(Command("ai"))
     async def _analysis_command(message: Any) -> None:
         if not await app._check_chat_and_respond(message):
             return
-        await _render_analysis(message)
+        await _render_analysis(message, int(message.from_user.id if message.from_user else 0))
 
     if not bool(getattr(app, "_v3_home_navigation_installed", False)):
         @app.router.callback_query(F.data == HOME_CALLBACK_DATA)

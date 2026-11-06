@@ -8,21 +8,21 @@ from runtime.ui.models import JournalView
 
 
 class EventJournalReadService:
-    def __init__(self, source: Callable[[int], Iterable[str]] | None = None) -> None:
+    def __init__(self, source: Callable[[int | None], Iterable[str]] | None = None) -> None:
         self._source = source
 
     @staticmethod
-    def _default_source(limit: int) -> Iterable[str]:
-        from charging_log import get_recent_events
+    def _default_source(limit: int | None) -> Iterable[str]:
+        from charging_log import get_current_session_events, get_recent_events
 
-        return get_recent_events(limit)
+        return get_current_session_events() if limit is None else get_recent_events(limit)
 
-    def read(self, limit: int = 50) -> JournalView:
-        if limit < 0:
+    def read(self, limit: int | None = 50) -> JournalView:
+        if limit is not None and limit < 0:
             raise ValueError("limit must not be negative")
         source = self._source or self._default_source
         try:
-            events = tuple(str(item) for item in source(int(limit)))
+            events = tuple(str(item) for item in source(None if limit is None else int(limit)))
         except Exception as exc:
             return JournalView((), f"{type(exc).__name__}: {exc}")
         return JournalView(events)

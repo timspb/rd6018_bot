@@ -69,6 +69,7 @@ class _Router:
 
 class _Message:
     def __init__(self) -> None:
+        self.chat = SimpleNamespace(id=10)
         self.answers = []
 
     async def answer(self, text, **kwargs):

@@ -8,6 +8,7 @@ from aiogram.filters import Command
 
 from runtime.ui.screens.help import build_help_screen
 from runtime.ui.telegram.renderer import render_screen_text
+from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 def install_help_screen(
@@ -26,11 +27,11 @@ def install_help_screen(
             render_screen_text(build_help_screen()),
             parse_mode=app.ParseMode.HTML,
         )
-        if schedule_refresh is not None:
-            schedule_refresh(
-                int(message.chat.id),
-                int(message.from_user.id if message.from_user else 0),
-            )
+        await restore_dashboard_to_bottom(
+            app,
+            int(message.chat.id),
+            int(message.from_user.id if message.from_user else 0),
+        )
 
     app._v3_help_handler = _help
     app._v3_help_screen_installed = True

@@ -68,9 +68,13 @@ class _App:
         self.ParseMode = SimpleNamespace(HTML="HTML")
         self.last_chat_id = 0
         self.last_user_id = 0
+        self.restored = []
 
     async def _check_chat_and_respond(self, _event):
         return True
+
+    async def _restore_dashboard_to_bottom(self, chat_id, user_id):
+        self.restored.append((chat_id, user_id))
 
 
 class V3ChargeProgramCutoverTests(unittest.TestCase):
@@ -248,13 +252,15 @@ class V3ChargeProgramTelegramTests(unittest.IsolatedAsyncioTestCase):
         message = _Message()
         await app._v3_modes_command_handler(message)
         self.assertIn("программа заряда", message.answers[0][0])
-        self.assertEqual(scheduled, [(10, 7)])
+        self.assertEqual(scheduled, [])
+        self.assertEqual(app.restored, [(10, 7)])
 
         call = _Call(CHARGE_CALLBACK_DATA)
         await app._v3_charge_program_handler(call)
         self.assertIn("программа заряда", call.message.answers[0][0])
         self.assertEqual(app.last_chat_id, 10)
         self.assertEqual(app.last_user_id, 7)
+        self.assertEqual(app.restored, [(10, 7), (10, 7)])
 
     async def test_profile_and_nested_navigation_delegate_to_injected_workflows(self):
         app = _App()

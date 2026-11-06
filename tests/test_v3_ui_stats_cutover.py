@@ -44,6 +44,10 @@ class _App:
     def __init__(self) -> None:
         self.router = _Router()
         self.ParseMode = SimpleNamespace(HTML="HTML")
+        self.restored = []
+
+    async def _restore_dashboard_to_bottom(self, chat_id, user_id):
+        self.restored.append((chat_id, user_id))
 
     async def _check_chat_and_respond(self, _message):
         return True
@@ -97,7 +101,7 @@ class V3StatsUICutoverTests(unittest.TestCase):
 
 
 class V3StatsTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
-    async def test_stats_command_uses_canonical_screen_and_preserves_refresh(self):
+    async def test_stats_command_uses_canonical_screen_and_restores_panel_immediately(self):
         app = _App()
         refresh = []
 
@@ -112,7 +116,8 @@ class V3StatsTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
         text, kwargs = message.answers[0]
         self.assertEqual(text, render_screen_text(build_stats_screen()))
         self.assertEqual(kwargs["parse_mode"], "HTML")
-        self.assertEqual(refresh, [(42, 7)])
+        self.assertEqual(refresh, [])
+        self.assertEqual(app.restored, [(42, 7)])
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import asyncio
 import io
 import types
 import unittest
+from unittest.mock import AsyncMock, patch
 from datetime import datetime, timedelta, timezone
 
 import operator_hmi as hmi
@@ -203,10 +204,23 @@ class OperatorDashboardTruthTests(unittest.TestCase):
 class FakeGraphBot:
     def __init__(self):
         self.media_edits = []
+        self.deleted = []
+        self.caption_edits = []
 
     async def edit_message_media(self, **kwargs):
         self.media_edits.append(kwargs)
         return True
+
+    async def edit_message_caption(self, **kwargs):
+        self.caption_edits.append(kwargs)
+        return True
+
+    async def delete_message(self, chat_id, message_id):
+        self.deleted.append((chat_id, message_id))
+        return True
+
+    async def send_message(self, *args, **kwargs):
+        return types.SimpleNamespace(message_id=88)
 
 
 class FakeGraphMessage:
@@ -297,6 +311,77 @@ class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.bot.media_edits[0]["message_id"], 77)
         self.assertEqual(app.bot.media_edits[0]["media"]["caption"], "")
         self.assertEqual(call.message.answers, [])
+
+    async def test_restore_dashboard_retires_stale_photo_identity_and_recreates_panel(self):
+        app = FakeGraphApp()
+        app.charge_controller.is_active = False
+        app.user_dashboard = {1: 77}
+        app.chat_dashboard = {10: 77}
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app._graph_cache_keys = {1: ("2h", 10, 2)}
+        app.operator_interface = types.SimpleNamespace(
+            get_operator_snapshot=AsyncMock(return_value=object()),
+            get_operator_actions=AsyncMock(return_value=None),
+        )
+        state = hmi.OperatorHmiState(
+            hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE, "RD", False, "—", "",
+            None, None, None, None, None, None, None, "", "OK",
+        )
+        markup = InlineKeyboardMarkup(inline_keyboard=[])
+        original_panel = hmi.render_operator_panel
+        original_keyboard = hmi.build_operator_keyboard
+        try:
+            hmi.render_operator_panel = lambda _state: "control panel"
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: markup
+            with patch("operator_dashboard.OperatorSnapshotProvider.hmi_state_from_snapshot", return_value=state), \
+                    patch("operator_dashboard._main_graph_markup", return_value=markup):
+                install_operator_graph_dashboard(app)
+                restored = await app._restore_dashboard_to_bottom(10, 1)
+        finally:
+            hmi.render_operator_panel = original_panel
+            hmi.build_operator_keyboard = original_keyboard
+
+        self.assertEqual(restored, 88)
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(app.user_dashboard[1], 88)
+        self.assertEqual(app.chat_dashboard[10], 88)
+        self.assertEqual(app.user_graph_dashboard, {})
+        self.assertEqual(app.chat_graph_dashboard, {})
+        self.assertEqual(app._graph_cache_keys, {})
+
+    async def test_back_to_existing_graph_updates_caption_without_chart_rebuild(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app.operator_interface = types.SimpleNamespace(
+            get_operator_snapshot=AsyncMock(return_value=object()),
+            get_operator_actions=AsyncMock(return_value=None),
+        )
+        app.InlineKeyboardMarkup = InlineKeyboardMarkup
+        graph_read = AsyncMock(side_effect=AssertionError("back navigation must not rebuild history"))
+        app.get_graph_data_with_temp = graph_read
+        state = hmi.OperatorHmiState(
+            hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, "RD", True, "CV", "EFB",
+            14.4, 1.2, 17.0, 25.0, 35.0, 14.8, 2.0, "", "OK",
+        )
+        markup = InlineKeyboardMarkup(inline_keyboard=[])
+        original_panel = hmi.render_operator_panel
+        original_keyboard = hmi.build_operator_keyboard
+        try:
+            hmi.render_operator_panel = lambda _state: "panel caption"
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: markup
+            with patch("operator_dashboard.OperatorSnapshotProvider.hmi_state_from_snapshot", return_value=state):
+                install_operator_graph_dashboard(app)
+                refreshed = await app._refresh_operator_panel(10, 1, 77)
+        finally:
+            hmi.render_operator_panel = original_panel
+            hmi.build_operator_keyboard = original_keyboard
+
+        self.assertEqual(refreshed, 77)
+        self.assertEqual(len(app.bot.caption_edits), 1)
+        self.assertEqual(app.bot.caption_edits[0]["caption"], "panel caption")
+        graph_read.assert_not_awaited()
 
 
 if __name__ == "__main__":
