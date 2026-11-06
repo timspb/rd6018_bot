@@ -187,6 +187,16 @@ async def exercise_safe_callbacks() -> list[dict[str, object]]:
         stack.enter_context(patch.object(app, "_refresh_operator_panel", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_build_and_send_dashboard", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_restore_dashboard_to_bottom", new=AsyncMock()))
+        # The journal installer captures its restore callback before these tests.
+        # Mock the actual Bot API boundary as well: no synthetic callback may
+        # escape to Telegram, even through an already-bound closure.
+        for method in (
+            "send_message", "send_photo", "edit_message_text",
+            "edit_message_caption", "edit_message_media", "delete_message",
+        ):
+            stack.enter_context(patch.object(
+                app.bot, method, new=AsyncMock(return_value=SimpleNamespace(message_id=901)),
+            ))
         stack.enter_context(patch("operator_hmi._render_graph_workspace", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_operator_pause_toggle", new=AsyncMock()))
         stack.enter_context(patch.object(app, "_operator_pause_active", return_value=False))
@@ -203,11 +213,10 @@ async def exercise_safe_callbacks() -> list[dict[str, object]]:
             await invoke(f"v2_bat_intent_{intent}", state={"record": record})
         # The retired callback must remain unhandled; only the current Manual
         # identity-choice callback is dispatched through the installed router.
-        if any(
-            (await candidate.check(FakeCallback("v2_manual")))[0]
-            for candidate in app.router.observers["callback_query"].handlers
-        ):
-            raise AssertionError("retired v2_manual callback must have no matching handler")
+        for candidate in app.router.observers["callback_query"].handlers:
+            matched, _ = await candidate.check(FakeCallback("v2_manual"))
+            if matched:
+                raise AssertionError("retired v2_manual callback must have no matching handler")
         for data in ("v2_manual_choose", "v2_manual_unbound", "v2_manual_interrupted"):
             await invoke(data, state={"record": record})
         await invoke("v2_quick_start")
