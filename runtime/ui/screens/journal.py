@@ -18,7 +18,7 @@ def journal_button_spec() -> ButtonSpec:
     )
 
 
-def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = 4) -> ScreenSpec:
+def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = 2) -> ScreenSpec:
     offset = max(0, int(offset))
     page_size = max(1, min(12, int(page_size)))
     if view.error:

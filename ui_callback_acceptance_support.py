@@ -256,16 +256,7 @@ async def exercise_safe_callbacks() -> list[dict[str, object]]:
             "operator_pause_toggle",
         ):
             await invoke(data, state={"record": record})
-    # Some legacy read helpers schedule best-effort background work.  This is
-    # an offline acceptance process, so cancel anything it spawned before the
-    # event loop is closed; no task may outlive the fake Telegram session.
-    current = asyncio.current_task()
-    pending = [task for task in asyncio.all_tasks() if task is not current and not task.done()]
-    for task in pending:
-        task.cancel()
-    if pending:
-        try:
-            await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=2)
-        except asyncio.TimeoutError as exc:
-            raise AssertionError("offline callback acceptance left a task running after cancellation") from exc
+    # schedule_dashboard_after_60 and panel restoration are patched at their
+    # callback boundaries above. Leave unrelated tasks alone: cancelling every
+    # task here hid route leaks and could interfere with IsolatedAsyncio teardown.
     return exercised

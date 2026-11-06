@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterable
 
 from runtime.ui.models import JournalView
@@ -26,6 +27,10 @@ class EventJournalReadService:
         except Exception as exc:
             return JournalView((), f"{type(exc).__name__}: {exc}")
         return JournalView(events)
+
+    async def aread(self, limit: int | None = 50) -> JournalView:
+        """Read file backed journal data without blocking the event loop."""
+        return await asyncio.to_thread(self.read, limit)
 
 
 __all__ = ["EventJournalReadService"]

@@ -179,7 +179,7 @@ class OperatorSnapshotProvider:
             return None
 
     async def get_event_journal(self, limit: int | None = 50) -> JournalView:
-        return self._event_journal_reader.read(limit)
+        return await self._event_journal_reader.aread(limit)
 
     async def get_entity_statuses(self) -> EntityStatusView:
         try:

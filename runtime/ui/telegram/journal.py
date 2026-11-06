@@ -44,6 +44,13 @@ def install_journal_screen(
         screen = build_journal_screen(view, offset=offset)
         return view, render_screen_text(screen), render_screen_markup(screen)
 
+    async def answer_journal_error(message: Any) -> None:
+        try:
+            await message.answer("❌ Не удалось загрузить журнал. Повторите попытку позже.")
+        except Exception:
+            # A transport failure cannot be repaired from inside this callback.
+            return
+
     async def restore_last_dashboard(chat_id: int, user_id: int) -> None:
         if restore_dashboard is not None:
             await restore_dashboard(chat_id, user_id)
@@ -66,7 +73,11 @@ def install_journal_screen(
         except (ValueError, TypeError):
             offset = 0
 
-        _view, text, markup = await send_journal(chat_id, offset=offset)
+        try:
+            _view, text, markup = await send_journal(chat_id, offset=offset)
+        except Exception:
+            await answer_journal_error(call.message)
+            return
         if is_page:
             # Pagination edits only the journal message; it never touches dashboard IDs.
             try:
@@ -75,12 +86,24 @@ def install_journal_screen(
                 )
                 return
             except Exception:
-                pass
+                # Stale photo/non-text messages cannot be edited as text. Send
+                # the requested page as a fresh message instead of dropping it.
+                try:
+                    await call.message.answer(
+                        text, parse_mode=app.ParseMode.HTML, reply_markup=markup,
+                    )
+                    return
+                except Exception:
+                    await answer_journal_error(call.message)
+                    return
         if offset == 0:
-            await call.message.answer(
-                text, parse_mode=app.ParseMode.HTML, reply_markup=markup,
-            )
-            await restore_last_dashboard(chat_id, user_id)
+            try:
+                await call.message.answer(
+                    text, parse_mode=app.ParseMode.HTML, reply_markup=markup,
+                )
+                await restore_last_dashboard(chat_id, user_id)
+            except Exception:
+                await answer_journal_error(call.message)
 
     @app.router.message(Command("logs"))
     async def _journal_command(message: Any) -> None:
@@ -88,13 +111,16 @@ def install_journal_screen(
             return
         chat_id = int(message.chat.id)
         user_id = message.from_user.id if message.from_user else 0
-        _view, text, markup = await send_journal(chat_id)
-        sent = await message.answer(
-            text,
-            parse_mode=app.ParseMode.HTML,
-            reply_markup=markup,
-        )
-        await restore_last_dashboard(chat_id, user_id)
+        try:
+            _view, text, markup = await send_journal(chat_id)
+            await message.answer(
+                text,
+                parse_mode=app.ParseMode.HTML,
+                reply_markup=markup,
+            )
+            await restore_last_dashboard(chat_id, user_id)
+        except Exception:
+            await answer_journal_error(message)
 
     if not bool(getattr(app, "_v3_home_navigation_installed", False)):
         @app.router.callback_query(F.data == HOME_CALLBACK_DATA)

@@ -1397,3 +1397,6 @@ START, Output enable, setpoint or lease write is authorized.
 ## 2026-11-07 — Telegram UI source-only navigation repair
 
 The canonical Telegram panel remains graph-backed; journal/menu/detail callbacks must not replace its dashboard identity. Restore last graph/control panel after navigation, while journal events use bounded, paged, separately tracked messages. Deferred refresh is generation-cancelled on navigation. See docs/assistant/RD6018_CURRENT_CHECKPOINT.md for offline tests and deployment gate. Not installed on node104.
+## 2026-11-07 — journal event-loop isolation follow-up
+
+Canonical Telegram journal events now load through the existing `EventJournalReadService.aread()` async boundary; callback errors are visible and pages respect Telegram payload limits. The callback acceptance test fixture no longer routes synthetic selections into real Telegram sends or cancels unrelated event-loop tasks. Source-only, not installed on node104; details and verification limits in docs/assistant/RD6018_CURRENT_CHECKPOINT.md.

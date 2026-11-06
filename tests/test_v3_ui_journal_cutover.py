@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from application.journal_read_service import EventJournalReadService
 import charging_log
@@ -153,7 +153,9 @@ class V3JournalUICutoverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "charging_history.log"
             log_path.write_text(
-                "[2026-10-04 10:00:00] | Main Charge | 14.4 | 2 | 25 | 1 | SESSION_START\n"
+                "[2026-10-03 09:00:00] | Main Charge | 14.4 | 2 | 25 | 1 | SESSION_START | id=old\n"
+                "[2026-10-03 10:00:00] | Main Charge | 14.4 | 2 | 25 | 1 | CHECKPOINT | old\n"
+                "[2026-10-04 10:00:00] | Main Charge | 14.4 | 2 | 25 | 1 | SESSION_START | id=current\n"
                 "[2026-10-04 10:10:00] | Main Charge | 14.4 | 2 | 25 | 1 | CHECKPOINT\n"
                 "[2026-10-04 10:11:00] | Main Charge | 14.5 | 1 | 25 | 1 | STAGE_CHANGE | Main -> Mix\n",
                 encoding="utf-8",
@@ -162,17 +164,47 @@ class V3JournalUICutoverTests(unittest.TestCase):
                 view = EventJournalReadService().read(None)
         self.assertEqual(len(view.events), 3)
         self.assertIn("CHECKPOINT", view.events[1])
+        self.assertNotIn("old", "\n".join(view.events))
         self.assertEqual(view.error, "")
+
+    def test_async_journal_read_does_not_block_event_loop(self):
+        async def scenario():
+            reader = EventJournalReadService(lambda _limit: ["event"])
+            ticked = asyncio.Event()
+            async def tick():
+                await asyncio.sleep(0.01)
+                ticked.set()
+            task = asyncio.create_task(tick())
+            async def delegated_read(function, limit):
+                await asyncio.sleep(0.03)
+                return function(limit)
+            offload = AsyncMock(side_effect=delegated_read)
+            with patch("application.journal_read_service.asyncio.to_thread", new=offload):
+                view = await reader.aread(None)
+            self.assertTrue(ticked.is_set())
+            self.assertEqual(view.events, ("event",))
+            offload.assert_called_once_with(reader.read, None)
+            await task
+        asyncio.run(scenario())
 
     def test_journal_screen_paginates_bounded_pages_and_keeps_back(self):
         view = JournalView(tuple(f"event-{index}" for index in range(9)))
         screen = build_journal_screen(view)
-        self.assertIn("События 6–9 из 9", screen.body)
+        self.assertIn("События 8–9 из 9", screen.body)
         self.assertEqual(screen.buttons[0][0].label, "⬅ Старее")
         self.assertEqual(screen.buttons[-1][0].action, UIAction.OPEN_HOME)
-        older = build_journal_screen(view, offset=4)
+        older = build_journal_screen(view, offset=2)
         labels = [row[0].label for row in older.buttons]
         self.assertEqual(labels, ["⬅ Старее", "Новее ➡", "⬅ К панели"])
+
+    def test_worst_case_page_stays_below_telegram_4096_character_limit(self):
+        hostile = "[2026-10-04 10:00:00] | Main Charge | " + ">" * 400
+        view = JournalView((hostile, hostile, hostile))
+        screen = build_journal_screen(view)
+        from runtime.ui.telegram.renderer import render_screen_text
+        rendered = render_screen_text(screen)
+        self.assertLessEqual(len(rendered), 4096)
+        self.assertIn("запись сокращена", rendered)
 
     def test_canonical_ui_tree_has_no_historical_or_physical_imports_calls(self):
         forbidden_modules = {
@@ -362,6 +394,33 @@ class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(call.message.edits), 1)
         self.assertEqual(call.message.answers, [])
         self.assertEqual(app.user_dashboard, {})
+
+    async def test_stale_photo_pagination_sends_page_instead_of_silently_dropping_it(self):
+        app = _App()
+        async def home(_call):
+            return None
+        interface = _Interface()
+        install_journal_screen(app, interface=interface, home_handler=home)
+        call = _Call(fail_edit=True)
+        call.data = callback_data_for(UIAction.OPEN_JOURNAL, (("offset", "2"),))
+        await app._v3_journal_handler(call)
+        self.assertEqual(len(call.message.answers), 1)
+        self.assertIn("Логи событий", call.message.answers[0][0])
+        self.assertEqual(call.answers, [((), {})])
+
+    async def test_route_read_error_is_acknowledged_and_reported(self):
+        app = _App()
+        class BrokenInterface:
+            async def get_event_journal(self, _limit=None):
+                raise OSError("journal unavailable")
+        async def home(_call):
+            return None
+        install_journal_screen(app, interface=BrokenInterface(), home_handler=home)
+        call = _Call()
+        call.data = JOURNAL_CALLBACK_DATA
+        await app._v3_journal_handler(call)
+        self.assertTrue(call.answers)
+        self.assertTrue(call.message.answers)
 
 
 if __name__ == "__main__":

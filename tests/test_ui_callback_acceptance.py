@@ -78,6 +78,15 @@ class UIActuallyDispatchedAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.dashboard_restore = patch.object(app, "_restore_dashboard_to_bottom", new=AsyncMock())
         self.dashboard_restore.start()
         self.addCleanup(self.dashboard_restore.stop)
+        # These callbacks refresh the operator panel after selection. The tests
+        # exercise routing and acknowledgement, so keep the synthetic event
+        # from reaching the real Telegram sender or its deferred refresh task.
+        self.dashboard_sender = patch.object(app, "send_dashboard", new=AsyncMock())
+        self.dashboard_sender.start()
+        self.addCleanup(self.dashboard_sender.stop)
+        self.deferred_refresh = patch.object(app, "schedule_dashboard_after_60", lambda *_args: None)
+        self.deferred_refresh.start()
+        self.addCleanup(self.deferred_refresh.stop)
 
     async def test_battery_absent_and_present_selection_are_real_callback_dispatches(self):
         empty = _Call("v2_batteries")
