@@ -157,9 +157,30 @@ def observed_preimage(root: Path, *, pid: int,
     elif not isinstance(retirement, dict) or quarantine.get("quarantined") is not False:
         raise ValueError("durable retirement and verified-OFF identity do not agree")
     elif session_present:
+        # An operator may retire a later, unrelated AUTO session after the
+        # historical recovery-quarantine incident was already retired.
+        # The current atomic tombstone, not the old incident, is the identity
+        # that must be preserved by a software update.
+        independent_off = (
+            session.get("owner") == "runtime.charge.persistence"
+            and session.get("schema_version") == 1
+            and session.get("retirement_kind") == "operator_recovery_clearance"
+            and session.get("output_intent") == "verified_off"
+            and isinstance(session.get("session_id"), str) and bool(session["session_id"])
+            and isinstance(session.get("battery_id"), str) and bool(session["battery_id"])
+            and isinstance(session.get("retired_utc"), str) and bool(session["retired_utc"])
+            and isinstance(session.get("verified_off_recorded_utc"), str)
+            and bool(session["verified_off_recorded_utc"])
+            and isinstance(session.get("verified_off_transaction_id"), str)
+            and session["verified_off_transaction_id"].startswith("native-ha-independent-off:")
+            and len(session["verified_off_transaction_id"].split(":")[-1]) == 64
+        )
+        historical_matching = (
+            retirement.get("session_id") == session.get("session_id")
+            and retirement.get("confirmed_off_evidence") == session.get("verified_off_transaction_id")
+        )
         if (session.get("state") != "retired" or session.get("stage") != "RETIRED"
-                or retirement.get("session_id") != session.get("session_id")
-                or retirement.get("confirmed_off_evidence") != session.get("verified_off_transaction_id")):
+                or not (historical_matching or independent_off)):
             raise ValueError("durable retirement and verified-OFF identity do not agree")
     else:
         # The canonical controller can retire an old managed session and later
