@@ -84,6 +84,14 @@ class UIActuallyDispatchedAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.dashboard_sender = patch.object(app, "send_dashboard", new=AsyncMock())
         self.dashboard_sender.start()
         self.addCleanup(self.dashboard_sender.stop)
+        # Navigation callbacks may refresh the panel, but this acceptance suite
+        # tests installed callback routing rather than the production snapshot
+        # provider/configuration boundary. Keep fake Telegram events offline.
+        refresh_panel = patch.object(
+            app, "_refresh_operator_panel", new=AsyncMock(return_value=900),
+        )
+        refresh_panel.start()
+        self.addCleanup(refresh_panel.stop)
         self.deferred_refresh = patch.object(app, "schedule_dashboard_after_60", lambda *_args: None)
         self.deferred_refresh.start()
         self.addCleanup(self.deferred_refresh.stop)

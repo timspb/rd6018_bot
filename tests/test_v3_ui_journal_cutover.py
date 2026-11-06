@@ -197,6 +197,15 @@ class V3JournalUICutoverTests(unittest.TestCase):
         labels = [row[0].label for row in older.buttons]
         self.assertEqual(labels, ["⬅ Старее", "Новее ➡", "⬅ К панели"])
 
+    def test_stale_pagination_offset_clamps_to_oldest_available_event(self):
+        view = JournalView(tuple(
+            f"[2026-10-04 10:00:0{index}] | Main Charge | 14.4 | 1 | 25 | 1 | DONE"
+            for index in range(3)
+        ))
+        screen = build_journal_screen(view, offset=100_000)
+        self.assertIn("События 1–1 из 3", screen.body)
+        self.assertNotIn("1–0", screen.body)
+
     def test_worst_case_page_stays_below_telegram_4096_character_limit(self):
         hostile = "[2026-10-04 10:00:00] | Main Charge | " + ">" * 400
         view = JournalView((hostile, hostile, hostile))

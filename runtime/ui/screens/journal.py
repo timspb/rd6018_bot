@@ -21,6 +21,12 @@ def journal_button_spec() -> ButtonSpec:
 def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = 2) -> ScreenSpec:
     offset = max(0, int(offset))
     page_size = max(1, min(12, int(page_size)))
+    # A callback can outlive the journal contents (or be forged). Keep its
+    # page range inside the current result set so the screen never says 1–0.
+    if view.events:
+        offset = min(offset, len(view.events) - 1)
+    else:
+        offset = 0
     if view.error:
         body = "❌ Ошибка загрузки событий."
     else:

@@ -1403,3 +1403,7 @@ Canonical Telegram journal events now load through the existing `EventJournalRea
 ## 2026-11-07 — charging journal real session start boundary
 
 `SESSION_START` remains the authoritative event-log session boundary even when the same production START later logs `V2_START | PREP_SKIPPED...`. `V2_START` alone is a legacy fallback boundary. This fixes the Telegram journal appearing to contain only PREP_SKIPPED. See checkpoint for regression evidence; source not yet installed on node104.
+
+## 2026-11-07 — Telegram UI callback fixture and stale journal pages
+
+The callback acceptance fixture now replaces `_refresh_operator_panel` at the UI/snapshot boundary so synthetic navigation does not read production ESP128 configuration or conceal provider errors. Journal rendering clamps an expired or forged page offset to the oldest remaining event, preventing an invalid `1–0` range. These are source/tests only; node104, Telegram, and the PSU were not accessed. See `docs/assistant/RD6018_CURRENT_CHECKPOINT.md` for exact verification limits.
