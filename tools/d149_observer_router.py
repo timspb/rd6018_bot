@@ -66,7 +66,11 @@ class ReadOnlyObserverRouter:
         env["D090_EXPECTED_ESP_VERSION"] = "2.3-ha-canonical"
         env["D090_SOFTWARE_RELEASE"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        if phase == "RECOVERY" or self.preserve_active_session:
+        # D148 is the state-preserving stopped/post-start observer. Its
+        # journal_clear contract is selected by this mode even when the
+        # persisted session was already retired or removed. D091 still
+        # requires fresh independent HA/native physical OFF and edge proofs.
+        if phase != "PRE_STOP" or self.preserve_active_session:
             env["D090_STATE_PRESERVING_RECOVERY"] = "1"
         else:
             env.pop("D090_STATE_PRESERVING_RECOVERY", None)

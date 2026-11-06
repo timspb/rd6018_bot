@@ -49,7 +49,7 @@ class D149RouterTests(unittest.TestCase):
             self.router.select(phase)
             self.router()
             self.assertEqual(self.calls[-1][0][1], str(self.new))
-            self.assertNotIn("D090_STATE_PRESERVING_RECOVERY", self.calls[-1][1])
+            self.assertEqual(self.calls[-1][1]["D090_STATE_PRESERVING_RECOVERY"], "1")
 
     def test_recovery_has_explicit_mode(self):
         self.router.select("RECOVERY")
