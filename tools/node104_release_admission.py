@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 CONTROL_PREFIXES = (
     "runtime/charge/", "runtime/physical/", "runtime_safety", "edge_safety_lease",
     "application/execution_port.py", "application/controller_action_execution.py",
+    "application/controller_session_retirement.py",
     "application/charge_stage_tick.py", "application/charge_session_tick.py",
     "application/production_", "production_bootstrap.py", "charge_controller.py",
     "hass_api.py", "tools/node104_d090_",
