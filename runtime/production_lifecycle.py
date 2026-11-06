@@ -14,6 +14,8 @@ from application.execution_port import get_or_create_execution_port
 from runtime.background import start_background_tasks
 from rd6018_telemetry import as_bool
 
+SHUTDOWN_SESSION_LOCK_TIMEOUT_S = 5.0
+
 
 class ProductionRuntimeLifecycle:
     """Run the existing V2 lifecycle through an explicit orchestration seam."""
@@ -50,22 +52,32 @@ class ProductionRuntimeLifecycle:
             if pending:
                 app.logger.warning("Background tasks did not stop: %s",
                                    [task.get_coro().__qualname__ for task in pending])
-        async with get_or_create_execution_port(app)._guard_owner_lock:
+        # Idle shutdown has no session mutation to serialize. Waiting for a
+        # wedged START/STOP owner here previously hung systemd stop until SIGKILL.
+        if app.charge_controller.is_active:
             try:
-                if app.charge_controller.is_active:
-                    app.charge_controller._save_session(0.0, 0.0, 0.0)
+                async with asyncio.timeout(SHUTDOWN_SESSION_LOCK_TIMEOUT_S):
+                    async with get_or_create_execution_port(app)._guard_owner_lock:
+                        app.charge_controller._save_session(0.0, 0.0, 0.0)
+            except TimeoutError:
+                # Preserve the last durable session; never write outside the
+                # owner lock or authorize an automatic output restart.
+                app.logger.warning("Shutdown session save skipped: execution owner busy")
             except Exception as ex:
                 app.logger.warning("Failed to save session on shutdown: %s", ex)
+        app.logger.info("Closing physical connector on shutdown")
         try:
-            await app.hass.close()
-        except Exception:
-            pass
+            async with asyncio.timeout(10.0):
+                await app.hass.close()
+        except Exception as ex:
+            app.logger.warning("Physical connector shutdown incomplete: %s", type(ex).__name__)
+        app.logger.info("Closing database on shutdown")
         try:
             from database import close_db
-
-            await close_db()
-        except Exception:
-            pass
+            async with asyncio.timeout(10.0):
+                await close_db()
+        except Exception as ex:
+            app.logger.warning("Database shutdown incomplete: %s", type(ex).__name__)
         app.logger.info("Shutdown complete.")
 
     async def run(self) -> None:
