@@ -42,15 +42,28 @@ class _ControllerSessionRetirement:
         session_id = data.get("v2_trace_session_id") if isinstance(data, dict) else None
         battery_id = data.get("v2_battery_id") if isinstance(data, dict) else None
         if (not isinstance(data, dict) or data.get("state") == "retired"
-                or data.get("stage") != controller.STAGE_MAIN
+                or data.get("stage") not in {controller.STAGE_MAIN, controller.STAGE_MIX}
                 or not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(battery_id, str) or not battery_id.strip()
                 or getattr(controller, "current_stage", controller.STAGE_IDLE) != controller.STAGE_IDLE
                 or getattr(controller, "_v2_trace_session_id", None) is not None
                 or getattr(controller, "_v2_battery_id", None) is not None):
             return None
-        from runtime.charge.strategy.main_guard_session import GUARD_KEY
+        from runtime.charge.strategy.main_guard_session import GUARD_KEY, read_guard
         if GUARD_KEY not in data:
+            return None
+        if data["stage"] == controller.STAGE_MIX and not any(
+            isinstance(step, dict) and step.get("from") == controller.STAGE_MAIN
+            and step.get("to") == controller.STAGE_MIX
+            for step in (data.get("stage_history") or [])
+        ):
+            return None
+        try:
+            guard, _ = read_guard(data, session_id=session_id,
+                                 battery_id=battery_id, now_s=time.time())
+        except Exception:
+            return None
+        if guard.pending is not None or guard.fault is not None:
             return None
         return {"session_id": session_id, "battery_id": battery_id,
                 "document_sha256": hashlib.sha256(raw).hexdigest()}
