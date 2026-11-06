@@ -50,11 +50,18 @@ def observed_preimage(root: Path, *, pid: int,
     journal = read_small_json(journal_path)
     retirement = quarantine.get("retirement")
     preserved_guard = None
-    if session_present and session.get("stage") == "Main Charge":
-        # A live guarded MAIN session may be preserved across a software-only
-        # restart while the independent D091 Native/HA proof confirms Output
-        # OFF. Bind every persisted byte and validate the canonical guard
-        # snapshot; never turn the snapshot into permission to resume charging.
+    if session_present and session.get("stage") in {"Main Charge", "Mix Mode"}:
+        # Preserve a guarded MAIN, or its interrupted transition into MIX,
+        # across software-only restart. MIX must carry the exact historical
+        # MAIN->MIX transition and sealed MAIN guard; never infer resume authority.
+        if session["stage"] == "Mix Mode" and not any(
+            isinstance(step, dict) and step.get("from") == "Main Charge"
+            and step.get("to") == "Mix Mode"
+            for step in (session.get("stage_history") or [])
+        ):
+            raise ValueError("interrupted MIX lacks historical MAIN transition")
+        # Independent D091 Native/HA proof confirms Output OFF; bind every
+        # persisted byte and validate the canonical guard snapshot.
         if (session.get("v2_authoritative") is not True
                 or type(session.get("v2_trace_session_id")) is not str
                 or not session["v2_trace_session_id"].strip()

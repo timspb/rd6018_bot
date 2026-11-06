@@ -192,6 +192,30 @@ class D137Tests(unittest.TestCase):
             self.assertFalse(proof["automatic_resume_authorized"])
             self.assertEqual(before,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
+    def test_interrupted_mix_preserves_main_guard_with_off_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.guarded_main_historical_on_fixture(root)
+            path = root / "state" / "charge_session.json"
+            doc = json.loads(path.read_text())
+            doc["stage"] = "Mix Mode"
+            doc["stage_history"] = [{"from": "Main Charge", "to": "Mix Mode"}]
+            path.write_text(json.dumps(doc))
+            proof = self.historical_on_reconciliation()
+            real_read = Path.read_bytes
+            def fake_argv(p):
+                if str(p) == "/proc/1234/cmdline":
+                    return str(root / "app" / "bot.py").encode() + bytes([0])
+                return real_read(p)
+            with patch.object(Path, "read_bytes", fake_argv):
+                result = observed_preimage(root, pid=1234, physical_off_reconciliation=proof)
+            self.assertFalse(result["preserved_guarded_main"]["automatic_resume_authorized"])
+            self.assertEqual(result["preserved_guarded_main"]["session_id"], "session-main")
+            doc["stage_history"] = []
+            path.write_text(json.dumps(doc))
+            with self.assertRaisesRegex(ValueError, "historical MAIN transition"):
+                self.capture(root)
+
     def test_guarded_main_hash_revision_or_pending_drift_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); good=self.guarded_main_fixture(root)
