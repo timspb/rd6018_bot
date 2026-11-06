@@ -138,6 +138,28 @@ class CollectorProofTests(unittest.TestCase):
         self.assertEqual(result['ha102_current_a'], 0.0)
         self.assertEqual(result['esp128_current_a'], 0.0)
 
+    def test_latched_lease_trip_admitted_only_for_preserving_software_release(self):
+        value = snapshot()
+        value['edge']['edge_lease_tripped']['value'] = True
+        with self.assertRaises(M.ProofError):
+            M.assemble_proof(value)
+        with self.assertRaises(M.ProofError):
+            M.assemble_proof(value, software_release=True)
+        with self.assertRaises(M.ProofError):
+            M.assemble_proof(value, state_preserving_recovery=True)
+        proof = M.assemble_proof(value, software_release=True, state_preserving_recovery=True)
+        self.assertTrue(proof['ha102_output_off'])
+        self.assertTrue(proof['esp128_output_off'])
+        for unsafe in ('edge_lease_armed', 'edge_boot_quarantine', 'edge_authority_conflict', 'edge_intrinsic_fault'):
+            different = snapshot()
+            different['edge']['edge_lease_tripped']['value'] = True
+            different['edge'][unsafe]['value'] = True
+            with self.assertRaises(M.ProofError):
+                M.assemble_proof(different, software_release=True, state_preserving_recovery=True)
+        value['esp']['output_state'] = 1
+        with self.assertRaises(M.ProofError):
+            M.assemble_proof(value, software_release=True, state_preserving_recovery=True)
+
     def test_preserving_recovery_still_rejects_unsafe_physical_evidence(self):
         value = snapshot()
         value['active_session'] = True

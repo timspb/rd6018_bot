@@ -225,6 +225,12 @@ def assemble_proof(snapshot: dict[str, Any], *, state_preserving_recovery: bool 
             if abs(_number(record.get('value')) - 900.0) > .001:
                 raise ProofError('edge lease TTL is not 900 seconds')
         elif _bool(record.get('value')):
+            # A latched expired lease prevents energizing the output, but does
+            # not invalidate read-only OFF proof for a software-only release.
+            # Every other edge flag, physical OFF, and process identity still
+            # fail closed. Never admit a trip for charging or normal recovery.
+            if key == 'edge_lease_tripped' and software_release and state_preserving_recovery:
+                continue
             raise ProofError('edge containment/authority/fault flag is asserted: ' + key)
     if snapshot.get('active_session') is not False and not state_preserving_recovery:
         raise ProofError('active or uncertain session document')
