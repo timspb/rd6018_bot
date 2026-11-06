@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiohttp
 
 from config import ENTITY_MAP, HA_INSECURE_LOCAL, HA_URL, HA_TOKEN
-from rd6018_telemetry import canonicalize_live
+from rd6018_telemetry import canonicalize_live, canonical_programmed_readback, finite_float
 from safe_output import (
     EnableResult,
     OutputRequest,
@@ -373,6 +373,71 @@ class HassClient:
     def _clear_programming_state(self) -> None:
         self._programming_state.clear()
 
+    async def _retire_unrequested_protection_limits(
+        self, request: OutputRequest, before: Any,
+    ) -> bool:
+        """Remove *old* OVP/OCP only while OFF, before a new managed enable.
+
+        Riden retains protection registers between charging programs. A prior
+        OCP of 1.32 A tripped a new 6 A Iset (node104, 2026-11-06).
+        No protection programming is performed for a limit explicitly owned
+        by the current recipe (e.g. MIX OCP). Never infer a safe zero from
+        a missing readback, and never retry an Output ON here.
+        """
+        stale = []
+        for key, target, actual, setter in (
+            ("ovp", request.ovp_v, before.ovp_v, self.set_ovp),
+            ("ocp", request.ocp_a, before.ocp_a, self.set_ocp),
+        ):
+            if target is not None:
+                continue
+            if actual is None:
+                logger.error("START refused: missing old %s register readback", key)
+                return False
+            stale.append((key, setter))
+        if not stale:
+            return True
+
+        # A normal preflight has already proven fresh physical OFF and V/I.
+        # Revalidate immediately before touching retained registers.
+        live = await self.get_all_live()
+        snap = snapshot_from_live(live, require_programming_freshness=True)
+        if snap is None or snap.output_on or not self._safety_supervisor.preflight(request, snap).allowed:
+            logger.error("START refused: retained protection clearance lacks fresh OFF preflight")
+            return False
+        for key, setter in stale:
+            actual = canonical_programmed_readback(live, key)
+            if actual is None:
+                logger.error("START refused: %s V2 readback missing", key)
+                return False
+            if abs(actual) > 0.005:
+                try:
+                    if not await setter(0.0):
+                        logger.error("START refused: cannot retire old %s=%.2f", key, actual)
+                        return False
+                except Exception as exc:
+                    logger.error("START refused: %s retirement failed: %s", key, type(exc).__name__)
+                    return False
+                logger.info("START retired stale %s=%.2f while Output OFF", key, actual)
+
+        deadline = time.monotonic() + 10.0
+        while True:
+            live = await self.get_all_live()
+            snap = snapshot_from_live(live, require_programming_freshness=True)
+            if snap is None or snap.output_on or not self._safety_supervisor.preflight(request, snap).allowed:
+                logger.error("START refused: physical OFF/preflight lost during protection retirement")
+                return False
+            if all(
+                (value := canonical_programmed_readback(live, key)) is not None
+                and abs(value) <= 0.005
+                for key, _ in stale
+            ):
+                return True
+            if time.monotonic() >= deadline:
+                logger.error("START refused: old OVP/OCP did not clear in readback window")
+                return False
+            await asyncio.sleep(0.25)
+
     async def _switch_service(self, service: str, entity_id: Optional[str] = None) -> bool:
         if self._uses_physical_backend:
             try:
@@ -420,6 +485,12 @@ class HassClient:
         decision = self._safety_supervisor.preflight(request, before)
         if not decision.allowed:
             logger.error("HA turn_on blocked by safety preflight: %s", decision.detail)
+            self._clear_programming_state()
+            return False
+        # Old RD6018 OVP/OCP registers persist across sessions. Retire only
+        # limits not explicitly requested by this recipe, while Output is OFF.
+        # Without this, a previous 1.32 A OCP can trip a fresh 6 A START.
+        if not await self._retire_unrequested_protection_limits(request, before):
             self._clear_programming_state()
             return False
         coordinator = SafeOutputCoordinator(self, self._safety_supervisor)

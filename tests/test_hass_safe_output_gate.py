@@ -190,6 +190,35 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await client.set_voltage(16.3))
         self.assertTrue(await client.set_current(2.0))
 
+    async def test_old_ocp_is_disabled_before_new_higher_current_start(self):
+        client = FakeHassClient()
+        client.live.update({
+            "ovp": 14.92, "ovp_readback_v2": 14.92,
+            "ocp": 1.32, "ocp_readback_v2": 1.32,
+        })
+        self.assertTrue(await client.set_voltage(16.3))
+        self.assertTrue(await client.set_current(6.0))
+        self.assertTrue(await client.turn_on())
+        self.assertEqual(client.live["ovp_readback_v2"], 0.0)
+        self.assertEqual(client.live["ocp_readback_v2"], 0.0)
+        self.assertEqual(client.service_calls, ["turn_on"])
+
+    async def test_no_output_on_if_old_protection_register_cannot_be_read(self):
+        client = FakeHassClient()
+        client.live.pop("ocp_readback_v2")
+        client.live.pop("ocp")
+        self.assertTrue(await client.set_voltage(16.3))
+        self.assertTrue(await client.set_current(6.0))
+        self.assertFalse(await client.turn_on())
+        self.assertEqual(client.service_calls, [])
+
+    async def test_explicit_mix_protection_is_not_cleared(self):
+        client = FakeHassClient()
+        await self._program(client)
+        self.assertTrue(await client.turn_on())
+        self.assertEqual(client.live["ovp_readback_v2"], 16.4)
+        self.assertEqual(client.live["ocp_readback_v2"], 2.1)
+
     async def test_direct_turn_on_without_programming_transaction_is_blocked(self):
         client = FakeHassClient()
         self.assertFalse(await client.turn_on())
@@ -307,7 +336,7 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(client.service_calls, [])
 
-    async def test_charge_safe_enable_needs_only_voltage_and_current_programming(self):
+    async def test_charge_safe_enable_fails_closed_when_old_limits_unobservable(self):
         client = FakeHassClient()
         client.live.pop("ovp_readback_v2")
         client.live.pop("ocp_readback_v2")
@@ -317,8 +346,8 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
             voltage_v=16.3, current_a=2.0,
             recipe_voltage_ceiling_v=16.3,
         )
-        self.assertTrue(result.enabled)
-        self.assertEqual(client.service_calls, ["turn_on"])
+        self.assertFalse(result.enabled)
+        self.assertNotIn("turn_on", client.service_calls)
 
     async def test_recipe_aware_enable_allows_explicit_expert_ceiling(self):
         client = FakeHassClient()
