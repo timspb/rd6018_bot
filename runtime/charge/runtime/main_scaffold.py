@@ -116,13 +116,12 @@ def apply_main_authority_tick(
         )
     elif decision.action == AuthorityAction.ENTER_MIX:
         target_v, target_i = host._mix_target(temp)
-        limits: Dict[str, Any] = {}
-        host._add_phase_limits(limits, target_v, target_i)
+        host._add_phase_limits({}, target_v, target_i)
         apply_main_mix_entry(
             host, reason=decision.reason, now_s=timestamp_s, ah=ah,
             voltage_v=voltage, current_a=current, temperature_c=temp,
             target_voltage_v=target_v, target_current_a=target_i,
-            ovp_v=limits["set_ovp"], ocp_a=limits["set_ocp"], actions=actions,
+            actions=actions,
         )
     elif decision.action == AuthorityAction.COMPLETE_NORMAL:
         from runtime.charge.runtime.normal_completion import complete_normal_charge

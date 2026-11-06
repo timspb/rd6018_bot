@@ -251,6 +251,20 @@ class SafeOutputCoordinatorTests(unittest.TestCase):
             ["get_all_live", "set_ovp", "set_ocp", "set_voltage", "set_current", "get_all_live", "turn_on", "get_all_live"],
         )
 
+    def test_charge_start_needs_only_fresh_v_i_readback(self):
+        adapter = FakeAdapter()
+        adapter.live.pop("ovp_readback_v2")
+        adapter.live.pop("ocp_readback_v2")
+        adapter.live["_meta"].pop("ovp_readback_v2")
+        adapter.live["_meta"].pop("ocp_readback_v2")
+        request = OutputRequest(16.3, 2.0, None, None, 16.3)
+        result = asyncio.run(SafeOutputCoordinator(adapter).enable(request))
+        self.assertTrue(result.enabled)
+        self.assertEqual(adapter.calls, [
+            "get_all_live", "set_voltage", "set_current", "get_all_live",
+            "turn_on", "get_all_live",
+        ])
+
     def test_programming_failure_forces_output_off(self):
         adapter = FakeAdapter()
         adapter.fail_method = "set_current"

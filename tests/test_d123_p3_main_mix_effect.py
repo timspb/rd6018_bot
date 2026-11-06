@@ -31,21 +31,18 @@ class MainMixEffectTests(unittest.TestCase):
                 voltage, current = host._mix_target(25.0)
                 actions = {}
                 host._add_phase_limits(actions, voltage, current)
-                ovp, ocp = actions["set_ovp"], actions["set_ocp"]
                 effect = build_main_mix_effect(MainMixEffectInput(
                     host.STAGE_MAIN, host.STAGE_MIX, "fixture", 1234.0, 4.5,
-                    voltage, current, ovp, ocp,
+                    voltage, current,
                     {"stage": host.STAGE_MAIN, "trigger": "fixture"},
                 ))
                 applied = {}
                 apply_main_mix_effect(host, effect, applied)
                 self.assertEqual(set(applied), {
-                    "log_event_end", "set_voltage", "set_current", "set_ovp",
-                    "set_ocp", "notify", "log_event",
+                    "log_event_end", "set_voltage", "set_current", "notify", "log_event",
                 })
-                self.assertEqual((applied["set_voltage"], applied["set_current"],
-                                  applied["set_ovp"], applied["set_ocp"]),
-                                 (voltage, current, ovp, ocp))
+                self.assertEqual((applied["set_voltage"], applied["set_current"]),
+                                 (voltage, current))
                 self.assertEqual(applied["log_event"], "START | V2_MIX")
                 self.assertIn("выход по CV ΔI или CC ΔV", applied["notify"])
                 self.assertEqual(host.current_stage, host.STAGE_MIX)
@@ -90,17 +87,14 @@ class MainMixEffectTests(unittest.TestCase):
                 host._make_log_event_end = lambda *args: {"trigger": args[-1]}
                 voltage, current = host._mix_target(25.0)
                 limits = {}
-                host._add_phase_limits(limits, voltage, current)
                 actions = {}
                 apply_main_mix_entry(
                     host, reason="fixture", now_s=123.0, ah=4.0, voltage_v=14.0,
                     current_a=1.0, temperature_c=25.0, target_voltage_v=voltage,
-                    target_current_a=current, ovp_v=limits["set_ovp"],
-                    ocp_a=limits["set_ocp"], actions=actions,
+                    target_current_a=current, actions=actions,
                 )
-                self.assertEqual((actions["set_voltage"], actions["set_current"],
-                                  actions["set_ovp"], actions["set_ocp"]),
-                                 (voltage, current, limits["set_ovp"], limits["set_ocp"]))
+                self.assertEqual((actions["set_voltage"], actions["set_current"]),
+                                 (voltage, current))
                 self.assertEqual(actions["log_event_end"], {"trigger": "fixture"})
                 self.assertEqual(host.current_stage, host.STAGE_MIX)
 
@@ -113,7 +107,7 @@ class MainMixEffectTests(unittest.TestCase):
             apply_main_mix_entry(
                 host, reason="fixture", now_s=123.0, ah=4.0, voltage_v=14.0,
                 current_a=1.0, temperature_c=25.0, target_voltage_v=15.5,
-                target_current_a=2.0, ovp_v=16.0, ocp_a=3.0, actions=actions,
+                target_current_a=2.0, actions=actions,
             )
         self.assertEqual(host.current_stage, host.STAGE_MAIN)
         self.assertEqual(actions, {"existing": True})

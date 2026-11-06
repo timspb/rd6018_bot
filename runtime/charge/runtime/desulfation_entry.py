@@ -8,8 +8,6 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from runtime.charge.session import set_current_stage
-from runtime.charge.strategy.desulfation_variables import DESULFATION_OCP_MARGIN_A
-from runtime.safety.variables import PROTECTION_OVP_MARGIN_V
 
 logger = logging.getLogger("rd6018.charge.main_runtime")
 
@@ -57,8 +55,6 @@ def build_main_desulfation_effect(value: MainDesulfationEffectInput) -> MainDesu
             "log_event_end": MappingProxyType(dict(value.log_event_end)),
             "set_voltage": voltage,
             "set_current": current,
-            "set_ovp": voltage + float(PROTECTION_OVP_MARGIN_V.default),
-            "set_ocp": current + float(DESULFATION_OCP_MARGIN_A.default),
             "notify": (
                 f"🔧 <b>V2 десульфатация #{int(value.attempt)}</b>\n"
                 f"{value.reason}\nЦель: {voltage:.2f}В / {current:.2f}А на сервисный этап."

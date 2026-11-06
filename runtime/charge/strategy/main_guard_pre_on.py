@@ -14,13 +14,13 @@ from rd6018_telemetry import (
     canonical_programmed_readback, finite_float, telemetry_freshness,
 )
 from .main_current_guard import (
-    EXPECTED_OCP_HEADROOM_A, MainCurrentGuard, READBACK_TOLERANCE_A,
+    MainCurrentGuard, READBACK_TOLERANCE_A,
 )
 from .main_guard_session import GUARD_KEY, GuardJournalError, read_guard
 
 NATIVE_GUARD_PRE_ON_KEYS = (
     "output_state_code_v2", "set_current_readback_v2",
-    "ocp_readback_v2", "protection_code",
+    "protection_code",
 )
 MAX_NATIVE_AGE_S = 10.0
 
@@ -58,7 +58,7 @@ def assess_main_guard_before_output_on(
     """Inspect a previously guarded MAIN resume, never grant Output ON.
 
     A guarded session is RECONCILED only if live Output is OFF and the native
-    Iset/OCP programming already equals the target not exceeding its persisted
+    Iset programming already equals the target not exceeding its persisted
     monotone ceiling. Any needed programming is a separate owner-owned OFF
     transaction, followed by a NEW fresh assessment before ON.
     """
@@ -136,17 +136,14 @@ def assess_main_guard_before_output_on(
     if protection_code != 0:
         return blocked("native_protection_not_normal")
     programmed_i = canonical_programmed_readback(native_live, "set_current")
-    programmed_ocp = canonical_programmed_readback(native_live, "ocp")
-    if programmed_i is None or programmed_ocp is None:
+    if programmed_i is None:
         return blocked("native_programmed_readback_unavailable")
     if programmed_i > saved.hardware_limit_a + READBACK_TOLERANCE_A:
         return blocked("physical_iset_exceeds_persisted_ceiling")
     if abs(programmed_i - proposed) > READBACK_TOLERANCE_A:
         return blocked("physical_iset_does_not_match_resume_target")
-    if abs(programmed_ocp - programmed_i - EXPECTED_OCP_HEADROOM_A) > READBACK_TOLERANCE_A:
-        return blocked("physical_ocp_not_confirmed")
     return GuardPreOnAssessment(
-        "RECONCILED", "native_programming_matches_canonical_main_guard",
+        "RECONCILED", "native_iset_matches_canonical_main_guard",
         journal_revision=revision,
         confirmed_ceiling_a=saved.hardware_limit_a,
     )

@@ -107,6 +107,26 @@ from all live checks, deployment, and physical validation. References to node
 101 later in this runbook are retained only inside historical evidence or
 migration records and do not identify the current production target.
 
+## MAIN charge programmed protection registers
+
+Normal managed charging owns Vset/Iset and verifies fresh programmed V/I,
+measured electrical and temperature evidence, independent hardware trip status,
+the existing edge lease, and transactional Output state. It does not routinely
+program OVP/OCP or require their numeric register readbacks. Missing/stale OVP
+or OCP readback alone is not a physical trip and must not fault MAIN, its 30
+minute Iset ratchet, MAIN resume reconciliation, or ordinary automatic stage
+transitions. The Guard still ratchets Iset only downward, requires fresh Iset
+acknowledgement and durable journal commit, and retains the existing lease and
+ownership checks. Chemistry/absolute voltage and current limits, measured
+envelope checks, and native protection-trip detection remain active.
+
+Explicit transactions that request OVP/OCP (including Manual paths) retain
+their existing programming and readback checks. Normal automatic charge stages
+leave the physical protection registers untouched; this change neither clears
+hardware protections nor claims their current physical settings. The optional
+OVP/OCP values in `OutputRequest` are transaction-scoped requests, not a global
+disable switch. Code/test evidence is not physical acceptance.
+
 ## 1. Назначение проекта
 
 Проект — не просто контроллер RD6018. Он разделяет операторский интерфейс,

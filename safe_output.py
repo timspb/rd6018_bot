@@ -82,8 +82,8 @@ class SafetyPolicy:
 class OutputRequest:
     voltage_v: float
     current_a: float
-    ovp_v: float
-    ocp_a: float
+    ovp_v: Optional[float]
+    ocp_a: Optional[float]
     recipe_voltage_ceiling_v: float
 
 
@@ -197,8 +197,8 @@ def snapshot_from_live(
     ovp_readback = programmed_value("ovp")
     ocp_readback = programmed_value("ocp")
     if require_programming_freshness:
-        sources = [V2_CANONICAL_OVERRIDES[key] for key in ("set_voltage", "set_current", "ovp", "ocp")]
-        if any(canonical_programmed_readback(live, key) is None for key in ("set_voltage", "set_current", "ovp", "ocp")):
+        sources = [V2_CANONICAL_OVERRIDES[key] for key in ("set_voltage", "set_current")]
+        if any(canonical_programmed_readback(live, key) is None for key in ("set_voltage", "set_current")):
             logger.warning("Rejecting missing/stale canonical programmed readback: %s", ", ".join(sources))
             return None
         freshness = telemetry_freshness(live, freshness_keys + sources)
@@ -255,13 +255,7 @@ class SafetySupervisor:
         p = self.policy
         violations: set[SafetyViolation] = set()
 
-        requested = (
-            request.voltage_v,
-            request.current_a,
-            request.ovp_v,
-            request.ocp_a,
-            request.recipe_voltage_ceiling_v,
-        )
+        requested = (request.voltage_v, request.current_a, request.recipe_voltage_ceiling_v)
         observed = (
             telemetry.battery_voltage_v,
             telemetry.current_a,
@@ -296,12 +290,12 @@ class SafetySupervisor:
         if request.current_a <= 0 or request.current_a > p.absolute_current_ceiling_a:
             violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
 
-        if (
+        if request.ovp_v is not None and (
             request.ovp_v < request.voltage_v + p.min_ovp_margin_v
             or request.ovp_v > p.absolute_ovp_ceiling_v
         ):
             violations.add(SafetyViolation.OVP_ENVELOPE_INVALID)
-        if (
+        if request.ocp_a is not None and (
             request.ocp_a < request.current_a + p.min_ocp_margin_a
             or request.ocp_a > p.absolute_ocp_ceiling_a
         ):
@@ -319,8 +313,6 @@ class SafetySupervisor:
         checks = (
             ("set_voltage", telemetry.set_voltage_v, request.voltage_v, p.voltage_readback_tolerance_v),
             ("set_current", telemetry.set_current_a, request.current_a, p.current_readback_tolerance_a),
-            ("ovp", telemetry.ovp_v, request.ovp_v, p.protection_readback_tolerance),
-            ("ocp", telemetry.ocp_a, request.ocp_a, p.protection_readback_tolerance),
         )
         for name, actual, expected, tolerance in checks:
             if actual is None:
@@ -328,6 +320,17 @@ class SafetySupervisor:
             elif abs(actual - expected) > tolerance:
                 mismatches.append(
                     f"{name} actual={actual:.3f} expected={expected:.3f} tol={tolerance:.3f}"
+                )
+        for name, actual, expected in (("ovp", telemetry.ovp_v, request.ovp_v),
+                                       ("ocp", telemetry.ocp_a, request.ocp_a)):
+            if expected is None:
+                continue
+            if actual is None:
+                mismatches.append(f"{name}=missing expected={expected:.3f}")
+            elif abs(actual - expected) > p.protection_readback_tolerance:
+                mismatches.append(
+                    f"{name} actual={actual:.3f} expected={expected:.3f} "
+                    f"tol={p.protection_readback_tolerance:.3f}"
                 )
 
         violations = frozenset({SafetyViolation.READBACK_MISMATCH}) if mismatches else frozenset()
@@ -367,7 +370,7 @@ class SafetySupervisor:
                     f"measured output voltage {telemetry.output_voltage_v:.3f} exceeds "
                     f"working ceiling {measured_v_limit:.3f}"
                 )
-            if telemetry.output_voltage_v > request.ovp_v + p.protection_readback_tolerance:
+            if request.ovp_v is not None and telemetry.output_voltage_v > request.ovp_v + p.protection_readback_tolerance:
                 violations.add(SafetyViolation.MEASURED_OUTPUT_OVER_LIMIT)
                 details.append(
                     f"measured output voltage {telemetry.output_voltage_v:.3f} exceeds "
@@ -380,7 +383,7 @@ class SafetySupervisor:
                 f"measured current {telemetry.current_a:.3f} exceeds working ceiling "
                 f"{p.absolute_current_ceiling_a:.3f}"
             )
-        if telemetry.current_a > request.ocp_a + p.protection_readback_tolerance:
+        if request.ocp_a is not None and telemetry.current_a > request.ocp_a + p.protection_readback_tolerance:
             violations.add(SafetyViolation.CURRENT_OVER_ABSOLUTE_LIMIT)
             details.append(
                 f"measured current {telemetry.current_a:.3f} exceeds configured OCP "
@@ -523,12 +526,15 @@ class SafeOutputCoordinator:
         if not decision.allowed:
             return EnableResult(False, decision.violations, decision.detail)
 
-        operations = (
-            ("ovp", self.adapter.set_ovp, request.ovp_v),
-            ("ocp", self.adapter.set_ocp, request.ocp_a),
+        operations = []
+        if request.ovp_v is not None:
+            operations.append(("ovp", self.adapter.set_ovp, request.ovp_v))
+        if request.ocp_a is not None:
+            operations.append(("ocp", self.adapter.set_ocp, request.ocp_a))
+        operations.extend((
             ("voltage", self.adapter.set_voltage, request.voltage_v),
             ("current", self.adapter.set_current, request.current_a),
-        )
+        ))
         for name, setter, value in operations:
             stage_started = perf_counter()
             try:

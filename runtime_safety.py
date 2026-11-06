@@ -366,7 +366,7 @@ class RuntimeSafetyGuard:
             return f"battery voltage is implausible: {battery_v:.3f}V"
 
         if require_programming:
-            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+            for key in ("set_voltage", "set_current"):
                 if self._programmed_evidence(live, key) is None:
                     if key == "set_current":
                         return "authoritative current readback V2 is missing/stale"
@@ -385,12 +385,10 @@ class RuntimeSafetyGuard:
 
         set_v = self._programmed_evidence(live, "set_voltage")
         set_i = self._programmed_evidence(live, "set_current")
-        ovp = self._programmed_evidence(live, "ovp")
-        ocp = self._programmed_evidence(live, "ocp")
         actual_i = _finite(live.get("current"))
-        if None in (set_v, set_i, ovp, ocp, actual_i):
+        if None in (set_v, set_i, actual_i):
             return "programming/readback became invalid while output was ON"
-        assert set_v is not None and set_i is not None and ovp is not None and ocp is not None and actual_i is not None
+        assert set_v is not None and set_i is not None and actual_i is not None
 
         recipe_ceiling = self._recipe_voltage_ceiling()
         if set_v > recipe_ceiling + self.READBACK_TOLERANCE:
@@ -399,16 +397,8 @@ class RuntimeSafetyGuard:
             return f"set voltage {set_v:.3f}V exceeds absolute ceiling"
         if set_i <= 0 or set_i > float(MAX_STAGE_CURRENT) + self.READBACK_TOLERANCE:
             return f"set current {set_i:.3f}A exceeds runtime envelope"
-        if actual_i > self.policy.absolute_ocp_ceiling_a + self.READBACK_TOLERANCE:
+        if actual_i > self.policy.absolute_current_ceiling_a + self.READBACK_TOLERANCE:
             return f"measured current {actual_i:.3f}A exceeds absolute runtime envelope"
-        if ovp > self.policy.absolute_ovp_ceiling_v + self.READBACK_TOLERANCE:
-            return f"OVP {ovp:.3f}V exceeds absolute protection ceiling"
-        if ocp > self.policy.absolute_ocp_ceiling_a + self.READBACK_TOLERANCE:
-            return f"OCP {ocp:.3f}A exceeds absolute protection ceiling"
-        if ovp + self.READBACK_TOLERANCE < set_v + self.PROTECTION_MARGIN:
-            return f"OVP {ovp:.3f}V does not protect set voltage {set_v:.3f}V"
-        if ocp + self.READBACK_TOLERANCE < set_i + self.PROTECTION_MARGIN:
-            return f"OCP {ocp:.3f}A does not protect set current {set_i:.3f}A"
         return None
 
     @staticmethod
@@ -600,13 +590,9 @@ class RuntimeSafetyGuard:
         if requested is None or requested < 0 or requested > ceiling + 1e-9:
             return await self._setter_failed("voltage", float(value), output_state)
 
-        if output_state is True:
-            live = await self._raw_live()
-            ovp = self._programmed_evidence(live, "ovp")
-            if ovp is None or ovp + self.READBACK_TOLERANCE < requested + self.PROTECTION_MARGIN:
-                await self._ensure_output_off("voltage raise attempted without confirmed OVP margin")
-                raise RuntimeSafetyError("voltage setpoint blocked: OVP margin is not confirmed")
-
+        # Charge authority is bounded by recipe/absolute V limits and the
+        # measured voltage guard. OVP register readback is observational;
+        # an unavailable register is not a physical protection trip.
         ok = bool(await self._raw_set_voltage(requested))
         if not ok:
             return await self._setter_failed("voltage", requested, output_state)
@@ -621,13 +607,6 @@ class RuntimeSafetyGuard:
         output_state = await self._output_state_raw()
         if requested is None or requested <= 0 or requested > float(MAX_STAGE_CURRENT) + 1e-9:
             return await self._setter_failed("current", float(value), output_state)
-
-        if output_state is True:
-            live = await self._raw_live()
-            ocp = self._programmed_evidence(live, "ocp")
-            if ocp is None or ocp + self.READBACK_TOLERANCE < requested + self.PROTECTION_MARGIN:
-                await self._ensure_output_off("current raise attempted without confirmed OCP margin")
-                raise RuntimeSafetyError("current setpoint blocked: OCP margin is not confirmed")
 
         ok = bool(await self._raw_set_current(requested))
         if not ok:

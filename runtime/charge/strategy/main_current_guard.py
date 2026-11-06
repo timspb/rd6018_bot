@@ -21,7 +21,6 @@ RATCHET_INTERVAL_S = 1800.0
 # This conservative source-only bound must be calibrated before activation.
 MAX_CONTINUOUS_SAMPLE_GAP_S = 90.0
 CURRENT_HEADROOM_A = 1.0
-EXPECTED_OCP_HEADROOM_A = 0.1
 READBACK_TOLERANCE_A = 0.02
 ACK_TIMEOUT_S = 120.0
 
@@ -143,8 +142,8 @@ class MainCurrentGuard:
 
     def commit(self, *, proposal_id: str, now_s: float, measured_current_a: float | None,
                measured_current_fresh: bool, current_limit_readback_a: float | None,
-               current_readback_fresh: bool, ocp_limit_a: float | None,
-               ocp_readback_fresh: bool) -> "MainCurrentGuard":
+               current_readback_fresh: bool, ocp_limit_a: float | None = None,
+               ocp_readback_fresh: bool = False) -> "MainCurrentGuard":
         pending = self.pending
         now = _time(now_s)
         if self.fault:
@@ -161,18 +160,14 @@ class MainCurrentGuard:
         try:
             current = _finite(measured_current_a, "measured current")
             current_limit = _finite(current_limit_readback_a, "current limit readback")
-            ocp = _finite(ocp_limit_a, "OCP readback")
         except GuardError:
             return self._faulted("missing_or_invalid_readback")
-        if not measured_current_fresh or not current_readback_fresh or not ocp_readback_fresh:
+        if not measured_current_fresh or not current_readback_fresh:
             return self._faulted("stale_readback")
         if current < 0:
             return self._faulted("invalid_output_current_readback")
         if abs(current_limit - pending.target_limit_a) > READBACK_TOLERANCE_A:
             return self._faulted("programmed_current_readback_mismatch")
-        expected_ocp = pending.target_limit_a + EXPECTED_OCP_HEADROOM_A
-        if abs(ocp - expected_ocp) > READBACK_TOLERANCE_A:
-            return self._faulted("OCP_readback_mismatch")
         return replace(self, hardware_limit_a=pending.target_limit_a, pending=None,
                        last_observed_at_s=now)
 
@@ -199,12 +194,9 @@ class MainCurrentGuard:
             return self._faulted("desulfation_return_boundary_unproven")
         try:
             new_i = _finite(current_readback_a, "current readback")
-            new_ocp = _finite(ocp_readback_a, "OCP readback")
         except GuardError:
             return self._faulted("desulfation_return_readback_unavailable")
-        if (abs(new_i - self.initial_limit_a) > READBACK_TOLERANCE_A
-                or abs(new_ocp - self.initial_limit_a - EXPECTED_OCP_HEADROOM_A)
-                > READBACK_TOLERANCE_A):
+        if abs(new_i - self.initial_limit_a) > READBACK_TOLERANCE_A:
             return self._faulted("desulfation_return_readback_mismatch")
         return replace(self, segment_id=segment_id, hardware_limit_a=self.initial_limit_a,
                        accrued_output_on_s=0.0, last_observed_at_s=now,

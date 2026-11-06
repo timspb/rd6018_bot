@@ -89,7 +89,6 @@ from runtime.charge.runtime.recovery_safe_wait_completion import (
 )
 from runtime.charge.strategy.desulfation import select_desulfation_target
 from runtime.charge.strategy.desulfation_variables import (
-    DESULFATION_OCP_MARGIN_A,
     desulfation_duration_seconds,
 )
 from runtime.charge.strategy.final_safe_wait import (
@@ -114,8 +113,6 @@ from runtime.charge.strategy.temperature_variables import (
 )
 from runtime.safety.variables import (
     MAX_STAGE_CURRENT_A,
-    PROTECTION_OCP_MARGIN_A,
-    PROTECTION_OVP_MARGIN_V,
 )
 from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
 from runtime.charge.strategy.main_variables import (
@@ -250,8 +247,9 @@ class ManagedChargeController:
         target_v: float,
         target_i: float,
     ) -> None:
-        actions["set_ovp"] = target_v + float(PROTECTION_OVP_MARGIN_V.default)
-        actions["set_ocp"] = target_i + float(PROTECTION_OCP_MARGIN_A.default)
+        # OVP/OCP remain physical trip protections, but normal charge stages
+        # program and verify only Vset/Iset. Do not turn absent protection
+        # register readback into a charge-control prerequisite.
         self._phase_current_limit = target_i
 
     def _add_desulf_limits(
@@ -260,8 +258,6 @@ class ManagedChargeController:
         target_v: float,
         target_i: float,
     ) -> None:
-        actions["set_ovp"] = target_v + float(PROTECTION_OVP_MARGIN_V.default)
-        actions["set_ocp"] = target_i + float(DESULFATION_OCP_MARGIN_A.default)
         self._phase_current_limit = target_i
 
     def _temperature_compensation_coeff(self) -> float:

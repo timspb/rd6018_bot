@@ -1186,3 +1186,56 @@ D145 PREPARE_ONLY_PASS observed candidate identity `f9072c568a87dbe01f015c17a0dd
 After operator confirmed Output OFF, Native ESPHome and HA102 D148 read-only evidence independently reported OFF, 0 V/0 A, lease disarmed. Candidate 83684ba (orphan MIX retirement/UI stop binding) was staged but two D145 executions failed at the STOPPED-phase D149 observer. Both failed D144 transactions, slots 5 and 6, were recovered through the canonical D145 `recover` to phase RESTORED; bot was restarted on prior release a6ce87b. Root cause reproduced: D149 routed STOPPED/POST_START through D148 without D090_STATE_PRESERVING_RECOVERY when the saved charge session was absent. D148 then necessarily emitted `quarantine journal is active or uncertain` (journal_clear false in normal mode), despite healthy physical OFF readbacks and a cleared quarantine journal. Corrected D149 to select its state-preserving recovery mode on STOPPED/POST_START; fresh native/HA physical safety, nonce and edge checks remain required. Linux D149 tests: 10 PASS. Commit 062499489c830f33e1573c2ee20773e00620c960 incorporates this correction and previous orphan MIX retirement fix.
 
 First D145 attempt of 0624994 encountered D140 disk capacity block prior to stopping the service. Removed only owned stale staging (`/tmp/d138_stage_4cba9a7`, `/tmp/d138_stage_83684ba`) and orphan candidate-d144-7 (no transaction 7 journal), freeing ~1.4 GiB. Repeated D145 prepare PASS (candidate identity `004764903efb0df3143335c7eb472f8c2d635870c1220d63a7482f972a48cb1f`, composite preimage `ad540bea22e33349101edf70b5ae20f09cb456fc7c3be52dfc3a31bd502d46ce`, active_session false, one physical owner, independent fresh OFF). D145 execute succeeded; D144 slot 7 COMMITTED, transaction `70707293e5294c3f8c213fd22347b33e`, installed source `062499489c830f33e1573c2ee20773e00620c960`, service active PID 224759, NRestarts 0. Telegram polling confirmed in journal at 07:17:58 UTC. Post-cutover fresh D148 at epoch 1793949525.3291903 returned independent HA102 and ESP128 OFF, 0V, 0A, unarmed lease, one owner; these are timestamp-specific readbacks, not continuing physical guarantees. At deployment, `state/charge_session.json` was already absent; deployment did not delete/retire any active session. No START, Output ON, voltage/current/OVP/OCP or lease writes were issued by assistant. Owned staging cleaned afterward, filesystem ~1.1 GiB free. Other unrelated temp stages were not touched.
+
+## 2026-11-06 — offline removal of routine OVP/OCP charge gates (local candidate)
+
+Implemented against code HEAD `a08bd3eeed54385bd28e33e754b4d124d31d58c7`
+on `fix/d145-guarded-main-admission`; the local branch was 28 commits ahead
+of `origin/main` at inspection. The tracked code/docs/tests below are modified
+in the worktree and have **not** been committed. Commit was attempted only
+after the focused suite passed, but this environment mounts `.git` read-only
+(`fatal: Unable to create .git/index.lock: Read-only file system`). No remote
+was contacted. Existing untracked `_codex_remove_ovp_ocp_task.txt` was not
+edited or staged.
+
+Normal automatic charge START and stage changes now request/program/verify
+Vset/Iset only. `OutputRequest` treats OVP/OCP as optional transaction-scoped
+requests; explicit protection requests, including existing Manual paths, keep
+their envelope and readback checks. Routine AUTO START and preflight omit both
+register writes. MAIN/DESULFATION/MIX stage effects no longer emit those writes.
+The MAIN Guard ratchet and guarded pre-ON restore require fresh Native R18,
+measured current, Iset, clear typed protection status, existing lease/owner
+authority and the durable journal; OCP value/freshness is not a gate and cannot
+fault or cause a Guard OCP setter. Desulfation return also changes only V/I.
+The preserved Guard snapshot schema/version and restore semantics are
+unchanged; no migration or automatic session restart was added. Missing/stale
+numeric OVP/OCP no longer faults the active runtime envelope or V/I setters.
+Independent hardware trip status, measured voltage/current and temperature
+checks, chemistry/absolute V/I ceilings, fail-closed Output transitions and
+the 900 s lease remain in force. No software change clears or arbitrarily
+rewrites a physical protection register. `docs/V3_PROJECT_RUNBOOK.md` now
+states this boundary.
+
+Focused offline validation on Python 3.12: **240 passed, 38 subtests passed**
+across MAIN Guard, pre-ON/startup restore, runtime/strict safety, normal charge
+effects, SafeOutput, production START and transition tests. Targeted
+`py_compile` and `git diff --check` passed. This is not a complete repository
+suite or physical acceptance. The earlier focused run had two fixture/test
+expectation failures; after correction the final expanded run passed. The
+initial standalone `pytest` entrypoint lacked project `sys.path`; validation
+used the existing `/tmp/rd6018-task-d142-py312` environment and `python -m
+pytest`.
+
+Strict offline scope was honored: no node104/ESP/HA access, SSH, deployment,
+service lifecycle, actuator, lease, setpoint or secret operation. Latest
+checkpointed node104 record remains D144 slot 7 / source `0624994`, service
+PID 224759 active with NRestarts 0, and a timestamped D148 Output OFF/zero U/I
+and lease-disarmed observation at epoch `1793949525.3291903`; this task did
+not recheck it, and it is not a current physical-state claim. No fresh
+hands_off state was established for this offline task.
+
+Next: with `.git` writable, review/stage this exact worktree and commit only
+after preserving the green targeted evidence; then run the clean full suite.
+Before any later deployment or physical acceptance, follow the live Native
+evidence canon and the existing release owner. Do not infer device protection
+register values or physical Output from these software tests.

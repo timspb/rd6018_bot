@@ -307,6 +307,19 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(client.service_calls, [])
 
+    async def test_charge_safe_enable_needs_only_voltage_and_current_programming(self):
+        client = FakeHassClient()
+        client.live.pop("ovp_readback_v2")
+        client.live.pop("ocp_readback_v2")
+        client.live["_meta"].pop("ovp_readback_v2")
+        client.live["_meta"].pop("ocp_readback_v2")
+        result = await client.safe_enable_output(
+            voltage_v=16.3, current_a=2.0,
+            recipe_voltage_ceiling_v=16.3,
+        )
+        self.assertTrue(result.enabled)
+        self.assertEqual(client.service_calls, ["turn_on"])
+
     async def test_recipe_aware_enable_allows_explicit_expert_ceiling(self):
         client = FakeHassClient()
         result = await client.safe_enable_output(

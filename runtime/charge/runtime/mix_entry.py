@@ -21,8 +21,6 @@ class MainMixEffectInput:
     ah: float
     target_voltage_v: float
     target_current_a: float
-    ovp_v: float
-    ocp_a: float
     log_event_end: Mapping[str, Any]
 
 
@@ -47,7 +45,6 @@ def build_main_mix_effect(value: MainMixEffectInput) -> MainMixEffect:
         action_values=MappingProxyType({
             "log_event_end": MappingProxyType(dict(value.log_event_end)),
             "set_voltage": voltage, "set_current": current,
-            "set_ovp": float(value.ovp_v), "set_ocp": float(value.ocp_a),
             "notify": (f"<b>🚀 V2 → Mix Mode</b>\n{value.reason}\n"
                        f"Цель: {voltage:.2f}В / {current:.2f}А; выход по CV ΔI или CC ΔV."),
             "log_event": "START | V2_MIX",
@@ -75,7 +72,7 @@ def apply_main_mix_effect(host: Any, effect: MainMixEffect, actions: dict[str, A
 def apply_main_mix_entry(
     host: Any, *, reason: str, now_s: float, ah: float, voltage_v: float,
     current_a: float, temperature_c: float, target_voltage_v: float,
-    target_current_a: float, ovp_v: float, ocp_a: float,
+    target_current_a: float,
     actions: dict[str, Any],
 ) -> None:
     """Assemble and apply the existing MAIN MIX entry effect once."""
@@ -87,8 +84,6 @@ def apply_main_mix_entry(
         ah=ah,
         target_voltage_v=target_voltage_v,
         target_current_a=target_current_a,
-        ovp_v=ovp_v,
-        ocp_a=ocp_a,
         log_event_end=host._make_log_event_end(
             now_s, ah, voltage_v, current_a, temperature_c, reason
         ),

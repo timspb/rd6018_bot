@@ -126,7 +126,7 @@ class MainGuardPreOnTests(unittest.TestCase):
             self.assess(session_document=doc).reason,
         )
 
-    def test_current_and_ocp_must_match_saved_ceiling(self):
+    def test_current_must_match_saved_ceiling(self):
         self.assertEqual(
             self.assess(target_current_a=7.0).reason,
             "restore_target_exceeds_saved_main_ceiling",
@@ -139,10 +139,10 @@ class MainGuardPreOnTests(unittest.TestCase):
             self.assess(native_live=live(5.0, 5.1)).reason,
             "physical_iset_does_not_match_resume_target",
         )
-        self.assertEqual(
-            self.assess(native_live=live(6.0, 7.0)).reason,
-            "physical_ocp_not_confirmed",
-        )
+        no_ocp = live()
+        no_ocp.pop("ocp_readback_v2")
+        no_ocp["_meta"].pop("ocp_readback_v2")
+        self.assertTrue(self.assess(native_live=no_ocp).guard_reconciled)
 
     def test_real_persisted_reduced_ceiling_never_reverts_to_initial(self):
         g, pending = observed_pending(self.guard)
@@ -178,7 +178,7 @@ class MainGuardPreOnTests(unittest.TestCase):
                     self.assess(native_live=snapshot).reason, reason,
                 )
 
-    def test_stale_missing_or_skewed_ha_heartbeat_rejected(self):
+    def test_stale_missing_or_skewed_native_heartbeat_rejected(self):
         for mutation in ("missing_meta", "stale", "skew", "unknown"):
             with self.subTest(mutation=mutation):
                 snapshot = live()
@@ -190,8 +190,8 @@ class MainGuardPreOnTests(unittest.TestCase):
                     expected = "native_sources_stale_or_skewed"
                 elif mutation == "skew":
                     from datetime import datetime, timezone, timedelta
-                    snapshot["_meta"]["ocp_readback_v2"].pop("age_s")
-                    snapshot["_meta"]["ocp_readback_v2"]["last_reported"] = (
+                    snapshot["_meta"]["protection_code"].pop("age_s")
+                    snapshot["_meta"]["protection_code"]["last_reported"] = (
                         datetime.now(timezone.utc) + timedelta(seconds=30)
                     ).isoformat()
                     expected = "native_sources_stale_or_skewed"

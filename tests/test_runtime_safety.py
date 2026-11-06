@@ -174,25 +174,26 @@ class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(app.hass.live["switch"], "off")
 
-    async def test_live_voltage_change_requires_confirmed_ovp_margin(self):
-        app = FakeApp(live=live_state(ovp=14.9, set_voltage=14.8))
+    async def test_live_voltage_change_does_not_require_ovp_readback(self):
+        state = live_state(set_voltage=14.8)
+        state.pop("ovp_readback_v2")
+        state["_meta"].pop("ovp_readback_v2")
+        app = FakeApp(live=state)
         self._install(app)
 
-        with self.assertRaises(RuntimeSafetyError):
-            await app.hass.set_voltage(16.0)
+        self.assertTrue(await app.hass.set_voltage(14.7))
 
-        self.assertEqual(app.hass.live["switch"], "off")
-        self.assertFalse(any(name == "set_voltage" for name, _ in app.hass.setter_calls))
+        self.assertEqual(app.hass.live["switch"], "on")
+        self.assertTrue(any(name == "set_voltage" for name, _ in app.hass.setter_calls))
 
-    async def test_live_current_change_requires_confirmed_ocp_margin(self):
+    async def test_live_current_change_does_not_require_ocp_readback(self):
         app = FakeApp(live=live_state(ocp=2.1, set_current=2.0))
         self._install(app)
 
-        with self.assertRaises(RuntimeSafetyError):
-            await app.hass.set_current(4.0)
+        self.assertTrue(await app.hass.set_current(4.0))
 
-        self.assertEqual(app.hass.live["switch"], "off")
-        self.assertFalse(any(name == "set_current" for name, _ in app.hass.setter_calls))
+        self.assertEqual(app.hass.live["switch"], "on")
+        self.assertTrue(any(name == "set_current" for name, _ in app.hass.setter_calls))
 
     async def test_ovp_cannot_be_lowered_below_active_voltage_envelope(self):
         app = FakeApp(live=live_state(set_voltage=14.8, ovp=14.9))

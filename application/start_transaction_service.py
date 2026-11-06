@@ -366,8 +366,6 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         result = await get_or_create_execution_port(app).enable(
             execution_intent,
             identity=execution_identity,
-            ovp_v=float(target_v) + float(app.OVP_OFFSET),
-            ocp_a=requested_i + float(app.OCP_OFFSET),
             recipe_voltage_ceiling_v=float(envelope.voltage_ceiling_v),
         )
     except Exception as exc:

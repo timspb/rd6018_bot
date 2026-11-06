@@ -344,7 +344,7 @@ class HassClient:
 
     def _recent_programming_request(self) -> Optional[OutputRequest]:
         now = time.monotonic()
-        required = ("ovp", "ocp", "voltage", "current")
+        required = ("voltage", "current")
         values: Dict[str, float] = {}
         timestamps: Dict[str, float] = {}
         for key in required:
@@ -356,13 +356,17 @@ class HassClient:
                 return None
             values[key] = value
             timestamps[key] = timestamp
-        if timestamps["voltage"] < timestamps["ovp"]:
+        for key in ("ovp", "ocp"):
+            item = self._programming_state.get(key)
+            if item is not None and now - item[1] <= PROGRAMMING_TRANSACTION_TTL_SEC:
+                values[key], timestamps[key] = item
+        if "ovp" in timestamps and timestamps["voltage"] < timestamps["ovp"]:
             return None
         return OutputRequest(
             voltage_v=values["voltage"],
             current_a=values["current"],
-            ovp_v=values["ovp"],
-            ocp_a=values["ocp"],
+            ovp_v=values.get("ovp"),
+            ocp_a=values.get("ocp"),
             recipe_voltage_ceiling_v=self._safety_supervisor.policy.absolute_voltage_ceiling_v,
         )
 
@@ -461,22 +465,21 @@ class HassClient:
         *,
         voltage_v: float,
         current_a: float,
-        ovp_v: float,
-        ocp_a: float,
+        ovp_v: Optional[float] = None,
+        ocp_a: Optional[float] = None,
         recipe_voltage_ceiling_v: float,
     ) -> bool:
-        """Verify final programmed protection/readback while Output is ON.
+        """Verify final programmed V/I and any explicitly requested limits.
 
-        Stage-start OCP settling may intentionally arm with a wider temporary OCP
-        and tighten it after Output ON.  This confirmation closes that transaction:
-        exact canonical V/I/OVP/OCP readback, Output ON and normal live protection
-        must all agree before the caller may commit a software stage transition.
+        Physical protection trip status and measured voltage/current envelope
+        remain mandatory regardless of whether protection-register readback was
+        requested by this transaction.
         """
         request = OutputRequest(
             voltage_v=float(voltage_v),
             current_a=float(current_a),
-            ovp_v=float(ovp_v),
-            ocp_a=float(ocp_a),
+            ovp_v=float(ovp_v) if ovp_v is not None else None,
+            ocp_a=float(ocp_a) if ocp_a is not None else None,
             recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
         )
         coordinator = SafeOutputCoordinator(self, self._safety_supervisor)
@@ -533,8 +536,8 @@ class HassClient:
         *,
         voltage_v: float,
         current_a: float,
-        ovp_v: float,
-        ocp_a: float,
+        ovp_v: Optional[float] = None,
+        ocp_a: Optional[float] = None,
         recipe_voltage_ceiling_v: float,
         policy: Optional[SafetyPolicy] = None,
         readback_delay_s: float = 0.0,
@@ -545,8 +548,8 @@ class HassClient:
             OutputRequest(
                 voltage_v=float(voltage_v),
                 current_a=float(current_a),
-                ovp_v=float(ovp_v),
-                ocp_a=float(ocp_a),
+                ovp_v=float(ovp_v) if ovp_v is not None else None,
+                ocp_a=float(ocp_a) if ocp_a is not None else None,
                 recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
             )
         )

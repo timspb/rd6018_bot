@@ -115,8 +115,8 @@ class StartPreflightService:
         safety_request = OutputRequest(
             voltage_v=target.voltage_v,
             current_a=current,
-            ovp_v=target.voltage_v + float(getattr(self.app, "OVP_OFFSET", 0.1)),
-            ocp_a=current + float(getattr(self.app, "OCP_OFFSET", 0.1)),
+            ovp_v=None,
+            ocp_a=None,
             recipe_voltage_ceiling_v=recipe.voltage_ceiling_v,
         )
         policy = getattr(getattr(self.app.hass, "_safety_supervisor", None), "policy", None)

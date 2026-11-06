@@ -186,11 +186,13 @@ class MainCurrentGuardTests(unittest.TestCase):
                 self.assertEqual(rejected.fault,
                                  "desulfation_return_boundary_unproven")
 
-    def test_missing_ocp_headroom_is_not_accepted_as_commit(self):
+    def test_missing_or_mismatched_ocp_does_not_block_current_commit(self):
         s, p = self.due(self.make(), current=4)
-        bad = self.ack(s, p, ocp=p.target_limit_a)
-        self.assertEqual(bad.fault, "OCP_readback_mismatch")
-        self.assertEqual(bad.hardware_limit_a, 7.2)
+        committed = s.commit(proposal_id=p.proposal_id, now_s=1801,
+            measured_current_a=4, measured_current_fresh=True,
+            current_limit_readback_a=p.target_limit_a, current_readback_fresh=True)
+        self.assertIsNone(committed.fault)
+        self.assertEqual(committed.hardware_limit_a, p.target_limit_a)
 
     def test_wrong_i_readback_does_not_commit(self):
         s, p = self.due(self.make(), current=4)
@@ -262,16 +264,16 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertIn("ambiguous", s.commit(proposal_id="bogus", now_s=1801, measured_current_a=4,
                        measured_current_fresh=True, current_limit_readback_a=5, current_readback_fresh=True,
                        ocp_limit_a=7.2, ocp_readback_fresh=True).fault)
-        self.assertIn("readback", self.ack(s, p, ocp=0.1).fault)
-        self.assertIn("readback_mismatch", self.ack(s, p, ocp=8).fault)
+        self.assertIsNone(self.ack(s, p, ocp=0.1).fault)
+        self.assertIsNone(self.ack(s, p, ocp=8).fault)
 
-    def test_stale_current_or_ocp_ack_fails(self):
+    def test_stale_current_ack_fails_but_ocp_freshness_is_irrelevant(self):
         s, p = self.due(self.make(), current=4)
         self.assertEqual(self.ack(s, p, fresh=False).fault, "stale_readback")
         self.assertEqual(self.ack(s, p, current_readback_fresh=False).fault, "stale_readback")
-        self.assertEqual(self.ack(s, p, ocp_fresh=False).fault, "stale_readback")
+        self.assertIsNone(self.ack(s, p, ocp_fresh=False).fault)
 
-    def test_commit_requires_fresh_current_and_ocp_readback(self):
+    def test_commit_requires_fresh_current_readback_only(self):
         s, p = self.due(self.make(), current=4)
         s = self.ack(s, p)
         self.assertEqual(s.hardware_limit_a, 5)

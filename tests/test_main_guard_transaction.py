@@ -93,12 +93,12 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         args.update(overrides)
         return await self.port.execute_main_current_guard_reduction(**args)
 
-    async def test_positive_protected_downward_order_and_journal(self):
+    async def test_current_only_downward_order_and_journal(self):
         result = await self.transact()
         self.assertTrue(result.verified)
         self.assertEqual(result.guard.hardware_limit_a, 5)
         self.assertIsNone(result.guard.pending)
-        self.assertEqual(self.owner.events, [("set_current", 5.0), ("set_ocp", 5.1)])
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
         self.assertEqual(len(self.snapshots), 2)
         self.assertIsNotNone(self.snapshots[0]["pending"])
         self.assertIsNone(self.snapshots[1]["pending"])
@@ -118,10 +118,10 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [])
 
-    async def test_stale_ocp_or_unknown_protection_rejects(self):
+    async def test_stale_ocp_is_ignored_but_unknown_protection_rejects(self):
         self.owner.live["_meta"]["ocp_readback_v2"]["status"] = "stale"
-        self.assertFalse((await self.transact()).verified)
-        self.assertEqual(self.owner.events, [])
+        self.assertTrue((await self.transact()).verified)
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
 
     async def test_confirmed_native_protection_trip_requests_verified_off(self):
         self.owner.live["protection_code"] = 1
@@ -146,12 +146,11 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events, [("OFF",)])
 
-    async def test_confirmed_upward_ocp_readback_requests_off_prewrite(self):
+    async def test_ocp_readback_deviation_does_not_block_guard(self):
         self.owner.live["ocp_readback_v2"] = 7.33
         result = await self.transact()
-        self.assertFalse(result.verified)
-        self.assertTrue(result.off_confirmed)
-        self.assertEqual(self.owner.events, [("OFF",)])
+        self.assertTrue(result.verified)
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
 
     async def test_wrong_preflight_programmed_current_rejects(self):
         self.owner.live["set_current_readback_v2"] = 5.0
@@ -159,11 +158,11 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [])
 
-    async def test_wrong_ocp_margin_rejects_before_any_write(self):
+    async def test_wrong_ocp_margin_does_not_block_guard(self):
         self.owner.live["ocp_readback_v2"] = 7.0
         result = await self.transact()
-        self.assertFalse(result.verified)
-        self.assertEqual(self.owner.events, [])
+        self.assertTrue(result.verified)
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
 
     async def test_fresh_native_protection_trip_forces_verified_off_prewrite(self):
         self.owner.live["protection_code"] = 2
@@ -188,37 +187,18 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.owner.events, [("OFF",)])
         self.assertEqual(self.snapshots, [])
 
-    async def test_fresh_upward_ocp_deviation_forces_verified_off_prewrite(self):
+    async def test_fresh_upward_ocp_deviation_is_not_a_trip(self):
         self.owner.live["ocp_readback_v2"] = 8.0
         result = await self.transact()
-        self.assertFalse(result.verified)
-        self.assertTrue(result.off_confirmed)
-        self.assertEqual(self.owner.events, [("OFF",)])
-        self.assertEqual(self.snapshots, [])
-
-    async def test_native_ocp_callback_converges_after_setter_returns(self):
-        original = self.owner.set_ocp
-        target = {}
-        async def delayed_callback(value):
-            target["value"] = value
-            self.owner.events.append(("set_ocp", round(value, 3)))
-            async def publish():
-                await asyncio.sleep(0.3)
-                self.owner.live["ocp_readback_v2"] = value
-            asyncio.create_task(publish())
-        self.owner.set_ocp = delayed_callback
-        result = await self.transact()
         self.assertTrue(result.verified)
-        self.assertEqual(self.owner.live["ocp_readback_v2"], target["value"])
-        self.assertEqual(self.owner.events, [("set_current", 5.0), ("set_ocp", 5.1)])
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
 
     async def test_unconfirmed_setter_fail_closed_and_no_commit(self):
         self.owner.mirror = False
         result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
-        self.assertEqual(self.owner.events,
-                         [("set_current", 5.0), ("set_ocp", 5.1), ("OFF",)])
+        self.assertEqual(self.owner.events, [("set_current", 5.0), ("OFF",)])
         self.assertEqual(len(self.snapshots), 1)
         self.assertIsNotNone(self.snapshots[0]["pending"])
 
@@ -226,10 +206,11 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         original = self.owner.set_current
 
         async def quantized_but_outside_guard_tolerance(value):
-            await original(value)
+            result = await original(value)
             # Model a fresh native Iset register report outside the documented
             # 0.02 A acknowledgement tolerance. Do not weaken that tolerance.
             self.owner.live["set_current_readback_v2"] = value + 0.03
+            return result
 
         self.owner.set_current = quantized_but_outside_guard_tolerance
         result = await self.transact()
@@ -313,7 +294,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         for entry in self.owner.live["_meta"].values():
             entry.pop("age_s", None)
             entry["last_reported"] = now.isoformat()
-        self.owner.live["_meta"]["ocp_readback_v2"]["last_reported"] = (
+        self.owner.live["_meta"]["set_current_readback_v2"]["last_reported"] = (
             now - timedelta(seconds=25)
         ).isoformat()
         result = await self.transact()

@@ -160,8 +160,8 @@ class ExecutionPort:
         intent: ExecutionIntent,
         *,
         identity: Any,
-        ovp_v: float,
-        ocp_a: float,
+        ovp_v: float | None = None,
+        ocp_a: float | None = None,
         recipe_voltage_ceiling_v: float,
     ) -> ExecutionPortResult:
         if self._recovery_quarantined() or self.guarded_restore_activated_off:
@@ -172,8 +172,8 @@ class ExecutionPort:
             result = await self.execution_owner.safe_enable_output(
                 voltage_v=float(intent.requested_voltage_v),
                 current_a=float(intent.requested_current_a),
-                ovp_v=float(ovp_v),
-                ocp_a=float(ocp_a),
+                ovp_v=float(ovp_v) if ovp_v is not None else None,
+                ocp_a=float(ocp_a) if ocp_a is not None else None,
                 recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
             )
             accepted = bool(getattr(result, "enabled", False))
