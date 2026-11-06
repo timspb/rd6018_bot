@@ -526,6 +526,47 @@ class OperatorHmiTests(unittest.TestCase):
             text = render_operator_panel(build_operator_hmi_state(app, live()))
         self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
 
+    def test_efb_main_countdown_uses_last_confirmed_minimum(self):
+        controller = types.SimpleNamespace(
+            is_active=True, current_stage="Main Charge", battery_type="EFB",
+            ah_capacity=80, target_voltage=14.84,
+            ui_support_snapshot=lambda: {
+                "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 5400},
+                "runtime_evidence_available": True,
+                "finish_hold_started_at": None,
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        values = live()
+        values.update(current=0.22, battery_voltage=14.85, set_voltage=14.84)
+        panel = render_operator_panel(build_operator_hmi_state(app, values))
+        self.assertIn("до MAIN → MIX 1ч 30м", panel)
+        self.assertNotIn("⏱ 1ч 30м", panel)
+        controller.ui_support_snapshot = lambda: {
+            "metrics": {"current_min_a": 0.21, "seconds_since_current_min": 0},
+            "runtime_evidence_available": True,
+        }
+        panel = render_operator_panel(build_operator_hmi_state(app, values))
+        self.assertIn("до MAIN → MIX 3ч 00м", panel)
+
+    def test_main_countdown_never_claims_ready_during_non_tail_cv(self):
+        controller = types.SimpleNamespace(
+            is_active=True, current_stage="Main Charge", battery_type="EFB",
+            ah_capacity=80, target_voltage=14.84,
+            ui_support_snapshot=lambda: {
+                "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 7200},
+                "runtime_evidence_available": True,
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        values = live()
+        values.update(current=0.6, battery_voltage=14.85, set_voltage=14.84)
+        panel = render_operator_panel(build_operator_hmi_state(app, values))
+        self.assertIn("ожидание устойчивого CV", panel)
+        self.assertNotIn("до MAIN → MIX", panel)
+
     def test_cv_missing_minimum_with_valid_runtime_evidence_is_not_yet_reached(self):
         controller = types.SimpleNamespace(
             is_active=True,

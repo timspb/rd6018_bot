@@ -191,36 +191,17 @@ def apply_continuous_tail_hold(
     stage_before: str,
     timestamp_s: float,
 ) -> Optional[FirstStageAssessment]:
-    """Apply uninterrupted MAIN tail residence without owning another state graph."""
-    if not hasattr(host, "_v2_continuous_tail_since"):
-        return assessment
-    if stage_before != host.STAGE_MAIN or assessment is None:
-        reset_continuous_tail_hold(host)
-        return assessment
+    """Retain the compatibility boundary, not a second MAIN hold clock.
 
-    timestamp_s = float(timestamp_s)
-    stage_marker = float(host.stage_start_time or 0.0)
-    if host._v2_continuous_tail_stage_start != stage_marker:
-        host._v2_continuous_tail_stage_start = stage_marker
-        host._v2_continuous_tail_since = None
-    if assessment.state != FirstStageState.TAIL_READY:
-        host._v2_continuous_tail_since = None
-        return assessment
-    if host._v2_continuous_tail_since is None:
-        host._v2_continuous_tail_since = timestamp_s
-    held_s = max(0.0, timestamp_s - host._v2_continuous_tail_since)
-    required_s = (
-        agm_tail_hold_seconds()
-        if host.battery_type == host.PROFILE_AGM
-        else standard_tail_hold_seconds()
-    )
-    if held_s + 1e-6 >= required_s:
-        return assessment
-    return replace(
-        assessment,
-        state=FirstStageState.BULK_OR_TAPER,
-        reason=f"continuous tail hold {held_s / 3600.0:.2f}h / {required_s / 3600.0:.2f}h",
-    )
+    The signal analyzer alone owns accepted Imin and its age. A new confirmed
+    minimum restarts that age; the authoritative MAIN policy compares it with
+    the chemistry-specific 2h/3h hold. Tail current/CV and safety evidence are
+    still independently evaluated by assess_first_stage and main_authority.
+    """
+    if stage_before != host.STAGE_MAIN:
+        reset_continuous_tail_hold(host)
+    return assessment
+
 
 
 def capture_cooling_pause(

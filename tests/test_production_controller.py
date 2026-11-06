@@ -94,51 +94,30 @@ class ProductionControllerTests(unittest.TestCase):
         self.assertAlmostEqual(voltage_v, 16.5)
         self.assertLessEqual(current_a, 5.0)
 
-    def test_old_imin_age_cannot_replace_continuous_tail_hold(self):
+    def test_accepted_tail_does_not_start_second_independent_clock(self):
         controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
         controller.current_stage = controller.STAGE_MAIN
         controller.stage_start_time = 1000.0
-        assessment = self._assess_tail(controller, timestamp_s=20_000.0)
-        self.assertEqual(assessment.state, FirstStageState.BULK_OR_TAPER)
-        self.assertIn("continuous tail hold", assessment.reason)
-        self.assertAlmostEqual(controller._v2_continuous_tail_since, 20_000.0)
+        first = self._assess_tail(controller, timestamp_s=20_000.0)
+        next_tick = self._assess_tail(controller, timestamp_s=20_001.0)
+        self.assertEqual(first.state, FirstStageState.TAIL_READY)
+        self.assertEqual(next_tick.state, FirstStageState.TAIL_READY)
+        self.assertIsNone(controller._v2_continuous_tail_since)
 
-    def test_caca_tail_becomes_authoritative_only_after_three_continuous_hours(self):
-        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+    def test_loss_of_tail_evidence_is_not_masked_by_compatibility_boundary(self):
+        controller = self._controller("EFB", ChargeIntent.RECOVERY, capacity=80)
         controller.current_stage = controller.STAGE_MAIN
-        controller.stage_start_time = 1000.0
-        start = 20_000.0
-        first = self._assess_tail(controller, timestamp_s=start)
-        almost = self._assess_tail(controller, timestamp_s=start + 3 * 3600 - 1)
-        ready = self._assess_tail(controller, timestamp_s=start + 3 * 3600)
-        self.assertEqual(first.state, FirstStageState.BULK_OR_TAPER)
-        self.assertEqual(almost.state, FirstStageState.BULK_OR_TAPER)
+        ready = self._assess_tail(controller, timestamp_s=20_000.0, current_a=0.22)
+        excursion = self._assess_tail(controller, timestamp_s=20_001.0, current_a=0.50)
         self.assertEqual(ready.state, FirstStageState.TAIL_READY)
+        self.assertEqual(excursion.state, FirstStageState.BULK_OR_TAPER)
 
-    def test_excursion_above_tail_resets_continuous_hold(self):
-        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
+    def test_compatibility_boundary_keeps_agm_tail_assessment_without_a_second_clock(self):
+        controller = self._controller("AGM", ChargeIntent.RECOVERY, capacity=100)
         controller.current_stage = controller.STAGE_MAIN
-        controller.stage_start_time = 1000.0
-        start = 20_000.0
-        self._assess_tail(controller, timestamp_s=start)
-        self._assess_tail(controller, timestamp_s=start + 2 * 3600)
-        excursion = self._assess_tail(controller, timestamp_s=start + 2 * 3600 + 60, current_a=0.50)
-        returned = self._assess_tail(controller, timestamp_s=start + 3 * 3600 + 60)
-        self.assertNotEqual(excursion.state, FirstStageState.TAIL_READY)
-        self.assertEqual(returned.state, FirstStageState.BULK_OR_TAPER)
-        self.assertAlmostEqual(controller._v2_continuous_tail_since, start + 3 * 3600 + 60)
-
-    def test_stage_restart_resets_continuous_tail_hold(self):
-        controller = self._controller("Ca/Ca", ChargeIntent.RECOVERY, capacity=72)
-        controller.current_stage = controller.STAGE_MAIN
-        controller.stage_start_time = 1000.0
-        start = 20_000.0
-        self._assess_tail(controller, timestamp_s=start)
-        self._assess_tail(controller, timestamp_s=start + 2 * 3600)
-        controller.stage_start_time = start + 2 * 3600 + 30
-        after_restart = self._assess_tail(controller, timestamp_s=start + 3 * 3600)
-        self.assertEqual(after_restart.state, FirstStageState.BULK_OR_TAPER)
-        self.assertAlmostEqual(controller._v2_continuous_tail_since, start + 3 * 3600)
+        ready = self._assess_tail(controller, timestamp_s=20_000.0)
+        self.assertEqual(ready.state, FirstStageState.TAIL_READY)
+        self.assertIsNone(controller._v2_continuous_tail_since)
 
     @staticmethod
     def _legacy_session(*, intent=None):

@@ -450,13 +450,47 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                 else:
                     age = metrics.get("seconds_since_current_min")
                     elapsed = max(0, int(float(age or 0)))
-                    if hold_started is not None:
+                    if hold_started is not None and stage != "Main Charge":
                         elapsed = max(0, int(time.time() - float(hold_started)))
                     else:
                         minimum_started_at = metrics.get("current_min_started_at")
                         if minimum_started_at is not None:
                             elapsed = max(0, int(time.time() - float(minimum_started_at)))
-                    stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
+                    if stage == "Main Charge":
+                        from runtime.charge.evidence.first_stage import tail_current_threshold_a
+                        from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
+                        from runtime.charge.programs.native_recipe_session import native_target_parameters
+                        from runtime.charge.strategy.main_variables import (
+                            agm_tail_hold_seconds, standard_tail_hold_seconds,
+                        )
+                        hold_s = (agm_tail_hold_seconds() if battery_type == "AGM"
+                                  else standard_tail_hold_seconds())
+                        hold_s = float(native_target_parameters(controller, "MAIN_POLICY").get(
+                            "tail_hold_hours", hold_s / 3600.0)) * 3600.0
+                        current_now = _finite(live.get("current"))
+                        voltage_now = _finite(live.get("battery_voltage"))
+                        target_now = _finite(getattr(controller, "target_voltage", None))
+                        if target_now is None:
+                            target_now = _finite(live.get("set_voltage"))
+                        tail_limit = (tail_current_threshold_a(battery_type, capacity)
+                                      if capacity is not None and capacity > 0 else None)
+                        ready = (
+                            current_now is not None and voltage_now is not None
+                            and target_now is not None and tail_limit is not None
+                            and current_now <= tail_limit
+                            and voltage_now >= target_now - float(NEAR_TARGET_MARGIN_V.default)
+                        )
+                        if ready and hold_s > 0:
+                            left = max(0, int(math.ceil(hold_s - elapsed)))
+                            if left:
+                                stage_status = (f"✅ Imin {minimum:.2f} A · до MAIN → MIX "
+                                                f"{left // 3600}ч {(left % 3600) // 60:02d}м")
+                            else:
+                                stage_status = f"✅ Imin {minimum:.2f} A · выдержка выполнена, ожидаем решение"
+                        else:
+                            stage_status = f"✅ Imin {minimum:.2f} A · ожидание устойчивого CV"
+                    else:
+                        stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
             elif regulator == "CC":
                 maximum = _finite(metrics.get("voltage_max_v"))
                 if maximum is None or maximum <= 0:

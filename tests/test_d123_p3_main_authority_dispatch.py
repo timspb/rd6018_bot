@@ -59,8 +59,8 @@ class MainAuthorityDispatchTests(unittest.TestCase):
     def test_each_main_outcome_uses_the_existing_single_effect_path(self):
         cases = (
             ("AGM", AuthorityAction.ADVANCE_AGM_STEP, "Main Charge", None),
-            ("Ca/Ca", AuthorityAction.ENTER_DESULFATION, "Десульфатация", "set_ovp"),
-            ("EFB", AuthorityAction.ENTER_MIX, "Mix Mode", "set_ocp"),
+            ("Ca/Ca", AuthorityAction.ENTER_DESULFATION, "Десульфатация", "set_voltage"),
+            ("EFB", AuthorityAction.ENTER_MIX, "Mix Mode", "set_voltage"),
             ("Ca/Ca", AuthorityAction.COMPLETE_TO_SAFE_WAIT, "Безопасное ожидание", "turn_off"),
             ("Ca/Ca", AuthorityAction.STOP_AND_DIAGNOSE, "Done", "turn_off"),
         )
@@ -82,6 +82,9 @@ class MainAuthorityDispatchTests(unittest.TestCase):
                 self.assertEqual(host.current_stage, expected_stage)
                 if expected_action is not None:
                     self.assertIn(expected_action, actions)
+                if action in {AuthorityAction.ENTER_DESULFATION, AuthorityAction.ENTER_MIX}:
+                    self.assertNotIn("set_ovp", actions)
+                    self.assertNotIn("set_ocp", actions)
                 if action == AuthorityAction.ADVANCE_AGM_STEP:
                     self.assertEqual(host._agm_stage_idx, 1)
                     self.assertIn("set_voltage", actions)

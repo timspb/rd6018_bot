@@ -90,6 +90,32 @@ class V2MainAuthorityTests(unittest.TestCase):
         self.assertEqual(exhausted.action, AuthorityAction.CONTINUE)
         self.assertIn("wait_for_tail", exhausted.reason)
 
+    def test_efb_recovery_waits_three_hours_since_accepted_minimum_then_mix(self):
+        tail = assessment(FirstStageState.TAIL_READY, threshold=0.32)
+        for age in (0, 60, 3 * 3600 - 1):
+            decision = main_decision(first_stage=tail, seconds_since_current_min=age)
+            self.assertEqual(decision.action, AuthorityAction.CONTINUE)
+        decision = main_decision(first_stage=tail, seconds_since_current_min=3 * 3600)
+        self.assertEqual(decision.action, AuthorityAction.ENTER_MIX)
+        self.assertEqual(decision.reason, "main_tail_hold_complete_recovery_mix")
+
+    def test_new_confirmed_imin_restores_full_three_hour_wait(self):
+        tail = assessment(FirstStageState.TAIL_READY, threshold=0.32)
+        before = main_decision(first_stage=tail, seconds_since_current_min=3 * 3600)
+        after = main_decision(first_stage=tail, seconds_since_current_min=0)
+        self.assertEqual(before.action, AuthorityAction.ENTER_MIX)
+        self.assertEqual(after.action, AuthorityAction.CONTINUE)
+
+    def test_tail_clock_cannot_override_unsafe_evidence_or_normal_intent(self):
+        tail = assessment(FirstStageState.TAIL_READY)
+        self.assertEqual(main_decision(first_stage=tail, seconds_since_current_min=3*3600,
+                         policy_decision=RecoveryDecision.HOLD_OUTPUT_OFF).action,
+                         AuthorityAction.STOP_AND_DIAGNOSE)
+        self.assertEqual(main_decision(first_stage=tail, seconds_since_current_min=3*3600,
+                         intent=ChargeIntent.NORMAL).action, AuthorityAction.COMPLETE_NORMAL)
+        self.assertEqual(main_decision(first_stage=assessment(FirstStageState.BULK_OR_TAPER),
+                         seconds_since_current_min=3*3600).action, AuthorityAction.CONTINUE)
+
     def test_tail_hold_advances_agm_steps_before_final_mix(self):
         result = main_decision(
             profile="AGM",
