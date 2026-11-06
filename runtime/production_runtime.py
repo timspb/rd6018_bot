@@ -1096,9 +1096,10 @@ async def _apply_controller_output_actions(
 
 
 async def _hard_stop_charge(clear_session: bool = True) -> None:
-    """Verified Output OFF + safe protection reset + controller stop."""
-    await _runtime_execution_port().request_verified_off()
-    await _apply_idle_protection()
+    """Finish AUTO after verified OFF; STOP must never program OVP/OCP."""
+    if not await _runtime_execution_port().request_verified_off():
+        raise RuntimeError("STOP refused: physical Output OFF not verified")
+    # No idle OVP/OCP reset: readback delays must not block session retirement.
     charge_controller.stop(clear_session=clear_session)
     _clear_operator_pause()
 
