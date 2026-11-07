@@ -30,6 +30,11 @@ def actions_for_snapshot(snapshot) -> OperatorActionsView:
         return session.interrupted_manual()
     if state == "HANDS_OFF":
         return external.hands_off(output_on=bool(snapshot.snapshot.output.get("enabled")))
+    if (state == "FAULT" and getattr(snapshot, "process_state", "") == "interrupted"
+            and snapshot.snapshot.charge.program == "adopted_mix"):
+        # The original interrupted adopted-MIX rule is still the authority;
+        # the generic FAULT label must not erase its recovery navigation.
+        return external.adopted_mix(interrupted=True)
     # The generic CHARGING label alone cannot distinguish paused AUTO,
     # STORAGE and an externally adopted MIX. Consume the original HMI
     # process already captured with this same read-only snapshot.

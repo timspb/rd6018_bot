@@ -69,16 +69,18 @@ class OperatorReadSource:
             "FAULT": HmiProcessState.CONTAINMENT,
             "HANDS_OFF": HmiProcessState.HANDS_OFF,
         }.get(snapshot.state, HmiProcessState.CONTAINMENT)
-        if snapshot.state == "CHARGING":
+        if snapshot.state in {"CHARGING", "FAULT"}:
             preserved = str(getattr(snapshot, "process_state", "") or "")
-            process = next((item for item in (
+            candidates = (
                 HmiProcessState.RUNNING, HmiProcessState.PAUSED,
                 HmiProcessState.STORAGE, HmiProcessState.ADOPTED_MIX,
-            ) if item.value == preserved), process)
+            ) if snapshot.state == "CHARGING" else (HmiProcessState.INTERRUPTED,)
+            if snapshot.state == "CHARGING" or snapshot.snapshot.charge.program == "adopted_mix":
+                process = next((item for item in candidates if item.value == preserved), process)
         view = snapshot.snapshot
         authority_value = str(view.charge.program or "").lower()
         authority = (
-            HmiAuthority.ADOPTED_MIX if process is HmiProcessState.ADOPTED_MIX
+            HmiAuthority.ADOPTED_MIX if process in {HmiProcessState.ADOPTED_MIX, HmiProcessState.INTERRUPTED}
             else HmiAuthority.MANUAL if authority_value == HmiAuthority.MANUAL.value
             else HmiAuthority.AUTO if snapshot.state == "CHARGING"
             else HmiAuthority.NONE if snapshot.state == "IDLE"

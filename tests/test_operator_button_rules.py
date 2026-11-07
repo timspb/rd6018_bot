@@ -72,6 +72,25 @@ class OneButtonPolicyTests(unittest.TestCase):
                     [b.callback_data for row in build_operator_keyboard(None, original, actions=actions_for_hmi(original)).inline_keyboard for b in row],
                 )
 
+    def test_interrupted_adopted_mix_does_not_become_generic_fault(self):
+        from application.operator_snapshot import snapshot_from_mapping
+        from application.operator_snapshot_provider import OperatorSnapshotProvider
+        original = hmi(HmiProcessState.INTERRUPTED, HmiAuthority.ADOPTED_MIX, output_on=False)
+        snapshot = snapshot_from_mapping({
+            "state": "FAULT", "process_state": "interrupted",
+            "charge": {"program": "adopted_mix", "stage": "interrupted"},
+            "safety": {"allowed": False}, "output": {"enabled": False},
+        })
+        actions = actions_for_snapshot(snapshot)
+        self.assertEqual(allowed(actions), allowed(actions_for_hmi(original)))
+        self.assertIn(A.ADOPT_MIX, allowed(actions))
+        restored = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+        self.assertEqual(restored.process_state, HmiProcessState.INTERRUPTED)
+        self.assertEqual(restored.authority, HmiAuthority.ADOPTED_MIX)
+        # An unrelated FAULT must never gain adopted-MIX navigation.
+        normal_fault = snapshot_from_mapping({"state": "FAULT", "safety": {"allowed": False}})
+        self.assertNotIn(A.ADOPT_MIX, allowed(actions_for_snapshot(normal_fault)))
+
     def test_snapshot_hands_off_reuses_external_rule(self):
         snapshot=NS(state="HANDS_OFF",snapshot=NS(output={"enabled":True},safety=NS(allowed=True)))
         self.assertEqual(allowed(actions_for_snapshot(snapshot)),
