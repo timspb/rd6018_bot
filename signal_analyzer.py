@@ -123,6 +123,9 @@ class SignalAnalyzer:
         )
         self.stage_name: Optional[str] = None
         self.target_voltage_v: Optional[float] = None
+        # Existing MIX stage current setpoint, supplied by the session owner.
+        # None means the analyzer's historical uncapped observation rule.
+        self.current_limit_a: Optional[float] = None
 
         self._current_min_a: Optional[float] = None
         self._current_min_time_s: Optional[float] = None
@@ -215,10 +218,20 @@ class SignalAnalyzer:
     def _reversal_threshold_a(self) -> Optional[float]:
         if self._current_min_a is None:
             return None
-        return max(
+        threshold = max(
             self.config.reversal_abs_a,
             self._current_min_a * self.config.reversal_ratio,
         )
+        # In MIX, 30% is bounded by the actual stage current setpoint:
+        # reaching an impossible current must not be an exit prerequisite.
+        if self.stage_name in {"mix", "mix mode"} and self.current_limit_a is not None:
+            headroom = self.current_limit_a - self._current_min_a
+            # Do not turn insufficient headroom (below sensor noise floor)
+            # into fake positive current-reversal evidence.
+            if headroom < self.config.reversal_abs_a:
+                return None
+            threshold = min(threshold, headroom)
+        return threshold
 
     def _voltage_reversal_threshold_v(self) -> Optional[float]:
         if self._voltage_max_v is None:

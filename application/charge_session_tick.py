@@ -318,6 +318,18 @@ async def _run_charge_session_tick_body(
             runtime = host._new_runtime(
                 started_at=host._v2_trace_started_at or host.total_start_time or timestamp_s
             )
+        analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
+        if analyzer is not None:
+            stage_limit = getattr(host, "_phase_current_limit", None)
+            analyzer.current_limit_a = (
+                float(stage_limit)
+                if stage_before == host.STAGE_MIX
+                and isinstance(stage_limit, (int, float))
+                and not isinstance(stage_limit, bool)
+                and math.isfinite(stage_limit)
+                and stage_limit > 0
+                else None
+            )
         record = runtime.observe(
             RecoveryTracePoint(
                 timestamp_s=timestamp_s,

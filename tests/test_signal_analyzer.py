@@ -143,6 +143,60 @@ class SignalAnalyzerTests(unittest.TestCase):
         result = analyzer.observe(SignalSample(0, 16.3, 2.0, 25.0, True))
         self.assertAlmostEqual(result.metrics.reversal_threshold_a, 0.60)
 
+    def test_mix_cv_reversal_is_bounded_by_stage_current_setpoint(self):
+        analyzer = SignalAnalyzer()
+        analyzer.current_limit_a = 2.40
+        analyzer.reset_stage("mix mode", target_voltage_v=16.5)
+        readings = [
+            (0, 2.18), (60, 2.18), (120, 2.18), (180, 2.39),
+            (240, 2.40), (300, 2.40), (360, 2.40),
+        ]
+        results = [
+            analyzer.observe(SignalSample(t, 16.5, i, 25.0, is_cv=True))
+            for t, i in readings
+        ]
+        self.assertAlmostEqual(results[0].metrics.reversal_threshold_a, 0.22)
+        self.assertNotIn(SignalEvent.CURRENT_REVERSAL_CONFIRMED, results[3].events)
+        self.assertIn(SignalEvent.CURRENT_REVERSAL_CONFIRMED, results[-1].events)
+        self.assertIn(SignalEvent.END_OF_CHARGE_LIKELY, results[-1].events)
+
+    def test_mix_cv_near_limit_below_noise_floor_cannot_confirm_reversal(self):
+        analyzer = SignalAnalyzer()
+        analyzer.current_limit_a = 2.40
+        analyzer.reset_stage("mix", target_voltage_v=16.5)
+        samples = [(0, 2.39), (60, 2.39), (180, 2.40),
+                   (240, 2.40), (300, 2.40), (360, 2.40)]
+        results = [
+            analyzer.observe(SignalSample(t, 16.5, i, 25.0, is_cv=True))
+            for t, i in samples
+        ]
+        self.assertIsNone(results[-1].metrics.reversal_threshold_a)
+        self.assertFalse(any(
+            SignalEvent.CURRENT_REVERSAL_CONFIRMED in result.events
+            for result in results
+        ))
+
+    def test_main_stage_does_not_cap_current_reversal_threshold(self):
+        analyzer = SignalAnalyzer()
+        analyzer.current_limit_a = 2.40
+        analyzer.reset_stage("main", target_voltage_v=14.8)
+        result = analyzer.observe(SignalSample(0, 14.8, 2.18, 25.0, is_cv=True))
+        self.assertAlmostEqual(result.metrics.reversal_threshold_a, 0.654)
+
+    def test_mix_cc_current_limit_does_not_create_cv_delta(self):
+        analyzer = SignalAnalyzer()
+        analyzer.current_limit_a = 2.40
+        analyzer.reset_stage("mix", target_voltage_v=16.5)
+        results = [
+            analyzer.observe(SignalSample(t, v, 2.40, 25.0, is_cc=True))
+            for t, v in [(0, 16.4), (60, 16.5), (180, 16.5), (240, 16.5)]
+        ]
+        self.assertFalse(any(
+            SignalEvent.CURRENT_REVERSAL_CONFIRMED in result.events
+            for result in results
+        ))
+        self.assertIsNone(results[-1].metrics.current_min_a)
+
     def test_current_minimum_hysteresis_is_configurable_instrument_floor(self):
         analyzer = SignalAnalyzer(
             SignalAnalyzerConfig(current_min_update_hysteresis_a=0.02)

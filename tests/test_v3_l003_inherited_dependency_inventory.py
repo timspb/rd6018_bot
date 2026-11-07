@@ -75,6 +75,13 @@ class L003InheritedDependencyInventoryTests(unittest.TestCase):
         self.assertAlmostEqual(controller._mix_current_delta_threshold(), 0.30)
         self.assertFalse(controller._exit_cv_condition(1.29))
         self.assertTrue(controller._exit_cv_condition(1.30))
+        # MIX current is limited by its existing stage setpoint, not by an
+        # impossible 30% rise beyond the programmed current ceiling.
+        controller.i_min_recorded = 2.18
+        controller._phase_current_limit = 2.40
+        self.assertAlmostEqual(controller._mix_current_delta_threshold(), 0.22)
+        self.assertFalse(controller._exit_cv_condition(2.39))
+        self.assertTrue(controller._exit_cv_condition(2.40))
         controller.v_max_recorded = 16.5
         self.assertFalse(controller._exit_cc_condition(16.48))
         self.assertTrue(controller._exit_cc_condition(16.47))

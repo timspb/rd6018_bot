@@ -1414,3 +1414,6 @@ MIX CV `Imin` age is elapsed time since the accepted current minimum, not a coun
 ## 2026-11-07 — Telegram MIX extrema/Delta/hold statuses
 
 Read-only MIX HMI now shows: CV searching Imin -> accepted Imin plus measured/required Delta I, CC searching Vmax -> accepted Vmax plus measured/required Delta V, then confirmed Delta -> pinned finish-hold countdown to SAFE_WAIT. All evidence comes from existing `ui_support_snapshot()` and canonical hold start, with missing evidence explicitly displayed. UI-only; no physical deployment or new owner. See current checkpoint for tests.
+## 2026-11-07 — achievable MIX CV Delta
+
+MIX CV current reversal target is 30% above accepted Imin, bounded by the existing phase current setpoint. Analyzer threshold remains >=0.03A resolution floor; if headroom is smaller, do not assert Delta evidence. Existing CV/CC, thermal and timing gates still govern. Example 2.18A minimum and 2.40A cap => +0.22A threshold, not +0.654A. Do not raise PSU current to force evidence. Runtime change is source-only, not installed on node104; details/tests in checkpoint.

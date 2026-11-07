@@ -76,10 +76,14 @@ def mix_current_delta_threshold(host: Any) -> float:
     floor = float(MIX_CV_DELTA_I_EXIT_A.default)
     if host.i_min_recorded is None:
         return floor
-    return max(
-        floor,
-        float(host.i_min_recorded) * float(MIX_CV_DELTA_I_RATIO.default),
-    )
+    minimum = float(host.i_min_recorded)
+    threshold = max(floor, minimum * float(MIX_CV_DELTA_I_RATIO.default))
+    limit = getattr(host, "_phase_current_limit", None)
+    if isinstance(limit, (int, float)) and not isinstance(limit, bool):
+        headroom = float(limit) - minimum
+        if headroom >= floor:
+            threshold = min(threshold, headroom)
+    return threshold
 
 
 def exit_cc_condition(host: Any, v_now: float) -> bool:
