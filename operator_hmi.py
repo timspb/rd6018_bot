@@ -467,14 +467,18 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                 if minimum is None or minimum <= 0:
                     stage_status = "⏳ Imin не достигнут"
                 else:
-                    age = metrics.get("seconds_since_current_min")
-                    elapsed = max(0, int(float(age or 0)))
+                    age = _finite(metrics.get("seconds_since_current_min"))
+                    elapsed = max(0, int(age or 0))
+                    minimum_started_at = _finite(metrics.get("current_min_started_at"))
+                    now_s = time.time()
+                    # Analyzer owns accepted Imin. Missing/invalid clock must
+                    # never masquerade as a freshly started three-hour hold.
+                    clock_available = age is not None and age >= 0
+                    if minimum_started_at is not None and 0 < minimum_started_at <= now_s:
+                        elapsed = max(0, int(now_s - minimum_started_at))
+                        clock_available = True
                     if hold_started is not None and stage != "Main Charge":
-                        elapsed = max(0, int(time.time() - float(hold_started)))
-                    else:
-                        minimum_started_at = metrics.get("current_min_started_at")
-                        if minimum_started_at is not None:
-                            elapsed = max(0, int(time.time() - float(minimum_started_at)))
+                        elapsed = max(0, int(now_s - float(hold_started)))
                     if stage == "Main Charge":
                         from runtime.charge.evidence.first_stage import tail_current_threshold_a
                         from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
@@ -499,10 +503,19 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                             and current_now <= tail_limit
                             and voltage_now >= target_now - float(NEAR_TARGET_MARGIN_V.default)
                         )
-                        if ready and hold_s > 0:
+                        intent = str(snapshot.get("intent") or "").lower()
+                        destination = (
+                            "решения по MAIN" if battery_type.upper() == "AGM"
+                            else "завершения MAIN" if intent == "normal"
+                            else "MAIN → MIX" if intent in {"recovery", "conditioning"}
+                            else "решения по MAIN"
+                        )
+                        if ready and hold_s > 0 and not clock_available:
+                            stage_status = f"⏳ Imin {minimum:.2f} A · время минимума не подтверждено"
+                        elif ready and hold_s > 0:
                             left = max(0, int(math.ceil(hold_s - elapsed)))
                             if left:
-                                stage_status = (f"✅ Imin {minimum:.2f} A · до MAIN → MIX "
+                                stage_status = (f"✅ Imin {minimum:.2f} A · до {destination} "
                                                 f"{left // 3600}ч {(left % 3600) // 60:02d}м")
                             else:
                                 stage_status = f"✅ Imin {minimum:.2f} A · выдержка выполнена, ожидаем решение"
