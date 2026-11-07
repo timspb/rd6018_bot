@@ -157,8 +157,17 @@ class TraceContextEvidenceTests(unittest.TestCase):
         self.assertTrue({"_persist_shadow_trace_if_ready", "_log_shadow_disagreement"}.isdisjoint(names))
         self.assertNotIn("_v2_last_disagreement", source)
         self.assertNotIn("_v2_disagreement_repeat_count", source)
+        # Separate Git worktrees (e.g. .worktrees/dryrun_virtual) are not
+        # production source owners in this checkout. Scan tracked files only.
+        import subprocess
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
+        ).split(bytes([0]))
         definitions = []
-        for path in ROOT.rglob("*.py"):
+        for relative in tracked:
+            if not relative:
+                continue
+            path = ROOT / relative.decode("utf-8")
             module = ast.parse(path.read_text(encoding="utf-8"))
             definitions.extend((path.name, node.name) for node in ast.walk(module)
                                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))

@@ -13,8 +13,6 @@ from runtime.charge.runtime.desulfation_entry import (
     build_main_desulfation_effect,
 )
 from runtime.charge.strategy.desulfation import select_desulfation_target
-from runtime.charge.strategy.desulfation_variables import DESULFATION_OCP_MARGIN_A
-from runtime.safety.variables import PROTECTION_OVP_MARGIN_V
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,12 +41,13 @@ class MainDesulfationEffectTests(unittest.TestCase):
             self.assertEqual((effect.target_voltage_v, effect.target_current_a),
                              (expected.voltage_v, expected.current_a))
             self.assertEqual(set(effect.action_values), {
-                "log_event_end", "set_voltage", "set_current", "set_ovp",
-                "set_ocp", "notify", "log_event",
+                "log_event_end", "set_voltage", "set_current", "notify", "log_event",
             })
+            # Desulfation stage entry preserves existing physical protection
+            # registers and does not issue redundant OVP/OCP programming.
+            self.assertNotIn("set_ovp", effect.action_values)
+            self.assertNotIn("set_ocp", effect.action_values)
             self.assertEqual(effect.action_values["log_event_end"], log_end)
-            self.assertEqual(effect.action_values["set_ovp"], voltage + float(PROTECTION_OVP_MARGIN_V.default))
-            self.assertEqual(effect.action_values["set_ocp"], current + float(DESULFATION_OCP_MARGIN_A.default))
             self.assertEqual(effect.action_values["notify"],
                              f"🔧 <b>V2 десульфатация #1</b>\nfixture reason\nЦель: {voltage:.2f}В / {current:.2f}А на сервисный этап.")
             self.assertEqual(effect.action_values["log_event"], "START | V2_DESULFATION")
