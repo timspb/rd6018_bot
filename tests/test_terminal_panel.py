@@ -274,6 +274,34 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(manager.graph_id(10, 20))
         self.assertIsNone(manager.panel_id(10))
 
+    async def test_graph_open_closes_workspace_and_preserves_periodic_refresh(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 77)
+        manager.enter_workspace(10)
+
+        class FakeCallback:
+            def __init__(self):
+                self.data = "operator_graph"
+                self.from_user = SimpleNamespace(id=20)
+                self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=77)
+
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
+            await manager.after_event(FakeCallback())
+        edits = []
+
+        async def refresh(chat_id, user_id, *, force=False):
+            edits.append((chat_id, user_id))
+
+        await manager.refresh_graph(10, 20, refresh)
+        self.assertFalse(manager.in_workspace(10))
+        self.assertEqual(edits, [(10, 20)])
+        self.assertEqual(manager.panel_id(10), 77)
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(app.refresh_calls, [])
+
     async def test_graph_range_closes_workspace_without_publishing_second_panel(self):
         app = FakeApp()
         app.user_graph_dashboard = {}
@@ -395,7 +423,6 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "rd_managed_mix_status",
             "rd_hands_off_release_confirm",
             "operator_details",
-            "operator_graph",
             "operator_more",
             "operator_adopted_stop",
             "operator_managed_mix_stop",
@@ -420,6 +447,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "dash_back",
             "charge_back",
             "operator_done",
+            "operator_graph",
             "operator_graph_2h",
             "v2_manual_unbound",
             "v2_battery_start",

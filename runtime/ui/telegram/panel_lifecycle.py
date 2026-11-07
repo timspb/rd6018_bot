@@ -75,7 +75,6 @@ _WORKSPACE_CALLBACKS = {
     "rd_managed_mix_status",
     "rd_hands_off_release_confirm",
     "operator_details",
-    "operator_graph",
     "operator_more",
     "operator_adopted_stop",
     "operator_managed_mix_stop",
@@ -370,9 +369,9 @@ class TerminalPanelManager:
             user_id = event.from_user.id if event.from_user else 0
             data = str(event.data or "")
 
-            # Chart range buttons edit the current L2 graph in-place. They
-            # are not submenu navigation; periodic updates must continue.
-            if data.startswith("operator_graph_"):
+            # Opening or changing a chart shows the current L2 graph, not an
+            # L3 submenu; neither action may suspend the 60-second refresh.
+            if data == "operator_graph" or data.startswith("operator_graph_"):
                 self.leave_workspace(chat_id)
                 self.adopt(chat_id, user_id)
                 return
