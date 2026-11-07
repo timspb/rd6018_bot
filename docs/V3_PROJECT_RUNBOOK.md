@@ -1453,3 +1453,7 @@ source-only repair. The local commit is currently blocked because `.git` is
 read-only (`.git/index.lock` creation failed); code HEAD remains
 `96a1fc294fc56de167f549d71156f82cd349b02a`, equal to origin/main. Four intended
 paths remain uncommitted; unrelated `.deploy_*` worktree files were preserved.
+
+## 2026-11-07 — D145 cutover withheld due to newly active MAIN
+
+Independent D148 initially confirmed OFF after operator STOP, but before D145 a new `SESSION_START` recorded `User Command`, and Native+HA later both confirmed Output ON and active lease in new MAIN. No D145 prepare/execute, service restart or actuation; source candidate 6ee72bb staged then its owned temporary files cleaned. Production remains 384516d D144 slot11. See checkpoint for times, evidence and release pin. Next release only after another fresh OFF and session reconciliation.
