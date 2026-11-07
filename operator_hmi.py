@@ -434,7 +434,26 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             metrics = dict(snapshot.get("metrics") or {})
             hold_started = snapshot.get("finish_hold_started_at")
             durable_status = _durable_finish_status(snapshot, regulator)
-            if durable_status is not None:
+            in_mix = "mix" in stage.casefold()
+            if in_mix and hold_started is not None:
+                from runtime.charge.runtime.support import _effective_mix_finish_hold_seconds
+                hold_seconds = _effective_mix_finish_hold_seconds(controller)
+                remaining = max(0, int(math.ceil(
+                    hold_seconds - (time.time() - float(hold_started))
+                )))
+                countdown = f"{remaining // 3600}ч {(remaining % 3600) // 60:02d}м"
+                evidence = snapshot.get("finish_evidence")
+                confirmed = (
+                    snapshot.get("delta_reported") is True
+                    and isinstance(evidence, Mapping)
+                    and evidence.get("available") is True
+                    and evidence.get("mode") == regulator
+                )
+                if confirmed:
+                    stage_status = f"✅ Δ{'I' if regulator == 'CV' else 'V'} подтверждена · до SAFE_WAIT {countdown}"
+                else:
+                    stage_status = f"⏳ Финишная выдержка · до SAFE_WAIT {countdown} · Δ evidence недоступно"
+            elif durable_status is not None:
                 stage_status = durable_status
             elif regulator in {"CV", "CC"} and not bool(
                 snapshot.get(
@@ -489,11 +508,16 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                                 stage_status = f"✅ Imin {minimum:.2f} A · выдержка выполнена, ожидаем решение"
                         else:
                             stage_status = f"✅ Imin {minimum:.2f} A · ожидание устойчивого CV"
-                    elif "mix" in stage.casefold():
-                        stage_status = (
-                            f"📉 Imin {minimum:.2f} A · прошло {elapsed // 3600}ч "
-                            f"{(elapsed % 3600) // 60:02d}м · ждём ΔI"
-                        )
+                    elif in_mix:
+                        actual = _finite(metrics.get("delta_current_from_min_a"))
+                        required = _finite(metrics.get("reversal_threshold_a"))
+                        if actual is not None and required is not None and required > 0:
+                            stage_status = (
+                                f"📉 Imin {minimum:.2f} A · ΔI "
+                                f"+{max(0.0, actual):.2f}/+{required:.2f} A"
+                            )
+                        else:
+                            stage_status = f"📉 Imin {minimum:.2f} A · ожидание данных ΔI"
                     else:
                         stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
             elif regulator == "CC":
@@ -505,7 +529,18 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                     elapsed = max(0, int(float(age or 0)))
                     if hold_started is not None:
                         elapsed = max(0, int(time.time() - float(hold_started)))
-                    stage_status = f"✅ Vmax {maximum:.2f} V · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
+                    if in_mix:
+                        actual = _finite(metrics.get("delta_voltage_from_max_v"))
+                        required = _finite(metrics.get("voltage_reversal_threshold_v"))
+                        if actual is not None and required is not None and required > 0:
+                            stage_status = (
+                                f"📈 Vmax {maximum:.2f} V · ΔV "
+                                f"−{max(0.0, actual):.2f}/−{required:.2f} V"
+                            )
+                        else:
+                            stage_status = f"📈 Vmax {maximum:.2f} V · ожидание данных ΔV"
+                    else:
+                        stage_status = f"✅ Vmax {maximum:.2f} V · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
         except Exception:
             stage_status = ""
         if telemetry_stale:

@@ -1411,3 +1411,6 @@ The callback acceptance fixture now replaces `_refresh_operator_panel` at the UI
 ## 2026-11-07 — MIX CV operator status label
 
 MIX CV `Imin` age is elapsed time since the accepted current minimum, not a countdown to finish. Only confirmed Delta I starts the separate sticky finish hold (default 2 h), followed by SAFE_WAIT after ordinary policy checks. Telegram HMI labels interval as elapsed and waiting Delta I; MAIN countdown is unchanged. Source-only; see checkpoint.
+## 2026-11-07 — Telegram MIX extrema/Delta/hold statuses
+
+Read-only MIX HMI now shows: CV searching Imin -> accepted Imin plus measured/required Delta I, CC searching Vmax -> accepted Vmax plus measured/required Delta V, then confirmed Delta -> pinned finish-hold countdown to SAFE_WAIT. All evidence comes from existing `ui_support_snapshot()` and canonical hold start, with missing evidence explicitly displayed. UI-only; no physical deployment or new owner. See current checkpoint for tests.
