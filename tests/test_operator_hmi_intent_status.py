@@ -57,6 +57,22 @@ class IntentStatusGuardTests(unittest.IsolatedAsyncioTestCase):
                 call.answer.assert_awaited_once()
                 self.assertTrue(call.answer.await_args.kwargs["show_alert"])
 
+    async def test_adopted_mix_stop_failure_reports_after_single_ack(self):
+        app=App(CommandStatus.ACCEPTED)
+        app.ENTITY_MAP={"switch": "fake-output"}
+        app.rd_control_mode_manager=NS(
+            hands_off=True,
+            operator_output_off=AsyncMock(side_effect=RuntimeError("offline stop failed")),
+        )
+        install_operator_hmi(app)
+        call=callback("operator_adopted_stop_execute")
+        await app.router.handlers["_operator_adopted_stop_execute"](call)
+        call.answer.assert_awaited_once_with()
+        app.rd_control_mode_manager.operator_output_off.assert_awaited_once_with("fake-output")
+        call.message.answer.assert_awaited_once()
+        self.assertIn("offline stop failed", call.message.answer.await_args.args[0])
+        self.assertNotIn("подтверждён OFF", call.message.answer.await_args.args[0])
+
     async def test_accepted_routes_keep_preserved_execution_and_ack(self):
         app=App(CommandStatus.ACCEPTED)
         install_operator_hmi(app)

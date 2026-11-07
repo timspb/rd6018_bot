@@ -423,7 +423,10 @@ def install_operator_hmi(app: Any) -> None:
             if observer is not None:
                 await observer.observe_once()
         except Exception as exc:
-            await call.answer(str(exc), show_alert=True)
+            # The callback was already acknowledged before the potentially
+            # slow OFF operation. Telegram permits only one callback ACK;
+            # report execution failure in the existing chat instead.
+            await call.message.answer(f"Не удалось подтвердить остановку Mix: {exc}")
             return
         await call.message.answer("⏹ Mix остановлен. Output подтверждён OFF.")
 
