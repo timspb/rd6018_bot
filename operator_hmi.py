@@ -208,6 +208,12 @@ def install_operator_hmi(app: Any) -> None:
     if bool(getattr(app, "_operator_hmi_installed", False)):
         return
 
+    def intent_route_accepted(result: Any) -> bool:
+        # Only ACCEPTED authorizes continuation into an existing callback.
+        # BLOCKED_BY_SAFETY and REQUIRES_CONFIRMATION must not fall through.
+        status = getattr(result, "status", None)
+        return str(getattr(status, "value", status)) == "accepted"
+
     async def route_read_intent(call: Any, kind: OperatorIntentKind) -> bool:
         interface = getattr(app, "operator_interface", None)
         submit = getattr(interface, "submit_intent", None)
@@ -215,7 +221,7 @@ def install_operator_hmi(app: Any) -> None:
             return True
         user = str(getattr(getattr(call, "from_user", None), "id", "0"))
         result = await submit(OperatorIntent(kind=kind, source="telegram", user=user))
-        if getattr(result, "status", None) == "rejected":
+        if not intent_route_accepted(result):
             await call.answer("Действие пока не маршрутизировано", show_alert=True)
             return False
         return True
@@ -297,7 +303,7 @@ def install_operator_hmi(app: Any) -> None:
                 else OperatorIntentKind.PAUSE_CHARGE
             )
             result = await submit(OperatorIntent(kind=kind, source="telegram", user=user))
-            if getattr(result, "status", None) == "rejected":
+            if not intent_route_accepted(result):
                 await call.answer("Пауза пока недоступна", show_alert=True)
                 return
         handler = getattr(app, "_operator_pause_toggle", None)
