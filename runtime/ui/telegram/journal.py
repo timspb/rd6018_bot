@@ -16,7 +16,6 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
-from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 JOURNAL_CALLBACK_DATA = callback_data_for(UIAction.OPEN_JOURNAL)
@@ -50,12 +49,6 @@ def install_journal_screen(
         except Exception:
             # A transport failure cannot be repaired from inside this callback.
             return
-
-    async def restore_last_dashboard(chat_id: int, user_id: int) -> None:
-        if restore_dashboard is not None:
-            await restore_dashboard(chat_id, user_id)
-        else:
-            await restore_dashboard_to_bottom(app, chat_id, user_id)
 
     @app.router.callback_query(F.data.startswith(JOURNAL_CALLBACK_DATA))
     async def _journal(call: Any) -> None:
@@ -98,10 +91,11 @@ def install_journal_screen(
                     return
         if offset == 0:
             try:
+                # The journal remains the active workspace until the operator
+                # explicitly returns. Never append L2 below the journal.
                 await call.message.answer(
                     text, parse_mode=app.ParseMode.HTML, reply_markup=markup,
                 )
-                await restore_last_dashboard(chat_id, user_id)
             except Exception:
                 await answer_journal_error(call.message)
 
@@ -118,7 +112,6 @@ def install_journal_screen(
                 parse_mode=app.ParseMode.HTML,
                 reply_markup=markup,
             )
-            await restore_last_dashboard(chat_id, user_id)
         except Exception:
             await answer_journal_error(message)
 

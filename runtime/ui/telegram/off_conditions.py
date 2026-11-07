@@ -17,7 +17,6 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
-from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 OFF_CALLBACK_DATA = callback_data_for(UIAction.OPEN_OFF_CONDITIONS)
@@ -50,11 +49,6 @@ def install_off_conditions_screen(
             reply_markup=render_screen_markup(screen),
         )
         user = getattr(event, "from_user", None)
-        await restore_dashboard_to_bottom(
-            app,
-            int(message.chat.id),
-            int(user.id if user else 0),
-        )
 
     @app.router.message(Command("off"))
     async def _off_command(message: Any) -> None:

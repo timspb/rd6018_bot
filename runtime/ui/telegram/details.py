@@ -15,7 +15,6 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
-from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 DETAILS_CALLBACK_DATA = callback_data_for(UIAction.OPEN_DIAGNOSTICS)
@@ -62,11 +61,6 @@ def install_operator_details_screen(
             render_screen_text(screen),
             parse_mode=app.ParseMode.HTML,
             reply_markup=render_screen_markup(screen),
-        )
-        await restore_dashboard_to_bottom(
-            app,
-            int(call.message.chat.id),
-            int(call.from_user.id if call.from_user else 0),
         )
 
     if not bool(getattr(app, "_v3_home_navigation_installed", False)):

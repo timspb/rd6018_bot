@@ -142,6 +142,44 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored, [(10, 20), (10, 20)])
         self.assertFalse(manager.in_workspace(10))
 
+    async def test_stale_text_id_never_replaces_authoritative_graph(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {20: 140}
+        app.chat_graph_dashboard = {10: 140}
+        manager = TerminalPanelManager(app)
+        manager.adopt(10, 20, 77)
+        app.user_dashboard[20] = 77
+        app.chat_dashboard[10] = 77
+        panel_id = await manager.ensure_last(10, 20)
+        self.assertEqual(panel_id, 140)
+        self.assertEqual(app.refresh_calls, [(10, 20, 140)])
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(app.user_dashboard[20], 140)
+
+    async def test_terminal_back_uses_one_graph_restore_not_text_refresh(self):
+        app = FakeApp()
+        restored = []
+        async def restore(chat_id, user_id):
+            restored.append((chat_id, user_id))
+            app.chat_dashboard[chat_id] = 140
+            app.user_dashboard[user_id] = 140
+            return 140
+        app._restore_dashboard_to_bottom = restore
+        manager = TerminalPanelManager(app)
+        manager.enter_workspace(10)
+        class FakeCallback:
+            def __init__(self, data):
+                self.data = data
+                self.from_user = SimpleNamespace(id=20)
+                self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=88)
+        with patch("telegram_panel.CallbackQuery", FakeCallback):
+            await manager.after_event(FakeCallback("operator_done"))
+        self.assertEqual(restored, [(10, 20)])
+        self.assertEqual(app.refresh_calls, [])
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(manager.panel_id(10), 140)
+        self.assertFalse(manager.in_workspace(10))
+
     async def test_charge_wizard_callbacks_do_not_append_dashboard(self):
         app = FakeApp()
         manager = TerminalPanelManager(app)

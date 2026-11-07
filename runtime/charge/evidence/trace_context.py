@@ -48,6 +48,37 @@ def log_analysis_events(record: Any, *, stage: str, session_id: Optional[str], t
         )
 
 
+def operator_journal_signal_event(
+    record: Any,
+    *,
+    stage: str,
+    main_stage: str,
+    mix_stage: str,
+    previous_current_min_a: float | None,
+) -> str | None:
+    """One recorded Imin/Vmax milestone, without changing charge authority.
+
+    SignalAnalyzer owns the accepted minimum timestamp and resets its age when
+    CURRENT_MINIMUM_UPDATED fires. The journal merely describes that decision.
+    """
+    metrics = record.analysis.metrics
+    events = record.analysis.events
+    if SignalEvent.CURRENT_MINIMUM_UPDATED in events:
+        minimum = metrics.current_min_a
+        if minimum is None or not math.isfinite(minimum):
+            return None
+        if stage == main_stage:
+            name = "MAIN_HOLD_START" if previous_current_min_a is None else "MAIN_HOLD_RESET"
+            return f"{name} | Imin={minimum:.3f}A"
+        if stage == mix_stage:
+            return f"MIX_IMIN_UPDATED | Imin={minimum:.3f}A"
+    if stage == mix_stage and SignalEvent.VOLTAGE_MAXIMUM_UPDATED in events:
+        maximum = metrics.voltage_max_v
+        if maximum is not None and math.isfinite(maximum):
+            return f"MIX_VMAX_UPDATED | Vmax={maximum:.3f}V"
+    return None
+
+
 @dataclass(frozen=True)
 class RecoveryTraceContext:
     session_id: str

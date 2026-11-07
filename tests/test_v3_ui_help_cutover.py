@@ -102,7 +102,7 @@ class V3HelpUICutoverTests(unittest.TestCase):
 
 
 class V3HelpTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
-    async def test_help_command_uses_canonical_screen_and_restores_panel_immediately(self):
+    async def test_help_command_uses_canonical_screen_and_defers_panel_to_middleware(self):
         app = _App()
         refresh = []
 
@@ -118,7 +118,7 @@ class V3HelpTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, render_screen_text(build_help_screen()))
         self.assertEqual(kwargs["parse_mode"], "HTML")
         self.assertEqual(refresh, [])
-        self.assertEqual(app.restored, [(42, 7)])
+        self.assertEqual(app.restored, [])
 
 
 if __name__ == "__main__":

@@ -29,43 +29,9 @@ def install_operator_navigation_recovery(app: Any) -> None:
             detail = str(exc).lower()
             if "query is too old" not in detail and "query id is invalid" not in detail:
                 raise
-        user_id = call.from_user.id if call.from_user else 0
-        chat_id = call.message.chat.id
-        current_id = call.message.message_id
-
-        dashboard_id = None
-        user_dashboard = getattr(app, "user_dashboard", None)
-        if isinstance(user_dashboard, dict):
-            dashboard_id = user_dashboard.get(user_id)
-        if dashboard_id is None:
-            chat_dashboard = getattr(app, "chat_dashboard", None)
-            if isinstance(chat_dashboard, dict):
-                dashboard_id = chat_dashboard.get(chat_id)
-
-        target = int(dashboard_id) if dashboard_id else int(current_id)
-        if dashboard_id and int(dashboard_id) != int(current_id):
-            try:
-                await app.bot.delete_message(chat_id, current_id)
-            except Exception:
-                pass
-
-        refresh = getattr(app, "_refresh_operator_panel", None)
-        if callable(refresh):
-            try:
-                refreshed = await refresh(chat_id, user_id, target)
-                if refreshed is not None:
-                    return
-            except Exception:
-                pass
-
-        restore = getattr(app, "_restore_dashboard_to_bottom", None)
-        if callable(restore):
-            await restore(chat_id, user_id)
-            return
-
-        build = getattr(app, "_build_and_send_dashboard", None)
-        if callable(build):
-            await build(chat_id, user_id, old_msg_id=target)
+        # The single PanelLastMiddleware owns the return to L2 after this
+        # callback completes. Rendering or deleting a panel here raced the
+        # middleware and left duplicate text/photo controls in Telegram.
 
     # Expose the handler for focused tests without depending on aiogram internals.
     app._operator_home_handler = _operator_home

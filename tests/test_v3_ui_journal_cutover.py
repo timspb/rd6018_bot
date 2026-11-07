@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from application.journal_read_service import EventJournalReadService
 import charging_log
 from runtime.ui.actions import UIAction
-from runtime.ui.components.journal import render_journal_text
+from runtime.ui.components.journal import operator_journal_events, render_journal_text
 from runtime.ui.models import JournalView
 from runtime.ui.screen import ScreenId
 from runtime.ui.screens.journal import build_journal_screen, journal_button_spec
@@ -127,7 +127,7 @@ class V3JournalUICutoverTests(unittest.TestCase):
         text = render_journal_text(events)
         self.assertIn("<b>📝 Логи событий</b>", text)
         self.assertIn("🏁", text)
-        self.assertIn(">>", text)
+        self.assertIn("➡️", text)
         self.assertNotIn("CHECKPOINT", text)
 
     def test_long_journal_entries_are_bounded_with_visible_truncation_notice(self):
@@ -189,11 +189,11 @@ class V3JournalUICutoverTests(unittest.TestCase):
 
     def test_journal_screen_paginates_bounded_pages_and_keeps_back(self):
         view = JournalView(tuple(f"event-{index}" for index in range(9)))
-        screen = build_journal_screen(view)
+        screen = build_journal_screen(view, page_size=2)
         self.assertIn("События 8–9 из 9", screen.body)
         self.assertEqual(screen.buttons[0][0].label, "⬅ Старее")
         self.assertEqual(screen.buttons[-1][0].action, UIAction.OPEN_HOME)
-        older = build_journal_screen(view, offset=2)
+        older = build_journal_screen(view, offset=2, page_size=2)
         labels = [row[0].label for row in older.buttons]
         self.assertEqual(labels, ["⬅ Старее", "Новее ➡", "⬅ К панели"])
 
@@ -202,14 +202,60 @@ class V3JournalUICutoverTests(unittest.TestCase):
             f"[2026-10-04 10:00:0{index}] | Main Charge | 14.4 | 1 | 25 | 1 | DONE"
             for index in range(3)
         ))
-        screen = build_journal_screen(view, offset=100_000)
+        screen = build_journal_screen(view, offset=100_000, page_size=2)
         self.assertIn("События 1–1 из 3", screen.body)
         self.assertNotIn("1–0", screen.body)
 
+    def test_service_rows_are_removed_before_pagination_and_counting(self):
+        events = (
+            "[2026-10-04 10:00:00] | MAIN | 14.4 | 2 | 25 | 0 | SESSION_START | profile=EFB",
+            "[2026-10-04 10:01:00] | MAIN | 14.4 | 2 | 25 | 0 | CHECKPOINT",
+            "[2026-10-04 10:02:00] | MAIN | 14.4 | 2 | 25 | 0 | RESTORE",
+            "[2026-10-04 10:03:00] | MAIN | 14.4 | 1 | 25 | 1 | WARNING_35C",
+            "[2026-10-04 10:04:00] | MIX | 14.4 | 1 | 25 | 1 | STAGE_CHANGE | MAIN -> MIX",
+        )
+        self.assertEqual(len(operator_journal_events(events)), 3)
+        newest = build_journal_screen(JournalView(events), page_size=2)
+        self.assertIn("События 2–3 из 3", newest.body)
+        self.assertIn("Переход этапа", newest.body)
+        older = build_journal_screen(JournalView(events), offset=2, page_size=2)
+        self.assertIn("События 1–1 из 3", older.body)
+        self.assertIn("Заряд запущен", older.body)
+        self.assertNotIn("CHECKPOINT", newest.body + older.body)
+        self.assertNotIn("RESTORE", newest.body + older.body)
+
+    def test_human_event_lines_are_single_line_escaped_and_include_readings(self):
+        event = (
+            '[2026-10-04 10:00:00] | DESULFATION | 14.40V | 2.00A | 35.0C | '
+            '1.0Ah | WARNING_TEMP <critical> & check'
+        )
+        text = render_journal_text((event,))
+        self.assertEqual(len(text.splitlines()), 2)
+        self.assertIn("Восстановление", text)
+        self.assertIn("U 14.40V · I 2.00A · T 35.0C", text)
+        self.assertIn("&lt;critical&gt; &amp; check", text)
+        self.assertNotIn("<critical>", text)
+
+    def test_unrecorded_finish_evidence_is_not_invented(self):
+        event = "[2026-10-04 10:00:00] | MIX | 14.4 | 1 | 25 | 1 | MIX_CV_DELTA_WAIT"
+        text = render_journal_text((event,))
+        self.assertIn("Mix cv delta wait", text)
+        self.assertNotIn("Подтверждён Delta", text)
+        self.assertNotIn("Imin", text)
+
+    def test_recorded_finish_hold_evidence_is_presented_as_confirmed_delta(self):
+        event = (
+            "[2026-10-04 10:00:00] | MIX | 14.4 | 0.5 | 25 | 1 | "
+            "V2_FINISH_HOLD_START | Imin=0.500А, ΔI=0.300А"
+        )
+        text = render_journal_text((event,))
+        self.assertIn("Delta подтверждён; началась финишная выдержка", text)
+        self.assertIn("Imin=0.500А, ΔI=0.300А", text)
+
     def test_worst_case_page_stays_below_telegram_4096_character_limit(self):
         hostile = "[2026-10-04 10:00:00] | Main Charge | " + ">" * 400
-        view = JournalView((hostile, hostile, hostile))
-        screen = build_journal_screen(view)
+        view = JournalView((hostile,) * 12)
+        screen = build_journal_screen(view, page_size=12)
         from runtime.ui.telegram.renderer import render_screen_text
         rendered = render_screen_text(screen)
         self.assertLessEqual(len(rendered), 4096)
@@ -292,7 +338,7 @@ class V3JournalUICutoverTests(unittest.TestCase):
 
 
 class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
-    async def test_journal_is_separate_and_dashboard_is_restored_after_it(self):
+    async def test_journal_workspace_does_not_append_dashboard(self):
         app = _App()
         retired = []
         home_calls = []
@@ -318,9 +364,9 @@ class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
         await app._v3_journal_handler(call)
 
         self.assertEqual(retired, [])
-        self.assertEqual(restore_calls, [(10, 7)])
-        self.assertEqual(app.user_dashboard[7], 101)
-        self.assertEqual(app.chat_dashboard[10], 101)
+        self.assertEqual(restore_calls, [])
+        self.assertEqual(app.user_dashboard, {})
+        self.assertEqual(app.chat_dashboard, {})
         text, kwargs = call.message.answers[0]
         self.assertIn("Логи событий", text)
         back = kwargs["reply_markup"].inline_keyboard[0][0]
@@ -350,8 +396,8 @@ class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
         command_handler = app.router.message.handlers[0]
         await command_handler(message)
 
-        self.assertEqual(app.user_dashboard[7], 101)
-        self.assertEqual(app.chat_dashboard[10], 101)
+        self.assertEqual(app.user_dashboard, {})
+        self.assertEqual(app.chat_dashboard, {})
         text, kwargs = message.answers[0]
         self.assertIn("Логи событий", text)
         back = kwargs["reply_markup"].inline_keyboard[0][0]
@@ -378,8 +424,8 @@ class V3JournalTelegramRouteTests(unittest.IsolatedAsyncioTestCase):
         call.data = JOURNAL_CALLBACK_DATA
         await app._v3_journal_handler(call)
 
-        self.assertEqual(app.user_dashboard[7], 101)
-        self.assertEqual(app.chat_dashboard[10], 101)
+        self.assertEqual(app.user_dashboard, {})
+        self.assertEqual(app.chat_dashboard, {})
         self.assertEqual(app.bot.deleted, [])
         self.assertEqual(len(call.message.answers), 1)
         self.assertEqual(call.message.edits, [])

@@ -36,6 +36,7 @@ from runtime.charge.evidence.trace_context import (
     build_trace_point_metadata,
     finite_or_nan,
     log_analysis_events,
+    operator_journal_signal_event,
     normalize_output_on,
     recovery_trace_context as build_recovery_trace_context,
 )
@@ -319,6 +320,9 @@ async def _run_charge_session_tick_body(
                 started_at=host._v2_trace_started_at or host.total_start_time or timestamp_s
             )
         analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
+        prior_current_min = (
+            getattr(analyzer, "_current_min_a", None) if analyzer is not None else None
+        )
         if analyzer is not None:
             stage_limit = getattr(host, "_phase_current_limit", None)
             analyzer.current_limit_a = (
@@ -352,6 +356,20 @@ async def _run_charge_session_tick_body(
             session_id=host._v2_trace_session_id,
             timestamp_s=timestamp_s,
         )
+        # The authoritative analyzer already accepted the new Imin/Vmax.
+        # Persist the operator milestone through the existing log_event_sub
+        # action, without creating another timer or changing stage decisions.
+        if (normalize_output_on(output_is_on) is True
+                and is_authoritative_charge_stage(host, stage_before)):
+            milestone = operator_journal_signal_event(
+                record,
+                stage=stage_before,
+                main_stage=host.STAGE_MAIN,
+                mix_stage=host.STAGE_MIX,
+                previous_current_min_a=prior_current_min,
+            )
+            if milestone:
+                actions.setdefault("log_event_sub", milestone)
         metrics = record.analysis.metrics
         analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
         mode = "CV" if bool(is_cv) else ("CC" if bool(resolved_is_cc) else None)

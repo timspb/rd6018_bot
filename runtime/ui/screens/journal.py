@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from runtime.ui.actions import UIAction
 from runtime.ui.buttons import ButtonSpec
-from runtime.ui.components.journal import render_journal_text
+from runtime.ui.components.journal import operator_journal_events, render_journal_text
 from runtime.ui.models import JournalView
 from runtime.ui.screen import ScreenId, ScreenSpec
 
@@ -18,28 +18,29 @@ def journal_button_spec() -> ButtonSpec:
     )
 
 
-def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = 2) -> ScreenSpec:
+def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = 8) -> ScreenSpec:
     offset = max(0, int(offset))
     page_size = max(1, min(12, int(page_size)))
     # A callback can outlive the journal contents (or be forged). Keep its
     # page range inside the current result set so the screen never says 1–0.
-    if view.events:
-        offset = min(offset, len(view.events) - 1)
+    events = operator_journal_events(view.events)
+    if events:
+        offset = min(offset, len(events) - 1)
     else:
         offset = 0
     if view.error:
         body = "❌ Ошибка загрузки событий."
     else:
-        start = max(0, len(view.events) - offset - page_size)
-        end = max(0, len(view.events) - offset)
-        page = view.events[start:end]
+        start = max(0, len(events) - offset - page_size)
+        end = max(0, len(events) - offset)
+        page = events[start:end]
         text = render_journal_text(page, shown=page_size)
         prefix = "<b>📝 Логи событий</b>\n"
         body = text[len(prefix):].lstrip("\n") if text.startswith(prefix) else text
-        if len(view.events) > page_size:
-            body = f"<i>События {start + 1}–{end} из {len(view.events)} · новые внизу</i>\n\n{body}"
+        if len(events) > page_size:
+            body = f"<i>События {start + 1}–{end} из {len(events)} · новые внизу</i>\n\n{body}"
     rows = []
-    if offset + page_size < len(view.events):
+    if offset + page_size < len(events):
         rows.append(ButtonSpec(
             button_id="journal.older", label="⬅ Старее", action=UIAction.OPEN_JOURNAL,
             target_screen=ScreenId.JOURNAL.value,

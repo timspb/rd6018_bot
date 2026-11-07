@@ -60,18 +60,18 @@ class OperatorNavigationRecoveryTests(unittest.IsolatedAsyncioTestCase):
         app._refreshed = refreshed
         return app
 
-    async def test_back_deletes_detail_message_and_refreshes_existing_panel(self):
+    async def test_back_handler_only_acknowledges_without_duplicate_panel(self):
         app = self._app()
         install_operator_navigation_recovery(app)
         call = DummyCall(message_id=200)
 
         await app._operator_home_handler(call)
 
-        self.assertEqual(app.bot.deleted, [(11, 200)])
-        self.assertEqual(app._refreshed, [(11, 7, 100)])
+        self.assertEqual(app.bot.deleted, [])
+        self.assertEqual(app._refreshed, [])
         self.assertTrue(call.answers)
 
-    async def test_back_on_dashboard_refreshes_same_message_without_delete(self):
+    async def test_back_on_dashboard_defers_one_restore_to_middleware(self):
         app = self._app()
         install_operator_navigation_recovery(app)
         call = DummyCall(message_id=100)
@@ -79,7 +79,7 @@ class OperatorNavigationRecoveryTests(unittest.IsolatedAsyncioTestCase):
         await app._operator_home_handler(call)
 
         self.assertEqual(app.bot.deleted, [])
-        self.assertEqual(app._refreshed, [(11, 7, 100)])
+        self.assertEqual(app._refreshed, [])
 
 
 if __name__ == "__main__":

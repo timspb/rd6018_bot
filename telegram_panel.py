@@ -179,10 +179,19 @@ class TerminalPanelManager:
         chat_id = int(chat_id)
         user_id = int(user_id or 0)
         async with self._locks[chat_id]:
+            # Graph dashboard is the canonical active-charge panel. A former
+            # text panel ID can linger in _panel_by_chat after a route replaced
+            # the graph; never refresh that stale text message into a second L2.
+            graph_by_user = getattr(self.app, "user_graph_dashboard", {})
+            graph_by_chat = getattr(self.app, "chat_graph_dashboard", {})
+            graph_id = (
+                graph_by_user.get(user_id) if user_id else None
+            ) or graph_by_chat.get(chat_id)
             previous = (
-                self._panel_by_chat.get(chat_id)
+                graph_id
                 or (self.app.user_dashboard.get(user_id) if user_id else None)
                 or self.app.chat_dashboard.get(chat_id)
+                or self._panel_by_chat.get(chat_id)
             )
             refresh = getattr(self.app, "_refresh_operator_panel", None)
             if previous is not None and refresh is not None:
@@ -193,6 +202,10 @@ class TerminalPanelManager:
                     self.app.chat_dashboard[chat_id] = panel_id
                     if user_id:
                         self.app.user_dashboard[user_id] = panel_id
+                    if panel_id != int(previous):
+                        await self._delete_previous_panel(
+                            chat_id, int(previous), panel_id, preserve_message_id,
+                        )
                     return panel_id
             new_id = await self.app._build_and_send_dashboard(
                 chat_id=chat_id,
@@ -276,16 +289,17 @@ class TerminalPanelManager:
 
             if data in _TERMINAL_CALLBACKS:
                 self.leave_workspace(chat_id)
-                if data in {"v2_quick_start", "v2_battery_start"}:
-                    # These START handlers send a separate result message.
-                    # Editing the old panel would leave it above that result;
-                    # republish it last through the canonical graph renderer.
-                    restore = getattr(self.app, "_restore_dashboard_to_bottom", None)
-                    if callable(restore):
-                        panel_id = await restore(chat_id, user_id)
-                        self.adopt(chat_id, user_id, panel_id)
-                        return
-                await self.ensure_last(chat_id, user_id)
+                # The handler has finished sending its result. Publish exactly
+                # one semantic graph/control panel at the bottom via the existing
+                # graph renderer. Editing a prior photo does not reorder Telegram
+                # messages, and the old ensure_last() could refresh a stale text
+                # ID into a second panel after the graph.
+                restore = getattr(self.app, "_restore_dashboard_to_bottom", None)
+                if callable(restore):
+                    panel_id = await restore(chat_id, user_id)
+                    self.adopt(chat_id, user_id, panel_id)
+                else:
+                    await self.ensure_last(chat_id, user_id)
                 return
 
             if _is_workspace_callback(data):
@@ -312,15 +326,26 @@ class TerminalPanelManager:
                 self.adopt(chat_id, user_id)
                 return
 
-            # Plain text is commonly an input step in a currently active workflow.
-            # Never inject the panel under the handler response. Explicit callbacks
-            # close the workflow and restore L2. Text-driven terminal workflows (for
-            # example Manual numeric input) keep their own semantic success response;
-            # the next explicit navigation action restores L2 without stealing focus.
+            # These commands OPEN a read-only workspace. Keep that screen
+            # last; its explicit "Back to panel" callback is the terminal edge.
+            command = lower.split("@", 1)[0].split(None, 1)[0]
+            if command in {"/logs", "/ai", "/entities", "/off"}:
+                self.enter_workspace(chat_id)
+                return
+
+            # Plain text is commonly input within an active workflow.
             if not text.startswith("/"):
                 return
 
             self.leave_workspace(chat_id)
+            # /help and /stats have no Back callback. Put the canonical graph
+            # after their result, once, instead of racing route-owned restores.
+            if command in {"/help", "/stats"}:
+                restore = getattr(self.app, "_restore_dashboard_to_bottom", None)
+                if callable(restore):
+                    panel_id = await restore(chat_id, user_id)
+                    self.adopt(chat_id, user_id, panel_id)
+                    return
             await self.ensure_last(chat_id, user_id)
 
 

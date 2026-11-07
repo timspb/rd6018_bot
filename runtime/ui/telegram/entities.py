@@ -15,7 +15,6 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
-from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
 
 
 ENTITIES_CALLBACK_DATA = callback_data_for(UIAction.OPEN_ENTITIES)
@@ -49,11 +48,6 @@ def install_entities_screen(
             parse_mode=app.ParseMode.HTML,
             reply_markup=render_screen_markup(screen),
         )
-        await restore_dashboard_to_bottom(
-            app,
-            int(call.message.chat.id),
-            int(call.from_user.id if call.from_user else 0),
-        )
 
     @app.router.message(Command("entities"))
     async def _entities_command(message: Any) -> None:
@@ -67,11 +61,6 @@ def install_entities_screen(
         await status_msg.edit_text(
             render_screen_text(build_entities_screen(view)),
             parse_mode=app.ParseMode.HTML,
-        )
-        await restore_dashboard_to_bottom(
-            app,
-            int(message.chat.id),
-            int(message.from_user.id if message.from_user else 0),
         )
 
     if not bool(getattr(app, "_v3_home_navigation_installed", False)):
