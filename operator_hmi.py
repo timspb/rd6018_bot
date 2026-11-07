@@ -14,6 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
 from runtime.ui.components.main_stage_progress import main_stage_countdown_status
+from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -438,22 +439,12 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             in_mix = "mix" in stage.casefold()
             if in_mix and hold_started is not None:
                 from runtime.charge.runtime.support import _effective_mix_finish_hold_seconds
-                hold_seconds = _effective_mix_finish_hold_seconds(controller)
-                remaining = max(0, int(math.ceil(
-                    hold_seconds - (time.time() - float(hold_started))
-                )))
-                countdown = f"{remaining // 3600}ч {(remaining % 3600) // 60:02d}м"
-                evidence = snapshot.get("finish_evidence")
-                confirmed = (
-                    snapshot.get("delta_reported") is True
-                    and isinstance(evidence, Mapping)
-                    and evidence.get("available") is True
-                    and evidence.get("mode") == regulator
+                stage_status = mix_finish_hold_status(
+                    snapshot=snapshot,
+                    started_at=hold_started,
+                    hold_seconds=_effective_mix_finish_hold_seconds(controller),
+                    now_s=time.time(),
                 )
-                if confirmed:
-                    stage_status = f"✅ Δ{'I' if regulator == 'CV' else 'V'} подтверждена · до SAFE_WAIT {countdown}"
-                else:
-                    stage_status = f"⏳ Финишная выдержка · до SAFE_WAIT {countdown} · Δ evidence недоступно"
             elif durable_status is not None:
                 stage_status = durable_status
             elif regulator in {"CV", "CC"} and not bool(

@@ -602,6 +602,76 @@ class OperatorHmiTests(unittest.TestCase):
         self.assertIn("ΔV подтверждена · до SAFE_WAIT 2ч 30м", panel)
         self.assertNotIn("ΔI подтверждена", panel)
 
+    def test_mix_accepted_cv_delta_survives_current_regulator_change_to_cc(self):
+        controller = types.SimpleNamespace(
+            is_active=True, current_stage="Mix Mode", battery_type="EFB",
+            ah_capacity=80,
+            ui_support_snapshot=lambda: {
+                "finish_hold_started_at": 8200.0,
+                "delta_reported": True,
+                "finish_evidence": {
+                    "available": True, "mode": "CV",
+                    "reference_value": 2.18, "accepted_delta": 0.22,
+                },
+                "runtime_evidence_available": True,
+                "metrics": {"voltage_max_v": 16.55},
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        cc_live = live()
+        cc_live.update(is_cv="off", is_cc="on")
+        with patch("operator_hmi.time.time", return_value=10000.0):
+            panel = render_operator_panel(build_operator_hmi_state(app, cc_live))
+        self.assertIn("ΔI подтверждена · до SAFE_WAIT 1ч 30м", panel)
+        self.assertNotIn("Δ evidence недоступно", panel)
+        self.assertNotIn("ΔV подтверждена", panel)
+
+    def test_mix_accepted_cc_delta_survives_current_regulator_change_to_cv(self):
+        controller = types.SimpleNamespace(
+            is_active=True, current_stage="Mix Mode", battery_type="EFB",
+            ah_capacity=80,
+            ui_support_snapshot=lambda: {
+                "finish_hold_started_at": 8200.0,
+                "delta_reported": True,
+                "finish_evidence": {
+                    "available": True, "mode": "CC",
+                    "reference_value": 16.55, "accepted_delta": 0.11,
+                },
+                "runtime_evidence_available": True,
+                "metrics": {"current_min_a": 2.18},
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        with patch("operator_hmi.time.time", return_value=10000.0):
+            panel = render_operator_panel(build_operator_hmi_state(app, live()))
+        self.assertIn("ΔV подтверждена · до SAFE_WAIT 1ч 30м", panel)
+        self.assertNotIn("Δ evidence недоступно", panel)
+        self.assertNotIn("ΔI подтверждена", panel)
+
+    def test_mix_hold_invalid_or_future_epoch_does_not_invent_countdown(self):
+        controller = types.SimpleNamespace(
+            is_active=True, current_stage="Mix Mode", battery_type="EFB",
+            ah_capacity=80,
+            ui_support_snapshot=lambda: {
+                "finish_hold_started_at": 20000.0,
+                "delta_reported": True,
+                "finish_evidence": {
+                    "available": True, "mode": "CV",
+                    "reference_value": 2.18, "accepted_delta": 0.22,
+                },
+                "runtime_evidence_available": True,
+                "metrics": {"current_min_a": 2.18},
+            },
+        )
+        app = FakeApp(observer=None, hands_off=False, controller_active=True)
+        app.charge_controller = controller
+        with patch("operator_hmi.time.time", return_value=10000.0):
+            panel = render_operator_panel(build_operator_hmi_state(app, live()))
+        self.assertIn("Финишная выдержка · время не подтверждено", panel)
+        self.assertNotIn("до SAFE_WAIT", panel)
+
     def test_mix_hold_without_durable_delta_evidence_is_not_claimed_confirmed(self):
         controller = types.SimpleNamespace(
             is_active=True, current_stage="Mix Mode", battery_type="EFB",
