@@ -47,8 +47,10 @@ def transaction_slot(root: Path) -> int:
         found.append(slot)
     if not found:
         return 1
-    if sorted(found) != list(range(1, max(found) + 1)):
-        raise TransitionError("D144 transaction history has a slot gap")
+    # Prior COMMITTED/RESTORED slots may have been pruned by the canonical
+    # cleanup; never recycle slot IDs or require discarded history.
+    if len(set(found)) != len(found):
+        raise TransitionError("D144 transaction history has duplicate slot")
     return max(found) + 1
 
 

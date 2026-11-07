@@ -69,6 +69,25 @@ class D144Tests(unittest.TestCase):
         marker=json.loads((self.root/'D144_INSTALLED_RELEASE.json').read_text())
         self.assertEqual(marker['source_sha'],'d351c208cbf8666f881a4660df6a0b211170e857')
 
+    def test_pruned_terminal_history_uses_next_unused_slot(self):
+        (self.root / "D144_TRANSACTION.json").write_text(json.dumps({
+            "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED"
+        }))
+        (self.root / "D144_TRANSACTION_11.json").write_text(json.dumps({
+            "schema": "D144_STATE_PRESERVING_V1", "phase": "COMMITTED", "slot": 11
+        }))
+        self.assertEqual(transaction_slot(self.root), 12)
+
+    def test_pruned_history_with_interrupted_latest_rejects(self):
+        (self.root / "D144_TRANSACTION.json").write_text(json.dumps({
+            "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED"
+        }))
+        (self.root / "D144_TRANSACTION_11.json").write_text(json.dumps({
+            "schema": "D144_STATE_PRESERVING_V1", "phase": "STOPPED", "slot": 11
+        }))
+        with self.assertRaisesRegex(TransitionError, "unfinished"):
+            transaction_slot(self.root)
+
     def test_repeated_upgrade_appends_history_and_keeps_each_rollback(self):
         first=self.tx().run()
         old_journal=(self.root/'D144_TRANSACTION.json').read_bytes()
