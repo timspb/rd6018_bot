@@ -23,6 +23,7 @@ from runtime.ui.components.hmi_mix_threshold import cv_delta_status, cc_delta_st
 from runtime.ui.components.hmi_operator_details import render_operator_details, render_operator_details_view
 from runtime.ui.components.hmi_service_details import render_operator_service_details, render_operator_service_details_view
 from runtime.ui.components.hmi_compact import _bold_value, _main_mode, _compact_transition, _compact_stage_label, _compact_battery_label, _compact_stage_status, _durable_finish_status
+from runtime.ui.components.hmi_live_measurements import _live_measurements
 from runtime.ui.components.hmi_values import _finite, _on, _regulator, _temperature, _value, _duration
 from runtime.ui.components.main_stage_progress import main_stage_countdown_status
 from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
@@ -42,24 +43,11 @@ def _manual_is_interrupted(app: Any) -> bool:
 
 
 def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiState:
-    output_on = _on(live.get("switch"))
+    (
+        output_on, battery_v, current, power, temp_ext, temp_int, set_v, set_i,
+    ) = _live_measurements(live)
     telemetry_stale = not _operator_telemetry_fresh(live)
     regulator = "" if telemetry_stale else _regulator(live)
-    battery_v = _finite(live.get("battery_voltage"))
-    current = _finite(live.get("current"))
-    power = _finite(live.get("power"))
-    temp_ext = _finite(live.get("temp_ext_v2"))
-    if temp_ext is None:
-        temp_ext = _finite(live.get("temp_ext"))
-    temp_int = _finite(live.get("temp_int_v2"))
-    if temp_int is None:
-        temp_int = _finite(live.get("temp_int"))
-    if temp_int is None:
-        temp_int = _finite(live.get("psu_temperature"))
-    if temp_int is None:
-        temp_int = _finite(live.get("power_supply_temperature"))
-    set_v = _finite(live.get("set_voltage"))
-    set_i = _finite(live.get("set_current"))
     safety, attention = _normal_safety(live)
 
     manager = getattr(app, "rd_control_mode_manager", None)
