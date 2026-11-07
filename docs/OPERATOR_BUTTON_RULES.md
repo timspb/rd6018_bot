@@ -78,3 +78,15 @@ PASS with Windows PYTHONUTF8=1; compileall and git diff --check PASS. A focused
 composition regression asserts managed-charge release filtering without
 hiding the control in unrelated idle states. No new Telegram publisher,
 handler, rule engine, control channel, or hardware operation.
+
+## HMI display edit locations
+
+The pure immutable read model and enums are in
+`runtime/ui/components/hmi_state.py`. The compact text formatting
+(main-stage label, transitions, display of Imin/Vmax and finish evidence)
+is in `runtime/ui/components/hmi_compact.py`; these are not charge policy
+or safety authority. Edit compact transition truncation and heading widths
+in `runtime/ui/hmi_layout_config.py`. Keep all action eligibility edits in
+`application/operator_button_rules/` and action captions in
+`runtime/ui/labels/operator_actions.py`; do not add policy or runtime
+ownership to the presentation modules.
