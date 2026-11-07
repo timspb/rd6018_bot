@@ -82,6 +82,29 @@ class AutoStageProjectionTests(unittest.TestCase):
                 self.assertIn("время минимума не подтверждено",status)
                 self.assertNotIn("⏱ 0ч",status)
 
+    def test_mix_finish_hold_invalid_current_clock_does_not_blank_panel(self):
+        from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
+        evidence = {
+            "delta_reported": True,
+            "finish_evidence": {
+                "available": True, "mode": "CV",
+                "reference_value": 1.85, "accepted_delta": 0.55,
+            },
+        }
+        for now in (float("nan"), float("inf"), float("-inf"), -1., 0.):
+            with self.subTest(now=now):
+                status = mix_finish_hold_status(
+                    snapshot=evidence, started_at=100.,
+                    hold_seconds=7200., now_s=now,
+                )
+                self.assertIn("время не подтверждено", status)
+                self.assertNotIn("до SAFE_WAIT", status)
+        valid = mix_finish_hold_status(
+            snapshot=evidence, started_at=100., hold_seconds=7200., now_s=160.,
+        )
+        self.assertIn("ΔI подтверждена", valid)
+        self.assertIn("до SAFE_WAIT", valid)
+
     def test_stale_telemetry_never_calls_legacy_formatter(self):
         controller=NS(ui_support_snapshot=lambda:{"runtime_evidence_available":False})
         def forbidden(_): raise AssertionError("formatting stale telemetry")

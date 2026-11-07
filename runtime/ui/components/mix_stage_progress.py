@@ -27,9 +27,11 @@ def mix_finish_hold_status(
     """Format a persisted hold without creating a clock or charge authority."""
     start = _finite(started_at)
     duration = _finite(hold_seconds)
-    if start is None or start <= 0 or start > now_s or duration is None or duration <= 0:
+    now = _finite(now_s)
+    if (now is None or now <= 0 or start is None or start <= 0
+            or start > now or duration is None or duration <= 0):
         return "⏳ Финишная выдержка · время не подтверждено"
-    remaining = max(0, math.ceil(duration - (now_s - start)))
+    remaining = max(0, math.ceil(duration - (now - start)))
     countdown = f"{remaining // 3600}ч {(remaining % 3600) // 60:02d}м"
 
     evidence = snapshot.get("finish_evidence")

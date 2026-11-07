@@ -1562,3 +1562,9 @@ All meaningful hard-coded numeric and semantic values must belong to one typed c
 
 ## 2026-11-08 - Active autonomy and chat migration pointer
 Current source-only continuation plan: docs/assistant/RD6018_AUTONOMOUS_HANDOFF_2026-11-08.md. Ready-to-paste new chat instruction: docs/assistant/RD6018_NEW_CHAT_PROMPT_2026-11-08.md. Follow AGENTS.md and latest assistant checkpoint; complete source stages in priority order, test and push only to owned feature branch. Next: callback and PanelLast single-publisher acceptance, then snapshot parity, MIX/MAIN display edges and broader offline regression. Production node104 D144 slot14 d49cb6d remains untouched until owner separately authorizes physical deployment with direct ESP evidence. Autonomous wake scheduling belongs to the receiving chat, not this repo or a second agent.
+
+## 2026-11-08 — P3 MIX finish countdown rejects invalid current-clock input (source only)
+
+`runtime/ui/components/mix_stage_progress.py` formats the already persisted MIX Delta finish-hold; it does not own the timer or transition. A valid `finish_hold_started_at` and duration with `now_s=NaN/Inf` previously caused `math.ceil()` to raise, and `hmi_auto_stage_progress` could blank the operator status due to its broad presentation exception handler. The pure presenter now validates `now_s` using its existing `_finite` parser and displays `Финишная выдержка · время не подтверждено` for NaN/Inf/negative/zero, without inventing a countdown. Accepted CV/CC Delta semantics and `SAFE_WAIT` destination remain unchanged for valid clocks.
+
+Windows HOME-PC offline focused HMI/MIX/button suite **64 passed, 19 subtests passed**. Source-only code and tests; production node104 remains frozen at D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`, no deploy, restart or physical action. Further P3 audit may inspect future accepted-evidence timestamps and LIVE owner visuals, but software tests do not establish live charge acceptance.
