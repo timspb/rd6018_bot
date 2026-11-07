@@ -99,3 +99,6 @@ These are read-only formatters, not charge control or Telegram publishers.
 
 ## Manual and unowned state display edit locations
 Manual active/interrupted read-only UI projections: runtime/ui/components/hmi_manual_states.py. HANDS_OFF, unowned Output ON containment and idle read-only UI projections: runtime/ui/components/hmi_unmanaged_states.py. The runtime owns charging and session state; application/operator_button_rules controls available actions. Do not put actuator calls or an independent button eligibility table in either presenter.
+
+## Panel and keyboard presentation locations
+The compact panel text is rendered only in runtime/ui/components/hmi_panel_text.py. The application-approved actions are laid out into Telegram button rows only in runtime/ui/components/hmi_action_keyboard.py. operator_hmi.py reexports the functions for current callers and retains the installed publishers and ownership wrappers. Change action availability in application/operator_button_rules and action captions in runtime/ui/labels/operator_actions.py, never add a parallel eligibility or publisher in the renderers.
