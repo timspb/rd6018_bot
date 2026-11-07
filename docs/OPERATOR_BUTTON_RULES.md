@@ -90,3 +90,9 @@ in `runtime/ui/hmi_layout_config.py`. Keep all action eligibility edits in
 `application/operator_button_rules/` and action captions in
 `runtime/ui/labels/operator_actions.py`; do not add policy or runtime
 ownership to the presentation modules.
+
+## Detail/diagnostic editing locations
+For operator detail text, edit `runtime/ui/components/hmi_operator_details.py`;
+for technical diagnostic text, edit `runtime/ui/components/hmi_service_details.py`.
+Single MIX observer state projection belongs to `runtime/ui/components/hmi_observer_runtime.py`.
+These are read-only formatters, not charge control or Telegram publishers.
