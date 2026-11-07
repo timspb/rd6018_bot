@@ -175,7 +175,9 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
                 self.v = 14.8
                 self.i = 5.0
                 self.ovp = 14.9
-                self.ocp = 5.1
+                # Pre-existing protection remains valid during an Iset-only
+                # guarded return; the return transaction does not rewrite OCP.
+                self.ocp = 7.3
                 self.stamp = 1.0
                 self.calls = []
 
@@ -204,7 +206,8 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             async def verify_live_programming(self, **kwargs):
                 self.calls.append(("verify", kwargs))
                 return (self.v == kwargs["voltage_v"] and self.i == kwargs["current_a"]
-                        and self.ovp == kwargs["ovp_v"] and self.ocp == kwargs["ocp_a"])
+                        and (kwargs.get("ovp_v") is None or self.ovp == kwargs["ovp_v"])
+                        and (kwargs.get("ocp_a") is None or self.ocp == kwargs["ocp_a"]))
 
         owner = NativeOwner()
         controller = create_production_charge_host(owner)
@@ -258,9 +261,10 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result)
             names = [call[0] for call in owner.calls]
             self.assertIn(("current", 7.2), owner.calls)
-            self.assertIn(("ocp", 7.3), owner.calls)
+            self.assertNotIn("ocp", names)
+            self.assertNotIn("ovp", names)
+            self.assertEqual(owner.ocp, 7.3)
             self.assertLess(names.index("off"), names.index("current"))
-            self.assertLess(names.index("ocp"), names.index("current"))
             self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
             self.assertEqual(controller._main_current_guard.hardware_limit_a, 7.2)
             self.assertEqual(controller._main_current_guard.accrued_output_on_s, 0.0)
