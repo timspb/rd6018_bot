@@ -75,8 +75,9 @@ def auto_stage_progress(
                     )
                     hold_s = (agm_tail_hold_seconds() if battery_type == "AGM"
                               else standard_tail_hold_seconds())
-                    hold_s = float(native_target_parameters(controller, "MAIN_POLICY").get(
-                        "tail_hold_hours", hold_s / 3600.0)) * 3600.0
+                    hold_hours = _finite(native_target_parameters(controller, "MAIN_POLICY").get(
+                        "tail_hold_hours", hold_s / 3600.0))
+                    hold_s = hold_hours * 3600.0 if hold_hours is not None else None
                     current_now = _finite(live.get("current"))
                     voltage_now = _finite(live.get("battery_voltage"))
                     target_now = _finite(getattr(controller, "target_voltage", None))

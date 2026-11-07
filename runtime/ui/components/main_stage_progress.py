@@ -20,8 +20,10 @@ def main_stage_countdown_status(
 ) -> str:
     """Describe the observation; never authorize a stage transition."""
     minimum = f"Imin {minimum_a:.2f} A"
-    if not tail_ready or not math.isfinite(hold_seconds) or hold_seconds <= 0:
+    if not tail_ready:
         return f"✅ {minimum} · ожидание устойчивого CV"
+    if hold_seconds is None or not math.isfinite(hold_seconds) or hold_seconds <= 0:
+        return f"⏳ {minimum} · время выдержки не подтверждено"
     if not clock_available:
         return f"⏳ {minimum} · время минимума не подтверждено"
 

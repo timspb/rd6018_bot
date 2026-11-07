@@ -130,6 +130,26 @@ class AutoStageProjectionTests(unittest.TestCase):
                 hold_seconds=7200.0, now_s=160.0,
             ))
 
+    def test_main_invalid_recipe_hold_does_not_erase_accepted_imin(self):
+        from unittest.mock import patch
+        controller = NS(target_voltage=14.8, ui_support_snapshot=lambda: {
+            "runtime_evidence_available": True, "intent": "recovery",
+            "metrics": {"current_min_a": 0.22, "seconds_since_current_min": 300},
+        })
+        for invalid in (None, "not-a-duration", float("nan"), float("inf")):
+            with self.subTest(value=invalid), patch(
+                "runtime.charge.programs.native_recipe_session.native_target_parameters",
+                return_value={"tail_hold_hours": invalid},
+            ):
+                _, status, _ = auto_stage_progress(
+                    NS(), controller, {"current": 0.25, "battery_voltage": 14.8},
+                    stage="Main Charge", regulator="CV", telemetry_stale=False,
+                    battery_type="EFB", capacity=80, now_s=lambda: 10000.0,
+                )
+                self.assertIn("Imin 0.22 A", status)
+                self.assertIn("время выдержки не подтверждено", status)
+                self.assertNotIn("MAIN → MIX", status)
+
     def test_stale_telemetry_never_calls_legacy_formatter(self):
         controller=NS(ui_support_snapshot=lambda:{"runtime_evidence_available":False})
         def forbidden(_): raise AssertionError("formatting stale telemetry")
