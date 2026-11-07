@@ -55,15 +55,17 @@ def auto_stage_progress(
                 age = _finite(metrics.get("seconds_since_current_min"))
                 elapsed = max(0, int(age or 0))
                 minimum_started_at = _finite(metrics.get("current_min_started_at"))
-                now_s = now_s()
+                current_time = now_s()
                 # Analyzer owns accepted Imin. Missing/invalid clock must
                 # never masquerade as a freshly started three-hour hold.
                 clock_available = age is not None and age >= 0
-                if minimum_started_at is not None and 0 < minimum_started_at <= now_s:
-                    elapsed = max(0, int(now_s - minimum_started_at))
+                if minimum_started_at is not None and 0 < minimum_started_at <= current_time:
+                    elapsed = max(0, int(current_time - minimum_started_at))
                     clock_available = True
-                if hold_started is not None and stage != "Main Charge":
-                    elapsed = max(0, int(now_s - float(hold_started)))
+                hold_epoch = _finite(hold_started)
+                if stage != "Main Charge" and hold_epoch is not None and 0 < hold_epoch <= current_time:
+                    elapsed = max(0, int(current_time - hold_epoch))
+                    clock_available = True
                 if stage == "Main Charge":
                     from runtime.charge.evidence.first_stage import tail_current_threshold_a
                     from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
@@ -104,6 +106,8 @@ def auto_stage_progress(
                         stage_status = cv_delta_status(minimum, actual, required)
                     else:
                         stage_status = f"📉 Imin {minimum:.2f} A · ожидание данных ΔI"
+                elif not clock_available:
+                    stage_status = f"⏳ Imin {minimum:.2f} A · время минимума не подтверждено"
                 else:
                     stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
         elif regulator == "CC":

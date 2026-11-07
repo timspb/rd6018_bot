@@ -65,6 +65,23 @@ class AutoStageProjectionTests(unittest.TestCase):
         self.assertIn("время максимума не подтверждено",status)
         self.assertNotIn("⏱ 0ч",status)
 
+    def test_nonmix_cv_invalid_hold_clock_never_blanks_status_or_claims_zero_age(self):
+        for invalid_hold in (float("nan"), float("inf"), "bad", 12000.):
+            with self.subTest(started=invalid_hold):
+                controller=NS(ui_support_snapshot=lambda:{
+                    "runtime_evidence_available":True,
+                    "finish_hold_started_at":invalid_hold,
+                    "metrics":{"current_min_a":0.32,"seconds_since_current_min":float("nan")},
+                })
+                _,status,_=auto_stage_progress(
+                    NS(),controller,{},stage="Cooling",regulator="CV",
+                    telemetry_stale=False,battery_type="Ca/Ca",capacity=72,
+                    now_s=lambda:10000.,
+                )
+                self.assertIn("Imin 0.32 A",status)
+                self.assertIn("время минимума не подтверждено",status)
+                self.assertNotIn("⏱ 0ч",status)
+
     def test_stale_telemetry_never_calls_legacy_formatter(self):
         controller=NS(ui_support_snapshot=lambda:{"runtime_evidence_available":False})
         def forbidden(_): raise AssertionError("formatting stale telemetry")
