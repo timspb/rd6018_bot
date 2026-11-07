@@ -491,9 +491,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         f"АКБ: <code>{html.escape(pending.battery_id)}</code>{prep_line}",
         parse_mode=app.ParseMode.HTML,
     )
-    try:
-        old = app.user_dashboard.get(user_id)
-        await app.send_dashboard(message, old_msg_id=old)
-    except Exception:
-        pass
+    # Telegram PanelLastMiddleware publishes the single final graph/control
+    # panel after the START confirmation message. Calling the historical
+    # send_dashboard here races it and can create a second text panel.
     return True

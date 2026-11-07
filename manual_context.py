@@ -193,9 +193,8 @@ def install_manual_context_ui(app: Any) -> None:
                 replaced=False,
             ) + f"\nАКБ: <code>{html.escape(battery_id)}</code>"
         )
-        show_now = getattr(app, "_build_and_send_dashboard", None)
-        if callable(show_now):
-            await show_now(call.message.chat.id, user_id)
+        # v2_manual_unbound is terminal: the shared panel middleware publishes
+        # exactly once after this result, never from the Manual handler.
 
     @app.router.callback_query(F.data == "v2_manual_interrupted")
     async def _manual_interrupted(call: CallbackQuery) -> None:

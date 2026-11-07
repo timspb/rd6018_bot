@@ -408,12 +408,10 @@ class ManualTextMiddleware(BaseMiddleware):
             else ""
         )
         await event.answer(_format_start(parsed, replaced=replaced) + suffix)
-        show_now = getattr(self.app, "_build_and_send_dashboard", None)
-        if callable(show_now):
-            await show_now(event.chat.id, user_id)
-        schedule = getattr(self.app, "schedule_dashboard_after_60", None)
-        if callable(schedule):
-            schedule(event.chat.id, user_id)
+        owner = getattr(self.app, "terminal_panel_manager", None)
+        if owner is not None:
+            owner.leave_workspace(event.chat.id)
+            await owner.publish_last(event.chat.id, user_id)
         return True
 
     async def __call__(

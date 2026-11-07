@@ -49,8 +49,7 @@ class AiDialogContextTests(unittest.TestCase):
         with patch.object(production_runtime, "DEEPSEEK_API_KEY", "configured"), \
                 patch.object(production_runtime, "get_ai_context", fake_context), \
                 patch.object(production_runtime, "get_ai_context_dict", fake_context_dict), \
-                patch.object(production_runtime, "ask_deepseek", fake_ask), \
-                patch.object(production_runtime, "schedule_dashboard_after_60"):
+                patch.object(production_runtime, "ask_deepseek", fake_ask):
             asyncio.run(production_runtime.handle_dialog_mode(message))
 
         self.assertTrue(message.answers)

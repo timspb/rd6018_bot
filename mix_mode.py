@@ -324,11 +324,8 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
         f"Uакб до старта: {snapshot.battery_voltage_v:.2f} V",
         parse_mode=ParseMode.HTML,
     )
-    try:
-        old = app.user_dashboard.get(user_id)
-        await app.send_dashboard(message, old_msg_id=old)
-    except Exception:
-        pass
+    # Final Telegram panel restoration belongs to PanelLastMiddleware, after
+    # the MIX START confirmation. Do not call the legacy text publisher here.
     return True
 
 

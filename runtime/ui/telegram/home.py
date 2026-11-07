@@ -35,7 +35,15 @@ def install_home_command(
 
         if (show_charge_menu is not None and show_charge_menu()
                 and callable(getattr(app, "_v3_modes_command_handler", None))):
+            owner = getattr(app, "terminal_panel_manager", None)
+            if owner is not None:
+                owner.enter_workspace(chat_id)
             await app._v3_modes_command_handler(message)
+            return
+
+        owner = getattr(app, "terminal_panel_manager", None)
+        if owner is not None:
+            await owner.publish_last(chat_id, user_id)
             return
 
         restore = getattr(app, "_restore_dashboard_to_bottom", None)

@@ -350,6 +350,71 @@ class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.chat_graph_dashboard, {})
         self.assertEqual(app._graph_cache_keys, {})
 
+    async def test_sixty_second_refresh_edits_existing_caption_without_new_graph_point(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app.user_dashboard[1] = 77
+        app.chat_dashboard[10] = 77
+        app._graph_cache_keys = {1: (app.CHART_RANGE_2H, 2, 2)}
+        app.operator_interface = types.SimpleNamespace(
+            get_operator_snapshot=AsyncMock(return_value=object()),
+            get_operator_actions=AsyncMock(return_value=None),
+        )
+        app.InlineKeyboardMarkup = InlineKeyboardMarkup
+        state = hmi.OperatorHmiState(
+            hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, "RD",
+            True, "CV", "EFB", 14.76, 0.23, 17.0, 26.0, 35.0, 14.8, 8.0, "", "OK",
+        )
+        refreshed = hmi.OperatorHmiState(
+            hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, "RD",
+            True, "CV", "EFB", 14.76, 0.22, 17.0, 26.0, 35.0, 14.8, 8.0, "", "OK",
+        )
+        old_panel = hmi.render_operator_panel
+        old_keyboard = hmi.build_operator_keyboard
+        try:
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: InlineKeyboardMarkup(inline_keyboard=[])
+            with patch(
+                "operator_dashboard.OperatorSnapshotProvider.hmi_state_from_snapshot",
+                side_effect=[state, refreshed],
+            ):
+                install_operator_graph_dashboard(app)
+                await app._refresh_graph_message(10, 1)
+                await app._refresh_graph_message(10, 1)
+        finally:
+            hmi.render_operator_panel = old_panel
+            hmi.build_operator_keyboard = old_keyboard
+
+        self.assertEqual(len(app.bot.caption_edits), 2)
+        self.assertEqual([x["message_id"] for x in app.bot.caption_edits], [77, 77])
+        self.assertIn("0.23", app.bot.caption_edits[0]["caption"])
+        self.assertIn("0.22", app.bot.caption_edits[1]["caption"])
+        self.assertEqual(app.bot.media_edits, [])
+        self.assertEqual(app.bot.deleted, [])
+        self.assertEqual(app.user_graph_dashboard[1], 77)
+
+    async def test_sixty_second_new_graph_point_edits_media_in_existing_message(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app._graph_cache_keys = {1: (app.CHART_RANGE_2H, 1, 1)}
+        old_panel = hmi.render_operator_panel
+        old_keyboard = hmi.build_operator_keyboard
+        try:
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: InlineKeyboardMarkup(inline_keyboard=[])
+            install_operator_graph_dashboard(app)
+            await app._refresh_graph_message(10, 1)
+        finally:
+            hmi.render_operator_panel = old_panel
+            hmi.build_operator_keyboard = old_keyboard
+        self.assertEqual(len(app.bot.media_edits), 1)
+        self.assertEqual(app.bot.media_edits[0]["chat_id"], 10)
+        self.assertEqual(app.bot.media_edits[0]["message_id"], 77)
+        self.assertEqual(app.bot.caption_edits, [])
+        self.assertEqual(app.bot.deleted, [])
+        self.assertEqual(app.user_graph_dashboard[1], 77)
+        self.assertEqual(app._graph_cache_keys[1][1:], (2, 2))
+
     async def test_back_to_existing_graph_updates_caption_without_chart_rebuild(self):
         app = FakeGraphApp()
         app.user_graph_dashboard = {1: 77}

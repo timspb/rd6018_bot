@@ -132,8 +132,6 @@ async def exercise_safe_callbacks() -> list[dict[str, object]]:
         stack.enter_context(patch.object(sg_ui, "get_sg_access", new=AsyncMock(return_value=sg_ui.SGAccess.INACCESSIBLE)))
         stack.enter_context(patch.object(production_bot_ui, "_resolve_battery_callback", new=AsyncMock(return_value=record)))
         stack.enter_context(patch.object(production_bot_ui, "_route_profile_intent", new=AsyncMock(return_value=True)))
-        stack.enter_context(patch.object(production_bot_ui, "_refresh_dashboard_after_selection", new=AsyncMock()))
-        stack.enter_context(patch.object(app, "schedule_dashboard_after_60", lambda *_args: None))
         stack.enter_context(patch.object(app, "_build_ai_analysis_text", new=AsyncMock(return_value="offline analysis")))
         stack.enter_context(patch.object(app, "get_raw_history", new=AsyncMock(return_value=([], [], []))))
         stack.enter_context(patch.object(app, "get_recent_events", return_value=[]))
@@ -265,7 +263,7 @@ async def exercise_safe_callbacks() -> list[dict[str, object]]:
             "operator_pause_toggle",
         ):
             await invoke(data, state={"record": record})
-    # schedule_dashboard_after_60 and panel restoration are patched at their
-    # callback boundaries above. Leave unrelated tasks alone: cancelling every
+    # Panel restoration is owned by the middleware. Leave unrelated tasks
+    # alone: cancelling every
     # task here hid route leaks and could interfere with IsolatedAsyncio teardown.
     return exercised

@@ -287,15 +287,14 @@ async def _send_notify_safe(msg: str, critical: bool = True) -> None:
         safe_msg = safe_msg.replace('<hr>', '___________________').replace('<hr/>', '___________________').replace('<hr />', '___________________')
         safe_msg = safe_msg.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
         await bot.send_message(last_chat_id, safe_msg, parse_mode=ParseMode.HTML)
-        if not critical and last_chat_id:
-            await send_dashboard_to_chat(last_chat_id, last_user_id or 0)
+        # The already installed PanelLast notification owner decides whether
+        # and when to restore the one panel. Never publish a legacy text panel
+        # from the notification transport.
     except Exception as ex:
         logger.error("charge notify failed: %s", ex)
         try:
             clean_msg = html.escape(msg).replace('<hr>', '---').replace('<hr/>', '---').replace('<hr />', '---')
             await bot.send_message(last_chat_id, clean_msg)
-            if not critical and last_chat_id:
-                await send_dashboard_to_chat(last_chat_id, last_user_id or 0)
         except Exception as ex2:
             logger.error("fallback notify also failed: %s", ex2)
 
@@ -2108,228 +2107,6 @@ def _compact_dashboard_caption(
     return "\n".join(line for line in lines if line)
 
 
-async def _build_and_send_dashboard(
-    chat_id: int,
-    user_id: int,
-    old_msg_id: Optional[int] = None,
-    anchor_msg_id: Optional[int] = None,
-) -> int:
-    """Собрать дашборд и обновить существующее сообщение; при ошибке отправить новое."""
-    try:
-        live = await hass.get_all_live()
-        battery_v = _safe_float(live.get("battery_voltage"))
-        output_v = _safe_float(live.get("voltage"))
-        is_on = str(live.get("switch", "")).lower() == "on"
-        i = _safe_float(live.get("current"))
-        p = _safe_float(live.get("power"))
-        ah = _safe_float(live.get("ah"))
-        wh = _safe_float(live.get("wh"))
-        temp_int = _safe_float(live.get("temp_int"))
-        temp_ext = _safe_float(live.get("temp_ext"))
-        set_v = _safe_float(live.get("set_voltage"))
-        set_i = _safe_float(live.get("set_current"))
-        is_cv = _canonical_bool(live, "is_cv")
-        is_cc = _canonical_bool(live, "is_cc")
-        mode = "CV" if is_cv else ("CC" if is_cc else "-")
-    except Exception as ex:
-        logger.error("Failed to get HA data for dashboard: %s", ex)
-        live = {}
-        battery_v = output_v = i = p = ah = wh = temp_int = temp_ext = set_v = set_i = 0.0
-        is_on = is_cv = is_cc = False
-        mode = "ERROR"
-
-    try:
-        _, _, _, _, idle_warning = _build_dashboard_blocks(live)
-    except Exception as ex:
-        logger.warning("dashboard blocks fallback: %s", ex)
-        idle_warning = "🟡 Данные дашборда частично недоступны"
-    # The ordinary dashboard is a control/readback surface.  Chart rendering
-    # is deliberately reserved for the explicit chart callbacks below; doing
-    # it here made every refresh wait on database/history work and matplotlib.
-    chart_mode = _chart_range_for_user(user_id)
-    photo = None
-
-    ikb = _build_dashboard_keyboard(is_on, user_id)
-    clean_caption = _compact_dashboard_caption(
-        live=live,
-        chart_mode=chart_mode,
-        mode=mode,
-        idle_warning=idle_warning,
-    )
-
-
-    selected_program = globals().get("_selected_program_for_user")
-    if callable(selected_program):
-        try:
-            selected_label = selected_program(user_id)
-        except Exception:
-            selected_label = None
-        if selected_label:
-            clean_caption += (
-                f"\n<b>Выбрана программа:</b> {html.escape(str(selected_label))}"
-                "\n<i>V/I выше — фактический readback RD6018.</i>"
-            )
-
-    target_msg_id = old_msg_id or anchor_msg_id
-    if target_msg_id:
-        try:
-            if photo:
-                await bot.edit_message_media(
-                    chat_id=chat_id,
-                    message_id=target_msg_id,
-                    media=InputMediaPhoto(
-                        media=photo,
-                        caption=clean_caption,
-                        parse_mode=ParseMode.HTML,
-                    ),
-                    reply_markup=ikb,
-                )
-            else:
-                await bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=target_msg_id,
-                    text=clean_caption,
-                    reply_markup=ikb,
-                    parse_mode=ParseMode.HTML,
-                )
-            user_dashboard[user_id] = target_msg_id
-            chat_dashboard[chat_id] = target_msg_id
-            return target_msg_id
-        except Exception as ex:
-            err = str(ex).lower()
-            # Нормальная ситуация: данные не изменились, новое сообщение не нужно.
-            if "message is not modified" in err:
-                user_dashboard[user_id] = target_msg_id
-                chat_dashboard[chat_id] = target_msg_id
-                return target_msg_id
-            # При невозможности редактирования удаляем старый дашборд, чтобы не копить сообщения.
-            try:
-                await bot.delete_message(chat_id, target_msg_id)
-            except Exception:
-                pass
-
-    if photo:
-        sent = await bot.send_photo(chat_id, photo=photo, caption=clean_caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-    else:
-        sent = await bot.send_message(chat_id, clean_caption, reply_markup=ikb, parse_mode=ParseMode.HTML)
-    user_dashboard[user_id] = sent.message_id
-    chat_dashboard[chat_id] = sent.message_id
-    return sent.message_id
-
-
-async def _edit_or_send_charge_workspace(
-    call: CallbackQuery,
-    text: str,
-    reply_markup: InlineKeyboardMarkup,
-) -> int:
-    """Render the charge workspace without trusting a stale Telegram message."""
-    message = call.message
-    chat_id = message.chat.id
-    user_id = call.from_user.id if call.from_user else 0
-    message_id = getattr(message, "message_id", None)
-
-    try:
-        await message.edit_caption(caption=text, reply_markup=reply_markup)
-    except Exception as caption_error:
-        try:
-            await message.edit_text(text, reply_markup=reply_markup)
-        except Exception as text_error:
-            logger.info(
-                "Charge workspace message is stale; sending replacement: %s / %s",
-                caption_error,
-                text_error,
-            )
-            if message_id is not None:
-                try:
-                    await bot.delete_message(chat_id, message_id)
-                except Exception:
-                    pass
-            sent = await bot.send_message(
-                chat_id,
-                text,
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML,
-            )
-            replacement_id = sent.message_id
-            user_dashboard[user_id] = replacement_id
-            chat_dashboard[chat_id] = replacement_id
-            return replacement_id
-
-    if message_id is not None:
-        user_dashboard[user_id] = message_id
-        chat_dashboard[chat_id] = message_id
-    return message_id or 0
-
-
-async def send_dashboard_to_chat(chat_id: int, user_id: int = 0) -> int:
-    """Отправить дашборд в чат (последним сообщением). Используется после некритичных уведомлений."""
-    async with dashboard_lifecycle_lock(chat_id):
-        old_msg_id = user_dashboard.get(user_id) if user_id else None
-        if old_msg_id is None:
-            old_msg_id = chat_dashboard.get(chat_id)
-        return await _build_and_send_dashboard(chat_id, user_id, old_msg_id)
-
-
-# Через столько секунд после некритичного сообщения обновлять дашборд (чтобы сверху не висел текст)
-DASHBOARD_AFTER_MSG_SEC = 60.0
-_dashboard_refresh_tasks: Dict[int, asyncio.Task] = {}
-_dashboard_refresh_generation: Dict[int, int] = {}
-_dashboard_lifecycle_locks: Dict[int, asyncio.Lock] = {}
-
-
-def dashboard_lifecycle_lock(chat_id: int) -> asyncio.Lock:
-    return _dashboard_lifecycle_locks.setdefault(int(chat_id), asyncio.Lock())
-
-
-def cancel_dashboard_after_60(chat_id: int) -> None:
-    """Invalidate and cancel a pending low-priority dashboard refresh for a chat."""
-    chat_id = int(chat_id)
-    _dashboard_refresh_generation[chat_id] = _dashboard_refresh_generation.get(chat_id, 0) + 1
-    task = _dashboard_refresh_tasks.pop(chat_id, None)
-    if task is not None and not task.done() and task is not asyncio.current_task():
-        task.cancel()
-
-
-async def _delayed_dashboard_task(
-    chat_id: int, user_id: int, delay: float, generation: int,
-) -> None:
-    """Через delay сек отправить короткий дашборд в чат (последним сообщением)."""
-    try:
-        await asyncio.sleep(delay)
-        if _dashboard_refresh_generation.get(chat_id, 0) != generation:
-            return
-        await send_dashboard_to_chat(chat_id, user_id)
-    except Exception as ex:
-        logger.debug("delayed dashboard after msg: %s", ex)
-    finally:
-        if _dashboard_refresh_tasks.get(chat_id) is asyncio.current_task():
-            _dashboard_refresh_tasks.pop(chat_id, None)
-
-
-def schedule_dashboard_after_60(chat_id: int, user_id: int = 0) -> None:
-    """Запланировать обновление дашборда через 60 с (после любого некритичного ответа)."""
-    if not chat_id:
-        return
-    cancel_dashboard_after_60(chat_id)
-    generation = _dashboard_refresh_generation[chat_id]
-    _dashboard_refresh_tasks[chat_id] = asyncio.create_task(
-        _delayed_dashboard_task(chat_id, user_id, DASHBOARD_AFTER_MSG_SEC, generation)
-    )
-
-
-async def send_dashboard(message_or_call: Union[Message, CallbackQuery], old_msg_id: Optional[int] = None) -> int:
-    """
-    Сформировать и отправить дашборд.
-    Anti-spam: при refresh удаляем старый message перед отправкой нового.
-    """
-    msg = message_or_call.message if isinstance(message_or_call, CallbackQuery) else message_or_call
-    chat_id = msg.chat.id
-    user_id = message_or_call.from_user.id if getattr(message_or_call, "from_user", None) else 0
-    old = old_msg_id or user_dashboard.get(user_id) or chat_dashboard.get(chat_id)
-    anchor = msg.message_id if isinstance(message_or_call, CallbackQuery) else None
-    return await _build_and_send_dashboard(chat_id, user_id, old, anchor_msg_id=anchor)
-
-
 async def soft_watchdog_loop() -> None:
     """Run canonical bounded software-watchdog containment for managed authority."""
     app = sys.modules[__name__]
@@ -3383,13 +3160,13 @@ async def text_message_handler(message: Message) -> None:
                 parse_mode=ParseMode.HTML,
             )
             last_chat_id = message.chat.id
-            schedule_dashboard_after_60(message.chat.id, user_id)
+
             return
         if text.strip().lower() == "off":
             _clear_manual_off()
             await message.answer("Сброс условия выключения. Уставки «off» больше не активны.")
             last_chat_id = message.chat.id
-            schedule_dashboard_after_60(message.chat.id, user_id)
+
             return
 
     # Три значения: V I и таймер (2:35), или ток 2.35A/А, или напряжение 15V/В — уставки + условие выключения
@@ -3433,12 +3210,12 @@ async def text_message_handler(message: Message) -> None:
                     parse_mode=ParseMode.HTML,
                 )
                 last_chat_id = message.chat.id
-                schedule_dashboard_after_60(message.chat.id, user_id)
+
                 return
             else:
                 await message.answer(f"Диапазоны: напряжение 12–17 В, ток 0.1–{MAX_STAGE_CURRENT:.1f} А.")
                 last_chat_id = message.chat.id
-                schedule_dashboard_after_60(message.chat.id, user_id)
+
                 return
 
     # Быстрая установка уставок: два числа через пробел — напряжение (В) и ток (А)
@@ -3457,7 +3234,7 @@ async def text_message_handler(message: Message) -> None:
                         parse_mode=ParseMode.HTML,
                     )
                     last_chat_id = message.chat.id
-                    schedule_dashboard_after_60(message.chat.id, user_id)
+
                     return
                 await asyncio.sleep(0.8)
                 live = await hass.get_all_live()
@@ -3479,13 +3256,13 @@ async def text_message_handler(message: Message) -> None:
                         parse_mode=ParseMode.HTML,
                     )
                 last_chat_id = message.chat.id
-                schedule_dashboard_after_60(message.chat.id, user_id)
+
                 return
             await message.answer(
                         f"⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–{MAX_STAGE_CURRENT:.1f} А. Пример: <code>16.50 1.4</code>",
                 parse_mode=ParseMode.HTML,
             )
-            schedule_dashboard_after_60(message.chat.id, user_id)
+
             return
 
     # Проверяем ручной режим
@@ -3511,11 +3288,11 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
         ah = int(float(text))
         if ah < 1 or ah > 500:
             await message.answer("Введите число от 1 до 500.")
-            schedule_dashboard_after_60(message.chat.id, user_id)
+
             return
     except ValueError:
         await message.answer("Введите число (например 60).")
-        schedule_dashboard_after_60(message.chat.id, user_id)
+
         return
 
     # Production composition routes the legacy text-input continuation through
@@ -3560,7 +3337,7 @@ async def handle_dialog_mode(message: Message) -> None:
     """v2.6 Режим диалога: отправка сообщения пользователя в LLM с текущим контекстом."""
     if not DEEPSEEK_API_KEY:
         await message.answer("🤖 AI-консультант недоступен (не настроен API ключ)")
-        schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
+
         return
     
     user_question = (message.text or "").strip()
@@ -3610,11 +3387,11 @@ async def handle_dialog_mode(message: Message) -> None:
                 f"🤖 <b>AI-Консультант:</b>\n\n{safe_ai_response}",
                 parse_mode=ParseMode.HTML
             )
-        schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
+
     except Exception as ex:
         logger.error("handle_dialog_mode: %s", ex)
         await thinking_msg.edit_text("🤖 Ошибка при обращении к AI-консультанту.")
-        schedule_dashboard_after_60(message.chat.id, message.from_user.id if message.from_user else 0)
+
 
 
 async def handle_custom_mode_input(message: Message, user_id: int) -> None:
@@ -3628,7 +3405,7 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
     text = (message.text or "").strip()
     if not text:
         await message.answer("❌ Пустое значение. Попробуйте еще раз.")
-        schedule_dashboard_after_60(message.chat.id, user_id)
+
         return
     
     # Кнопка отмены для всех этапов
@@ -3653,13 +3430,13 @@ async def handle_custom_mode_input(message: Message, user_id: int) -> None:
                     parse_mode=ParseMode.HTML,
                     reply_markup=cancel_kb
                 )
-                schedule_dashboard_after_60(message.chat.id, user_id)
+
                 return
             await message.answer(
                 f"⚠️ Допустимые диапазоны: напряжение 12–17 В, ток 0.1–{MAX_STAGE_CURRENT:.1f} А. Введите заново (например 16.50 1.4):",
                 reply_markup=cancel_kb
             )
-            schedule_dashboard_after_60(message.chat.id, user_id)
+
             return
     
     try:

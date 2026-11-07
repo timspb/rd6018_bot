@@ -1275,10 +1275,8 @@ def install_operator_hmi(app: Any) -> None:
         except Exception as exc:
             app.logger.exception("operator pause failed: %s", exc)
             return
-        user_id = call.from_user.id if call.from_user else 0
-        refresh = getattr(app, "_refresh_operator_panel", None)
-        if refresh is not None:
-            await refresh(call.message.chat.id, user_id, call.message.message_id)
+        # PanelLastMiddleware refreshes the single panel after this callback.
+        # A second direct refresh raced the graph and its tracked message ID.
 
     @app.router.callback_query(F.data == "operator_graph")
     async def _operator_graph(call: Any) -> None:
@@ -1288,7 +1286,14 @@ def install_operator_hmi(app: Any) -> None:
             return
         await call.answer()
         user_id = call.from_user.id if call.from_user else 0
-        await _render_graph_workspace(app, call, user_id)
+        owner = getattr(app, "terminal_panel_manager", None)
+        if owner is not None:
+            await owner.render_graph(
+                call.message.chat.id, user_id,
+                lambda: _render_graph_workspace(app, call, user_id),
+            )
+        else:
+            await _render_graph_workspace(app, call, user_id)
 
     @app.router.callback_query(F.data == "operator_refresh")
     async def _operator_refresh(call: Any) -> None:
@@ -1297,16 +1302,7 @@ def install_operator_hmi(app: Any) -> None:
         if not await route_read_intent(call, OperatorIntentKind.REFRESH_PANEL):
             return
         await call.answer("Обновляю")
-        user_id = call.from_user.id if call.from_user else 0
-        refresh = getattr(app, "_refresh_operator_panel", None)
-        if refresh is not None:
-            await refresh(call.message.chat.id, user_id, call.message.message_id)
-        else:
-            await app._build_and_send_dashboard(
-                call.message.chat.id,
-                user_id,
-                old_msg_id=call.message.message_id,
-            )
+        # The single panel lifecycle owner refreshes after this handler.
 
     @app.router.callback_query(F.data.startswith("operator_graph_"))
     async def _operator_graph_range(call: Any) -> None:
@@ -1319,7 +1315,14 @@ def install_operator_hmi(app: Any) -> None:
         user_id = call.from_user.id if call.from_user else 0
         app.user_chart_range[user_id] = raw
         await call.answer()
-        await _render_graph_workspace(app, call, user_id)
+        owner = getattr(app, "terminal_panel_manager", None)
+        if owner is not None:
+            await owner.render_graph(
+                call.message.chat.id, user_id,
+                lambda: _render_graph_workspace(app, call, user_id),
+            )
+        else:
+            await _render_graph_workspace(app, call, user_id)
 
     @app.router.callback_query(F.data == "operator_more")
     async def _operator_more(call: Any) -> None:

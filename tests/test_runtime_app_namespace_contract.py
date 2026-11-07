@@ -15,6 +15,7 @@ inventory is derived by parsing source with ``ast``.
 from __future__ import annotations
 
 import ast
+import os
 import unittest
 from pathlib import Path
 
@@ -23,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Directories that are not part of the production runtime module graph.
 SKIP_DIRS = {
     ".git",
+    ".worktrees",
     ".venv",
     "tests",
     "esphome",
@@ -49,16 +51,14 @@ APP_ATTRS_WRITTEN = frozenset(
         "_mix_action_eligibility_installed",
         "_operator_destructive_guard",
         "_operator_graph_dashboard_installed",
-        "_ensure_graph_refresh_loop",
         "_graph_cache_keys",
-        "_graph_refresh_task",
-        "_graph_update_lock",
         "_recipe_buttons_installed",
         "_recipe_catalog_commands_installed",
         "_recovery_quarantine_journal_configured",
         "_recovery_clearance_service_installed",
         "_recovery_clearance_route_installed",
         "_refresh_graph_message",
+        "_restore_dashboard_to_bottom",
         "_retire_graph_workspace_for_user",
         "_operator_hmi_installed",
         "_operator_home_handler",
@@ -144,7 +144,6 @@ APP_ATTRS_WRITTEN = frozenset(
         "rd_startup_authority_gate",
         "session_recovery_guard",
         "runtime_safety_guard",
-        "schedule_dashboard_after_60",
         "terminal_panel_manager",
         "user_graph_dashboard",
         "zero_current_since",
@@ -155,6 +154,7 @@ APP_ATTRS_WRITTEN = frozenset(
 INSTALL_ATTRS_WRITTEN = frozenset(
     {
         "_build_and_send_dashboard",
+        "_restore_dashboard_to_bottom",
         "_build_charge_modes_keyboard",
         "_build_dashboard_keyboard",
         "_charge_modes_text",
@@ -167,9 +167,7 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "_mix_action_eligibility_installed",
         "_operator_destructive_guard",
         "_operator_graph_dashboard_installed",
-        "_ensure_graph_refresh_loop",
         "_graph_cache_keys",
-        "_graph_update_lock",
         "_recipe_buttons_installed",
         "_recipe_catalog_commands_installed",
         "_recovery_quarantine_journal_configured",
@@ -251,7 +249,6 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "rd_startup_authority_gate",
         "session_recovery_guard",
         "runtime_safety_guard",
-        "schedule_dashboard_after_60",
         "terminal_panel_manager",
         "user_graph_dashboard",
     }
@@ -291,11 +288,15 @@ CRITICAL_OWNERSHIP = {
 
 
 def _iter_production_files():
-    for path in sorted(REPO_ROOT.rglob("*.py")):
-        rel = path.relative_to(REPO_ROOT)
-        if any(part in SKIP_DIRS for part in rel.parts):
-            continue
-        yield rel.as_posix(), path
+    # Prune excluded trees BEFORE descent. Path.rglob enumerates the whole
+    # Python virtualenv and abandoned worktrees before the old post-filter,
+    # which is not bounded and may exhaust memory.
+    for directory, subdirs, files in os.walk(REPO_ROOT):
+        subdirs[:] = sorted(name for name in subdirs if name not in SKIP_DIRS)
+        for name in sorted(files):
+            if name.endswith(".py"):
+                path = Path(directory) / name
+                yield path.relative_to(REPO_ROOT).as_posix(), path
 
 
 class _NamespaceWriterVisitor(ast.NodeVisitor):

@@ -266,7 +266,6 @@ class ProductionComposition:
                     )
                     == "interrupted"
                 ),
-                schedule_refresh=app.schedule_dashboard_after_60,
             )
             install_custom_cancel_route(
                 app,
@@ -307,11 +306,9 @@ class ProductionComposition:
             )
             install_help_screen(
                 app,
-                schedule_refresh=app.schedule_dashboard_after_60,
             )
             install_stats_screen(
                 app,
-                schedule_refresh=app.schedule_dashboard_after_60,
             )
             install_analysis_screen(
                 app,

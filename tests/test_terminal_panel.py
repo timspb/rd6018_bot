@@ -99,6 +99,38 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.render_calls, [])
         self.assertEqual(app.bot.deleted, [])
 
+    async def test_stale_panel_refresh_replaced_once_by_canonical_owner(self):
+        app = FakeApp()
+        manager = TerminalPanelManager(app)
+        manager.adopt(10, 20, 77)
+        async def stale_edit(chat_id, user_id, message_id):
+            app.refresh_calls.append((chat_id, user_id, message_id))
+            return None
+        app._refresh_operator_panel = stale_edit
+
+        result = await manager.ensure_last(10, 20)
+        self.assertEqual(result, 101)
+        self.assertEqual(app.refresh_calls, [(10, 20, 77)])
+        self.assertEqual(app.render_calls, [(10, 20, None, None)])
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(manager.panel_id(10), 101)
+
+    async def test_failed_replacement_propagates_without_fake_success(self):
+        app = FakeApp()
+        manager = TerminalPanelManager(app)
+        manager.adopt(10, 20, 77)
+        async def missing_message(chat_id, user_id, message_id):
+            return None
+        async def failed_send(*args, **kwargs):
+            raise RuntimeError("Telegram unavailable")
+        app._refresh_operator_panel = missing_message
+        app._build_and_send_dashboard = failed_send
+
+        with self.assertRaisesRegex(RuntimeError, "Telegram unavailable"):
+            await manager.ensure_last(10, 20)
+        self.assertEqual(manager.panel_id(10), 77)
+        self.assertEqual(app.bot.deleted, [])
+
     async def test_workspace_source_can_be_preserved_above_fresh_terminal_panel(self):
         app = FakeApp()
         manager = TerminalPanelManager(app)
@@ -130,17 +162,158 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
                 self.from_user = SimpleNamespace(id=20)
                 self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=88)
 
-        with patch("telegram_panel.CallbackQuery", FakeCallback):
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
             await manager.after_event(FakeCallback("v2_quick_start"))
         self.assertEqual(restored, [(10, 20)])
         self.assertEqual(manager.panel_id(10), 101)
         self.assertFalse(manager.in_workspace(10))
         self.assertEqual(app.render_calls, [])
-        with patch("telegram_panel.CallbackQuery", FakeCallback):
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
             manager.enter_workspace(10)
             await manager.after_event(FakeCallback("v2_battery_start"))
         self.assertEqual(restored, [(10, 20), (10, 20)])
         self.assertFalse(manager.in_workspace(10))
+
+    async def test_equal_message_ids_in_separate_chats_do_not_cross_refresh(self):
+        from unittest.mock import AsyncMock
+        import asyncio
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 77)
+        manager.adopt_graph(11, 21, 77)
+        self.assertEqual(manager._graph_user_by_chat, {10: 20, 11: 21})
+        calls = []
+
+        async def refresh(chat_id, user_id, *, force=False):
+            calls.append((chat_id, user_id, manager.graph_id(chat_id, user_id)))
+            if len(calls) == 2:
+                manager._graph_refresh_task.cancel()
+
+        real_sleep = asyncio.sleep
+
+        async def immediate_tick(_seconds):
+            await real_sleep(0)
+
+        manager.start_graph_refresh(refresh)
+        with patch("runtime.ui.telegram.panel_lifecycle.asyncio.sleep", new=immediate_tick):
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(manager._graph_refresh_task, 2)
+        self.assertEqual(calls, [(10, 20, 77), (11, 21, 77)])
+        manager.forget_graph(10, 20, 77)
+        self.assertNotIn(10, manager._graph_user_by_chat)
+        self.assertEqual(manager.graph_id(11, 21), 77)
+
+    async def test_one_periodic_graph_task_after_repeated_panel_publication(self):
+        import asyncio
+        app = FakeApp()
+        manager = TerminalPanelManager(app)
+
+        async def refresh(chat_id, user_id, *, force=False):
+            raise AssertionError("No timed edit expected before first 60s tick")
+
+        manager.start_graph_refresh(refresh)
+        first = manager._graph_refresh_task
+        manager.start_graph_refresh(refresh)
+        self.assertIs(manager._graph_refresh_task, first)
+        self.assertFalse(first.done())
+        first.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await first
+
+    async def test_graph_refresh_waits_for_terminal_publish_on_same_chat(self):
+        import asyncio
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        actions = []
+
+        async def restore(chat_id, user_id):
+            actions.append("restore_begin")
+            entered.set()
+            await release.wait()
+            manager.adopt_graph(chat_id, user_id, 333)
+            actions.append("restore_end")
+            return 333
+
+        async def graph_refresh(chat_id, user_id, *, force=False):
+            actions.append("graph_edit")
+            self.assertEqual((chat_id, user_id), (10, 20))
+            self.assertEqual(manager.graph_id(chat_id, user_id), 333)
+
+        app._restore_dashboard_to_bottom = restore
+        publish = asyncio.create_task(manager.publish_last(10, 20))
+        await asyncio.wait_for(entered.wait(), 2)
+        background = asyncio.create_task(
+            manager.refresh_graph(10, 20, graph_refresh)
+        )
+        await asyncio.sleep(0)
+        self.assertEqual(actions, ["restore_begin"])
+        release.set()
+        self.assertEqual(await asyncio.wait_for(publish, 2), 333)
+        await asyncio.wait_for(background, 2)
+        self.assertEqual(actions, ["restore_begin", "restore_end", "graph_edit"])
+        self.assertEqual(manager.panel_id(10), 333)
+
+    async def test_old_graph_id_cannot_erase_newer_published_graph(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 200)
+        manager.adopt_graph(10, 20, 201)
+        manager.forget_graph(10, 20, 200)
+        self.assertEqual(manager.graph_id(10, 20), 201)
+        self.assertEqual(manager.panel_id(10), 201)
+        self.assertEqual(app.user_dashboard[20], 201)
+        manager.forget_graph(10, 20, 201)
+        self.assertIsNone(manager.graph_id(10, 20))
+        self.assertIsNone(manager.panel_id(10))
+
+    async def test_graph_range_closes_workspace_without_publishing_second_panel(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 77)
+        manager.enter_workspace(10)
+
+        class FakeCallback:
+            def __init__(self):
+                self.data = "operator_graph_2h"
+                self.from_user = SimpleNamespace(id=20)
+                self.message = SimpleNamespace(
+                    chat=SimpleNamespace(id=10), message_id=77,
+                )
+
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
+            await manager.after_event(FakeCallback())
+        self.assertFalse(manager.in_workspace(10))
+        self.assertEqual(manager.panel_id(10), 77)
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(app.refresh_calls, [])
+
+    async def test_graph_refresh_defers_while_an_operator_workspace_is_open(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 555)
+        edits = []
+
+        async def refresh(chat_id, user_id, *, force=False):
+            edits.append((chat_id, user_id))
+
+        manager.enter_workspace(10)
+        await manager.refresh_graph(10, 20, refresh)
+        self.assertEqual(edits, [])
+        manager.leave_workspace(10)
+        await manager.refresh_graph(10, 20, refresh)
+        self.assertEqual(edits, [(10, 20)])
 
     async def test_stale_text_id_never_replaces_authoritative_graph(self):
         app = FakeApp()
@@ -172,7 +345,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
                 self.data = data
                 self.from_user = SimpleNamespace(id=20)
                 self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=88)
-        with patch("telegram_panel.CallbackQuery", FakeCallback):
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
             await manager.after_event(FakeCallback("operator_done"))
         self.assertEqual(restored, [(10, 20)])
         self.assertEqual(app.refresh_calls, [])
@@ -189,7 +362,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
                 self.from_user = SimpleNamespace(id=20)
                 self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=88)
 
-        with patch("telegram_panel.CallbackQuery", FakeCallback):
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
             for callback in (CHARGE_CALLBACK_DATA, "v2_profile_efb", "v2_bat_intent_recovery"):
                 await manager.after_event(FakeCallback(callback))
         self.assertTrue(manager.in_workspace(10))
@@ -223,7 +396,6 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "rd_hands_off_release_confirm",
             "operator_details",
             "operator_graph",
-            "operator_graph_2h",
             "operator_more",
             "operator_adopted_stop",
             "operator_managed_mix_stop",
@@ -248,6 +420,8 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "dash_back",
             "charge_back",
             "operator_done",
+            "operator_graph_2h",
+            "v2_manual_unbound",
             "v2_battery_start",
             "v2_quick_start",
             "v2_mix_start",
@@ -305,16 +479,13 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.chat_dashboard[10], 55)
         self.assertEqual(manager.panel_id(10), 55)
 
-    async def test_install_disables_legacy_delayed_refresh_and_wraps_notifications(self):
+    async def test_install_owns_notification_refresh_without_timer(self):
         app = FakeApp()
         manager = install_panel_last(app)
 
         self.assertIs(app.terminal_panel_manager, manager)
         self.assertEqual(len(app.router.message.middleware), 1)
         self.assertEqual(len(app.router.callback_query.middleware), 1)
-
-        app.schedule_dashboard_after_60(10, 20)
-        self.assertEqual(app.scheduled, [])
 
         await app._send_notify_safe("critical event", True)
         self.assertEqual(app.notifications, [("critical event", True)])
