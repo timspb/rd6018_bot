@@ -41,6 +41,37 @@ class OneButtonPolicyTests(unittest.TestCase):
         interrupted=hmi(HmiProcessState.INTERRUPTED,HmiAuthority.ADOPTED_MIX)
         self.assertIn(A.ADOPT_MIX,allowed(actions_for_hmi(interrupted)))
 
+    def test_snapshot_charging_preserves_process_specific_callbacks(self):
+        from application.operator_snapshot import snapshot_from_mapping
+        from application.operator_snapshot_provider import OperatorSnapshotProvider
+        cases = (
+            (HmiProcessState.RUNNING, HmiAuthority.AUTO, A.PAUSE_CHARGE),
+            (HmiProcessState.PAUSED, HmiAuthority.AUTO, A.RESUME_CHARGE),
+            (HmiProcessState.RUNNING, HmiAuthority.MANUAL, A.PAUSE_CHARGE),
+            (HmiProcessState.PAUSED, HmiAuthority.MANUAL, A.RESUME_CHARGE),
+            (HmiProcessState.STORAGE, HmiAuthority.AUTO, A.SHOW_LOG),
+            (HmiProcessState.ADOPTED_MIX, HmiAuthority.ADOPTED_MIX, A.STOP_MIX),
+        )
+        for process, authority, expected in cases:
+            with self.subTest(process=process, authority=authority):
+                original = hmi(process, authority, output_on=True)
+                snapshot = snapshot_from_mapping({
+                    "state": "CHARGING", "process_state": process.value,
+                    "charge": {"program": authority.value, "stage": "Mix"},
+                    "output": {"enabled": True},
+                    "safety": {"allowed": True},
+                })
+                actions = actions_for_snapshot(snapshot)
+                self.assertEqual(allowed(actions), allowed(actions_for_hmi(original)))
+                self.assertIn(expected, allowed(actions))
+                restored = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
+                self.assertEqual(restored.process_state, process)
+                self.assertEqual(restored.authority, authority)
+                self.assertEqual(
+                    [b.callback_data for row in build_operator_keyboard(None, restored, actions=actions).inline_keyboard for b in row],
+                    [b.callback_data for row in build_operator_keyboard(None, original, actions=actions_for_hmi(original)).inline_keyboard for b in row],
+                )
+
     def test_snapshot_hands_off_reuses_external_rule(self):
         snapshot=NS(state="HANDS_OFF",snapshot=NS(output={"enabled":True},safety=NS(allowed=True)))
         self.assertEqual(allowed(actions_for_snapshot(snapshot)),

@@ -105,3 +105,9 @@ The compact panel text is rendered only in runtime/ui/components/hmi_panel_text.
 
 ## Navigation presentation owners
 Graph/back/more keyboard rows are in runtime/ui/components/hmi_navigation_keyboards.py. Keyboard-only compatibility state projection is in runtime/ui/components/hmi_compat_dashboard_state.py. Actual eligibility stays in application/operator_button_rules; Telegram publishing and callback ownership remain in existing installed handlers.
+
+## P2: Preserve charge mode through the single snapshot (2026-11-08)
+
+The generic operator snapshot state `CHARGING` is display classification, **not** charge-process identity. The read-only `OperatorSnapshot.process_state` preserves the already computed HMI process (`running`, `paused`, `storage`, `adopted_mix`) through the same live read. `OperatorSnapshotProvider.get_operator_snapshot()` now derives `available_actions` from the **same** `actions_for_snapshot()` selector used for Telegram keyboard generation; it no longer contains the duplicate `_snapshot_actions` capability table. `OperatorReadSource.hmi_from_snapshot()` restores that process when rendering status text. Missing process data in older serialized snapshots keeps the existing generic behavior.
+
+Edit action eligibility only in `application/operator_button_rules/selection.py`, `session.py`, `external.py`, and `snapshot.py`; never add callback-specific rules to the read model or presenters. The LIVE runtime's existing command dispatcher and physical safety gates still authorize each action independently. Offline tests cover AUTO/Manual RUNNING and PAUSED, STORAGE and adopted MIX including callbacks, single-live-read consistency, and previous interrupted Manual / HANDS_OFF behavior. This source-only change does not authorize a node104 deployment or demonstrate physical acceptance.

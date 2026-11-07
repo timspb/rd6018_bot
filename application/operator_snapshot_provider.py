@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 from typing import Any, Mapping
 
 from runtime.ui.models import (
@@ -231,18 +232,19 @@ class OperatorSnapshotProvider:
             output={"enabled": getattr(hmi, "output_on", None), "power_w": getattr(hmi, "power_w", None)},
             journal_tail=(),
         )
-        return OperatorSnapshot(
+        snapshot = OperatorSnapshot(
             state=state,
             snapshot=runtime_snapshot,
-            available_actions=(
-                tuple(item.action.value for item in actions_for_hmi(hmi).available_actions)
-                if bool(getattr(hmi, "manual_interrupted", False))
-                else self._snapshot_actions(state, fresh, bool(getattr(hmi, "output_on", False)))
-            ),
             faults=faults,
             telemetry_fresh=fresh,
             manual_interrupted=bool(getattr(hmi, "manual_interrupted", False)),
+            process_state=str(getattr(getattr(hmi, "process_state", None), "value", "") or ""),
         )
+        # Published capabilities must match the actual one-owner selector used
+        # by the Telegram keyboard for this exact snapshot.
+        return replace(snapshot, available_actions=tuple(
+            item.action.value for item in actions_for_snapshot(snapshot).available_actions
+        ))
 
     @staticmethod
     def _state(hmi: Any, live: Mapping[str, Any], fresh: bool) -> str:
@@ -278,13 +280,3 @@ class OperatorSnapshotProvider:
             hypotheses=tuple(str(x) for x in faults),
             reasons=reasons or faults,
         )
-
-    @staticmethod
-    def _snapshot_actions(state: str, fresh: bool, output_on: bool) -> tuple[str, ...]:
-        if state == "CHARGING":
-            return ("stop_charge", "show_journal", "show_graph", "refresh")
-        if state == "HANDS_OFF":
-            return (("adopt_mix", "disable_output") if output_on else ("start_charge", "return_pb_control", "refresh"))
-        if state == "IDLE" and fresh and not output_on:
-            return ("start_charge", "show_journal", "show_diagnostics", "refresh")
-        return ("show_diagnostics", "show_journal", "refresh")

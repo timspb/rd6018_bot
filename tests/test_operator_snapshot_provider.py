@@ -72,6 +72,38 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.authority.value, "manual")
         self.assertEqual(state.psu_temp_c, 33.0)
         self.assertEqual(state.progress, "")
+    async def test_one_live_snapshot_retains_paused_and_running_control_actions(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from operator_hmi import HmiProcessState, HmiAuthority
+        from application.operator_actions import OperatorAction
+        for process, expected in (
+            (HmiProcessState.RUNNING, OperatorAction.PAUSE_CHARGE),
+            (HmiProcessState.PAUSED, OperatorAction.RESUME_CHARGE),
+        ):
+            with self.subTest(process=process):
+                app = _App(live())
+                app.hass = _SequencedHass(live(), live(switch="on"))
+                source = OperatorReadSource(app)
+                state = SimpleNamespace(
+                    process_state=process, authority=HmiAuthority.AUTO,
+                    output_on=True, regulator="CV", title="MAIN",
+                    manual_interrupted=False, attention="normal", safety="ok",
+                )
+                with patch.object(source, "hmi_state", return_value=state):
+                    provider = OperatorSnapshotProvider(source)
+                    snapshot = await provider.get_operator_snapshot()
+                    actions = await provider.get_operator_actions(snapshot=snapshot)
+                self.assertEqual(app.hass.reads, 1)
+                self.assertEqual(snapshot.process_state, process.value)
+                self.assertEqual(snapshot.state, "CHARGING")
+                self.assertEqual(
+                    {item.action.value for item in actions.available_actions},
+                    set(snapshot.available_actions),
+                )
+                self.assertIn(expected, {item.action for item in actions.available_actions})
+                self.assertEqual(provider.hmi_state_from_snapshot(snapshot).process_state, process)
+
     async def test_idle_snapshot_is_read_only_and_maps_actions(self):
         provider = OperatorSnapshotProvider(OperatorReadSource(_App(live())))
         snapshot = await provider.get_operator_snapshot()

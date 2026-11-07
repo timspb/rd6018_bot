@@ -22,6 +22,7 @@ class OperatorSnapshot:
     faults: tuple[str, ...] = ()
     telemetry_fresh: bool = True
     manual_interrupted: bool = False
+    process_state: str = ""
 
 
 def snapshot_from_mapping(data: Mapping[str, Any]) -> OperatorSnapshot:
@@ -70,4 +71,5 @@ def snapshot_from_mapping(data: Mapping[str, Any]) -> OperatorSnapshot:
         faults=faults,
         telemetry_fresh=bool(data.get("telemetry_fresh", True)),
         manual_interrupted=bool(data.get("manual_interrupted", False)),
+        process_state=str(data.get("process_state", "") or ""),
     )

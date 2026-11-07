@@ -30,6 +30,17 @@ def actions_for_snapshot(snapshot) -> OperatorActionsView:
         return session.interrupted_manual()
     if state == "HANDS_OFF":
         return external.hands_off(output_on=bool(snapshot.snapshot.output.get("enabled")))
+    # The generic CHARGING label alone cannot distinguish paused AUTO,
+    # STORAGE and an externally adopted MIX. Consume the original HMI
+    # process already captured with this same read-only snapshot.
+    if state == "CHARGING":
+        process = getattr(snapshot, "process_state", "")
+        if process in {"running", "paused"} and snapshot.snapshot.charge.program in {"auto", "manual"}:
+            return session.running(paused=process == "paused")
+        if process == "storage":
+            return session.storage()
+        if process == "adopted_mix":
+            return external.adopted_mix(interrupted=False)
     return OperatorActionsView.for_state(
         state, safety_allowed=snapshot.snapshot.safety.allowed, pause_allowed=False,
     )
