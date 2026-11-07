@@ -24,6 +24,7 @@ from runtime.ui.components.hmi_operator_details import render_operator_details, 
 from runtime.ui.components.hmi_service_details import render_operator_service_details, render_operator_service_details_view
 from runtime.ui.components.hmi_compact import _bold_value, _main_mode, _compact_transition, _compact_stage_label, _compact_battery_label, _compact_stage_status, _durable_finish_status
 from runtime.ui.components.hmi_live_measurements import _live_measurements
+from runtime.ui.components.hmi_auto_stage_progress import auto_stage_progress
 from runtime.ui.components.hmi_values import _finite, _on, _regulator, _temperature, _value, _duration
 from runtime.ui.components.main_stage_progress import main_stage_countdown_status
 from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
@@ -97,117 +98,11 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
         battery_label = battery_type
         if capacity is not None and capacity > 0:
             battery_label = f"{battery_label} · {capacity:g} Ah" if battery_label else f"{capacity:g} Ah"
-        progress = ""
-        stage_status = ""
-        snapshot: Mapping[str, Any] = {}
-        progress_fn = getattr(app, "_format_stage_progress_line", None)
-        if callable(progress_fn) and not telemetry_stale:
-            try:
-                progress = str(progress_fn(dict(live)) or "")
-            except Exception:
-                progress = ""
-        try:
-            snapshot = controller.ui_support_snapshot()
-            metrics = dict(snapshot.get("metrics") or {})
-            hold_started = snapshot.get("finish_hold_started_at")
-            durable_status = _durable_finish_status(snapshot, regulator)
-            in_mix = "mix" in stage.casefold()
-            if in_mix and hold_started is not None:
-                from runtime.charge.runtime.support import _effective_mix_finish_hold_seconds
-                stage_status = mix_finish_hold_status(
-                    snapshot=snapshot,
-                    started_at=hold_started,
-                    hold_seconds=_effective_mix_finish_hold_seconds(controller),
-                    now_s=time.time(),
-                )
-            elif durable_status is not None:
-                stage_status = durable_status
-            elif regulator in {"CV", "CC"} and not bool(
-                snapshot.get(
-                    "runtime_evidence_available",
-                    snapshot.get("runtime_analysis_available", False),
-                )
-            ):
-                stage_status = "⏳ Анализ Imin недоступен" if regulator == "CV" else "⏳ Анализ Vmax недоступен"
-            elif regulator == "CV":
-                minimum = _finite(metrics.get("current_min_a"))
-                if minimum is None or minimum <= 0:
-                    stage_status = "⏳ Imin не достигнут"
-                else:
-                    age = _finite(metrics.get("seconds_since_current_min"))
-                    elapsed = max(0, int(age or 0))
-                    minimum_started_at = _finite(metrics.get("current_min_started_at"))
-                    now_s = time.time()
-                    # Analyzer owns accepted Imin. Missing/invalid clock must
-                    # never masquerade as a freshly started three-hour hold.
-                    clock_available = age is not None and age >= 0
-                    if minimum_started_at is not None and 0 < minimum_started_at <= now_s:
-                        elapsed = max(0, int(now_s - minimum_started_at))
-                        clock_available = True
-                    if hold_started is not None and stage != "Main Charge":
-                        elapsed = max(0, int(now_s - float(hold_started)))
-                    if stage == "Main Charge":
-                        from runtime.charge.evidence.first_stage import tail_current_threshold_a
-                        from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
-                        from runtime.charge.programs.native_recipe_session import native_target_parameters
-                        from runtime.charge.strategy.main_variables import (
-                            agm_tail_hold_seconds, standard_tail_hold_seconds,
-                        )
-                        hold_s = (agm_tail_hold_seconds() if battery_type == "AGM"
-                                  else standard_tail_hold_seconds())
-                        hold_s = float(native_target_parameters(controller, "MAIN_POLICY").get(
-                            "tail_hold_hours", hold_s / 3600.0)) * 3600.0
-                        current_now = _finite(live.get("current"))
-                        voltage_now = _finite(live.get("battery_voltage"))
-                        target_now = _finite(getattr(controller, "target_voltage", None))
-                        if target_now is None:
-                            target_now = _finite(live.get("set_voltage"))
-                        tail_limit = (tail_current_threshold_a(battery_type, capacity)
-                                      if capacity is not None and capacity > 0 else None)
-                        ready = (
-                            current_now is not None and voltage_now is not None
-                            and target_now is not None and tail_limit is not None
-                            and current_now <= tail_limit
-                            and voltage_now >= target_now - float(NEAR_TARGET_MARGIN_V.default)
-                        )
-                        stage_status = main_stage_countdown_status(
-                            minimum_a=minimum,
-                            elapsed_s=elapsed,
-                            clock_available=clock_available,
-                            tail_ready=ready,
-                            hold_seconds=hold_s,
-                            intent=str(snapshot.get("intent") or ""),
-                            chemistry=battery_type,
-                        )
-                    elif in_mix:
-                        actual = _finite(metrics.get("delta_current_from_min_a"))
-                        required = _finite(metrics.get("reversal_threshold_a"))
-                        if actual is not None and required is not None and required > 0:
-                            stage_status = cv_delta_status(minimum, actual, required)
-                        else:
-                            stage_status = f"📉 Imin {minimum:.2f} A · ожидание данных ΔI"
-                    else:
-                        stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
-            elif regulator == "CC":
-                maximum = _finite(metrics.get("voltage_max_v"))
-                if maximum is None or maximum <= 0:
-                    stage_status = "⏳ Vmax не достигнут"
-                else:
-                    age = metrics.get("seconds_since_voltage_max")
-                    elapsed = max(0, int(float(age or 0)))
-                    if hold_started is not None:
-                        elapsed = max(0, int(time.time() - float(hold_started)))
-                    if in_mix:
-                        actual = _finite(metrics.get("delta_voltage_from_max_v"))
-                        required = _finite(metrics.get("voltage_reversal_threshold_v"))
-                        if actual is not None and required is not None and required > 0:
-                            stage_status = cc_delta_status(maximum, actual, required)
-                        else:
-                            stage_status = f"📈 Vmax {maximum:.2f} V · ожидание данных ΔV"
-                    else:
-                        stage_status = f"✅ Vmax {maximum:.2f} V · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
-        except Exception:
-            stage_status = ""
+        progress, stage_status, snapshot = auto_stage_progress(
+            app, controller, live, stage=stage, regulator=regulator,
+            telemetry_stale=telemetry_stale, battery_type=battery_type,
+            capacity=capacity, now_s=time.time,
+        )
         if telemetry_stale:
             stage_status = "⚠️ Телеметрия устарела · состояние не подтверждено"
             attention = "warning"
