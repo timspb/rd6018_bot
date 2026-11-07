@@ -20,7 +20,8 @@ from .journal_read_service import EventJournalReadService
 from .operator_read_source import DiagnosticAuthority, HmiProcessState, OperatorReadSource
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
-from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+from .operator_actions import OperatorActionsView
+from .operator_button_rules import actions_for_hmi, actions_for_snapshot
 from .intents import IntentDispatcher, OperatorIntent
 
 
@@ -122,49 +123,13 @@ class OperatorSnapshotProvider:
         # read can otherwise change ownership between the text and keyboard;
         # HANDS_OFF must never be remapped to a safety fault in that gap.
         if snapshot is not None:
-            if snapshot.state == "HANDS_OFF":
-                output_on = bool(snapshot.snapshot.output.get("enabled"))
-                if output_on:
-                    return self._actions(
-                        (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT),
-                        (),
-                        "hands_off",
-                    )
-                return self._actions(
-                    (OperatorAction.START_CHARGE, OperatorAction.RETURN_PB_CONTROL),
-                    (OperatorAction.SELECT_PROFILE,),
-                    "hands_off",
-                )
-            return OperatorActionsView.for_state(
-                snapshot.state,
-                safety_allowed=snapshot.snapshot.safety.allowed,
-                pause_allowed=False,
-            )
-
+            return actions_for_snapshot(snapshot)
         live = await self._source.read_live()
         hmi = self._source.hmi_state(live)
-        if hmi.process_state is HmiProcessState.ADOPTED_MIX:
-            available = (OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
-            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "adopted_mix")
-        if hmi.process_state is HmiProcessState.INTERRUPTED:
-            available = (OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
-            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "interrupted")
-        if hmi.process_state is HmiProcessState.HANDS_OFF:
-            available = (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT) if hmi.output_on else (OperatorAction.START_CHARGE, OperatorAction.RETURN_PB_CONTROL)
-            return self._actions(available, (), "hands_off")
-        if hmi.process_state is HmiProcessState.STORAGE:
-            return self._actions((OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS), (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "storage")
-        if hmi.process_state in {HmiProcessState.RUNNING, HmiProcessState.PAUSED} and hmi.authority.value in {"auto", "manual"}:
-            paused = self._source.pause_active()
-            available = (OperatorAction.RESUME_CHARGE if paused else OperatorAction.PAUSE_CHARGE, OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH, OperatorAction.SHOW_DIAGNOSTICS)
-            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "charging")
-        snapshot = self._build_snapshot(live, hmi)
-        return OperatorActionsView.for_state(snapshot.state, safety_allowed=snapshot.snapshot.safety.allowed, pause_allowed=False)
-
-    @staticmethod
-    def _actions(available, disabled, reason: str) -> OperatorActionsView:
-        reasons = {action.value: reason for action in disabled}
-        return OperatorActionsView(tuple(OperatorActionSpec(action) for action in available), tuple(disabled), reasons)
+        process = getattr(getattr(hmi, "process_state", None), "value", "")
+        authority = getattr(getattr(hmi, "authority", None), "value", "")
+        paused = self._source.pause_active() if process in {"running", "paused"} and authority in {"auto", "manual"} else None
+        return actions_for_hmi(hmi, paused=paused)
 
     def _observer_state(self) -> str:
         observer = self._source.observer()

@@ -23,6 +23,7 @@ from runtime.ui.components.main_stage_progress import main_stage_countdown_statu
 from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+from application.operator_button_rules import actions_for_hmi
 from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.charge import BATTERIES_CALLBACK_DATA, CHARGE_CALLBACK_DATA
@@ -632,11 +633,21 @@ def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup
             control_buttons.append(InlineKeyboardButton(text=label[0], callback_data=label[1]))
     if control_buttons:
         rows.append(control_buttons)
+    manual_buttons = []
+    for action in (OperatorAction.REAUTHORIZE_MANUAL, OperatorAction.DISCARD_MANUAL):
+        if action in action_map:
+            label = labels.get(action)
+            if label is not None:
+                manual_buttons.append(InlineKeyboardButton(text=label[0], callback_data=label[1]))
+    if manual_buttons:
+        rows.append(manual_buttons)
     handled = {
         OperatorAction.PAUSE_CHARGE,
         OperatorAction.RESUME_CHARGE,
         OperatorAction.STOP_CHARGE,
         OperatorAction.SHOW_GRAPH,
+        OperatorAction.REAUTHORIZE_MANUAL,
+        OperatorAction.DISCARD_MANUAL,
     }
     # Logs and diagnostics remain available to their dedicated handlers, but
     # are intentionally not rendered on the charge workspace.  Keep this
@@ -661,71 +672,13 @@ def build_operator_keyboard(
 ) -> InlineKeyboardMarkup:
     """Authoritative L2 operator keyboard.
 
-    Other builders remain compatibility surfaces for legacy handlers, but the
-    installed production panel always routes through this builder.
+    All callers use the application-owned eligibility rules; this layer renders.
     """
     if actions is not None:
         return _keyboard_from_actions(actions)
 
-    # Compatibility callers may omit the application action view.  Derive a
-    # conservative, data-only view from the already-built HMI state instead of
-    # reading controller/session objects from the presentation layer.
-    if state.process_state is HmiProcessState.IDLE:
-        if state.manual_interrupted:
-            return InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
-                    InlineKeyboardButton(text="🗑 Отказаться", callback_data="v2_manual_discard"),
-                ],
-                [InlineKeyboardButton(text="🔄 Обновить", callback_data="operator_refresh")],
-            ])
-        else:
-            fallback = OperatorActionsView.for_state("IDLE", safety_allowed=True)
-    elif state.process_state is HmiProcessState.STORAGE:
-        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
-            OperatorAction.SHOW_LOG,
-            OperatorAction.SHOW_DIAGNOSTICS,
-        )))
-    elif state.process_state is HmiProcessState.PAUSED:
-        fallback = OperatorActionsView(
-            tuple(OperatorActionSpec(action) for action in (
-                OperatorAction.RESUME_CHARGE,
-                OperatorAction.STOP_CHARGE,
-                OperatorAction.SHOW_LOG,
-                OperatorAction.SHOW_GRAPH,
-                OperatorAction.SHOW_DIAGNOSTICS,
-            )),
-        )
-    elif state.authority in {HmiAuthority.AUTO, HmiAuthority.MANUAL}:
-        fallback = OperatorActionsView(
-            tuple(OperatorActionSpec(action) for action in (
-                OperatorAction.PAUSE_CHARGE,
-                OperatorAction.STOP_CHARGE,
-                OperatorAction.SHOW_LOG,
-                OperatorAction.SHOW_GRAPH,
-                OperatorAction.SHOW_DIAGNOSTICS,
-            )),
-        )
-    elif state.process_state is HmiProcessState.HANDS_OFF:
-        actions = (
-            (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT)
-            if state.output_on
-            else (OperatorAction.SELECT_PROFILE, OperatorAction.SHOW_DIAGNOSTICS)
-        )
-        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in actions))
-    elif state.process_state is HmiProcessState.ADOPTED_MIX:
-        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
-            OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
-        )))
-    elif state.process_state is HmiProcessState.INTERRUPTED:
-        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
-            OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
-        )))
-    else:
-        fallback = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
-            OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
-        )))
-    return _keyboard_from_actions(fallback)
+    # The shared application rule selector owns eligibility for all callers.
+    return _keyboard_from_actions(actions_for_hmi(state))
 
 
 def render_operator_details(app: Any, state: OperatorHmiState, live: Mapping[str, Any]) -> str:
