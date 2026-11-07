@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
@@ -107,6 +109,54 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new_id, 77)
         self.assertEqual(app.bot.deleted, [])
         self.assertEqual(manager.panel_id(10), 77)
+
+    async def test_start_result_restores_one_panel_after_workspace(self):
+        app = FakeApp()
+        manager = TerminalPanelManager(app)
+        manager.adopt(10, 20, 77)
+        manager.enter_workspace(10)
+        restored = []
+
+        async def restore(chat_id, user_id):
+            restored.append((chat_id, user_id))
+            app.user_dashboard[user_id] = 101
+            app.chat_dashboard[chat_id] = 101
+            return 101
+
+        app._restore_dashboard_to_bottom = restore
+        class FakeCallback:
+            def __init__(self, data):
+                self.data = data
+                self.from_user = SimpleNamespace(id=20)
+                self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=88)
+
+        with patch("telegram_panel.CallbackQuery", FakeCallback):
+            await manager.after_event(FakeCallback("v2_quick_start"))
+        self.assertEqual(restored, [(10, 20)])
+        self.assertEqual(manager.panel_id(10), 101)
+        self.assertFalse(manager.in_workspace(10))
+        self.assertEqual(app.render_calls, [])
+        with patch("telegram_panel.CallbackQuery", FakeCallback):
+            manager.enter_workspace(10)
+            await manager.after_event(FakeCallback("v2_battery_start"))
+        self.assertEqual(restored, [(10, 20), (10, 20)])
+        self.assertFalse(manager.in_workspace(10))
+
+    async def test_charge_wizard_callbacks_do_not_append_dashboard(self):
+        app = FakeApp()
+        manager = TerminalPanelManager(app)
+        class FakeCallback:
+            def __init__(self, data):
+                self.data = data
+                self.from_user = SimpleNamespace(id=20)
+                self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=88)
+
+        with patch("telegram_panel.CallbackQuery", FakeCallback):
+            for callback in (CHARGE_CALLBACK_DATA, "v2_profile_efb", "v2_bat_intent_recovery"):
+                await manager.after_event(FakeCallback(callback))
+        self.assertTrue(manager.in_workspace(10))
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(app.refresh_calls, [])
 
     def test_program_live_mix_and_operator_submenus_are_workspace(self):
         for callback in (

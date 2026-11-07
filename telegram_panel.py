@@ -276,6 +276,15 @@ class TerminalPanelManager:
 
             if data in _TERMINAL_CALLBACKS:
                 self.leave_workspace(chat_id)
+                if data in {"v2_quick_start", "v2_battery_start"}:
+                    # These START handlers send a separate result message.
+                    # Editing the old panel would leave it above that result;
+                    # republish it last through the canonical graph renderer.
+                    restore = getattr(self.app, "_restore_dashboard_to_bottom", None)
+                    if callable(restore):
+                        panel_id = await restore(chat_id, user_id)
+                        self.adopt(chat_id, user_id, panel_id)
+                        return
                 await self.ensure_last(chat_id, user_id)
                 return
 

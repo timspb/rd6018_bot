@@ -17,8 +17,6 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
-from runtime.ui.telegram.lifecycle import restore_dashboard_to_bottom
-
 
 CHARGE_CALLBACK_DATA = callback_data_for(UIAction.OPEN_CHARGE)
 PROFILE_CALLBACK_PREFIX = callback_data_for(UIAction.SELECT_PROFILE)
@@ -72,7 +70,9 @@ def install_charge_program_screen(
             parse_mode=app.ParseMode.HTML,
             reply_markup=render_screen_markup(screen),
         )
-        await restore_dashboard_to_bottom(app, chat_id, user_id)
+        # OPEN_CHARGE enters the program-selection workspace. Its response,
+        # not the global dashboard, must be the last Telegram message until
+        # the workflow explicitly finishes. PanelLastMiddleware owns exit.
 
     @app.router.message(Command("modes"))
     async def _modes_command(message: Any) -> None:

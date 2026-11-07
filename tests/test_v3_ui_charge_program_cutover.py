@@ -146,6 +146,18 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
             source = (ROOT / rel).read_text(encoding="utf-8")
             self.assertNotIn('callback_data="charge_modes"', source, rel)
 
+    def test_profile_and_intent_selection_do_not_publish_idle_dashboard(self):
+        source = (ROOT / "production_bot_ui.py").read_text(encoding="utf-8")
+        self.assertNotIn("_refresh_dashboard_after_selection", source)
+        quick_start = source.split('F.data == "v2_quick_start"', 1)[1].split(
+            'F.data.startswith("v2_native_pick:")', 1
+        )[0]
+        self.assertNotIn("await dashboard_builder(", quick_start)
+        self.assertIn("await message.answer(format_start_feedback(result)", quick_start)
+
+        charge_route = (ROOT / "runtime/ui/telegram/charge.py").read_text(encoding="utf-8")
+        self.assertNotIn("await restore_dashboard_to_bottom", charge_route)
+
     def test_operator_hmi_uses_canonical_charge_and_battery_callbacks(self):
         source = (ROOT / "operator_hmi.py").read_text(encoding="utf-8")
         self.assertIn(
@@ -253,14 +265,14 @@ class V3ChargeProgramTelegramTests(unittest.IsolatedAsyncioTestCase):
         await app._v3_modes_command_handler(message)
         self.assertIn("программа заряда", message.answers[0][0])
         self.assertEqual(scheduled, [])
-        self.assertEqual(app.restored, [(10, 7)])
+        self.assertEqual(app.restored, [])
 
         call = _Call(CHARGE_CALLBACK_DATA)
         await app._v3_charge_program_handler(call)
         self.assertIn("программа заряда", call.message.answers[0][0])
         self.assertEqual(app.last_chat_id, 10)
         self.assertEqual(app.last_user_id, 7)
-        self.assertEqual(app.restored, [(10, 7), (10, 7)])
+        self.assertEqual(app.restored, [])
 
     async def test_profile_and_nested_navigation_delegate_to_injected_workflows(self):
         app = _App()

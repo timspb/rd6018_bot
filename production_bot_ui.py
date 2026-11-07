@@ -294,16 +294,6 @@ async def _route_profile_intent(app: Any, call: Any, profile: str) -> bool:
     return True
 
 
-async def _refresh_dashboard_after_selection(app: Any, call: Any, user_id: int) -> None:
-    sender = getattr(app, "send_dashboard", None)
-    if not callable(sender):
-        return
-    try:
-        await sender(call, old_msg_id=getattr(app, "user_dashboard", {}).get(user_id))
-    except Exception as exc:
-        app.logger.debug("dashboard refresh after mode selection failed: %s", exc)
-
-
 def install_ui_support(app: Any) -> None:
     """Install the Telegram operator presentation/workflow over the runtime substrate.
 
@@ -579,7 +569,6 @@ def install_ui_support(app: Any) -> None:
                 inline_keyboard=manual_button + _intent_keyboard("v2_bat_intent").inline_keyboard
             ),
         )
-        await _refresh_dashboard_after_selection(app, call, user_id)
     async def _select_quick_profile(call: Any, profile: str) -> None:
         if not await app._check_chat_and_respond(call):
             return
@@ -596,7 +585,6 @@ def install_ui_support(app: Any) -> None:
             f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям стратегии.",
             reply_markup=_intent_keyboard("v2_quick_intent"),
         )
-        await _refresh_dashboard_after_selection(app, call, user_id)
 
     app._select_quick_profile = _select_quick_profile
 
@@ -704,18 +692,9 @@ def install_ui_support(app: Any) -> None:
         _clear_pending_program_state(app, user_id)
         if trace is not None:
             trace.info("QUICK_START_TRACE pending=CLEARED after_route=PASS")
-        dashboard_builder = getattr(app, "_build_and_send_dashboard", None)
-        if callable(dashboard_builder) and message is not None:
-            try:
-                await dashboard_builder(
-                    chat_id=message.chat.id,
-                    user_id=user_id,
-                    old_msg_id=message.message_id,
-                    anchor_msg_id=None,
-                )
-            except Exception as exc:
-                if trace is not None:
-                    trace.warning("QUICK_START_TRACE dashboard_refresh_failed type=%s", type(exc).__name__)
+        # Do not render a panel before the START result. The terminal
+        # navigation middleware publishes the authoritative graph/control
+        # panel once, after this handler has delivered feedback.
         # The route owns preflight and transactional safety; the callback only
         # submits the operator intent and never touches hardware directly.
         # The callback was acknowledged before the transactional START.  That
@@ -825,4 +804,3 @@ def install_ui_support(app: Any) -> None:
             f"{format_battery_card(record)}\n\n{preview.text}",
             reply_markup=_recipe_preview_keyboard(app, "v2_battery_start"),
         )
-        await _refresh_dashboard_after_selection(app, call, user_id)
