@@ -1484,3 +1484,6 @@ Near-constant 0.23A and 14.76V traces were rendered on hard-coded 0..20 axes. Ex
 
 ## 2026-11-07 - Staged release pending post-charge
 Source 034bcee34a5eb199d466f62ee18a640fd323dc88 staged and verified on node104 at /tmp/d138_stage_034bcee3, handoff RELEASE_HANDOFF.json; 1359 file hashes/modes PASS, pip check PASS, on-host graph tests 6/6 PASS. Production remains slot13 9692cf37 PID230509, no restart. After charge, physically verify OFF and no session, capture fresh D137 identity and issue D146 profile + D145 prepare/execute; do not use prior preimage pin. See assistant checkpoint for exact checksums and release procedure.
+
+## 2026-11-07 node104 16:32 scheduled monitoring
+EFB80 Recovery MAIN Output ON 14.77V 0.22A Native=HA, 26C latest checkpoint; lease armed 900s, no trip, no new readback/Native/watchdog errors; bot PID230509 and relaxation PID62502 both active, zero restarts. Full source evidence in docs/assistant/RD6018_CURRENT_CHECKPOINT.md. Telegram publisher module extraction remains local WIP, not deployed.
