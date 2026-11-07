@@ -12,7 +12,8 @@ from typing import Any, Mapping, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
-from rd6018_telemetry import telemetry_freshness
+from runtime.ui.components.hmi_battery_identity import _battery_label_from_manual, _battery_label_from_observer
+from runtime.ui.components.hmi_live_safety import _normal_safety, _operator_telemetry_fresh
 from runtime.ui.components.hmi_values import _finite, _on, _regulator, _temperature, _value, _duration
 from runtime.ui.components.main_stage_progress import main_stage_countdown_status
 from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
@@ -268,51 +269,6 @@ def _observer_progress(observer: Any, state: str, regulator: str) -> str:
     if regulator == "CC":
         return "Финиш: свежий Vmax → ΔV · затем 2ч → OFF"
     return "Финишный критерий начнёт считаться после подтверждения режима CV/CC"
-
-
-def _battery_label_from_observer(observer: Any) -> str:
-    battery_id = str(getattr(observer, "battery_id", "") or "").strip()
-    chemistry = getattr(observer, "chemistry", None)
-    chemistry_text = str(getattr(chemistry, "value", chemistry) or "").strip()
-    capacity = _finite(getattr(observer, "capacity_ah", None))
-    pieces = [piece for piece in (battery_id, chemistry_text) if piece]
-    if capacity is not None and capacity > 0:
-        pieces.append(f"{capacity:g} Ah")
-    return " · ".join(pieces)
-
-
-def _battery_label_from_manual(manual: Any) -> str:
-    """Return the selected battery identity carried by the Manual request."""
-    request = getattr(manual, "request", None)
-    battery_id = str(
-        (getattr(request, "battery_id", "") if request is not None else "")
-        or getattr(manual, "battery_id", "")
-    ).strip()
-    capacity = _finite(getattr(request, "capacity_ah", None) if request is not None else None)
-    pieces = [battery_id] if battery_id else []
-    if capacity is not None and capacity > 0:
-        pieces.append(f"{capacity:g} Ah")
-    return " · ".join(pieces)
-
-
-def _normal_safety(live: Mapping[str, Any]) -> tuple[str, str]:
-    tripped = []
-    if _on(live.get("ovp_triggered")):
-        tripped.append("OVP")
-    if _on(live.get("ocp_triggered")):
-        tripped.append("OCP")
-    if tripped:
-        return "⚠️ Защита: " + "/".join(tripped), "alarm"
-    return "Защита: норма", "normal"
-
-
-def _operator_telemetry_fresh(live: Mapping[str, Any]) -> bool:
-    """Use the bounded freshness contract for truthful presentation."""
-
-    return telemetry_freshness(
-        live,
-        ("switch", "battery_voltage", "current", "protection_code", "regulation_code"),
-    ).valid
 
 
 def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiState:
