@@ -96,3 +96,6 @@ For operator detail text, edit `runtime/ui/components/hmi_operator_details.py`;
 for technical diagnostic text, edit `runtime/ui/components/hmi_service_details.py`.
 Single MIX observer state projection belongs to `runtime/ui/components/hmi_observer_runtime.py`.
 These are read-only formatters, not charge control or Telegram publishers.
+
+## Manual and unowned state display edit locations
+Manual active/interrupted read-only UI projections: runtime/ui/components/hmi_manual_states.py. HANDS_OFF, unowned Output ON containment and idle read-only UI projections: runtime/ui/components/hmi_unmanaged_states.py. The runtime owns charging and session state; application/operator_button_rules controls available actions. Do not put actuator calls or an independent button eligibility table in either presenter.
