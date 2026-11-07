@@ -25,6 +25,8 @@ from runtime.ui.components.hmi_service_details import render_operator_service_de
 from runtime.ui.components.hmi_compact import _bold_value, _main_mode, _compact_transition, _compact_stage_label, _compact_battery_label, _compact_stage_status, _durable_finish_status
 from runtime.ui.components.hmi_live_measurements import _live_measurements
 from runtime.ui.components.hmi_auto_stage_progress import auto_stage_progress
+from runtime.ui.components.hmi_manual_states import _manual_is_interrupted, manual_hmi_state
+from runtime.ui.components.hmi_unmanaged_states import unmanaged_hmi_state
 from runtime.ui.components.hmi_values import _finite, _on, _regulator, _temperature, _value, _duration
 from runtime.ui.components.main_stage_progress import main_stage_countdown_status
 from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
@@ -35,12 +37,6 @@ from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.ui.telegram.analysis import ANALYSIS_CALLBACK_DATA
 from runtime.ui.telegram.charge import BATTERIES_CALLBACK_DATA, CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import DETAILS_CALLBACK_DATA
-
-
-def _manual_is_interrupted(app: Any) -> bool:
-    manager = getattr(app, "manual_session_manager", None)
-    state = getattr(getattr(manager, "state", None), "value", getattr(manager, "state", ""))
-    return str(state or "").strip().lower() == "interrupted"
 
 
 def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiState:
@@ -140,116 +136,20 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             finish_evidence=(snapshot.get("finish_evidence") if isinstance(snapshot, Mapping) else None),
         )
 
-    manual = getattr(app, "manual_session_manager", None)
-    if manual is not None and bool(getattr(manual, "is_active", False)):
-        elapsed_s = getattr(manual, "active_elapsed_s", None)
-        return OperatorHmiState(
-            process_state=HmiProcessState.RUNNING,
-            authority=HmiAuthority.MANUAL,
-            title=f"RD6018 · {getattr(getattr(manual, 'request', None), 'operation_mode_label', 'Ручной режим')}",
-            output_on=output_on,
-            regulator=regulator,
-            battery_label=_battery_label_from_manual(manual),
-            battery_voltage_v=battery_v,
-            current_a=current,
-            power_w=power,
-            battery_temp_c=temp_ext,
-            psu_temp_c=temp_int,
-            target_voltage_v=set_v,
-            current_limit_a=set_i,
-            # This is an internal authority label, not an operator-facing
-            # transition. The panel shows the actual stage/evidence instead.
-            progress="",
-            safety=safety,
-            attention=attention,
-            stage_status=_manual_extrema_status(manual, regulator, now_s=time.time(), mix_hold_seconds=MANUAL_MIX_FINISH_HOLD_SEC),
-            stage_time=_duration(elapsed_s),
-            total_time=_duration(elapsed_s),
-            delivered_ah=_finite(live.get("ah")),
-        )
-
-    if _manual_is_interrupted(app):
-        return OperatorHmiState(
-            process_state=HmiProcessState.IDLE,
-            authority=HmiAuthority.NONE,
-            title="RD6018 · ПРЕРВАННЫЙ ЗАРЯД",
-            output_on=output_on,
-            regulator=regulator,
-            battery_label=_battery_label_from_manual(manual),
-            battery_voltage_v=battery_v,
-            current_a=current,
-            power_w=power,
-            battery_temp_c=temp_ext,
-            psu_temp_c=temp_int,
-            target_voltage_v=set_v,
-            current_limit_a=set_i,
-            progress="Сохранённый заряд требует авторизации или отказа",
-            safety=safety,
-            attention="warning",
-            manual_interrupted=True,
-        )
-
-    if hands_off:
-        return OperatorHmiState(
-            process_state=HmiProcessState.HANDS_OFF,
-            authority=HmiAuthority.EXTERNAL,
-            title="RD6018 · РУЧНОЕ УПРАВЛЕНИЕ",
-            output_on=output_on,
-            regulator=regulator,
-            battery_label="",
-            battery_voltage_v=battery_v,
-            current_a=current,
-            power_w=power,
-            battery_temp_c=temp_ext,
-            psu_temp_c=temp_int,
-            target_voltage_v=set_v,
-            current_limit_a=set_i,
-            progress=(
-                "Внешняя сессия · автоматика не меняет Output и уставки"
-                if output_on
-                else "RD свободен от Pb-автоматики"
-            ),
-            safety=safety,
-            attention=attention,
-        )
-
-    if output_on:
-        return OperatorHmiState(
-            process_state=HmiProcessState.CONTAINMENT,
-            authority=HmiAuthority.CONTAINMENT,
-            title="RD6018 · OUTPUT ВНЕ СЕССИИ",
-            output_on=True,
-            regulator=regulator,
-            battery_label="",
-            battery_voltage_v=battery_v,
-            current_a=current,
-            power_w=power,
-            battery_temp_c=temp_ext,
-            psu_temp_c=temp_int,
-            target_voltage_v=set_v,
-            current_limit_a=set_i,
-            progress="Нет подтверждённой управляемой сессии",
-            safety="⚠️ Требуется проверка ownership",
-            attention="alarm",
-        )
-
-    return OperatorHmiState(
-        process_state=HmiProcessState.IDLE,
-        authority=HmiAuthority.NONE,
-        title="RD6018 · ГОТОВ",
-        output_on=False,
-        regulator=regulator,
-        battery_label="",
-        battery_voltage_v=battery_v,
-        current_a=current,
-        power_w=power,
-        battery_temp_c=temp_ext,
-        psu_temp_c=temp_int,
-        target_voltage_v=set_v,
-        current_limit_a=set_i,
-        progress="Готов к новой программе",
-        safety=safety,
-        attention=attention,
+    manual_result = manual_hmi_state(
+        app, live,
+        output_on=output_on, regulator=regulator, battery_v=battery_v,
+        current=current, power=power, temp_ext=temp_ext, temp_int=temp_int,
+        set_v=set_v, set_i=set_i, safety=safety, attention=attention,
+        now_s=time.time,
+    )
+    if manual_result is not None:
+        return manual_result
+    return unmanaged_hmi_state(
+        hands_off=hands_off,
+        output_on=output_on, regulator=regulator, battery_v=battery_v,
+        current=current, power=power, temp_ext=temp_ext, temp_int=temp_int,
+        set_v=set_v, set_i=set_i, safety=safety, attention=attention,
     )
 
 
