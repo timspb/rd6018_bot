@@ -318,14 +318,9 @@ def install_operator_hmi(app: Any) -> None:
         # PanelLastMiddleware refreshes the single panel after this callback.
         # A second direct refresh raced the graph and its tracked message ID.
 
-    @app.router.callback_query(F.data == "operator_graph")
-    async def _operator_graph(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        if not await route_read_intent(call, OperatorIntentKind.SHOW_GRAPH):
-            return
-        await call.answer()
-        user_id = call.from_user.id if call.from_user else 0
+    async def render_graph_for_callback(call: Any, user_id: int) -> None:
+        # Use the existing terminal-panel owner for both graph entry and
+        # range changes; never publish a competing text/graph panel.
         owner = getattr(app, "terminal_panel_manager", None)
         if owner is not None:
             await owner.render_graph(
@@ -334,6 +329,16 @@ def install_operator_hmi(app: Any) -> None:
             )
         else:
             await _render_graph_workspace(app, call, user_id)
+
+    @app.router.callback_query(F.data == "operator_graph")
+    async def _operator_graph(call: Any) -> None:
+        if not await app._check_chat_and_respond(call):
+            return
+        if not await route_read_intent(call, OperatorIntentKind.SHOW_GRAPH):
+            return
+        await call.answer()
+        user_id = call.from_user.id if call.from_user else 0
+        await render_graph_for_callback(call, user_id)
 
     @app.router.callback_query(F.data == "operator_refresh")
     async def _operator_refresh(call: Any) -> None:
@@ -355,14 +360,7 @@ def install_operator_hmi(app: Any) -> None:
         user_id = call.from_user.id if call.from_user else 0
         app.user_chart_range[user_id] = raw
         await call.answer()
-        owner = getattr(app, "terminal_panel_manager", None)
-        if owner is not None:
-            await owner.render_graph(
-                call.message.chat.id, user_id,
-                lambda: _render_graph_workspace(app, call, user_id),
-            )
-        else:
-            await _render_graph_workspace(app, call, user_id)
+        await render_graph_for_callback(call, user_id)
 
     @app.router.callback_query(F.data == "operator_more")
     async def _operator_more(call: Any) -> None:
