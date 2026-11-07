@@ -278,6 +278,37 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(guard._telemetry_unavailable_since)
         self.assertEqual(app.hass.turn_off_calls, 0)
 
+    async def test_mix_pair_stale_battery_and_missing_voltage_readback_keeps_one_native_grace(self):
+        # Regression for the two independent V2 warnings seen after MAIN -> MIX.
+        # One proven Native outage must retain its original epoch while partial
+        # callbacks recover, without inventing either missing readback.
+        live = self._with_freshness(self._live(), ages={"battery_voltage": 23.7})
+        live["set_voltage_readback_v2"] = None
+        live["_native_link_outage_since"] = 100.0
+        app = self._app(live)
+        guard = self._guard(app)
+        with patch("managed_runtime_safety.time.monotonic", side_effect=[110.0, 220.0, 250.0]):
+            await guard.get_all_live()
+            self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            app.hass.live["set_voltage_readback_v2"] = 14.8
+            await guard.get_all_live()
+            self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            app.hass.live = self._with_freshness(self._live())
+            await guard.get_all_live()
+        self.assertIsNone(guard._telemetry_unavailable_since)
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_mix_pair_without_native_outage_marker_remains_fail_closed(self):
+        live = self._with_freshness(self._live(), ages={"battery_voltage": 23.7})
+        live["set_voltage_readback_v2"] = None
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage readback V2"):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
     async def test_isolated_stale_readback_without_native_outage_still_fails(self):
         live = self._with_freshness(self._live())
         live["set_voltage_readback_v2"] = None

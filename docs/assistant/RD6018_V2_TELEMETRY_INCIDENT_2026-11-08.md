@@ -16,3 +16,13 @@ At displayed 1:23, Telegram safety alerts:
 - Trace the origin, timestamp, freshness metadata and cache invalidation of `battery_voltage` and `set_voltage`, especially ESP128 reconnect batching and existing 300-second Native outage policy. Do not loosen the 20-second freshness invariant or 900-second hardware lease as a speculative fix.
 - Reproduce the paired sequence with offline fixtures: (a) aged battery callback, (b) absent/stale authoritative programming callback, (c) partial Native reconnect, (d) fully recovered callbacks. Verify existing fail-closed behavior and established outage grace; preserve one safety owner.
 - Compare one-cycle UI event sequencing and source timestamp to the precise runtime logs **only after separate read-only investigation is explicitly in scope**. Never treat the operator screenshot as fresh Native/HA evidence. No deployment, restart, START/STOP, firmware, setpoint, lease or database writes without separate operator authorization.
+
+## 2026-11-08 — Offline causal matrix (source-only)
+
+`ManagedRuntimeSafetyGuard.get_all_live()` evaluates programmed evidence before runtime freshness. If `set_voltage_readback_v2` is unavailable in the same sample as stale `battery_voltage`, the set-voltage error is evaluated first. Two alerts do not prove separate concurrent physical faults or verified Output OFF.
+
+Existing `_telemetry_grace_active()` requires `_native_link_outage_since` for partial-loss 300-second grace. Without that marker, isolated stale/missing values remain fail-closed; full communications blackout also gets the established grace. ESP128 clears callbacks after disconnect, awaits a full fresh register batch (bounded 8s), and retains its original outage epoch across partial recovery. No safety thresholds changed.
+
+Added offline regressions: a pair of `battery_voltage` age 23.7s and missing Vset readback remains within the original 300s outage budget when a valid Native outage marker exists and clears after full recovery; without the marker it fails closed. Focused safety + metadata on Windows: **34 passed**. A broad selection including ESP transport produced **59 passed, 2 environment-dependent failures** (relative cwd config path, Linux-only `fcntl` import). Do not report all-green or physical acceptance. No node104 access.
+
+`managed_runtime_safety.py` is a 721-line safety adapter. Meaningful future decomposition boundary: pure Native outage/partial-readback classification may move to a focused policy module, but only the existing guard may own grace timestamps and fail-closed actions. No additional watchdog/timer/safety authority.
