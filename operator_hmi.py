@@ -13,6 +13,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd_live_adoption import MIX_FINISH_HOLD_S
+from runtime.ui.labels.operator_actions import OPERATOR_ACTION_LABELS
 from runtime.ui.components.manual_extrema_progress import _manual_extrema_status
 from runtime.ui.components.adopted_mix_progress import _observer_progress
 from runtime.ui.components.hmi_battery_identity import _battery_label_from_manual, _battery_label_from_observer
@@ -612,23 +613,7 @@ def render_operator_panel(state: OperatorHmiState) -> str:
 
 def _keyboard_from_actions(actions: OperatorActionsView) -> InlineKeyboardMarkup:
     """Render logical capabilities without reading runtime objects."""
-    labels = {
-        OperatorAction.START_CHARGE: ("⚡ Режимы заряда", CHARGE_CALLBACK_DATA),
-        OperatorAction.SELECT_PROFILE: ("🔋 АКБ", BATTERIES_CALLBACK_DATA),
-        # Newly rendered panels must use the managed confirmation-based route.
-        OperatorAction.STOP_CHARGE: ("🛑 Стоп", "operator_managed_stop"),
-        OperatorAction.PAUSE_CHARGE: ("⏸ Пауза", "operator_pause_toggle"),
-        OperatorAction.RESUME_CHARGE: ("▶️ Продолжить", "operator_pause_toggle"),
-        OperatorAction.SHOW_LOG: ("📋 События", "logs"),
-        OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", DETAILS_CALLBACK_DATA),
-        OperatorAction.ACK: ("✅ Подтвердить", DETAILS_CALLBACK_DATA),
-        OperatorAction.ADOPT_MIX: ("🧲 Подхватить Mix", "rd_live_mix"),
-        OperatorAction.STOP_MIX: ("⏹ Остановить Mix", "operator_adopted_stop"),
-        OperatorAction.DISABLE_OUTPUT: ("⏹ Output OFF", "rd_hands_off_output_off"),
-        OperatorAction.REAUTHORIZE_MANUAL: ("▶ Авторизовать", "v2_manual_reauthorize"),
-        OperatorAction.DISCARD_MANUAL: ("🗑 Отказаться", "v2_manual_discard"),
-        OperatorAction.RETURN_PB_CONTROL: ("🔒 Вернуть Pb-контроль", "rd_hands_off_disable"),
-    }
+    labels = OPERATOR_ACTION_LABELS
     rows: list[list[InlineKeyboardButton]] = []
     action_map = {item.action: item for item in actions.available_actions}
     control_actions = [
