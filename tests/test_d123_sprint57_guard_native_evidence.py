@@ -175,12 +175,11 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
             self.assertEqual(recovery.last_guard_assessment.reason,
                              "execution_owner_or_lease_unproven")
 
-    def test_native_protection_iset_and_ocp_faults_are_assessed(self):
+    def test_native_protection_and_iset_faults_block_guard_reconciliation(self):
         document = guarded_document()
         cases = (
             (native_live(protection=2), "native_protection_not_normal"),
             (native_live(iset=5.0), "physical_iset_does_not_match_resume_target"),
-            (native_live(ocp=6.3), "physical_ocp_not_confirmed"),
         )
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "charge_session.json"
@@ -191,6 +190,22 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
                     recovery = self.run_recovery(app, path)
                     self.assertEqual(recovery.last_guard_assessment.reason, reason)
                     self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
+
+    def test_ocp_is_not_an_extra_pre_on_main_guard_gate(self):
+        # Canonical MAIN Guard reconciles fresh OFF/protection/Iset/journal
+        # evidence. Hardware OCP is checked by separate physical safety
+        # authorities; this pure reconciliation never authorizes Output ON.
+        document = guarded_document()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "charge_session.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            app = self.app_for(self.direct_client(native_live(ocp=6.3)), document)
+            recovery = self.run_recovery(app, path)
+            self.assertEqual(recovery.last_guard_assessment.status, "RECONCILED")
+            self.assertEqual(recovery.last_guard_assessment.reason,
+                             "native_iset_matches_canonical_main_guard")
+            self.assertTrue(app.charge_controller._guarded_restore_activated_off)
+            self.assertFalse(asyncio.run(app.execution_port.request_verified_on()))
 
     def test_invalid_guard_and_changed_canonical_revision_remain_blocked(self):
         document = guarded_document()
