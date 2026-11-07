@@ -620,6 +620,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(live["switch"], "on")
         self.assertEqual(live["_meta"]["set_voltage_readback_v2"]["status"], "ok")
         self.assertFalse(transport._reconnecting_subscription)
+        self.assertNotIn("_native_link_outage_since", live)
         await transport.close()
 
     async def test_reconnect_still_fails_closed_after_missing_register_timeout(self):
@@ -631,6 +632,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(_FakeClient.instances), 2)
         self.assertIsNone(live["set_voltage_readback_v2"])
         self.assertEqual(live["_meta"]["set_voltage_readback_v2"]["status"], "unknown")
+        self.assertIn("_native_link_outage_since", live)
         self.assertFalse(transport._reconnecting_subscription)
         await transport.close()
 

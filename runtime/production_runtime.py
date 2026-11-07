@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -419,7 +420,10 @@ link_lost_alert_sent: bool = False  # флаг-блокировка однокр
 link_failure_streak: int = 0
 LINK_FAILURE_NOTIFY_THRESHOLD = 3
 soft_watchdog_outage_reported: bool = False
-SOFT_WATCHDOG_TIMEOUT = 3 * 60
+# Last-good telemetry can precede a detected disconnect by one 30s poll.
+# Allow the full 300s loss window plus that observation margin; the
+# independent 900s edge safety lease retains physical authority.
+SOFT_WATCHDOG_TIMEOUT = 6 * 60
 _soft_watchdog_incident = SoftWatchdogIncident()
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
@@ -2352,6 +2356,17 @@ async def watchdog_loop() -> None:
             delta = now - last
 
             live = await hass.get_all_live()
+            outage_since = live.get("_native_link_outage_since")
+            if (
+                isinstance(outage_since, (int, float))
+                and not isinstance(outage_since, bool)
+                and math.isfinite(outage_since)
+                and 0 <= time.monotonic() - outage_since < 300.0
+            ):
+                # A stale pre-disconnect U/R18 is not grounds for a second,
+                # independent software shutdown inside the owner-approved
+                # 5-minute communication window.
+                continue
             v = _safe_float(live.get("voltage"))
             output_on = str(live.get("switch", "")).lower() == "on"
 
@@ -2474,6 +2489,14 @@ async def data_logger() -> None:
                 )
             else:
                 logger.error("data_logger read failed: %s", ex)
+            await asyncio.sleep(30)
+            continue
+
+        if "_native_link_outage_since" in live:
+            # A reconnect may deliver an incomplete Modbus callback batch.
+            # Defer controller decisions without treating partial data as a
+            # healthy heartbeat; the existing 300s guard owns the timeout.
+            logger.info("Native link recovering; charge controller tick deferred")
             await asyncio.sleep(30)
             continue
 

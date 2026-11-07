@@ -228,19 +228,63 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             await guard.get_all_live()
         self.assertEqual(app.hass.live["switch"], "off")
 
-    async def test_complete_readback_outage_gets_180_second_grace(self):
+    async def test_complete_readback_outage_gets_300_second_grace(self):
         live = self._with_freshness(self._live())
         for key in ("battery_voltage", "voltage", "current", "temp_ext", "temp_int", "switch"):
             live[key] = None
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic", side_effect=[100.0, 279.0, 281.0] + [281.0] * 20):
+        with patch("managed_runtime_safety.time.monotonic", side_effect=[100.0, 399.0, 401.0] + [401.0] * 20):
             await guard.get_all_live()
             self.assertEqual(app.hass.turn_off_calls, 0)
             await guard.get_all_live()
             self.assertEqual(app.hass.turn_off_calls, 0)
             with self.assertRaisesRegex(RuntimeSafetyError, "battery_voltage"):
                 await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_native_disconnect_partial_readback_does_not_stop_before_300s(self):
+        live = self._with_freshness(self._live())
+        live["set_voltage_readback_v2"] = None
+        live["_native_link_outage_since"] = 100.0
+        app = self._app(live)
+        guard = self._guard(app)
+        with patch("managed_runtime_safety.time.monotonic",
+                   side_effect=[101.0, 250.0, 399.0, 400.0] + [400.0] * 30):
+            for _ in range(3):
+                await guard.get_all_live()
+                self.assertEqual(app.hass.turn_off_calls, 0)
+                self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+            with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage"):
+                await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_native_partial_recovery_keeps_same_outage_epoch(self):
+        live = self._with_freshness(self._live())
+        live["set_voltage_readback_v2"] = None
+        live["_native_link_outage_since"] = 100.0
+        app = self._app(live)
+        guard = self._guard(app)
+        with patch("managed_runtime_safety.time.monotonic",
+                   side_effect=[110.0, 220.0, 395.0]):
+            await guard.get_all_live()
+            app.hass.live["current"] = 0.25
+            await guard.get_all_live()
+            self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            app.hass.live["set_voltage_readback_v2"] = 14.8
+            app.hass.live.pop("_native_link_outage_since")
+            await guard.get_all_live()
+        self.assertIsNone(guard._telemetry_unavailable_since)
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_isolated_stale_readback_without_native_outage_still_fails(self):
+        live = self._with_freshness(self._live())
+        live["set_voltage_readback_v2"] = None
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage"):
+            await guard.get_all_live()
         self.assertEqual(app.hass.turn_off_calls, 1)
 
     async def test_valid_sample_resets_readback_outage_grace(self):

@@ -34,6 +34,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         # After a broken Native link, one read must wait for the complete
         # *new* register callback set before feeding the safety guard.
         self._reconnecting_subscription = False
+        self._native_link_outage_since: float | None = None
 
     async def _connect(self):
         key = os.getenv(self.config.connection.key_env or "", "")
@@ -52,6 +53,8 @@ class ESPHomeTransport(ReadOnlyTransport):
     def _on_connection_closed(self, _event: Any) -> None:
         """Invalidate the cached subscription when aioesphomeapi loses the link."""
         self._reconnecting_subscription = True
+        if self._native_link_outage_since is None:
+            self._native_link_outage_since = time.monotonic()
         self._state_subscription_remover = None
         self._state_cache.clear()
         self._state_updated_at.clear()
@@ -63,6 +66,8 @@ class ESPHomeTransport(ReadOnlyTransport):
         if client is not None and bool(getattr(client, "is_connected", True)):
             return
         if client is not None:
+            if self._native_link_outage_since is None:
+                self._native_link_outage_since = time.monotonic()
             await self.close()
             self._reconnecting_subscription = True
         await self._connect()
@@ -445,6 +450,23 @@ class ESPHomeTransport(ReadOnlyTransport):
                     reported_at, timezone.utc).isoformat()
             meta[name] = report
         result["_meta"] = meta
+        if self._native_link_outage_since is not None:
+            # Retain the original connection-loss epoch across partial callbacks.
+            required = ("output_state", "voltage", "current", "battery_voltage",
+                        "configured_voltage", "configured_current", "ovp", "ocp",
+                        "temp_int", "temp_ext")
+            complete = all(
+                name not in self.config.entities
+                or (result.get(name) is not None
+                    and meta.get(name, {}).get("status") == "ok"
+                    and isinstance(meta[name].get("age_s"), (int, float))
+                    and 0 <= meta[name]["age_s"] <= 8)
+                for name in required
+            )
+            if complete:
+                self._native_link_outage_since = None
+            else:
+                result["_native_link_outage_since"] = self._native_link_outage_since
         return result
 
     async def disable_output(self) -> None:

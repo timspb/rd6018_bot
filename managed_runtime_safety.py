@@ -36,7 +36,9 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     # fresh evidence still positively says ON we may retry OFF at a bounded cadence;
     # unknown/stale Output evidence never causes command spam.
     OFF_UNCONFIRMED_RETRY_S = 60.0
-    TELEMETRY_UNAVAILABLE_GRACE_S = 180.0
+    # Owner-authorized Native communication-loss budget. The independent
+    # 900-second ESP safety lease remains unchanged.
+    TELEMETRY_UNAVAILABLE_GRACE_S = 300.0
 
     @staticmethod
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:
@@ -105,28 +107,45 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if not self._is_transient_telemetry_error(reason):
             self._telemetry_unavailable_since = None
             return False
-        # A single invalid channel is not a control-plane outage: keep the
-        # immediate fail-closed behavior for that case. Grace is only for a
-        # complete loss of the live/readback snapshot.
-        if any(
-            _finite(live.get(key)) is not None
-            for key in ("battery_voltage", "current", "temp_ext", "temp_int")
-        ) or _binary(live.get("switch")) is not None:
-            self._telemetry_unavailable_since = None
-            return False
+        # A known Native TCP interruption can restore only part of its
+        # callback batch. Keep ONE 300s budget, anchored to the original
+        # disconnect, even if measured U/I or Output R18 arrive before the
+        # programmed-register readbacks. Partial data must not reset the clock.
+        native_since = live.get("_native_link_outage_since")
+        native_outage = (
+            isinstance(native_since, (int, float))
+            and not isinstance(native_since, bool)
+            and math.isfinite(native_since)
+            and native_since >= 0
+        )
+        if not native_outage:
+            # Without evidence of a Native link outage, only a complete
+            # blackout receives communication-loss grace. Isolated stale
+            # channels still fail closed immediately.
+            if any(
+                _finite(live.get(key)) is not None
+                for key in ("battery_voltage", "current", "temp_ext", "temp_int")
+            ) or _binary(live.get("switch")) is not None:
+                self._telemetry_unavailable_since = None
+                return False
         now = time.monotonic()
+        started = min(float(native_since), now) if native_outage else now
         if self._telemetry_unavailable_since is None:
-            self._telemetry_unavailable_since = now
+            self._telemetry_unavailable_since = started
             logger.warning(
-                "Transient HA/readback outage; Output OFF deferred for %.0fs: %s",
+                "Native/telemetry communication lost; withholding software STOP "
+                "for up to %.0fs: %s",
                 self.TELEMETRY_UNAVAILABLE_GRACE_S,
                 reason,
             )
-            return True
+        elif native_outage:
+            self._telemetry_unavailable_since = min(
+                self._telemetry_unavailable_since, started
+            )
         if now - self._telemetry_unavailable_since < self.TELEMETRY_UNAVAILABLE_GRACE_S:
             return True
         logger.error(
-            "HA/readback outage exceeded %.0fs: %s",
+            "Native/telemetry communication outage exceeded %.0fs: %s",
             self.TELEMETRY_UNAVAILABLE_GRACE_S,
             reason,
         )
