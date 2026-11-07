@@ -144,8 +144,8 @@ def format_journal_event(event_line: str) -> str:
         elif upper.startswith(("MAIN_HOLD", "MIX", "DELTA", "I_MIN", "IMIN", "V_MAX", "VMAX", "STABIL")):
             # Only report facts that were actually written to charging_history.log.
             labels = {
-                "MAIN_HOLD_START": 'Imin зафиксирован, выдержка начата',
-                "MAIN_HOLD_RESET": 'Новый Imin, выдержка заново',
+                "MAIN_HOLD_START": 'Imin принят; отсчёт от минимума',
+                "MAIN_HOLD_RESET": 'Новый Imin; отсчёт от минимума заново',
                 "MIX_IMIN_UPDATED": 'Новый минимум тока MIX',
                 "MIX_VMAX_UPDATED": 'Новый максимум напряжения MIX',
                 "MIX_STARTED": "Начат финишный заряд", "DELTA_CONFIRMED": "Подтверждён Delta",
