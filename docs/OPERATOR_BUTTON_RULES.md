@@ -39,3 +39,20 @@ identified `test_operator_navigation_expired_callback.py` assertion fails
 it was independently run in a detached temporary Git worktree and is not
 reported as passing. This is an existing callback-navigation defect, not
 evidence of production failure or acceptance of actual recovery.
+
+## Snapshot identity continuity (2026-11-07)
+
+An interrupted Manual is an **IDLE** operator snapshot with the explicit
+read-only `manual_interrupted=True` field. The canonical HMI builder supplies
+that field once, `OperatorSnapshotProvider` preserves it, and the same
+`session.interrupted_manual()` rule supplies the actions whether Telegram
+starts with a full HMI state or a sanitized snapshot. The snapshot must never
+infer it by searching the Russian progress text or by making another HA read.
+`snapshot_from_mapping` accepts the field for offline/serialized readers.
+This change is presentation only; the existing Manual authorization/discard
+handlers retain all safety checks and output authority.
+
+The `operator_done` navigation handler acknowledges Telegram callbacks;
+`PanelLastMiddleware` is still the *sole* owner of L2 refresh. The old test
+that demanded independent refresh/delete from that handler was updated to the
+existing single-owner behavior, including expired Telegram callback cases.
