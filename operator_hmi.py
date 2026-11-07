@@ -12,6 +12,8 @@ from typing import Any, Mapping, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
+from rd_live_adoption import MIX_FINISH_HOLD_S
+from runtime.ui.components.adopted_mix_progress import _observer_progress
 from runtime.ui.components.hmi_battery_identity import _battery_label_from_manual, _battery_label_from_observer
 from runtime.ui.components.hmi_live_safety import _normal_safety, _operator_telemetry_fresh
 from runtime.ui.components.hmi_values import _finite, _on, _regulator, _temperature, _value, _duration
@@ -254,23 +256,6 @@ def _manual_is_interrupted(app: Any) -> bool:
     return str(state or "").strip().lower() == "interrupted"
 
 
-def _observer_progress(observer: Any, state: str, regulator: str) -> str:
-    if state == "off_pending":
-        return "Финиш подтверждён · Output OFF ожидает подтверждения"
-    if state == "interrupted":
-        return "Подхват прерван перезапуском · требуется новое подтверждение"
-    hold_started = getattr(observer, "finish_hold_started_at_s", None)
-    if hold_started is not None:
-        held_s = max(0.0, time.time() - float(hold_started))
-        held_m = int(held_s // 60)
-        return f"Δ подтверждена · выдержка {held_m // 60}ч {held_m % 60:02d}м / 2ч"
-    if regulator == "CV":
-        return "Финиш: свежий Imin → ΔI · затем 2ч → OFF"
-    if regulator == "CC":
-        return "Финиш: свежий Vmax → ΔV · затем 2ч → OFF"
-    return "Финишный критерий начнёт считаться после подтверждения режима CV/CC"
-
-
 def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiState:
     output_on = _on(live.get("switch"))
     telemetry_stale = not _operator_telemetry_fresh(live)
@@ -319,7 +304,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             psu_temp_c=temp_int,
             target_voltage_v=set_v,
             current_limit_a=set_i,
-            progress=_observer_progress(observer, observer_state, regulator),
+            progress=_observer_progress(observer, observer_state, regulator, hold_seconds=MIX_FINISH_HOLD_S, now_s=time.time()),
             safety=safety,
             attention="warning" if observer_state in {"off_pending", "interrupted"} else attention,
         )
