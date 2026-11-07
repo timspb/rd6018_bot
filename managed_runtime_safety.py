@@ -7,6 +7,7 @@ import time
 from typing import Any, Optional
 
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
+from runtime.safety.live_freshness import runtime_freshness_error
 
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
@@ -297,30 +298,11 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         *,
         output_state: Optional[bool],
     ) -> Optional[str]:
-        if not isinstance(live.get("_meta"), dict):
-            return "critical runtime telemetry freshness metadata is missing"
-
-        keys = list(self.RUNTIME_FRESHNESS_KEYS)
-        if output_state is True:
-            keys.append("voltage")
-
-        if self._available(live.get("protection_code")):
-            keys.append("protection_code")
-        else:
-            keys.extend(("ovp_triggered", "ocp_triggered"))
-
-        if output_state is True:
-            if self._available(live.get("regulation_code")):
-                keys.append("regulation_code")
-            else:
-                for key in ("is_cv", "is_cc"):
-                    if self._available(live.get(key)):
-                        keys.append(key)
-
-        freshness = telemetry_freshness(live, keys)
-        if freshness.valid:
-            return None
-        return f"critical runtime telemetry is stale/incoherent: {freshness.detail}"
+        # Retain the original entrypoint used by managed adoption. This guard
+        # alone decides whether a freshness error triggers grace or fail-closed.
+        return runtime_freshness_error(
+            live, output_state=output_state, required_keys=self.RUNTIME_FRESHNESS_KEYS,
+        )
 
     def _foreign_output_safety_error(self, live: dict[str, Any]) -> Optional[str]:
         """Validate only ownership-neutral evidence during the orphan decision window.
