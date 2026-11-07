@@ -56,3 +56,25 @@ The `operator_done` navigation handler acknowledges Telegram callbacks;
 `PanelLastMiddleware` is still the *sole* owner of L2 refresh. The old test
 that demanded independent refresh/delete from that handler was updated to the
 existing single-owner behavior, including expired Telegram callback cases.
+
+## Graph / L2 composition (2026-11-07)
+
+`operator_dashboard._composed_operator_rows` is the one small composition
+helper for both text-panel and graph-panel RD controls. It invokes the
+**already-installed** `operator_hmi.build_operator_keyboard` exactly once,
+preserving the existing PB ownership, managed adoption and MIX eligibility
+wrappers. Those wrappers augment the common application action rules; they
+are not replaced with a second physical authority. The existing release
+button filter is applied during managed charging for the normal panel and
+unconditionally for the active graph workspace, preserving prior behavior.
+
+`OperatorSnapshotProvider.get_operator_actions(snapshot=snapshot)` now
+receives the same read-only snapshot already used to render the associated
+panel text in all three graph/dashboard refresh paths. This avoids a second
+read of runtime telemetry while choosing action capabilities.
+
+Acceptance: 306 selected UI/graph/operator/recovery tests PASS and 27 subtests
+PASS with Windows PYTHONUTF8=1; compileall and git diff --check PASS. A focused
+composition regression asserts managed-charge release filtering without
+hiding the control in unrelated idle states. No new Telegram publisher,
+handler, rule engine, control channel, or hardware operation.
