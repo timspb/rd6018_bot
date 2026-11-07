@@ -27,6 +27,8 @@ from runtime.ui.components.hmi_live_measurements import _live_measurements
 from runtime.ui.components.hmi_auto_stage_progress import auto_stage_progress
 from runtime.ui.components.hmi_panel_text import render_operator_panel
 from runtime.ui.components.hmi_action_keyboard import _keyboard_from_actions
+from runtime.ui.components.hmi_navigation_keyboards import _back_keyboard, _graph_keyboard, _more_keyboard
+from runtime.ui.components.hmi_compat_dashboard_state import compat_dashboard_state
 from runtime.ui.components.hmi_manual_states import _manual_is_interrupted, manual_hmi_state
 from runtime.ui.components.hmi_unmanaged_states import unmanaged_hmi_state
 from runtime.ui.components.hmi_values import _finite, _on, _regulator, _temperature, _value, _duration
@@ -172,30 +174,6 @@ def build_operator_keyboard(
     return _keyboard_from_actions(actions_for_hmi(state))
 
 
-def _back_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="⬅ К панели", callback_data="operator_done")]]
-    )
-
-
-def _graph_keyboard(app: Any, user_id: int) -> InlineKeyboardMarkup:
-    selected = str(app._chart_range_for_user(user_id))
-
-    def button(mode: str, text: str) -> InlineKeyboardButton:
-        marker = "● " if selected == mode else ""
-        return InlineKeyboardButton(text=f"{marker}{text}", callback_data=f"operator_graph_{mode}")
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                button(app.CHART_RANGE_30M, "30м"),
-                button(app.CHART_RANGE_2H, "2ч"),
-                button(app.CHART_RANGE_SESSION, "Сессия"),
-            ],
-        ]
-    )
-
-
 async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
     _chart_mode, graph_since, limit_pts = app._chart_query_params(user_id)
     times, voltages, currents, temps = await app.get_graph_data_with_temp(
@@ -218,19 +196,6 @@ async def _render_graph_workspace(app: Any, call: Any, user_id: int) -> None:
             parse_mode=app.ParseMode.HTML,
             reply_markup=markup,
         )
-
-
-def _more_keyboard(state: OperatorHmiState) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text="🧠 AI анализ", callback_data=ANALYSIS_CALLBACK_DATA)]]
-    if state.process_state is HmiProcessState.IDLE:
-        rows.append([InlineKeyboardButton(text="🛠 Ручной режим", callback_data="v2_manual_choose")])
-        rows.append([InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries")])
-    if state.process_state is HmiProcessState.ADOPTED_MIX:
-        rows.append([InlineKeyboardButton(text="🧲 Статус Mix", callback_data="rd_live_mix_status")])
-    if state.process_state is HmiProcessState.HANDS_OFF and not state.output_on:
-        rows.append([InlineKeyboardButton(text="🔒 Вернуть Pb-контроль", callback_data="rd_hands_off_disable")])
-    rows.append([InlineKeyboardButton(text="⬅ К панели", callback_data="operator_done")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def install_operator_hmi(app: Any) -> None:
@@ -313,36 +278,7 @@ def install_operator_hmi(app: Any) -> None:
     def dashboard_keyboard(is_on: bool, user_id: int, *, back_to_dashboard: bool = False) -> InlineKeyboardMarkup:
         if back_to_dashboard:
             return _back_keyboard()
-        # Keyboard rendering itself has no live dict. Build a conservative state from
-        # the known ownership/session facts; normal dashboard rendering uses full live.
-        observer, observer_state = _observer_runtime(app)
-        manager = getattr(app, "rd_control_mode_manager", None)
-        if observer is not None and observer_state in {"active", "off_pending", "interrupted"}:
-            state = OperatorHmiState(
-                HmiProcessState.INTERRUPTED if observer_state == "interrupted" else HmiProcessState.ADOPTED_MIX,
-                HmiAuthority.ADOPTED_MIX,
-                "",
-                bool(is_on),
-                "—",
-                _battery_label_from_observer(observer),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                "",
-                "",
-            )
-        elif manager is not None and bool(getattr(manager, "hands_off", False)):
-            state = OperatorHmiState(HmiProcessState.HANDS_OFF, HmiAuthority.EXTERNAL, "", bool(is_on), "—", "", None, None, None, None, None, None, None, "", "")
-        elif bool(getattr(app.charge_controller, "is_active", False)):
-            state = OperatorHmiState(HmiProcessState.RUNNING, HmiAuthority.AUTO, "", bool(is_on), "—", "", None, None, None, None, None, None, None, "", "")
-        elif getattr(app, "manual_session_manager", None) is not None and bool(getattr(app.manual_session_manager, "is_active", False)):
-            state = OperatorHmiState(HmiProcessState.RUNNING, HmiAuthority.MANUAL, "", bool(is_on), "—", "", None, None, None, None, None, None, None, "", "")
-        else:
-            state = OperatorHmiState(HmiProcessState.IDLE if not is_on else HmiProcessState.CONTAINMENT, HmiAuthority.NONE if not is_on else HmiAuthority.CONTAINMENT, "", bool(is_on), "—", "", None, None, None, None, None, None, None, "", "")
+        state = compat_dashboard_state(app, is_on)
         return build_operator_keyboard(app, state)
 
     app._build_dashboard_keyboard = dashboard_keyboard
