@@ -369,6 +369,17 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         live = await transport.get_live_values()
         self.assertIsNone(live["voltage"])
         self.assertEqual(live["_meta"]["voltage"]["status"], "unknown")
+        self.assertIsNone(live["output_state_code_v2"])
+        self.assertEqual(live["switch"], "unknown")
+        await transport.close()
+
+    async def test_out_of_range_native_output_code_is_unknown_not_off(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        transport._on_state(SensorState(3, 2.0))
+        live = await transport.get_live_values()
+        self.assertEqual(live["output_state_code_v2"], 2.0)
+        self.assertEqual(live["switch"], "unknown")
         await transport.close()
 
     async def test_native_edge_readback_returns_all_six_states_with_age_and_type(self):
@@ -577,6 +588,50 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
                 "button.rd6018_rd_6018_safety_lease_adopt_live_output")
         self.assertEqual(wrong["status"], "wrong_type")
         self.assertEqual(wrong["native_type"], "SimpleNamespace")
+        await transport.close()
+
+    async def test_reconnect_waits_for_delayed_complete_native_register_batch(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        first = _FakeClient.instances[0]
+        first.disconnected = True
+        _FakeClient.emit_initial = False
+        recovery_ticks = []
+
+        async def delayed_callback(seconds):
+            if seconds == 0.2:
+                recovery_ticks.append(seconds)
+                client = _FakeClient.instances[-1]
+                if len(recovery_ticks) == 1:
+                    for callback in client.callbacks:
+                        callback(SensorState(3, 1.0))
+                if len(recovery_ticks) == 3:
+                    for callback in client.callbacks:
+                        callback(SensorState(1, 14.72))
+                        callback(SensorState(2, 0.25))
+                        callback(NumberState(4, 14.75))
+
+        with patch("runtime.physical.transports.esp128.asyncio.sleep",
+                   new=delayed_callback):
+            live = await transport.get_live_values()
+        self.assertEqual(len(recovery_ticks), 3)
+        self.assertEqual(live["set_voltage_readback_v2"], 14.75)
+        self.assertEqual(live["voltage"], 14.72)
+        self.assertEqual(live["switch"], "on")
+        self.assertEqual(live["_meta"]["set_voltage_readback_v2"]["status"], "ok")
+        self.assertFalse(transport._reconnecting_subscription)
+        await transport.close()
+
+    async def test_reconnect_still_fails_closed_after_missing_register_timeout(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        _FakeClient.instances[0].disconnected = True
+        _FakeClient.emit_initial = False
+        live = await transport.get_live_values()
+        self.assertEqual(len(_FakeClient.instances), 2)
+        self.assertIsNone(live["set_voltage_readback_v2"])
+        self.assertEqual(live["_meta"]["set_voltage_readback_v2"]["status"], "unknown")
+        self.assertFalse(transport._reconnecting_subscription)
         await transport.close()
 
     async def test_reconnects_when_cached_client_reports_disconnected(self):

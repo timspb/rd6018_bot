@@ -1466,3 +1466,6 @@ Charge mode/profile/battery/intent and preview messages are workspace screens, n
 ## 2026-11-07 — EFB intent/START Telegram panel hotfix release boundary
 
 Source `bd54bd7` repairs unintended Idle panel appended under the charge wizard and guarantees one graph/control panel after START feedback. Production D144 slot12 remains at `85b70a1`: user started a fresh EFB80 MAIN on node104 at 13:38 local, D148 strict OFF gate fails, so do not interrupt the session to install a presentation-only update. Check checkpoint for tests, evidence, and next guarded release condition.
+## 2026-11-07 — Native readback transient disconnect / V2 safety
+
+EFB MAIN safety OFF at 04:09 UTC followed an actual Native API TCP reset (`Errno 104`) and partially unavailable canonical register callbacks, not a Telegram alert mistake. OFF verified by fresh physical R18 at 04:09:56. Native transport hotfix waits at most 8 s for genuine safety-critical callbacks *after reconnect only*, then hands any still missing/stale values to unchanged fail-closed guard. Missing raw R18 yields UNKNOWN, not fabricated OFF. Production not yet changed; restored output was independently checked OFF, saved MAIN session remains intact. See checkpoint for incident timeline, tests and separate historical ESP link resets.

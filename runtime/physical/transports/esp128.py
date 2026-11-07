@@ -31,6 +31,9 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_subscription_remover: Callable[[], None] | None = None
         self._connection_closed_remover: Callable[[], None] | None = None
         self._state_subscription_lock = asyncio.Lock()
+        # After a broken Native link, one read must wait for the complete
+        # *new* register callback set before feeding the safety guard.
+        self._reconnecting_subscription = False
 
     async def _connect(self):
         key = os.getenv(self.config.connection.key_env or "", "")
@@ -48,6 +51,7 @@ class ESPHomeTransport(ReadOnlyTransport):
 
     def _on_connection_closed(self, _event: Any) -> None:
         """Invalidate the cached subscription when aioesphomeapi loses the link."""
+        self._reconnecting_subscription = True
         self._state_subscription_remover = None
         self._state_cache.clear()
         self._state_updated_at.clear()
@@ -60,6 +64,7 @@ class ESPHomeTransport(ReadOnlyTransport):
             return
         if client is not None:
             await self.close()
+            self._reconnecting_subscription = True
         await self._connect()
 
     def _on_state(self, state: Any) -> None:
@@ -329,10 +334,48 @@ class ESPHomeTransport(ReadOnlyTransport):
             } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
             object_id = self.config.entities.get(name)
             return self._read_subscribed_state(object_id, expected_type(name, object_id) or expected)
+
+        if self._reconnecting_subscription:
+            if self._state_subscription_remover is None:
+                # Also recover a link that closed during this very read.
+                await self._ensure_state_subscription()
+            # A broken TCP link clears the Native subscription cache. The
+            # initial callback batch may need a full Modbus poll (more than
+            # 0.5s). Do not expose a half-populated cache to the existing
+            # safety guard when the link has just been re-established.
+            required = (
+                "output_state", "voltage", "current", "battery_voltage",
+                "configured_voltage", "configured_current", "ovp", "ocp",
+                "temp_int", "temp_ext",
+            )
+            for _ in range(40):  # at most 8s; never a safety bypass
+                ready = True
+                for name in required:
+                    if name not in self.config.entities:
+                        continue
+                    reading, meta = value(name)
+                    age = meta.get("age_s")
+                    if (reading is None or meta.get("status") != "ok"
+                            or not isinstance(age, (int, float))
+                            or isinstance(age, bool) or not 0 <= age <= 8):
+                        ready = False
+                        break
+                if ready:
+                    break
+                await asyncio.sleep(0.2)
+            self._reconnecting_subscription = False
+
         reads = {key: value(key) for key in self.config.entities}
         result = {key: item[0] for key, item in reads.items()}
         result["output_state_code_v2"] = result.get("output_state")
-        result["switch"] = "on" if result.get("output_state") not in (None, 0, 0.0, "0") else "off"
+        raw_output = result.get("output_state")
+        if raw_output in (0, 0.0, "0", "0.0", False):
+            result["switch"] = "off"
+        elif raw_output in (1, 1.0, "1", "1.0", True):
+            result["switch"] = "on"
+        else:
+            # Missing/invalid R18 is UNKNOWN, never an invented physical OFF.
+            result["switch"] = "unknown"
         result["set_voltage_readback_v2"] = result.get("configured_voltage")
         result["set_current_readback_v2"] = result.get("configured_current")
         result["ovp_readback_v2"] = result.get("ovp")
