@@ -590,6 +590,71 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wrong["native_type"], "SimpleNamespace")
         await transport.close()
 
+    def test_native_reconnect_coherence_requires_valid_independent_callback_age(self):
+        from runtime.physical.transports.esp128_callback_coherence import native_batch_complete
+        configured = {"output_state": "rd_output", "configured_voltage": "rd_set_voltage"}
+        readings = {
+            "output_state": (0.0, {"status": "ok", "age_s": 0.5}),
+            "configured_voltage": (16.5, {"status": "ok", "age_s": 0.7}),
+        }
+        self.assertTrue(native_batch_complete(configured, readings))
+        for invalid in (None, -0.1, 8.1, float("nan"), True):
+            with self.subTest(age=invalid):
+                degraded = dict(readings)
+                degraded["configured_voltage"] = (16.5, {"status": "ok", "age_s": invalid})
+                self.assertFalse(native_batch_complete(configured, degraded))
+        self.assertFalse(native_batch_complete(configured, {
+            "output_state": readings["output_state"],
+        }))
+
+    async def test_independent_battery_and_set_voltage_callback_loss_does_not_invent_outage(self):
+        # UI incident: an aged battery callback and missing Vset readback can
+        # coexist without a Native TCP outage. One sensor recovery does not
+        # refresh the other's timestamp or create a synthetic disconnect.
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        transport.config.entities["battery_voltage"] = "rd_battery"
+        original_inventory = _FakeClient.list_entities_services
+
+        async def with_battery(client):
+            entities, services = await original_inventory(client)
+            entities.append(SensorInfo(22, "rd_battery"))
+            return entities, services
+
+        with patch.object(_FakeClient, "list_entities_services", with_battery):
+            try:
+                await transport.get_live_values()
+                client = _FakeClient.instances[-1]
+                for callback in tuple(client.callbacks):
+                    callback(SensorState(22, 12.75))
+                battery_identity = ("SensorInfo", 22)
+                number_identity = ("NumberInfo", 4)
+                transport._state_updated_at[battery_identity] -= 23.7
+                transport._state_cache.pop(number_identity)
+                transport._state_types.pop(number_identity)
+                first = await transport.get_live_values()
+                self.assertIsNone(first["set_voltage_readback_v2"])
+                self.assertEqual(first["_meta"]["set_voltage_readback_v2"]["status"], "unknown")
+                self.assertGreater(first["_meta"]["battery_voltage"]["age_s"], 20.0)
+                self.assertNotIn("_native_link_outage_since", first)
+
+                for callback in tuple(client.callbacks):
+                    callback(NumberState(4, 16.5))
+                second = await transport.get_live_values()
+                self.assertEqual(second["set_voltage_readback_v2"], 16.5)
+                self.assertLess(second["_meta"]["set_voltage_readback_v2"]["age_s"], 8.0)
+                self.assertGreater(second["_meta"]["battery_voltage"]["age_s"], 20.0)
+                self.assertNotIn("_native_link_outage_since", second)
+
+                for callback in tuple(client.callbacks):
+                    callback(SensorState(22, 12.76))
+                recovered = await transport.get_live_values()
+                self.assertLess(recovered["_meta"]["battery_voltage"]["age_s"], 8.0)
+                self.assertEqual(recovered["set_voltage_readback_v2"], 16.5)
+                self.assertNotIn("_native_link_outage_since", recovered)
+                self.assertEqual(len(_FakeClient.instances), 1)
+            finally:
+                await transport.close()
+
     async def test_reconnect_waits_for_delayed_complete_native_register_batch(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         await transport.get_live_values()
