@@ -266,6 +266,32 @@ class OperatorHmiTests(unittest.TestCase):
             ["v2_manual_reauthorize", "v2_manual_discard"],
         )
 
+    def test_interrupted_manual_buttons_do_not_depend_on_russian_progress_text(self):
+        from dataclasses import replace
+        app = FakeApp(observer=None, hands_off=False)
+        app.manual_session_manager = types.SimpleNamespace(
+            is_active=False, state=types.SimpleNamespace(value="interrupted"),
+            battery_id="China",
+        )
+        original = build_operator_hmi_state(app, live(output="off"))
+        self.assertTrue(original.manual_interrupted)
+        translated = replace(original, progress="Any translated operator text")
+        callbacks = [
+            button.callback_data
+            for row in build_operator_keyboard(app, translated).inline_keyboard
+            for button in row
+        ]
+        self.assertIn("v2_manual_reauthorize", callbacks)
+        self.assertIn("v2_manual_discard", callbacks)
+        idle = replace(translated, manual_interrupted=False, progress="???????????????")
+        idle_callbacks = [
+            button.callback_data
+            for row in build_operator_keyboard(app, idle).inline_keyboard
+            for button in row
+        ]
+        self.assertNotIn("v2_manual_reauthorize", idle_callbacks)
+        self.assertNotIn("v2_manual_discard", idle_callbacks)
+
     def test_adopted_details_are_truthful_about_low_level_authority(self):
         app = FakeApp(observer=FakeObserver())
         live_data = live()

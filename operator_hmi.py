@@ -72,6 +72,7 @@ class OperatorHmiState:
     stage_time: str = ""
     total_time: str = ""
     delivered_ah: Optional[float] = None
+    manual_interrupted: bool = False
 
 
 def _bold_value(value: Optional[float], digits: int, suffix: str) -> str:
@@ -477,6 +478,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
             progress="Сохранённый заряд требует авторизации или отказа",
             safety=safety,
             attention="warning",
+            manual_interrupted=True,
         )
 
     if hands_off:
@@ -669,7 +671,7 @@ def build_operator_keyboard(
     # conservative, data-only view from the already-built HMI state instead of
     # reading controller/session objects from the presentation layer.
     if state.process_state is HmiProcessState.IDLE:
-        if "авторизац" in str(state.progress or "").lower():
+        if state.manual_interrupted:
             return InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="▶ Авторизовать", callback_data="v2_manual_reauthorize"),
