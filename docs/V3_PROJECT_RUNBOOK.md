@@ -1463,3 +1463,6 @@ Current node104 production release source is `85b70a1642e4dd5629d0f22d4a96ddc770
 ## 2026-11-07 — charge wizard remains last until START terminal action
 
 Charge mode/profile/battery/intent and preview messages are workspace screens, not triggers to append the Idle panel. No UI module may manually send the dashboard during selection. Explicit START completion posts feedback first; the existing `TerminalPanelManager` restores the graph/control panel once, last in chat, through canonical `_restore_dashboard_to_bottom`. See checkpoint for regression tests and installed-version gate.
+## 2026-11-07 — EFB intent/START Telegram panel hotfix release boundary
+
+Source `bd54bd7` repairs unintended Idle panel appended under the charge wizard and guarantees one graph/control panel after START feedback. Production D144 slot12 remains at `85b70a1`: user started a fresh EFB80 MAIN on node104 at 13:38 local, D148 strict OFF gate fails, so do not interrupt the session to install a presentation-only update. Check checkpoint for tests, evidence, and next guarded release condition.
