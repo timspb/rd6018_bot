@@ -501,7 +501,7 @@ class OperatorHmiTests(unittest.TestCase):
         app._format_stage_progress_line = lambda live: "<b>Обычный заряд</b>"
         state = build_operator_hmi_state(app, live())
         text = render_operator_panel(state)
-        self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
+        self.assertIn("📉 Imin 0.22 A · прошло 2ч 02м · ждём ΔI", text)
         self.assertIn("🎯 16.54 V · 1.01 A", text)
 
     def test_imin_timer_uses_current_minimum_start_time_for_fresh_display(self):
@@ -524,7 +524,7 @@ class OperatorHmiTests(unittest.TestCase):
         app.charge_controller = controller
         with patch("operator_hmi.time.time", return_value=10000):
             text = render_operator_panel(build_operator_hmi_state(app, live()))
-        self.assertIn("✅ Imin 0.22 A · ⏱ 2ч 02м", text)
+        self.assertIn("📉 Imin 0.22 A · прошло 2ч 02м · ждём ΔI", text)
 
     def test_efb_main_countdown_uses_last_confirmed_minimum(self):
         controller = types.SimpleNamespace(

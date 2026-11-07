@@ -489,6 +489,11 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                                 stage_status = f"✅ Imin {minimum:.2f} A · выдержка выполнена, ожидаем решение"
                         else:
                             stage_status = f"✅ Imin {minimum:.2f} A · ожидание устойчивого CV"
+                    elif "mix" in stage.casefold():
+                        stage_status = (
+                            f"📉 Imin {minimum:.2f} A · прошло {elapsed // 3600}ч "
+                            f"{(elapsed % 3600) // 60:02d}м · ждём ΔI"
+                        )
                     else:
                         stage_status = f"✅ Imin {minimum:.2f} A · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
             elif regulator == "CC":

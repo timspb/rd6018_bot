@@ -1407,3 +1407,7 @@ Canonical Telegram journal events now load through the existing `EventJournalRea
 ## 2026-11-07 — Telegram UI callback fixture and stale journal pages
 
 The callback acceptance fixture now replaces `_refresh_operator_panel` at the UI/snapshot boundary so synthetic navigation does not read production ESP128 configuration or conceal provider errors. Journal rendering clamps an expired or forged page offset to the oldest remaining event, preventing an invalid `1–0` range. These are source/tests only; node104, Telegram, and the PSU were not accessed. See `docs/assistant/RD6018_CURRENT_CHECKPOINT.md` for exact verification limits.
+
+## 2026-11-07 — MIX CV operator status label
+
+MIX CV `Imin` age is elapsed time since the accepted current minimum, not a countdown to finish. Only confirmed Delta I starts the separate sticky finish hold (default 2 h), followed by SAFE_WAIT after ordinary policy checks. Telegram HMI labels interval as elapsed and waiting Delta I; MAIN countdown is unchanged. Source-only; see checkpoint.
