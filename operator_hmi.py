@@ -13,6 +13,7 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import MANUAL_MIX_FINISH_HOLD_SEC
 from rd6018_telemetry import telemetry_freshness
+from runtime.ui.components.main_stage_progress import main_stage_countdown_status
 from application.operator_views import OperatorDetailsView, ServiceDetailsView
 from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -503,24 +504,15 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                             and current_now <= tail_limit
                             and voltage_now >= target_now - float(NEAR_TARGET_MARGIN_V.default)
                         )
-                        intent = str(snapshot.get("intent") or "").lower()
-                        destination = (
-                            "решения по MAIN" if battery_type.upper() == "AGM"
-                            else "завершения MAIN" if intent == "normal"
-                            else "MAIN → MIX" if intent in {"recovery", "conditioning"}
-                            else "решения по MAIN"
+                        stage_status = main_stage_countdown_status(
+                            minimum_a=minimum,
+                            elapsed_s=elapsed,
+                            clock_available=clock_available,
+                            tail_ready=ready,
+                            hold_seconds=hold_s,
+                            intent=str(snapshot.get("intent") or ""),
+                            chemistry=battery_type,
                         )
-                        if ready and hold_s > 0 and not clock_available:
-                            stage_status = f"⏳ Imin {minimum:.2f} A · время минимума не подтверждено"
-                        elif ready and hold_s > 0:
-                            left = max(0, int(math.ceil(hold_s - elapsed)))
-                            if left:
-                                stage_status = (f"✅ Imin {minimum:.2f} A · до {destination} "
-                                                f"{left // 3600}ч {(left % 3600) // 60:02d}м")
-                            else:
-                                stage_status = f"✅ Imin {minimum:.2f} A · выдержка выполнена, ожидаем решение"
-                        else:
-                            stage_status = f"✅ Imin {minimum:.2f} A · ожидание устойчивого CV"
                     elif in_mix:
                         actual = _finite(metrics.get("delta_current_from_min_a"))
                         required = _finite(metrics.get("reversal_threshold_a"))
