@@ -162,3 +162,6 @@ For ownership/watchdog changes, fake Python lease tests are not sufficient by th
 ## Scope discipline
 
 For narrow operational tasks, make only the requested operational changes. Do not redesign charging thresholds, recipes, Telegram UX or database schema unless the task explicitly asks for it.
+
+## Current autonomous new-chat handoff (2026-11-08)
+For source-only autonomous continuation read docs/assistant/RD6018_AUTONOMOUS_HANDOFF_2026-11-08.md after this AGENTS.md and the latest docs/assistant/RD6018_CURRENT_CHECKPOINT.md. Its ready prompt is docs/assistant/RD6018_NEW_CHAT_PROMPT_2026-11-08.md. It does not authorize production node104 deployment, restart or hardware acts; the receiving chat owner sets wake schedule separately.
