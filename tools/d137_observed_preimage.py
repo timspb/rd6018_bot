@@ -31,9 +31,14 @@ def observed_preimage(root: Path, *, pid: int,
     marker = root / ".deploy_sha"
     session_path = root / "state" / "charge_session.json"
     quarantine_path = root / "state" / "session_recovery_quarantine.json"
-    tracked = [journal_path, marker, quarantine_path]
+    tracked = [journal_path, quarantine_path]
     if any(p.is_symlink() or not p.is_file() for p in tracked):
         raise ValueError("unsafe or absent durable state")
+    marker_present = marker.exists()
+    if marker.is_symlink() or (marker_present and not marker.is_file()):
+        raise ValueError("unsafe deployment marker")
+    if marker_present:
+        tracked.append(marker)
     if session_path.is_symlink():
         raise ValueError("unsafe session symlink")
     session_present = session_path.is_file()
@@ -48,6 +53,77 @@ def observed_preimage(root: Path, *, pid: int,
     session = read_small_json(session_path) if session_present else None
     quarantine = read_small_json(quarantine_path)
     journal = read_small_json(journal_path)
+    d144_identity = None
+    if not marker_present:
+        # D144 is the canonical release identity after a state-preserving
+        # install. Historical transaction slots may have been pruned by
+        # ordinary cleanup; pin the newest surviving COMMITTED slot instead.
+        # Verify every installed source file against its candidate manifest.
+        from tools.node104_d090_transaction import inventory as installed_app_inventory
+
+        slots = []
+        for transaction_path in root.glob("D144_TRANSACTION*.json"):
+            if transaction_path.is_symlink() or not transaction_path.is_file():
+                raise ValueError("unsafe D144 installed release history")
+            name = transaction_path.name
+            if name == "D144_TRANSACTION.json":
+                slot = 1
+            else:
+                suffix = name.removeprefix("D144_TRANSACTION_").removesuffix(".json")
+                if not suffix.isdigit() or str(int(suffix)) != suffix:
+                    raise ValueError("unknown D144 installed release history")
+                slot = int(suffix)
+            slots.append((slot, transaction_path))
+        slots.sort()
+        if not slots or len({slot for slot, _ in slots}) != len(slots):
+            raise ValueError("D144 installed release history is absent or ambiguous")
+        slot, transaction_path = slots[-1]
+        suffix = "" if slot == 1 else "_" + str(slot)
+        identity_path = root / ("D144_INSTALLED_RELEASE" + suffix + ".json")
+        if (identity_path.is_symlink() or not identity_path.is_file()
+                or transaction_path.is_symlink()):
+            raise ValueError("D144 installed release identity is absent or unsafe")
+        tracked.extend((transaction_path, identity_path))
+        before.update({str(p): sha256(p) for p in (transaction_path, identity_path)})
+        d144_identity = read_small_json(identity_path)
+        transaction = read_small_json(transaction_path)
+        release = transaction.get("release_identity")
+        installed_app = installed_app_inventory(app)
+        installed_venv = installed_app_inventory(venv)
+        candidate_inventory = transaction.get("candidate")
+        recorded_app = (candidate_inventory.get("app")
+                        if isinstance(candidate_inventory, dict) else None)
+        recorded_venv = (candidate_inventory.get("venv")
+                         if isinstance(candidate_inventory, dict) else None)
+        extra_app_paths = (set(installed_app) - set(recorded_app)
+                           if isinstance(recorded_app, dict) else set())
+        source_files_match = (
+            isinstance(recorded_app, dict)
+            and all(installed_app.get(name) == metadata
+                    for name, metadata in recorded_app.items())
+            and all(
+                "__pycache__" in Path(name).parts
+                and (name.endswith(".pyc") or Path(name).name == "__pycache__")
+                for name in extra_app_paths
+            )
+        )
+        if (transaction.get("schema") != "D144_STATE_PRESERVING_V1"
+                or transaction.get("phase") != "COMMITTED"
+                or transaction.get("slot", slot) != slot
+                or type(transaction.get("transaction")) is not str
+                or d144_identity.get("schema") != "D144_RELEASE_IDENTITY_V1"
+                or type(d144_identity.get("source_sha")) is not str
+                or len(d144_identity["source_sha"]) != 40
+                or any(c not in "0123456789abcdef" for c in d144_identity["source_sha"])
+                or type(d144_identity.get("candidate_identity_sha256")) is not str
+                or len(d144_identity["candidate_identity_sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in d144_identity["candidate_identity_sha256"])
+                or d144_identity.get("transaction") != transaction.get("transaction")
+                or release != {k: d144_identity[k] for k in
+                               ("schema", "source_sha", "candidate_identity_sha256")}
+                or not source_files_match
+                or recorded_venv != installed_venv):
+            raise ValueError("D144 installed release identity does not match committed app/venv")
     retirement = quarantine.get("retirement")
     preserved_guard = None
     if session_present and session.get("stage") in {"Main Charge", "Mix Mode"}:
@@ -224,7 +300,8 @@ def observed_preimage(root: Path, *, pid: int,
             "transaction": journal.get("transaction"),
             "phase": journal.get("phase"),
             "journal_sha256": before[str(journal_path)],
-            "marker_sha256": before[str(marker)],
+            "marker_sha256": before[str(marker)] if marker_present else None,
+            "installed_release": d144_identity,
             "candidate_inventory_present": False
         },
         "retired_session": (None if preserved_guard else {

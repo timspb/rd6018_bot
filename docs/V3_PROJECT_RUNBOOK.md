@@ -1417,3 +1417,39 @@ Read-only MIX HMI now shows: CV searching Imin -> accepted Imin plus measured/re
 ## 2026-11-07 — achievable MIX CV Delta
 
 MIX CV current reversal target is 30% above accepted Imin, bounded by the existing phase current setpoint. Analyzer threshold remains >=0.03A resolution floor; if headroom is smaller, do not assert Delta evidence. Existing CV/CC, thermal and timing gates still govern. Example 2.18A minimum and 2.40A cap => +0.22A threshold, not +0.654A. Do not raise PSU current to force evidence. Runtime change is source-only, not installed on node104; details/tests in checkpoint.
+
+## 2026-11-07 — D137 release admission repair (source-only)
+
+D137 now permits an absent legacy `.deploy_sha` only when the latest contiguous
+D144 slot is `COMMITTED`, its `D144_INSTALLED_RELEASE_n.json` identity names
+the same transaction and valid source/candidate digests, and its recorded app
+and venv inventories exactly match the installed directories. Existing marker
+validation remains unchanged when the marker is present. D090's historical
+`STARTED` journal is observed and hash-pinned, never rewritten; no marker,
+owner, or authorization is synthesized. The regression models the reported
+slot-11 installation and rejects non-COMMITTED/inventory drift.
+
+The current node104 facts in this source-only request are operator-provided
+fresh D148 Native+HA evidence at 2026-11-07 01:33 UTC: Output OFF, 0 V/0 A,
+lease disarmed, no active session, one owner. This timestamped evidence is not
+a live observation by this edit and expires for any later operation. Installed
+source remains `384516decb4b44e1cb9324fcf820b23ed445d593`, D144 slot 11
+`COMMITTED`; local source base was `96a1fc294fc56de167f549d71156f82cd349b02a`
+and `origin/main` matched it. Focused D137/D142/D144/D145 regression: 63 PASS.
+No server access, service action, ESP command or deployment occurred.
+
+Next release must use the existing D145/D090 owner. The tracked D145 entrypoint
+and D146 profile are currently pinned to source `d351c208…`; do not use them
+unchanged. After this change is committed, build an exact D138 stage from that
+commit, prepare the matching Python 3.11 venv, generate and review a new D146
+profile for the committed source and observed D137 preimage, and update only
+the source-paired entrypoint/profile pins. After STOP/session confirmation and
+a new complete direct ESP Native preflight, run
+`python3 tools/node104_d145_entrypoint.py prepare --profile <new-D146-profile> --stage <exact-D138-stage>`;
+acquire a distinct fresh pre-execute Native proof, then run that command with
+`execute`. Both phases use the existing D090 owner and lock. Keep D090
+historical bytes and state unchanged; no D145/execute is authorized by this
+source-only repair. The local commit is currently blocked because `.git` is
+read-only (`.git/index.lock` creation failed); code HEAD remains
+`96a1fc294fc56de167f549d71156f82cd349b02a`, equal to origin/main. Four intended
+paths remain uncommitted; unrelated `.deploy_*` worktree files were preserved.

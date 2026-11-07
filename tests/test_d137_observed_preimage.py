@@ -64,6 +64,68 @@ class D137Tests(unittest.TestCase):
             self.assertEqual((root / "D090_TRANSACTION.json").read_bytes(),
                              journal_before)
 
+    def test_missing_legacy_marker_uses_matching_committed_d144_slot(self):
+        from tools.node104_d090_transaction import inventory
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / ".deploy_sha").unlink()
+            source_sha = "384516decb4b44e1cb9324fcf820b23ed445d593"
+            candidate_sha = "c" * 64
+            release = {"schema": "D144_RELEASE_IDENTITY_V1", "source_sha": source_sha,
+                       "candidate_identity_sha256": candidate_sha}
+            transaction_id = "e" * 32
+            candidate = {"app": inventory(root / "app"), "venv": inventory(root / "venv")}
+            (root / "D144_TRANSACTION_11.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "COMMITTED",
+                "slot": 11, "transaction": transaction_id, "release_identity": release,
+                "candidate": candidate,
+            }))
+            (root / "D144_INSTALLED_RELEASE_11.json").write_text(json.dumps({
+                **release, "transaction": transaction_id,
+            }))
+            # Historic slots 2..10 were pruned during normal cleanup;
+            # only the current committed slot and original slot survive.
+            (root / "D144_TRANSACTION.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED", "slot": 1,
+            }))
+            cache = root / "app" / "__pycache__"
+            cache.mkdir()
+            (cache / "bot.cpython-311.pyc").write_bytes(b"generated cache")
+            result = self.capture(root)
+            self.assertEqual(result["d090"]["marker_sha256"], None)
+            self.assertEqual(result["d090"]["installed_release"]["source_sha"], source_sha)
+            self.assertEqual(result["d090"]["installed_release"]["transaction"], transaction_id)
+            self.assertEqual(json.loads((root / "D090_TRANSACTION.json").read_text())["phase"], "STARTED")
+            self.assertFalse((root / ".deploy_sha").exists())
+            (root / "app" / "untracked_source.py").write_text("unreviewed code")
+            with self.assertRaisesRegex(ValueError, "does not match committed app/venv"):
+                self.capture(root)
+            (root / "app" / "untracked_source.py").unlink()
+            (root / "app" / "bot.py").write_text("tampered program")
+            with self.assertRaisesRegex(ValueError, "does not match committed app/venv"):
+                self.capture(root)
+
+    def test_missing_marker_rejects_d144_inventory_or_commit_drift(self):
+        from tools.node104_d090_transaction import inventory
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / ".deploy_sha").unlink()
+            release = {"schema": "D144_RELEASE_IDENTITY_V1", "source_sha": "a" * 40,
+                       "candidate_identity_sha256": "b" * 64}
+            transaction_id = "d" * 32
+            (root / "D144_TRANSACTION.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED", "slot": 1,
+                "transaction": transaction_id, "release_identity": release,
+                "candidate": {"app": inventory(root / "app"), "venv": inventory(root / "venv")},
+            }))
+            (root / "D144_INSTALLED_RELEASE.json").write_text(json.dumps({
+                **release, "transaction": transaction_id,
+            }))
+            with self.assertRaisesRegex(ValueError, "D144 installed release identity"):
+                self.capture(root)
+
     def test_authentic_v2_retirement_without_session_is_observed_not_fabricated(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
