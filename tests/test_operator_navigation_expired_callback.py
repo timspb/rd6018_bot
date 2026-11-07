@@ -19,8 +19,9 @@ class StaleCallbackNavigationTests(unittest.IsolatedAsyncioTestCase):
             )
         call.answer = stale
         await app._operator_home_handler(call)
-        self.assertEqual(app._refreshed, [(11, 7, 100)])
-        self.assertEqual(app.bot.deleted, [(11, 200)])
+        # PanelLastMiddleware restores L2; the handler only acknowledges.
+        self.assertEqual(app._refreshed, [])
+        self.assertEqual(app.bot.deleted, [])
 
     async def test_unrelated_telegram_bad_request_is_not_swallowed(self):
         app = OperatorNavigationRecoveryTests._app()

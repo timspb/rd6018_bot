@@ -21,6 +21,7 @@ class OperatorSnapshot:
     available_actions: tuple[str, ...] = ()
     faults: tuple[str, ...] = ()
     telemetry_fresh: bool = True
+    manual_interrupted: bool = False
 
 
 def snapshot_from_mapping(data: Mapping[str, Any]) -> OperatorSnapshot:
@@ -68,4 +69,5 @@ def snapshot_from_mapping(data: Mapping[str, Any]) -> OperatorSnapshot:
         available_actions=tuple(str(x) for x in data.get("available_actions", ())),
         faults=faults,
         telemetry_fresh=bool(data.get("telemetry_fresh", True)),
+        manual_interrupted=bool(data.get("manual_interrupted", False)),
     )

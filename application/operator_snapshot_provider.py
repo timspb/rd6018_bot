@@ -234,9 +234,14 @@ class OperatorSnapshotProvider:
         return OperatorSnapshot(
             state=state,
             snapshot=runtime_snapshot,
-            available_actions=self._snapshot_actions(state, fresh, bool(getattr(hmi, "output_on", False))),
+            available_actions=(
+                tuple(item.action.value for item in actions_for_hmi(hmi).available_actions)
+                if bool(getattr(hmi, "manual_interrupted", False))
+                else self._snapshot_actions(state, fresh, bool(getattr(hmi, "output_on", False)))
+            ),
             faults=faults,
             telemetry_fresh=fresh,
+            manual_interrupted=bool(getattr(hmi, "manual_interrupted", False)),
         )
 
     @staticmethod

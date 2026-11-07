@@ -26,6 +26,8 @@ def actions_for_hmi(state, *, paused: bool | None = None) -> OperatorActionsView
 
 def actions_for_snapshot(snapshot) -> OperatorActionsView:
     state = snapshot.state
+    if state == "IDLE" and bool(getattr(snapshot, "manual_interrupted", False)):
+        return session.interrupted_manual()
     if state == "HANDS_OFF":
         return external.hands_off(output_on=bool(snapshot.snapshot.output.get("enabled")))
     return OperatorActionsView.for_state(

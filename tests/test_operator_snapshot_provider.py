@@ -79,6 +79,55 @@ class OperatorSnapshotProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("start_charge", snapshot.available_actions)
         self.assertFalse(hasattr(snapshot, "hass"))
 
+    async def test_interrupted_manual_survives_snapshot_to_real_buttons(self):
+        from types import SimpleNamespace
+        from operator_hmi import build_operator_keyboard
+        from application.operator_actions import OperatorAction
+        app = _App(live())
+        app.manual_session_manager = SimpleNamespace(
+            is_active=False, state=SimpleNamespace(value="interrupted"),
+            battery_id="China",
+        )
+        app.hass = _SequencedHass(live(), live(switch="on"))
+        provider = OperatorSnapshotProvider(OperatorReadSource(app))
+        snapshot = await provider.get_operator_snapshot()
+        actions = await provider.get_operator_actions(snapshot=snapshot)
+        restored = provider.hmi_state_from_snapshot(snapshot)
+        self.assertEqual(snapshot.state, "IDLE")
+        self.assertTrue(snapshot.manual_interrupted)
+        self.assertTrue(restored.manual_interrupted)
+        self.assertEqual(app.hass.reads, 1)
+        self.assertEqual(
+            {item.action for item in actions.available_actions},
+            {OperatorAction.REAUTHORIZE_MANUAL, OperatorAction.DISCARD_MANUAL},
+        )
+        self.assertEqual(
+            set(snapshot.available_actions),
+            {"reauthorize_manual", "discard_manual"},
+        )
+        callbacks = [
+            item.callback_data
+            for row in build_operator_keyboard(app, restored, actions=actions).inline_keyboard
+            for item in row
+        ]
+        self.assertIn("v2_manual_reauthorize", callbacks)
+        self.assertIn("v2_manual_discard", callbacks)
+        self.assertNotIn("ui:nav.charge", callbacks)
+
+    async def test_snapshot_manual_interrupted_requires_actual_flag(self):
+        from application.operator_actions import OperatorAction
+        provider = OperatorSnapshotProvider(OperatorReadSource(_App(live())))
+        snapshot = snapshot_from_mapping({
+            "state": "IDLE",
+            "manual_interrupted": False,
+            "output": {"enabled": False},
+        })
+        actions = await provider.get_operator_actions(snapshot=snapshot)
+        self.assertNotIn(
+            OperatorAction.REAUTHORIZE_MANUAL,
+            {item.action for item in actions.available_actions},
+        )
+
     async def test_stale_telemetry_is_fault_and_start_is_removed(self):
         old = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
         data = live(_meta={name: {"status": "ok", "last_reported": old} for name in ("switch", "battery_voltage", "current", "protection_code", "regulation_code")})

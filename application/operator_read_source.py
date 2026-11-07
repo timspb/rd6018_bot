@@ -98,6 +98,7 @@ class OperatorReadSource:
             stage_status=str(view.charge.evidence.get("stage_status", "") or ""),
             stage_time=view.charge.timer_text,
             delivered_ah=view.telemetry.accumulated_ah,
+            manual_interrupted=bool(getattr(snapshot, "manual_interrupted", False)),
         )
 
 
