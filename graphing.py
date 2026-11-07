@@ -4,6 +4,7 @@ graphing.py — построение графика U/I во времени (dar
 """
 import io
 import logging
+import math
 import threading
 from datetime import datetime, time, timezone
 from typing import List, Optional, Union
@@ -83,6 +84,23 @@ def _parse_timestamps(times: List[str]) -> List[datetime]:
     return result
 
 
+def _visible_axis_limits(values: List[float], *, minimum_span: float, relative_span: float = 0.1) -> tuple[float, float]:
+    """Autoscale to visible telemetry, including a stable nonzero signal.
+
+    Fixed 0..20 axes were hiding 0.23 A / 14.76 V completely whenever
+    all values in the selected window were constant.
+    """
+    valid = [v for v in values if math.isfinite(v)]
+    if not valid:
+        return (0.0, minimum_span)
+    low, high = min(valid), max(valid)
+    if high <= 0 and low >= 0:
+        return (0.0, minimum_span)
+    span = max(high - low, minimum_span, max(abs(low), abs(high)) * relative_span)
+    padding = max((span - (high - low)) / 2.0, (high - low) * 0.08)
+    return (max(0.0, low - padding), high + padding)
+
+
 def generate_chart(
     times: List[str],
     voltages: List[float],
@@ -158,16 +176,8 @@ def generate_chart(
                 ax3.tick_params(axis="y", colors="#ff9f43")
                 ax3.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
 
-                min_v, max_v = min(v_list), max(v_list)
-                ax1.set_ylim(
-                    0 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max(0, min_v * 0.95),
-                    20 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max_v * 1.05,
-                )
-                min_i, max_i = min(i_list), max(i_list)
-                ax2.set_ylim(
-                    0 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max(0, min_i * 0.95),
-                    20 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max_i * 1.05,
-                )
+                ax1.set_ylim(*_visible_axis_limits(v_list, minimum_span=0.30))
+                ax2.set_ylim(*_visible_axis_limits(i_list, minimum_span=0.10))
                 min_t, max_t = min(t_list), max(t_list)
                 ax3.set_ylim(
                     max(0, min_t - 1.0),
@@ -184,20 +194,12 @@ def generate_chart(
                 ax1.xaxis.set_major_formatter(DateFormatter("%H:%M", tz=user_tz))
                 ax1.tick_params(axis="x", colors="#fff", labelsize=8)
                 ax1.tick_params(axis="y", colors="#00ffff")
-                min_v, max_v = min(v_list), max(v_list)
-                ax1.set_ylim(
-                    0 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max(0, min_v * 0.95),
-                    20 if max_v - min_v < 0.01 or (min_v == 0 and max_v == 0) else max_v * 1.05,
-                )
+                ax1.set_ylim(*_visible_axis_limits(v_list, minimum_span=0.30))
                 ax2 = ax1.twinx()
                 ax2.plot(times_parsed, i_list, color="#ffff00", linewidth=1.5)
                 ax2.set_ylabel("Current (A)", color="#ffff00")
                 ax2.tick_params(axis="y", colors="#ffff00")
-                min_i, max_i = min(i_list), max(i_list)
-                ax2.set_ylim(
-                    0 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max(0, min_i * 0.95),
-                    20 if max_i - min_i < 0.001 or (min_i == 0 and max_i == 0) else max_i * 1.05,
-                )
+                ax2.set_ylim(*_visible_axis_limits(i_list, minimum_span=0.10))
                 fig.legend(loc="upper right", fontsize=8)
 
             if len(times_parsed) > 1:
