@@ -105,6 +105,31 @@ class AutoStageProjectionTests(unittest.TestCase):
         self.assertIn("ΔI подтверждена", valid)
         self.assertIn("до SAFE_WAIT", valid)
 
+    def test_mix_finish_hold_does_not_confirm_nonpositive_delta_proof(self):
+        from runtime.ui.components.mix_stage_progress import mix_finish_hold_status
+        for mode, reference in (("CV", 1.85), ("CC", 16.55)):
+            for bad_reference, bad_delta in ((reference, 0.0), (reference, -0.10), (0.0, 0.1), (-1.0, 0.1)):
+                with self.subTest(mode=mode, reference=bad_reference, delta=bad_delta):
+                    snapshot = {"delta_reported": True, "finish_evidence": {
+                        "available": True, "mode": mode,
+                        "reference_value": bad_reference,
+                        "accepted_delta": bad_delta,
+                    }}
+                    status = mix_finish_hold_status(
+                        snapshot=snapshot, started_at=100.0,
+                        hold_seconds=7200.0, now_s=160.0,
+                    )
+                    self.assertIn("Δ evidence недоступно", status)
+                    self.assertNotIn("подтверждена", status)
+            valid = {"delta_reported": True, "finish_evidence": {
+                "available": True, "mode": mode,
+                "reference_value": reference, "accepted_delta": 0.10,
+            }}
+            self.assertIn("подтверждена", mix_finish_hold_status(
+                snapshot=valid, started_at=100.0,
+                hold_seconds=7200.0, now_s=160.0,
+            ))
+
     def test_stale_telemetry_never_calls_legacy_formatter(self):
         controller=NS(ui_support_snapshot=lambda:{"runtime_evidence_available":False})
         def forbidden(_): raise AssertionError("formatting stale telemetry")

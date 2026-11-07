@@ -41,8 +41,13 @@ class _ControllerSessionRetirement:
         controller = self.app.charge_controller
         session_id = data.get("v2_trace_session_id") if isinstance(data, dict) else None
         battery_id = data.get("v2_battery_id") if isinstance(data, dict) else None
-        if (not isinstance(data, dict) or data.get("state") == "retired"
-                or data.get("stage") not in {controller.STAGE_MAIN, controller.STAGE_MIX}
+        # A partial UI controller cannot establish a persisted orphan binding.
+        main = getattr(controller, "STAGE_MAIN", None)
+        mix = getattr(controller, "STAGE_MIX", None)
+        idle = getattr(controller, "STAGE_IDLE", None)
+        if (not all(isinstance(stage, str) and stage for stage in (main, mix, idle))
+                or not isinstance(data, dict) or data.get("state") == "retired"
+                or data.get("stage") not in {main, mix}
                 or not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(battery_id, str) or not battery_id.strip()
                 or getattr(controller, "current_stage", controller.STAGE_IDLE) != controller.STAGE_IDLE

@@ -36,13 +36,15 @@ def mix_finish_hold_status(
 
     evidence = snapshot.get("finish_evidence")
     mode = evidence.get("mode") if isinstance(evidence, Mapping) else None
+    reference = _finite(evidence.get("reference_value")) if isinstance(evidence, Mapping) else None
+    accepted_delta = _finite(evidence.get("accepted_delta")) if isinstance(evidence, Mapping) else None
     confirmed = (
         snapshot.get("delta_reported") is True
         and isinstance(evidence, Mapping)
         and evidence.get("available") is True
         and mode in {"CV", "CC"}
-        and _finite(evidence.get("reference_value")) is not None
-        and _finite(evidence.get("accepted_delta")) is not None
+        and reference is not None and reference > 0
+        and accepted_delta is not None and accepted_delta > 0
     )
     if confirmed:
         label = "ΔI" if mode == "CV" else "ΔV"
