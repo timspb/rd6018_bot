@@ -573,11 +573,13 @@ class OperatorHmiTests(unittest.TestCase):
         app.charge_controller = controller
         cv_panel = render_operator_panel(build_operator_hmi_state(app, live()))
         self.assertIn("Imin 2.18 A · ΔI +0.05/+0.65 A", cv_panel)
+        self.assertIn("I≥2.830 A", cv_panel)
         self.assertNotIn("до SAFE_WAIT", cv_panel)
         cc_live = live()
         cc_live.update(is_cv="off", is_cc="on")
         cc_panel = render_operator_panel(build_operator_hmi_state(app, cc_live))
         self.assertIn("Vmax 16.55 V · ΔV −0.03/−0.10 V", cc_panel)
+        self.assertIn("U≤16.450 V", cc_panel)
 
     def test_mix_confirmed_delta_displays_persisted_hold_countdown(self):
         controller = types.SimpleNamespace(

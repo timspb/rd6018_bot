@@ -19,6 +19,7 @@ from runtime.ui.components.hmi_live_safety import _normal_safety, _operator_tele
 from runtime.ui.hmi_layout_config import PANEL_HEADING_TARGET_WIDTH, PANEL_HEADING_MIN_GAP
 from runtime.ui.components.hmi_state import HmiProcessState, HmiAuthority, OperatorHmiState
 from runtime.ui.components.hmi_observer_runtime import _observer_runtime
+from runtime.ui.components.hmi_mix_threshold import cv_delta_status, cc_delta_status
 from runtime.ui.components.hmi_operator_details import render_operator_details, render_operator_details_view
 from runtime.ui.components.hmi_service_details import render_operator_service_details, render_operator_service_details_view
 from runtime.ui.components.hmi_compact import _bold_value, _main_mode, _compact_transition, _compact_stage_label, _compact_battery_label, _compact_stage_status, _durable_finish_status
@@ -194,10 +195,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                         actual = _finite(metrics.get("delta_current_from_min_a"))
                         required = _finite(metrics.get("reversal_threshold_a"))
                         if actual is not None and required is not None and required > 0:
-                            stage_status = (
-                                f"📉 Imin {minimum:.2f} A · ΔI "
-                                f"+{max(0.0, actual):.2f}/+{required:.2f} A"
-                            )
+                            stage_status = cv_delta_status(minimum, actual, required)
                         else:
                             stage_status = f"📉 Imin {minimum:.2f} A · ожидание данных ΔI"
                     else:
@@ -215,10 +213,7 @@ def build_operator_hmi_state(app: Any, live: Mapping[str, Any]) -> OperatorHmiSt
                         actual = _finite(metrics.get("delta_voltage_from_max_v"))
                         required = _finite(metrics.get("voltage_reversal_threshold_v"))
                         if actual is not None and required is not None and required > 0:
-                            stage_status = (
-                                f"📈 Vmax {maximum:.2f} V · ΔV "
-                                f"−{max(0.0, actual):.2f}/−{required:.2f} V"
-                            )
+                            stage_status = cc_delta_status(maximum, actual, required)
                         else:
                             stage_status = f"📈 Vmax {maximum:.2f} V · ожидание данных ΔV"
                     else:
