@@ -31,6 +31,40 @@ class AutoStageProjectionTests(unittest.TestCase):
         self.assertIs(returned,snapshot)
         self.assertEqual(len(reads),1)
 
+    def test_mix_cc_invalid_vmax_clock_keeps_delta_evidence_visible(self):
+        for invalid_age in (float("nan"), float("inf"), -3.0, "invalid"):
+            with self.subTest(age=invalid_age):
+                controller=NS(ui_support_snapshot=lambda:{
+                    "runtime_evidence_available":True,
+                    "metrics":{
+                        "voltage_max_v":16.55,
+                        "seconds_since_voltage_max":invalid_age,
+                        "delta_voltage_from_max_v":0.03,
+                        "voltage_reversal_threshold_v":0.10,
+                    },
+                })
+                _,status,_=auto_stage_progress(
+                    NS(),controller,{},stage="Mix Mode",regulator="CC",
+                    telemetry_stale=False,battery_type="EFB",capacity=80,
+                    now_s=lambda:10000.,
+                )
+                self.assertIn("Vmax 16.55 V",status)
+                self.assertIn("U≤16.450 V",status)
+
+    def test_nonmix_cc_future_clock_cannot_invent_elapsed_hold(self):
+        controller=NS(ui_support_snapshot=lambda:{
+            "runtime_evidence_available":True,
+            "finish_hold_started_at":12000.,
+            "metrics":{"voltage_max_v":15.5,"seconds_since_voltage_max":float("nan")},
+        })
+        _,status,_=auto_stage_progress(
+            NS(),controller,{},stage="Cooling",regulator="CC",
+            telemetry_stale=False,battery_type="EFB",capacity=80,
+            now_s=lambda:10000.,
+        )
+        self.assertIn("время максимума не подтверждено",status)
+        self.assertNotIn("⏱ 0ч",status)
+
     def test_stale_telemetry_never_calls_legacy_formatter(self):
         controller=NS(ui_support_snapshot=lambda:{"runtime_evidence_available":False})
         def forbidden(_): raise AssertionError("formatting stale telemetry")

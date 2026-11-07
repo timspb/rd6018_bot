@@ -111,10 +111,13 @@ def auto_stage_progress(
             if maximum is None or maximum <= 0:
                 stage_status = "⏳ Vmax не достигнут"
             else:
-                age = metrics.get("seconds_since_voltage_max")
-                elapsed = max(0, int(float(age or 0)))
-                if hold_started is not None:
-                    elapsed = max(0, int(now_s() - float(hold_started)))
+                age = _finite(metrics.get("seconds_since_voltage_max"))
+                elapsed = max(0, int(age)) if age is not None and age >= 0 else None
+                started = _finite(hold_started)
+                if started is not None:
+                    current_time = now_s()
+                    if 0 < started <= current_time:
+                        elapsed = max(0, int(current_time - started))
                 if in_mix:
                     actual = _finite(metrics.get("delta_voltage_from_max_v"))
                     required = _finite(metrics.get("voltage_reversal_threshold_v"))
@@ -122,6 +125,8 @@ def auto_stage_progress(
                         stage_status = cc_delta_status(maximum, actual, required)
                     else:
                         stage_status = f"📈 Vmax {maximum:.2f} V · ожидание данных ΔV"
+                elif elapsed is None:
+                    stage_status = f"⏳ Vmax {maximum:.2f} V · время максимума не подтверждено"
                 else:
                     stage_status = f"✅ Vmax {maximum:.2f} V · ⏱ {elapsed // 3600}ч {(elapsed % 3600) // 60:02d}м"
     except Exception:
