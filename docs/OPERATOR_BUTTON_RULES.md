@@ -102,3 +102,6 @@ Manual active/interrupted read-only UI projections: runtime/ui/components/hmi_ma
 
 ## Panel and keyboard presentation locations
 The compact panel text is rendered only in runtime/ui/components/hmi_panel_text.py. The application-approved actions are laid out into Telegram button rows only in runtime/ui/components/hmi_action_keyboard.py. operator_hmi.py reexports the functions for current callers and retains the installed publishers and ownership wrappers. Change action availability in application/operator_button_rules and action captions in runtime/ui/labels/operator_actions.py, never add a parallel eligibility or publisher in the renderers.
+
+## Navigation presentation owners
+Graph/back/more keyboard rows are in runtime/ui/components/hmi_navigation_keyboards.py. Keyboard-only compatibility state projection is in runtime/ui/components/hmi_compat_dashboard_state.py. Actual eligibility stays in application/operator_button_rules; Telegram publishing and callback ownership remain in existing installed handlers.
