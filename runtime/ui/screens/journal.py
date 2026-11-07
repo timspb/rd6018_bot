@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from runtime.ui.journal_config import JOURNAL_PAGE_SIZE
 from runtime.ui.actions import UIAction
 from runtime.ui.buttons import ButtonSpec
 from runtime.ui.components.journal import operator_journal_events, render_journal_text
@@ -18,7 +19,7 @@ def journal_button_spec() -> ButtonSpec:
     )
 
 
-def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = 8) -> ScreenSpec:
+def build_journal_screen(view: JournalView, *, offset: int = 0, page_size: int = JOURNAL_PAGE_SIZE) -> ScreenSpec:
     offset = max(0, int(offset))
     page_size = max(1, min(12, int(page_size)))
     # A callback can outlive the journal contents (or be forged). Keep its

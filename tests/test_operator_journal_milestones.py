@@ -26,14 +26,15 @@ class JournalMilestoneTests(unittest.TestCase):
         self.assertEqual(event, "MAIN_HOLD_START | Imin=0.230A")
         rendered = format_journal_event(
             f"[2026-11-07 15:30:00] | Main Charge | 14.76 | 0.23 | 26.0 | 0.00 | {event}")
-        self.assertIn("Imin принят; отсчёт от минимума", rendered)
-        self.assertIn("Imin=0.230A", rendered)
+        self.assertIn("Imin=0,23?", rendered)
+        self.assertIn("?", rendered)
+        self.assertNotIn("Imin=0.230A", rendered)
         self.assertEqual(rendered.count("\n"), 0)
 
     def test_new_lower_main_minimum_restarts_hold(self):
         event = self.event(self.record([SignalEvent.CURRENT_MINIMUM_UPDATED], minimum=.20), prior=.23)
         self.assertEqual(event, "MAIN_HOLD_RESET | Imin=0.200A")
-        self.assertIn("Новый Imin; отсчёт от минимума заново", format_journal_event(
+        self.assertIn("RE Imin=0,2?", format_journal_event(
             f"[2026-11-07 15:45:00] | Main Charge | 14.76 | 0.20 | 26.0 | 0.00 | {event}"))
 
     def test_mix_minimum_and_maximum_are_mode_evidence(self):
