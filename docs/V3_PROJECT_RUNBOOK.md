@@ -668,15 +668,17 @@ program/readback/enable/readback sequence, and only its successful verified
 acknowledgement may commit SAFE_WAIT -> MAIN.
 
 When the active session has a durable MAIN Current Guard, that same return
-transaction first requires fresh direct ESP Native Output=OFF, Iset and OCP
-readbacks, issues the existing verified-OFF operation, and requires newer OFF
-callbacks before programming. It restores the Guard's original bounded MAIN
-current (never above the accepted recipe or global stage limit), verifies fresh
-Iset/OCP, atomically saves the new Guard segment with the charge session, and
-only then enables Output. The new MAIN segment starts with zero accrued time
-and a fresh 30-minute Guard interval. If the preflight reports Output ON, no
-V/I/OVP/OCP target is issued. This is software behavior; it does not constitute
-node104 or hardware validation.
+transaction first requires fresh direct ESP Native Output=OFF, Iset and clear
+R16 protection evidence, issues the existing verified-OFF operation, and
+requires newer OFF callbacks before programming. It restores the Guard's
+original bounded MAIN current (never above the accepted recipe or global
+stage limit), verifies fresh Iset, atomically saves the new Guard segment with
+the charge session, and only then enables Output. Numeric OCP is not a MAIN
+Guard admission gate or setter; its original physical protection owner remains
+unchanged. The new MAIN segment starts with zero accrued time and a fresh
+30-minute Guard interval. If preflight reports Output ON, no V/I/OCP target
+is issued. This is software behavior; it does not constitute node104 or
+hardware validation.
 
 A restart defect was found while adding the required regression: historical
 restore reconstructed DESULFATION `stage_start_time` from Ah and could corrupt

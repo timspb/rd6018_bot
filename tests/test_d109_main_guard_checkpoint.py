@@ -77,7 +77,9 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
         result=await self.transact(guard,pending)
         self.assertTrue(result.verified,result.reason)
         self.assertEqual(result.guard.hardware_limit_a,5)
-        self.assertEqual(self.owner.events,[("set_current",5.0),("set_ocp",5.1)])
+        # Canonical MAIN Guard ratchet changes Iset only; OCP remains under
+        # the original hardware protection owner (f14fb3e boundary).
+        self.assertEqual(self.owner.events,[("set_current",5.0)])
         doc=json.loads(self.path.read_text())
         self.assertEqual(doc["target_current"],5.0)
         self.assertEqual(doc[GUARD_KEY]["revision"],2)
@@ -117,8 +119,7 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(periodic["target_current"],3.0)
         self.assertEqual(periodic[GUARD_KEY]["revision"],5)
         self.assertEqual(self.owner.events,[
-            ("set_current",5.0),("set_ocp",5.1),
-            ("set_current",3.0),("set_ocp",3.1),
+            ("set_current",5.0), ("set_current",3.0),
         ])
 
     async def test_writer_refuses_use_outside_common_owner(self):
