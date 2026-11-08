@@ -16,6 +16,7 @@ import ast
 import subprocess
 import unittest
 from pathlib import Path
+from source_audit_inventory import source_inventory
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,11 +57,9 @@ ENABLE_CALLS = frozenset(
 def _iter_production_files():
     # The audited production inventory is the tracked source of THIS checkout.
     # Nested independent Git worktrees must never register false actuator paths.
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "*.py"], cwd=REPO_ROOT,
-    ).split(bytes([0]))
-    for entry in sorted(filter(None, tracked)):
-        rel = Path(entry.decode("utf-8"))
+    for rel in source_inventory(REPO_ROOT):
+        if rel.suffix != ".py":
+            continue
         if any(part in SKIP_DIRS for part in rel.parts):
             continue
         yield rel.as_posix(), REPO_ROOT / rel

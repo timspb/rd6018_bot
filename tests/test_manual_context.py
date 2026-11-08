@@ -1,7 +1,7 @@
 import json
 import asyncio
 import os
-import subprocess
+from source_audit_inventory import production_python_sources
 import tempfile
 import time
 import unittest
@@ -88,12 +88,8 @@ class ManualContextEntrypointTests(unittest.TestCase):
         production = Path(__file__).resolve().parents[1]
         # Scan tracked production sources in this checkout, not nested Git
         # worktrees, virtualenvs or generated files outside source ownership.
-        paths = subprocess.check_output(
-            ["git", "ls-files", "-z", "--", "*.py"], cwd=production,
-        ).split(bytes([0]))
         production_paths = [
-            production / raw.decode("utf-8") for raw in paths if raw
-            and "tests" not in Path(raw.decode("utf-8")).parts
+            path for _relative, path in production_python_sources(production)
         ]
         self.assertIn(production / "bot.py", production_paths)
         sources = [path.read_text(encoding="utf-8") for path in production_paths]

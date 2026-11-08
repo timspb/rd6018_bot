@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import subprocess
 from pathlib import Path
+from source_audit_inventory import source_inventory
 import unittest
 
 from runtime.config.variable_spec import ChangeEffect, OverridePolicy, VariableSpec
@@ -17,11 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def tracked_ui_sources():
-    raw = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "runtime/ui/*.py", "runtime/ui/**/*.py"],
-        cwd=ROOT,
-    ).split(bytes([0]))
-    return [ROOT / Path(item.decode("utf-8")) for item in raw if item]
+    return [
+        ROOT / relative
+        for relative in source_inventory(ROOT)
+        if relative.suffix == ".py" and relative.parts[:2] == ("runtime", "ui")
+    ]
 
 
 def has_tracked_sources(relative):

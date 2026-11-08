@@ -3,6 +3,7 @@ import subprocess
 import re
 import unittest
 import ast
+from source_audit_inventory import source_inventory
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -30,13 +31,9 @@ class V3LegacyInventoryTests(unittest.TestCase):
 
     def test_production_sources_do_not_import_historical_module_name(self):
         forbidden = []
-        tracked = subprocess.check_output(
-            ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
-        ).split(bytes([0]))
-        for raw in tracked:
-            if not raw:
+        for relative in source_inventory(ROOT):
+            if relative.suffix != ".py":
                 continue
-            relative = pathlib.Path(raw.decode("utf-8"))
             if "tests" in relative.parts:
                 continue
             path = ROOT / relative

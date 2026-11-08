@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import subprocess
 from pathlib import Path
+from source_audit_inventory import source_inventory
 import unittest
 
 from runtime.charge.strategy.mix_variables import mix_max_active_hours
@@ -48,11 +49,9 @@ RETIRED_EXECUTION_COMPATIBILITY = {
 
 def _production_python_files():
     # Audit only tracked source of this checkout, not nested worktrees.
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
-    ).split(bytes([0]))
-    for raw in sorted(filter(None, tracked)):
-        rel = Path(raw.decode("utf-8"))
+    for rel in source_inventory(ROOT):
+        if rel.suffix != ".py":
+            continue
         if any(part in SKIP_PARTS for part in rel.parts):
             continue
         yield rel.as_posix(), ROOT / rel

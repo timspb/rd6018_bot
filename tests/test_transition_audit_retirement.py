@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import unittest
+from source_audit_inventory import production_python_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,16 +15,8 @@ class TransitionAuditRetirementTests(unittest.TestCase):
 
     def test_production_graph_has_no_legacy_transition_audit_reference(self):
         violations = []
-        tracked = subprocess.check_output(
-            ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
-        ).split(bytes([0]))
-        for raw in tracked:
-            if not raw:
-                continue
-            relative = Path(raw.decode("utf-8"))
-            if "tests" in relative.parts:
-                continue
-            source = (ROOT / relative).read_text(encoding="utf-8")
+        for relative, path in production_python_sources(ROOT):
+            source = path.read_text(encoding="utf-8")
             if "legacy_transition_audit" in source:
                 violations.append(relative.as_posix())
         self.assertEqual([], violations)

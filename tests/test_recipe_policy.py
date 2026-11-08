@@ -1,6 +1,7 @@
 import pathlib
 import subprocess
 import unittest
+from source_audit_inventory import production_python_sources
 
 from pb_domain import BatteryChemistry, BatteryCondition, ChargeIntent
 from application.recipe_policy import (
@@ -90,17 +91,11 @@ class RecipePolicyTests(unittest.TestCase):
     def test_production_graph_has_no_legacy_recipe_adapter_import(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         violations = []
-        tracked = subprocess.check_output(
-            ["git", "ls-files", "-z", "--", "*.py"], cwd=root,
-        ).split(bytes([0]))
-        for raw in tracked:
-            if not raw:
-                continue
-            rel_path = pathlib.Path(raw.decode("utf-8"))
+        for rel_path, path in production_python_sources(root):
             rel = rel_path.as_posix()
-            if "tests" in rel_path.parts or rel == "legacy_recipe_adapter.py":
+            if rel == "legacy_recipe_adapter.py":
                 continue
-            source = (root / rel_path).read_text(encoding="utf-8")
+            source = path.read_text(encoding="utf-8")
             if "legacy_recipe_adapter" in source:
                 violations.append(rel)
         self.assertEqual([], violations)

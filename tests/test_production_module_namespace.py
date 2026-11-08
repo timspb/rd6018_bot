@@ -1,4 +1,5 @@
 from pathlib import Path
+from source_audit_inventory import source_inventory
 import ast
 import subprocess
 import unittest
@@ -9,22 +10,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def tracked_production_python():
     # Audit only the active checkout, not nested worktrees or virtualenvs.
-    entries = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
-    ).split(bytes([0]))
-    for raw in entries:
-        if not raw:
+    for rel in source_inventory(ROOT):
+        if rel.suffix != ".py":
             continue
-        rel = Path(raw.decode("utf-8"))
         if "tests" not in rel.parts:
             yield ROOT / rel
 
 
 def tracked_retired_paths(retired):
-    entries = subprocess.check_output(
-        ["git", "ls-files", "-z"], cwd=ROOT,
-    ).split(bytes([0]))
-    tracked = [Path(raw.decode("utf-8")) for raw in entries if raw]
+    tracked = source_inventory(ROOT)
     return [
         rel for rel in retired
         if any(path == Path(rel) or Path(rel) in path.parents for path in tracked)

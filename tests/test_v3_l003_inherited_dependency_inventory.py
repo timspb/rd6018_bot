@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import subprocess
 from pathlib import Path
+from source_audit_inventory import production_python_sources
 import unittest
 
 
@@ -17,15 +18,7 @@ EXPECTED_CONTROLLER_CONSTANTS = {
 
 
 def _production_python_paths() -> list[Path]:
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
-    ).split(bytes([0]))
-    return [
-        ROOT / relative
-        for raw in tracked if raw
-        for relative in [Path(raw.decode("utf-8"))]
-        if "tests" not in relative.parts
-    ]
+    return [path for _relative, path in production_python_sources(ROOT)]
 
 
 class L003InheritedDependencyInventoryTests(unittest.TestCase):
