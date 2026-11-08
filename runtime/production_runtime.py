@@ -1868,40 +1868,10 @@ def _strip_html_tags(text: str) -> str:
     return re.sub(r"\s+", " ", plain).strip()
 
 
-def _format_eta_compact(raw_eta: Any) -> str:
-    """Сделать ETA читабельным для мобильного дашборда."""
-    s = str(raw_eta or "").strip()
-    if not s or s == "—":
-        return "—"
-    if ":" in s:
-        parts = s.split(":")
-        if len(parts) == 2:
-            try:
-                h = int(parts[0])
-                m = int(parts[1])
-                if h > 0:
-                    return f"{h}ч {m:02d}м"
-                return f"{m}м"
-            except ValueError:
-                return s
-    return s
-
-
-def _format_seconds_compact(seconds: Any) -> str:
-    """Short human-friendly duration."""
-    try:
-        total = int(float(seconds))
-    except (TypeError, ValueError):
-        return "—"
-    if total <= 0:
-        return "0м"
-    hours = total // 3600
-    mins = (total % 3600) // 60
-    if hours and mins:
-        return f"{hours}ч {mins:02d}м"
-    if hours:
-        return f"{hours}ч"
-    return f"{max(1, mins)}м"
+from runtime.ui.components.stage_duration import (
+    format_eta_compact as _format_eta_compact,
+    format_seconds_compact as _format_seconds_compact,
+)
 
 
 def _format_stage_progress_line(live: Dict[str, Any]) -> str:
