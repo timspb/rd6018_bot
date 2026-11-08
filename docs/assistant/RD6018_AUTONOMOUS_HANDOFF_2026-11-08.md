@@ -166,3 +166,23 @@ Fail-closed conversion refuses visual `kind=native` and named dynamic `MAIN/MIX/
 Added `tests/test_recipe_visual_canonical_bridge.py` with Node.js execution of the actual functions extracted from HTML; checks real Python `parse_recipe + inspect_recipe` for round-trip and rejection cases. Final focused run including user-recipe, native-draft, START-selection and UI catalogue tests: **34 PASS, exit 0**, WSL Ubuntu 24.04. Extracted embedded JavaScript `node --check` PASS; `git diff --check` PASS. No node104 deployment/restart, ESP/HA access, Output/charging/lease action, new backend, extra recipe runner or Telegram modification.
 
 **Next:** RS-1B — replace provisional browser-only validation/import behavior with an explicit offline contract-based check and save flow through the **existing** `RecipeLibrary` / native draft library; expose immutable version, actual `VariableSpec`/supported-execution limits, and compare browser preview with backend admission. Do not expose a new unauthenticated network listener. Physical/manual control P0 remains the higher operational priority and must be accepted separately.
+
+## 2026-11-09 — Recipe Studio RS-1B: canonical offline check/save (source-only)
+
+Implemented offline bridge to existing **production canonical owners**, without a new daemon, API, device port, authorization layer or store:
+- `runtime/charge/programs/recipe_studio_import.py`: `inspect_step_document` and `publish_step_document` accept **only** `{id, version, steps}`, apply existing `parse_recipe` with actual production limits and `inspect_recipe`, reject inadmissible WAIT/control-flow, stale/skipped revisions and archived recipes, then call the already immutable/atomic `RecipeLibrary.save`. OFF-first valid drafts are labelled not START-eligible; even SET-first never authorizes physical START.
+- Same module `inspect_native_document` and `publish_native_document`: accept only `{name, version, draft:{schema:1,base_recipe_id,execution_kind:"native_authority",overrides}}`, use existing `validate_native_draft`, real `VariableSpec` ranges/policies, `require_supported_native_execution` (unsupported-but-displayed fields rejected), and unchanged immutable `NativeRecipeDraftLibrary.save`. Wrong base identity / stale version rejected by that library.
+- `tools/recipe_studio_offline.py`: CLI `check`, `save`, `check-native`, `save-native`; explicit input JSON file and **mandatory explicitly chosen library root for save**. No implicit node104/production path, remote API, charging session or network socket. Pure checks do not create any library files. JSON responses include validation status, identity, version, warnings and `physical_start_authorized:false`. Nonfinite JSON refused. Source of hardware limit values reused from `config.MAX_MANUAL_VOLTAGE` and `runtime.safety.variables.MAX_STAGE_CURRENT_A.default`, matching production `bot.py`.
+
+Examples from repository root:
+```sh
+python tools/recipe_studio_offline.py check --file ./exported-step-recipe.json
+python tools/recipe_studio_offline.py save --file ./exported-step-recipe.json --library-root ./scratch-recipes
+python tools/recipe_studio_offline.py check-native --file ./native-draft.json
+python tools/recipe_studio_offline.py save-native --file ./native-draft.json --library-root ./scratch-native-drafts
+```
+Saved JSON is compatible with the existing backend catalog/draft library, **not automatically deployed to node104 or activated**. PC HTML currently exports canonical step candidates (RS-1A); a fully interactive native UI and browser-to-library persistence are **future work**, not represented as finished. Import via CLI is a documented interim offline bridge, not the final PC UX.
+
+Acceptance: `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q` on 12 selected recipe/native/visual/start/catalog regression files: **48 passed, exit 0, 52.20 s**. `git diff --check` PASS. New test files: `tests/test_recipe_studio_offline_import.py`, `tests/test_recipe_studio_native_import.py`. No node104, BW600, HA102, ESP, Output or firmware operation.
+
+Next RS-1C: introduce friendly native parameter editor UI with `VariableSpec` metadata exported by the **existing** backend; create a browser-save transport only after verifying existing operator ACL binding, without adding a public network listener or second charge executor. P0 manual mode physical validation remains independent and high priority.
