@@ -23,7 +23,7 @@ from rd6018_telemetry import (
     resolve_protection,
     telemetry_freshness,
 )
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 
 OPERATION = "b16_fault_hold_stale_set_voltage_readback"

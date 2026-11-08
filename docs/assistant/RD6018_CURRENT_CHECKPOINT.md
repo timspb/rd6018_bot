@@ -1765,3 +1765,11 @@ Confirmed regression: `ManagedRuntimeSafetyGuard.get_all_live()` left `_telemetr
 ## 2026-11-08 — Safety guard package relocation checkpoint
 
 Source-only: three production guards are now runtime/safety/{runtime_guard,strict_guard,managed_guard}.py; old top-level files removed and imports migrated. Single watchdog observer in runtime/safety/watchdog_runtime.py. Full WSL regression **3064 passed, 3 skipped, 0 failed** (388.65s), /tmp/rd6018_full_safety_modularization_final_20261108.log. D061 archived overlay SHA preserved. Release classifier D124 now treats runtime/safety/ as control changes (16 focused PASS). Actual node104 not checked or touched; source acceptance is not live acceptance.
+
+## 2026-11-08 — Safe Output decomposition checkpoint
+
+Mixed root safe_output.py split into pure runtime/safety/output_policy.py and existing transaction application/safe_output_coordinator.py; D124 and actuator inventory updated, no second execution owner. 82 focused PASS and 22 architecture PASS. Final full suite running in /tmp/rd6018_safe_output_full_final_20261108.log. Production not touched; D145 HOLD pending exact new release and fresh Native/HA physical OFF proof.
+
+## 2026-11-08 — Source acceptance: safe_output decomposition
+
+Pure safety in `runtime/safety/output_policy.py`, unchanged transactional Output control in `application/safe_output_coordinator.py`; old mixed root module removed. D124 classification and frozen actuator inventory updated. Full WSL regression: **3065 PASS, 3 SKIP, 6 warnings, 0 FAIL, exit 0**, 385.31s (`/tmp/rd6018_safe_output_full_final_20261108.log`). Still source-only. Next: clean Git commit; exact source-only archive, D145 production preimage and Native/HA physical OFF proof; unresolved 0.010V incident/paused MIX must not be masked.

@@ -12,14 +12,8 @@ import aiohttp
 
 from config import ENTITY_MAP, HA_INSECURE_LOCAL, HA_URL, HA_TOKEN
 from rd6018_telemetry import canonicalize_live, canonical_programmed_readback, finite_float
-from safe_output import (
-    EnableResult,
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetyPolicy,
-    SafetySupervisor,
-    snapshot_from_live,
-)
+from runtime.safety.output_policy import EnableResult, OutputRequest, SafetyPolicy, SafetySupervisor, snapshot_from_live
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 logger = logging.getLogger("rd6018")
 

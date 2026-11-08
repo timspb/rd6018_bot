@@ -11,7 +11,8 @@ from physical_test_control_programmed_readback import (
     install_physical_test_control_programmed_readback,
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
-from safe_output import OutputRequest, SafeOutputCoordinator, SafetySupervisor
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 def _fresh_stamp():

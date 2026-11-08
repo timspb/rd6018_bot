@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 
 from config import ENTITY_MAP
 from hass_api import HassClient
-from safe_output import OutputRequest, SafeOutputCoordinator, SafetyViolation
+from runtime.safety.output_policy import OutputRequest, SafetyViolation
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 def live_state(**overrides):

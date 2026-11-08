@@ -9,11 +9,8 @@ from physical_test_control_source_faults import (
     _PROGRAMMED_READBACK_OPS,
     install_physical_test_control_source_faults,
 )
-from safe_output import (
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetySupervisor,
-)
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor
+from application.safe_output_coordinator import SafeOutputCoordinator
 from tools.physical_test_programming_fault_client import OPERATION
 
 

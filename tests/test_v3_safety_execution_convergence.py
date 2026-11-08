@@ -39,7 +39,7 @@ APPROVED_PHYSICAL_IMPLEMENTATION = {
     "hass_api.py",
     "runtime/safety/strict_guard.py",
     "runtime/safety/managed_guard.py",
-    "safe_output.py",
+    "application/safe_output_coordinator.py",
 }
 RETIRED_EXECUTION_COMPATIBILITY = {
     "recipe_output.py",

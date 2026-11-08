@@ -92,6 +92,14 @@ All actual actuator mutations still use the established application
 `ExecutionPort` / physical bridge. No top-level runtime guard compatibility
 modules exist.
 
+The former mixed `safe_output.py` is split by concern: policy DTOs,
+`SafetySupervisor` and telemetry snapshots have one owner in
+`runtime/safety/output_policy.py`; the existing state-preserving verified
+output-enable transaction lives in `application/safe_output_coordinator.py`.
+It is the same established output adapter execution seam, not a second
+hardware or charge-session owner. Source and physical-call inventories freeze
+both paths and release D124 treats their changes as control changes.
+
 ### Execution
 
 There is exactly one application-to-physical execution owner. All hardware

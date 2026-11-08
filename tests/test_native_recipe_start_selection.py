@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 from pb_domain import ChargeIntent
-from safe_output import EnableResult
+from runtime.safety.output_policy import EnableResult
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary

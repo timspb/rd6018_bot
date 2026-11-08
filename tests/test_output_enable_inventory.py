@@ -43,8 +43,8 @@ ENABLE_CALLS = frozenset(
         ("runtime/safety/strict_guard.py", "turn_on", "super().turn_on"),
         ("runtime/safety/managed_guard.py", "turn_on", "super().turn_off"),
         ("runtime/safety/managed_guard.py", "turn_on", "super().turn_on"),
-        ("safe_output.py", "_force_off", "self.adapter.turn_off"),
-        ("safe_output.py", "enable", "self.adapter.turn_on"),
+        ("application/safe_output_coordinator.py", "_force_off", "self.adapter.turn_off"),
+        ("application/safe_output_coordinator.py", "enable", "self.adapter.turn_on"),
         # Canonical application-scoped execution port. START, Mix-only
         # START and Manual converge here instead of keeping direct HA enable/OFF calls.
         ("application/execution_port.py", "enable", "self.execution_owner.safe_enable_output"),

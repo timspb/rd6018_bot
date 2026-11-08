@@ -27,7 +27,7 @@ from rd6018_telemetry import (
     resolve_regulation,
     telemetry_freshness,
 )
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 
 _SOURCE_FAULT_OPS = {

@@ -6,7 +6,7 @@ from aiogram.enums import ParseMode
 
 from battery_fault_engine import DiagnosticAuthority
 from pb_domain import BatteryCondition
-from safe_output import EnableResult, SafetyViolation
+from runtime.safety.output_policy import EnableResult, SafetyViolation
 from runtime.charge.diagnostics import update_diagnostic_context
 from mix_mode import (
     PendingMixStart,

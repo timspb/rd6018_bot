@@ -13,7 +13,7 @@ from rd_managed_adoption import (
     install_managed_live_adoption,
 )
 from runtime.safety.runtime_guard import RuntimeSafetyError
-from safe_output import SafetyPolicy
+from runtime.safety.output_policy import SafetyPolicy
 
 
 class FakeHass:

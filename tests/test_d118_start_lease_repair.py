@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
 from runtime.safety.managed_guard import install_managed_runtime_safety
 from runtime.safety.runtime_guard import RuntimeSafetyError
-from safe_output import OutputRequest, SafeOutputCoordinator, SafetySupervisor
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor
+from application.safe_output_coordinator import SafeOutputCoordinator
 from tests.test_edge_safety_lease import FakeHass as FakeEdge
 from tests.test_managed_runtime_safety import V2RuntimeSafetyTests
 from tests.test_runtime_edge_lease import FakeApp as EdgeFakeApp, FakeHass, live_state

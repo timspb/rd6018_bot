@@ -3,7 +3,7 @@ import types
 import unittest
 from aiogram.enums import ParseMode
 from pb_domain import ChargeIntent, BatteryCondition
-from safe_output import EnableResult
+from runtime.safety.output_policy import EnableResult
 from application.start_transaction_service import start_profile_transactional
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary

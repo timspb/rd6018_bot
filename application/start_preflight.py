@@ -8,7 +8,7 @@ from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
 from runtime.ui.commands.models import CommandResult, CommandStatus, DomainIntent
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 from .intents import OperatorIntent, OperatorIntentKind
 from .start_request import (

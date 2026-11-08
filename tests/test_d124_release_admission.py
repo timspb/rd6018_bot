@@ -15,9 +15,9 @@ class D124AdmissionTests(unittest.TestCase):
         self.assertTrue(a.requires_d090_rollback)
         self.assertFalse(a.requires_repeat_all_physical_cases)
     def test_live_safety_envelope_fix_is_a_control_change(self):
-        a = classify(['runtime/safety/managed_guard.py', 'safe_output.py'])
+        a = classify(['runtime/safety/managed_guard.py', 'application/safe_output_coordinator.py'])
         self.assertEqual(a.classification, 'python_control_change')
-        self.assertEqual(set(a.changed_control_paths), {'runtime/safety/managed_guard.py', 'safe_output.py'})
+        self.assertEqual(set(a.changed_control_paths), {'runtime/safety/managed_guard.py', 'application/safe_output_coordinator.py'})
 
     def test_any_safety_package_change_requires_control_admission(self):
         for path in (

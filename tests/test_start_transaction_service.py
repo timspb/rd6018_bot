@@ -4,7 +4,7 @@ import unittest
 from aiogram.enums import ParseMode
 
 from pb_domain import BatteryCondition, ChargeIntent
-from safe_output import EnableResult, SafetyViolation
+from runtime.safety.output_policy import EnableResult, SafetyViolation
 from application.start_transaction_service import start_profile_transactional
 
 

@@ -17,7 +17,7 @@ from rd6018_telemetry import (
     _parse_iso_timestamp,
     canonical_programmed_readback,
 )
-from safe_output import SafetyPolicy
+from runtime.safety.output_policy import SafetyPolicy
 
 
 logger = logging.getLogger("rd6018")

@@ -2,12 +2,8 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from safe_output import (
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetySupervisor,
-    snapshot_from_live,
-)
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 NOW = datetime(2026, 8, 30, 14, 33, 10, tzinfo=timezone.utc)

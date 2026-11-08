@@ -15,7 +15,7 @@ from battery_fault_engine import DiagnosticAuthority
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import select_recipe_envelope
-from safe_output import snapshot_from_live
+from runtime.safety.output_policy import snapshot_from_live
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from battery_catalog import list_batteries
 from ui_support import battery_button_label, profile_for_chemistry
