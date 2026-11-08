@@ -1751,3 +1751,7 @@ Source-only repair to the **existing** managed STOP owner (no second orchestrato
 ## 2026-11-08 — STOP Native fallback full source acceptance
 
 Full uninterrupted WSL suite `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q tests`: **EXIT 0; 3056 PASSED, 3 SKIPPED, 6 WARNINGS in 425.81s**. Focused STOP/recovery/guard cohort **51 PASS**. Source fixes exact RuntimeError from established OFF owner and gates software AUTO retirement on newly observed typed ESP Native R18 OFF + I≈0 with fresh post-attempt timestamps and unchanged session token; known unsafe/stale/unknown reports remain fail closed. Node104 still NOT DEPLOYED; Native callback availability and root cause of battery_voltage=0.010V are not proven.
+
+## 2026-11-08 — Exact source-only STOP release candidate
+
+Code commit `92971d8e680190f7872c6b86e1f21cfdb4d2cc71` was pushed to verified owned origin after full WSL suite **3056 PASS, 3 skipped, 6 warnings, EXIT 0, 425.81s**. Canonical local stage `/tmp/rd6018-release-stop-92971d8-20261108/release-92971d8e680190f7872c6b86e1f21cfdb4d2cc71-isu27nu8` SHA256 source.tar `91b1b7ea0138d8d0cca2fad7df91b808f479cd7856f8f6904379dc848b890e9f`, manifest `3c98cebc22549879858f4ce87ce3d5028a2f54ec2988b6e8eefbab68115b05e3`, `STAGED_OK` tree verified. Focused archive STOP/inventory/recovery **33 PASS**. SOURCE-ONLY, NOT DEPLOYED: production D145 venv/profile and fresh timestamped Native admission still pending. `battery_voltage 0.010V` incident cause unresolved; no production service or hardware modification.
