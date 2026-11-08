@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html
+import math
+import time
 from typing import Any
 
 from aiogram import F
@@ -186,13 +188,22 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
         hard_stop = getattr(app, "_hard_stop_charge", None)
         if not callable(hard_stop):
             return False, "AUTO stop недоступен: verified hard-stop path не установлен."
+        stop_started_at = time.monotonic()
         try:
             await hard_stop()
-        except OutputOffNotConfirmed as exc:
-            if await _retire_auto_after_unconfirmed_off(app):
+        except (OutputOffNotConfirmed, RuntimeError) as exc:
+            # Existing hard-stop raises RuntimeError when its verified OFF
+            # transaction returns False, not only OutputOffNotConfirmed.
+            # Only that exact refusal is eligible for independent Native
+            # reconciliation; unrelated runtime errors remain failures.
+            off_unverified = (isinstance(exc, OutputOffNotConfirmed)
+                              or str(exc) == "STOP refused: physical Output OFF not verified")
+            if (off_unverified and await _retire_auto_after_unconfirmed_off(
+                    app, expected_token=expected_token,
+                    stop_started_at=stop_started_at)):
                 return True, (
-                    "AUTO-сессия завершена программно: ток 0 A и readback OFF; "
-                    "edge-readback confirmation unavailable, сохранён containment: "
+                    "AUTO-сессия завершена по свежим Native R18/OFF и I=0; "
+                    "неподтверждённая команда OFF остаётся в containment: "
                     f"{type(exc).__name__}: {exc}"
                 )
             return False, f"AUTO stop не завершён: {type(exc).__name__}: {exc}"
@@ -214,8 +225,16 @@ async def _stop_exact_session(app: Any, expected_token: str) -> tuple[bool, str]
     return False, "Неизвестный managed owner; команда не выполнена."
 
 
-async def _retire_auto_after_unconfirmed_off(app: Any) -> bool:
-    """Retire software AUTO only when a read-only OFF/zero-current snapshot agrees."""
+async def _retire_auto_after_unconfirmed_off(
+    app: Any, *, expected_token: str, stop_started_at: float,
+) -> bool:
+    """Retire only the same AUTO session after new, typed Native OFF evidence.
+
+    A cached switch/Telegram/HA reading is never a STOP receipt. This
+    fallback does not reset a fault latch, lift quarantine or enable Output.
+    """
+    from rd6018_telemetry import telemetry_freshness
+
     hass = getattr(app, "hass", None)
     get_live = getattr(hass, "get_all_live", None)
     if not callable(get_live):
@@ -224,23 +243,44 @@ async def _retire_auto_after_unconfirmed_off(app: Any) -> bool:
         live = await get_live()
     except Exception:
         return False
-
-    raw_code = live.get("output_state_code_v2")
-    try:
-        output_code = float(raw_code) if raw_code not in (None, "") else None
-    except (TypeError, ValueError):
-        output_code = None
-    if output_code is not None:
-        output_off = output_code == 0.0
-    else:
-        output_off = str(live.get("switch", "")).strip().lower() in {"off", "false", "0"}
-    try:
-        current = float(live.get("current"))
-    except (TypeError, ValueError):
-        current = None
-    if not output_off or current is None or current > 0.05:
+    if not isinstance(live, dict) or _active_session_token(app) != expected_token:
         return False
-
+    metadata = live.get("_meta")
+    if not isinstance(metadata, dict):
+        return False
+    for key in ("output_state_code_v2", "current"):
+        item = metadata.get(key)
+        if not isinstance(item, dict):
+            return False
+        timestamp = item.get("subscription_timestamp_monotonic")
+        age = item.get("age_s")
+        if (item.get("source") != "esp_native_api"
+                or item.get("native_type") != "SensorState"
+                or item.get("status") != "ok"
+                or not isinstance(timestamp, (float, int))
+                or isinstance(timestamp, bool)
+                or not math.isfinite(timestamp)
+                or timestamp <= stop_started_at
+                or timestamp > time.monotonic()
+                or not isinstance(age, (float, int))
+                or isinstance(age, bool)
+                or not math.isfinite(age)
+                or not 0 <= age <= 8.0):
+            return False
+    if not telemetry_freshness(
+            live, ("output_state_code_v2", "current"), max_age_s=8.0).valid:
+        return False
+    try:
+        output_code = float(live["output_state_code_v2"])
+        current = float(live["current"])
+    except (TypeError, ValueError, KeyError, OverflowError):
+        return False
+    if (not math.isfinite(output_code) or output_code != 0.0
+            or not math.isfinite(current) or abs(current) > 0.05):
+        return False
+    # No asynchronous work after the last owner-identity check.
+    if _active_session_token(app) != expected_token:
+        return False
     controller = getattr(app, "charge_controller", None)
     stop = getattr(controller, "stop", None)
     if not callable(stop):
@@ -249,7 +289,7 @@ async def _retire_auto_after_unconfirmed_off(app: Any) -> bool:
     clear = getattr(app, "_clear_manual_off", None)
     if callable(clear):
         clear()
-    return True
+    return not _auto_active(app)
 
 
 def install_operator_managed_stop(app: Any) -> None:

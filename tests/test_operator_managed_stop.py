@@ -12,7 +12,17 @@ from runtime_safety import OutputOffNotConfirmed
 
 
 def _off_live():
-    return {"switch": "off", "current": 0.0}
+    import time
+    now = time.monotonic()
+    meta = {
+        "source": "esp_native_api", "native_type": "SensorState",
+        "status": "ok", "age_s": 0.0,
+        "subscription_timestamp_monotonic": now,
+    }
+    return {
+        "switch": "off", "output_state_code_v2": 0.0, "current": 0.0,
+        "_meta": {"output_state_code_v2": dict(meta), "current": dict(meta)},
+    }
 
 
 async def _off_live_async():
@@ -244,9 +254,83 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
         ok, detail = await _stop_exact_session(app, "auto:auto-1")
 
         self.assertTrue(ok)
-        self.assertIn("AUTO-сессия завершена программно", detail)
-        self.assertIn("readback OFF", detail)
+        self.assertIn("AUTO-сессия завершена по свежим Native", detail)
+        self.assertIn("R18/OFF", detail)
         self.assertEqual(controller.stop_calls, [True])
+
+    async def test_runtime_false_off_receipt_retires_on_new_native_off_sample(self):
+        controller = types.SimpleNamespace(
+            is_active=True, recovery_trace_context={"session_id": "auto-1"},
+            total_start_time=1.0, stop_calls=[],
+        )
+
+        def stop(*, clear_session):
+            controller.stop_calls.append(clear_session)
+            controller.is_active = False
+
+        controller.stop = stop
+
+        async def hard_stop():
+            raise RuntimeError("STOP refused: physical Output OFF not verified")
+
+        app = types.SimpleNamespace(
+            charge_controller=controller,
+            manual_session_manager=types.SimpleNamespace(is_active=False),
+            _hard_stop_charge=hard_stop,
+            hass=types.SimpleNamespace(get_all_live=_off_live_async),
+        )
+        ok, detail = await _stop_exact_session(app, "auto:auto-1")
+        self.assertTrue(ok, detail)
+        self.assertIn("Native", detail)
+        self.assertEqual(controller.stop_calls, [True])
+
+    async def test_stale_or_non_native_off_cannot_retire_auto_session(self):
+        cases = ("missing_meta", "ha_source", "stale_callback", "before_stop",
+                 "output_on", "negative_current", "changed_session")
+        for case in cases:
+            with self.subTest(case=case):
+                controller = types.SimpleNamespace(
+                    is_active=True, recovery_trace_context={"session_id": "auto-1"},
+                    total_start_time=1.0, stop_calls=[],
+                )
+
+                def stop(*, clear_session):
+                    controller.stop_calls.append(clear_session)
+                    controller.is_active = False
+
+                controller.stop = stop
+
+                async def hard_stop():
+                    raise OutputOffNotConfirmed("no fresh post-OFF confirmation")
+
+                async def live():
+                    sample = _off_live()
+                    if case == "missing_meta":
+                        sample.pop("_meta")
+                    elif case == "ha_source":
+                        sample["_meta"]["current"]["source"] = "ha102_rest"
+                    elif case == "stale_callback":
+                        sample["_meta"]["current"]["age_s"] = 50.0
+                    elif case == "before_stop":
+                        sample["_meta"]["output_state_code_v2"]["subscription_timestamp_monotonic"] -= 20
+                    elif case == "output_on":
+                        sample["output_state_code_v2"] = 1.0
+                    elif case == "negative_current":
+                        sample["current"] = -0.9
+                    elif case == "changed_session":
+                        controller.recovery_trace_context = {"session_id": "replacement"}
+                    return sample
+
+                app = types.SimpleNamespace(
+                    charge_controller=controller,
+                    manual_session_manager=types.SimpleNamespace(is_active=False),
+                    _hard_stop_charge=hard_stop,
+                    hass=types.SimpleNamespace(get_all_live=live),
+                )
+                ok, _ = await _stop_exact_session(app, "auto:auto-1")
+                self.assertFalse(ok)
+                self.assertTrue(controller.is_active)
+                self.assertEqual(controller.stop_calls, [])
 
     async def test_unconfirmed_off_with_nonzero_current_keeps_auto_session(self):
         controller = types.SimpleNamespace(
