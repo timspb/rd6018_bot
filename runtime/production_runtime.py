@@ -2091,7 +2091,7 @@ async def soft_watchdog_loop() -> None:
 
 
 async def watchdog_loop() -> None:
-    """Hardware Watchdog: при потере связи — аварийное отключение. При U>15В — 60 сек таймаут."""
+    """Software communication watchdog: one 300s timeout for all voltage modes."""
     global last_chat_id
     while True:
         await asyncio.sleep(30)
@@ -2136,21 +2136,6 @@ async def watchdog_loop() -> None:
                 await _hard_stop_charge()
                 continue
 
-            if v > HIGH_V_THRESHOLD and delta >= HIGH_V_FAST_TIMEOUT:
-                logger.critical("CRITICAL: Watchdog timeout (high voltage >15V, 60s). Emergency shutdown.")
-                i = _safe_float(live.get("current"))
-                ah = _safe_float(live.get("ah"))
-                t = _safe_float(live.get("temp_ext"))
-                log_event(
-                    charge_controller.current_stage,
-                    v,
-                    i,
-                    t,
-                    ah,
-                    "WATCHDOG_HIGH_V",
-                )
-                await _hard_stop_charge()
-                charge_controller.emergency_hv_disconnect = True
         except Exception as ex:
             logger.error("watchdog_loop: %s", ex)
 

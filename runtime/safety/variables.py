@@ -64,12 +64,12 @@ WATCHDOG_TIMEOUT_S = VariableSpec(
 
 HIGH_V_FAST_TIMEOUT_S = VariableSpec(
     key="safety.watchdog.high_voltage_fast_timeout_s",
-    default=60.0,
+    default=300.0,
     value_type=float,
     unit="s",
-    description="Fast communication-loss timeout while measured voltage is above the high-voltage threshold.",
+    description="Compatibility: high-voltage communication-loss timeout equals ordinary 300s watchdog.",
     owner="runtime.safety",
-    provenance="accepted production high-voltage watchdog timeout",
+    provenance="operator decision 2026-11-08: no accelerated high-voltage communication timeout",
     override_policy=OverridePolicy.DEPLOYMENT_ONLY,
     change_effect=ChangeEffect.DEPLOY_REQUIRED,
     minimum=1.0,

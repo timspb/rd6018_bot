@@ -34,8 +34,32 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
         self.assertEqual(0.1, PROTECTION_OVP_MARGIN_V.default)
         self.assertEqual(0.1, PROTECTION_OCP_MARGIN_A.default)
         self.assertEqual(300.0, WATCHDOG_TIMEOUT_S.default)
-        self.assertEqual(60.0, HIGH_V_FAST_TIMEOUT_S.default)
+        self.assertEqual(300.0, HIGH_V_FAST_TIMEOUT_S.default)
+        self.assertEqual(HIGH_V_FAST_TIMEOUT_S.default, WATCHDOG_TIMEOUT_S.default)
         self.assertEqual(15.0, HIGH_V_THRESHOLD_V.default)
+
+    def test_high_voltage_communication_watchdog_has_no_early_off_path(self) -> None:
+        """A stale heartbeat above 15 V waits 300s, not a separate 60s."""
+        tree = ast.parse((ROOT / "runtime/production_runtime.py").read_text(encoding="utf-8"))
+        watchdog = next(
+            node for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "watchdog_loop"
+        )
+        names = {
+            node.id for node in ast.walk(watchdog) if isinstance(node, ast.Name)
+        }
+        self.assertIn("WATCHDOG_TIMEOUT", names)
+        self.assertNotIn("HIGH_V_FAST_TIMEOUT", names)
+        self.assertNotIn("HIGH_V_THRESHOLD", names)
+        self.assertEqual(
+            sum(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_hard_stop_charge"
+                for node in ast.walk(watchdog)
+            ),
+            1,
+        )
 
     @staticmethod
     def _charge_logic_imports(relative_path: str) -> set[str]:
