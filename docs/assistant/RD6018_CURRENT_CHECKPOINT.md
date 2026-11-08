@@ -1866,3 +1866,5 @@ Added `tests/test_recipe_visual_canonical_bridge.py` with Node.js execution of t
 ## 2026-11-09 — BW600-FX discharge integration research (source-only)
 
 Full evidence, repository links, Tuya DP101–122, USB HID and ESPHome comparison, board/thermal cautions and proposed integration path: `docs/assistant/RD6018_BW600_RESEARCH_2026-11-09.md`. No hardware, node104, RD6018 runtime, firmware, output or charging action. Research only. Local Git SHA at preflight `edf484993eff359aaa383eb86a4620106f9b9d9e`, feature branch ahead of own origin by 2 before this documentation addition.
+
+2026-11-09 — BW600 integration architecture corrected per owner: permanent parallel battery connection, confirmed mutual Load OFF / RD Output OFF before transitions, external NTC as second MIX temperature source; details and unresolved electrical tests in `docs/assistant/RD6018_BW600_RESEARCH_2026-11-09.md`. No hardware operation.
