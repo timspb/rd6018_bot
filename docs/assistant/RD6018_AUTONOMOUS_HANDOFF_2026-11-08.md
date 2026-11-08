@@ -93,3 +93,7 @@ Owner correction: routine OVP/OCP setting was **removed** on normal START and MA
 ## 2026-11-08 — Актуальный план автономной работы
 
 **План P1–P5 с новыми приоритетами:** `docs/assistant/RD6018_AUTONOMOUS_PLAN_2026-11-08.md`. Его блок P5-A заменяет прежнее требование начинать с P1 и содержит точный статус тестового покрытия, незакрытые диапазоны, правила завершения и ограничения production. На исходном базисе `99dacdd` участок 2301–2500 исправлен: тест legacy-аудита исключает вложенный Git worktree, Telegram `/start` изолированно закрывает DB в `asyncTearDown`; фокусные 3 и 4 PASS, весь диапазон **200 PASS / exit 0**. Следующий участок 2501–2700. Не считать весь suite принятым до проверки оставшихся диапазонов и контролируемого полного прогона. Не запускать node104.
+
+## 2026-11-08 — Partitioned suite coverage completed
+
+After baseline `3c5b16c`, all remaining original collected IDs **2701–2900, 2901–3033, 1–200, 201–399** completed exit 0, with two skips in the first 200. Earlier groups 400–2700 are in checkpoint; 3033-ID inventory was covered partition by partition. This is not a single suite PASS. Corrections: offline ESP fixture, tracked-source audits, outdated PREP→MAIN OVP/OCP test, and consolidation of Telegram markup construction in the existing renderer. Next run monitored full pytest with actual exit code. Production node104 remains frozen, no physical work.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
 import unittest
 
@@ -13,6 +14,19 @@ from runtime.ui.routing.registry import route_for
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def tracked_ui_sources():
+    raw = subprocess.check_output(
+        ["git", "ls-files", "-z", "--", "runtime/ui/*.py", "runtime/ui/**/*.py"],
+        cwd=ROOT,
+    ).split(bytes([0]))
+    return [ROOT / Path(item.decode("utf-8")) for item in raw if item]
+
+
+def has_tracked_sources(relative):
+    target = ROOT / relative
+    return any(path == target or target in path.parents for path in tracked_ui_sources())
 
 
 class ModularV3ArchitectureContractTests(unittest.TestCase):
@@ -68,7 +82,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
             "esphome",
         )
         violations: list[str] = []
-        for path in (ROOT / "runtime" / "ui").rglob("*.py"):
+        for path in tracked_ui_sources():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 module = ""
@@ -91,7 +105,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
     def test_only_telegram_renderer_layer_constructs_framework_buttons(self) -> None:
         violations: list[str] = []
         renderer_hits: list[str] = []
-        for path in (ROOT / "runtime" / "ui").rglob("*.py"):
+        for path in tracked_ui_sources():
             text = path.read_text(encoding="utf-8")
             for token in ("InlineKeyboardButton(", "callback_data="):
                 if token not in text:
@@ -153,7 +167,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         self.assertFalse((ROOT / "v1_ui_compat.py").exists())
         self.assertFalse((ROOT / "application" / "v2_identity_bridge.py").exists())
         self.assertFalse((ROOT / "application" / "operator_snapshot_shadow.py").exists())
-        self.assertFalse((ROOT / "runtime" / "ui" / "legacy_shadow").exists())
+        self.assertFalse(has_tracked_sources("runtime/ui/legacy_shadow"))
         self.assertFalse((ROOT / "application" / "active_start_bridge.py").exists())
         self.assertFalse((ROOT / "application" / "operator_feedback.py").exists())
         self.assertFalse((ROOT / "application" / "telegram_operator_feedback.py").exists())

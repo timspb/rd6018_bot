@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
 import unittest
 
@@ -16,11 +17,14 @@ EXPECTED_CONTROLLER_CONSTANTS = {
 
 
 def _production_python_paths() -> list[Path]:
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
+    ).split(bytes([0]))
     return [
-        path for path in ROOT.rglob("*.py")
-        if "tests" not in path.parts
-        and ".git" not in path.parts
-        and "__pycache__" not in path.parts
+        ROOT / relative
+        for raw in tracked if raw
+        for relative in [Path(raw.decode("utf-8"))]
+        if "tests" not in relative.parts
     ]
 
 

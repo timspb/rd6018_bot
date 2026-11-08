@@ -1,4 +1,5 @@
 import pathlib
+import subprocess
 import re
 import unittest
 import ast
@@ -29,9 +30,16 @@ class V3LegacyInventoryTests(unittest.TestCase):
 
     def test_production_sources_do_not_import_historical_module_name(self):
         forbidden = []
-        for path in ROOT.rglob("*.py"):
-            if "tests" in path.parts or "__pycache__" in path.parts:
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
+        ).split(bytes([0]))
+        for raw in tracked:
+            if not raw:
                 continue
+            relative = pathlib.Path(raw.decode("utf-8"))
+            if "tests" in relative.parts:
+                continue
+            path = ROOT / relative
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):

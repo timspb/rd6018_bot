@@ -57,6 +57,18 @@ def render_button(spec: ButtonSpec) -> InlineKeyboardButton:
     )
 
 
+def render_callback_rows(
+    rows: list[list[tuple[str, str]]],
+) -> InlineKeyboardMarkup:
+    """One Telegram button-construction boundary for legacy callback layouts."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=callback) for label, callback in row]
+            for row in rows
+        ],
+    )
+
+
 def render_screen_markup(screen: ScreenSpec) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

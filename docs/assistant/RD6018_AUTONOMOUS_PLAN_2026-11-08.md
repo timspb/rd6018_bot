@@ -47,3 +47,7 @@ Production node104 заморожен на D144 slot14 `d49cb6d1bb24fa3d2496ca45
 3. Дописать точный результат в checkpoint и основной ранбук; скорректировать этот план при изменении приоритета.
 4. Stage только собственных файлов; проверить staged diff; commit; перепроверить URL push и ветку; push без force; подтвердить чистый статус и ahead/behind 0/0.
 5. Продолжить следующий безопасный этап в том же пробуждении, если есть время и он не нарушает границ. Не обещать работу вне текущего исполнения.
+
+## P5-A update — 2026-11-08
+
+All historical 3033 collected IDs covered by bounded offline runs with recorded exit codes. Last portions: 2701–2900 200 PASS, 2901–3033 133 PASS, 1–200 198 PASS/2 skipped, 201–399 199 PASS. Prior portions 400–2700 in checkpoint. Corrected actual HMI markup architecture boundary via existing Telegram renderer. **Next:** verify real HEAD and launch monitored, bounded full `pytest -q tests` in existing isolated WSL virtualenv, capture actual process exit status and any cross-test interference. No P1–P4 repetition, no new test orchestration layers. node104 remains frozen.
