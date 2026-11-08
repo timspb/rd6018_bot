@@ -98,15 +98,15 @@ class D145D146EntrypointTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["activate"])
 
-    def test_state_preserving_observer_is_the_existing_pinned_d148_reader(self):
+    def test_state_preserving_observer_is_the_versioned_pinned_d150_reader(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             with patch.object(entrypoint, "verify_pinned_observer",
-                              return_value=root / "d148.py") as verify:
+                              return_value=root / "d150.py") as verify:
                 self.assertEqual(entrypoint.verify_state_preserving_observer(root),
-                                 root / "d148.py")
+                                 root / "d150.py")
             verify.assert_called_once_with(
-                root, "d147-proof/d148_recovery_d091_collector.py", entrypoint.D148_SHA)
+                root, "d147-proof/d150_poststart_d091_collector.py", entrypoint.D150_SHA)
 
 
 if __name__ == "__main__":

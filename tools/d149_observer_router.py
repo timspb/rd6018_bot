@@ -1,6 +1,6 @@
 """D149 immutable, phase-aware D091 observer selection.
 
-Read-only: runs pinned existing D147 and D148 collectors through the current
+Read-only: runs pinned existing D147 and versioned D150 collectors through the current
 service virtualenv; does not control systemd, charge output, or setpoints.
 Return a canonical D090 PhysicalOffProof with fresh, strict source nonces.
 """
@@ -19,7 +19,7 @@ except ModuleNotFoundError:
     from tools import node104_d090_release as release
 
 D147_SHA = "1127e9e3ba52a43ca97ddd8501ea4ac9a52887e708d725fd1299fd22d15a2398"
-D148_SHA = "a738f08e5554fa70188af856bc359b198838a983394948aaee8c64fdd9df1e95"
+D150_SHA = "d9d4190c61eda4ecf690d150572be8847b4cfb60860c901d4acfaf517845bdef"
 
 class ObserverRouteError(RuntimeError):
     pass
@@ -48,8 +48,8 @@ class ReadOnlyObserverRouter:
             file = self.root / "d147-proof/node104_d091_physical_proof_collector.py"
             expected = D147_SHA
         else:
-            file = self.root / "d147-proof/d148_recovery_d091_collector.py"
-            expected = D148_SHA
+            file = self.root / "d147-proof/d150_poststart_d091_collector.py"
+            expected = D150_SHA
         parent = file.parent
         if (parent.is_symlink() or not parent.is_dir()
                 or parent.stat().st_mode & 0o022
@@ -66,11 +66,12 @@ class ReadOnlyObserverRouter:
         env["D090_EXPECTED_ESP_VERSION"] = "2.3-ha-canonical"
         env["D090_SOFTWARE_RELEASE"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        # D148 is the state-preserving stopped/post-start observer. Its
-        # journal_clear contract is selected by this mode even when the
-        # persisted session was already retired or removed. D091 still
-        # requires fresh independent HA/native physical OFF and edge proofs.
-        if phase != "PRE_STOP" or self.preserve_active_session:
+        # The original D148 remains immutable historical evidence. Its
+        # normal-mode journal_clear projection is defective, so the pinned
+        # versioned D150 is used for all subsequent read-only phases.
+        # A retired session uses D150's actual canonical journal validator.
+        # A preserved active session still requires explicit recovery mode.
+        if phase == "RECOVERY" or self.preserve_active_session:
             env["D090_STATE_PRESERVING_RECOVERY"] = "1"
         else:
             env.pop("D090_STATE_PRESERVING_RECOVERY", None)

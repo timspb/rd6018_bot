@@ -17,13 +17,13 @@ class D149RouterTests(unittest.TestCase):
         (self.root / "venv/bin").mkdir(parents=True)
         (self.root / "venv/bin/python").write_bytes(b"fake interpreter")
         self.old = self.root / "d147-proof/node104_d091_physical_proof_collector.py"
-        self.new = self.root / "d147-proof/d148_recovery_d091_collector.py"
+        self.new = self.root / "d147-proof/d150_poststart_d091_collector.py"
         self.old.write_bytes(b"old-read-only")
         self.new.write_bytes(b"new-recovery-capable")
         self.old.chmod(0o400)
         self.new.chmod(0o400)
         self.hash_old = patch.object(mod, "D147_SHA", hashlib.sha256(self.old.read_bytes()).hexdigest())
-        self.hash_new = patch.object(mod, "D148_SHA", hashlib.sha256(self.new.read_bytes()).hexdigest())
+        self.hash_new = patch.object(mod, "D150_SHA", hashlib.sha256(self.new.read_bytes()).hexdigest())
         self.hash_old.start()
         self.hash_new.start()
         self.addCleanup(self.hash_old.stop)
@@ -49,7 +49,7 @@ class D149RouterTests(unittest.TestCase):
             self.router.select(phase)
             self.router()
             self.assertEqual(self.calls[-1][0][1], str(self.new))
-            self.assertEqual(self.calls[-1][1]["D090_STATE_PRESERVING_RECOVERY"], "1")
+            self.assertNotIn("D090_STATE_PRESERVING_RECOVERY", self.calls[-1][1])
 
     def test_recovery_has_explicit_mode(self):
         self.router.select("RECOVERY")

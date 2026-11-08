@@ -24,13 +24,13 @@ try:
     import node104_d090_transaction as d090
     from node104_d124_release_profile import load_software_release_profile
     from d144_owner_binding import execute_under_owner, prepare_only, recover_under_owner
-    from d149_observer_router import D147_SHA, D148_SHA, ReadOnlyObserverRouter
+    from d149_observer_router import D147_SHA, D150_SHA, ReadOnlyObserverRouter
 except ModuleNotFoundError:
     from tools import node104_d090_release as release
     from tools import node104_d090_transaction as d090
     from tools.node104_d124_release_profile import load_software_release_profile
     from tools.d144_owner_binding import execute_under_owner, prepare_only, recover_under_owner
-    from tools.d149_observer_router import D147_SHA, D148_SHA, ReadOnlyObserverRouter
+    from tools.d149_observer_router import D147_SHA, D150_SHA, ReadOnlyObserverRouter
 
 
 PROFILE_SHA256 = "a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47"
@@ -96,20 +96,20 @@ def verify_pinned_observer(root: Path, relative_path: str, expected_sha256: str)
             or path.is_symlink() or not path.is_file()
             or path.stat().st_mode & 0o222
             or _profile_digest(path) != expected_sha256):
-        raise d090.TransactionError("pinned D147/D148 observer missing or changed")
+        raise d090.TransactionError("pinned D147/D150 observer missing or changed")
     return path
 
 
 def verify_state_preserving_observer(root: Path) -> Path:
-    """Return the existing exact D148 recovery collector for guarded state.
+    """Return the existing exact D150 recovery collector for guarded state.
 
     D147's legacy software-release projection may report a preserved guarded
-    MAIN session as inactive. D148 reads the same Native/HA OFF contract while
+    MAIN session as inactive. D150 reads the same Native/HA OFF contract while
     truthfully retaining active-session identity, and is already the pinned
     observer used by D144's stopped/post-start phases.
     """
     return verify_pinned_observer(
-        root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)
+        root, "d147-proof/d150_poststart_d091_collector.py", D150_SHA)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             collector=verify_state_preserving_observer(root))
     else:
         verify_pinned_observer(
-            root, "d147-proof/d148_recovery_d091_collector.py", D148_SHA)
+            root, "d147-proof/d150_poststart_d091_collector.py", D150_SHA)
         result = recover_under_owner(
             owner, expected_candidate_identity_sha256=CANDIDATE_IDENTITY_SHA256)
     print(json.dumps(result, indent=2, sort_keys=True))
