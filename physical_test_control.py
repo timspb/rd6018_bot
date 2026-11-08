@@ -24,7 +24,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from battery_registry import get_battery
-from edge_safety_lease import EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLeaseError
 from pb_domain import BatteryChemistry
 from rd_managed_adoption import ManagedAdoptionPreview
 

@@ -6,7 +6,7 @@ physical I/O. No hardware, network, native button or production control.
 import unittest
 from datetime import datetime, timezone
 
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
 from runtime.safety.managed_guard import install_managed_runtime_safety
 from runtime.safety.runtime_guard import RuntimeSafetyError
 from tests.test_edge_safety_lease import FakeHass as FakeEdge

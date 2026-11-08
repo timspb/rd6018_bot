@@ -7,7 +7,7 @@ import time
 import unittest
 
 from application.main_guard_runtime import execute_due_main_guard
-from edge_safety_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError
 from runtime.charge.strategy.main_guard_admission import admit_main_guard_shadow
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
 from tests.test_d109_main_guard_checkpoint import D109CanonicalGuardIntegration

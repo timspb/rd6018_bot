@@ -1,6 +1,6 @@
 import unittest
 
-from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from runtime.charge import Measurements
 from runtime.charge.strategy import (
     CCMixExitConfig,

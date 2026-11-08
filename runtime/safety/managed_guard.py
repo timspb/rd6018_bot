@@ -16,7 +16,7 @@ from runtime.safety.electrical_envelope import managed_envelope_error
 from runtime.safety.foreign_output import foreign_output_safety_error
 
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
-from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from rd6018_telemetry import (
     ProtectionStatus,
     canonical_programmed_readback,

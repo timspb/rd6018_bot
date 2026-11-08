@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
 from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 

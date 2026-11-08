@@ -501,7 +501,7 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(set(names), allowed)
             self.assertEqual(len(names),len(set(names)))
             self.assertEqual(archive.extractfile('source-manifest.json').read(),manifest)
-            self.assertNotIn('edge_safety_lease.py',names)
+            self.assertNotIn('runtime/safety/edge_lease.py',names)
             self.assertNotIn('hass_api.py',names)
             self.assertEqual(pairing.SUPPLEMENTAL_PATHS, allowed-{
                 'source-manifest.json','overlay-attestation.json'})

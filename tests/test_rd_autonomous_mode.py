@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from edge_safety_lease import EdgeSafetyLeaseConfig
+from runtime.safety.edge_lease import EdgeSafetyLeaseConfig
 from rd_autonomous_mode import (
     RdAutonomousModeCoordinator,
     install_rd_autonomous_mode,
