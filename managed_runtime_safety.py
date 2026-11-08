@@ -6,7 +6,10 @@ import math
 import time
 from typing import Any, Optional
 
-from runtime.safety.variables import MAX_STAGE_CURRENT_A
+from runtime.safety.variables import MAX_STAGE_CURRENT_A, WATCHDOG_TIMEOUT_S
+from runtime.safety.telemetry_recovery import (
+    isolated_callback_recovery_eligible, known_unsafe_observation,
+)
 from runtime.safety.live_freshness import runtime_freshness_error
 
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
@@ -39,7 +42,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     OFF_UNCONFIRMED_RETRY_S = 60.0
     # Owner-authorized Native communication-loss budget. The independent
     # 900-second ESP safety lease remains unchanged.
-    TELEMETRY_UNAVAILABLE_GRACE_S = 300.0
+    TELEMETRY_UNAVAILABLE_GRACE_S = float(WATCHDOG_TIMEOUT_S.default)
 
     @staticmethod
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:
@@ -108,6 +111,14 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if not self._is_transient_telemetry_error(reason):
             self._telemetry_unavailable_since = None
             return False
+        if known_unsafe_observation(
+            live, max_voltage_v=self.policy.absolute_voltage_ceiling_v,
+            max_current_a=self.policy.absolute_current_ceiling_a,
+            critical_battery_temp_c=self.policy.critical_temp_c,
+            max_psu_temp_c=self.policy.max_internal_temp_c,
+        ):
+            self._telemetry_unavailable_since = None
+            return False
         # A known Native TCP interruption can restore only part of its
         # callback batch. Keep ONE 300s budget, anchored to the original
         # disconnect, even if measured U/I or Output R18 arrive before the
@@ -119,14 +130,21 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             and math.isfinite(native_since)
             and native_since >= 0
         )
-        if not native_outage:
-            # Without evidence of a Native link outage, only a complete
-            # blackout receives communication-loss grace. Isolated stale
-            # channels still fail closed immediately.
-            if any(
+        # A live Native connection can lose an independent callback stream.
+        # Permit this wait only with fresh physical Output/protection evidence.
+        if not native_outage and not isolated_callback_recovery_eligible(
+            live, reason, output_known=_binary(live.get("switch")) is not None,
+            max_voltage_v=self.policy.absolute_voltage_ceiling_v,
+            max_current_a=self.policy.absolute_current_ceiling_a,
+            critical_battery_temp_c=self.policy.critical_temp_c,
+            max_psu_temp_c=self.policy.max_internal_temp_c,
+        ):
+            # Retain the established complete-blackout recovery allowance.
+            blackout = not any(
                 _finite(live.get(key)) is not None
                 for key in ("battery_voltage", "current", "temp_ext", "temp_int")
-            ) or _binary(live.get("switch")) is not None:
+            ) and _binary(live.get("switch")) is None
+            if not blackout:
                 self._telemetry_unavailable_since = None
                 return False
         now = time.monotonic()
@@ -134,7 +152,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if self._telemetry_unavailable_since is None:
             self._telemetry_unavailable_since = started
             logger.warning(
-                "Native/telemetry communication lost; withholding software STOP "
+                "Managed telemetry recovery pending; withholding software STOP "
                 "for up to %.0fs: %s",
                 self.TELEMETRY_UNAVAILABLE_GRACE_S,
                 reason,
@@ -146,11 +164,20 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if now - self._telemetry_unavailable_since < self.TELEMETRY_UNAVAILABLE_GRACE_S:
             return True
         logger.error(
-            "Native/telemetry communication outage exceeded %.0fs: %s",
+            "Managed telemetry recovery window exceeded %.0fs: %s",
             self.TELEMETRY_UNAVAILABLE_GRACE_S,
             reason,
         )
         return False
+
+    @property
+    def telemetry_recovery_active(self) -> bool:
+        """Bounded hold owned by this guard; never authorizes a physical write."""
+        since = self._telemetry_unavailable_since
+        return bool(
+            since is not None
+            and 0 <= time.monotonic() - since < self.TELEMETRY_UNAVAILABLE_GRACE_S
+        )
 
     def _clear_telemetry_grace(self) -> None:
         self._telemetry_unavailable_since = None
@@ -611,7 +638,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
         if error is not None:
             if self._telemetry_grace_active(live, error):
-                return live
+                return {**live, "_managed_telemetry_recovery_pending": True}
             await self._fail_closed("telemetry_invalid", error, output_state=output_state)
 
         freshness_error = self._runtime_freshness_error(
@@ -620,7 +647,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
         if freshness_error is not None:
             if self._telemetry_grace_active(live, freshness_error):
-                return live
+                return {**live, "_managed_telemetry_recovery_pending": True}
             await self._fail_closed(
                 "telemetry_stale",
                 freshness_error,

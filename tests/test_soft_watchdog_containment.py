@@ -79,6 +79,24 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.events, [])
         self.assertEqual(app.logger.critical_messages, [])
 
+    async def test_managed_telemetry_recovery_suspends_independent_soft_watchdog(self):
+        app = DummyApp(output_on=True, controller_active=True)
+        app.runtime_safety_guard = SimpleNamespace(telemetry_recovery_active=True)
+        incident = SoftWatchdogIncident()
+
+        # The existing managed guard owns the accepted 300s wait. At 180s
+        # the auxiliary watchdog must not fire a competing physical OFF.
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+        self.assertEqual(app.hard_stop_calls, 0)
+        self.assertFalse(incident.active)
+
+        # Once the guard stops accepting recovery, ordinary containment
+        # resumes instead of retaining an independent grace window.
+        app.runtime_safety_guard.telemetry_recovery_active = False
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+        self.assertEqual(app.hard_stop_calls, 1)
+        self.assertTrue(incident.shutdown_complete)
+
     async def test_last_known_on_requests_immediate_stop_and_logs_once(self):
         app = DummyApp(output_on=True)
         incident = SoftWatchdogIncident()

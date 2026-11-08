@@ -2104,15 +2104,15 @@ async def watchdog_loop() -> None:
 
             live = await hass.get_all_live()
             outage_since = live.get("_native_link_outage_since")
-            if (
+            native_recovering = (
                 isinstance(outage_since, (int, float))
                 and not isinstance(outage_since, bool)
                 and math.isfinite(outage_since)
-                and 0 <= time.monotonic() - outage_since < 300.0
-            ):
-                # A stale pre-disconnect U/R18 is not grounds for a second,
-                # independent software shutdown inside the owner-approved
-                # 5-minute communication window.
+                and 0 <= time.monotonic() - outage_since < WATCHDOG_TIMEOUT
+            )
+            if native_recovering or live.get("_managed_telemetry_recovery_pending") is True:
+                # The managed guard owns one five-minute recovery window.
+                # Do not let this older watchdog issue an independent early OFF.
                 continue
             v = _safe_float(live.get("voltage"))
             output_on = str(live.get("switch", "")).lower() == "on"
@@ -2239,8 +2239,11 @@ async def data_logger() -> None:
             await asyncio.sleep(30)
             continue
 
-        if "_native_link_outage_since" in live:
-            # A reconnect may deliver an incomplete Modbus callback batch.
+        if (
+            "_native_link_outage_since" in live
+            or live.get("_managed_telemetry_recovery_pending") is True
+        ):
+            # Reconnect or delayed ordinary/transition callback evidence.
             # Defer controller decisions without treating partial data as a
             # healthy heartbeat; the existing 300s guard owns the timeout.
             logger.info("Native link recovering; charge controller tick deferred")

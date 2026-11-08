@@ -171,6 +171,21 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         guard.OFF_CONFIRMATION_POLL_S = 0.0
         return guard
 
+
+    async def _assert_managed_wait_then_fail(self, guard, app, reason):
+        """An unhealthy callback is never fresh, but gets one 300s wait."""
+        self.assertEqual(guard.TELEMETRY_UNAVAILABLE_GRACE_S, 300.0)
+        for tick in (100.0, 399.0):
+            with patch("managed_runtime_safety.time.monotonic", return_value=tick):
+                observed = await guard.get_all_live()
+            self.assertIs(observed.get("_managed_telemetry_recovery_pending"), True)
+            self.assertEqual(app.hass.turn_off_calls, 0)
+            self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+        with patch("managed_runtime_safety.time.monotonic", return_value=400.0):
+            with self.assertRaisesRegex(RuntimeSafetyError, reason):
+                await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
     async def test_low_vin_is_psu_health_evidence_not_charge_authority(self):
         app = self._app(self._with_freshness(self._live()))
         guard = self._guard(app)
@@ -305,8 +320,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["set_voltage_readback_v2"] = None
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage readback V2"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "authoritative set_voltage readback V2")
         self.assertEqual(app.hass.turn_off_calls, 1)
 
     async def test_isolated_stale_readback_without_native_outage_still_fails(self):
@@ -314,7 +328,68 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["set_voltage_readback_v2"] = None
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage"):
+        await self._assert_managed_wait_then_fail(guard, app, "authoritative set_voltage")
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_normal_poll_and_mix_transition_share_300s_wait_and_recover(self):
+        # Screenshot pattern: 23.7s-old battery callback and missing Vset,
+        # while Native TCP, physical Output and protection remain healthy.
+        live = self._with_freshness(self._live(), ages={"battery_voltage": 23.7})
+        live["set_voltage_readback_v2"] = None
+        app = self._app(live)
+        guard = self._guard(app)
+        with patch("managed_runtime_safety.time.monotonic", return_value=100.0):
+            waiting = await guard.get_all_live()
+        self.assertIs(waiting.get("_managed_telemetry_recovery_pending"), True)
+        self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+        # Stage-change Vset report returns first, but the old battery sample
+        # cannot reset the single recovery clock.
+        app.hass.live["set_voltage_readback_v2"] = 14.8
+        with patch("managed_runtime_safety.time.monotonic", return_value=399.0):
+            await guard.get_all_live()
+        self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+        app.hass.live = self._with_freshness(self._live())
+        with patch("managed_runtime_safety.time.monotonic", return_value=399.5):
+            recovered = await guard.get_all_live()
+        self.assertNotIn("_managed_telemetry_recovery_pending", recovered)
+        self.assertIsNone(guard._telemetry_unavailable_since)
+        self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_300s_wait_does_not_authorize_stale_programmed_readback(self):
+        from rd6018_telemetry import canonical_programmed_readback
+
+        live = self._with_freshness(self._live(), ages={
+            "set_voltage_readback_v2": 23.7,
+        })
+        app = self._app(live)
+        guard = self._guard(app)
+        self.assertIsNone(canonical_programmed_readback(live, "set_voltage"))
+        with patch("managed_runtime_safety.time.monotonic", return_value=100.0):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 0)
+        self.assertIsNone(canonical_programmed_readback(live, "set_voltage"))
+
+    async def test_known_hardware_trip_preempts_300s_telemetry_wait(self):
+        live = self._live()
+        live["protection_code"] = 2  # Actual OCP trip, not a missing report.
+        live = self._with_freshness(live, ages={"battery_voltage": 23.7})
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaises(RuntimeSafetyError):
+            await guard.get_all_live()
+        self.assertEqual(app.hass.turn_off_calls, 1)
+
+    async def test_known_overvoltage_preempts_missing_vset_wait(self):
+        live = self._with_freshness(self._live())
+        live["voltage"] = 30.0
+        live["set_voltage_readback_v2"] = None
+        app = self._app(live)
+        guard = self._guard(app)
+        with self.assertRaises(RuntimeSafetyError):
             await guard.get_all_live()
         self.assertEqual(app.hass.turn_off_calls, 1)
 
@@ -379,8 +454,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._with_freshness(self._live(), ages={"temp_ext": 30.0})
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "temp_ext stale"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "temp_ext stale")
         self.assertEqual(app.hass.live["switch"], "off")
         self.assertEqual(app.hass.turn_off_calls, 1)
 
@@ -388,8 +462,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._with_freshness(self._live(), ages={"voltage": 30.0})
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "voltage stale"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "voltage stale")
         self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_stale_output_switch_state_fails_closed(self):
@@ -422,8 +495,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._with_freshness(self._live(), ages={"is_cv": 30.0})
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "is_cv stale"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "is_cv stale")
         self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_stale_raw_regulation_code_fails_closed(self):
@@ -432,16 +504,14 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._with_freshness(live, ages={"regulation_code": 30.0})
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "regulation_code stale"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "regulation_code stale")
         self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_stale_canonical_programmed_readback_fails_closed_while_output_is_on(self):
         live = self._with_freshness(self._live(), old_static=True)
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative set_voltage readback V2"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "authoritative set_voltage readback V2")
         self.assertEqual(app.hass.turn_off_calls, 1)
 
     async def test_current_safety_uses_fresh_v2_readback_not_writable_projection(self):
@@ -458,8 +528,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._with_freshness(self._live(), ages={"set_current_readback_v2": 21.0})
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative current readback V2"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "authoritative current readback V2")
         self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_missing_v2_current_readback_fails_closed(self):
@@ -468,8 +537,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["_meta"].pop("set_current_readback_v2")
         app = self._app(live)
         guard = self._guard(app)
-        with self.assertRaisesRegex(RuntimeSafetyError, "authoritative current readback V2"):
-            await guard.get_all_live()
+        await self._assert_managed_wait_then_fail(guard, app, "authoritative current readback V2")
         self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_rd6018_current_rounding_is_within_existing_tolerance(self):
