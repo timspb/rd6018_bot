@@ -1,5 +1,18 @@
 # Deployment and rollback runbook
 
+## CURRENT OPERATIONAL BASELINE — 2026-11-09 (supersedes historical frozen slot14 instructions below)
+
+**Production node104 is not frozen at slot14.** The user authorized reinstall, and exact D145 EXECUTE completed with D144 slot **16 COMMITTED**, installed source **`3f50133b0dca9d274a08d4dd7999f730ce90e962`**, candidate identity `844a12c7c75eb50968a6a85cfd2823d986a959dd616e238579f5142e75f28316`, transaction `a771161de4834eaa93db8ee71e3fcdbc`. D137 PASS on installed source; service `active/running` PID `237957`, `NRestarts=0`; Telegram polling started 2026-11-08 15:20:11 UTC. Post-deploy direct ESP Native API and independent HA Output OFF, U/I=0, edge lease disarmed, no active session. No manual Output ON has been physically tested.
+
+Prior release source `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b` remains D144 slot14 COMMITTED; slot15 transaction for `0276a15` remains `RESTORED` (historical, not installed). D137 selection and D145 app/venv permissions repaired in source commit `3f50133` and focused **103 PASS**. Installed app root:rd6018 mode 0750, bot.py 0644; service user read and traversal PASS.
+
+Backup on node104: `/opt/services/rd6018-bot/backups/before-reinstall-20261108T150501Z.tar.gz`, root-only, 502289851 bytes, SHA256 `ce294f06f159f7e827a3113cf096180a411948c33966a01295264db6cdf5bdb6`; D144 recovery backup `d144-backup-16`. These are protected evidence, not cleanup targets. Source acceptance is not proof of physical manual ON.
+
+**Unresolved:** `state/rd_control_mode_v2.json` was `pb_managed` post-install, with retired charge session/quarantine. Operator must deliberately activate the **existing** Telegram `🔓 Режим РД — не лезь` (HANDS_OFF) when using front-panel Output; neither assistant nor install silently changes actuator ownership. Verify physical manual control as separate acceptance. Remaining code tasks: full WSL regression on latest source, project issues only when reproducible, reconcile feature branch with main through reviewed workflow; no implicit merge or new deploy.
+
+**Source-vs-installed distinction:** local checkpoint/report documentation commit is `496bf6e52b3c7edf6294cc877f17bf09712533e7`, installed source remains `3f50133`. Do not deploy the documentation commit as a new build. Read latest `docs/assistant/RD6018_CURRENT_CHECKPOINT.md` and exact Git state before tasks. All older statements below describing slot14 as *current*, P5 test partitions as *unfinished*, or node104 deployment as *not authorized* are historical and superseded by this section. New physical actions still require direct Native evidence and explicit authorization.
+
+
 ## Mandatory live-node preflight — direct ESP first
 
 **Always obtain NEW, CURRENT physical data directly from ESP Native API**;
