@@ -78,8 +78,8 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
             "production_controller.py",
             "runtime/charge/profiles/manual.py",
             "runtime/production_runtime.py",
-            "runtime_safety.py",
-            "managed_runtime_safety.py",
+            "runtime/safety/runtime_guard.py",
+            "runtime/safety/managed_guard.py",
         )
         violations = {
             path: sorted(self._charge_logic_imports(path))

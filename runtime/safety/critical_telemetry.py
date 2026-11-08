@@ -10,7 +10,7 @@ from typing import Any
 from rd6018_telemetry import (
     ProtectionStatus, canonical_programmed_readback, resolve_protection,
 )
-from runtime_safety import _binary, _finite
+from runtime.safety.runtime_guard import _binary, _finite
 
 
 def managed_critical_telemetry_error(

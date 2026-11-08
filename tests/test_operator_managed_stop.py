@@ -8,7 +8,7 @@ import operator_hmi as hmi
 from runtime import production_runtime
 from operator_managed_stop import _replace_legacy_power_toggle, _stop_exact_session
 from operator_managed_stop import _stop_orphan_main_guard
-from runtime_safety import OutputOffNotConfirmed
+from runtime.safety.runtime_guard import OutputOffNotConfirmed
 
 
 def _off_live():

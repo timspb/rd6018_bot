@@ -13,7 +13,7 @@ from tools.acceptance_guard.takeover import D061TakeoverSmoke, TARGET, fingerpri
 from tools.acceptance_guard.takeover import seed_isolated_hands_off_state, require_hands_off_manager
 from tools import run_d061_takeover_smoke as runner
 from rd_control_mode import RdControlMode, RdControlModeManager
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class _TestManagedGuard(ManagedRuntimeSafetyGuard):

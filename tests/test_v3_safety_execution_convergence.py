@@ -37,8 +37,8 @@ PHYSICAL_METHODS = {
 APPROVED_PHYSICAL_IMPLEMENTATION = {
     "application/execution_port.py",
     "hass_api.py",
-    "runtime_safety_strict.py",
-    "managed_runtime_safety.py",
+    "runtime/safety/strict_guard.py",
+    "runtime/safety/managed_guard.py",
     "safe_output.py",
 }
 RETIRED_EXECUTION_COMPATIBILITY = {

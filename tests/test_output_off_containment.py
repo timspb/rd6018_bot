@@ -2,8 +2,8 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from runtime_safety import OutputOffNotConfirmed
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:

@@ -8,8 +8,8 @@ import unittest
 from datetime import datetime, timezone
 
 from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
-from managed_runtime_safety import install_managed_runtime_safety
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.managed_guard import install_managed_runtime_safety
+from runtime.safety.runtime_guard import RuntimeSafetyError
 from safe_output import OutputRequest, SafeOutputCoordinator, SafetySupervisor
 from tests.test_edge_safety_lease import FakeHass as FakeEdge
 from tests.test_managed_runtime_safety import V2RuntimeSafetyTests

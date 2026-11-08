@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import operator_hmi as hmi
 from rd6018_telemetry import telemetry_freshness
 from rd_control_mode import RdControlMode, RdControlModeManager
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
 
 
 def _managed_active(app: Any) -> bool:

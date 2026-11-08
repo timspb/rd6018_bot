@@ -1,8 +1,8 @@
 """Regressions for delayed authoritative V2 protection readback."""
 import unittest
 
-from runtime_safety import RuntimeSafetyError
-from runtime_safety_strict import install_strict_runtime_safety
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.strict_guard import install_strict_runtime_safety
 from tests.test_runtime_safety import FakeApp
 
 

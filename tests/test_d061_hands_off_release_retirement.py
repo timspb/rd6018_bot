@@ -7,7 +7,7 @@ import unittest
 from rd_adopted_hands_off_release import install_adopted_hands_off_release_retirement
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionState
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class FakeCoordinator:

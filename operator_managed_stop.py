@@ -13,7 +13,7 @@ import telegram_panel
 from operator_confirmation import ConfirmationStore
 from rd_hands_off_release import _active_session_token, _auto_active, _manual_active
 from application.intents import OperatorIntent, OperatorIntentKind
-from runtime_safety import OutputOffNotConfirmed
+from runtime.safety.runtime_guard import OutputOffNotConfirmed
 from charging_log import log_verified_auto_stop
 
 

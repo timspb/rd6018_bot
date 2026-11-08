@@ -12,7 +12,7 @@ from rd_ownership_recovery import (
     install_rd_ownership_recovery,
     release_unmanaged_live_output_to_hands_off,
 )
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class DummyCallbackRegistry:

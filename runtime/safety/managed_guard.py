@@ -23,8 +23,8 @@ from rd6018_telemetry import (
     resolve_protection,
     telemetry_freshness,
 )
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
-from runtime_safety_strict import StrictRuntimeSafetyGuard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
+from runtime.safety.strict_guard import StrictRuntimeSafetyGuard
 
 logger = logging.getLogger("rd6018")
 

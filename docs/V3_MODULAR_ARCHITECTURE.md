@@ -81,6 +81,17 @@ Safety is modular by concern:
 
 Charge policy cannot bypass safety. Safety does not choose charge stages.
 
+Canonical production guard classes now live in `runtime/safety/runtime_guard.py`,
+`runtime/safety/strict_guard.py`, and `runtime/safety/managed_guard.py`.
+These are the existing safety-effect adapters, not additional execution owners.
+Pure telemetry, electrical-envelope, foreign-Output, freshness and watchdog
+policies live in separate sibling modules. `runtime/safety/watchdog_runtime.py`
+provides one background observation task; the soft and 300-second
+communication policies cannot issue competing OFF for a latched incident.
+All actual actuator mutations still use the established application
+`ExecutionPort` / physical bridge. No top-level runtime guard compatibility
+modules exist.
+
 ### Execution
 
 There is exactly one application-to-physical execution owner. All hardware

@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -176,12 +176,12 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         """An unhealthy callback is never fresh, but gets one 300s wait."""
         self.assertEqual(guard.TELEMETRY_UNAVAILABLE_GRACE_S, 300.0)
         for tick in (100.0, 399.0):
-            with patch("managed_runtime_safety.time.monotonic", return_value=tick):
+            with patch("runtime.safety.managed_guard.time.monotonic", return_value=tick):
                 observed = await guard.get_all_live()
             self.assertIs(observed.get("_managed_telemetry_recovery_pending"), True)
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertEqual(guard._telemetry_unavailable_since, 100.0)
-        with patch("managed_runtime_safety.time.monotonic", return_value=400.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=400.0):
             with self.assertRaisesRegex(RuntimeSafetyError, reason):
                 await guard.get_all_live()
         self.assertEqual(app.hass.turn_off_calls, 1)
@@ -191,22 +191,22 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live = self._with_freshness(self._live(), ages={"battery_voltage": 23.7})
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic", return_value=100.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=100.0):
             pending = await guard.get_all_live()
         self.assertIs(pending.get("_managed_telemetry_recovery_pending"), True)
         self.assertEqual(guard._telemetry_unavailable_since, 100.0)
         app.charge_controller.is_active = False
         app.hass.live["switch"] = "unknown"
-        with patch("managed_runtime_safety.time.monotonic", return_value=101.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=101.0):
             await guard.get_all_live()
         self.assertEqual(guard._telemetry_unavailable_since, 100.0)
         app.hass.live["switch"] = "off"
         app.hass.live["_meta"]["switch"]["status"] = "stale"
-        with patch("managed_runtime_safety.time.monotonic", return_value=102.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=102.0):
             await guard.get_all_live()
         self.assertEqual(guard._telemetry_unavailable_since, 100.0)
         app.hass.live["_meta"]["switch"]["status"] = "ok"
-        with patch("managed_runtime_safety.time.monotonic", return_value=103.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=103.0):
             await guard.get_all_live()
         self.assertIsNone(guard._telemetry_unavailable_since)
 
@@ -273,7 +273,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             live[key] = None
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic", side_effect=[100.0, 399.0, 401.0] + [401.0] * 20):
+        with patch("runtime.safety.managed_guard.time.monotonic", side_effect=[100.0, 399.0, 401.0] + [401.0] * 20):
             await guard.get_all_live()
             self.assertEqual(app.hass.turn_off_calls, 0)
             await guard.get_all_live()
@@ -288,7 +288,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["_native_link_outage_since"] = 100.0
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic",
+        with patch("runtime.safety.managed_guard.time.monotonic",
                    side_effect=[101.0, 250.0, 399.0, 400.0] + [400.0] * 30):
             for _ in range(3):
                 await guard.get_all_live()
@@ -304,7 +304,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["_native_link_outage_since"] = 100.0
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic",
+        with patch("runtime.safety.managed_guard.time.monotonic",
                    side_effect=[110.0, 220.0, 395.0]):
             await guard.get_all_live()
             app.hass.live["current"] = 0.25
@@ -326,7 +326,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["_native_link_outage_since"] = 100.0
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic", side_effect=[110.0, 220.0, 250.0]):
+        with patch("runtime.safety.managed_guard.time.monotonic", side_effect=[110.0, 220.0, 250.0]):
             await guard.get_all_live()
             self.assertEqual(guard._telemetry_unavailable_since, 100.0)
             self.assertEqual(app.hass.turn_off_calls, 0)
@@ -362,7 +362,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         live["set_voltage_readback_v2"] = None
         app = self._app(live)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic", return_value=100.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=100.0):
             waiting = await guard.get_all_live()
         self.assertIs(waiting.get("_managed_telemetry_recovery_pending"), True)
         self.assertEqual(guard._telemetry_unavailable_since, 100.0)
@@ -371,13 +371,13 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         # Stage-change Vset report returns first, but the old battery sample
         # cannot reset the single recovery clock.
         app.hass.live["set_voltage_readback_v2"] = 14.8
-        with patch("managed_runtime_safety.time.monotonic", return_value=399.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=399.0):
             await guard.get_all_live()
         self.assertEqual(guard._telemetry_unavailable_since, 100.0)
         self.assertEqual(app.hass.turn_off_calls, 0)
 
         app.hass.live = self._with_freshness(self._live())
-        with patch("managed_runtime_safety.time.monotonic", return_value=399.5):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=399.5):
             recovered = await guard.get_all_live()
         self.assertNotIn("_managed_telemetry_recovery_pending", recovered)
         self.assertIsNone(guard._telemetry_unavailable_since)
@@ -392,7 +392,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         app = self._app(live)
         guard = self._guard(app)
         self.assertIsNone(canonical_programmed_readback(live, "set_voltage"))
-        with patch("managed_runtime_safety.time.monotonic", return_value=100.0):
+        with patch("runtime.safety.managed_guard.time.monotonic", return_value=100.0):
             await guard.get_all_live()
         self.assertEqual(app.hass.turn_off_calls, 0)
         self.assertIsNone(canonical_programmed_readback(live, "set_voltage"))
@@ -423,7 +423,7 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
             broken[key] = None
         app = self._app(broken)
         guard = self._guard(app)
-        with patch("managed_runtime_safety.time.monotonic", side_effect=[100.0, 200.0, 300.0]):
+        with patch("runtime.safety.managed_guard.time.monotonic", side_effect=[100.0, 200.0, 300.0]):
             await guard.get_all_live()
             app.hass.live = self._with_freshness(self._live())
             await guard.get_all_live()

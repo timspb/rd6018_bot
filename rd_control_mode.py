@@ -14,8 +14,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 
-from runtime_safety import RuntimeSafetyError, _binary, logger
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError, _binary, logger
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class RdControlMode(str, Enum):

@@ -16,7 +16,7 @@ from rd_managed_mix_adoption import (
     PriorMixAgeSource,
     resolve_prior_mix_age,
 )
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 from safe_output import SafetyPolicy
 
 

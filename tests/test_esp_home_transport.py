@@ -207,7 +207,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_output_heartbeat_is_native_callback_not_cache_fetch_time(self):
         import time
-        from runtime_safety import RuntimeSafetyGuard
+        from runtime.safety.runtime_guard import RuntimeSafetyGuard
 
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         first = await transport.get_live_values()

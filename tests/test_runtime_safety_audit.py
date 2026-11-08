@@ -1,8 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
-from runtime_safety import RuntimeSafetyError
-from runtime_safety_strict import StrictRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.strict_guard import StrictRuntimeSafetyGuard
 
 
 class AuditHass:

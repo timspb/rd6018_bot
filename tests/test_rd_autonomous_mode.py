@@ -6,7 +6,7 @@ from rd_autonomous_mode import (
     RdAutonomousModeCoordinator,
     install_rd_autonomous_mode,
 )
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class DummyLease:

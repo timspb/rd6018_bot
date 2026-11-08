@@ -4,8 +4,8 @@ import unittest
 
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
-from runtime_safety import RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:

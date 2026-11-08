@@ -10,7 +10,7 @@ from physical_test_control_source_faults import (
     install_physical_test_control_source_faults,
 )
 from rd6018_telemetry import telemetry_freshness
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 from tools.physical_test_source_fault_client import OPERATIONS
 
 

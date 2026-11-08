@@ -5,8 +5,8 @@ import unittest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from rd_control_mode import RdControlMode, install_rd_control_mode
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 from application.start_transaction_service import start_profile_transactional
 
 
