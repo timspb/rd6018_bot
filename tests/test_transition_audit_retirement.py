@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -13,13 +14,18 @@ class TransitionAuditRetirementTests(unittest.TestCase):
 
     def test_production_graph_has_no_legacy_transition_audit_reference(self):
         violations = []
-        for path in ROOT.rglob("*.py"):
-            rel = path.relative_to(ROOT).as_posix()
-            if rel.startswith("tests/"):
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
+        ).split(bytes([0]))
+        for raw in tracked:
+            if not raw:
                 continue
-            source = path.read_text(encoding="utf-8")
+            relative = Path(raw.decode("utf-8"))
+            if "tests" in relative.parts:
+                continue
+            source = (ROOT / relative).read_text(encoding="utf-8")
             if "legacy_transition_audit" in source:
-                violations.append(rel)
+                violations.append(relative.as_posix())
         self.assertEqual([], violations)
 
     def test_historical_trace_columns_remain_readable(self):
