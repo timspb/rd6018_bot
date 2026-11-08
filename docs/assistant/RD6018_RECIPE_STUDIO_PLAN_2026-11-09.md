@@ -65,3 +65,14 @@ RS-1A: сделать **безопасный офлайн экспорт/имп�
 ## Связанные документы
 
 `AGENTS.md`, `docs/assistant/RD6018_CURRENT_CHECKPOINT.md`, `docs/assistant/RD6018_AUTONOMOUS_PLAN_2026-11-08.md`, `docs/assistant/RD6018_AUTONOMOUS_HANDOFF_2026-11-08.md`, `docs/V3_PROJECT_RUNBOOK.md`, `docs/DEPLOYMENT.md`.
+
+
+## 2026-11-09 — Recipe Studio RS-1A offline canonical bridge
+
+Implemented **source-only** extension of existing `tools/recipe_visual_editor_prototype.html`: a separate `Экспорт SET/OFF/WAIT` produces exactly canonical `{id,version,steps:[{action,params,until}]}`; the existing import recognizes that canonical format and converts it back to visual `CUSTOM` stages. Draft JSON remains a separate, explicitly non-executable format. UI now exposes recipe ID (ASCII), version and local preliminary U/I ceilings; the latter are **not** hardware-authoritative and do not grant START or replace server `RecipeLibrary/recipe_schema/recipe_preflight`.
+
+Fail-closed conversion refuses visual `kind=native` and named dynamic `MAIN/MIX/...` stages, unsupported repeat_count, non-zero minute budgets not expressible in the canonical format, mismatched Output action and U/I, stale/invalid predicates, unsigned/zero time waits, invalid step count/identity, SET exceeding local provisional ceilings, and WAIT not immediately preceded by OFF. Canonical import validates structure, fields, ceilings, OFF/WAIT sequencing and unknown actions before visual transformation. The bridge **does not** translate chemistry/capacity visual metadata into executable behavior; no actuator paths are added.
+
+Added `tests/test_recipe_visual_canonical_bridge.py` with Node.js execution of the actual functions extracted from HTML; checks real Python `parse_recipe + inspect_recipe` for round-trip and rejection cases. Final focused run including user-recipe, native-draft, START-selection and UI catalogue tests: **34 PASS, exit 0**, WSL Ubuntu 24.04. Extracted embedded JavaScript `node --check` PASS; `git diff --check` PASS. No node104 deployment/restart, ESP/HA access, Output/charging/lease action, new backend, extra recipe runner or Telegram modification.
+
+**Next:** RS-1B — replace provisional browser-only validation/import behavior with an explicit offline contract-based check and save flow through the **existing** `RecipeLibrary` / native draft library; expose immutable version, actual `VariableSpec`/supported-execution limits, and compare browser preview with backend admission. Do not expose a new unauthenticated network listener. Physical/manual control P0 remains the higher operational priority and must be accepted separately.
