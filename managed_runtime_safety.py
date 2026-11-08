@@ -599,6 +599,11 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         safety_relevant = self.controller_active or output_state is True
         if not safety_relevant:
             self._orphan_output_seen_at = None
+            # A retired owner with freshly observed Output OFF ends this
+            # telemetry incident. Never carry its old 300s deadline into a
+            # later charging session; unknown/stale Output cannot reset it.
+            if output_state is False and self._output_evidence_is_fresh(live):
+                self._clear_telemetry_grace()
             return live
 
         # D068: an already-ON Output with no managed software session first gets one

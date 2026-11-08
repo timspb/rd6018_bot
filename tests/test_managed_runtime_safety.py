@@ -186,6 +186,30 @@ class V2RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
                 await guard.get_all_live()
         self.assertEqual(app.hass.turn_off_calls, 1)
 
+    async def test_telemetry_recovery_epoch_clears_after_safe_idle_retirement(self):
+        """An old callback incident must not leak into a later charge session."""
+        live = self._with_freshness(self._live(), ages={"battery_voltage": 23.7})
+        app = self._app(live)
+        guard = self._guard(app)
+        with patch("managed_runtime_safety.time.monotonic", return_value=100.0):
+            pending = await guard.get_all_live()
+        self.assertIs(pending.get("_managed_telemetry_recovery_pending"), True)
+        self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+        app.charge_controller.is_active = False
+        app.hass.live["switch"] = "unknown"
+        with patch("managed_runtime_safety.time.monotonic", return_value=101.0):
+            await guard.get_all_live()
+        self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+        app.hass.live["switch"] = "off"
+        app.hass.live["_meta"]["switch"]["status"] = "stale"
+        with patch("managed_runtime_safety.time.monotonic", return_value=102.0):
+            await guard.get_all_live()
+        self.assertEqual(guard._telemetry_unavailable_since, 100.0)
+        app.hass.live["_meta"]["switch"]["status"] = "ok"
+        with patch("managed_runtime_safety.time.monotonic", return_value=103.0):
+            await guard.get_all_live()
+        self.assertIsNone(guard._telemetry_unavailable_since)
+
     async def test_low_vin_is_psu_health_evidence_not_charge_authority(self):
         app = self._app(self._with_freshness(self._live()))
         guard = self._guard(app)
