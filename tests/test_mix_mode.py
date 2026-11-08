@@ -1,5 +1,6 @@
 import types
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from aiogram.enums import ParseMode
 
@@ -235,7 +236,14 @@ class V2MixOnlyTests(unittest.IsolatedAsyncioTestCase):
         )
         message = FakeMessage()
 
-        ok = await start_mix_transactional(app, message, PENDING)
+        # Keep the real diagnostic veto, but isolate persisted-history I/O:
+        # this test does not own the process-wide battery-registry connection.
+        with patch(
+            "runtime.charge.diagnostics.refresh_stored_diagnostics",
+            new=AsyncMock(),
+        ) as refresh:
+            ok = await start_mix_transactional(app, message, PENDING)
+            refresh.assert_awaited_once_with(app.charge_controller)
 
         self.assertFalse(ok)
         self.assertFalse(app.charge_controller.is_active)
