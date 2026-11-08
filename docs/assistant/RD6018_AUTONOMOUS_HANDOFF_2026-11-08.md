@@ -97,3 +97,7 @@ Owner correction: routine OVP/OCP setting was **removed** on normal START and MA
 ## 2026-11-08 — Partitioned suite coverage completed
 
 After baseline `3c5b16c`, all remaining original collected IDs **2701–2900, 2901–3033, 1–200, 201–399** completed exit 0, with two skips in the first 200. Earlier groups 400–2700 are in checkpoint; 3033-ID inventory was covered partition by partition. This is not a single suite PASS. Corrections: offline ESP fixture, tracked-source audits, outdated PREP→MAIN OVP/OCP test, and consolidation of Telegram markup construction in the existing renderer. Next run monitored full pytest with actual exit code. Production node104 remains frozen, no physical work.
+
+## 2026-11-08 — P5 full-suite order dependency and HMI instance isolation
+
+First continuous WSL full suite: **3030 PASS, 3 skipped, 1 FAIL, 6 warnings, 427.83 s**. The sole manual-interrupted callback failure was introduced at collection-time by globally stacked HMI wrappers: `rd_ownership_recovery` prepended `rd_ownership_hands_off` using its captured manager on another app. Existing wrapper is now app-bound: it never augments markup for `app_arg is not app`. Same-app behavior and all safety decisions preserved. New regression for own/foreign apps; focused 17 PASS, full collection with only former failed test selected 1 PASS. Re-run whole suite for genuine acceptance, node104 remains frozen.

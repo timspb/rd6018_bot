@@ -51,3 +51,7 @@ Production node104 заморожен на D144 slot14 `d49cb6d1bb24fa3d2496ca45
 ## P5-A update — 2026-11-08
 
 All historical 3033 collected IDs covered by bounded offline runs with recorded exit codes. Last portions: 2701–2900 200 PASS, 2901–3033 133 PASS, 1–200 198 PASS/2 skipped, 201–399 199 PASS. Prior portions 400–2700 in checkpoint. Corrected actual HMI markup architecture boundary via existing Telegram renderer. **Next:** verify real HEAD and launch monitored, bounded full `pytest -q tests` in existing isolated WSL virtualenv, capture actual process exit status and any cross-test interference. No P1–P4 repetition, no new test orchestration layers. node104 remains frozen.
+
+## 2026-11-08 — P5 full-suite order dependency and HMI instance isolation
+
+First continuous WSL full suite: **3030 PASS, 3 skipped, 1 FAIL, 6 warnings, 427.83 s**. The sole manual-interrupted callback failure was introduced at collection-time by globally stacked HMI wrappers: `rd_ownership_recovery` prepended `rd_ownership_hands_off` using its captured manager on another app. Existing wrapper is now app-bound: it never augments markup for `app_arg is not app`. Same-app behavior and all safety decisions preserved. New regression for own/foreign apps; focused 17 PASS, full collection with only former failed test selected 1 PASS. Re-run whole suite for genuine acceptance, node104 remains frozen.

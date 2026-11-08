@@ -202,6 +202,9 @@ def install_rd_ownership_recovery(
             if actions is not None
             else original_keyboard(app_arg, state)
         )
+        # One installed manager may only decorate its own app keyboard.
+        if app_arg is not app:
+            return markup
         if actions is not None:
             # The production snapshot path supplies the capability view explicitly.
             # Keep ownership controls on that path as well; otherwise the final
