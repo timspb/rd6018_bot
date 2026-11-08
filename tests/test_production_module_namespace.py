@@ -1,17 +1,40 @@
 from pathlib import Path
 import ast
+import subprocess
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def tracked_production_python():
+    # Audit only the active checkout, not nested worktrees or virtualenvs.
+    entries = subprocess.check_output(
+        ["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT,
+    ).split(bytes([0]))
+    for raw in entries:
+        if not raw:
+            continue
+        rel = Path(raw.decode("utf-8"))
+        if "tests" not in rel.parts:
+            yield ROOT / rel
+
+
+def tracked_retired_paths(retired):
+    entries = subprocess.check_output(
+        ["git", "ls-files", "-z"], cwd=ROOT,
+    ).split(bytes([0]))
+    tracked = [Path(raw.decode("utf-8")) for raw in entries if raw]
+    return [
+        rel for rel in retired
+        if any(path == Path(rel) or Path(rel) in path.parents for path in tracked)
+    ]
+
+
 class ProductionModuleNamespaceTests(unittest.TestCase):
     def test_no_production_python_filename_uses_v2_namespace(self):
         offenders = []
-        for path in ROOT.rglob("*.py"):
-            if any(part in {".git", "__pycache__", "tests"} for part in path.parts):
-                continue
+        for path in tracked_production_python():
             if "v2" in path.name.lower():
                 offenders.append(str(path.relative_to(ROOT)))
         self.assertEqual([], offenders)
@@ -26,9 +49,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "application.v2_v3_comparison",
         }
         violations = []
-        for path in ROOT.rglob("*.py"):
-            if any(part in {".git", "__pycache__", "tests"} for part in path.parts):
-                continue
+        for path in tracked_production_python():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 names = []
@@ -52,9 +73,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "init_v2_storage",
         )
         violations = []
-        for path in ROOT.rglob("*.py"):
-            if any(part in {".git", "__pycache__", "tests"} for part in path.parts):
-                continue
+        for path in tracked_production_python():
             source = path.read_text(encoding="utf-8")
             for name in retired:
                 if name in source:
@@ -86,7 +105,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "runtime/output/shadow_bridge.py",
             "runtime/safety/parity.py",
         )
-        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+        self.assertEqual([], tracked_retired_paths(retired))
 
     def test_retired_application_contract_island_is_absent(self):
         retired = (
@@ -120,7 +139,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "presentation/panel_layout.py",
             "presentation/panel_renderer.py",
         )
-        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+        self.assertEqual([], tracked_retired_paths(retired))
 
     def test_bot_has_no_runtime_compatibility_bridge(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
@@ -150,7 +169,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "recovery_orchestrator.py",
             "recovery_runtime.py",
         )
-        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+        self.assertEqual([], tracked_retired_paths(retired))
 
     def test_retired_runtime_skeleton_is_absent(self):
         retired = (
@@ -159,7 +178,7 @@ class ProductionModuleNamespaceTests(unittest.TestCase):
             "runtime/lifecycle.py",
             "runtime/application",
         )
-        self.assertEqual([], [rel for rel in retired if (ROOT / rel).exists()])
+        self.assertEqual([], tracked_retired_paths(retired))
         source = (ROOT / "runtime" / "__init__.py").read_text(encoding="utf-8")
         for name in ("RuntimeApp", "RuntimeDependencies", "LifecycleManager", "LifecycleState"):
             self.assertNotIn(name, source)
