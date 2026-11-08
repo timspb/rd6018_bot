@@ -123,7 +123,56 @@ class D137Tests(unittest.TestCase):
             (root / "D144_INSTALLED_RELEASE.json").write_text(json.dumps({
                 **release, "transaction": transaction_id,
             }))
-            with self.assertRaisesRegex(ValueError, "D144 installed release identity"):
+            with self.assertRaisesRegex(ValueError, "D144 .*installed release identity"):
+                self.capture(root)
+
+    def test_newer_restored_slot_does_not_supersede_latest_committed(self):
+        from tools.node104_d090_transaction import inventory
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / ".deploy_sha").unlink()
+            release = {"schema": "D144_RELEASE_IDENTITY_V1", "source_sha": "1" * 40,
+                       "candidate_identity_sha256": "2" * 64}
+            transaction_id = "a" * 32
+            candidate = {"app": inventory(root / "app"), "venv": inventory(root / "venv")}
+            (root / "D144_TRANSACTION_14.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "COMMITTED", "slot": 14,
+                "transaction": transaction_id, "release_identity": release,
+                "candidate": candidate,
+            }))
+            (root / "D144_INSTALLED_RELEASE_14.json").write_text(json.dumps({
+                **release, "transaction": transaction_id,
+            }))
+            (root / "D144_TRANSACTION_15.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED", "slot": 15,
+                "transaction": "b" * 32, "candidate": candidate,
+            }))
+            result = self.capture(root)
+            self.assertEqual(result["d090"]["installed_release"]["transaction"], transaction_id)
+
+    def test_conflicting_committed_identity_fails_closed_even_with_newer_restored(self):
+        from tools.node104_d090_transaction import inventory
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / ".deploy_sha").unlink()
+            candidate = {"app": inventory(root / "app"), "venv": inventory(root / "venv")}
+            for slot, tx, source in ((14, "a" * 32, "1" * 40),
+                                     (13, "c" * 32, "3" * 40)):
+                release = {"schema": "D144_RELEASE_IDENTITY_V1", "source_sha": source,
+                           "candidate_identity_sha256": str(slot) * 64}
+                (root / f"D144_TRANSACTION_{slot}.json").write_text(json.dumps({
+                    "schema": "D144_STATE_PRESERVING_V1", "phase": "COMMITTED", "slot": slot,
+                    "transaction": tx, "release_identity": release, "candidate": candidate,
+                }))
+                (root / f"D144_INSTALLED_RELEASE_{slot}.json").write_text(json.dumps({
+                    **release, "transaction": tx,
+                }))
+            (root / "D144_TRANSACTION_15.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED", "slot": 15,
+            }))
+            with self.assertRaisesRegex(ValueError, "does not match committed app/venv"):
                 self.capture(root)
 
     def test_authentic_v2_retirement_without_session_is_observed_not_fabricated(self):

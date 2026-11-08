@@ -7,9 +7,53 @@ combined proof, and returns evidence, never authorization to start a cutover.
 from __future__ import annotations
 
 from pathlib import Path
+import grp
+import pwd
 
 import node104_d090_transaction as d090
 from tools.d142_readonly_prestop import assess
+
+
+def _service_account():
+    return pwd.getpwnam("rd6018"), grp.getgrnam("rd6018")
+
+
+def _validate_service_readable_tree(path: Path, *, uid: int, gid: int) -> None:
+    """Fail closed unless rd6018 can traverse directories and read files.
+
+    Ownership may remain root:rd6018, but group access must be present. This
+    deliberately checks every entry before D144 can stop the running service.
+    """
+    if path.is_symlink() or not path.is_dir():
+        raise d090.TransactionError("D145 candidate tree root is unsafe")
+    for item in (path, *path.rglob("*")):
+        info = item.lstat()
+        if item.is_symlink():
+            continue
+        if info.st_uid not in (0, uid) or info.st_gid not in (gid,):
+            raise d090.TransactionError("D145 candidate ownership is outside root:rd6018 policy")
+        mode = info.st_mode & 0o777
+        required = 0o050 if item.is_dir() else 0o040 | ((mode & 0o0100) >> 3)
+        if mode & required != required:
+            raise d090.TransactionError("D145 candidate is not traversable/readable by rd6018")
+
+
+def _prepare_service_readable_tree(path: Path, *, gid: int) -> None:
+    """Apply root:rd6018 ownership and least-privilege group read access."""
+    import os
+    if path.is_symlink() or not path.is_dir():
+        raise d090.TransactionError("D145 candidate tree root is unsafe")
+    for item in (path, *path.rglob("*")):
+        info = item.lstat()
+        if item.is_symlink():
+            continue
+        mode = info.st_mode & 0o777
+        if item.is_dir():
+            mode = (mode & 0o707) | 0o050
+        else:
+            mode = (mode & 0o707) | 0o040 | ((mode & 0o0100) >> 3)
+        os.chown(item, 0, gid)
+        os.chmod(item, mode)
 
 
 def prepare_only(owner: d090.D090Transaction, *, stage: Path,
@@ -82,13 +126,38 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
         if candidate.exists() or candidate.is_symlink():
             raise d090.TransactionError("D145 candidate path already occupied")
         candidate.mkdir(mode=0o700)
+        staged = {"app": d090.inventory(stage / "tree"),
+                  "venv": d090.inventory(stage / "venv")}
         shutil.copytree(stage / "tree", candidate / "app", symlinks=True)
         shutil.copytree(stage / "venv", candidate / "venv", symlinks=True)
+        try:
+            service_user, service_group = _service_account()
+        except KeyError as exc:
+            raise d090.TransactionError("D145 rd6018 service account is absent") from exc
+        for name in ("app", "venv"):
+            _prepare_service_readable_tree(candidate / name,
+                                           gid=service_group.gr_gid)
+            _validate_service_readable_tree(candidate / name,
+                                            uid=service_user.pw_uid,
+                                            gid=service_group.gr_gid)
         d090._durable_tree(candidate)
-        wanted = {"app": d090.inventory(stage / "tree"),
-                  "venv": d090.inventory(stage / "venv")}
-        if any(d090.inventory(candidate / name) != wanted[name]
-               for name in ("app", "venv")):
+        wanted = {name: d090.inventory(candidate / name)
+                  for name in ("app", "venv")}
+        for name in ("app", "venv"):
+            if set(wanted[name]) != set(staged[name]):
+                raise d090.TransactionError("D145 copied candidate inventory mismatch")
+            for relative, expected in staged[name].items():
+                actual = wanted[name][relative]
+                if "link" in expected:
+                    matches = actual == expected
+                elif "directory" in expected:
+                    matches = actual.get("directory") is True
+                else:
+                    matches = all(actual.get(key) == expected.get(key)
+                                  for key in ("sha256", "size"))
+                if not matches:
+                    raise d090.TransactionError("D145 copied candidate content mismatch")
+        if any(not (candidate / name).is_dir() for name in ("app", "venv")):
             raise d090.TransactionError("D145 copied candidate inventory mismatch")
         # Disk is remeasured AFTER copying the staged release, not from an
         # optimistic check made before consuming additional space.

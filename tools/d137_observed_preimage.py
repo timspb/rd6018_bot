@@ -74,19 +74,47 @@ def observed_preimage(root: Path, *, pid: int,
                     raise ValueError("unknown D144 installed release history")
                 slot = int(suffix)
             slots.append((slot, transaction_path))
-        slots.sort()
         if not slots or len({slot for slot, _ in slots}) != len(slots):
             raise ValueError("D144 installed release history is absent or ambiguous")
-        slot, transaction_path = slots[-1]
-        suffix = "" if slot == 1 else "_" + str(slot)
-        identity_path = root / ("D144_INSTALLED_RELEASE" + suffix + ".json")
-        if (identity_path.is_symlink() or not identity_path.is_file()
-                or transaction_path.is_symlink()):
-            raise ValueError("D144 installed release identity is absent or unsafe")
+        committed = []
+        known_slots = {slot for slot, _ in slots}
+        for identity_candidate in root.glob("D144_INSTALLED_RELEASE*.json"):
+            if identity_candidate.is_symlink() or not identity_candidate.is_file():
+                raise ValueError("unsafe D144 installed release history")
+            suffix = identity_candidate.name.removeprefix("D144_INSTALLED_RELEASE").removesuffix(".json")
+            if suffix == "":
+                identity_slot = 1
+            elif suffix.startswith("_") and suffix[1:].isdigit() and str(int(suffix[1:])) == suffix[1:]:
+                identity_slot = int(suffix[1:])
+            else:
+                raise ValueError("unknown D144 installed release identity history")
+            if identity_slot not in known_slots:
+                raise ValueError("D144 installed release identity is ambiguous")
+        for slot, transaction_path in slots:
+            transaction = read_small_json(transaction_path)
+            phase = transaction.get("phase")
+            if phase in {"RESTORED", "FAILED", "PREPARED"}:
+                continue
+            if phase != "COMMITTED":
+                raise ValueError("D144 installed release history has ambiguous phase")
+            suffix = "" if slot == 1 else "_" + str(slot)
+            identity_path = root / ("D144_INSTALLED_RELEASE" + suffix + ".json")
+            if identity_path.is_symlink() or not identity_path.is_file():
+                raise ValueError("D144 committed installed release identity is absent or unsafe")
+            identity = read_small_json(identity_path)
+            release = transaction.get("release_identity")
+            if (not isinstance(release, dict)
+                    or identity.get("transaction") != transaction.get("transaction")
+                    or {k: identity.get(k) for k in
+                        ("schema", "source_sha", "candidate_identity_sha256")} != release):
+                raise ValueError("D144 committed installed release identity is ambiguous")
+            committed.append((slot, transaction_path, identity_path, transaction))
+        if not committed:
+            raise ValueError("D144 committed installed release identity is absent or unsafe")
+        slot, transaction_path, identity_path, transaction = max(committed, key=lambda item: item[0])
         tracked.extend((transaction_path, identity_path))
         before.update({str(p): sha256(p) for p in (transaction_path, identity_path)})
         d144_identity = read_small_json(identity_path)
-        transaction = read_small_json(transaction_path)
         release = transaction.get("release_identity")
         installed_app = installed_app_inventory(app)
         installed_venv = installed_app_inventory(venv)
