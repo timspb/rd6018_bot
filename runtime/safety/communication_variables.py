@@ -34,4 +34,36 @@ LINK_LOSS_NOTICE_INTERVAL_S = VariableSpec(
 )
 
 
-__all__ = ["LINK_LOSS_INITIAL_NOTICE_COUNT", "LINK_LOSS_NOTICE_INTERVAL_S"]
+SOFT_WATCHDOG_POLL_S = VariableSpec(
+    key="safety.watchdog.soft_poll_s",
+    default=10.0,
+    value_type=float,
+    unit="s",
+    description="Polling cadence of the canonical software-watchdog policy.",
+    owner="runtime.safety",
+    provenance="accepted production 10-second soft watchdog loop",
+    override_policy=OverridePolicy.DEPLOYMENT_ONLY,
+    change_effect=ChangeEffect.DEPLOY_REQUIRED,
+    minimum=1.0,
+    maximum=60.0,
+)
+
+COMMUNICATION_WATCHDOG_POLL_S = VariableSpec(
+    key="safety.watchdog.communication_poll_s",
+    default=30.0,
+    value_type=float,
+    unit="s",
+    description="Polling cadence of the managed communication watchdog.",
+    owner="runtime.safety",
+    provenance="accepted production 30-second communication watchdog loop",
+    override_policy=OverridePolicy.DEPLOYMENT_ONLY,
+    change_effect=ChangeEffect.DEPLOY_REQUIRED,
+    minimum=1.0,
+    maximum=120.0,
+)
+
+
+__all__ = [
+    "LINK_LOSS_INITIAL_NOTICE_COUNT", "LINK_LOSS_NOTICE_INTERVAL_S",
+    "SOFT_WATCHDOG_POLL_S", "COMMUNICATION_WATCHDOG_POLL_S",
+]

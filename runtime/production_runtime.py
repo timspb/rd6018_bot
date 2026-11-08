@@ -70,7 +70,6 @@ from runtime.safety.variables import (
     PROTECTION_OVP_MARGIN_V,
     WATCHDOG_TIMEOUT_S,
 )
-from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 from runtime.safety.live_protection import evaluate_live_protection
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from production_controller import create_production_charge_host
@@ -423,7 +422,6 @@ soft_watchdog_outage_reported: bool = False
 # Allow the full 300s loss window plus that observation margin; the
 # independent 900s edge safety lease retains physical authority.
 SOFT_WATCHDOG_TIMEOUT = 6 * 60
-_soft_watchdog_incident = SoftWatchdogIncident()
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
 _event_log_last_at: Dict[str, float] = {}
@@ -2075,69 +2073,6 @@ def _compact_dashboard_caption(
     else:
         lines.append(f"✅ Норма · 📈 {_chart_label(chart_mode)}")
     return "\n".join(line for line in lines if line)
-
-
-async def soft_watchdog_loop() -> None:
-    """Run canonical bounded software-watchdog containment for managed authority."""
-    app = sys.modules[__name__]
-    while True:
-        await asyncio.sleep(10)
-        try:
-            await soft_watchdog_poll_once(app, _soft_watchdog_incident)
-        except asyncio.CancelledError:
-            raise
-        except Exception as ex:
-            logger.error("soft_watchdog_loop: %s", ex)
-
-
-async def watchdog_loop() -> None:
-    """Software communication watchdog: one 300s timeout for all voltage modes."""
-    global last_chat_id
-    while True:
-        await asyncio.sleep(30)
-        try:
-            now = time.time()
-            last = charge_controller.last_update_time
-            if last <= 0:
-                continue
-            delta = now - last
-
-            live = await hass.get_all_live()
-            outage_since = live.get("_native_link_outage_since")
-            native_recovering = (
-                isinstance(outage_since, (int, float))
-                and not isinstance(outage_since, bool)
-                and math.isfinite(outage_since)
-                and 0 <= time.monotonic() - outage_since < WATCHDOG_TIMEOUT
-            )
-            if native_recovering or live.get("_managed_telemetry_recovery_pending") is True:
-                # The managed guard owns one five-minute recovery window.
-                # Do not let this older watchdog issue an independent early OFF.
-                continue
-            v = _safe_float(live.get("voltage"))
-            output_on = str(live.get("switch", "")).lower() == "on"
-
-            if not output_on:
-                continue
-
-            if delta >= WATCHDOG_TIMEOUT:
-                logger.critical("CRITICAL: Watchdog timeout. Emergency shutdown.")
-                i = _safe_float(live.get("current"))
-                ah = _safe_float(live.get("ah"))
-                t = _safe_float(live.get("temp_ext"))
-                log_event(
-                    charge_controller.current_stage,
-                    v,
-                    i,
-                    t,
-                    ah,
-                    "WATCHDOG_TIMEOUT",
-                )
-                await _hard_stop_charge()
-                continue
-
-        except Exception as ex:
-            logger.error("watchdog_loop: %s", ex)
 
 
 async def charge_monitor() -> None:

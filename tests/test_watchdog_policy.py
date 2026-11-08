@@ -152,15 +152,13 @@ class WatchdogPolicyTests(unittest.TestCase):
         self.assertIn("await app._hard_stop_charge()", adapter_source)
         self.assertIn("_log_watchdog_incident(app)", adapter_source)
         runtime_source = runtime_path.read_text(encoding="utf-8")
-        self.assertIn(
-            "from runtime.safety.soft_watchdog import "
-            "SoftWatchdogIncident, soft_watchdog_poll_once",
-            runtime_source,
-        )
-        self.assertIn(
-            "await soft_watchdog_poll_once(app, _soft_watchdog_incident)",
-            runtime_source,
-        )
+        monitoring = (root / "runtime/safety/watchdog_runtime.py").read_text(encoding="utf-8")
+        lifecycle = (root / "runtime/production_lifecycle.py").read_text(encoding="utf-8")
+        self.assertIn("from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once", monitoring)
+        self.assertIn("await soft_watchdog_poll_once(app, incident)", monitoring)
+        self.assertIn("run_safety_watchdogs(app)", lifecycle)
+        self.assertNotIn("async def soft_watchdog_loop", runtime_source)
+        self.assertNotIn("async def watchdog_loop", runtime_source)
         self.assertNotIn("decide_watchdog(", runtime_source)
 
 

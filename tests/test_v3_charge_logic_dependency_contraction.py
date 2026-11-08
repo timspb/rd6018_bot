@@ -40,26 +40,20 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
 
     def test_high_voltage_communication_watchdog_has_no_early_off_path(self) -> None:
         """A stale heartbeat above 15 V waits 300s, not a separate 60s."""
-        tree = ast.parse((ROOT / "runtime/production_runtime.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "runtime/safety/communication_watchdog.py").read_text(encoding="utf-8"))
         watchdog = next(
             node for node in tree.body
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "watchdog_loop"
+            if isinstance(node, ast.FunctionDef) and node.name == "communication_shutdown_due"
         )
         names = {
             node.id for node in ast.walk(watchdog) if isinstance(node, ast.Name)
         }
-        self.assertIn("WATCHDOG_TIMEOUT", names)
+        self.assertIn("timeout_s", names)
         self.assertNotIn("HIGH_V_FAST_TIMEOUT", names)
         self.assertNotIn("HIGH_V_THRESHOLD", names)
-        self.assertEqual(
-            sum(
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "_hard_stop_charge"
-                for node in ast.walk(watchdog)
-            ),
-            1,
-        )
+        observer = (ROOT / "runtime/safety/watchdog_runtime.py").read_text(encoding="utf-8")
+        self.assertEqual(observer.count("await app._hard_stop_charge()"), 1)
+        self.assertIn("communication_shutdown_due(", observer)
 
     @staticmethod
     def _charge_logic_imports(relative_path: str) -> set[str]:

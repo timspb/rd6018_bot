@@ -286,15 +286,13 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("install_soft_watchdog_containment", bot_source)
         self.assertNotIn("soft_watchdog_containment", bot_source)
-        self.assertIn(
-            "from runtime.safety.soft_watchdog import "
-            "SoftWatchdogIncident, soft_watchdog_poll_once",
-            runtime_source,
-        )
-        self.assertIn(
-            "await soft_watchdog_poll_once(app, _soft_watchdog_incident)",
-            runtime_source,
-        )
+        monitoring = (root / "runtime/safety/watchdog_runtime.py").read_text(encoding="utf-8")
+        lifecycle = (root / "runtime/production_lifecycle.py").read_text(encoding="utf-8")
+        self.assertIn("from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once", monitoring)
+        self.assertIn("await soft_watchdog_poll_once(app, incident)", monitoring)
+        self.assertIn("run_safety_watchdogs(app)", lifecycle)
+        self.assertNotIn("async def soft_watchdog_loop", runtime_source)
+        self.assertNotIn("async def watchdog_loop", runtime_source)
 
 
 if __name__ == "__main__":
