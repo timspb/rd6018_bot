@@ -377,7 +377,11 @@ class HandsOffMixObserver:
         # continue toward OFF, never reconstruct or resume the external Mix authority.
         self._persist()
         try:
-            await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
+            confirmed = await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
+            if confirmed is not True:
+                self.last_status = "verified Output OFF still pending: confirmation unavailable"
+                self._persist()
+                return False
         except Exception as exc:
             self.last_status = f"verified Output OFF still pending: {type(exc).__name__}: {exc}"
             self._persist()
@@ -504,23 +508,25 @@ class HandsOffMixObserver:
         self._persist()
 
     async def _run(self) -> None:
-        try:
-            while self.active or self.off_pending:
+        while self.active or self.off_pending:
+            try:
                 await self.observe_once()
-                if not (self.active or self.off_pending):
-                    break
-                await asyncio.sleep(self.poll_s)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            # OFF_PENDING is safety containment and must not be downgraded to FAILED.
-            if self.off_pending:
-                self.last_status = f"OFF_PENDING runtime error: {type(exc).__name__}: {exc}"
-                self._persist()
-            elif self.active:
-                self.state = LiveMixObserverState.FAILED
-                self.last_status = f"observer_runtime_error:{type(exc).__name__}:{exc}"
-                self._persist()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if self.off_pending:
+                    # An unexpected error must not strand durable OFF containment.
+                    # Retain only the existing OFF-only retry authority.
+                    self.last_status = f"OFF_PENDING runtime error: {type(exc).__name__}: {exc}"
+                    self._persist()
+                elif self.active:
+                    self.state = LiveMixObserverState.FAILED
+                    self.last_status = f"observer_runtime_error:{type(exc).__name__}:{exc}"
+                    self._persist()
+                    return
+            if not (self.active or self.off_pending):
+                break
+            await asyncio.sleep(self.poll_s)
 
 
 def _hours(seconds: Optional[float]) -> str:
