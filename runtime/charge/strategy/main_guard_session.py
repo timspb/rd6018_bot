@@ -138,6 +138,17 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
         )
         if old_revision != expected_revision:
             raise GuardJournalError("stale_canonical_checkpoint_revision")
+        if (
+            document.get("stage") == "Done"
+            and document.get("completion_kind") == "storage"
+            and document.get("output_intent") == "on"
+        ):
+            # Terminal Storage carries the already sealed MAIN evidence, not
+            # a fresh ratchet or authority to alter its last observed state.
+            if guard.pending is not None or guard.fault is not None:
+                raise GuardJournalError("storage_requires_resolved_main_guard")
+            if guard.snapshot() != previous.get("snapshot"):
+                raise GuardJournalError("storage_cannot_mutate_main_guard")
         if guard.segment_id != old.segment_id:
             verified_return_shape = (
                 document.get("stage") == "Безопасное ожидание"

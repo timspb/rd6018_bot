@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -108,6 +109,27 @@ class GuardedStorageTerminalTests(unittest.TestCase):
                 self.assertFalse(managed_storage_ownership_proven(host, document=altered))
                 altered = dict(after, stage=host.STAGE_SAFE_WAIT)
                 self.assertFalse(managed_storage_ownership_proven(host, document=altered))
+
+                # Terminal Storage cannot alter the previously sealed ratchet.
+                modified = replace(
+                    host._main_current_guard,
+                    hardware_limit_a=host._main_current_guard.hardware_limit_a - 0.1,
+                )
+                with self.assertRaisesRegex(
+                    GuardJournalError, "storage_cannot_mutate_main_guard"
+                ):
+                    attach_guard(
+                        after, modified, now_s=1012.0,
+                        expected_revision=after[GUARD_KEY]["revision"],
+                    )
+                faulted = replace(host._main_current_guard, fault="test")
+                with self.assertRaisesRegex(
+                    GuardJournalError, "storage_requires_resolved_main_guard"
+                ):
+                    attach_guard(
+                        after, faulted, now_s=1012.0,
+                        expected_revision=after[GUARD_KEY]["revision"],
+                    )
 
     def test_done_cannot_mint_guard_or_accept_unverified_terminal_intent(self):
         guard = MainCurrentGuard.start(
