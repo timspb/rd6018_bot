@@ -64,6 +64,80 @@ def _explicit_storage_outcome(document: dict[str, Any]) -> bool:
     )
 
 
+def managed_storage_ownership_proven(
+    host: Any, *, document: dict[str, Any] | None = None,
+    session_file: str | None = None,
+) -> bool:
+    """Treat terminal Storage as owned only after exact durable session commit.
+
+    RAM-only DONE or a prior SAFE_WAIT file is insufficient to keep an
+    energized Output under managed authority. This function is read-only and
+    never initiates or renews any physical command.
+    """
+    if not (
+        getattr(host, "current_stage", None) == getattr(host, "STAGE_DONE", None)
+        and bool(getattr(host, "_done_outcome_authoritative", False))
+        and getattr(host, "_done_completion_kind", None) == DONE_COMPLETION_STORAGE
+        and getattr(host, "_done_output_intent", None) == DONE_OUTPUT_ON
+    ):
+        return False
+
+    if document is None:
+        path = Path(SESSION_FILE if session_file is None else session_file)
+        if path.is_symlink() or not path.is_file():
+            return False
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+    if not isinstance(document, dict) or not _explicit_storage_outcome(document):
+        return False
+
+    sid = getattr(host, "_v2_trace_session_id", None)
+    bid = getattr(host, "_v2_battery_id", None)
+    if not (
+        sid and bid
+        and document.get("stage") == getattr(host, "STAGE_DONE", None)
+        and document.get("v2_trace_session_id") == sid
+        and document.get("v2_battery_id") == bid
+        and document.get("terminal_session_id") == sid
+        and isinstance(document.get("terminal_metadata"), dict)
+        and document["terminal_metadata"].get("completion_kind") == DONE_COMPLETION_STORAGE
+        and document["terminal_metadata"].get("output_intent") == DONE_OUTPUT_ON
+    ):
+        return False
+
+    try:
+        generation = float(getattr(host, "_v2_trace_started_at", None))
+        recorded = float(document.get("v2_trace_started_at"))
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not (math.isfinite(generation) and generation > 0
+            and math.isfinite(recorded) and abs(generation - recorded) <= 1e-6):
+        return False
+
+    guard = getattr(host, "_main_current_guard", None)
+    saved_guard = document.get("main_current_guard_v1")
+    if (guard is None) != (saved_guard is None):
+        return False
+    if guard is not None:
+        from runtime.charge.strategy.main_guard_session import read_guard
+        try:
+            restored, revision = read_guard(
+                document, session_id=sid, battery_id=bid, now_s=time.time(),
+            )
+        except (ValueError, TypeError, OverflowError):
+            return False
+        if (
+            saved_guard.get("snapshot") != guard.snapshot()
+            or restored.pending is not None
+            or restored.fault is not None
+            or revision != getattr(host, "_main_current_guard_revision", None)
+        ):
+            return False
+    return True
+
+
 def restore_allows_auto_enable(host: Any) -> bool:
     """Allow auto-enable only for active sessions or explicit managed Storage."""
     if host.current_stage == host.STAGE_DONE:

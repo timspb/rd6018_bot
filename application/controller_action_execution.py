@@ -84,13 +84,41 @@ async def execute_controller_action_batch(
         if enabled:
             commit_fn = getattr(controller, "commit_verified_enable_transition", None)
             if callable(commit_fn):
-                commit = commit_fn(
-                    transition,
-                    now=now(),
-                    voltage=float(battery_v),
-                    current=float(current),
-                    ah=float(ah),
-                )
+                try:
+                    commit = commit_fn(
+                        transition,
+                        now=now(),
+                        voltage=float(battery_v),
+                        current=float(current),
+                        ah=float(ah),
+                    )
+                except Exception as exc:
+                    # Physical ON may have completed before atomic session
+                    # persistence rejected the transition. Contain immediately
+                    # under the existing ExecutionPort; never leave energized
+                    # hardware waiting for the orphan-output grace/watchdog.
+                    logger.error(
+                        "Verified Output ON lost its session commit: %s",
+                        type(exc).__name__,
+                    )
+                    try:
+                        off_verified = bool(await execution_port.request_verified_off())
+                    except Exception as off_exc:
+                        logger.error(
+                            "OFF containment after failed session commit raised: %s",
+                            type(off_exc).__name__,
+                        )
+                        off_verified = False
+                    if off_verified:
+                        notify(
+                            "🚨 Storage не закреплён в сессии. Output OFF подтверждён; "
+                            "автоматическое продолжение заблокировано.",
+                            critical=True,
+                        )
+                        return False
+                    raise RuntimeError(
+                        "verified enable session commit failed; Output OFF unconfirmed"
+                    ) from exc
         if not enabled or not isinstance(commit, dict):
             # A failed recovery SAFE_WAIT -> MAIN enable must never replay
             # autonomously on the next charge tick. Retire that continuation

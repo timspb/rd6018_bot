@@ -253,7 +253,15 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
 
     @property
     def controller_active(self) -> bool:
-        return super().controller_active or self.manual_active
+        if super().controller_active or self.manual_active:
+            return True
+        # Terminal Storage may intentionally own an ON output even though
+        # Done is no longer a ticking charge stage. RAM intent alone is never
+        # sufficient: require the exact fsynced canonical session and guard.
+        from runtime.charge.persistence import managed_storage_ownership_proven
+        return managed_storage_ownership_proven(
+            getattr(self.app, "charge_controller", None)
+        )
 
     def _recipe_voltage_ceiling(self) -> float:
         if self.manual_active:

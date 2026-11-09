@@ -44,6 +44,8 @@ class _Controller:
 
     def commit_verified_enable_transition(self, transition, **kwargs):
         self.commits.append((transition, kwargs))
+        if isinstance(self.commit, Exception):
+            raise self.commit
         return self.commit
 
 
@@ -83,6 +85,26 @@ class ApplicationActionExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result)
         self.assertEqual([call[0] for call in port.calls], ["execute", "off"])
         self.assertFalse(controller._last_known_output_on)
+
+    async def test_storage_commit_exception_forces_immediate_verified_off(self):
+        result, port, controller, notices, events = await self._execute(
+            enabled=True, commit=ValueError("ineligible_charge_stage"),
+            kind="final_safe_wait_to_done", off_ok=True,
+        )
+        self.assertFalse(result)
+        self.assertEqual([call[0] for call in port.calls], ["execute", "off"])
+        self.assertEqual(controller.stopped, [])
+        self.assertFalse(controller._last_known_output_on)
+        self.assertFalse(events)
+        self.assertEqual(len(notices), 1)
+        self.assertTrue(notices[0][1]["critical"])
+
+    async def test_storage_commit_exception_and_unconfirmed_off_is_not_accepted(self):
+        with self.assertRaisesRegex(RuntimeError, "Output OFF unconfirmed"):
+            await self._execute(
+                enabled=True, commit=ValueError("ineligible_charge_stage"),
+                kind="final_safe_wait_to_done", off_ok=False,
+            )
 
     async def test_failed_recovery_enable_retires_only_after_verified_off(self):
         result, port, controller, _notices, _events = await self._execute(

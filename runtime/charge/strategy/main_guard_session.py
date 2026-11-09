@@ -42,7 +42,27 @@ def _identity(document: Mapping[str, Any], guard: MainCurrentGuard) -> None:
         raise GuardJournalError("session_identity_mismatch")
     if document.get("v2_battery_id") != guard.battery_id:
         raise GuardJournalError("battery_identity_mismatch")
-    if document.get("stage") not in ELIGIBLE_STAGES:
+    stage = document.get("stage")
+    if stage == "Done":
+        # Terminal Storage retains the prior MAIN Guard journal, but is not
+        # another MAIN current-limit authority. Also preserve terminal OFF
+        # evidence without replacing or erasing the existing guarded history.
+        from runtime.charge.terminal_intent import (
+            DONE_COMPLETION_STORAGE, DONE_COMPLETION_TERMINAL,
+            DONE_OUTPUT_ON, DONE_OUTPUT_OFF,
+        )
+        terminal_shape = (
+            document.get("done_state_version") == 1
+            and document.get("terminal_session_id") == guard.session_id
+            and (document.get("completion_kind"), document.get("output_intent"))
+            in {
+                (DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON),
+                (DONE_COMPLETION_TERMINAL, DONE_OUTPUT_OFF),
+            }
+        )
+        if not terminal_shape:
+            raise GuardJournalError("terminal_guard_intent_invalid")
+    elif stage not in ELIGIBLE_STAGES:
         raise GuardJournalError("ineligible_charge_stage")
     try:
         capacity = float(document["ah_limit"])
@@ -96,6 +116,10 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
         raise GuardJournalError("expected_revision_invalid")
     _identity(document, guard)
     previous = document.get(GUARD_KEY)
+    if document.get("stage") == "Done" and (
+        previous is None or expected_revision <= 0
+    ):
+        raise GuardJournalError("terminal_requires_existing_main_guard")
     if document.get("stage") == "Mix Mode":
         # MIX can preserve an already-validated, revisioned MAIN Guard but
         # cannot create or erase its ratchet journal on its own.
