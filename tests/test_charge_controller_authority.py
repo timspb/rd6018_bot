@@ -151,7 +151,14 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
             actions = await run_charge_session_tick(controller, 14.7, 0.5, 25.0, True, 50.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertFalse(bool(actions.get("turn_off")))
-        self.assertEqual(actions.get("log_event"), "START | V2_MIX")
+        # Operator-facing transition replaces the retired internal V2 START.
+        # Preserve the source decision and actual target evidence in its log.
+        event = actions.get("log_event", "")
+        self.assertTrue(event.startswith("MIX_STARTED | reason=main_timeout_ca_efb_v1_compatible_mix"))
+        self.assertIn("target_voltage_v=16.50", event)
+        self.assertIn("target_current_a=", event)
+        self.assertIn("main_hold_required_s=", event)
+        self.assertNotIn("START | V2_MIX", event)
 
 
 if __name__ == "__main__":
