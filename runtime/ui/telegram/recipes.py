@@ -32,7 +32,8 @@ def format_catalog(catalog: RecipeCatalog) -> str:
     return "\n".join(rows)
 
 
-def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None:
+def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog,
+                                    native_drafts: NativeRecipeDraftLibrary | None = None) -> None:
     """Register non-destructive recipe library commands under existing chat ACL."""
     if getattr(app, "_recipe_catalog_commands_installed", False):
         return
@@ -40,7 +41,8 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
     async def _allowed(message: Any) -> bool:
         return bool(await app._check_chat_and_respond(message))
 
-    native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+    if native_drafts is None:
+        native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
     install_recipe_buttons(app, catalog=catalog, native_drafts=native_drafts)
 
     @app.router.message(Command("native_copy"))
