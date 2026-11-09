@@ -14,7 +14,7 @@ svg{width:100%;height:auto;display:block;border:1px solid #e2ece5;border-radius:
 .note{color:#56715c;font-size:13px;margin-top:10px}.err{color:#b12727}@media(max-width:950px){.grid{grid-template-columns:1fr}.head{display:block}}
 </style></head><body>
 <div class="head"><div><h1>RD6018 · Конструктор зарядных рецептов</h1><small>Прототип визуального редактора · без подключения к оборудованию</small></div><div class="status">Только проектирование · START/OFF недоступны</div></div>
-<div class="panel"><div class="toolbar"><label style="width:220px">Название черновика<input id="name" value="Мой зарядный цикл"></label><label style="width:160px">ID рецепта (ASCII)<input id="recipeId" value="my_recipe"></label><label style="width:155px">АКБ<select id="chem"><option>Ca/Ca</option><option>EFB</option><option>AGM</option></select></label><label style="width:120px">Ёмкость, А·ч<input id="cap" type="number" min="1" max="500" value="72"></label><label style="width:145px">Повторения<input id="repeats" type="number" min="0" max="100" value="0"></label><label style="width:125px">U max, В<input id="ceilingV" type="number" min="0.1" step="0.1" value="15.5"></label><label style="width:125px">I max, А<input id="ceilingI" type="number" min="0.1" step="0.1" value="7.2"></label><label style="width:100px">Версия<input id="version" type="number" min="1" step="1" value="1"></label><button id="add">+ Добавить этап</button><button id="export">Экспорт черновика</button><button id="exportCanonical">Экспорт SET/OFF/WAIT</button><button id="importBtn">Импорт JSON</button><input id="importFile" type="file" accept=".json,application/json" hidden></div></div>
+<div class="panel"><div class="toolbar"><label style="width:220px">Название черновика<input id="name" value="Мой зарядный цикл"></label><label style="width:160px">ID рецепта (ASCII)<input id="recipeId" value="my_recipe"></label><label style="width:155px">АКБ<select id="chem"><option>Ca/Ca</option><option>EFB</option><option>AGM</option></select></label><label style="width:120px">Ёмкость, А·ч<input id="cap" type="number" min="1" max="500" value="72"></label><label style="width:145px">Повторения<input id="repeats" type="number" min="0" max="100" value="0"></label><label style="width:125px">U max, В<input id="ceilingV" type="number" min="0.1" step="0.1" value="15.5"></label><label style="width:125px">I max, А<input id="ceilingI" type="number" min="0.1" step="0.1" value="7.2"></label><label style="width:100px">Версия<input id="version" type="number" min="1" step="1" value="1"></label><button id="add">+ Добавить этап</button><button id="export">Экспорт черновика</button><button id="exportCanonical">Экспорт SET/OFF/WAIT</button><button id="stepCheck">Проверить в библиотеке</button><button id="stepSave">Сохранить новую версию</button><button id="importBtn">Импорт JSON</button><input id="importFile" type="file" accept=".json,application/json" hidden></div></div>
 <div class="panel"><div class="note">U max / I max — только локальные пределы предварительной проверки, не реальные ограничения контроллера. Итоговую проверку исполняемости выполняет сервер. Версия и ID действуют только при экспорте SET/OFF/WAIT; импорт штатных этапов не превращает их в простые команды.</div></div><div class="panel"><h2>Этапы программы</h2><div class="tablewrap"><table><thead><tr><th>№</th><th>Вкл.</th><th>Режим</th><th>U, В</th><th>I, А</th><th>Предел, мин</th><th>Условие перехода</th><th>Порог</th><th>Тип этапа</th><th>Управление</th></tr></thead><tbody id="rows"></tbody></table></div><div class="note">Штатные MAIN, Recovery, MIX и SAFE_WAIT сохраняют динамическую логику. Уставки и время здесь — проектные параметры, а не разрешение на применение.</div></div>
 <div class="grid"><div class="panel"><h2>Предварительный профиль зарядки</h2><div class="legend"><span><i class="dot u"></i>Напряжение, В</span><span><i class="dot i"></i>Ток, А</span><span class="muted">Схема уставок, не прогноз измерений</span></div><svg id="plot" viewBox="0 0 860 360" role="img" aria-label="График уставок напряжения и тока"></svg></div><div class="panel"><h2>Представление рецепта</h2><div id="summary" class="muted"></div><pre id="json"></pre><div id="error" class="err" aria-live="polite"></div></div></div>
 <div class="panel" id="nativeStudio">
@@ -24,13 +24,15 @@ svg{width:100%;height:auto;display:block;border:1px solid #e2ece5;border-radius:
 <label style="width:210px">Штатная программа<select id="nativePreset"></select></label>
 <label style="width:160px">Имя копии<input id="nativeName" value="my_efb"></label>
 <label style="width:100px">Новая версия<input id="nativeVersion" type="number" min="1" step="1" value="1"></label>
-<button id="nativeReset">Сбросить изменения</button><button id="nativeExport">Экспорт копии JSON</button>
+<button id="nativeReset">Сбросить изменения</button><button id="nativeExport">Экспорт копии JSON</button><button id="nativeCheck">Проверить в библиотеке</button><button id="nativeSave">Сохранить новую версию</button>
 <button id="nativeImportBtn">Импорт копии JSON</button><input id="nativeFile" type="file" accept=".json,application/json" hidden>
 </div>
 <div id="nativeStatus" class="note"></div>
 <div class="tablewrap"><table><thead><tr><th>Параметр</th><th>Ед.</th><th>По умолчанию</th><th>Диапазон</th><th>Значение</th><th>Статус</th></tr></thead><tbody id="nativeFields"></tbody></table></div>
 <div class="grid"><div><h2>JSON для check-native / save-native</h2><pre id="nativeJSON"></pre></div><div><p class="note">Новый экземпляр сохраняется только при явной проверке Python. Серверная проверка может отклонить сочетания параметров, даже если отдельные поля находятся в диапазоне.</p><p class="err" id="nativeError" aria-live="polite"></p></div></div>
 </div>
+<script src="studio-config.js"></script>
+<script src="recipe_studio_save.js"></script>
 <script src="recipe_studio_native_catalog.js"></script>
 <script src="recipe_studio_native_editor.js"></script>
 <script>
@@ -145,4 +147,23 @@ document.querySelector("#exportCanonical").addEventListener("click",()=>{
 document.querySelector("#importBtn").addEventListener("click",()=>document.querySelector("#importFile").click());
 document.querySelector("#importFile").addEventListener("change",async e=>{try{let file=e.target.files[0];if(!file)return;let obj=JSON.parse(await file.text());if(!("schema" in obj)){let imported=visualFromCanonical(obj,Number(document.querySelector("#ceilingV").value),Number(document.querySelector("#ceilingI").value));document.querySelector("#version").value=obj.version;document.querySelector("#recipeId").value=obj.id;obj=imported;}if(obj.schema!=="rd6018.recipe_visual_draft.v1"||!Array.isArray(obj.stages)||obj.stages.length>100||!obj.stages.every(s=>typeof s.on==="boolean"&&modes.includes(s.mode)&&kinds.includes(s.kind)&&conds.includes(s.cond)&&["v","i","min","threshold"].every(f=>typeof s[f]==="number"&&Number.isFinite(s[f])&&s[f]>=0)))throw Error("Формат или значения файла не поддерживаются");stages.splice(0,stages.length,...obj.stages);for(let [id,val] of [["name",obj.name],["chem",obj.chemistry],["cap",obj.capacity_ah],["repeats",obj.repeat_count]])if(val!==undefined)document.getElementById(id).value=val;render();}catch(err){document.querySelector("#error").textContent="Ошибка импорта: "+err.message;}finally{e.target.value="";}});
 render();
+async function checkOrSaveStep(save) {
+ const output = document.querySelector("#error");
+ const button = document.querySelector(save ? "#stepSave" : "#stepCheck");
+ button.disabled = true;
+ try {
+   const recipe = canonicalFromVisual(
+     model(), document.querySelector("#recipeId").value,
+     Number(document.querySelector("#version").value),
+     Number(document.querySelector("#ceilingV").value),
+     Number(document.querySelector("#ceilingI").value));
+   const result = await window.RD6018StudioSave.submit("step", recipe, save);
+   output.textContent = (save ? "Сохранено: " : "Проверено: ") +
+     result.id + " v" + result.version + " · без активации зарядки";
+ } catch (err) {
+   output.textContent = "Отклонено: " + err.message;
+ } finally { button.disabled = false; }
+}
+document.querySelector("#stepCheck").addEventListener("click", () => checkOrSaveStep(false));
+document.querySelector("#stepSave").addEventListener("click", () => checkOrSaveStep(true));
 </script></body></html>

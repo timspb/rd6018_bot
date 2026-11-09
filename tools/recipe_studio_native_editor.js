@@ -99,6 +99,21 @@
       draw();
     } catch (error) {report(error); event.target.value = state.overrides[key] ?? spec.default;}
   });
+  async function checkOrSaveNative(save) {
+    const button = $(save ? "nativeSave" : "nativeCheck");
+    button.disabled = true;
+    try {
+      state.name = $("nativeName").value;
+      state.version = Number($("nativeVersion").value);
+      const recipe = inspectDraft(state.name, state.version, state.recipeId, state.overrides);
+      const result = await window.RD6018StudioSave.submit("native", recipe, save);
+      $("nativeError").textContent = (save ? "Сохранено: " : "Проверено: ") +
+        result.id + " v" + result.version + " · без активации зарядки";
+    } catch (error) { report(error); }
+    finally { button.disabled = false; }
+  }
+  $("nativeCheck").addEventListener("click", () => checkOrSaveNative(false));
+  $("nativeSave").addEventListener("click", () => checkOrSaveNative(true));
   $("nativeReset").addEventListener("click", () => {state.overrides = {}; draw();});
   $("nativeExport").addEventListener("click", () => {
     try {

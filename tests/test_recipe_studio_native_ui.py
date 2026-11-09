@@ -22,7 +22,7 @@ def node_native(payload: dict) -> dict:
     script = r'''
 const fs = require("fs"), vm = require("vm");
 const ids = ["nativeStudio","nativePreset","nativeName","nativeVersion",
-"nativeReset","nativeExport","nativeImportBtn","nativeFile","nativeStatus",
+"nativeReset","nativeExport","nativeCheck","nativeSave","nativeImportBtn","nativeFile","nativeStatus",
 "nativeFields","nativeJSON","nativeError"];
 const objects = Object.fromEntries(ids.map(id => [id,{
  value: id === "nativeName" ? "my_efb" : id === "nativeVersion" ? "1" : "",
