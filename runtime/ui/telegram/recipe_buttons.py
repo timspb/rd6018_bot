@@ -362,6 +362,15 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
             f"<code>{html.escape(new.base_recipe_id)}</code>. "
             "Настраивайте кнопкой «⚙️ Настроить параметры» в своей копии; Output не включался.",
             parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="⚙️ Открыть копию",
+                    callback_data=f"recipes:nd:view:{name}:1",
+                )],
+                [InlineKeyboardButton(
+                    text="Мои копии", callback_data="recipes:nd:list",
+                )],
+            ]),
         )
 
     @app.router.callback_query(F.data == "recipes:native:list")

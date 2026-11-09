@@ -30,6 +30,11 @@ class NativeDraftBrowserTests(unittest.IsolatedAsyncioTestCase):
             first = _Call("recipes:nd:copy:native_efb_normal")
             await handlers["native_draft_copy"](first)
             self.assertEqual(len(first.acks), 1)
+            self.assertEqual(len(first.message.sent), 1)
+            copy_buttons = buttons(first.message.sent[0][1]["reply_markup"])
+            self.assertEqual(len(copy_buttons), 2)
+            self.assertIn("recipes:nd:list", copy_buttons)
+            self.assertTrue(all(len(data.encode("utf-8")) <= 64 for data in copy_buttons))
             names = drafts.list_drafts()
             self.assertEqual(len(names), 1)
             name = names[0]
@@ -37,6 +42,7 @@ class NativeDraftBrowserTests(unittest.IsolatedAsyncioTestCase):
             items = _Call("recipes:nd:list")
             await handlers["native_draft_list"](items)
             callback = f"recipes:nd:view:{name}:1"
+            self.assertIn(callback, copy_buttons)
             self.assertIn(callback, buttons(items.message.sent[0][1]["reply_markup"]))
             selected = _Call(callback)
             await handlers["native_draft_view"](selected)
