@@ -166,3 +166,29 @@ class RecipeMenuUXTests(unittest.IsolatedAsyncioTestCase):
         await self.handlers["show_recipe"](invalid)
         self.assertEqual(invalid.message.sent, [])
         self.assertTrue(invalid.acks[0][1]["show_alert"])
+
+    async def test_step_adjust_rejects_malformed_sign_and_field_without_revision(self):
+        self.step(1)
+        before = self.catalog.library.load("project", 1)
+        for data in (
+            "recipes:adjust:project:1:0:voltage_v:other",
+            "recipes:adjust:project:1:0:voltage_v:minus",
+            "recipes:adjust:project:1:0:bogus:+",
+            "recipes:adjust:project:1:0:current_a:0",
+        ):
+            with self.subTest(data=data):
+                call = _Call(data)
+                await self.handlers["adjust_step"](call)
+                self.assertFalse(call.message.sent)
+                self.assertEqual(len(call.acks), 1)
+                self.assertTrue(call.acks[0][1]["show_alert"])
+                self.assertEqual(self.catalog.library.versions("project"), (1,))
+                self.assertEqual(self.catalog.library.load("project", 1).digest, before.digest)
+        valid = _Call("recipes:adjust:project:1:0:voltage_v:+")
+        await self.handlers["adjust_step"](valid)
+        self.assertEqual(len(valid.acks), 1)
+        self.assertEqual(self.catalog.library.versions("project"), (1, 2))
+        self.assertAlmostEqual(
+            self.catalog.library.load("project", 2).steps[0]["params"]["voltage_v"],
+            14.5,
+        )

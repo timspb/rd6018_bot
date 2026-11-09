@@ -909,6 +909,8 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
             return
         try:
             _, _, name, version, index, field, sign = str(call.data).split(":")
+            if field not in {"voltage_v", "current_a"} or sign not in {"+", "-"}:
+                raise ValueError("Недопустимая корректировка")
             recipe = catalog.library.load(name, int(version))
             current = recipe.steps[int(index)]["params"][field]
             updated = edit_step(catalog, name, int(version), int(index),
