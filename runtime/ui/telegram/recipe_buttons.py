@@ -66,12 +66,47 @@ def native_recipe_markup() -> InlineKeyboardMarkup:
 
 
 def recipe_markup(recipe_id: str, version: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀ Библиотека", callback_data="recipes:list")],
-        [InlineKeyboardButton(text="Редактор шагов", callback_data=f"recipes:edit:{recipe_id}:{version}")],
-        [InlineKeyboardButton(text="Проверить рецепт", callback_data=f"recipes:check:{recipe_id}:{version}")],
-        [InlineKeyboardButton(text="Копировать: инструкция", callback_data=f"recipes:copyhelp:{recipe_id}:{version}")],
-    ])
+    rows = [[InlineKeyboardButton(text="◀ Библиотека", callback_data="recipes:list")]]
+    for label, data in (
+        ("Редактор шагов", f"recipes:edit:{recipe_id}:{version}"),
+        ("Проверить рецепт", f"recipes:check:{recipe_id}:{version}"),
+        ("История версий", f"recipes:history:{recipe_id}:0"),
+        ("Копировать", f"recipes:duplicate:{recipe_id}:{version}"),
+        ("В архив", f"recipes:archiveask:{recipe_id}"),
+    ):
+        if len(data.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(text=label, callback_data=data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+
+def recipe_history_markup(catalog: RecipeCatalog, name: str, *,
+                          page: int = 0, page_size: int = 8) -> InlineKeyboardMarkup:
+    """Paginated immutable history, retaining the existing recipe viewer."""
+    versions = catalog.library.versions(name)
+    if not versions or page_size < 1:
+        raise ValueError("recipe has no versions or page size invalid")
+    ordered = sorted(versions, reverse=True)
+    pages = (len(ordered) + page_size - 1) // page_size
+    if not 0 <= page < pages:
+        raise ValueError("history page outside available range")
+    rows = []
+    for version in ordered[page * page_size:(page + 1) * page_size]:
+        data = f"recipes:view:{name}:{version}"
+        if len(data.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(
+                text=f"Версия {version}", callback_data=data)])
+    navigation = []
+    for target, label in ((page - 1, "◀"), (page + 1, "▶")):
+        if 0 <= target < pages:
+            data = f"recipes:history:{name}:{target}"
+            if len(data.encode("utf-8")) <= 64:
+                navigation.append(InlineKeyboardButton(text=label, callback_data=data))
+    if navigation:
+        rows.append(navigation)
+    rows.append([InlineKeyboardButton(
+        text="К библиотеке", callback_data="recipes:list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def editor_page(rows: list, *, name: str, version: int, page: int,
@@ -262,6 +297,98 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.message.answer(
             "\n".join(lines)[:3900], parse_mode=app.ParseMode.HTML,
             reply_markup=recipe_markup(recipe.recipe_id, recipe.version),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:history:"))
+    async def recipe_history(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_page = str(call.data).split(":")
+            page = int(raw_page)
+            markup = recipe_history_markup(catalog, name, page=page)
+            count = len(catalog.library.versions(name))
+            archived = (catalog.library.root / name / ".archived").exists()
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<b>История: {html.escape(name)}</b> · {count} версий"
+            + (" · архив" if archived else "")
+            + "\nВыберите версию для просмотра. История неизменяема.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=markup,
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:duplicate:"))
+    async def recipe_duplicate(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_version = str(call.data).split(":")
+            version = int(raw_version)
+            copy_name = "copy_" + uuid4().hex[:10]
+            copied = catalog.duplicate(name, version, copy_name)
+        except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Создана копия <code>{html.escape(copied.recipe_id)}</code> "
+            f"v{copied.version} из <code>{html.escape(name)}</code> v{version}. "
+            "Исходная версия не изменена; Output не включался.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=recipe_markup(copied.recipe_id, copied.version),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:archiveask:"))
+    async def recipe_archive_ask(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name = str(call.data).split(":")
+            versions = catalog.library.versions(name)
+            if not versions:
+                raise ValueError("рецепт не найден")
+            if (catalog.library.root / name / ".archived").exists():
+                raise ValueError("рецепт уже в архиве")
+            confirm = f"recipes:archiveconfirm:{name}"
+            if len(confirm.encode("utf-8")) > 64:
+                raise ValueError("имя слишком длинное для кнопки")
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Архивировать <code>{html.escape(name)}</code>? "
+            "Все версии останутся доступны для чтения, "
+            "но новые версии сохранять будет нельзя.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Подтвердить архив",
+                                      callback_data=confirm)],
+                [InlineKeyboardButton(text="Отмена",
+                                      callback_data="recipes:list")],
+            ]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:archiveconfirm:"))
+    async def recipe_archive_confirm(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name = str(call.data).split(":")
+            catalog.archive(name)
+        except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<code>{html.escape(name)}</code> архивирован. Версии сохранены. "
+            "Зарядка не изменена.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=catalog_markup(catalog),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:copyhelp:"))
