@@ -75,6 +75,19 @@ def format_journal_event(event_line: str) -> str:
             transition = detail.strip() or raw.partition(" ")[2].strip()
             # The stage field is the new stage, while detail records both ends.
             summary, icon = f"Переход этапа: {transition}", "➡️"
+        elif name == "MIX_STARTED":
+            reason_match = re.search(r"(?:^|\|\s*)reason=([^|]+)", raw, re.I)
+            voltage_match = re.search(r"(?:^|\|\s*)target_voltage_v=([0-9]+(?:[.,][0-9]+)?)", raw, re.I)
+            current_match = re.search(r"(?:^|\|\s*)target_current_a=([0-9]+(?:[.,][0-9]+)?)", raw, re.I)
+            reason = reason_match.group(1).strip().replace("_", " ") if reason_match else ""
+            target = ""
+            if voltage_match and current_match:
+                target = (
+                    f" · цель {voltage_match.group(1).replace('.', ',')} В"
+                    f" / {current_match.group(1).replace('.', ',')} А"
+                )
+            summary = "Начат MIX" + (f" · причина: {reason}" if reason else "") + target
+            icon = "🚀"
         elif name.startswith("END"):
             summary, icon = "Этап завершён", "✅"
             fields = [x.strip() for x in raw.partition("|")[2].split(" | ") if x.strip()]

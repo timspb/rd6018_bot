@@ -38,16 +38,20 @@ class MainMixEffect:
 
 def build_main_mix_effect(value: MainMixEffectInput) -> MainMixEffect:
     voltage, current = float(value.target_voltage_v), float(value.target_current_a)
+    reason = str(value.reason).replace("|", "/").replace("\n", " ").replace("\r", " ").strip()
     return MainMixEffect(
         previous_stage=str(value.previous_stage), stage=str(value.mix_stage),
-        reason=str(value.reason), now_s=float(value.now_s), ah=float(value.ah),
+        reason=reason, now_s=float(value.now_s), ah=float(value.ah),
         target_voltage_v=voltage, target_current_a=current,
         action_values=MappingProxyType({
             "log_event_end": MappingProxyType(dict(value.log_event_end)),
             "set_voltage": voltage, "set_current": current,
-            "notify": (f"<b>🚀 V2 → Mix Mode</b>\n{value.reason}\n"
+            "notify": (f"<b>🚀 V2 → Mix Mode</b>\n{reason}\n"
                        f"Цель: {voltage:.2f}В / {current:.2f}А; выход по CV ΔI или CC ΔV."),
-            "log_event": "START | V2_MIX",
+            "log_event": (
+                f"MIX_STARTED | reason={reason} | "
+                f"target_voltage_v={voltage:.2f} | target_current_a={current:.2f}"
+            ),
         }),
     )
 

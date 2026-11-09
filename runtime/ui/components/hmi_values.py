@@ -21,9 +21,13 @@ def _on(value: Any) -> bool:
 
 
 def _regulator(live: Mapping[str, Any]) -> str:
-    if _on(live.get("is_cv")):
+    """Project the RD6018's native regulator mode; never infer from U/I."""
+    from rd6018_telemetry import resolve_regulation, RegulationMode
+
+    mode = resolve_regulation(live)
+    if mode is RegulationMode.CV:
         return "CV"
-    if _on(live.get("is_cc")):
+    if mode is RegulationMode.CC:
         return "CC"
     return "—"
 

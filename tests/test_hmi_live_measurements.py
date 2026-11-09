@@ -1,8 +1,24 @@
 """Read-only HMI telemetry precedence and fallback."""
 import unittest
 from runtime.ui.components.hmi_live_measurements import _live_measurements
+from runtime.ui.components.hmi_values import _regulator
 
 class HmiLiveMeasurementsTests(unittest.TestCase):
+    def test_native_rd_regulation_mode_is_used_and_unknown_is_not_guessed(self):
+        self.assertEqual(_regulator({
+            "regulation_mode": "cc", "regulation_code": 1,
+            "is_cv": 0, "is_cc": 1,
+        }), "CC")
+        self.assertEqual(_regulator({
+            "regulation_mode": "cv", "regulation_code": 0,
+            "is_cv": 1, "is_cc": 0,
+        }), "CV")
+        self.assertEqual(_regulator({
+            "regulation_mode": "unknown", "is_cv": 0, "is_cc": 0,
+        }), "—")
+        self.assertEqual(_regulator({
+            "regulation_mode": "unknown", "is_cv": 1, "is_cc": 1,
+        }), "—")
     def test_v2_temperature_wins_over_legacy(self):
         result=_live_measurements({
             "switch":"on", "battery_voltage":"12.80", "current":"1.05",

@@ -43,7 +43,11 @@ class MainMixEffectTests(unittest.TestCase):
                 })
                 self.assertEqual((applied["set_voltage"], applied["set_current"]),
                                  (voltage, current))
-                self.assertEqual(applied["log_event"], "START | V2_MIX")
+                self.assertEqual(
+                    applied["log_event"],
+                    "MIX_STARTED | reason=fixture | target_voltage_v="
+                    f"{voltage:.2f} | target_current_a={current:.2f}",
+                )
                 self.assertIn("выход по CV ΔI или CC ΔV", applied["notify"])
                 self.assertEqual(host.current_stage, host.STAGE_MIX)
                 self.assertEqual(len(host._stage_history), 2)

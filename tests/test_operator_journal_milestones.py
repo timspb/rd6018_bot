@@ -37,6 +37,16 @@ class JournalMilestoneTests(unittest.TestCase):
         self.assertIn("RE Imin=0,2?", format_journal_event(
             f"[2026-11-07 15:45:00] | Main Charge | 14.76 | 0.20 | 26.0 | 0.00 | {event}"))
 
+    def test_mix_started_is_visible_with_reason_and_target_setpoints(self):
+        event = "MIX_STARTED | reason=main_hold_complete_recovery_mix | target_voltage_v=16.50 | target_current_a=1.80"
+        row = f"[2026-11-09 20:26:00] | Mix Mode | 14.83 | 0.20 | 23.0 | 0.00 | {event}"
+        self.assertTrue(operator_journal_events((row,)))
+        rendered = format_journal_event(row)
+        self.assertIn("Начат MIX", rendered)
+        self.assertIn("main hold complete recovery mix", rendered)
+        self.assertIn("16,50 В", rendered)
+        self.assertIn("1,80 А", rendered)
+
     def test_mix_minimum_and_maximum_are_mode_evidence(self):
         minimum = self.event(self.record([SignalEvent.CURRENT_MINIMUM_UPDATED], minimum=.30), "Mix Mode")
         maximum = self.event(self.record([SignalEvent.VOLTAGE_MAXIMUM_UPDATED], maximum=16.7), "Mix Mode")
