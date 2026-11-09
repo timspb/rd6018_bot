@@ -333,11 +333,18 @@ class ESPHomeTransport(ReadOnlyTransport):
                 return "NumberInfo" if "NumberInfo" in kinds else "SensorInfo"
             return None
         def value(name):
-            expected = "SensorInfo" if name in {
+            if name == "control_output":
+                expected = "SwitchInfo"
+            elif name in {"autonomous_mode", "take_ok", "take_out", "boot_power"}:
+                expected = "BinarySensorInfo"
+            elif name in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
-            } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
+            }:
+                expected = "SensorInfo"
+            else:
+                expected = "NumberInfo"
             object_id = self.config.entities.get(name)
             return self._read_subscribed_state(object_id, expected_type(name, object_id) or expected)
 
@@ -399,11 +406,18 @@ class ESPHomeTransport(ReadOnlyTransport):
         for name, item in result.items():
             source = aliases.get(name, name)
             object_id = self.config.entities.get(source)
-            expected = "SensorInfo" if source in {
+            if source == "control_output":
+                expected = "SwitchInfo"
+            elif source in {"autonomous_mode", "take_ok", "take_out", "boot_power"}:
+                expected = "BinarySensorInfo"
+            elif source in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
-            } else "BinarySensorInfo" if source == "autonomous_mode" else "NumberInfo"
+            }:
+                expected = "SensorInfo"
+            else:
+                expected = "NumberInfo"
             expected = expected_type(source, object_id) or expected
             entity = next((candidate for candidate in self.entities
                            if str(candidate.object_id) == str(object_id)

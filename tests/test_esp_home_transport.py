@@ -47,6 +47,14 @@ class NumberInfo:
         self.key, self.object_id, self.device_id = key, object_id, device_id
 
 
+class SwitchInfo(SensorInfo):
+    pass
+
+
+class SwitchState(_SensorState):
+    pass
+
+
 class _ButtonInfo:
     def __init__(self, key, object_id, device_id=1):
         self.key = key
