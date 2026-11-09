@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from tools import d149_observer_router as mod
 
+REAL_D151_SHA = mod.D151_SHA
+
 
 class D149RouterTests(unittest.TestCase):
     def setUp(self):
@@ -18,16 +20,24 @@ class D149RouterTests(unittest.TestCase):
         (self.root / "venv/bin/python").write_bytes(b"fake interpreter")
         self.old = self.root / "d147-proof/node104_d091_physical_proof_collector.py"
         self.new = self.root / "d147-proof/d150_poststart_d091_collector.py"
+        self.guarded = self.root / "d147-proof/d151_software_release_d091_collector.py"
         self.old.write_bytes(b"old-read-only")
         self.new.write_bytes(b"new-recovery-capable")
+        self.guarded.write_bytes(b"guarded-tripped-off-only")
         self.old.chmod(0o400)
         self.new.chmod(0o400)
+        self.guarded.chmod(0o400)
         self.hash_old = patch.object(mod, "D147_SHA", hashlib.sha256(self.old.read_bytes()).hexdigest())
         self.hash_new = patch.object(mod, "D150_SHA", hashlib.sha256(self.new.read_bytes()).hexdigest())
+        self.hash_guarded = patch.object(
+            mod, "D151_SHA", hashlib.sha256(self.guarded.read_bytes()).hexdigest()
+        )
         self.hash_old.start()
         self.hash_new.start()
+        self.hash_guarded.start()
         self.addCleanup(self.hash_old.stop)
         self.addCleanup(self.hash_new.stop)
+        self.addCleanup(self.hash_guarded.stop)
         self.calls = []
         self.proof = {name: None for name in mod.release.PhysicalOffProof.__dataclass_fields__}
         self.proof.update({"source_nonces": ["nonce-a", "nonce-b"]})
@@ -36,6 +46,10 @@ class D149RouterTests(unittest.TestCase):
     def run_fake(self, cmd, env):
         self.calls.append((cmd, env))
         return json.dumps(self.proof)
+
+    def test_d151_pin_matches_existing_readonly_d091_source(self):
+        source = Path(__file__).resolve().parents[1] / "tools/node104_d091_physical_proof_collector.py"
+        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), REAL_D151_SHA)
 
     def test_old_before_stop_only(self):
         value = self.router()
@@ -54,7 +68,7 @@ class D149RouterTests(unittest.TestCase):
     def test_recovery_has_explicit_mode(self):
         self.router.select("RECOVERY")
         self.router()
-        self.assertEqual(self.calls[-1][0][1], str(self.new))
+        self.assertEqual(self.calls[-1][0][1], str(self.guarded))
         self.assertEqual(self.calls[-1][1]["D090_STATE_PRESERVING_RECOVERY"], "1")
 
     def test_guarded_main_preservation_uses_recovery_proof_on_every_phase(self):
@@ -62,7 +76,7 @@ class D149RouterTests(unittest.TestCase):
                                            preserve_active_session=True)
         for phase in ("PRE_STOP","STOPPED","POST_START"):
             router.select(phase); router()
-            expected=self.old if phase=="PRE_STOP" else self.new
+            expected=self.guarded
             self.assertEqual(self.calls[-1][0][1],str(expected))
             self.assertEqual(self.calls[-1][1]["D090_STATE_PRESERVING_RECOVERY"],"1")
 

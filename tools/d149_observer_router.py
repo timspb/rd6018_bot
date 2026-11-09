@@ -20,6 +20,10 @@ except ModuleNotFoundError:
 
 D147_SHA = "1127e9e3ba52a43ca97ddd8501ea4ac9a52887e708d725fd1299fd22d15a2398"
 D150_SHA = "d9d4190c61eda4ecf690d150572be8847b4cfb60860c901d4acfaf517845bdef"
+# Frozen copy of the existing D091 read-only collector. For software-only
+# replacement it tolerates a historical lease-trip latch ONLY with full
+# verified Output OFF, current zero, unarmed lease, and no other edge fault.
+D151_SHA = "9500454a068d120f0b23740ad3933eb70ebd8cf24fbaa7c03ddafd3e729cb8d9"
 
 class ObserverRouteError(RuntimeError):
     pass
@@ -44,7 +48,12 @@ class ReadOnlyObserverRouter:
 
     def __call__(self) -> release.PhysicalOffProof:
         phase = self.phase
-        if phase == "PRE_STOP":
+        if self.preserve_active_session or phase == "RECOVERY":
+            # D151 is read-only and additionally accepts a historical
+            # lease-trip latch only for software-only, proven-OFF recovery.
+            file = self.root / "d147-proof/d151_software_release_d091_collector.py"
+            expected = D151_SHA
+        elif phase == "PRE_STOP":
             file = self.root / "d147-proof/node104_d091_physical_proof_collector.py"
             expected = D147_SHA
         else:

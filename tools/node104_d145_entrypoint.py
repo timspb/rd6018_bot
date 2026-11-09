@@ -24,13 +24,13 @@ try:
     import node104_d090_transaction as d090
     from node104_d124_release_profile import load_software_release_profile
     from d144_owner_binding import execute_under_owner, prepare_only, recover_under_owner
-    from d149_observer_router import D147_SHA, D150_SHA, ReadOnlyObserverRouter
+    from d149_observer_router import D147_SHA, D150_SHA, D151_SHA, ReadOnlyObserverRouter
 except ModuleNotFoundError:
     from tools import node104_d090_release as release
     from tools import node104_d090_transaction as d090
     from tools.node104_d124_release_profile import load_software_release_profile
     from tools.d144_owner_binding import execute_under_owner, prepare_only, recover_under_owner
-    from tools.d149_observer_router import D147_SHA, D150_SHA, ReadOnlyObserverRouter
+    from tools.d149_observer_router import D147_SHA, D150_SHA, D151_SHA, ReadOnlyObserverRouter
 
 
 PROFILE_SHA256 = "a2610e4c26c6d2ff6fcd9ac3bc12a1e92aaf0f9d1c49059dcfe5bc2462934e47"
@@ -101,15 +101,15 @@ def verify_pinned_observer(root: Path, relative_path: str, expected_sha256: str)
 
 
 def verify_state_preserving_observer(root: Path) -> Path:
-    """Return the existing exact D150 recovery collector for guarded state.
+    """Use the exact D151 immutable collector for guarded software releases.
 
-    D147's legacy software-release projection may report a preserved guarded
-    MAIN session as inactive. D150 reads the same Native/HA OFF contract while
-    truthfully retaining active-session identity, and is already the pinned
-    observer used by D144's stopped/post-start phases.
+    D151 inherits the existing D091 independent Native/HA OFF proof. A
+    historical lease-trip latch is tolerated only under explicit software
+    release + state-preserving recovery, never as charge-start authority.
+    D147 and D150 remain immutable and in use for unrelated release modes.
     """
     return verify_pinned_observer(
-        root, "d147-proof/d150_poststart_d091_collector.py", D150_SHA)
+        root, "d147-proof/d151_software_release_d091_collector.py", D151_SHA)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             collector=verify_state_preserving_observer(root))
     else:
         verify_pinned_observer(
-            root, "d147-proof/d150_poststart_d091_collector.py", D150_SHA)
+            root, "d147-proof/d151_software_release_d091_collector.py", D151_SHA)
         result = recover_under_owner(
             owner, expected_candidate_identity_sha256=CANDIDATE_IDENTITY_SHA256)
     print(json.dumps(result, indent=2, sort_keys=True))
