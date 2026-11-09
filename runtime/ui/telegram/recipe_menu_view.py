@@ -50,6 +50,20 @@ def step_summary(recipe, *, archived: bool, latest: int,
     return "\n".join(lines)
 
 
+
+def step_saved_markup(recipe_id: str, version: int) -> InlineKeyboardMarkup:
+    """Continue editing the saved version, not the obsolete source callback."""
+    rows = []
+    for text, route in (
+        ("⚙️ Продолжить редактирование", f"recipes:edit:{recipe_id}:{version}"),
+        ("◀ К рецепту", f"recipes:view:{recipe_id}:{version}"),
+        ("Библиотека", "recipes:list"),
+    ):
+        if len(route.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(text=text, callback_data=route)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def native_summary(name: str, version: int, draft, *, archived: bool, latest: int) -> str:
     """Summarize overrides using the original module-owned VariableSpec metadata."""
     lines = [f"<b>{html.escape(name)} · v{version}</b>",

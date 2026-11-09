@@ -192,3 +192,29 @@ class RecipeMenuUXTests(unittest.IsolatedAsyncioTestCase):
             self.catalog.library.load("project", 2).steps[0]["params"]["voltage_v"],
             14.5,
         )
+
+    async def test_each_step_save_returns_direct_latest_editor_route(self):
+        self.step(1)
+        actions = (
+            ("adjust_step", lambda v: f"recipes:adjust:project:{v}:0:voltage_v:+"),
+            ("change_threshold", lambda v: f"recipes:threshold:project:{v}:0:plus"),
+            ("change_condition", lambda v: f"recipes:condition:project:{v}:0:after_seconds"),
+            ("change_time", lambda v: f"recipes:time:project:{v}:0:plus"),
+            ("change_step", lambda v: f"recipes:step:project:{v}:0:down"),
+            ("append_step", lambda v: f"recipes:append:project:{v}:wait"),
+        )
+        for version, (handler, action) in enumerate(actions, start=1):
+            with self.subTest(handler=handler):
+                call = _Call(action(version))
+                await self.handlers[handler](call)
+                self.assertEqual(len(call.acks), 1)
+                self.assertEqual(len(call.message.sent), 1)
+                self.assertEqual(self.catalog.library.versions("project")[-1],
+                                 version + 1)
+                data = controls(call)
+                self.assertIn(f"recipes:edit:project:{version + 1}", data)
+                self.assertIn(f"recipes:view:project:{version + 1}", data)
+                self.assertIn("recipes:list", data)
+                self.assertNotIn(f"recipes:edit:project:{version}", data)
+                self.assertTrue(all(len(value.encode("utf-8")) <= 64
+                                    for value in data))

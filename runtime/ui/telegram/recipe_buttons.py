@@ -16,7 +16,7 @@ from runtime.charge.programs.native_recipe_catalog import get_native_recipe, nat
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 from runtime.ui.telegram.recipe_menu_view import (
     STEP_VIEW_PAGE_SIZE, step_summary, native_summary,
-    native_catalog_page, native_history_page,
+    native_catalog_page, native_history_page, step_saved_markup,
 )
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
 from runtime.charge.programs.recipe_preflight import inspect_recipe
@@ -802,7 +802,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.answer()
         await call.message.answer(
             f"Порог {condition}: {value:g}, версия {updated.version}.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:condition:"))
@@ -826,7 +826,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.answer()
         await call.message.answer(
             f"Условие {condition} задано, версия {updated.version}. Измените порог при необходимости.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:time:"))
@@ -851,7 +851,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.answer()
         await call.message.answer(
             f"Время шага {index+1}: {new_value:g} с, версия {updated.version}.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:step:"))
@@ -876,7 +876,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.answer()
         await call.message.answer(
             f"Сохранена версия {updated.version}. Предыдущая версия не изменена.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:append:"))
@@ -900,7 +900,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.answer()
         await call.message.answer(
             f"Добавлен {kind.upper()}: {updated.recipe_id} v{updated.version}. Зарядка не запущена.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:adjust:"))
@@ -921,7 +921,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.answer()
         await call.message.answer(
             f"Сохранена версия {updated.version}. Предыдущие версии не изменены.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     app._recipe_buttons_installed = True
