@@ -159,3 +159,22 @@ RS-3A committed `b0fa187`; RS-3B committed `cf32156`. After both, a unified sour
 **Result: 81 PASS / 0 FAIL, exit 0, 81.99 s**. Clean working tree before this note, branch `feature/main-mix-countdown-display` ahead of owned origin by 13 commits. No node104/HA102/ESP actions or charging hardware actuation.
 
 Remaining RS-4 release boundaries: review/validate PC browser UI with a real browser on HOME-PC; confirm that the two local scratch libraries are isolated from production; release package/update plan, compatibility and rollback with the established node104 D144/D145 mechanism; independent physical START/MAIN→MIX/OVP-OCP zero-write and PB_MANAGED↔HANDS_OFF acceptance. No production PASS or installation solely from source tests. User-approved plan continues without redesign, extra authorizations or duplicate engines.
+
+
+## 2026-11-09 — RS-4 real Edge E2E / local bridge fix
+
+Verified on HOME-PC using actual Microsoft Edge headless via Chrome DevTools Protocol, local loopback `127.0.0.1:8768`, and isolated scratch library `.recipe-studio-local/rs4-e2e-20261109`. Initial real-browser run exposed an actual defect: `tools/recipe_studio_local.py` sent `Referrer-Policy: no-referrer` while `/studio-config.js` required the browser's same-origin `Referer: .../studio`. This prevented the browser client from receiving its local capability token, although static HTTP and unit tests passed. Corrected response header to `Referrer-Policy: same-origin`: same-origin subresources carry the necessary Referer, cross-origin websites receive none. Cross-site `Sec-Fetch-Site`, Host, Origin and token defenses remain in place. Added HTTP regression in `tests/test_recipe_studio_local_bridge.py`.
+
+Real-browser interactive step workflow PASS: JS client `connected=true`; click Save v1; refresh library; click Open as v2; edit voltage 14.2 -> 14.4 in browser input; click Save v2; compare v1/v2, voltage diff observed; confirm archive; test Save v3 and receive precise `recipe is archived; it cannot receive new versions`. Successful isolated example: `rs4_e2e_197709807`; v1/v2 preserved. The CDP smoke driver is scratch-only at `.recipe-studio-local/rs4-browser-e2e.js` and is not a production runtime module.
+
+Targeted regression: 41 PASS / 0 FAIL in 30.22s for bridge, history, native UI and canonical visual conversion tests. Production node104, ESP, charging output and libraries untouched. Scope remaining: native browser UI interactive E2E and release/rollback compatibility, plus independent physical START/MAIN/MIX/OVP-OCP firmware acceptance. Do not claim production PASS from this source-only acceptance.
+
+
+### RS-4 real-browser native recipe E2E closure
+
+Using the same isolated HOME-PC Edge/loopback setup, native EFB copy workflow also PASS: save v1, select the native recipe in the same history UI, load it as v2, change editable `charge.main.efb_voltage_v` to 14.6, save v2, compare versions and observe the 14.6 diff, archive with confirmation, then attempt v3 and observe `native draft is archived`. Exact scratch example `rs4_native_97856376`. The combined Edge CDP test in `.recipe-studio-local/rs4-browser-e2e.js` finished exit 0 and tested both step and native flows. This closes the interactive HOME-PC browser gate for both recipe families, not the production deploy or hardware gate.
+
+
+### Final RS-4 targeted source regression and release boundary
+
+After commit `72d754a`, the complete 17-module integration set returned **84 PASS, 0 FAIL, exit 0 in 80.84 seconds**, with the new referrer-policy test included. Real-browser Edge E2E for both step and native versions passed (details above). Current readiness: RS-4 local browser and source acceptance PASS; release to node104 remains HOLD. Existing D090/D144/D145/D138 owners must be respected; prior `docs/assistant/RD6018_AAA17C7_D145_RELEASE_READINESS_2026-11-08.md` explicitly records absent fresh paired source/preimage inventory, Python 3.11 candidate venv, and physical D091 proof. No staging/activation on node104 is authorized by these tests. The local `.recipe-studio-local` scratch history must not enter a release archive or be copied to production.

@@ -122,6 +122,21 @@ class TestStudioBridge(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(self.server.token.encode("ascii"), payload)
 
+    def test_editor_referrer_policy_allows_only_same_origin_context(self):
+        # Browser subresource /studio-config.js must receive a Referer from /studio.
+        # No referrer may be disclosed to cross-origin destinations.
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        conn.request("GET", "/studio", headers={"Host": f"127.0.0.1:{self.server.server_port}"})
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Referrer-Policy"), "same-origin")
+        response.read()
+        conn.close()
+        status, body = self.request("GET", "/studio-config.js", extra_headers={
+            "Sec-Fetch-Site": "same-origin", "Referer": self.server.origin + "/studio"})
+        self.assertEqual(status, 200)
+        self.assertIn(self.server.token.encode("ascii"), body)
+
     def test_no_production_endpoint(self):
         for path in ("/api/start", "/api/output", "/api/stop", "/api/firmware"):
             status, _ = self.request("POST", path, {"kind": "step", "recipe": STEP})
