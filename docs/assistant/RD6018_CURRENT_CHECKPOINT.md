@@ -2067,3 +2067,16 @@ User supplied a live RD6018 sample proving `regulation_mode=cc`, `regulation_cod
 Also fixed the existing MIX-entry journal event: prior `START | V2_MIX` is deliberately filtered as an internal V2 start, causing the operator to see only the generic START row and miss the meaningful MIX entry. Existing `mix_entry.build_main_mix_effect` now emits `MIX_STARTED | reason=... | target_voltage_v=... | target_current_a=...` with sanitized reason; existing journal formatter renders a human-readable MIX entry including reason and target. No second journal, new service or extra persistence path. Added regression verifying operator filter retains it and formatter includes reason and both targets.
 
 Validation: focused HMI/journal/transition cohort **42 PASS**. Extended 30-module HMI, snapshot, journal, charge transition, and Recipe Studio cohort **161 PASS, 0 FAIL**, 136.55s; compileall and `git diff --check` passed in same command. This is source/test evidence only; no production deployment, no node104, no physical charger commands. User's separate observed discrepancy between external temperature display (25 C RD screen vs 23 C panel) is noted for next telemetry-source audit; not silently changed in this patch.
+
+
+## 2026-11-09 — RD-backed MAIN/MIX operator journal, virtual dry-run and temperature-source evidence
+
+**Accepted local code SHA:** `c70a6de38efbd6de8540ae09e6c3b40d4d524805`, branch `feature/main-mix-countdown-display`. HOME-PC source-only. Detailed runbook: `docs/assistant/RD6018_JOURNAL_TEMPERATURE_DRYRUN_2026-11-09.md`.
+
+Authoritative MAIN/MIX effects now publish source reason, physical target, Imin/Vmax, measured Delta and required thresholds, confirmed finish-hold duration and elapsed time where present. The read-only `MIX_PROGRESS` event reuses the existing 10-minute CHECKPOINT; no new scheduler, charge stage or storage. Stale/unknown sources and session mismatches are exposed without fabricated extrema. Original charge algorithm, 900s lease, hardware execution and physical safety remain unchanged.
+
+External temperature source provenance is logged through a focused canonical-metadata observer, session-bound and change-only with a 0.5°C *logging-only* noise gate, best effort on journal errors. The former physical 25°C vs Telegram 23°C discrepancy is NOT explained or changed without fresh direct ESP Native proof.
+
+**Validation:** 26-module source regression **212 PASS, 0 FAIL**; Python compileall and `git diff --check` PASS (log marker `FINAL_EXIT_CODE=0` independently verified). Separate D177 virtual RD/ESPHome/HA/Modbus worktree **31 PASS**; this legacy branch was NOT merged and has no calibrated chemistry. No production Telegram/physical acceptance.
+
+At source code commit local branch ahead own origin by 35; no GitHub push, documentation commit pending. No node104 deployment/restart/Output action, firmware or physical charge alteration. Remaining physical boundary: under separately approved read-only inspection compare direct ESP Native temp register 34/35 with HA secondary snapshot at the same time and validate source timestamps.
