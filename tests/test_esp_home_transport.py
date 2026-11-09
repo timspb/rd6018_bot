@@ -326,11 +326,15 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(measured["value"], 0.0)
             self.assertEqual(measured["meta"]["entity_type"], "SensorInfo")
             self.assertEqual(measured["meta"]["native_key"], 1)
-            setpoint = d106._native_record("set_voltage_v", "rd_voltage", transport,
-                                          tuple(transport.entities), time.time())
-            self.assertEqual(setpoint["value"], 14.72)
-            self.assertEqual(setpoint["meta"]["entity_type"], "NumberInfo")
-            self.assertEqual(setpoint["meta"]["native_key"], 20)
+            # An operator setpoint NumberInfo is not an independent RD
+            # readback. If mapped to the measured ID, D106 must reject it.
+            with self.assertRaisesRegex(
+                d106.ro.ProofError, "readback aliases measured channel",
+            ):
+                d106._native_record(
+                    "set_voltage_v", "rd_voltage", transport,
+                    tuple(transport.entities), time.time(),
+                )
             await transport.close()
 
     async def test_concurrent_reads_still_use_one_subscription(self):
