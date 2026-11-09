@@ -7,6 +7,8 @@ from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
+from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+from runtime.charge.programs.native_recipe_session import require_supported_native_execution
 from runtime.charge.programs.native_recipe_catalog import get_native_recipe, native_recipes
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
@@ -59,6 +61,9 @@ def native_recipe_markup() -> InlineKeyboardMarkup:
         )]
         for entry in native_recipes()
     ]
+    rows.append([InlineKeyboardButton(
+        text="Мои копии штатных программ", callback_data="recipes:nd:list",
+    )])
     rows.append([InlineKeyboardButton(
         text="⬅️ Мои рецепты", callback_data="recipes:list",
     )])
@@ -133,9 +138,92 @@ def editor_page(rows: list, *, name: str, version: int, page: int,
     return InlineKeyboardMarkup(inline_keyboard=selected)
 
 
-def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
+def install_recipe_buttons(app, *, catalog: RecipeCatalog,
+                           native_drafts: NativeRecipeDraftLibrary | None = None) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
         return
+    if native_drafts is None:
+        native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+
+    @app.router.callback_query(F.data == "recipes:nd:list")
+    async def native_draft_list(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        rows = []
+        for name in native_drafts.list_drafts():
+            versions = native_drafts.versions(name)
+            if not versions:
+                continue
+            command = f"recipes:nd:view:{name}:{versions[-1]}"
+            if len(command.encode("utf-8")) <= 64:
+                archived = (native_drafts.root / name / ".archived").exists()
+                rows.append([InlineKeyboardButton(
+                    text=f"{name} · v{versions[-1]}" + (" [архив]" if archived else ""),
+                    callback_data=command)])
+        rows.append([InlineKeyboardButton(
+            text="К штатным программам", callback_data="recipes:native:list")])
+        await call.answer()
+        await call.message.answer(
+            "Мои копии штатных рецептов. Изменения не активируют зарядку.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:view:"))
+    async def native_draft_view(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_version = str(call.data).split(":")
+            version = int(raw_version)
+            draft = native_drafts.load(name, version)
+            require_supported_native_execution(draft)
+            versions = native_drafts.versions(name)
+            archived = (native_drafts.root / name / ".archived").exists()
+            lines = [f"<b>{html.escape(name)} v{version}</b>",
+                     f"Оригинал: <code>{html.escape(draft.base_recipe_id)}</code>",
+                     "Архив" if archived else "Копия доступна для новой версии"]
+            lines.extend(f"<code>{html.escape(key)}</code>: {html.escape(str(value))}"
+                         for key, value in draft.overrides)
+            rows = []
+            for candidate in reversed(versions[-10:]):
+                key = f"recipes:nd:view:{name}:{candidate}"
+                if len(key.encode("utf-8")) <= 64:
+                    rows.append([InlineKeyboardButton(
+                        text=f"Версия {candidate}", callback_data=key)])
+            rows.append([InlineKeyboardButton(
+                text="Мои копии", callback_data="recipes:nd:list")])
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            "\n".join(lines)[:3600] + "\nВыбор версии не запускает зарядку.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:copy:"))
+    async def native_draft_copy(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            source = str(call.data).removeprefix("recipes:nd:copy:")
+            get_native_recipe(source)
+            name = "copy_" + uuid4().hex[:10]
+            new = native_drafts.save(name, 1, {
+                "schema": 1, "base_recipe_id": source,
+                "execution_kind": "native_authority", "overrides": {},
+            })
+        except (KeyError, ValueError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Создана <code>{html.escape(name)}</code> v1 из "
+            f"<code>{html.escape(new.base_recipe_id)}</code>. "
+            "Настраивайте через /native_set; Output не включался.",
+            parse_mode=app.ParseMode.HTML,
+        )
 
     @app.router.callback_query(F.data == "recipes:native:list")
     async def native_catalog(call):
@@ -176,6 +264,10 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                 [InlineKeyboardButton(
                     text="⚙️ Параметры",
                     callback_data=f"recipes:native:params:{entry.recipe_id}")],
+                [InlineKeyboardButton(text="Создать свою копию",
+                                      callback_data=f"recipes:nd:copy:{entry.recipe_id}")],
+                [InlineKeyboardButton(text="Мои копии",
+                                      callback_data="recipes:nd:list")],
                 [InlineKeyboardButton(text="Мои рецепты",
                                       callback_data="recipes:list")],
             ]),
