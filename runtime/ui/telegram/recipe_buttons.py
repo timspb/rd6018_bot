@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+from decimal import Decimal
 from uuid import uuid4
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,6 +10,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
 from runtime.charge.programs.native_recipe_session import require_supported_native_execution
+from runtime.charge.programs.native_recipe_draft import validate_native_draft
+from runtime.config.variable_spec import OverridePolicy
 from runtime.charge.programs.native_recipe_catalog import get_native_recipe, native_recipes
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
@@ -138,6 +141,43 @@ def editor_page(rows: list, *, name: str, version: int, page: int,
     return InlineKeyboardMarkup(inline_keyboard=selected)
 
 
+
+def _native_editable_specs(draft):
+    """Only module-owned, production-wired numeric parameters are actionable."""
+    result = []
+    for spec in native_recipe_parameters(draft.base_recipe_id):
+        if spec.override_policy != OverridePolicy.CONFIG_FILE or spec.value_type not in (int, float):
+            continue
+        try:
+            trial = validate_native_draft({
+                **draft.as_document(),
+                "overrides": {**dict(draft.overrides), spec.key: spec.default},
+            })
+            require_supported_native_execution(trial)
+        except ValueError:
+            continue
+        result.append(spec)
+    return tuple(result)
+
+
+def _native_adjust_value(spec, current, direction):
+    """Steps derive from the owning VariableSpec bounds, not recipe-specific JS/UI rules."""
+    if direction not in ("up", "down"):
+        raise ValueError("invalid adjustment direction")
+    sign = 1 if direction == "up" else -1
+    if spec.value_type is int:
+        value = current + sign
+    else:
+        low = Decimal(str(spec.minimum if spec.minimum is not None else 0))
+        high = Decimal(str(spec.maximum if spec.maximum is not None else spec.default))
+        step = max((high - low) / Decimal(100), Decimal("0.001"))
+        value = float(Decimal(str(current)) + sign * step)
+    if spec.minimum is not None and value < spec.minimum:
+        raise ValueError("parameter is at minimum")
+    if spec.maximum is not None and value > spec.maximum:
+        raise ValueError("parameter is at maximum")
+    return value
+
 def install_recipe_buttons(app, *, catalog: RecipeCatalog,
                            native_drafts: NativeRecipeDraftLibrary | None = None) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
@@ -190,6 +230,11 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
                 if len(key.encode("utf-8")) <= 64:
                     rows.append([InlineKeyboardButton(
                         text=f"Версия {candidate}", callback_data=key)])
+            if not archived and version == versions[-1]:
+                key = f"recipes:nd:edit:{name}:{version}:0"
+                if len(key.encode("utf-8")) <= 64:
+                    rows.insert(0, [InlineKeyboardButton(
+                        text="⚙️ Настроить параметры", callback_data=key)])
             rows.append([InlineKeyboardButton(
                 text="Мои копии", callback_data="recipes:nd:list")])
         except (ValueError, FileNotFoundError, OSError) as exc:
@@ -201,6 +246,100 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
             parse_mode=app.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:edit:"))
+    async def native_draft_edit(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_version, raw_page = str(call.data).split(":")
+            version, page = int(raw_version), int(raw_page)
+            versions = native_drafts.versions(name)
+            if not versions or version != versions[-1]:
+                raise ValueError("Открыта устаревшая версия; обновите рецепт")
+            if (native_drafts.root / name / ".archived").exists():
+                raise ValueError("Копия в архиве")
+            draft = native_drafts.load(name, version)
+            specs = _native_editable_specs(draft)
+            page_size = 5
+            if not 0 <= page * page_size < max(1, len(specs)):
+                raise ValueError("Недопустимая страница параметров")
+            lines = [f"<b>{html.escape(name)} · v{version}</b>",
+                     "Изменения сохраняются отдельной версией, без START."]
+            rows = []
+            for index in range(page * page_size, min((page + 1) * page_size, len(specs))):
+                spec = specs[index]
+                value = dict(draft.overrides).get(spec.key, spec.default)
+                lines.append(f"<code>{html.escape(spec.key)}</code>: "
+                             f"{html.escape(str(value))} {html.escape(spec.unit)}")
+                buttons = []
+                for direction, label in (("down", "−"), ("up", "+")):
+                    data = f"recipes:nd:adjust:{name}:{version}:{index}:{direction}"
+                    if len(data.encode("utf-8")) <= 64:
+                        buttons.append(InlineKeyboardButton(
+                            text=f"{label} {spec.description[:18]}", callback_data=data))
+                if buttons:
+                    rows.append(buttons)
+            nav = []
+            for target, label in ((page - 1, "◀"), (page + 1, "▶")):
+                if 0 <= target * page_size < len(specs):
+                    data = f"recipes:nd:edit:{name}:{version}:{target}"
+                    if len(data.encode("utf-8")) <= 64:
+                        nav.append(InlineKeyboardButton(text=label, callback_data=data))
+            if nav:
+                rows.append(nav)
+            back = f"recipes:nd:view:{name}:{version}"
+            if len(back.encode("utf-8")) <= 64:
+                rows.append([InlineKeyboardButton(text="◀ К копии", callback_data=back)])
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            "\n".join(lines), parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:adjust:"))
+    async def native_draft_adjust(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_version, raw_index, direction = str(call.data).split(":")
+            version, index = int(raw_version), int(raw_index)
+            versions = native_drafts.versions(name)
+            if not versions or version != versions[-1]:
+                raise ValueError("Версия уже изменилась; откройте последнюю")
+            if (native_drafts.root / name / ".archived").exists():
+                raise ValueError("Копия в архиве")
+            draft = native_drafts.load(name, version)
+            specs = _native_editable_specs(draft)
+            if not 0 <= index < len(specs):
+                raise ValueError("Неизвестный параметр")
+            spec = specs[index]
+            overrides = dict(draft.overrides)
+            value = _native_adjust_value(
+                spec, overrides.get(spec.key, spec.default), direction)
+            overrides[spec.key] = value
+            changed = validate_native_draft({
+                **draft.as_document(), "overrides": overrides})
+            require_supported_native_execution(changed)
+            native_drafts.save(name, version + 1, changed.as_document())
+            back = f"recipes:nd:edit:{name}:{version + 1}:{index // 5}"
+            rows = []
+            if len(back.encode("utf-8")) <= 64:
+                rows.append([InlineKeyboardButton(
+                    text="Продолжить настройку", callback_data=back)])
+        except (ValueError, KeyError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<b>{html.escape(name)} · v{version + 1}</b>\n"
+            f"<code>{html.escape(spec.key)}</code> = {html.escape(str(value))} "
+            f"{html.escape(spec.unit)}\n"
+            "Сохранена новая версия. Зарядка не запускалась.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
     @app.router.callback_query(F.data.startswith("recipes:nd:copy:"))
     async def native_draft_copy(call):
@@ -221,7 +360,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog,
         await call.message.answer(
             f"Создана <code>{html.escape(name)}</code> v1 из "
             f"<code>{html.escape(new.base_recipe_id)}</code>. "
-            "Настраивайте через /native_set; Output не включался.",
+            "Настраивайте кнопкой «⚙️ Настроить параметры» в своей копии; Output не включался.",
             parse_mode=app.ParseMode.HTML,
         )
 
