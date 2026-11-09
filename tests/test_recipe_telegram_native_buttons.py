@@ -48,6 +48,14 @@ class NativeButtonEditorTests(unittest.IsolatedAsyncioTestCase):
         await self.handlers["native_draft_edit"](edit)
         controls = [v for v in _data(edit) if v.startswith("recipes:nd:adjust:")]
         self.assertTrue(controls)
+        button_rows = edit.message.sent[0][1]["reply_markup"].inline_keyboard
+        adjustment_rows = [row for row in button_rows if len(row) == 2
+                           and row[0].callback_data.startswith("recipes:nd:adjust:")]
+        self.assertTrue(adjustment_rows)
+        self.assertTrue(all(row[0].text.startswith("− ") and row[1].text.startswith("+ ")
+                            for row in adjustment_rows))
+        self.assertTrue(all(row[0].text[2:] == row[1].text[2:]
+                            and row[0].text[2:] != "В" for row in adjustment_rows))
         self.assertTrue(all(len(v.encode("utf-8")) <= 64 for v in _data(edit)))
         press = _Call(next(v for v in controls if v.endswith(":up")))
         await self.handlers["native_draft_adjust"](press)
@@ -59,6 +67,9 @@ class NativeButtonEditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(dict(new.overrides))
         self.assertEqual(self.catalog.list_recipes(), ())
         self.assertIn("не запускалась", press.message.sent[0][0])
+        self.assertNotIn("<code>charge.", press.message.sent[0][0])
+        self.assertIn("recipes:nd:edit:trial:2:0", _data(press))
+        self.assertIn("recipes:nd:view:trial:2", _data(press))
         retry = _Call(press.data)
         await self.handlers["native_draft_adjust"](retry)
         self.assertFalse(retry.message.sent)

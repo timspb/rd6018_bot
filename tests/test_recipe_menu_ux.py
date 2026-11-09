@@ -136,3 +136,33 @@ class RecipeMenuUXTests(unittest.IsolatedAsyncioTestCase):
         await self.handlers['native_draft_list'](bad)
         self.assertFalse(bad.message.sent)
         self.assertTrue(bad.acks[0][1]['show_alert'])
+
+    async def test_128_step_card_has_bounded_pages_and_all_steps_reachable(self):
+        steps = [{"action": "off", "params": {},
+                  "until": {"after_seconds": index + 1}}
+                 for index in range(128)]
+        self.catalog.library.save({"id": "long_recipe", "version": 1,
+                                   "steps": steps})
+        visited = []
+        for page in range(16):
+            call = _Call(f"recipes:view:long_recipe:1:{page}")
+            await self.handlers["show_recipe"](call)
+            self.assertEqual(len(call.acks), 1)
+            message = call.message.sent[0][0]
+            self.assertLess(len(message), 3900)
+            self.assertEqual(message.count("<b>"), message.count("</b>"))
+            self.assertIn(f"страница {page + 1}/16", message)
+            self.assertIn(f"{page * 8 + 1}.", message)
+            self.assertIn(f"{page * 8 + 8}.", message)
+            visited.extend(range(page * 8 + 1, page * 8 + 9))
+            actions = controls(call)
+            self.assertTrue(all(len(s.encode("utf-8")) <= 64 for s in actions))
+            if page < 15:
+                self.assertIn(f"recipes:view:long_recipe:1:{page + 1}", actions)
+            if page > 0:
+                self.assertIn(f"recipes:view:long_recipe:1:{page - 1}", actions)
+        self.assertEqual(visited, list(range(1, 129)))
+        invalid = _Call("recipes:view:long_recipe:1:16")
+        await self.handlers["show_recipe"](invalid)
+        self.assertEqual(invalid.message.sent, [])
+        self.assertTrue(invalid.acks[0][1]["show_alert"])

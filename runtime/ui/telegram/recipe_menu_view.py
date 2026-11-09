@@ -12,8 +12,15 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 
 
-def step_summary(recipe, *, archived: bool, latest: int) -> str:
-    """Human-readable SET/OFF/WAIT view without Python dicts or fake start claims."""
+STEP_VIEW_PAGE_SIZE = 8
+
+
+def step_summary(recipe, *, archived: bool, latest: int,
+                 page: int = 0, page_size: int = STEP_VIEW_PAGE_SIZE) -> str:
+    """Human-readable bounded page of steps, never truncate an open HTML tag."""
+    pages = (len(recipe.steps) + page_size - 1) // page_size if page_size > 0 else 0
+    if not 0 <= page < pages:
+        raise ValueError("Недоступная страница шагов")
     lines = [f"<b>Пошаговый рецепт · {html.escape(recipe.recipe_id)} v{recipe.version}</b>",
              "Архив · только просмотр" if archived else
              ("Текущая версия" if recipe.version == latest
@@ -24,7 +31,11 @@ def step_summary(recipe, *, archived: bool, latest: int) -> str:
         "current_gte": ("I ≥", "А"), "current_lte": ("I ≤", "А"),
         "temperature_gte": ("T ≥", "°C"), "temperature_lte": ("T ≤", "°C"),
     }
-    for number, step in enumerate(recipe.steps, 1):
+    lines.append(f"Шаги {page * page_size + 1}–"
+                 f"{min((page + 1) * page_size, len(recipe.steps))} из {len(recipe.steps)}"
+                 f" · страница {page + 1}/{pages}")
+    for number in range(page * page_size, min((page + 1) * page_size, len(recipe.steps))):
+        step = recipe.steps[number]
         action = step["action"]
         params = step["params"]
         description = (f"SET · U {params['voltage_v']:g} В · I {params['current_a']:g} А"
@@ -33,10 +44,10 @@ def step_summary(recipe, *, archived: bool, latest: int) -> str:
                        else "WAIT · ожидание после OFF")
         predicate, target = next(iter(step["until"].items()))
         condition, unit = predicates[predicate]
-        lines.append(f"{number}. <b>{html.escape(description)}</b> → "
+        lines.append(f"{number + 1}. <b>{html.escape(description)}</b> → "
                      f"{condition} {target:g} {unit}")
     lines.append("Просмотр не запускает зарядку.")
-    return "\n".join(lines)[:3900]
+    return "\n".join(lines)
 
 
 def native_summary(name: str, version: int, draft, *, archived: bool, latest: int) -> str:
