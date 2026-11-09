@@ -28,14 +28,16 @@ class D137Tests(unittest.TestCase):
             "phase":"STARTED","transaction":"legacy"}))
         (root / ".deploy_sha").write_text("a"*40+"\n")
 
-    def capture(self, root):
+    def capture(self, root, proof=None):
         original = Path.read_bytes
         def fake_argv(path):
             if str(path)=="/proc/1234/cmdline":
                 return str(root / "app" / "bot.py").encode()+bytes([0])
             return original(path)
         with patch.object(Path, "read_bytes", fake_argv):
-            return observed_preimage(root, pid=1234)
+            return observed_preimage(
+                root, pid=1234, physical_off_reconciliation=proof,
+            )
 
     def test_observed_only_and_no_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -290,6 +292,85 @@ class D137Tests(unittest.TestCase):
                 "confirmed_off_evidence":"off-receipt","retired_utc":"2026-11-05T00:00:00Z",
                 "incident_id":"incident","incident_reason":"safe-off","battery_id":None}}))
         return doc
+
+    def guarded_final_safe_wait_fixture(self, root):
+        self.guarded_main_historical_on_fixture(root)
+        path = root / "state" / "charge_session.json"
+        doc = json.loads(path.read_text())
+        generation = time.time() - 3600
+        started = time.time() - 60
+        doc.update({
+            "stage": "Безопасное ожидание",
+            "stage_history": [
+                {"from": "Main Charge", "to": "Mix Mode"},
+                {"from": "Mix Mode", "to": "Безопасное ожидание"},
+            ],
+            "v2_trace_started_at": generation,
+            "safe_wait_next_stage": "Done",
+            "safe_wait_target_v": 13.8,
+            "safe_wait_target_i": 1.0,
+            "safe_wait_start": started,
+            "completion_kind": None,
+            "output_intent": None,
+            "v2_final_safe_wait": {
+                "version": 2,
+                "source_stage": "Mix Mode",
+                "next_stage": "Done",
+                "target_voltage_v": 13.8,
+                "target_current_a": 1.0,
+                "started_at": started,
+                "session_id": doc["v2_trace_session_id"],
+                "session_generation": generation,
+                "completion_reason": "confirmed_delta_finish_hold_complete",
+            },
+        })
+        path.write_text(json.dumps(doc))
+        return path, doc
+
+    def test_final_safe_wait_preserves_guard_without_automatic_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path, doc = self.guarded_final_safe_wait_fixture(root)
+            before = path.read_bytes()
+            proof = self.historical_on_reconciliation()
+            accepted = self.capture(root, proof=proof)
+            guard = accepted["preserved_guarded_main"]
+            self.assertEqual(guard["guard_sha256"], doc[GUARD_KEY]["sha256"])
+            self.assertEqual(guard["session_sha256"],
+                             __import__("hashlib").sha256(before).hexdigest())
+            self.assertFalse(guard["automatic_resume_authorized"])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertIsNone(accepted["retired_session"])
+            self.assertEqual(accepted["preimage_sha256"],
+                             self.capture(root, proof=proof)["preimage_sha256"])
+            with self.assertRaisesRegex(ValueError, "state-preserving OFF"):
+                self.capture(root)
+
+    def test_final_safe_wait_rejects_invalid_continuation_and_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path, original = self.guarded_final_safe_wait_fixture(root)
+            proof = self.historical_on_reconciliation()
+            changes = (
+                {"safe_wait_next_stage": "Main Charge"},
+                {"output_intent": "on"},
+                {"safe_wait_target_v": 14.0},
+                {"v2_final_safe_wait": None},
+                {"v2_final_safe_wait": {**original["v2_final_safe_wait"],
+                                         "session_id": "foreign"}},
+                {"v2_final_safe_wait": {**original["v2_final_safe_wait"],
+                                         "session_generation": 0.0}},
+                {"stage_history": original["stage_history"][:1]},
+            )
+            for delta in changes:
+                with self.subTest(delta=delta):
+                    path.write_text(json.dumps({**original, **delta}))
+                    with self.assertRaisesRegex(ValueError, "SAFE_WAIT continuation invalid"):
+                        self.capture(root, proof=proof)
+            path.write_text(json.dumps(original))
+            self.assertIsNotNone(
+                self.capture(root, proof=proof)["preserved_guarded_main"]
+            )
 
     def test_guarded_main_is_observed_and_byte_pinned_without_resume_authority(self):
         with tempfile.TemporaryDirectory() as tmp:

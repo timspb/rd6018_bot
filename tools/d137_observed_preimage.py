@@ -154,16 +154,26 @@ def observed_preimage(root: Path, *, pid: int,
             raise ValueError("D144 installed release identity does not match committed app/venv")
     retirement = quarantine.get("retirement")
     preserved_guard = None
-    if session_present and session.get("stage") in {"Main Charge", "Mix Mode"}:
-        # Preserve a guarded MAIN, or its interrupted transition into MIX,
-        # across software-only restart. MIX must carry the exact historical
-        # MAIN->MIX transition and sealed MAIN guard; never infer resume authority.
-        if session["stage"] == "Mix Mode" and not any(
+    if session_present and session.get("stage") in {
+        "Main Charge", "Mix Mode", "Безопасное ожидание",
+    }:
+        # Preserve MAIN's sealed Guard in MIX and final SAFE_WAIT, including
+        # the interrupted Storage transition. These are saved identities,
+        # never authority to resume Output after a service restart.
+        history = session.get("stage_history") or []
+        main_to_mix = any(
             isinstance(step, dict) and step.get("from") == "Main Charge"
-            and step.get("to") == "Mix Mode"
-            for step in (session.get("stage_history") or [])
-        ):
-            raise ValueError("interrupted MIX lacks historical MAIN transition")
+            and step.get("to") == "Mix Mode" for step in history
+        )
+        if session["stage"] in {"Mix Mode", "Безопасное ожидание"} and not main_to_mix:
+            raise ValueError("guarded session lacks historical MAIN transition")
+        if session["stage"] == "Безопасное ожидание":
+            try:
+                from tools.d137_guarded_final_safe_wait import valid_guarded_final_wait
+            except ModuleNotFoundError:
+                from d137_guarded_final_safe_wait import valid_guarded_final_wait
+            if not valid_guarded_final_wait(session):
+                raise ValueError("guarded final SAFE_WAIT continuation invalid")
         # Independent D091 Native/HA proof confirms Output OFF; bind every
         # persisted byte and validate the canonical guard snapshot.
         if (session.get("v2_authoritative") is not True
