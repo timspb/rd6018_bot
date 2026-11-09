@@ -25,6 +25,15 @@ def _measurements(v: str, i: str, temp: str) -> str:
     return " · ".join(values)
 
 
+def _event_fields(raw: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for part in raw.split(" | ")[1:]:
+        key, separator, value = part.partition("=")
+        if separator and key.strip():
+            fields[key.strip()] = value.strip()
+    return fields
+
+
 def _escape_limited(value: str, limit: int) -> str:
     """HTML-escape without letting hostile text expand a Telegram page."""
     marker = "… [запись сокращена]"
@@ -75,18 +84,56 @@ def format_journal_event(event_line: str) -> str:
             transition = detail.strip() or raw.partition(" ")[2].strip()
             # The stage field is the new stage, while detail records both ends.
             summary, icon = f"Переход этапа: {transition}", "➡️"
+        elif name == "MIX_PROGRESS":
+            fields = _event_fields(raw)
+            if fields.get("evidence") != "fresh":
+                summary = "MIX · нет актуального подтверждённого анализа"
+            else:
+                mode = fields.get("mode", "unknown")
+                if mode == "CC":
+                    summary = (
+                        f"MIX CC · Vmax {fields.get('Vmax', '—')} · "
+                        f"ΔV {fields.get('delta_v', '—')}/"
+                        f"{fields.get('required_delta_v', '—')} В"
+                    )
+                elif mode == "CV":
+                    summary = (
+                        f"MIX CV · Imin {fields.get('Imin', '—')} · "
+                        f"ΔI {fields.get('delta_a', '—')}/"
+                        f"{fields.get('required_delta_a', '—')} А"
+                    )
+                else:
+                    summary = "MIX · режим CC/CV не подтверждён"
+                if fields.get("confirmations"):
+                    summary += f" · подтверждений {fields['confirmations']}"
+                if fields.get("hold_elapsed_s"):
+                    summary += (
+                        f" · выдержка идёт {int(float(fields['hold_elapsed_s']) // 60)}м"
+                    )
+            icon = "📈"
         elif name == "MIX_STARTED":
-            reason_match = re.search(r"(?:^|\|\s*)reason=([^|]+)", raw, re.I)
-            voltage_match = re.search(r"(?:^|\|\s*)target_voltage_v=([0-9]+(?:[.,][0-9]+)?)", raw, re.I)
-            current_match = re.search(r"(?:^|\|\s*)target_current_a=([0-9]+(?:[.,][0-9]+)?)", raw, re.I)
-            reason = reason_match.group(1).strip().replace("_", " ") if reason_match else ""
+            fields = _event_fields(raw)
+            reason = fields.get("reason", "").replace("_", " ")
             target = ""
-            if voltage_match and current_match:
+            if "target_voltage_v" in fields and "target_current_a" in fields:
                 target = (
-                    f" · цель {voltage_match.group(1).replace('.', ',')} В"
-                    f" / {current_match.group(1).replace('.', ',')} А"
+                    f" · цель {fields['target_voltage_v'].replace('.', ',')} В"
+                    f" / {fields['target_current_a'].replace('.', ',')} А"
                 )
+            evidence = []
+            if fields.get("main_imin_a"):
+                evidence.append(f"Imin {fields['main_imin_a']} А")
+            if fields.get("main_hold_age_s") and fields.get("main_hold_required_s"):
+                age_m = int(float(fields["main_hold_age_s"]) // 60)
+                required_m = int(float(fields["main_hold_required_s"]) // 60)
+                evidence.append(f"выдержка {age_m}м/{required_m}м")
+            if fields.get("main_delta_a") and fields.get("main_required_delta_a"):
+                evidence.append(f"ΔI {fields['main_delta_a']}/{fields['main_required_delta_a']} А")
+            if fields.get("temperature_c"):
+                evidence.append(f"T {fields['temperature_c']}°C")
             summary = "Начат MIX" + (f" · причина: {reason}" if reason else "") + target
+            if evidence:
+                summary += " · " + "; ".join(evidence)
             icon = "🚀"
         elif name.startswith("END"):
             summary, icon = "Этап завершён", "✅"
@@ -94,6 +141,14 @@ def format_journal_event(event_line: str) -> str:
             useful = [x for x in fields if not x.lower().startswith(("время:", "ёмкость:", "t:", "v:", "i:"))]
             if useful:
                 summary += " · " + "; ".join(useful)
+        elif name == "TEMP_SOURCE":
+            fields = _event_fields(raw)
+            summary = (
+                f"Источник температуры АКБ: {fields.get('source', 'unknown')} · "
+                f"{fields.get('entity_id', 'unknown')} · "
+                f"{fields.get('status', 'unknown')} · возраст {fields.get('age_s', 'unknown')}с"
+            )
+            icon = "🌡"
         elif upper.startswith(("WARNING", "TEMP", "TEMPERATURE")):
             summary, icon = f"Предупреждение: {name.removeprefix('WARNING_').replace('_', ' ').lower()}", "⚠️"
         elif upper.startswith("BANK_FAULT_"):
@@ -102,20 +157,66 @@ def format_journal_event(event_line: str) -> str:
             labels = {"OVP_TRIGGERED": "Сработала защита по перенапряжению", "OCP_TRIGGERED": "Сработала защита по току", "MANUAL_OFF": "Заряд остановлен вручную"}
             summary, icon = labels.get(name, f"Остановка или авария: {name.replace('_', ' ').lower()}"), "🛑"
         elif upper.startswith("V2_FINISH_HOLD_START"):
-            summary, icon = "Delta подтверждён; началась финишная выдержка", "⏱️"
-            if detail:
-                summary += f" · {detail.strip()}"
+            fields = _event_fields(raw)
+            if "mode" not in fields:
+                summary, icon = "Delta подтверждён; началась финишная выдержка", "⏱️"
+                if detail:
+                    summary += f" · {detail.strip()}"
+            else:
+                mode = fields.get("mode", "?")
+                hold_s = float(fields.get("hold_seconds", "0") or 0)
+                hold_label = f"{hold_s / 3600:g}ч" if hold_s >= 3600 else f"{hold_s / 60:g}м"
+                if mode == "CV":
+                    proof = f"Imin {fields.get('Imin', '—')} · ΔI {fields.get('delta_a', '—')}/{fields.get('required_delta_a', '—')} А"
+                elif mode == "CC":
+                    proof = f"Vmax {fields.get('Vmax', '—')} · ΔV {fields.get('delta_v', '—')}/{fields.get('required_delta_v', '—')} В"
+                else:
+                    proof = "режим не подтверждён"
+                summary, icon = f"Delta подтверждён ({mode}); выдержка {hold_label} · {proof}", "⏱️"
         elif upper.startswith("V2_COOLING_FAIL_CLOSED"):
             summary, icon = "Аварийно остановлено: ошибка охлаждения", "🛑"
         elif name in MAIN_MINIMUM_PREFIXES:
-            # Historic row has Imin, not a current countdown or next-stage authority.
-            match = re.search(r"Imin=([0-9]+(?:[.,][0-9]+)?)A\b", detail)
-            value = match.group(1).replace(".", ",").rstrip("0").rstrip(",") if match else None
-            summary = (f"{MAIN_MINIMUM_PREFIXES[name]}={value}?"
-                       if value is not None else MAIN_MINIMUM_PREFIXES[name])
-            icon = "?"
+            fields = _event_fields(raw)
+            value_raw = fields.get("Imin", "—").removesuffix("A")
+            if "." in value_raw:
+                value_raw = value_raw.rstrip("0").rstrip(".")
+            value = value_raw.replace(".", ",")
+            age = fields.get("age_s")
+            delta = fields.get("delta_a")
+            required = fields.get("required_delta_a")
+            suffix = []
+            if age is not None:
+                suffix.append(f"возраст минимума {int(float(age))}с")
+            if delta is not None and required is not None:
+                suffix.append(f"ΔI {delta}/{required} А")
+            confirmations = fields.get("confirmations")
+            if confirmations is not None:
+                suffix.append(f"подтверждений {confirmations}/3")
+            summary = f"{MAIN_MINIMUM_PREFIXES[name]} {value} А"
+            if suffix:
+                summary += " · " + "; ".join(suffix)
+            icon = "🔋"
+        elif name in {"MIX_IMIN_UPDATED", "MIX_VMAX_UPDATED", "MIX_DELTA_CONFIRMED"}:
+            fields = _event_fields(raw)
+            mode = fields.get("mode", "?")
+            if name == "MIX_IMIN_UPDATED":
+                summary = f"Новый Imin MIX {fields.get('Imin', '—')}"
+                if fields.get("delta_a") and fields.get("required_delta_a"):
+                    summary += f" · ΔI {fields['delta_a']}/{fields['required_delta_a']} А"
+            elif name == "MIX_VMAX_UPDATED":
+                summary = f"Новый Vmax MIX {fields.get('Vmax', '—')}"
+                if fields.get("delta_v") and fields.get("required_delta_v"):
+                    summary += f" · ΔV {fields['delta_v']}/{fields['required_delta_v']} В"
+            elif mode == "CV":
+                summary = f"Delta CV подтверждён · Imin {fields.get('Imin', '—')} · ΔI {fields.get('delta_a', '—')}/{fields.get('required_delta_a', '—')} А"
+            else:
+                summary = f"Delta CC подтверждён · Vmax {fields.get('Vmax', '—')} · ΔV {fields.get('delta_v', '—')}/{fields.get('required_delta_v', '—')} В"
+            if fields.get("age_s"):
+                summary += f" · возраст {int(float(fields['age_s']))}с"
+            if fields.get("confirmations"):
+                summary += f" · {fields['confirmations']}/3 подтверждений"
+            icon = "🎯" if name == "MIX_DELTA_CONFIRMED" else "🔋"
         elif upper.startswith(("MAIN_HOLD", "MIX", "DELTA", "I_MIN", "IMIN", "V_MAX", "VMAX", "STABIL")):
-            # Only report facts that were actually written to charging_history.log.
             labels = JOURNAL_MILESTONE_LABELS
             summary, icon = labels.get(name, name.replace("_", " ").capitalize()), "🔋"
             if detail and ("Imin=" in detail or "Vmax=" in detail):

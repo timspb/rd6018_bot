@@ -90,6 +90,8 @@ from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
 from rd6018_telemetry import as_bool, telemetry_freshness, finite_float
+from runtime.charge.evidence.temperature_source_journal import TemperatureSourceJournalObserver
+from runtime.charge.evidence.mix_progress_journal import mix_progress_event
 from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -968,6 +970,18 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 def _cap_current(value: float) -> float:
     return min(MAX_STAGE_CURRENT, max(0.1, float(value)))
+
+
+_temperature_source_observer = TemperatureSourceJournalObserver()
+
+
+def _log_temperature_source_if_changed(live, *, stage, voltage, current, temperature, ah, session_id=None):
+    """Observational, never a charging/safety decision."""
+    _temperature_source_observer.record(
+        live, stage=stage, voltage=voltage, current=current,
+        temperature=temperature, ah=ah, session_id=session_id,
+        log_event=log_event,
+    )
 
 
 def _should_skip_noisy_log_event(stage: str, event: str, now_ts: Optional[float] = None) -> bool:
@@ -2182,6 +2196,16 @@ async def data_logger() -> None:
             temp_ext = live.get("temp_ext")
             t = _safe_float(temp_ext)
             ah = _safe_float(live.get("ah"))
+            try:
+                _log_temperature_source_if_changed(
+                    live, stage=charge_controller.current_stage,
+                    voltage=battery_v, current=i, temperature=temp_ext, ah=ah,
+                    session_id=getattr(charge_controller, "_v2_trace_session_id", None),
+                )
+            except Exception as exc:
+                # Observability is best-effort. It must not interrupt the
+                # established safety/charge control path.
+                logger.warning("TEMP_SOURCE journal unavailable: %s", type(exc).__name__)
             is_cv = _canonical_bool(live, "is_cv")
             is_cc = _canonical_bool(live, "is_cc")
             output_switch = live.get("switch")
@@ -2683,6 +2707,20 @@ async def data_logger() -> None:
 
                     if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
                         log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
+                        if charge_controller.current_stage == charge_controller.STAGE_MIX:
+                            try:
+                                progress = mix_progress_event(
+                                    live,
+                                    getattr(charge_controller, "_v2_session_signal_context", None),
+                                    stage=charge_controller.STAGE_MIX,
+                                    session_id=getattr(charge_controller, "_v2_trace_session_id", None),
+                                    now_s=now_ts,
+                                    max_age_s=float(WATCHDOG_TIMEOUT_S.default),
+                                    hold_started_at=getattr(charge_controller, "finish_timer_start", None),
+                                )
+                                log_event(charge_controller.current_stage, battery_v, i, t, ah, progress)
+                            except Exception as exc:
+                                logger.warning("MIX_PROGRESS journal unavailable: %s", type(exc).__name__)
                         last_checkpoint_time = now_ts
                     
                     # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)

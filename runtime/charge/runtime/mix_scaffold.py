@@ -78,6 +78,9 @@ def apply_mix_authority_tick(
             current_min_a=metrics.current_min_a,
             delta_current_from_min_a=metrics.delta_current_from_min_a,
             session_id=host._v2_trace_session_id,
+            hold_seconds=finish_hold_s,
+            current_reversal_threshold_a=metrics.reversal_threshold_a,
+            voltage_reversal_threshold_v=metrics.voltage_reversal_threshold_v,
         )
         apply_mix_finish_hold_effect(host, effect, actions)
         logger.info(
