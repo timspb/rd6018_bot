@@ -16,6 +16,7 @@ from config import MAX_MANUAL_VOLTAGE
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
 from runtime.charge.programs.recipe_library import RecipeLibrary
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+from runtime.charge.programs.recipe_studio_native_catalog import native_studio_catalog
 from runtime.charge.programs.recipe_studio_import import (
     inspect_step_document, publish_step_document,
     inspect_native_document, publish_native_document,
@@ -35,8 +36,24 @@ def run(argv: list[str] | None = None) -> int:
         if action in ("save", "save-native"):
             cmd.add_argument("--library-root", required=True, type=Path,
                              help="explicit library folder; never inferred from node104")
+    catalog_cmd = commands.add_parser("catalog-native")
+    catalog_cmd.add_argument("--output", required=True, type=Path,
+                             help="explicit file for read-only native parameter catalog")
     args = parser.parse_args(argv)
     try:
+        if args.action == "catalog-native":
+            payload = json.dumps(native_studio_catalog(), ensure_ascii=False,
+                                 indent=2, allow_nan=False)
+            # Static snapshot derived from the canonical spec owner; never an authority.
+            # JS form supports directly opening the existing HTML from disk.
+            if args.output.suffix == ".js":
+                payload = "window.RD6018_NATIVE_CATALOG = " + payload + ";"
+            elif args.output.suffix != ".json":
+                raise ValueError("catalog output must have .json or .js extension")
+            args.output.write_text(payload + "\n", encoding="utf-8")
+            print(json.dumps({"status": "EXPORTED", "path": str(args.output),
+                              "physical_start_authorized": False}))
+            return 0
         with args.file.open("r", encoding="utf-8") as handle:
             document = json.load(handle, parse_constant=_reject_constant)
         if args.action == "check":
