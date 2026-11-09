@@ -22,6 +22,9 @@ from config import MAX_MANUAL_VOLTAGE
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
 from runtime.charge.programs.recipe_library import RecipeLibrary
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+from runtime.charge.programs.recipe_studio_history import (
+    history, load_document, compare, archive,
+)
 from runtime.charge.programs.recipe_studio_import import (
     inspect_step_document, inspect_native_document,
     publish_step_document, publish_native_document,
@@ -32,6 +35,7 @@ ASSETS = {
     "/recipe_studio_native_catalog.js": ("recipe_studio_native_catalog.js", "application/javascript"),
     "/recipe_studio_native_editor.js": ("recipe_studio_native_editor.js", "application/javascript"),
     "/recipe_studio_save.js": ("recipe_studio_save.js", "application/javascript"),
+    "/recipe_studio_history.js": ("recipe_studio_history.js", "application/javascript"),
 }
 MAX_BYTES = 256 * 1024
 
@@ -61,6 +65,33 @@ class StudioHTTPServer(ThreadingHTTPServer):
                 max_current_a=float(MAX_STAGE_CURRENT_A.default),
             )
         raise ValueError("unsupported recipe kind")
+
+    def library_operation(self, payload: dict, operation: str) -> dict:
+        if not isinstance(payload, dict) or set(payload) - {"kind", "id", "version", "left", "right"}:
+            raise ValueError("invalid history request")
+        kind = payload.get("kind")
+        with self.lock:
+            library = self.store(kind)
+            if operation == "list":
+                if set(payload) != {"kind"}:
+                    raise ValueError("invalid list request")
+                return {"items": history(library, kind), "physical_start_authorized": False}
+            name = payload.get("id")
+            if operation == "load":
+                if set(payload) != {"kind", "id", "version"}:
+                    raise ValueError("invalid load request")
+                return {"recipe": load_document(library, kind, name, payload.get("version")),
+                        "physical_start_authorized": False}
+            if operation == "compare":
+                if set(payload) != {"kind", "id", "left", "right"}:
+                    raise ValueError("invalid compare request")
+                return {**compare(library, kind, name, payload.get("left"), payload.get("right")),
+                        "physical_start_authorized": False}
+            if operation == "archive":
+                if set(payload) != {"kind", "id"}:
+                    raise ValueError("invalid archive request")
+                return {**archive(library, kind, name), "physical_start_authorized": False}
+            raise ValueError("invalid library operation")
 
     def apply(self, kind: str, document: dict, save: bool) -> dict:
         library = self.store(kind)
@@ -162,7 +193,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         if size < 1 or size > MAX_BYTES:
             return self._json(413, {"error": "request size invalid"})
         parts = urlparse(self.path)
-        if parts.path not in ("/api/check", "/api/save") or parts.query:
+        operations = {"/api/list": "list", "/api/load": "load",
+                      "/api/compare": "compare", "/api/archive": "archive"}
+        if parts.path not in ("/api/check", "/api/save", *operations) or parts.query:
             return self._json(404, {"error": "not found"})
         try:
             document = json.loads(
@@ -170,13 +203,16 @@ class StudioHandler(BaseHTTPRequestHandler):
                 parse_constant=lambda value: (_ for _ in ()).throw(
                     ValueError("nonfinite JSON constant: " + value)),
             )
-            if not isinstance(document, dict) or set(document) != {"kind", "recipe"}:
-                raise ValueError("request must contain only kind and recipe")
-            if not isinstance(document["recipe"], dict):
-                raise ValueError("recipe must be a JSON object")
-            result = self.server.apply(
-                document["kind"], document["recipe"], save=parts.path == "/api/save",
-            )
+            if parts.path in operations:
+                result = self.server.library_operation(document, operations[parts.path])
+            else:
+                if not isinstance(document, dict) or set(document) != {"kind", "recipe"}:
+                    raise ValueError("request must contain only kind and recipe")
+                if not isinstance(document["recipe"], dict):
+                    raise ValueError("recipe must be a JSON object")
+                result = self.server.apply(
+                    document["kind"], document["recipe"], save=parts.path == "/api/save",
+                )
             return self._json(200, result)
         except (ValueError, TypeError, OSError, FileExistsError, KeyError) as exc:
             return self._json(422, {"error": str(exc)[:600]})

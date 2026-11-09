@@ -44,8 +44,17 @@ class NativeRecipeDraftLibrary:
                             if p.is_dir() and _valid_id(p.name)
                             and self.versions(p.name)))
 
+    def archive(self, name: str) -> None:
+        """Retire a native draft without altering its immutable history."""
+        if not self.versions(name):
+            raise FileNotFoundError("native draft not found")
+        with (self._path(name, 1).parent / ".archived").open("x", encoding="utf-8") as stream:
+            stream.write("archived\n")
+
     def save(self, name: str, version: int, document: dict) -> NativeRecipeDraft:
         draft = validate_native_draft(document)
+        if (self._path(name, version).parent / ".archived").exists():
+            raise ValueError("native draft is archived")
         path = self._path(name, version)
         # Immutable source identity: revisions must retain their parent recipe.
         prior_versions = self.versions(name)

@@ -151,6 +151,17 @@
     } catch (error) {report(error);}
     finally {event.target.value = "";}
   });
+  function loadForEdit(document, nextVersion) {
+    const checked = inspectDraft(document.name, document.version,
+      document.draft.base_recipe_id, document.draft.overrides);
+    if (!Number.isSafeInteger(nextVersion) || nextVersion <= document.version)
+      throw Error("Следующая версия не подтверждена библиотекой.");
+    state = {name: checked.name, version: nextVersion,
+      recipeId: checked.draft.base_recipe_id, overrides: checked.draft.overrides};
+    $("nativeError").textContent = "Загружена новая копия v" + nextVersion +
+      "; исходная версия неизменна.";
+    draw();
+  }
   draw();
-  window.RD6018NativeStudio = {inspectDraft};
+  window.RD6018NativeStudio = {inspectDraft, loadForEdit};
 })();

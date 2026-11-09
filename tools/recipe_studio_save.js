@@ -23,5 +23,20 @@ window.RD6018StudioSave = (() => {
       throw Error("Некорректный ответ проверки: отсутствует запрет физического START.");
     return result;
   }
-  return {connected, submit};
+  async function library(operation, request) {
+    if (!connected) throw Error("Запустите локальный Recipe Studio на HOME-PC.");
+    if (!["list", "load", "compare", "archive"].includes(operation))
+      throw Error("Недопустимая операция библиотеки.");
+    const response = await fetch("/api/" + operation, {
+      method: "POST", mode: "same-origin", credentials: "omit",
+      headers: {"Content-Type": "application/json", "X-Recipe-Studio-Token": config.token},
+      body: JSON.stringify(request),
+    });
+    const result = await response.json();
+    if (!response.ok) throw Error(result.error || "Операция отклонена.");
+    if (result.physical_start_authorized !== false)
+      throw Error("Недопустимый ответ библиотеки.");
+    return result;
+  }
+  return {connected, submit, library};
 })();
