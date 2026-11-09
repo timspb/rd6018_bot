@@ -1,3 +1,23 @@
+# RD6018 — CURRENT CHECKPOINT (2026-11-09)
+
+## ACTUAL SOURCE-ONLY STATUS — Recipe Studio RS-0…RS-4
+
+**Active scope:** HOME-PC-only Recipe Studio source, tests and handoff. No node104 deployment, D138/D145 preparation, physical START/OFF, ESP, HA or firmware actions. Installed node104 source remains historically documented as D144 slot16 3f50133b0dca9d274a08d4dd7999f730ce90e962 (not a fresh observation).
+
+**Git baseline before this documentation update:** owned remote https://github.com/timspb/rd6018_bot.git; branch feature/main-mix-countdown-display; HEAD f1edc48, 27 local commits ahead of origin, clean worktree. Recheck HEAD after committing this update; no push performed.
+
+**Done locally:** RS-0/1/2 canonical separate step/native models and PC editor with library save, history, compare, archive, prior real Microsoft Edge E2E for both recipe kinds. RS-3 native Telegram inline +/- parameter editing, canonical VariableSpec and supported-execution validation, ACL, immutable versions, archive and stale refusal (123fad7). RS-4 optional explicit native store injection for controlled isolated PC↔Telegram shared-root testing; actual PC HTTP save → existing Telegram callback edit → PC HTTP load and stale/archive/invalid override refusals (f1edc48). No new charging engine or secondary owner.
+
+**Validation:** 106 passed, 0 failed (20-module WSL Python cohort, 100.33s); prior real-browser Edge E2E for step and native passed on 2026-11-09. Current static JS syntax (save/history/native editor/catalog), Python compileall and diff --check passed. Zero tracked files from .recipe-studio-local. Full-repository suite and physical/production validation not executed in this stage.
+
+**Open:** local PC Studio uses isolated steps/native folders, production Telegram still uses its existing library paths. Shared library exists only when explicitly injected and tested; production sync has NOT been implemented, deployed or approved. No production UX acceptance, manual mode physical START, MAIN→MIX, OVP/OCP semantics or BW600 hardware testing. BW600 + XH-CDC-MK R4 selected for later evaluation after shipment.
+
+**Next:** maintain source-only finished milestone unless a concrete UX issue is demonstrated; otherwise a production integration/deployment requires independent owner approval, matching library ACL/storage and established D145/D144 safe procedure. Historical notes below are chronology, not current installed state.
+
+---
+
+## Historical checkpoint (originally 2026-11-03; superseded where conflicting)
+
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
 Read this file first when resuming RD6018 work, then AGENTS.md and docs/V3_PROJECT_RUNBOOK.md. Older September handoffs are historical and may describe retired architectures.
