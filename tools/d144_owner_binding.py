@@ -90,6 +90,7 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
             "capacity_pass": result["capacity_pass"],
             "preserved_guarded_main": bool(result.get("preserved_guarded_main")),
             "preserved_guard": result.get("preserved_guard"),
+            "preserved_quarantine": result.get("preserved_quarantine"),
             "activation_authorized": False,
         }
 
@@ -169,8 +170,11 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             "source_sha": owner.pinned.source_sha,
             "candidate_identity_sha256": prepared["candidate_identity_sha256"],
         }
+        # Every D145 operation is a state-preserving Python-only release.
+        # Use the pinned D151 collector even when charge_session.json is absent:
+        # an active quarantine journal is also state that must survive the swap.
         router = ReadOnlyObserverRouter(
-            owner.root, preserve_active_session=bool(prepared.get("preserved_guarded_main")))
+            owner.root, state_preserving_recovery=True)
         previous_proof = owner.proof
         proof_index = [0]
         phases = ("PRE_STOP", "PRE_STOP", "STOPPED", "POST_START")

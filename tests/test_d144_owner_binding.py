@@ -127,11 +127,14 @@ class D144OwnerBindingTests(unittest.TestCase):
              patch("os.chown"), \
              patch.object(binding, "prepare_only", return_value=proof), \
              patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
-             patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor:
+             patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor, \
+             patch("tools.d149_observer_router.ReadOnlyObserverRouter") as router_factory:
             result = binding.execute_under_owner(self.owner, stage=stage,
                       preimage_sha256=PREIMAGE, collector=self.root / "collector")
         self.assertEqual(result["phase"],"COMMITTED")
         self.assertEqual(ctor.call_count,1)
+        # D145 preserves quarantine even when no charge_session.json exists.
+        router_factory.assert_called_once_with(self.root, state_preserving_recovery=True)
         self.assertEqual(self.owner._lock_depth,0)
         self.assertEqual(self.owner.proof(), 'original')
         self.assertFalse((self.root / "D144_TRANSACTION.json").exists())

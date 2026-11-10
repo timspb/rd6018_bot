@@ -1,4 +1,5 @@
 """D137 regression tests: never run hardware or service operations."""
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -205,6 +206,37 @@ class D137Tests(unittest.TestCase):
             self.assertEqual(original, {str(x.relative_to(root)):x.read_bytes()
                                         for x in root.rglob("*") if x.is_file()})
             self.assertEqual(payload["preimage_sha256"],self.capture(root)["preimage_sha256"])
+
+    def test_orphaned_active_quarantine_is_bound_for_state_preserving_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / "state" / "charge_session.json").unlink()
+            path = root / "state" / "session_recovery_quarantine.json"
+            incident = {
+                "owner": "runtime.charge.recovery_quarantine_journal",
+                "schema_version": 1,
+                "quarantined": True,
+                "reason": "main_guard_current_ocp_transaction_unconfirmed:MainGuardExecutionFault:postflight_guard_ack_rejected:programmed_current_readback_mismatch",
+                "incident_id": "acb9302c-8925-47b1-be48-15a38dc01b4a",
+                "incident_utc": "2026-11-10T05:09:53.917914+00:00",
+                "identity": {
+                    "session_id": "6fa9a4b3-8c5d-4e7b-9a11-0123456789ab",
+                    "battery_id": "adhoc:EFB:60:38426001",
+                },
+            }
+            path.write_text(json.dumps(incident))
+            original = path.read_bytes()
+            payload = self.capture(root)
+            self.assertIsNone(payload["retired_session"])
+            self.assertEqual(payload["preserved_quarantine"]["incident_id"], incident["incident_id"])
+            self.assertEqual(payload["preserved_quarantine"]["session_id"], incident["identity"]["session_id"])
+            self.assertEqual(payload["preserved_quarantine"]["battery_id"], incident["identity"]["battery_id"])
+            self.assertTrue(payload["preserved_quarantine"]["session_absent"])
+            self.assertEqual(payload["preserved_quarantine"]["quarantine_sha256"],
+                             hashlib.sha256(original).hexdigest())
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(payload["preimage_sha256"], self.capture(root)["preimage_sha256"])
 
     def test_missing_session_with_quarantined_or_unknown_retirement_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

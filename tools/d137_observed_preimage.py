@@ -154,7 +154,58 @@ def observed_preimage(root: Path, *, pid: int,
             raise ValueError("D144 installed release identity does not match committed app/venv")
     retirement = quarantine.get("retirement")
     preserved_guard = None
-    if session_present and session.get("stage") in {
+    preserved_quarantine = None
+    if not session_present and quarantine.get("quarantined") is True:
+        # A Python-only release may need to preserve an orphaned active
+        # quarantine while charge_session.json is absent. This is identity
+        # capture only: it does not clear the journal or authorize charging.
+        identity = quarantine.get("identity")
+        reason = quarantine.get("reason")
+        incident_id = quarantine.get("incident_id")
+        incident_utc = quarantine.get("incident_utc")
+        valid_reason = (
+            isinstance(reason, str) and reason.startswith((
+                "main_guard_current_setpoint_transaction_unconfirmed:",
+                "main_guard_current_ocp_transaction_unconfirmed:",
+            ))
+        )
+        try:
+            from datetime import datetime
+            from uuid import UUID
+            if not isinstance(incident_id, str):
+                raise ValueError("incident ID missing")
+            UUID(incident_id)
+            if not isinstance(incident_utc, str):
+                raise ValueError("incident timestamp missing")
+            datetime.fromisoformat(incident_utc.replace("Z", "+00:00"))
+            valid_time = True
+        except (TypeError, ValueError, OverflowError):
+            valid_time = False
+        if (
+            set(quarantine) != {
+                "owner", "schema_version", "quarantined", "reason",
+                "incident_id", "incident_utc", "identity",
+            }
+            or quarantine.get("owner") != "runtime.charge.recovery_quarantine_journal"
+            or quarantine.get("schema_version") != 1
+            or not valid_reason
+            or not valid_time
+            or not isinstance(identity, dict)
+            or set(identity) != {"session_id", "battery_id"}
+            or any(type(identity.get(key)) is not str or not identity[key].strip()
+                   for key in ("session_id", "battery_id"))
+        ):
+            raise ValueError("active orphan quarantine identity is not authentic")
+        preserved_quarantine = {
+            "incident_id": incident_id,
+            "incident_utc": incident_utc,
+            "reason": reason,
+            "session_id": identity["session_id"],
+            "battery_id": identity["battery_id"],
+            "session_absent": True,
+            "quarantine_sha256": before[str(quarantine_path)],
+        }
+    elif session_present and session.get("stage") in {
         "Main Charge", "Mix Mode", "Безопасное ожидание",
     }:
         # Preserve MAIN's sealed Guard in MIX and final SAFE_WAIT, including
@@ -342,7 +393,7 @@ def observed_preimage(root: Path, *, pid: int,
             "installed_release": d144_identity,
             "candidate_inventory_present": False
         },
-        "retired_session": (None if preserved_guard else {
+        "retired_session": (None if preserved_guard or preserved_quarantine else {
             "session_id": session.get("session_id") if session_present else retirement["session_id"],
             "off_evidence": (session.get("verified_off_transaction_id")
                              if session_present else retirement["confirmed_off_evidence"]),
@@ -350,6 +401,7 @@ def observed_preimage(root: Path, *, pid: int,
             "session_absent": not session_present,
             "quarantine_sha256": before[str(quarantine_path)]
         }),
+        "preserved_quarantine": preserved_quarantine,
         "preserved_guarded_main": ({
             **preserved_guard,
             "session_sha256": before[str(session_path)],

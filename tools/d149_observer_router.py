@@ -30,12 +30,12 @@ class ObserverRouteError(RuntimeError):
 
 class ReadOnlyObserverRouter:
     def __init__(self, root: Path, *, runner=None,
-                 preserve_active_session: bool = False):
+                 state_preserving_recovery: bool = False):
         self.root = root
         self.runner = runner or self._run
         self.phase = "PRE_STOP"
         self.calls = 0
-        self.preserve_active_session = bool(preserve_active_session)
+        self.state_preserving_recovery = bool(state_preserving_recovery)
 
     def select(self, phase: str) -> None:
         if phase not in ("PRE_STOP", "STOPPED", "POST_START", "RECOVERY"):
@@ -48,7 +48,7 @@ class ReadOnlyObserverRouter:
 
     def __call__(self) -> release.PhysicalOffProof:
         phase = self.phase
-        if self.preserve_active_session or phase == "RECOVERY":
+        if self.state_preserving_recovery or phase == "RECOVERY":
             # D151 is read-only and additionally accepts a historical
             # lease-trip latch only for software-only, proven-OFF recovery.
             file = self.root / "d147-proof/d151_software_release_d091_collector.py"
@@ -75,12 +75,10 @@ class ReadOnlyObserverRouter:
         env["D090_EXPECTED_ESP_VERSION"] = "2.3-ha-canonical"
         env["D090_SOFTWARE_RELEASE"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        # The original D148 remains immutable historical evidence. Its
-        # normal-mode journal_clear projection is defective, so the pinned
-        # versioned D150 is used for all subsequent read-only phases.
-        # A retired session uses D150's actual canonical journal validator.
-        # A preserved active session still requires explicit recovery mode.
-        if phase == "RECOVERY" or self.preserve_active_session:
+        # D151 is selected for state-preserving software releases so both an
+        # active session and an orphaned quarantine journal remain intact.
+        # D147/D150 stay available for non-state-preserving legacy phases.
+        if phase == "RECOVERY" or self.state_preserving_recovery:
             env["D090_STATE_PRESERVING_RECOVERY"] = "1"
         else:
             env.pop("D090_STATE_PRESERVING_RECOVERY", None)

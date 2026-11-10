@@ -73,7 +73,7 @@ class D149RouterTests(unittest.TestCase):
 
     def test_guarded_main_preservation_uses_recovery_proof_on_every_phase(self):
         router=mod.ReadOnlyObserverRouter(self.root,runner=self.run_fake,
-                                           preserve_active_session=True)
+                                           state_preserving_recovery=True)
         for phase in ("PRE_STOP","STOPPED","POST_START"):
             router.select(phase); router()
             expected=self.guarded

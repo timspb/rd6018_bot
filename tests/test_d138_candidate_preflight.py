@@ -107,6 +107,32 @@ class D138CandidateTests(unittest.TestCase):
         self.assertEqual(result["status"],"SOURCE_AND_VENV_PREPARED_NOT_ACTIVATED")
         self.assertEqual(result["source_files"],1)
 
+    def test_active_orphan_quarantine_is_bound_into_candidate_identity(self):
+        first = {
+            "preimage_sha256": PREIMAGE,
+            "preserved_quarantine": {
+                "incident_id": "acb9302c-8925-47b1-be48-15a38dc01b4a",
+                "incident_utc": "2026-11-10T05:09:53.917914+00:00",
+                "reason": "main_guard_current_ocp_transaction_unconfirmed:readback_mismatch",
+                "session_id": "session-a",
+                "battery_id": "adhoc:EFB:60:38426001",
+                "session_absent": True,
+                "quarantine_sha256": "a" * 64,
+            },
+        }
+        second = {
+            "preimage_sha256": PREIMAGE,
+            "preserved_quarantine": {
+                **first["preserved_quarantine"],
+                "incident_id": "b" * 36,
+                "quarantine_sha256": "b" * 64,
+            },
+        }
+        one = self.run_preflight(observed_record=first)
+        two = self.run_preflight(observed_record=second)
+        self.assertEqual(one["preserved_quarantine"], first["preserved_quarantine"])
+        self.assertNotEqual(one["candidate_identity_sha256"], two["candidate_identity_sha256"])
+
     def test_guarded_candidate_identity_is_stable_across_fresh_d091_proofs(self):
         first={"schema":"D142_VALIDATED_D091_OFF_V1","captured_at_epoch":1,
                "source_nonces":["native-1","ha-1"]}
