@@ -34,6 +34,7 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.owner.service = self.service
         self.owner.proof = lambda: 'original'
         self.owner._read_proof = lambda *,require_service_stopped: 'fresh'
+        self.owner._read_recovery_proof = lambda *,require_service_stopped: 'fresh-recovery'
         self.check = lambda: None
         self.owner.host_check = self.check
         self.gates = patch.multiple(binding.d090, production_host_check=self.check)
@@ -119,13 +120,14 @@ class D144OwnerBindingTests(unittest.TestCase):
             self.assertEqual(kwargs["release_identity"]["source_sha"], SOURCE)
             def run_fixture():
                 for stopped in (False, False, True, False):
-                    self.assertEqual(kwargs["evidence"](require_stopped=stopped), "fresh")
+                    self.assertEqual(kwargs["evidence"](require_stopped=stopped), "fresh-recovery")
                 return {"phase":"COMMITTED"}
             return SimpleNamespace(run=run_fixture)
         with patch.object(binding, "_service_account", return_value=(
                 SimpleNamespace(pw_uid=os.getuid()), SimpleNamespace(gr_gid=os.getgid()))), \
              patch("os.chown"), \
-             patch.object(binding, "prepare_only", return_value=proof), \
+             patch.object(binding, "prepare_only", return_value={
+                **proof, "preserved_quarantine": {"incident_id": "incident-1"}}), \
              patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
              patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor, \
              patch("tools.d149_observer_router.ReadOnlyObserverRouter") as router_factory:

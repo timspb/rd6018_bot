@@ -189,7 +189,12 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
                 raise d090.TransactionError("D149 physical proof phase mismatch")
             router.select(phase)
             owner.proof = router
-            if prepared.get("preserved_guarded_main"):
+            if (prepared.get("preserved_guarded_main")
+                    or prepared.get("preserved_quarantine")):
+                # A software-only release preserving an orphaned active
+                # quarantine needs the same recovery-grade D091 OFF proof:
+                # current HA/Native outputs and currents are authoritative;
+                # RD6018 analog voltage readback is not a Python-only gate.
                 result = owner._read_recovery_proof(
                     require_service_stopped=require_stopped)
             else:
