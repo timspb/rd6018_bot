@@ -217,7 +217,7 @@ class ExecutionPort:
 
     @_serialized_normal_execution
     async def execute_main_current_guard_reduction(self, **transaction: Any) -> Any:
-        """Execute one due MAIN Guard current/OCP reduction on this owner."""
+        """Execute one due MAIN Guard current-setpoint reduction on this owner."""
         if self._recovery_quarantined():
             return None
         from .main_guard_transaction import execute_main_guard_reduction

@@ -80,6 +80,12 @@ class MainGuardAdmissionTests(unittest.TestCase):
                     "ah_limit":70,"target_current":7.0,"output_intent":"off",
                 }
 
+    def test_live_iset_admission_accepts_physical_register_tolerance(self):
+        self.live["set_current_readback_v2"] = 7.04
+        self.assertIsNotNone(self.admit())
+        self.live["set_current_readback_v2"] = 7.051
+        self.assertIsNone(self.admit())
+
     def test_live_programming_must_match_durable_recipe(self):
         for key,value in [
             ("set_current_readback_v2",7.3), ("set_current_readback_v2",None),

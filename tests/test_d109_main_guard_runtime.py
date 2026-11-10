@@ -6,7 +6,7 @@ from unittest.mock import patch
 import time
 import unittest
 
-from application.main_guard_runtime import execute_due_main_guard
+from application.main_guard_runtime import execute_due_main_guard, _quarantine_reason
 from runtime.safety.edge_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError
 from runtime.charge.strategy.main_guard_admission import admit_main_guard_shadow
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
@@ -25,6 +25,39 @@ class PositiveLease:
         if require_native and not self.native:
             raise EdgeSafetyLeaseError("not-native")
         return EdgeLeaseState(self.armed,False,False,1,self.modbus_age,self.remaining)
+
+
+class D109QuarantineDiagnosticTests(unittest.TestCase):
+    def test_setpoint_failure_reason_retains_bounded_native_readback_evidence(self):
+        result = SimpleNamespace(
+            reason="MainGuardExecutionFault:postflight_guard_ack_rejected:programmed_current_readback_mismatch",
+            diagnostic={
+                "guard_fault": "programmed_current_readback_mismatch",
+                "iset_target_a": 1.23,
+                "iset_readback_a": 1.25,
+                "iset_delta_a": 0.020000000000000018,
+                "readback_tolerance_a": 0.05,
+                "measured_current_a": 0.24,
+                "native_age_s": {
+                    "output_state_code_v2": 0.2,
+                    "current": 0.3,
+                    "set_current_readback_v2": 0.4,
+                    "protection_code": 0.5,
+                },
+            },
+        )
+        reason = _quarantine_reason(result)
+        self.assertTrue(reason.startswith(
+            "main_guard_current_setpoint_transaction_unconfirmed:"
+        ))
+        self.assertIn("iset_target_a=1.230", reason)
+        self.assertIn("iset_readback_a=1.250", reason)
+        self.assertIn("iset_delta_a=0.020", reason)
+        self.assertIn("readback_tolerance_a=0.050", reason)
+        self.assertIn("measured_current_a=0.240", reason)
+        self.assertIn("protection_code:0.5s", reason)
+        self.assertNotIn("session_id", reason)
+        self.assertNotIn("battery_id", reason)
 
 
 class D109RuntimeBridgeTests(D109CanonicalGuardIntegration):

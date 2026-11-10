@@ -20,6 +20,9 @@ MAX_READBACK_AGE_S = 10.0
 # ESP Native setter completion may precede its independent sensor callback.
 POSTWRITE_CONVERGENCE_S = 5.0
 POSTWRITE_POLL_S = 0.25
+# Measured output current must still be effectively zero when Output is OFF.
+# Keep this separate from the wider Iset register acknowledgement tolerance.
+ZERO_CURRENT_TOLERANCE_A = 0.01
 
 
 @dataclass(frozen=True)
@@ -100,8 +103,6 @@ async def execute_main_guard_reduction(
     execution_lock: asyncio.Lock,
     now: Now,
     max_stage_current_a: float,
-    ocp_offset_a: float,
-    stabilize_delay_s: float,
 ) -> MainGuardExecutionResult:
     """Execute only a decrease, using verified Iset and durable journal.
 
@@ -301,7 +302,7 @@ async def execute_main_guard_desulfation_return(
         output = finite_float(live.get("output_state_code_v2"))
         measured_current = finite_float(live.get("current"))
         iset = canonical_programmed_readback(live, "set_current")
-        if (output != 0 or measured_current is None or abs(measured_current) > READBACK_TOLERANCE_A
+        if (output != 0 or measured_current is None or abs(measured_current) > ZERO_CURRENT_TOLERANCE_A
                 or iset is None):
             return None
         protection = decode_protection_code(live.get("protection_code"))
@@ -460,7 +461,7 @@ async def _compensate_interrupted_return(
             actual_i = finite_float(before.get("current"))
             protection = decode_protection_code(before.get("protection_code"))
             if (output == 0 and set_i is not None
-                    and actual_i is not None and abs(actual_i) <= READBACK_TOLERANCE_A
+                    and actual_i is not None and abs(actual_i) <= ZERO_CURRENT_TOLERANCE_A
                     and not protection.unknown and not protection.tripped):
                 values = (set_i,)
     if values is None:
@@ -486,7 +487,7 @@ async def _compensate_interrupted_return(
         }
     measured_after = finite_float(after.get("current"))
     if (finite_float(after.get("output_state_code_v2")) != 0
-            or measured_after is None or abs(measured_after) > READBACK_TOLERANCE_A
+            or measured_after is None or abs(measured_after) > ZERO_CURRENT_TOLERANCE_A
             or after_i is None
             or abs(after_i - prior.hardware_limit_a) > READBACK_TOLERANCE_A
             or not after_stamps

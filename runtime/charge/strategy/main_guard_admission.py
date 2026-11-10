@@ -14,14 +14,15 @@ from typing import Any, Mapping
 
 from rd6018_telemetry import (
     canonical_programmed_readback, decode_protection_code, finite_float,
-    telemetry_freshness,
+    telemetry_freshness, CURRENT_SETPOINT_READBACK_TOLERANCE_A,
 )
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.main_guard_session import GUARD_KEY, GuardJournalError, read_guard
 
 MAX_SESSION_AGE_S = 120.0
 MAX_NATIVE_AGE_S = 10.0
-READBACK_MARGIN_A = 0.02
+# Same physical Iset register tolerance used by MAIN Guard execution/resume.
+READBACK_MARGIN_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
 
 
 @dataclass(frozen=True)

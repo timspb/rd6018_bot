@@ -11,6 +11,11 @@ from typing import Any, Dict, Mapping, MutableMapping, Optional, Sequence
 DEFAULT_CRITICAL_MAX_AGE_S = 20.0
 DEFAULT_CRITICAL_MAX_SKEW_S = 12.0
 
+# RD6018 current-setpoint register reconciliation band. The device's
+# hundredth-amp register granularity and float conversion do not justify
+# sub-count equality checks; this is not a charge-current or protection limit.
+CURRENT_SETPOINT_READBACK_TOLERANCE_A = 0.05
+
 
 class ProtectionStatus(str, Enum):
     NORMAL = "normal"

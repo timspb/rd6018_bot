@@ -57,7 +57,6 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
         result=await self.port.execute_main_current_guard_reduction(
             guard=guard,proposal=proposal,persist=self.writer.persist,
             execution_lock=self.lock,now=lambda:clock,max_stage_current_a=12,
-            ocp_offset_a=.1,stabilize_delay_s=0.0,
             authority=MainGuardAuthority(
                 session_id="a"*32,battery_id="battery-real",
                 segment_id=guard.segment_id,profile="EFB",stage="Main Charge",

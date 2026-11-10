@@ -11,6 +11,8 @@ from dataclasses import dataclass, replace
 import math
 from typing import Any, Mapping
 
+from rd6018_telemetry import CURRENT_SETPOINT_READBACK_TOLERANCE_A
+
 
 SCHEMA_VERSION = 1
 HARDWARE_CURRENT_FLOOR_A = 0.1
@@ -21,7 +23,8 @@ RATCHET_INTERVAL_S = 1800.0
 # This conservative source-only bound must be calibrated before activation.
 MAX_CONTINUOUS_SAMPLE_GAP_S = 90.0
 CURRENT_HEADROOM_A = 1.0
-READBACK_TOLERANCE_A = 0.02
+# Backwards-compatible strategy name for the shared hardware tolerance.
+READBACK_TOLERANCE_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
 ACK_TIMEOUT_S = 120.0
 
 

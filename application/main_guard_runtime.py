@@ -1,7 +1,7 @@
 """One-owner MAIN Guard reduction admission for an active EFB/Ca/Ca session.
 
 Invoked only from the existing data_logger owner lock, never as a background
-service. The *existing* ExecutionPort performs the Iset/OCP physical write;
+service. The *existing* ExecutionPort performs the Iset-only physical write;
 the *existing* charge_session.json owner persists pending and ACK.
 """
 from __future__ import annotations
@@ -15,6 +15,40 @@ from runtime.charge.strategy.main_guard_admission import MainGuardAdmission
 from application.main_guard_checkpoint import CanonicalMainGuardCheckpoint
 from runtime.charge.strategy.main_current_guard import PendingProposal
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
+
+
+def _quarantine_reason(result: MainGuardExecutionResult) -> str:
+    """Keep the electrical readback evidence with the durable incident."""
+    reason = "main_guard_current_setpoint_transaction_unconfirmed:" + result.reason
+    diagnostic = result.diagnostic
+    if not isinstance(diagnostic, dict):
+        return reason
+    fields = (
+        ("guard_fault", diagnostic.get("guard_fault")),
+        ("iset_target_a", diagnostic.get("iset_target_a")),
+        ("iset_readback_a", diagnostic.get("iset_readback_a")),
+        ("iset_delta_a", diagnostic.get("iset_delta_a")),
+        ("readback_tolerance_a", diagnostic.get("readback_tolerance_a")),
+        ("measured_current_a", diagnostic.get("measured_current_a")),
+    )
+    values = []
+    for key, value in fields:
+        if isinstance(value, str) and value and key == "guard_fault":
+            values.append(f"{key}={value[:80]}")
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(f"{key}={float(value):.3f}")
+    ages = diagnostic.get("native_age_s")
+    if isinstance(ages, dict):
+        compact = []
+        for key in ("output_state_code_v2", "current", "set_current_readback_v2", "protection_code"):
+            value = ages.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                compact.append(f"{key}:{float(value):.1f}s")
+        if compact:
+            values.append("native_age=" + ",".join(compact))
+    if values:
+        reason += ";evidence=" + ",".join(values)
+    return reason
 
 
 async def execute_due_main_guard(
@@ -74,7 +108,6 @@ async def execute_due_main_guard(
         ),
         persist=writer.persist, execution_lock=lock,
         now=clock, max_stage_current_a=12.0,
-        ocp_offset_a=0.1, stabilize_delay_s=0.0,
     )
     if result is None:
         return None
@@ -89,9 +122,7 @@ async def execute_due_main_guard(
         # A physical write may have reached RD6018. Even if verified OFF
         # succeeded, do not let a subsequent automatic tick silently resume
         # the old session; the operator must explicitly clear quarantine.
-        port.session_recovery_guard.quarantine(
-            "main_guard_current_ocp_transaction_unconfirmed:" + result.reason
-        )
+        port.session_recovery_guard.quarantine(_quarantine_reason(result))
     return result
 
 

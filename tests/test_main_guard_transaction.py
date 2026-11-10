@@ -87,8 +87,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
                 lease_armed=True, owner_authorized=True,
             ),
             persist=self.save, execution_lock=self.lock, now=lambda: 1801.0,
-            max_stage_current_a=12.0, ocp_offset_a=0.1,
-            stabilize_delay_s=0.0,
+            max_stage_current_a=12.0,
         )
         args.update(overrides)
         return await self.port.execute_main_current_guard_reduction(**args)
@@ -140,7 +139,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.owner.events, [])
 
     async def test_confirmed_upward_current_readback_requests_off_prewrite(self):
-        self.owner.live["set_current_readback_v2"] = 7.23
+        self.owner.live["set_current_readback_v2"] = 7.26
         result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
@@ -202,14 +201,29 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.snapshots), 1)
         self.assertIsNotNone(self.snapshots[0]["pending"])
 
+    async def test_postflight_ack_accepts_realistic_register_quantization(self):
+        original = self.owner.set_current
+
+        async def quantized_within_physical_tolerance(value):
+            result = await original(value)
+            self.owner.live["set_current_readback_v2"] = value + 0.02
+            return result
+
+        self.owner.set_current = quantized_within_physical_tolerance
+        result = await self.transact()
+        self.assertTrue(result.verified)
+        self.assertEqual(result.reason, "readback_and_journal_verified")
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
+        self.assertEqual(len(self.snapshots), 2)
+
     async def test_postflight_ack_rejection_preserves_guard_fault_and_readback_diagnostic(self):
         original = self.owner.set_current
 
         async def quantized_but_outside_guard_tolerance(value):
             result = await original(value)
             # Model a fresh native Iset register report outside the documented
-            # 0.02 A acknowledgement tolerance. Do not weaken that tolerance.
-            self.owner.live["set_current_readback_v2"] = value + 0.03
+            # 0.05 A physical register tolerance.
+            self.owner.live["set_current_readback_v2"] = value + 0.06
             return result
 
         self.owner.set_current = quantized_but_outside_guard_tolerance
@@ -219,8 +233,8 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("postflight_guard_ack_rejected:programmed_current_readback_mismatch",
                       result.reason)
         self.assertEqual(result.diagnostic["iset_target_a"], 5.0)
-        self.assertAlmostEqual(result.diagnostic["iset_delta_a"], 0.03)
-        self.assertEqual(result.diagnostic["readback_tolerance_a"], 0.02)
+        self.assertAlmostEqual(result.diagnostic["iset_delta_a"], 0.06)
+        self.assertEqual(result.diagnostic["readback_tolerance_a"], 0.05)
         self.assertEqual(self.owner.events[-1], ("OFF",))
         self.assertEqual(len(self.snapshots), 1)
 

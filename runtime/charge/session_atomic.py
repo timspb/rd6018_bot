@@ -13,6 +13,8 @@ import stat
 import tempfile
 from typing import Any, Mapping
 
+from rd6018_telemetry import CURRENT_SETPOINT_READBACK_TOLERANCE_A
+
 
 def atomic_session_write(path: str | Path, document: Mapping[str, Any], *,
                          allow_nan: bool = True) -> None:
@@ -155,7 +157,7 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
             raise GuardJournalError("guarded_main_target_unavailable") from None
         from math import isfinite
         if (not isfinite(target_i) or target_i <= 0
-                or target_i > current.hardware_limit_a + 0.02):
+                or target_i > current.hardware_limit_a + CURRENT_SETPOINT_READBACK_TOLERANCE_A):
             raise GuardJournalError("guarded_main_target_exceeds_ratchet")
     return attach_guard(result, current, now_s=now_s,
                         expected_revision=expected_revision)

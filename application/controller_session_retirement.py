@@ -23,6 +23,24 @@ class _ControllerSessionRetirement:
     def session_id(self):
         try:
             data = self._document()
+        except FileNotFoundError:
+            # The quarantine journal is the canonical retirement identity when
+            # the controller has already removed its session document. This
+            # identity is usable only while the controller is IDLE and has no
+            # in-memory session; validate() rechecks the exact incident.
+            controller = self.app.charge_controller
+            if (getattr(controller, "current_stage", None)
+                    != getattr(controller, "STAGE_IDLE", object())
+                    or getattr(controller, "_v2_trace_session_id", None) is not None
+                    or getattr(controller, "_v2_battery_id", None) is not None):
+                return None
+            journal = getattr(self.app, "recovery_quarantine_journal", None)
+            try:
+                binding = journal.incident_binding() if journal is not None else None
+            except Exception:
+                return None
+            value = binding.get("session_id") if isinstance(binding, dict) else None
+            return value.strip() if isinstance(value, str) and value.strip() else None
         except (OSError, ValueError, TypeError):
             return None
         if not isinstance(data, dict) or data.get("state") == "retired":
@@ -81,11 +99,37 @@ class _ControllerSessionRetirement:
                 "document_sha256": hashlib.sha256(raw).hexdigest()}
 
     def validate(self, binding):
+        controller = self.app.charge_controller
         try:
             data = self._document()
+        except FileNotFoundError:
+            # Authentic absent-session retirement: do not recreate a session
+            # file. The strict quarantine journal identity becomes the binding;
+            # OperatorRecoveryClearanceService still requires fresh Native OFF
+            # evidence before journal.retire() writes its durable tombstone.
+            journal = getattr(self.app, "recovery_quarantine_journal", None)
+            if (getattr(controller, "current_stage", None)
+                    != getattr(controller, "STAGE_IDLE", object())
+                    or getattr(controller, "_v2_trace_session_id", None) is not None
+                    or getattr(controller, "_v2_battery_id", None) is not None
+                    or binding.get("document_sha256") is not None
+                    or journal is None):
+                return False
+            try:
+                incident = journal.incident_binding()
+            except Exception:
+                return False
+            return (
+                incident.get("incident_id") == binding.get("incident_id")
+                and incident.get("session_id") == binding.get("session_id")
+                and incident.get("battery_id") == binding.get("battery_id")
+                and str(incident.get("reason", "")).startswith((
+                    "main_guard_current_setpoint_transaction_unconfirmed:",
+                    "main_guard_current_ocp_transaction_unconfirmed:",
+                ))
+            )
         except (OSError, ValueError, TypeError):
             return False
-        controller = self.app.charge_controller
         session_id = self.session_id()
         if (not isinstance(data, dict) or data.get("state") == "retired"
                 or not session_id or session_id != binding.get("session_id")
@@ -143,15 +187,24 @@ class _ControllerSessionRetirement:
                     if (incident.get("session_id") != session_id
                             or incident.get("battery_id") != binding.get("battery_id")
                             or incident.get("incident_id") != binding.get("incident_id")
-                            or not str(incident.get("reason", "")).startswith(
-                                "main_guard_current_ocp_transaction_unconfirmed:"
-                            )):
+                            or not str(incident.get("reason", "")).startswith((
+                                "main_guard_current_setpoint_transaction_unconfirmed:",
+                                "main_guard_current_ocp_transaction_unconfirmed:",  # legacy persisted incident
+                            ))):
                         return False
         return True
 
     def retire(self, session_id, *, binding, off_evidence):
         try:
             data = self._document()
+        except FileNotFoundError:
+            if (binding.get("session_id") != session_id
+                    or not self.validate(binding)
+                    or not isinstance(off_evidence, VerifiedOffEvidence)):
+                return None
+            # The coordinator commits the durable journal tombstone immediately
+            # after this typed receipt. No synthetic charge_session.json is made.
+            return RetiredControllerSession(session_id)
         except (OSError, ValueError, TypeError):
             return None
         battery_id = data.get("v2_battery_id") if isinstance(data, dict) else None
@@ -175,8 +228,29 @@ class _ControllerSessionRetirement:
 
     def finalize(self, session_id):
         controller = self.app.charge_controller
-        if getattr(controller, "_recovery_session_retired_id", None) != session_id:
-            raise RuntimeError("session retirement identity changed before journal commit")
+        retired_id = getattr(controller, "_recovery_session_retired_id", None)
+        if retired_id != session_id:
+            # Missing-session path: finalize only after the journal has durably
+            # changed to a retirement tombstone bound to this exact session.
+            journal = getattr(self.app, "recovery_quarantine_journal", None)
+            try:
+                with journal.path.open("r", encoding="utf-8") as stream:
+                    document = __import__("json").load(stream)
+                retirement = document.get("retirement", {})
+                committed = (
+                    document.get("state") == "retired"
+                    and document.get("quarantined") is False
+                    and retirement.get("session_id") == session_id
+                )
+            except Exception:
+                committed = False
+            if (not committed
+                    or getattr(controller, "current_stage", None)
+                    != getattr(controller, "STAGE_IDLE", object())
+                    or getattr(controller, "_v2_trace_session_id", None) is not None
+                    or getattr(controller, "_v2_battery_id", None) is not None):
+                raise RuntimeError("session retirement identity changed before journal commit")
+            controller._recovery_session_retired_id = session_id
         controller._recovery_session_retirement_pending = False
         candidate = getattr(controller, "_guarded_restore_candidate", None)
         if getattr(candidate, "session_id", None) == session_id:

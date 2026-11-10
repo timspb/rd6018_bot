@@ -2325,3 +2325,16 @@ services, production runtime, or hardware were changed. Validation remains
 mock-only; deployment remains HOLD.
 
 Final local validation: 21/21 connector unit tests PASS; py_compile PASS; config example and JSON schema parse PASS; git diff --check PASS. All HA responses were mocked. No live HA request, node104 access, deployment, firmware operation, or charger interaction occurred.
+
+
+## 2026-11-10 — MAIN Guard setpoint ACK and missing-session recovery correction (SOURCE ONLY)
+
+Corrected the misleading legacy current_ocp wording: the MAIN Guard ratchet transaction is an Iset/current-setpoint acknowledgement path; it does not establish an OCP trip. New quarantine reasons use main_guard_current_setpoint_transaction_unconfirmed; retirement validation continues to accept the old prefix solely for already-persisted incidents.
+
+The durable quarantine reason now retains bounded electrical evidence from the failed postflight ACK: requested Iset, Native Iset readback, delta, configured readback tolerance, measured current, and ages of the required Native observations. No session/battery identifiers or credentials are added to the diagnostic string.
+
+Fixed the /recovery_clear dead end for the authentic case where charge_session.json has already been removed by the controller but the strict active quarantine journal still retains the original session/battery/incident identity. The absent-session path is permitted only when the controller is IDLE with no in-memory session identity, the journal binding exactly matches the requested incident, and the reason is the MAIN Guard current-setpoint transaction (including the legacy persisted prefix). It does not synthesize or restore charge_session.json. The coordinator still requires the explicit private-chat operator confirmation and a fresh typed Native Output-OFF receipt; only then does the existing quarantine journal owner write its schema-2 retirement tombstone. Finalization rechecks the committed tombstone and IDLE/no-session state before releasing the in-memory quarantine.
+
+The existing-session retirement path remains unchanged. Unknown/corrupt journal, mismatched incident/session/battery, non-IDLE controller, or missing fresh OFF evidence remain fail-closed. No OCP control/readback was reinstated.
+
+Validation: focused recovery/MAIN Guard cohort 107 PASS, 18 subtests PASS before the additional diagnostic test; expanded cohort after the follow-up MAIN Guard signature cleanup 157 PASS, 2 deselected, 85 subtests PASS. Two tests were deselected only because this Windows runner cannot create symlinks (WinError 1314) and the other uses a Linux-only path/encoding assumption. The full suite cannot be collected on Windows because release tooling imports Linux-only fcntl/grp modules; re-run full regression under the project's Linux/Python 3.11 environment before release. py_compile and git diff --check PASS. No node104 files, HA, ESP, service, charge state, Output, lease, or D144 slot were changed. Production deployment remains HOLD; this is source-only until Linux regression and exact release admission are complete.

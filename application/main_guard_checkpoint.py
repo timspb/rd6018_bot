@@ -2,7 +2,7 @@
 
 No independently owned database or background task. Executed only *inside*
 the existing GuardExecutionOwnerLock by the already existing ExecutionPort
-MAIN current/OCP reduction transaction.
+MAIN current-setpoint reduction transaction.
 """
 from __future__ import annotations
 

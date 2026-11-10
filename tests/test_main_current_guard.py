@@ -194,6 +194,27 @@ class MainCurrentGuardTests(unittest.TestCase):
         self.assertIsNone(committed.fault)
         self.assertEqual(committed.hardware_limit_a, p.target_limit_a)
 
+    def test_current_register_quantization_within_five_counts_commits(self):
+        s, p = self.due(self.make(), current=4)
+        committed = s.commit(
+            proposal_id=p.proposal_id, now_s=1801, measured_current_a=4,
+            measured_current_fresh=True,
+            current_limit_readback_a=p.target_limit_a + 0.05,
+            current_readback_fresh=True,
+        )
+        self.assertIsNone(committed.fault)
+        self.assertAlmostEqual(committed.hardware_limit_a, p.target_limit_a)
+
+    def test_current_register_deviation_above_physical_tolerance_does_not_commit(self):
+        s, p = self.due(self.make(), current=4)
+        rejected = s.commit(
+            proposal_id=p.proposal_id, now_s=1801, measured_current_a=4,
+            measured_current_fresh=True,
+            current_limit_readback_a=p.target_limit_a + 0.051,
+            current_readback_fresh=True,
+        )
+        self.assertEqual(rejected.fault, "programmed_current_readback_mismatch")
+
     def test_wrong_i_readback_does_not_commit(self):
         s, p = self.due(self.make(), current=4)
         bad = s.commit(
