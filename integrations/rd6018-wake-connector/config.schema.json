@@ -2,14 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "poll_interval_s", "stale_after_s", "heartbeat_interval_s", "route", "source_snapshot", "outbox_path"],
+  "required": ["schema", "poll_interval_s", "stale_after_s", "heartbeat_interval_s", "entity_config", "session_path", "outbox_path"],
   "properties": {
     "schema": {"const": 1},
     "poll_interval_s": {"type": "integer", "minimum": 5, "maximum": 3600, "default": 30, "description": "Seconds between read-only source snapshots."},
     "stale_after_s": {"type": "integer", "minimum": 30, "maximum": 3600, "default": 300, "description": "Telemetry freshness limit in seconds."},
     "heartbeat_interval_s": {"type": "integer", "minimum": 60, "maximum": 86400, "default": 300},
-    "route": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{32}$"}], "description": "Externally supplied per-chat runtime configuration; never baked into source."},
-    "source_snapshot": {"type": "string", "minLength": 1},
+    "session_max_age_s": {"type": "integer", "minimum": 60, "maximum": 604800, "default": 86400, "description": "Older canonical session metadata is ignored."},
+    "entity_config": {"type": "string", "minLength": 1, "description": "Canonical HA entity map; only sensor.* and binary_sensor.* IDs are accepted."},
+    "session_path": {"type": "string", "minLength": 1, "description": "Read-only canonical session metadata path; bounded regular file only."},
+    "max_events": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000},
+    "max_age_s": {"type": "integer", "minimum": 60, "maximum": 2592000, "default": 604800},
     "outbox_path": {"type": "string", "minLength": 1}
   }
 }

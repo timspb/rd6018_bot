@@ -1,5 +1,5 @@
 [Unit]
-Description=RD6018 read-only Wake R7.2 event connector
+Description=RD6018 local event producer spool
 After=network-online.target
 Wants=network-online.target
 
@@ -7,14 +7,18 @@ Wants=network-online.target
 Type=simple
 User=rd6018-wake-connector
 Group=rd6018-wake-connector
+StateDirectory=rd6018-wake-connector
+StateDirectoryMode=0700
 ExecStart=/opt/rd6018-wake-connector/venv/bin/python /opt/rd6018-wake-connector/connector_service.py --config /etc/rd6018-wake-connector/config.json
+# Root-owned mode 0600; contains only RD6018_WAKE_HA_URL and RD6018_WAKE_HA_TOKEN.
+EnvironmentFile=/etc/rd6018-wake-connector/ha-credentials.env
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadOnlyPaths=/run/rd6018-readonly-diagnostic
+ReadOnlyPaths=/var/lib/rd6018-bot/charge_session.json /opt/rd6018-wake-connector/config/physical/ha102.yaml
 ReadWritePaths=/var/lib/rd6018-wake-connector
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 MemoryMax=96M

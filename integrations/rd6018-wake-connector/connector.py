@@ -1,184 +1,270 @@
-"""Standalone read-only RD6018 event connector core.
+"""RD6018 event producer model and bounded local spool.
 
-This package deliberately has no actuator, HA write, ESP command, or bridge
-completion-adapter dependency. Events remain queued until a supported producer
-transport is supplied.
+There is deliberately no network transport here. The Event Gateway API is not
+published yet; EventGatewayClient is only the injectable producer-side seam.
 """
 from __future__ import annotations
 
-import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
 import time
-from dataclasses import asdict, dataclass
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Protocol
 
-ROUTE_RE = re.compile(r"^[0-9a-f]{32}$")
-SECRET_RE = re.compile(r"(?i)(token|secret|password|credential|authorization|route)")
-ALLOWED_TYPES = {
-    "fault_alarm", "stage_transition", "telemetry_stale", "telemetry_recovered",
-    "guard_lease_fault", "service_down", "service_recovered", "heartbeat",
-}
+SOURCE = "rd6018-node104"
+EVENT_TYPES = frozenset({
+    "charger.fault", "charger.stage_changed", "charger.telemetry_stale",
+    "charger.telemetry_unknown", "charger.telemetry_recovered",
+    "charger.guard_fault", "charger.service_down", "charger.service_recovered",
+    "charger.heartbeat",
+})
+SEVERITIES = frozenset({"info", "warning", "critical"})
+PAYLOAD_FIELDS = frozenset({
+    "stage", "fault_code", "voltage_v", "current_a", "battery_voltage_v",
+    "input_voltage_v", "configured_voltage_v", "configured_current_a", "ovp_v",
+    "ocp_a", "output_state", "temperature_internal_c", "temperature_external_c",
+    "freshness_s", "freshness_known", "guard_state", "service_state",
+    "protection_code", "regulation_code", "autonomous_mode", "output_state_code",
+})
+_TEXT_FIELDS = frozenset({"stage", "fault_code", "guard_state", "service_state",
+                         "protection_code", "regulation_code", "output_state_code"})
+_NUMBER_FIELDS = frozenset({
+    "voltage_v", "current_a", "battery_voltage_v", "input_voltage_v",
+    "configured_voltage_v", "configured_current_a", "ovp_v", "ocp_a",
+    "temperature_internal_c", "temperature_external_c", "freshness_s",
+})
+_BOOL_FIELDS = frozenset({"output_state", "freshness_known", "autonomous_mode"})
+_EVENT_NAMESPACE = uuid.UUID("d25834e5-f01a-4cca-884f-cc09f98abf6e")
+_UTC_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$")
 
 
-def validate_route(route: object) -> str:
-    if type(route) is not str or ROUTE_RE.fullmatch(route) is None:
-        raise ValueError("route must be supplied externally as 32 lowercase hex characters")
-    return route
+def _utc_timestamp(value: str) -> datetime:
+    if type(value) is not str or not _UTC_RE.fullmatch(value):
+        raise ValueError("occurred_at must be an RFC3339 UTC timestamp ending in Z")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ValueError("invalid occurred_at timestamp") from exc
+    if parsed.tzinfo != timezone.utc:
+        raise ValueError("occurred_at must be UTC")
+    return parsed
 
 
-def _safe_fields(value: dict[str, Any]) -> dict[str, Any]:
-    # Explicit allowlist: never pass source payloads or arbitrary diagnostics through.
-    allowed = {"stage", "voltage_v", "current_a", "temperature_c", "freshness_s",
-               "severity", "fault_code", "service_state", "guard_state"}
+def timestamp_utc(epoch: float) -> str:
+    if type(epoch) not in (int, float) or not math.isfinite(epoch):
+        raise ValueError("timestamp epoch must be finite")
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def safe_payload(value: dict[str, Any]) -> dict[str, Any]:
+    if type(value) is not dict:
+        raise ValueError("payload must be an object")
     result: dict[str, Any] = {}
     for key, item in value.items():
-        if key not in allowed or SECRET_RE.search(key):
+        if key not in PAYLOAD_FIELDS:
             continue
-        if key == "stage" and type(item) is str:
-            result[key] = item[:48]
-        elif key in {"fault_code", "service_state", "guard_state", "severity"} and type(item) is str:
-            result[key] = item[:48]
-        elif key in {"voltage_v", "current_a", "temperature_c", "freshness_s"} and type(item) in (int, float):
-            result[key] = float(item)
+        if key in _TEXT_FIELDS and type(item) is str and len(item) <= 64:
+            result[key] = item
+        elif key in _NUMBER_FIELDS and type(item) in (int, float) and math.isfinite(item):
+            result[key] = item
+        elif key in _BOOL_FIELDS and type(item) is bool:
+            result[key] = item
+    encoded = json.dumps(result, allow_nan=False, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 2048:
+        raise ValueError("payload exceeds 2048 bytes")
     return result
 
 
 @dataclass(frozen=True)
-class Event:
+class EventEnvelope:
     event_id: str
-    event_key: str
-    kind: str
-    occurred_at: float
     source: str
+    event_type: str
     severity: str
-    fields: dict[str, Any]
+    occurred_at: str
+    payload: dict[str, Any]
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        try:
+            parsed_id = uuid.UUID(self.event_id)
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError("event_id must be a UUID") from exc
+        if str(parsed_id) != self.event_id:
+            raise ValueError("event_id must use canonical UUID form")
+        if self.source != SOURCE:
+            raise ValueError("unsupported event source")
+        if self.event_type not in EVENT_TYPES:
+            raise ValueError("unsupported event_type")
+        if self.severity not in SEVERITIES:
+            raise ValueError("unsupported severity")
+        _utc_timestamp(self.occurred_at)
+        if type(self.schema_version) is not int or self.schema_version != 1:
+            raise ValueError("schema_version must be 1")
+        if type(self.payload) is not dict or safe_payload(self.payload) != self.payload:
+            raise ValueError("payload contains unsupported or invalid fields")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"event_id": self.event_id, "source": self.source,
+                "event_type": self.event_type, "severity": self.severity,
+                "occurred_at": self.occurred_at, "payload": dict(self.payload),
+                "schema_version": self.schema_version}
 
     @classmethod
-    def create(cls, kind: str, key: str, occurred_at: float, source: str,
-               fields: dict[str, Any], severity: str = "info") -> "Event":
-        if kind not in ALLOWED_TYPES:
-            raise ValueError("unsupported event kind")
-        if source not in {"rd6018_readonly_diagnostic", "systemd_readonly", "connector_timer"}:
-            raise ValueError("unsupported event source")
-        safe_key = re.sub(r"[^A-Za-z0-9_.:-]", "_", key)[:128]
-        digest = hashlib.sha256(f"rd6018-node104:{kind}:{safe_key}".encode()).hexdigest()[:32]
-        return cls(digest, safe_key, kind, float(occurred_at), source,
-                   severity if severity in {"info", "warning", "critical"} else "warning",
-                   _safe_fields(fields))
-
-    def payload(self) -> dict[str, Any]:
-        return asdict(self)
+    def for_occurrence(cls, event_type: str, occurrence_key: str, occurred_at: float,
+                       payload: dict[str, Any], severity: str = "info") -> "EventEnvelope":
+        if type(occurrence_key) is not str or not occurrence_key or len(occurrence_key) > 256:
+            raise ValueError("occurrence identity is required and bounded")
+        event_id = str(uuid.uuid5(_EVENT_NAMESPACE, f"{SOURCE}:{event_type}:{occurrence_key}"))
+        return cls(event_id, SOURCE, event_type, severity, timestamp_utc(occurred_at),
+                   safe_payload(payload))
 
 
-def normalize_snapshot(raw: dict[str, Any], previous: dict[str, Any] | None,
-                       now: float, stale_after_s: float = 300.0) -> tuple[list[Event], dict[str, Any]]:
-    """Normalize the strict connector snapshot schema; malformed input fails closed."""
-    if type(raw) is not dict or raw.get("schema") != 1:
-        raise ValueError("unsupported diagnostic snapshot schema")
-    captured = raw.get("captured_at")
-    if type(captured) not in (int, float) or captured > now + 5 or now - captured > stale_after_s:
-        raise ValueError("diagnostic snapshot is stale or has invalid timestamp")
-    state = raw.get("state")
-    if type(state) is not dict or type(state.get("source")) is not str:
-        raise ValueError("missing typed source state")
-    if state["source"] not in {"esp_native_api", "ha102_rest", "rd6018_readonly_diagnostic"}:
-        raise ValueError("untrusted source marker")
-    if type(state.get("values")) is not dict:
-        raise ValueError("missing values")
-    values = _safe_fields(state["values"])
+class GatewayAcceptance(str, Enum):
+    ACCEPTED = "accepted"
+    UNKNOWN = "unknown"
+
+
+class EventGatewayClient(Protocol):
+    """Proposed injectable seam, not a published Gateway network contract."""
+
+    def submit(self, event: EventEnvelope) -> GatewayAcceptance: ...
+
+
+class UnwiredEventGatewayClient:
+    """Explicit fail-closed placeholder until the Gateway API is published."""
+
+    def submit(self, event: EventEnvelope) -> GatewayAcceptance:
+        raise RuntimeError("Event Gateway API contract is not published or wired")
+
+
+def normalize_snapshot(raw: Any, previous: dict[str, Any] | None,
+                       now: float, stale_after_s: float = 300.0) -> tuple[list[EventEnvelope], dict[str, Any]]:
+    """Convert an adapter-attested typed snapshot into producer events."""
+    from ha_source import SourceSnapshot
+    if not isinstance(raw, SourceSnapshot) or raw.provenance != "ha102_rest_read_only_adapter":
+        raise ValueError("untrusted source snapshot")
+    captured = raw.captured_at
+    if type(captured) not in (int, float) or not math.isfinite(captured) or captured > now + 5 or now - captured > stale_after_s:
+        raise ValueError("source snapshot is stale or has invalid timestamp")
+    source_values = dict(raw.values)
+    stage_occurrence = source_values.get("stage_occurrence_at")
+    if (type(stage_occurrence) not in (int, float) or not math.isfinite(stage_occurrence)
+            or stage_occurrence <= 0 or stage_occurrence > captured + 5):
+        stage_occurrence = captured
+    values = safe_payload(source_values)
     current = {"stage": values.get("stage"), "fault_code": values.get("fault_code"),
-               "guard_state": values.get("guard_state"), "service_state": values.get("service_state")}
+               "guard_state": values.get("guard_state"), "service_state": values.get("service_state"),
+               "stale": False, "freshness_unknown": False}
     prior = previous or {}
-    events: list[Event] = []
-    stage = current.get("stage")
+    events: list[EventEnvelope] = []
+
+    def add(kind: str, identity: str, severity: str = "info", payload: dict[str, Any] | None = None) -> None:
+        events.append(EventEnvelope.for_occurrence(kind, identity, captured,
+                                                   values if payload is None else payload, severity))
+
+    stage = current["stage"]
     if stage and prior.get("stage") and stage != prior["stage"]:
-        events.append(Event.create("stage_transition", f"{prior['stage']}->{stage}", captured,
-                                   "rd6018_readonly_diagnostic", values))
-    if current.get("fault_code") and current["fault_code"] != prior.get("fault_code"):
-        events.append(Event.create("fault_alarm", str(current["fault_code"]), captured,
-                                   "rd6018_readonly_diagnostic", values, "critical"))
-    if current.get("guard_state") in {"fault", "tripped", "quarantined"} and current["guard_state"] != prior.get("guard_state"):
-        events.append(Event.create("guard_lease_fault", str(current["guard_state"]), captured,
-                                   "rd6018_readonly_diagnostic", values, "critical"))
+        add("charger.stage_changed", f"stage:{prior['stage']}:{stage}:{stage_occurrence}")
+    if current["fault_code"] and current["fault_code"] != prior.get("fault_code"):
+        add("charger.fault", f"fault:{current['fault_code']}:{stage_occurrence}", "critical")
+    if current["guard_state"] in {"fault", "tripped", "quarantined"} and current["guard_state"] != prior.get("guard_state"):
+        add("charger.guard_fault", f"guard:{current['guard_state']}:{stage_occurrence}", "critical")
     age = values.get("freshness_s")
-    if type(age) in (int, float) and age > stale_after_s and not prior.get("stale"):
-        events.append(Event.create("telemetry_stale", "telemetry", captured,
-                                   "rd6018_readonly_diagnostic", values, "warning"))
-    elif type(age) in (int, float) and age <= stale_after_s and prior.get("stale"):
-        events.append(Event.create("telemetry_recovered", "telemetry", captured,
-                                   "rd6018_readonly_diagnostic", values))
-    return events, {**current, "stale": bool(type(age) in (int, float) and age > stale_after_s)}
+    known = raw.freshness_known is True and type(age) in (int, float)
+    current["stale"] = bool(known and age > stale_after_s)
+    current["freshness_unknown"] = not known
+    if not known and not prior.get("freshness_unknown"):
+        current["source_failure_started_at"] = captured
+        add("charger.telemetry_unknown", f"telemetry:unknown:{captured}", "warning", {"freshness_known": False})
+    elif not known and prior.get("freshness_unknown"):
+        current["source_failure_started_at"] = prior.get("source_failure_started_at", captured)
+    elif known and age > stale_after_s:
+        stale_since = prior.get("stale_since")
+        if not prior.get("stale") or type(stale_since) not in (int, float):
+            stale_since = int(round(captured - age))
+        current["stale_since"] = stale_since
+        if not prior.get("stale"):
+            add("charger.telemetry_stale", f"telemetry:stale:{int(round(stale_since))}", "warning")
+    elif known and age <= stale_after_s and (prior.get("stale") or prior.get("freshness_unknown")):
+        recovery_start = prior.get("source_failure_started_at", prior.get("stale_since", captured))
+        add("charger.telemetry_recovered", f"telemetry:recovered:{recovery_start}")
+    return events, current
 
 
 class Outbox:
+    """Bounded local producer spool; it has no Dispatcher retry/ACK behavior."""
+    STATES = {"pending_gateway", "gateway_accepted", "quarantined_unknown"}
+
     def __init__(self, path: Path, max_events: int = 1000, max_age_s: int = 7 * 86400):
         self.path, self.max_events, self.max_age_s = path, max_events, max_age_s
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=5)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
-        self.db.execute("CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, event_key TEXT NOT NULL, payload TEXT NOT NULL, created REAL NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt REAL NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'queued')")
+        self.db.execute("CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, payload TEXT NOT NULL, created REAL NOT NULL, state TEXT NOT NULL DEFAULT 'pending_gateway')")
+        self.db.execute("CREATE TABLE IF NOT EXISTS connector_state (state_key TEXT PRIMARY KEY, payload TEXT NOT NULL)")
         self.db.commit()
 
-    def enqueue(self, event: Event, now: float | None = None) -> bool:
+    def enqueue(self, event: EventEnvelope, now: float | None = None) -> bool:
         now = time.time() if now is None else now
         self.db.execute("DELETE FROM events WHERE created < ?", (now - self.max_age_s,))
         count = self.db.execute("SELECT count(*) FROM events").fetchone()[0]
-        inserted = False
-        if count < self.max_events:
-            cur = self.db.execute("INSERT OR IGNORE INTO events(event_id,event_key,payload,created) VALUES(?,?,?,?)",
-                                  (event.event_id, event.event_key, json.dumps(event.payload(), allow_nan=False), now))
-            inserted = cur.rowcount == 1
+        if count >= self.max_events:
+            self.db.commit()
+            return False
+        cur = self.db.execute("INSERT OR IGNORE INTO events(event_id,payload,created) VALUES(?,?,?)",
+                              (event.event_id, json.dumps(event.to_dict(), allow_nan=False), now))
         self.db.commit()
-        return inserted
+        return cur.rowcount == 1
 
-    def pending(self, now: float | None = None, limit: int = 20) -> list[dict[str, Any]]:
-        now = time.time() if now is None else now
-        rows = self.db.execute("SELECT event_id,payload,attempts FROM events WHERE state='queued' AND next_attempt<=? AND created>=? ORDER BY created LIMIT ?",
-                               (now, now - self.max_age_s, limit)).fetchall()
-        return [{"event_id": row[0], "payload": json.loads(row[1]), "attempts": row[2]} for row in rows]
+    def pending(self, limit: int = 20) -> list[EventEnvelope]:
+        rows = self.db.execute("SELECT payload FROM events WHERE state='pending_gateway' ORDER BY created LIMIT ?", (limit,)).fetchall()
+        return [event_from_dict(json.loads(row[0])) for row in rows]
 
-    def retry_later(self, event_id: str, attempts: int, now: float | None = None) -> None:
-        now = time.time() if now is None else now
-        delay = min(3600, 2 ** min(attempts, 10))
-        self.db.execute("UPDATE events SET attempts=attempts+1,next_attempt=? WHERE event_id=? AND state='queued'",
-                        (now + delay, event_id)); self.db.commit()
+    def set_submission_result(self, event_id: str, result: GatewayAcceptance) -> None:
+        if result is GatewayAcceptance.ACCEPTED:
+            state = "gateway_accepted"
+        elif result is GatewayAcceptance.UNKNOWN:
+            state = "quarantined_unknown"
+        else:  # Defensive against untyped injected values.
+            raise TypeError("unsupported Gateway result")
+        self.db.execute("UPDATE events SET state=? WHERE event_id=? AND state='pending_gateway'", (state, event_id))
+        self.db.commit()
 
-    def mark_status(self, event_id: str, state: str) -> None:
-        if state not in {"submitted", "acknowledged"}:
-            raise ValueError("invalid delivery state")
-        self.db.execute("UPDATE events SET state=? WHERE event_id=?", (state, event_id)); self.db.commit()
+    def submit_pending_once(self, client: EventGatewayClient, limit: int = 20) -> int:
+        """Single injected attempt; unknown results are quarantined, never replayed."""
+        count = 0
+        for event in self.pending(limit):
+            result = client.submit(event)
+            if not isinstance(result, GatewayAcceptance):
+                raise TypeError("client must return GatewayAcceptance")
+            self.set_submission_result(event.event_id, result)
+            count += result is GatewayAcceptance.ACCEPTED
+        return count
+
+    def load_state(self, key: str = "previous") -> dict[str, Any] | None:
+        row = self.db.execute("SELECT payload FROM connector_state WHERE state_key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_state(self, value: dict[str, Any], key: str = "previous") -> None:
+        payload = json.dumps(value, allow_nan=False)
+        self.db.execute("INSERT INTO connector_state(state_key,payload) VALUES(?,?) ON CONFLICT(state_key) DO UPDATE SET payload=excluded.payload", (key, payload))
+        self.db.commit()
 
     def close(self) -> None:
         self.db.close()
 
 
-def deliver_ready(outbox: Outbox, route: object, producer: Callable[[str, dict[str, Any]], str] | None,
-                  now: float | None = None) -> int:
-    """Only a supported injected producer may submit; absent/invalid route holds queue."""
-    try:
-        route = validate_route(route)
-    except ValueError:
-        return 0
-    if producer is None:
-        return 0
-    submitted = 0
-    for item in outbox.pending(now):
-        try:
-            status = producer(route, item["payload"])
-        except Exception:
-            outbox.retry_later(item["event_id"], item["attempts"] + 1, now)
-            continue
-        # Contract returns submitted/acknowledged explicitly; enqueue acceptance is not ACK.
-        if status in {"acknowledged", "submitted"}:
-            outbox.mark_status(item["event_id"], status); submitted += 1
-        else:
-            outbox.retry_later(item["event_id"], item["attempts"] + 1, now)
-    return submitted
+def event_from_dict(data: dict[str, Any]) -> EventEnvelope:
+    return EventEnvelope(**data)
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -187,21 +273,21 @@ def load_config(path: Path) -> dict[str, Any]:
     if os.name == "posix" and path.stat().st_mode & 0o077:
         raise ValueError("config permissions must be 0600 or stricter")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if type(data) is not dict or data.get("schema") != 1:
-        raise ValueError("unsupported config schema")
-    poll = data.get("poll_interval_s", 30)
-    stale = data.get("stale_after_s", 300)
-    heartbeat = data.get("heartbeat_interval_s", 300)
-    if type(poll) is not int or not 5 <= poll <= 3600:
-        raise ValueError("poll_interval_s out of range")
-    if type(stale) is not int or not 30 <= stale <= 3600:
-        raise ValueError("stale_after_s out of range")
-    if type(heartbeat) is not int or not 60 <= heartbeat <= 86400:
-        raise ValueError("heartbeat_interval_s out of range")
-    route = data.get("route")
-    if route is not None:
-        validate_route(route)
-    return {"schema": 1, "poll_interval_s": poll, "stale_after_s": stale,
-            "heartbeat_interval_s": heartbeat, "route": route,
-            "source_snapshot": data.get("source_snapshot"),
-            "outbox_path": data.get("outbox_path", "./state/outbox.sqlite3")}
+    allowed = {"schema", "poll_interval_s", "stale_after_s", "heartbeat_interval_s", "session_max_age_s", "entity_config", "session_path", "outbox_path", "max_events", "max_age_s"}
+    if type(data) is not dict or set(data) - allowed or data.get("schema") != 1:
+        raise ValueError("unsupported config schema or property")
+    bounds = {"poll_interval_s": (5, 3600, 30), "stale_after_s": (30, 3600, 300), "heartbeat_interval_s": (60, 86400, 300), "session_max_age_s": (60, 604800, 86400), "max_events": (1, 10000, 1000), "max_age_s": (60, 2592000, 604800)}
+    result: dict[str, Any] = {"schema": 1}
+    for key, (low, high, default) in bounds.items():
+        value = data.get(key, default)
+        if type(value) is not int or not low <= value <= high:
+            raise ValueError(f"{key} out of range")
+        result[key] = value
+    for key, default in (("entity_config", "config/physical/ha102.yaml"),
+                         ("session_path", "/var/lib/rd6018-bot/charge_session.json"),
+                         ("outbox_path", "./state/outbox.sqlite3")):
+        value = data.get(key, default)
+        if value is not None and (type(value) is not str or not value):
+            raise ValueError(f"{key} must be a non-empty path")
+        result[key] = value
+    return result

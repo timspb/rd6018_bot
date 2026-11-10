@@ -1852,3 +1852,95 @@ node104 service, or charger was accessed. Owner reports charge actively
 running; D144 slot18 source `7c40e54` remains untouched. This package is not
 ready to install/enable until an admitted live-charge-safe source interface
 and supported generic R7.2 submission/ACK contract are supplied.
+
+## 2026-11-10 — Event Gateway producer scope correction (source only)
+
+The Wake Bridge 7.2 project chat owns Event Gateway, Dispatcher and the R7.2
+transport adapter. RD6018 owns only the generic producer event contract and a
+bounded local spool. This entry supersedes the preceding connector design
+where it mentions chat route validation, local delivery retries/ACK states,
+or concrete HA polling. Those responsibilities and integrations are absent
+from the corrected producer.
+
+`integrations/rd6018-wake-connector/connector.py` now defines the exact
+universal envelope, strict UTC/UUID/source/type/severity validation,
+allowlisted bounded payload, deterministic UUIDv5 occurrence identity,
+persistent local dedupe, `pending_gateway` / `gateway_accepted` /
+`quarantined_unknown` states, and an injectable `EventGatewayClient` protocol.
+Gateway acceptance is not chat delivery. There is no HTTP client, guessed API
+path, route configuration, delivery retry or ACK orchestration. The temporary
+source adapter remains a bounded snapshot file; no HA request or node access
+was made. README documents the missing published API contract and adapter
+checklist.
+
+This work is local source and mocked tests only. Connector tests: 10 PASS;
+`py_compile`, JSON parsing, cache cleanup, and `git diff --check` PASS. The
+uncommitted source diff is against base HEAD
+`663d1051004a1e31c77d00d3a6bcf70ae3e02048`; no commit SHA exists. No node104,
+HA, ESP, service,
+deployment, charger, D144 slot18, state/config, output, or lease was accessed
+or changed. `.git` is mounted read-only in this workspace: `git fetch origin
+feature/main-mix-countdown-display` could not write `.git/FETCH_HEAD`; the
+currently displayed tracking ref is at the base HEAD but live origin state is
+unverified. Commit/push remain unavailable from this workspace.
+
+## 2026-11-10 — Event producer source check
+
+Producer-only scope: Wake Bridge profile chat owns Gateway, Dispatcher and R7.2; this repo awaits its API contract. Connector tests **10 PASS**, `py_compile`, JSON parsing and `git diff --check` PASS; package `__pycache__` removed. No node104 or deployment/hardware access. Branch `feature/main-mix-countdown-display`, base HEAD `663d1051004a1e31c77d00d3a6bcf70ae3e02048`; sole remote is expected `origin` URL, but `.git` is read-only so commit/push and fresh remote comparison are blocked. Local changes remain uncommitted.
+
+## 2026-11-10 — read-only HA source adapter follow-up (SOURCE ONLY, HOLD)
+
+Correction to the preceding connector notes: this follow-up implements an
+independent `integrations/rd6018-wake-connector/ha_source.py` adapter that
+reads the canonical `config/physical/ha102.yaml` entity map and performs only
+GET state requests. It does not import the production HA transport, use any
+switch/number control entity, or implement service calls/WebSocket commands.
+It uses only `RD6018_WAKE_HA_URL` and `RD6018_WAKE_HA_TOKEN`; no `HA_TOKEN`
+fallback exists. TLS verification, bounded responses, timeouts, strict
+sensor-domain allowlisting, freshness provenance, separate internal/external
+temperature fields, and bounded no-follow session metadata parsing are
+covered by mocks. A typed adapter-attested snapshot is consumed by the
+existing local spool service. No production application code was changed.
+
+The `main_current_guard_v1` mapping is limited to schema/revision/snapshot
+shape and a small fault-category allowlist. It does not expose guard
+internals, session/battery IDs, or raw journal data. Missing HA timestamps
+produce unknown freshness; `last_updated` is used only as a documented
+conservative fallback. The first fresh snapshot after an unknown/stale episode emits one telemetry-recovered event.
+Stale session metadata is ignored using the declared bounded
+`session_max_age_s` setting (24-hour default). No optional systemctl query was
+added.
+
+Validation: connector suite **16 PASS**; package Python compilation, JSON
+parsing, and `git diff --check` passed. Tests use mocked transports/files and
+made no network, SSH, HA, systemd, ESP, or node104 calls. Exact code HEAD is
+still base `663d1051004a1e31c77d00d3a6bcf70ae3e02048`; these changes remain
+uncommitted. Deployment remains explicitly **HOLD** pending independent
+review, dedicated least-privilege HA identity, and the unresolved generic
+Wake producer/ACK contract. No node104 runtime, secrets, D144 slot18,
+service, charge, firmware, or physical interface was accessed or changed.
+
+
+## 2026-11-10 — HA source adapter hardening (LOCAL SOURCE ONLY)
+
+Review of the mocked adapter tests found and corrected edge cases: HA redirects
+are refused to prevent forwarding the bearer token; entity IDs must be unique;
+naive or future-dated timestamps cannot prove freshness; implausible numeric
+readings are rejected rather than clamped; and the raw output-state code is
+preserved as a code instead of being misrepresented as a boolean. Internal and
+external temperatures are both required core measurements and remain separate.
+
+The stage occurrence timestamp from the canonical session file is used only
+for deterministic event identity and is excluded from the event payload.
+Unknown source periods are deduplicated across polling intervals, persisted
+across restart, and followed by one recovery event when a fresh snapshot
+returns. The heartbeat reports successful telemetry freshness, not output-ON.
+
+The systemd template now creates its private mode-0700 state directory.
+Installation still requires a dedicated non-admin HA identity with read-only
+access to the exact allowlisted entities and a narrowly scoped read-only
+group/ACL for charge_session.json. No file permissions, credentials,
+services, production runtime, or hardware were changed. Validation remains
+mock-only; deployment remains HOLD.
+
+Final local validation: 21/21 connector unit tests PASS; py_compile PASS; config example and JSON schema parse PASS; git diff --check PASS. All HA responses were mocked. No live HA request, node104 access, deployment, firmware operation, or charger interaction occurred.

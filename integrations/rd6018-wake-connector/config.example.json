@@ -3,7 +3,10 @@
   "poll_interval_s": 30,
   "stale_after_s": 300,
   "heartbeat_interval_s": 300,
-  "route": null,
-  "source_snapshot": "/run/rd6018-readonly-diagnostic/snapshot.json",
+  "session_max_age_s": 86400,
+  "entity_config": "/opt/rd6018-wake-connector/config/physical/ha102.yaml",
+  "session_path": "/var/lib/rd6018-bot/charge_session.json",
+  "max_events": 1000,
+  "max_age_s": 604800,
   "outbox_path": "/var/lib/rd6018-wake-connector/outbox.sqlite3"
 }

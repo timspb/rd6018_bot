@@ -2215,3 +2215,113 @@ remains 0/0 at the starting HEAD; uncommitted package changes are local.
 Next: obtain owner-approved existing live read-only source interface and the
 R7.2 team's supported generic producer plus ACK contract; implement and mock
 those adapters, then separately review safe activation after charge completes.
+
+## 2026-11-10 — universal Event Gateway producer-only correction (SOURCE ONLY)
+
+User clarified that the dedicated Wake Bridge 7.2 project chat implements the
+Event Gateway, Dispatcher, and R7.2 transport adapter. This RD6018 repository
+prepares only a generic producer contract. The earlier pending route-aware,
+retrying connector proposal is superseded: removed route validation/config,
+delivery retries/ACK interpretation, concrete HA GET adapter, and service
+credentials. Kept the local snapshot-file source seam and bounded SQLite
+spool. The producer now has the exact seven-field universal envelope,
+strict UUID/RFC3339 UTC/source/type/severity validation, safe payload
+allowlist, deterministic UUIDv5 occurrence identities, persistent dedupe,
+and only `pending_gateway`, `gateway_accepted`, or `quarantined_unknown`
+spool states. `EventGatewayClient` is an injected protocol only; no HTTP or
+guessed API contract. Unknown submission quarantines without replay;
+Gateway acceptance is never reported as final delivery. No Codex completion
+event mapping, route field, HA request, or Gateway behavior exists.
+
+**Validation:** `python3 -m unittest -v test_connector.py` — 10 PASS;
+`python3 -m py_compile connector.py connector_service.py test_connector.py`,
+both JSON documents parsed, `git diff --check` PASS, generated `__pycache__`
+removed. The uncommitted source diff is against base HEAD
+`663d1051004a1e31c77d00d3a6bcf70ae3e02048`; no commit SHA exists.
+**Production boundary:** no node104 SSH/access, active-charge inspection,
+HA live request, secret read, service/deployment, or charger/firmware/state/
+config/control/lease/output change. D144 slot18 remains untouched by this
+turn; its current status is not freshly observed. Source-only; not physical
+or deployment acceptance. **Code HEAD:** baseline
+`663d1051004a1e31c77d00d3a6bcf70ae3e02048`; the requested commit/push could
+not be done because `.git` is mounted read-only. `git fetch origin
+feature/main-mix-countdown-display` failed to write `.git/FETCH_HEAD`. The
+tracking ref displayed before fetch matched base HEAD (cached 0/0); live own
+origin delta is unverified. **Next:** restore normal writable Git metadata,
+fetch only own `origin/feature/main-mix-countdown-display`, verify no remote
+advance, commit this reviewed diff and push only that branch.
+
+## 2026-11-10 — Event producer source check
+
+Wake Bridge profile chat owns Event Gateway/Dispatcher/R7.2. RD6018 producer
+awaits its published API contract. Connector tests **10 PASS**; `py_compile`,
+JSON parsing and `git diff --check` PASS; package caches removed. No node104,
+HA, deployment or hardware access. On `feature/main-mix-countdown-display`
+at base `663d1051004a1e31c77d00d3a6bcf70ae3e02048`; configured remote is only
+`origin https://github.com/timspb/rd6018_bot.git`. Git metadata is read-only:
+`git add` failed on `.git/index.lock`, so no commit, push, or fresh remote
+comparison. Worktree changes remain uncommitted; output artifact outside the
+workspace is likewise unavailable under the current filesystem boundary.
+
+## 2026-11-10 — standalone GET-only HA source adapter (SOURCE ONLY, HOLD)
+
+Follow-up implementation supersedes the previous note that a live-safe source
+adapter was unresolved: `integrations/rd6018-wake-connector/ha_source.py`
+now provides a standalone GET-only HA adapter. It parses only the canonical
+`config/physical/ha102.yaml` entities and accepts only `sensor.*` /
+`binary_sensor.*`; it has no switch/number allowlist, POST, HA service,
+WebSocket command, or import of production `HA102`. It requires the dedicated
+`RD6018_WAKE_HA_URL` and `RD6018_WAKE_HA_TOKEN` names, with no `HA_TOKEN`
+fallback. This is source design only; no live credentials or URL were read.
+
+The typed source snapshot carries adapter provenance, conservative freshness
+(`last_reported`, then documented `last_updated`, otherwise unknown), and
+separate internal/external temperature fields. Session data is opened via a
+bounded no-follow regular-file descriptor; only schema-known stage/profile
+and validated `main_current_guard_v1` fault categories can enter the safe
+event allowlist. Stale session metadata is ignored by the declared bounded
+`session_max_age_s` setting (24-hour default). No service status subprocess was added. `connector_service.py`
+consumes this adapter and continues to spool only; the universal Gateway
+producer/ACK contract remains unresolved and no real producer is wired.
+
+Validation at this stage: connector mocks **16 PASS**; `py_compile`, JSON
+parsing, and `git diff --check` PASS. No network/HA/SSH/systemd/node104,
+secret, ESP, charge, deployment or actuator access was performed. No
+production runtime, HA integration, firmware, session file, service, D144
+slot18, Wake Bridge, route database, shared launcher or completion hook was
+changed. Deployment is **HOLD**. Code HEAD remains
+`663d1051004a1e31c77d00d3a6bcf70ae3e02048`; the source/doc changes are
+uncommitted. Branch `feature/main-mix-countdown-display`; only configured
+remote is `origin https://github.com/timspb/rd6018_bot.git`. No push to any
+remote was attempted. The explicitly requested `git add` was blocked because
+`.git/index.lock` cannot be created on this read-only filesystem; no commit
+or push was possible, and origin state is not refreshed. The requested
+Windows output path is outside the writable roots; exact alternate result is
+`/tmp/RD6018_WAKE_CONNECTOR_SOURCE_RESULT_20261110.txt`. Next: in a writable
+checkout, fetch only `origin/feature/main-mix-countdown-display`, verify the
+branch delta, then commit and push only that branch after review.
+
+
+## 2026-11-10 — HA source adapter hardening (LOCAL SOURCE ONLY)
+
+Review of the mocked adapter tests found and corrected edge cases: HA redirects
+are refused to prevent forwarding the bearer token; entity IDs must be unique;
+naive or future-dated timestamps cannot prove freshness; implausible numeric
+readings are rejected rather than clamped; and the raw output-state code is
+preserved as a code instead of being misrepresented as a boolean. Internal and
+external temperatures are both required core measurements and remain separate.
+
+The stage occurrence timestamp from the canonical session file is used only
+for deterministic event identity and is excluded from the event payload.
+Unknown source periods are deduplicated across polling intervals, persisted
+across restart, and followed by one recovery event when a fresh snapshot
+returns. The heartbeat reports successful telemetry freshness, not output-ON.
+
+The systemd template now creates its private mode-0700 state directory.
+Installation still requires a dedicated non-admin HA identity with read-only
+access to the exact allowlisted entities and a narrowly scoped read-only
+group/ACL for charge_session.json. No file permissions, credentials,
+services, production runtime, or hardware were changed. Validation remains
+mock-only; deployment remains HOLD.
+
+Final local validation: 21/21 connector unit tests PASS; py_compile PASS; config example and JSON schema parse PASS; git diff --check PASS. All HA responses were mocked. No live HA request, node104 access, deployment, firmware operation, or charger interaction occurred.
