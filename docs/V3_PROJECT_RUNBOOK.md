@@ -2107,3 +2107,20 @@ An earlier superseded 8c2aa91 execute attempt failed before service stop due to 
 The live production bootstrap already wires the private /recovery_clear Telegram route, OperatorRecoveryClearanceService and _ControllerSessionRetirement. Orphan session identity is sourced from the strict quarantine journal only when controller is IDLE and has no in-memory session. The service still requires fresh independent Native/HA OFF proof, allow-listed private Telegram operator, one-use confirmation, durable session-retirement receipt and schema-2 tombstone. Do not manually edit/delete the journal or invoke private guard release. The operator must use /recovery_clear in the allow-listed private Telegram chat and confirm the incident-bound button. START is separate and remains OFF.
 
 Detailed evidence: reports/RD6018_D145_QUARANTINE_STATE_PRESERVING_RELEASE_20261111.txt.
+
+
+## 2026-11-11 — D145/D144 production deployment completed; quarantine retirement pending operator confirmation
+
+Candidate 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0 was deployed through the source-paired D145 entrypoint under the canonical D090 lock. D144 COMMITTED in slot 19, transaction 9bcc51db443b4d1a9ff5d758b24774e4. Installed source SHA and candidate identity match the reviewed D138 candidate. rd6018-bot.service active PID 247377, NRestarts=0; Telegram polling started. rd6018-wake-observer.service active PID 244494, NRestarts=0.
+
+Before commit, resolved the exact stale slot collision: candidate-d144-19 was an unreferenced orphan from old source 2927334; app content digest matched that old staged source, venv matched the current runtime, and slot-19 D144 journal/identity did not exist. Removed only that orphan under the canonical D090 owner lock. Also removed exactly three unmanifested generated tools/__pycache__ .pyc files from D138 staging after confirming the manifest had no missing files and no other extras. D138 source file set then matched exactly (1483/1483).
+
+Post-start D151 read-only proof belongs to PID 247377: HA102 output OFF/current 0A; ESP128 output OFF/current 0A; Native state fresh; active_session=false; charge_session.json absent; edge lease unarmed; boot quarantine false; one physical node owner; two independent nonces. Voltage fields are intentionally null in the software-release proof; do not claim RD6018 analog voltage readback.
+
+Quarantine preserved exactly: active schema 1, incident acb9302c-8925-47b1-be48-15a38dc01b4a, SHA-256 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1. Legacy D090_TRANSACTION.json remains STARTED and unchanged SHA-256 030f0b7aae43402f523bb57f5acd606e3ab2fe4f7c7d4efd40258b40bde8014e; D144 legacy_sha256 matches it. Startup correctly suppresses automatic session restore/controller tick. No START, Output, setpoint, protection or lease command issued.
+
+Remaining operator action: allow-listed operator must send /recovery_clear in the private Telegram chat with @RD6018_bot and confirm the one-use inline action bound to incident acb9302c-8925-47b1-be48-15a38dc01b4a. Do not impersonate the operator or forge the callback. After confirmation, verify schema-2 retirement tombstone, durable controller-session retirement receipt, quarantine false and Output OFF. START remains separate.
+
+Observer remains active; own-chat R7.2 last_ack is still null. Visible heartbeat envelopes are host-visible receipts, not server ACK proof; do not replay any existing sending/quarantined event.
+
+Detailed evidence: reports/RD6018_D145_DEPLOYED_QUARANTINE_RETIREMENT_PENDING_20261111.txt.
