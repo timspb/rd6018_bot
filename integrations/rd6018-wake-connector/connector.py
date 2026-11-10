@@ -20,20 +20,20 @@ from typing import Any, Protocol
 
 SOURCE = "rd6018-node104"
 EVENT_TYPES = frozenset({
-    "charger.fault", "charger.stage_changed", "charger.telemetry_stale",
+    "charger.fault", "charger.stage_changed", "charger.mode_changed", "charger.guard_recovered", "charger.telemetry_stale",
     "charger.telemetry_unknown", "charger.telemetry_recovered",
     "charger.guard_fault", "charger.service_down", "charger.service_recovered",
     "charger.heartbeat",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
 PAYLOAD_FIELDS = frozenset({
-    "stage", "fault_code", "voltage_v", "current_a", "battery_voltage_v",
+    "stage", "control_mode", "fault_code", "voltage_v", "current_a", "battery_voltage_v",
     "input_voltage_v", "configured_voltage_v", "configured_current_a", "ovp_v",
     "ocp_a", "output_state", "temperature_internal_c", "temperature_external_c",
     "freshness_s", "freshness_known", "guard_state", "service_state",
     "protection_code", "regulation_code", "autonomous_mode", "output_state_code",
 })
-_TEXT_FIELDS = frozenset({"stage", "fault_code", "guard_state", "service_state",
+_TEXT_FIELDS = frozenset({"stage", "control_mode", "fault_code", "guard_state", "service_state",
                          "protection_code", "regulation_code", "output_state_code"})
 _NUMBER_FIELDS = frozenset({
     "voltage_v", "current_a", "battery_voltage_v", "input_voltage_v",

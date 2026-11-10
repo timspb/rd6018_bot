@@ -35,7 +35,7 @@ Each event has exactly this semantic shape:
 
 `event_id` is a deterministic UUIDv5 from the source, event type, and occurrence identity. It remains stable across process restarts; a new occurrence identity yields a new UUID. Heartbeats use interval-slot identity and report a successful telemetry snapshot, not that the RD6018 output is enabled. Timestamps must be RFC3339 UTC. Event type and severity are allowlisted. Payload fields are allowlisted and bounded; internal and external temperatures remain separate. Secrets, tokens, routes, session and battery IDs, raw guard documents, logs, and personal data are excluded.
 
-The proposed types are `charger.fault`, `charger.stage_changed`, `charger.telemetry_stale`, `charger.telemetry_unknown`, `charger.telemetry_recovered`, `charger.guard_fault`, `charger.service_down`, `charger.service_recovered`, `charger.heartbeat`. `charger.overtemperature` is intentionally excluded until an independent sensor source and threshold policy are proven.
+The proposed types are `charger.fault`, `charger.stage_changed`, `charger.mode_changed`, `charger.telemetry_stale`, `charger.telemetry_unknown`, `charger.telemetry_recovered`, `charger.guard_fault`, `charger.guard_recovered`, `charger.service_down`, `charger.service_recovered`, `charger.heartbeat`. `charger.overtemperature` is intentionally excluded until an independent sensor source and threshold policy are proven.
 
 ## Local spool and Gateway seam
 
@@ -59,3 +59,39 @@ Run from this directory with `python -m unittest -v test_connector.py`. Tests us
 
 
 Installation precondition: before any future deployment, grant the dedicated service user read-only access to charge_session.json through a narrow group/ACL. Do not make this file world-readable or change production file permissions as part of this source task.
+
+
+## Node104 read-only observer (2026-11-10)
+
+observer.py is a separate, read-only runtime observer. It does not use the HA REST adapter above and does not issue Modbus, ESP Native, HA service, RD6018 setpoint, output, OVP/OCP, or control commands. It reads only:
+
+- /opt/services/rd6018-bot/state/rd6018.db using SQLite mode=ro (latest sensor sample and recovery stage);
+- the bounded session_recovery_quarantine.json and rd_control_mode_v2.json state documents;
+- rd6018-bot.service state and its journal.
+
+The observer does not read or publish battery/session identifiers, raw journal lines, arbitrary state documents, credentials, or HA entity IDs. Its allowlisted payload contains measured voltage/current/external temperature, output state, charging stage, control mode, service state, guard state, freshness and a normalized fault code.
+
+### Notification policy
+
+- Critical guard/service/error transitions are sent immediately.
+- A persistent quarantine is sent once per entry; repeats are suppressed. Recovery is a separate immediate event.
+- A repeated log error is suppressed while it continues; a new occurrence is eligible after 30 minutes without that code.
+- Charging-stage and control-mode changes are sent immediately.
+- Telemetry loss/unknown and recovery are sent on transition, not every poll.
+- Polling is 20 seconds; this is internal observation only and does not create chat messages.
+- Summary/parameter events are emitted at startup and then no more often than every 1800 seconds (30 minutes), including a status-only summary if telemetry is stale.
+
+### Gateway transport
+
+The dedicated producer token is injected through /etc/rd6018-wake-observer.env (root-owned, mode 0600), never through the JSON config, command line, event payload or logs. The observer posts only to the universal Gateway's documented /v1/events endpoint using the rd6018/node104 producer identity. The Gateway alone owns route selection and R7.2 delivery. HTTP 202 is considered accepted only when the returned event ID matches and queue_state is queued; 429 and connection refusal remain pending, while uncertain outcomes are quarantined and not blindly retried.
+
+The Gateway listener is bound only to VM110's private LAN address 192.168.1.110; no public listener or firewall exposure is created. The producer binding is maintained in R7.2, not in this repository.
+
+The observer service is rd6018-wake-observer.service. Its spool and state live under /var/lib/rd6018-wake-observer, separate from the charger database. Keep the charger service and its safety lease untouched.
+
+
+### Deployment status — 2026-11-10
+
+The observer code, configuration and systemd unit are staged on node104 and pass the offline startup check. The universal Gateway on VM110 listens on 192.168.1.110:8765; node104 has verified TCP connectivity and HTTP /healthz returns 200. The R7.2 producer binding for rd6018/node104 already points to the current chat route.
+
+Activation remains HOLD until the existing rd6018/node104 producer token is provisioned on node104 in /etc/rd6018-wake-observer.env (root:root, mode 0600) through the approved secret-injection path. Do not put the token in this repository, chat, command arguments, JSON config or logs. The charger service and controller remain untouched.

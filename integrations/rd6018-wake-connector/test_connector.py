@@ -48,8 +48,8 @@ class ConnectorTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 EventEnvelope(**(base | changes))
         self.assertEqual(EVENT_TYPES, frozenset({
-            "charger.fault", "charger.stage_changed", "charger.telemetry_stale",
-            "charger.telemetry_unknown", "charger.telemetry_recovered", "charger.guard_fault",
+            "charger.fault", "charger.stage_changed", "charger.mode_changed", "charger.guard_recovered",
+            "charger.telemetry_stale", "charger.telemetry_unknown", "charger.telemetry_recovered", "charger.guard_fault",
             "charger.service_down", "charger.service_recovered", "charger.heartbeat",
             }))
 
@@ -220,6 +220,7 @@ class ConnectorTests(unittest.TestCase):
                 "v2_trace_session_id": "SECRET_SESSION", "v2_battery_id": "SECRET_BATTERY",
                 "main_current_guard_v1": {"journal_schema": 1, "revision": 2,
                     "snapshot": {"fault": "proposal_ack_timeout"}}}))
+            os.utime(path, (NOW, NOW))
             values = _read_session_metadata(path, NOW)
             self.assertEqual(values, {"stage": "Main Charge", "profile": "EFB",
                                       "guard_state": "fault", "fault_code": "guard_timeout"})
