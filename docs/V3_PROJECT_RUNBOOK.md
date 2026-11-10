@@ -1972,3 +1972,14 @@ Validation in isolated WSL Python 3.12:
 - py_compile and git diff --check: PASS.
 
 Source-only. No service, ESP, HA, charge session, Output, setpoint, lease, node104 or D144/D145 slot was touched. Production deployment remains HOLD pending the established release admission and physical acceptance.
+
+
+## 2026-11-10 — RD6018 read-only event observer / R7.2 delivery status
+
+The standalone observer implementation is committed locally as `5cc1bf9` on `feature/main-mix-countdown-display` (branch one commit ahead of the displayed origin tracking ref at inspection). It reads existing node104 SQLite sensor history, bounded state documents, service status and journal; it has no charger control path. Polling is 20 seconds internally, but normal summaries are rate-limited to at least 1800 seconds; fault/guard/service/telemetry transitions and mode/stage changes are event-driven with persistent duplicate suppression and separate recovery events.
+
+Focused observer + connector suite: **31/31 PASS** on HOME-PC WSL. This does not prove installation, activation or delivery.
+
+Operator's preceding handoff reported the observer staged but inactive on node104, Gateway at `192.168.1.110:8765`, node104 TCP + `/healthz` PASS, and producer binding to that preceding chat. These are retained as reported evidence only. In this chat, trusted R7.2 self-inspection returned `OWN_ENABLED_ROUTE_UNAVAILABLE`; the panel opener alone is not route proof. A read-only SSH attempt to node104 from WSL returned `Permission denied (publickey,password)`, so current service state, installed hashes, token-file presence/mode and node104→Gateway health remain unverified.
+
+**HOLD:** do not activate the observer or enqueue a test event until this chat's own enabled route is confirmed and node104 read-only access is restored. Never borrow a route from another chat, print token values, replay an uncertain event, or modify RD6018/ESP/HA/charge state. After the gates pass, use one harmless unique event and require exact event-ID/route/attempt/ACK correlation before claiming delivery.

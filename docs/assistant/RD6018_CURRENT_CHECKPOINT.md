@@ -1,4 +1,22 @@
-# RD6018 — CURRENT CHECKPOINT (2026-11-09)
+# RD6018 — CURRENT CHECKPOINT (2026-11-10)
+
+## CURRENT OBSERVER STATUS — RD6018 → Event Gateway → Wake Bridge R7.2
+
+**Scope:** finish the separate read-only node104 observer and event delivery only. Do not modify the charger, active charge session, RD6018 bot, ESP firmware, Output, setpoints, protection, lease, or D144/D145 production slot.
+
+**Local source:** branch `feature/main-mix-countdown-display`, HEAD `5cc1bf9` (`feat(rd6018): add rate-limited read-only event observer`), one commit ahead of the displayed `origin` tracking ref. Working tree was clean at inspection. The observer is separate from the charging controller and reads the existing RD6018 SQLite history, bounded state documents, service state and journal only. It has no actuator, Modbus, ESP Native, HA write, or RD6018 command path.
+
+**Notification policy:** internal poll 20 s; ordinary telemetry summary at most every 1800 s; stage/control-mode transitions immediately; alarm/error/guard/service/telemetry-loss transitions immediately; repeated identical active conditions suppressed; recovery is a separate event. Durable local outbox preserves occurrence IDs and quarantines uncertain Gateway submission instead of blindly replaying.
+
+**Validation:** observer + connector focused suite **31/31 PASS** on HOME-PC WSL. This is source/mock validation only, not node104 runtime or end-to-end delivery acceptance.
+
+**Reported deployment/network state (not independently re-verified in this chat):** operator's preceding handoff says observer package is staged but inactive on node104; Gateway listens at `192.168.1.110:8765`; node104 TCP connectivity and `/healthz` were reported PASS; producer `rd6018/node104` was reported bound to the preceding chat route. Do not treat these as current-chat route proof or current service-state proof.
+
+**Current blockers/evidence:** read-only SSH attempt to `192.168.1.104` from HOME-PC WSL failed with `Permission denied (publickey,password)`, so installed files, service activation, environment-file presence and live Gateway reachability from node104 could not be re-verified. The R7.2 panel opener returned `R7.2-canary`, but the trusted `wake_r72_inspect_this_chat({})` returned `OWN_ENABLED_ROUTE_UNAVAILABLE` twice. Do not reuse the preceding chat's route, rebind routes, enqueue smoke events, or activate the producer until this chat's own enabled route is available and confirmed.
+
+**Next:** restore access to the existing R7.2 panel/route in this chat; recover authorized read-only node104 access through the existing HOME-PC path; verify observer unit is staged/inactive, env file has only required keys and mode 0600 (never print values), and `/healthz` from node104; then provision/verify the existing producer token via approved secret channel, start only the observer service, and prove one harmless unique event through exact current route + matching R7.2 ACK. No manual replay on uncertain delivery. Until then production activation remains HOLD.
+
+---
 
 ## ACTUAL SOURCE-ONLY STATUS — Recipe Studio RS-0…RS-4
 
