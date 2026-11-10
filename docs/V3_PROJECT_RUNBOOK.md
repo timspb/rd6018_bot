@@ -2124,3 +2124,12 @@ Remaining operator action: allow-listed operator must send /recovery_clear in th
 Observer remains active; own-chat R7.2 last_ack is still null. Visible heartbeat envelopes are host-visible receipts, not server ACK proof; do not replay any existing sending/quarantined event.
 
 Detailed evidence: reports/RD6018_D145_DEPLOYED_QUARANTINE_RETIREMENT_PENDING_20261111.txt.
+
+
+## 2026-11-11 — /recovery_clear exact-identity admission hotfix (SOURCE ONLY)
+
+The allow-listed operator issued `/recovery_clear` twice. Telegram returned `session_identity_unavailable`; authorization was not the blocker. Read-only node104 inspection confirmed D144 slot 19/source 45dcaac is active, bot PID 247377, charge_session.json absent, and the schema-1 quarantine remains active with the exact nested identity (session 6fa9a4b3229c487d827324447ff83e40; battery adhoc:EFB:60:38426001). D151 software-release proof showed HA102/ESP128 OFF and 0A with fresh Native sensor state; analog RD6018 voltage is not part of that proof.
+
+Root code-path defect: absent-session recovery rejected any non-null in-memory session/battery IDs before comparing them with the immutable quarantine journal. A stale-but-exact identity on an IDLE controller therefore produced session_identity_unavailable. The fix permits retained identity only when it exactly matches the journal; any mismatch or non-IDLE controller remains rejected. Once fresh Native OFF evidence is obtained and the schema-2 tombstone is durably committed, finalization clears only the exact matching stale in-memory identity.
+
+D086+D087 focused recovery tests: 23 PASS; git diff --check PASS. Source-only; production slot 19 unchanged, quarantine still active. No actuation, journal edits, guard bypass, Output/setpoint/protection/lease command. Next: admit this exact source change through canonical release validation and D138/D145/D144; only then retry /recovery_clear and verify schema-2 retirement, durable receipt, quarantine false, IDLE/no-session, Output OFF. No START.

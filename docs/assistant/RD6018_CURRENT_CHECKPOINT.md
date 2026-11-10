@@ -2501,3 +2501,51 @@ Remaining action is the allow-listed operator's one-use private Telegram confirm
 Wake observer is active, but own-chat R7.2 last_ack remains null. Visible heartbeat messages are host receipts only; do not replay any existing sending/quarantined event.
 
 Detailed evidence: reports/RD6018_D145_DEPLOYED_QUARANTINE_RETIREMENT_PENDING_20261111.txt.
+
+
+## 2026-11-11 — /recovery_clear failure: exact in-memory identity handling corrected (SOURCE ONLY)
+
+Owner/operator sent `/recovery_clear` twice in the allow-listed private Telegram chat. The bot returned `session_identity_unavailable` and preserved quarantine; this is an application admission failure, not an authorization failure.
+
+Read-only node104 inspection through the existing pinned D061 transport confirmed:
+- D144 slot 19 remains COMMITTED for source `45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0`, transaction `9bcc51db443b4d1a9ff5d758b24774e4`.
+- `rd6018-bot.service` active, PID 247377, NRestarts 0.
+- `charge_session.json` absent.
+- Quarantine journal remains schema 1, active, SHA-256 `34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1`, incident `acb9302c-8925-47b1-be48-15a38dc01b4a`. Its strict nested identity is session `6fa9a4b3229c487d827324447ff83e40`, battery `adhoc:EFB:60:38426001`. Legacy D090 journal unchanged.
+- D151 software-release proof still reports HA102 and ESP128 Output OFF/current 0A, fresh Native sensor state, no active session, lease unarmed; it intentionally does not prove RD6018 analog voltage.
+
+Code-path finding: when `charge_session.json` is absent, `_ControllerSessionRetirement.session_id()` rejected every non-null in-memory session/battery identity before consulting the strict journal. The absent-session validation and finalizer repeated the same blanket rejection. This made an IDLE controller retaining the exact old quarantined identity fail with `session_identity_unavailable`, even when the in-memory identity matched the immutable journal.
+
+Correction in `application/controller_session_retirement.py`:
+- IDLE remains mandatory.
+- A retained in-memory session/battery identity is accepted only if it exactly matches the strict quarantine journal binding; any mismatch remains fail-closed.
+- After fresh Native OFF evidence and durable schema-2 tombstone commit, finalization clears only the exact matching stale in-memory identity. Conflicting identities still block finalization.
+- No direct journal edits, guard release, actuator calls, lease changes, or Output/setpoint/protection commands.
+
+Regression: D086 + D087 focused recovery cohort **23 PASS** on Windows project venv; `git diff --check` PASS. Tests now exercise exact retained identity, mismatch rejection, and post-tombstone in-memory identity cleanup. Full repository suite not rerun for this source-only hotfix.
+
+**Production remains unchanged:** no hotfix candidate staged or deployed; D144 slot 19 remains active; quarantine remains active schema 1. No further `/recovery_clear` attempt is useful until this hotfix is admitted and deployed through the canonical D138/D145/D144 owner path. After deployment, require fresh independent Native OFF evidence, repeat operator-authorized Telegram clearance, then verify schema-2 tombstone, durable receipt, quarantine false, IDLE/no-session, Output OFF. Do not start charging.
+
+
+## 2026-11-11 — /recovery_clear failure: exact in-memory identity handling corrected (SOURCE ONLY)
+
+Owner/operator sent `/recovery_clear` twice in the allow-listed private Telegram chat. The bot returned `session_identity_unavailable` and preserved quarantine; this is an application admission failure, not an authorization failure.
+
+Read-only node104 inspection through the existing pinned D061 transport confirmed:
+- D144 slot 19 remains COMMITTED for source `45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0`, transaction `9bcc51db443b4d1a9ff5d758b24774e4`.
+- `rd6018-bot.service` active, PID 247377, NRestarts 0.
+- `charge_session.json` absent.
+- Quarantine journal remains schema 1, active, SHA-256 `34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1`, incident `acb9302c-8925-47b1-be48-15a38dc01b4a`. Its strict nested identity is session `6fa9a4b3229c487d827324447ff83e40`, battery `adhoc:EFB:60:38426001`. Legacy D090 journal unchanged.
+- D151 software-release proof still reports HA102 and ESP128 Output OFF/current 0A, fresh Native sensor state, no active session, lease unarmed; it intentionally does not prove RD6018 analog voltage.
+
+Code-path finding: when `charge_session.json` is absent, `_ControllerSessionRetirement.session_id()` rejected every non-null in-memory session/battery identity before consulting the strict journal. The absent-session validation and finalizer repeated the same blanket rejection. This made an IDLE controller retaining the exact old quarantined identity fail with `session_identity_unavailable`, even when the in-memory identity matched the immutable journal.
+
+Correction in `application/controller_session_retirement.py`:
+- IDLE remains mandatory.
+- A retained in-memory session/battery identity is accepted only if it exactly matches the strict quarantine journal binding; any mismatch remains fail-closed.
+- After fresh Native OFF evidence and durable schema-2 tombstone commit, finalization clears only the exact matching stale in-memory identity. Conflicting identities still block finalization.
+- No direct journal edits, guard release, actuator calls, lease changes, or Output/setpoint/protection commands.
+
+Regression: D086 + D087 focused recovery cohort **23 PASS** on Windows project venv; `git diff --check` PASS. Tests now exercise exact retained identity, mismatch rejection, and post-tombstone in-memory identity cleanup. Full repository suite not rerun for this source-only hotfix.
+
+**Production remains unchanged:** no hotfix candidate staged or deployed; D144 slot 19 remains active; quarantine remains active schema 1. No further `/recovery_clear` attempt is useful until this hotfix is admitted and deployed through the canonical D138/D145/D144 owner path. After deployment, require fresh independent Native OFF evidence, repeat operator-authorized Telegram clearance, then verify schema-2 tombstone, durable receipt, quarantine false, IDLE/no-session, Output OFF. Do not start charging.

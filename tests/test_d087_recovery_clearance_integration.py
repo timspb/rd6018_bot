@@ -139,8 +139,8 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
             app = SimpleNamespace(charge_controller=controller)
             journal = RecoveryQuarantineJournal(journal_file, app)
             journal.persist("main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
-            controller._v2_trace_session_id = None
-            controller._v2_battery_id = None
+            # The production controller can retain the exact quarantined
+            # identity in memory while IDLE after charge_session.json vanished.
             owner = Owner()
             guard = SessionRecoveryGuard(
                 initial_state=RecoveryGuardState(True, "setpoint transaction unresolved"),
@@ -172,6 +172,8 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
                 "main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
             self.assertFalse(guard.quarantined)
             self.assertFalse(journal.load().quarantined)
+            self.assertIsNone(controller._v2_trace_session_id)
+            self.assertIsNone(controller._v2_battery_id)
             self.assertFalse(controller._recovery_session_retirement_pending)
 
     def test_absent_session_rejects_wrong_incident_or_non_idle_controller_without_off(self):
@@ -199,6 +201,12 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
             binding = journal.incident_binding()
             self.assertTrue(retirement.validate(binding))
             self.assertFalse(retirement.validate({**binding, "incident_id": "wrong"}))
+            controller._v2_trace_session_id = "OTHER"
+            self.assertFalse(retirement.validate(binding))
+            controller._v2_trace_session_id = None
+            controller._v2_battery_id = "OTHER-BATTERY"
+            self.assertFalse(retirement.validate(binding))
+            controller._v2_battery_id = None
             controller.current_stage = controller.STAGE_MAIN
             self.assertFalse(retirement.validate(binding))
 

@@ -30,9 +30,7 @@ class _ControllerSessionRetirement:
             # in-memory session; validate() rechecks the exact incident.
             controller = self.app.charge_controller
             if (getattr(controller, "current_stage", None)
-                    != getattr(controller, "STAGE_IDLE", object())
-                    or getattr(controller, "_v2_trace_session_id", None) is not None
-                    or getattr(controller, "_v2_battery_id", None) is not None):
+                    != getattr(controller, "STAGE_IDLE", object())):
                 return None
             journal = getattr(self.app, "recovery_quarantine_journal", None)
             try:
@@ -40,7 +38,19 @@ class _ControllerSessionRetirement:
             except Exception:
                 return None
             value = binding.get("session_id") if isinstance(binding, dict) else None
-            return value.strip() if isinstance(value, str) and value.strip() else None
+            battery_id = binding.get("battery_id") if isinstance(binding, dict) else None
+            if not isinstance(value, str) or not value.strip():
+                return None
+            # An IDLE controller may retain the quarantined session's identity
+            # in memory even though charge_session.json was removed. Accept
+            # only an exact match with the immutable journal binding; reject
+            # any conflicting in-memory identity.
+            memory_session = getattr(controller, "_v2_trace_session_id", None)
+            memory_battery = getattr(controller, "_v2_battery_id", None)
+            if (memory_session is not None and memory_session != value
+                    or memory_battery is not None and memory_battery != battery_id):
+                return None
+            return value.strip()
         except (OSError, ValueError, TypeError):
             return None
         if not isinstance(data, dict) or data.get("state") == "retired":
@@ -110,8 +120,6 @@ class _ControllerSessionRetirement:
             journal = getattr(self.app, "recovery_quarantine_journal", None)
             if (getattr(controller, "current_stage", None)
                     != getattr(controller, "STAGE_IDLE", object())
-                    or getattr(controller, "_v2_trace_session_id", None) is not None
-                    or getattr(controller, "_v2_battery_id", None) is not None
                     or binding.get("document_sha256") is not None
                     or journal is None):
                 return False
@@ -119,10 +127,14 @@ class _ControllerSessionRetirement:
                 incident = journal.incident_binding()
             except Exception:
                 return False
+            memory_session = getattr(controller, "_v2_trace_session_id", None)
+            memory_battery = getattr(controller, "_v2_battery_id", None)
             return (
                 incident.get("incident_id") == binding.get("incident_id")
                 and incident.get("session_id") == binding.get("session_id")
                 and incident.get("battery_id") == binding.get("battery_id")
+                and (memory_session is None or memory_session == binding.get("session_id"))
+                and (memory_battery is None or memory_battery == binding.get("battery_id"))
                 and str(incident.get("reason", "")).startswith((
                     "main_guard_current_setpoint_transaction_unconfirmed:",
                     "main_guard_current_ocp_transaction_unconfirmed:",
@@ -244,12 +256,21 @@ class _ControllerSessionRetirement:
                 )
             except Exception:
                 committed = False
+            memory_session = getattr(controller, "_v2_trace_session_id", None)
+            memory_battery = getattr(controller, "_v2_battery_id", None)
+            retired_battery = retirement.get("battery_id") if committed else None
             if (not committed
                     or getattr(controller, "current_stage", None)
                     != getattr(controller, "STAGE_IDLE", object())
-                    or getattr(controller, "_v2_trace_session_id", None) is not None
-                    or getattr(controller, "_v2_battery_id", None) is not None):
+                    or (memory_session is not None and memory_session != session_id)
+                    or (memory_battery is not None and memory_battery != retired_battery)):
                 raise RuntimeError("session retirement identity changed before journal commit")
+            # Clear only stale in-memory identity that was exactly bound to
+            # the committed tombstone; never clear a conflicting live identity.
+            if memory_session == session_id:
+                controller._v2_trace_session_id = None
+            if memory_battery == retired_battery and memory_battery is not None:
+                controller._v2_battery_id = None
             controller._recovery_session_retired_id = session_id
         controller._recovery_session_retirement_pending = False
         candidate = getattr(controller, "_guarded_restore_candidate", None)
