@@ -1,0 +1,48 @@
+# RD6018 node104 — state-preserving D145 candidate and quarantine clearance — 2026-11-11
+
+## Current production state (read-only verification)
+
+- rd6018-bot.service: active/running, MainPID 242006, NRestarts 0.
+- Current D144 active release marker: source 9a1f5ea4784dc37b19156c462e36c3b4a3de81c9, transaction 92da4ab76639468ea538a4e63c8f1ffd.
+- Previous D144 slot 18 marker: source 7c40e54f6db58a1b8720f8c0706fb780604bb37d.
+- Legacy D090_TRANSACTION.json remains STARTED for transaction 818df047a6e64a22905d6da900162a86 / source 930239c670899e14ccb09154d99baf77df90da10. It was not edited.
+- charge_session.json is absent.
+- Quarantine journal remains active schema 1, exact SHA-256 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1:
+  - incident acb9302c-8925-47b1-be48-15a38dc01b4a
+  - session 6fa9a4b3229c487d827324447ff83e40
+  - battery adhoc:EFB:60:38426001
+  - reason main_guard_current_ocp_transaction_unconfirmed:MainGuardExecutionFault:postflight_guard_ack_rejected:programmed_current_readback_mismatch.
+- No charger service/controller/ESP/HA/Output/setpoint/protection/lease command was issued in this work.
+
+## Candidate and fixes
+
+- Candidate source: 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0.
+- Candidate is based on the Iset-only MAIN Guard and carries state-preserving D137/D138/D142/D144/D149 fixes.
+- Full repository suite on exact candidate: 3203 passed, 3 skipped, 0 failed (521.72 s).
+- Candidate D138 identity: 92404cdd543e10bbce49aba2309c5dc37bb46c8f2d22c9703b4c2bd305d63557.
+- D138: SOURCE_AND_VENV_PREPARED_NOT_ACTIVATED; D140 capacity pass.
+- D145 profile was corrected to bind the actual active D144 baseline 9a1f5ea, not stale D090/slot-18 metadata 7c40e54.
+- D145 prepare-only on corrected profile: PREPARE_ONLY_PASS; fresh_d091_off=true; capacity_pass=true; service PID 242006.
+- Exact orphan quarantine binding was preserved in D137/D138/D142/D144 evidence, including incident, session, battery and journal SHA. No journal mutation occurred.
+
+## D145 execution status
+
+- An earlier execution attempt using the superseded profile (old baseline 7c40e54) failed in preflight because it used the normal D091 voltage-readback path instead of recovery-grade software-release proof. It failed before service stop or app swap.
+- D144 owner binding was corrected so a preserved orphan quarantine selects the recovery-grade D091 collector. D142 now returns the preserved quarantine binding explicitly.
+- The corrected 45dcaac candidate passed D145 prepare-only with actual active baseline 9a1f5ea.
+- The production execute call was blocked by the host safety layer before a new execution script could be created. No execute was attempted through an alternate path.
+- Post-block read-only verification confirms D144 active marker remains 9a1f5ea, service remains active with same PID and zero restarts, quarantine journal SHA unchanged, D090 journal unchanged. Therefore no production release has been activated.
+
+## Quarantine retirement path
+
+- Production bootstrap in current installed release 9a1f5ea already wires OperatorRecoveryClearanceService, _ControllerSessionRetirement, TelegramRecoveryAuthority and install_recovery_clearance_route.
+- The missing-session adapter uses the strict quarantine journal identity only when controller is IDLE and has no in-memory session; the service still requires fresh typed Native/HA OFF evidence, a private allow-listed Telegram operator, one-use confirmation, durable controller-session retirement receipt and schema-2 journal tombstone.
+- Clearance is not performed by deleting/editing the journal or by invoking private guard release. The authorized operator must use the existing private Telegram route (/recovery_clear, then confirm the incident-bound button). It will report either a committed retirement or a fail-closed reason. A new START is a separate action.
+- Do not start charging while quarantine remains active.
+
+## Next
+
+1. Resolve the host safety block for D145 execution; use only the existing owner-locked D145 entrypoint and corrected 9a1f5ea baseline profile. No alternate activation path.
+2. Verify post-start D151/D150 fresh independent OFF proof, exact release marker and unchanged quarantine journal.
+3. Have the allow-listed operator complete /recovery_clear in the private Telegram chat and confirm the incident-bound button; verify schema-2 retirement tombstone and guard state clear.
+4. Keep Output OFF. No charge-cycle acceptance or START is included in this software release.

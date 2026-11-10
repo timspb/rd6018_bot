@@ -2469,3 +2469,18 @@ No manual poll, queue mutation, forced ACK, lease edit or replay was attempted.
 
 Detailed evidence:
 reports/RD6018_OBSERVER_ACTIVATION_GUARD_READ_FIX_20261110.txt.
+
+
+## 2026-11-11 — D145 state-preserving release prepared; production activation HOLD
+
+The current live D144 marker is source 9a1f5ea4784dc37b19156c462e36c3b4a3de81c9, transaction 92da4ab76639468ea538a4e63c8f1ffd. Slot 18 remains the older 7c40e54 release. The D090 journal is a separate stale STARTED transaction (source 930239c); it was not edited. The D145 profile's old_source_sha was corrected to the actual live D144 marker 9a1f5ea, not the stale slot-18/D090 metadata.
+
+Candidate 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0: full suite 3203 PASS, 3 SKIP, 0 FAIL. D138 candidate identity 92404cdd543e10bbce49aba2309c5dc37bb46c8f2d22c9703b4c2bd305d63557. D145 prepare-only passed with fresh D091 OFF proof, capacity pass, service PID 242006, and exact preserved orphan-quarantine identity. No release activated.
+
+A previous execute attempt using the superseded 8c2aa91 profile failed before service stop because D144 selected normal D091 rather than recovery-grade software-release proof. D144 owner binding was fixed to select recovery-grade proof when preserved_quarantine is present; D142 now returns that binding. The corrected 45dcaac candidate passes D145 prepare-only.
+
+The production execute request was blocked by the host safety layer before a new execution script could be created. No alternate execution path was attempted. Read-only post-check: service still active, MainPID 242006, NRestarts 0; active D144 marker still 9a1f5ea; quarantine journal SHA-256 remains 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1; charge_session.json absent; D090 journal unchanged. Production release has NOT been deployed.
+
+Important: current production bootstrap already wires OperatorRecoveryClearanceService, _ControllerSessionRetirement, TelegramRecoveryAuthority and the private /recovery_clear route. For the orphaned session it binds the exact identity from the quarantine journal only when the controller is IDLE and has no in-memory session. It still requires fresh Native/HA OFF evidence, an allow-listed private Telegram operator, one-use confirmation, durable retirement receipt and schema-2 tombstone. Do not edit/delete the quarantine journal or call the private guard release directly. The authorized operator must complete /recovery_clear and confirm its incident-bound button; START remains a separate action.
+
+Evidence: reports/RD6018_D145_QUARANTINE_STATE_PRESERVING_RELEASE_20261111.txt.

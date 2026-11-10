@@ -2094,3 +2094,16 @@ ACK or replay was attempted.
 
 Detailed evidence:
 reports/RD6018_OBSERVER_ACTIVATION_GUARD_READ_FIX_20261110.txt.
+
+
+## 2026-11-11 — D145 state-preserving release prepared; activation HOLD
+
+Live D144 marker is source 9a1f5ea4784dc37b19156c462e36c3b4a3de81c9 (transaction 92da4ab76639468ea538a4e63c8f1ffd). Slot 18 remains 7c40e54. Legacy D090 transaction is a separate stale STARTED record for source 930239c and remains unchanged. D145 profile old_source_sha was corrected to the actual live D144 marker.
+
+Candidate 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0: 3203 passed, 3 skipped, 0 failed. D138 candidate identity 92404cdd543e10bbce49aba2309c5dc37bb46c8f2d22c9703b4c2bd305d63557. D145 prepare-only PASS; fresh D091 OFF proof and capacity PASS; exact active orphan quarantine binding preserved. The D144 owner now selects recovery-grade D091 proof for preserved_quarantine; D142 surfaces that binding explicitly.
+
+An earlier superseded 8c2aa91 execute attempt failed before service stop due to the wrong normal D091 proof path. Corrected 45dcaac candidate now passes prepare-only. The production execute call was blocked by the host safety layer before a new execution script could be created. No alternate path attempted. Post-check: service active, PID 242006, NRestarts 0; D144 marker still 9a1f5ea; quarantine SHA remains 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1; session file absent; D090 unchanged. No deployment occurred.
+
+The live production bootstrap already wires the private /recovery_clear Telegram route, OperatorRecoveryClearanceService and _ControllerSessionRetirement. Orphan session identity is sourced from the strict quarantine journal only when controller is IDLE and has no in-memory session. The service still requires fresh independent Native/HA OFF proof, allow-listed private Telegram operator, one-use confirmation, durable session-retirement receipt and schema-2 tombstone. Do not manually edit/delete the journal or invoke private guard release. The operator must use /recovery_clear in the allow-listed private Telegram chat and confirm the incident-bound button. START is separate and remains OFF.
+
+Detailed evidence: reports/RD6018_D145_QUARANTINE_STATE_PRESERVING_RELEASE_20261111.txt.
