@@ -44,10 +44,11 @@ class _ControllerSessionRetirement:
         # A partial UI controller cannot establish a persisted orphan binding.
         main = getattr(controller, "STAGE_MAIN", None)
         mix = getattr(controller, "STAGE_MIX", None)
+        safe_wait = getattr(controller, "STAGE_SAFE_WAIT", None)
         idle = getattr(controller, "STAGE_IDLE", None)
         if (not all(isinstance(stage, str) and stage for stage in (main, mix, idle))
                 or not isinstance(data, dict) or data.get("state") == "retired"
-                or data.get("stage") not in {main, mix}
+                or data.get("stage") not in {main, mix, safe_wait}
                 or not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(battery_id, str) or not battery_id.strip()
                 or getattr(controller, "current_stage", controller.STAGE_IDLE) != controller.STAGE_IDLE
@@ -57,6 +58,12 @@ class _ControllerSessionRetirement:
         from runtime.charge.strategy.main_guard_session import GUARD_KEY, read_guard
         if GUARD_KEY not in data:
             return None
+        if data["stage"] == safe_wait:
+            # An abandoned final SAFE_WAIT can be retired only with the
+            # existing exact session-bound continuation and history proof.
+            from tools.d137_guarded_final_safe_wait import valid_guarded_final_wait
+            if not valid_guarded_final_wait(data):
+                return None
         if data["stage"] == controller.STAGE_MIX and not any(
             isinstance(step, dict) and step.get("from") == controller.STAGE_MAIN
             and step.get("to") == controller.STAGE_MIX
@@ -96,6 +103,10 @@ class _ControllerSessionRetirement:
                         if name.startswith("STAGE_") and isinstance(getattr(controller, name), str)}
         if stage not in valid_stages:
             return False
+        if stage == getattr(controller, "STAGE_SAFE_WAIT", None):
+            from tools.d137_guarded_final_safe_wait import valid_guarded_final_wait
+            if not valid_guarded_final_wait(data):
+                return False
         current_stage = getattr(controller, "current_stage", controller.STAGE_IDLE)
         if current_stage != controller.STAGE_IDLE and (
                 current_stage != stage

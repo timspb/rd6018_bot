@@ -313,8 +313,6 @@ def install_operator_managed_stop(app: Any) -> None:
             if actions is not None
             else base_keyboard(app_arg, state)
         )
-        if actions is not None:
-            return base
         if (state.authority not in {hmi.HmiAuthority.AUTO, hmi.HmiAuthority.MANUAL}
                 and _active_session_token(app_arg) is None
                 and _orphan_stop_token(app_arg) is not None):
@@ -326,6 +324,8 @@ def install_operator_managed_stop(app: Any) -> None:
                 callback_data=STOP_CONFIRM_CALLBACK,
             )])
             return InlineKeyboardMarkup(inline_keyboard=rows)
+        if actions is not None:
+            return base
         return _replace_legacy_power_toggle(base, state)
 
     hmi.build_operator_keyboard = stop_only_keyboard
