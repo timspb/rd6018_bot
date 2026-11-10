@@ -233,6 +233,11 @@ class D137Tests(unittest.TestCase):
             self.assertEqual(payload["preserved_quarantine"]["session_id"], incident["identity"]["session_id"])
             self.assertEqual(payload["preserved_quarantine"]["battery_id"], incident["identity"]["battery_id"])
             self.assertTrue(payload["preserved_quarantine"]["session_absent"])
+            from tools.node104_d090_transaction import inventory
+            expected_app_sha = hashlib.sha256(
+                json.dumps(inventory(root / "app"), sort_keys=True, separators=(",", ":")).encode("ascii")
+            ).hexdigest()
+            self.assertEqual(payload["app_inventory_sha256"], expected_app_sha)
             self.assertEqual(payload["preserved_quarantine"]["quarantine_sha256"],
                              hashlib.sha256(original).hexdigest())
             self.assertEqual(path.read_bytes(), original)

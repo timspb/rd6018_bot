@@ -73,8 +73,6 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
     validate_snapshot(raw, pid=pid, now=clock(),
                       allow_active_session=active_persisted_session,
                       software_release=True)
-    if validate_app_inventory is not None:
-        validate_app_inventory()
     reconciliation = None
     if active_persisted_session:
         reconciliation = {
@@ -92,6 +90,8 @@ def assess(root: Path, stage: Path, *, pid: int, source_sha: str,
     if (preimage_sha256 is not None
             and preimage["preimage_sha256"] != preimage_sha256):
         raise ValueError("installed composite preimage drift")
+    if validate_app_inventory is not None:
+        validate_app_inventory(preimage)
     candidate = inspect_candidate(
         root=root, stage=stage, pid=pid, source_sha=source_sha,
         preimage_sha256=preimage["preimage_sha256"], observed_preimage_record=preimage)

@@ -369,8 +369,17 @@ def observed_preimage(root: Path, *, pid: int,
     venv1 = venv_inventory(venv)
     app2 = tree_manifest(app)
     venv2 = venv_inventory(venv)
-    if app1 != app2 or venv1 != venv2:
+    try:
+        from tools.node104_d090_transaction import inventory as installed_app_inventory
+    except ModuleNotFoundError:
+        from node104_d090_transaction import inventory as installed_app_inventory
+    app_inventory1 = installed_app_inventory(app)
+    app_inventory2 = installed_app_inventory(app)
+    if app1 != app2 or venv1 != venv2 or app_inventory1 != app_inventory2:
         raise RuntimeError("installed bytes changed during observation")
+    app_inventory_sha256 = hashlib.sha256(
+        json.dumps(app_inventory2, sort_keys=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
     if any(sha256(p) != before[str(p)] for p in tracked):
         raise RuntimeError("durable state changed during observation")
     argv2 = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
@@ -384,6 +393,7 @@ def observed_preimage(root: Path, *, pid: int,
         "root": str(root),
         "process": {"pid": pid, "entrypoint": str(app / "bot.py")},
         "installed_app": app2,
+        "app_inventory_sha256": app_inventory_sha256,
         "installed_venv": venv2,
         "d090": {
             "transaction": journal.get("transaction"),

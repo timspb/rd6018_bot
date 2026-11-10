@@ -76,8 +76,8 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
             raise d090.TransactionError("D144 invalid service MainPID")
         result = assess(owner.root, stage, pid=pid, source_sha=source_sha,
                         preimage_sha256=None, collector=collector,
-                        validate_app_inventory=lambda: d090.verify_pinned_preimage_app(
-                            owner.root / "app", owner.preimage_inventory_sha256))
+                        validate_app_inventory=lambda preimage: d090.verify_pinned_preimage_app(
+                            owner.root / "app", preimage["app_inventory_sha256"]))
         if result.get("preflight") != "PASS_AT_OBSERVATION_ONLY":
             raise d090.TransactionError("D142 pre-stop checks did not pass")
         return {

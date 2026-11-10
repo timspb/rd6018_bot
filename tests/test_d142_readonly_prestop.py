@@ -124,6 +124,9 @@ class D142Tests(unittest.TestCase):
                 self.assertEqual(kwargs["physical_off_reconciliation"]["source_nonces"],
                                  proof["source_nonces"])
                 return preimage
+            def validate_app(observed):
+                events.append("validate_app")
+                self.assertIs(observed,preimage)
             def inspect(**kwargs):
                 events.append("d138")
                 self.assertIs(kwargs["observed_preimage_record"],preimage)
@@ -140,8 +143,8 @@ class D142Tests(unittest.TestCase):
                  patch.object(Path,"read_bytes",fake_argv):
                 result=d142.assess(root,stage,pid=321,source_sha="b"*40,
                     preimage_sha256=preimage["preimage_sha256"],collector=root/"collector",
-                    collect=collect)
-            self.assertEqual(events,["fresh_d091","d137","d138"])
+                    collect=collect,validate_app_inventory=validate_app)
+            self.assertEqual(events,["fresh_d091","d137","validate_app","d138"])
             self.assertTrue(result["preserved_guarded_main"])
 
     def test_fresh_preimage_is_reported_without_static_profile_digest_comparison(self):
