@@ -114,8 +114,8 @@ class D142Tests(unittest.TestCase):
             preimage={"preimage_sha256":"f"*64,
                       "preserved_guarded_main":{"revision":481,"last_output_on":True}}
             candidate={"candidate_identity_sha256":"a"*64,
-                       "preserved_guarded_main":True,
-                       "preserved_guard":{"revision":481,"last_output_on":True}}
+                       "preserved_guarded_main":False,
+                       "preserved_quarantine":{"incident_id":"incident-1","session_absent":True}}
             def collect():
                 events.append("fresh_d091")
                 return proof
@@ -145,7 +145,8 @@ class D142Tests(unittest.TestCase):
                     preimage_sha256=preimage["preimage_sha256"],collector=root/"collector",
                     collect=collect,validate_app_inventory=validate_app)
             self.assertEqual(events,["fresh_d091","d137","validate_app","d138"])
-            self.assertTrue(result["preserved_guarded_main"])
+            self.assertFalse(result["preserved_guarded_main"])
+            self.assertEqual(result["preserved_quarantine"],candidate["preserved_quarantine"])
 
     def test_fresh_preimage_is_reported_without_static_profile_digest_comparison(self):
         with tempfile.TemporaryDirectory() as tmp:
