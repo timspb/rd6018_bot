@@ -5,7 +5,7 @@ import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
-from connector import Outbox
+from connector import Outbox, EventEnvelope
 from observer import GatewayClient, MIN_SUMMARY_S, tick
 
 NOW=1794300000
@@ -86,6 +86,35 @@ class ObserverTests(unittest.TestCase):
         events=self.box.pending(100)
         self.assertEqual(sum(e.event_type=="charger.guard_fault" for e in events),1)
         self.assertEqual(sum(e.event_type=="charger.guard_recovered" for e in events),1)
+
+    def test_unknown_guard_state_never_claims_recovery(self):
+        bad={**self.sample,"guard_state":"quarantined","fault_code":"guard_readback_fault"}
+        state=tick(self.box,{},NOW,"running",bad,[])
+        unknown={**self.sample,"guard_state":"unknown"}
+        state=tick(self.box,state,NOW+20,"running",unknown,[])
+        state=tick(self.box,state,NOW+40,"running",unknown,[])
+        events=self.box.pending(100)
+        self.assertEqual(sum(e.event_type=="charger.guard_fault" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.guard_state_unknown" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.guard_recovered" for e in events),0)
+        self.assertTrue(state["quarantine_active"])
+        good={**self.sample,"guard_state":"ok"}
+        state=tick(self.box,state,NOW+60,"running",good,[])
+        self.assertEqual(sum(e.event_type=="charger.guard_recovered" for e in self.box.pending(100)),1)
+
+    def test_existing_incident_fault_is_not_realerted_on_observer_reconcile(self):
+        incident_at="2026-11-10T05:09:53Z"
+        previous_event=EventEnvelope.for_occurrence(
+            "charger.guard_fault","old-alert",NOW,
+            {"fault_code":"guard_readback_fault","guard_state":"quarantined"},"critical"
+        )
+        self.box.enqueue(previous_event,NOW)
+        bad={**self.sample,"guard_state":"quarantined","fault_code":"guard_readback_fault",
+             "guard_incident_at":incident_at,"guard_incident_id":"incident-1"}
+        state=tick(self.box,{},NOW+20,"running",bad,[])
+        events=self.box.pending(100)
+        self.assertEqual(sum(e.event_type=="charger.guard_fault" for e in events),1)
+        self.assertTrue(state["quarantine_active"])
 
     def test_persistent_error_is_suppressed_then_new_occurrence_alerts(self):
         state=tick(self.box,{},NOW,"running",self.sample,[(NOW,"watchdog_timeout")])

@@ -1,0 +1,34 @@
+RD6018 / R7.2 — OWNER-AUTHORIZED PRODUCER ROUTE CUTOVER
+Run ID: rd6018-r72-producer-bind-cutover-20261110-01
+Project checkout: /mnt/e/CODEX/rd6018_bot
+Current chat route (verified by this chat's trusted inspector): e4df14fbac534f2086fa70fa7dc16c62
+Producer: rd6018/node104
+Expected current binding from fresh read-only inspection: 10dd32de00d144b398c2d3f89127be0c (enabled=1)
+Target route: e4df14fbac534f2086fa70fa7dc16c62 (enabled=1)
+R7.2 release: /opt/wake-bridge-r7/releases/ac9eaa4
+R7.2 DB: /home/ubuntu/.local/state/supervisor-wake-bridge-canary/routes.sqlite
+
+Owner has explicitly instructed in this chat: perform this operation or have Codex perform it. This authorizes the exact producer binding change below, not any broader route lifecycle action.
+
+Read docs/assistant/RD6018_CURRENT_CHECKPOINT.md and docs/V3_PROJECT_RUNBOOK.md first. Preserve all existing repository work. This is one narrow R7.2 producer-binding cutover.
+
+1. Preflight through the existing pinned HOME-PC→VM110 SSH identity already used by the shared R7.2 completion hook. Use BatchMode and the existing known_hosts pin; do not print or expose credentials. Read-only inspect:
+   - target route exists and enabled;
+   - producer rd6018/node104 binding;
+   - gateway service is active.
+   Do not read or print gateway.env values or any token.
+
+2. Compare exact state:
+   - If producer already points to target and is enabled, do not change it; report already correct.
+   - If producer points exactly to expected old route above and target is enabled, execute the official R7.2 operator API via its CLI (NOT direct SQLite): from /opt/wake-bridge-r7/releases/ac9eaa4 invoke:
+     python3 -m wakebridge.cli --db /home/ubuntu/.local/state/supervisor-wake-bridge-canary/routes.sqlite producer-bind --producer rd6018/node104 --route e4df14fbac534f2086fa70fa7dc16c62 --replace
+     Run this as the existing ubuntu operator over the pinned SSH path. This is the explicit wakebridge.producers.bind operation, which validates target route enabled and performs its own transaction.
+   - If the current binding is anything else, or the target route is not enabled, STOP without mutation and report exact mismatch.
+
+3. Verify using the official producer-list CLI and a separate read-only query: exactly one enabled row for rd6018/node104 pointing to target route; target route still enabled. Do not modify any other producer or route.
+
+4. Do NOT emit a test event in this task. Do not alter Gateway listener, credentials, firewall, node104 service, observer outbox, charger state, or any other deployment. No SQLite writes except those performed internally by the official producer-bind operator API.
+
+5. Update docs/assistant/RD6018_CURRENT_CHECKPOINT.md and docs/V3_PROJECT_RUNBOOK.md with exact operation, before/after binding, evidence and any blocker. Create reports/CODEX_RD6018_R72_PRODUCER_BIND_CUTOVER_20261110.txt. Do not include tokens, SSH key material, or secrets.
+
+6. No commits, pushes, deployments, broad tests, unrelated edits, or second Codex process. Use the shared launcher notification. Keep the run bounded and report precise PASS/HOLD.

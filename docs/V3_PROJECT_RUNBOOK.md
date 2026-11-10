@@ -1,5 +1,28 @@
 # RD6018 Bot V3 Project Runbook
 
+## R7.2 producer binding cutover — 2026-11-10: PASS
+
+Owner-authorized run `rd6018-r72-producer-bind-cutover-20261110-01` changed
+only producer `rd6018/node104` from enabled route
+`10dd32de00d144b398c2d3f89127be0c` to this chat's independently inspected
+enabled route `e4df14fbac534f2086fa70fa7dc16c62`. Preflight through the
+existing pinned HOME-PC→VM110 identity confirmed the target route enabled,
+the old producer binding exact, and `wake-event-gateway.service` active.
+The official R7.2 `wakebridge.cli producer-bind --replace` operator API
+returned `ok=true`. A subsequent official `producer-list` showed exactly
+one enabled row for `rd6018/node104` on the target route with
+`route_enabled=1`; `cezar/agent-factory` remained unchanged. The trusted
+chat inspector after the operation still returned this chat's own route.
+No direct SQLite writes were made.
+
+The initial Codex CLI run stopped at its MCP approval boundary; the controlling
+ChatGPT session then performed the exact owner-authorized operation through
+the existing HOME-PC connector and pinned VM110 host identity. No test event
+was emitted, so no new event delivery/ACK is claimed. Gateway configuration
+and token, node104 observer/service, outbox, charger and physical hardware
+were untouched. Evidence:
+`reports/CODEX_RD6018_R72_PRODUCER_BIND_CUTOVER_20261110.txt`.
+
 ## ОБЯЗАТЕЛЬНО: актуальные физические данные — напрямую с ESP Native API
 
 **БРАТЬ АКТУАЛЬНЫЕ ДАННЫЕ С ESP, А НЕ ИЗ HA, СТАРОГО ОТЧЁТА ИЛИ КЭША.**
@@ -1999,3 +2022,75 @@ R7.2 self-route inspector still returns `OWN_ENABLED_ROUTE_UNAVAILABLE` for this
 After the user reconnected the existing app, `wake_r72_inspect_this_chat({})` returned `ok=true`, enabled own-chat route `e4df14fbac534f2086fa70fa7dc16c62`, `last_ack=null`. Read-only inspection of VM110 `routes.sqlite` showed route `e4df14fbac534f2086fa70fa7dc16c62` is enabled, but producer `rd6018/node104` remains enabled on old route `10dd32de00d144b398c2d3f89127be0c`. The producer therefore must not be activated or allowed to send events yet.
 
 The installed R7.2 `wakebridge.producers.bind` operation is documented in source as an explicit trusted-local operator function, intentionally not exposed as a model-facing MCP action. Do not bypass that security boundary by directly editing `producer_routes` SQLite or invoking the private CLI over SSH/WinSCP. Required next step: perform the normal owner-authorized producer binding cutover through the trusted R7.2 operator surface, then re-inspect binding and current route. Only after that, transfer the existing `rd6018/node104` Gateway token into node104's dedicated root-owned mode-0600 EnvironmentFile, start the observer, and verify a unique event ID with exact current route and matching ACK. No event submitted and no binding changed in this step.
+
+
+## RD6018 observer activation preflight — 2026-11-10: HOLD
+
+The previous producer route cutover is PASS. The Gateway remains active on the
+private VM110 address `192.168.1.110:8765`; node104 `192.168.1.104/24`
+reaches `/healthz` with HTTP 200. The Gateway protected environment contains
+an existing 64-character token for `rd6018/node104`; its value is not copied
+into this repository or report.
+
+Node104 contains the staged observer program, root-owned mode-0600 JSON config,
+and root-owned systemd unit. The service is inactive and
+`/etc/rd6018-wake-observer.env` is absent. Read-only source snapshot currently
+reports telemetry freshness unknown and charger service running; recent
+charger error/critical journal query was empty. No event has been emitted by
+this observer.
+
+The automated attempt to transfer the existing Gateway credential to node104
+was blocked by the tool security boundary; no bypass was attempted. No secret
+was disclosed or copied, and no observer service, Gateway config, charger
+service, controller, ESP, HA, Output, setpoint, lease or D144 state was changed.
+
+**Next gate:** use the approved secret-injection path to create
+`/etc/rd6018-wake-observer.env` on node104 as root:root mode 0600, containing
+only the Gateway URL `http://192.168.1.110:8765` and the existing
+`rd6018/node104` producer token. Then enable/start the existing
+`rd6018-wake-observer.service`; verify the producer outbox's event IDs and
+Gateway acceptance; finally require exact event-ID match in this chat's trusted
+R7.2 inspector ACK. Never replay the existing app event while it is sending or
+the inspector ACK is null.
+
+Detailed evidence:
+`reports/RD6018_OBSERVER_ACTIVATION_20261110.txt`.
+
+
+## RD6018 observer active; guard-read defect repaired — 2026-11-10
+
+The existing rd6018/node104 Gateway producer token was streamed from VM110's
+protected environment to node104 in memory over the pinned D061 SSH connection.
+Node104 now has root-owned /etc/rd6018-wake-observer.env mode 0600. No token is
+recorded in repository, report or chat. rd6018-wake-observer.service is enabled
+and active; private Gateway health from node104 returns HTTP 200.
+
+A real service isolation defect was repaired. The observer's empty capability
+set prevented it from reading the protected quarantine journal owned by
+rd6018:rd6018 mode 0600. Missing guard state had been treated as non-quarantined
+and emitted a false recovery. The unit now grants only CAP_DAC_READ_SEARCH.
+Unreadable quarantine state is explicit unknown; tri-state event policy never
+claims recovery from unknown. A previously queued alert for the same incident
+is detected and not duplicated during reconciliation.
+
+Verification: 33 observer/connector tests PASS, Python compile PASS,
+systemd-analyze verify PASS. The deployed service now reads the live protected
+journal and records quarantine_active=true. Live snapshot:
+guard_state=quarantined, fault_code=guard_readback_fault, freshness_known=true,
+voltage ~0.01 V, current 0 A, external temperature 29 C, mode pb_managed,
+charger service running. No charger/controller/ESP/HA/Output/setpoint/protection/
+lease state was changed.
+
+R7.2 end-to-end delivery is still HOLD. The current chat route remains
+e4df14fbac534f2086fa70fa7dc16c62 and trusted inspector last_ack is null.
+Critical event ff08116a-5f98-5ae1-a211-6224780c8ebd has
+unknown_host_receipt quarantine; do not replay. A later telemetry-recovery
+event entered sending but did not reach submitted; its lease expired at
+2026-11-10T14:27:50Z. The next heartbeat remains queued. The existing R7.2
+panel's send path uses ChatGPT sendFollowUpMessage; host receipt is not
+established, a host-turn compatibility boundary rather than Gateway network
+or credential failure. No manual poll, lease mutation, queue mutation, forced
+ACK or replay was attempted.
+
+Detailed evidence:
+reports/RD6018_OBSERVER_ACTIVATION_GUARD_READ_FIX_20261110.txt.

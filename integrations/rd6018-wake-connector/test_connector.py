@@ -50,7 +50,7 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(EVENT_TYPES, frozenset({
             "charger.fault", "charger.stage_changed", "charger.mode_changed", "charger.guard_recovered",
             "charger.telemetry_stale", "charger.telemetry_unknown", "charger.telemetry_recovered", "charger.guard_fault",
-            "charger.service_down", "charger.service_recovered", "charger.heartbeat",
+            "charger.guard_state_unknown", "charger.service_down", "charger.service_recovered", "charger.heartbeat",
             }))
 
     def test_normalization_emits_rd6018_semantics_and_filters_payload(self):

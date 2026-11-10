@@ -86,8 +86,14 @@ def snapshot(now):
                 reason=str(q.get("reason",""))
                 values["fault_code"]=("guard_readback_fault" if "programmed_current_readback_mismatch" in reason
                      else "guard_timeout" if "timeout" in reason else "guard_fault")
+                incident_at=q.get("incident_utc")
+                incident_id=q.get("incident_id")
+                if isinstance(incident_at,str) and len(incident_at)<=64:
+                    values["guard_incident_at"]=incident_at
+                if isinstance(incident_id,str) and len(incident_id)<=64:
+                    values["guard_incident_id"]=incident_id
     except (OSError,ValueError,TypeError):
-        pass
+        values["guard_state"]="unknown"
     try:
         mode_path=STATE / "rd_control_mode_v2.json"
         if mode_path.stat().st_size<=16384:
@@ -180,13 +186,31 @@ def emit(outbox,event_type,key,now,measurements,severity="info"):
 def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SUMMARY_S):
     """Pure-ish event policy, testable without devices or transport."""
     state=dict(previous or {})
-    fault=samples.get("guard_state")=="quarantined"
-    if fault and not state.get("quarantine_active"):
-        emit(box,"charger.guard_fault","quarantine:"+str(now),now,samples,"critical")
-    elif not fault and state.get("quarantine_active"):
-        emit(box,"charger.guard_recovered","quarantine-recovered:"+str(now),now,
-             {**samples,"guard_state":"ok"})
-    state["quarantine_active"]=fault
+    guard_state=samples.get("guard_state","unknown")
+    if guard_state=="quarantined":
+        if not state.get("quarantine_active"):
+            fault_code=samples.get("fault_code","guard_fault")
+            incident_at=samples.get("guard_incident_at")
+            already_reported=(
+                isinstance(incident_at,str)
+                and box.has_guard_fault_for_incident(fault_code,incident_at)
+            )
+            if not already_reported:
+                identity=samples.get("guard_incident_id") or str(now)
+                emit(box,"charger.guard_fault","quarantine:"+str(identity),now,samples,"critical")
+        state["quarantine_active"]=True
+        state["guard_state_status"]="quarantined"
+    elif guard_state=="ok":
+        if state.get("quarantine_active"):
+            emit(box,"charger.guard_recovered","quarantine-recovered:"+str(now),now,
+                 {**samples,"guard_state":"ok"})
+        state["quarantine_active"]=False
+        state["guard_state_status"]="ok"
+    else:
+        if state.get("guard_state_status")!="unknown":
+            emit(box,"charger.guard_state_unknown","guard-state-unknown:"+str(now),now,
+                 {**samples,"guard_state":"unknown"},"warning")
+        state["guard_state_status"]="unknown"
     last_service=state.get("service_state")
     if service=="down" and last_service!="down":
         emit(box,"charger.service_down","service:"+str(now),now,samples,"critical")

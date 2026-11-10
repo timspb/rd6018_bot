@@ -22,7 +22,7 @@ SOURCE = "rd6018-node104"
 EVENT_TYPES = frozenset({
     "charger.fault", "charger.stage_changed", "charger.mode_changed", "charger.guard_recovered", "charger.telemetry_stale",
     "charger.telemetry_unknown", "charger.telemetry_recovered",
-    "charger.guard_fault", "charger.service_down", "charger.service_recovered",
+    "charger.guard_fault", "charger.guard_state_unknown", "charger.service_down", "charger.service_recovered",
     "charger.heartbeat",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
@@ -32,9 +32,11 @@ PAYLOAD_FIELDS = frozenset({
     "ocp_a", "output_state", "temperature_internal_c", "temperature_external_c",
     "freshness_s", "freshness_known", "guard_state", "service_state",
     "protection_code", "regulation_code", "autonomous_mode", "output_state_code",
+    "guard_incident_at", "guard_incident_id",
 })
 _TEXT_FIELDS = frozenset({"stage", "control_mode", "fault_code", "guard_state", "service_state",
-                         "protection_code", "regulation_code", "output_state_code"})
+                         "protection_code", "regulation_code", "output_state_code",
+                         "guard_incident_at", "guard_incident_id"})
 _NUMBER_FIELDS = frozenset({
     "voltage_v", "current_a", "battery_voltage_v", "input_voltage_v",
     "configured_voltage_v", "configured_current_a", "ovp_v", "ocp_a",
@@ -249,6 +251,24 @@ class Outbox:
             self.set_submission_result(event.event_id, result)
             count += result is GatewayAcceptance.ACCEPTED
         return count
+
+    def has_guard_fault_for_incident(self, fault_code: str, incident_at: str) -> bool:
+        """Avoid re-alerting an already queued fault for the same still-open incident."""
+        rows = self.db.execute(
+            "SELECT payload FROM events WHERE state IN ('pending_gateway','gateway_accepted','quarantined_unknown')"
+        ).fetchall()
+        for (raw,) in rows:
+            try:
+                event = json.loads(raw)
+                payload = event.get("payload", {})
+                occurred = event.get("occurred_at", "")
+                if (event.get("event_type") == "charger.guard_fault"
+                        and payload.get("fault_code") == fault_code
+                        and isinstance(occurred, str) and occurred >= incident_at):
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
 
     def load_state(self, key: str = "previous") -> dict[str, Any] | None:
         row = self.db.execute("SELECT payload FROM connector_state WHERE state_key=?", (key,)).fetchone()

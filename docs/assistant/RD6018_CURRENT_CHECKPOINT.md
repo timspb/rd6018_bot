@@ -1,5 +1,31 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-10)
 
+## 2026-11-10 — R7.2 producer binding cutover: PASS
+
+Owner-authorized run `rd6018-r72-producer-bind-cutover-20261110-01` completed.
+The trusted chat inspector confirmed this chat's enabled route:
+`e4df14fbac534f2086fa70fa7dc16c62`. Fresh VM110 preflight through the existing
+HOME-PC pinned SSH identity and strict known-host checking confirmed producer
+`rd6018/node104` was enabled on old route
+`10dd32de00d144b398c2d3f89127be0c`, target route enabled, and
+`wake-event-gateway.service` active.
+
+The official R7.2 operator API `wakebridge.cli producer-bind --replace` was
+executed for that producer and exact target route. The official
+`producer-list` then showed exactly one enabled producer row on
+`e4df14fbac534f2086fa70fa7dc16c62` with `route_enabled=1`; the other
+producer binding remained unchanged. A second trusted chat inspection still
+resolved this chat to the same route. **Binding cutover PASS.**
+
+The first Codex CLI attempt could not invoke MCP connector tools under its
+`approval=never` policy and recorded an interim HOLD. The controlling ChatGPT
+session completed the operation through the already-authorized HOME-PC
+connector and pinned VM110 host identity. No direct SQLite edits were made.
+No event was emitted and no new delivery ACK is claimed. Gateway config/token,
+node104 observer/service, outbox, charger, ESP, HA, Output, setpoints,
+protections and lease were not changed. Full evidence:
+`reports/CODEX_RD6018_R72_PRODUCER_BIND_CUTOVER_20261110.txt`.
+
 ## CURRENT OBSERVER STATUS — RD6018 → Event Gateway → Wake Bridge R7.2
 
 **Scope:** finish the separate read-only node104 observer and event delivery only. Do not modify the charger, active charge session, RD6018 bot, ESP firmware, Output, setpoints, protection, lease, or D144/D145 production slot.
@@ -2371,3 +2397,75 @@ Validation in isolated WSL Python 3.12:
 - py_compile and git diff --check: PASS.
 
 Source-only. No service, ESP, HA, charge session, Output, setpoint, lease, node104 or D144/D145 slot was touched. Production deployment remains HOLD pending the established release admission and physical acceptance.
+
+
+## 2026-11-10 — node104 observer activation preflight: HOLD
+
+Run `rd6018-observer-activation-20261110-01`. The R7.2 producer binding remains
+correct for this chat. VM110 Gateway is active and bound to private-side
+`192.168.1.110:8765`; node104 `192.168.1.104/24` receives HTTP 200 from
+`/healthz`. The existing VM110 protected environment contains a 64-character
+token for producer `rd6018/node104`; its value was not disclosed.
+
+Node104 has the observer source, root-owned config and systemd unit staged.
+The observer service is inactive (MainPID 0); its required
+`/etc/rd6018-wake-observer.env` is absent. Read-only observer snapshot currently
+reports `freshness_known=false` and charger service `running`; recent
+charger error/critical journal query was empty. This is not telemetry freshness
+acceptance. The attempt to transfer the existing token through the automated
+tool path was blocked by the tool security boundary. No bypass was attempted,
+no secret was copied, and the observer was not started/enabled. No Gateway,
+charger, controller, ESP, HA, Output, setpoint, lease or D144 state changed.
+
+Next: provision the existing producer token through the approved secret-
+injection path into root:root `0600`
+`/etc/rd6018-wake-observer.env`, with
+`RD6018_WAKE_GATEWAY_URL=http://192.168.1.110:8765` and
+`RD6018_WAKE_GATEWAY_TOKEN`. Then enable/start the existing observer, inspect
+its real outbox event IDs, and accept delivery only after matching this chat's
+trusted R7.2 ACK. Current inspector result remains `last_ack=null`; do not
+replay the app's existing `sending` event. Evidence:
+`reports/RD6018_OBSERVER_ACTIVATION_20261110.txt`.
+
+
+## 2026-11-10 — observer active; quarantine read fixed; R7.2 host ACK HOLD
+
+Run rd6018-observer-activation-guard-read-fix-20261110-01. The existing
+producer credential was streamed from VM110's protected Gateway environment
+to node104 in memory over the pinned D061 SSH connection. No token value was
+logged or persisted outside root-owned /etc/rd6018-wake-observer.env
+(mode 0600). The observer service is enabled and active (latest MainPID
+244494, NRestarts 0); node104 reaches the private Gateway at
+192.168.1.110:8765 with HTTP 200.
+
+A real defect was found and fixed: the observer had an empty capability set
+and could not read the protected quarantine journal owned by rd6018:rd6018
+(mode 0600). It silently omitted guard state and could falsely emit a recovery.
+The service now receives only CAP_DAC_READ_SEARCH; unreadable journal state
+is explicit unknown, not ok; tri-state guard logic cannot recover from
+unknown; an already queued alert for the same incident suppresses a duplicate.
+The protected journal is now readable from the service namespace.
+
+After deployment/restart, live snapshot confirms the current fault:
+guard_state=quarantined, fault_code=guard_readback_fault,
+freshness_known=true, current age 21.4 s at verification, voltage ~0.01 V,
+current 0 A, external temperature 29 C, mode pb_managed, charger service
+running. Persisted observer state now records quarantine_active=true.
+No charger control/hardware state was changed.
+
+Regression: 33 observer/connector tests PASS; Python compile PASS;
+systemd-analyze verify PASS. The existing critical event for this incident
+was not duplicated.
+
+R7.2 queue delivery remains HOLD: own chat route
+e4df14fbac534f2086fa70fa7dc16c62, inspector last_ack=null. The critical
+event ff08116a-5f98-5ae1-a211-6224780c8ebd is already
+quarantined/unknown_host_receipt; never replay it. The latest telemetry
+recovery event entered sending but never reached submitted; its 300 s
+lease expired at 14:27:50Z. The newest heartbeat remains queued. The R7.2 UI
+uses ChatGPT sendFollowUpMessage; no host receipt or ACK has been established.
+This is a host-turn compatibility boundary, not Gateway/token/network failure.
+No manual poll, queue mutation, forced ACK, lease edit or replay was attempted.
+
+Detailed evidence:
+reports/RD6018_OBSERVER_ACTIVATION_GUARD_READ_FIX_20261110.txt.
