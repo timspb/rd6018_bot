@@ -313,6 +313,10 @@ def install_operator_managed_stop(app: Any) -> None:
             if actions is not None
             else base_keyboard(app_arg, state)
         )
+        # Logical action views may be rendered without a hydrated HMI state.
+        # They must not be coupled to the orphan-session STOP affordance.
+        if state is None:
+            return base
         if (state.authority not in {hmi.HmiAuthority.AUTO, hmi.HmiAuthority.MANUAL}
                 and _active_session_token(app_arg) is None
                 and _orphan_stop_token(app_arg) is not None):
