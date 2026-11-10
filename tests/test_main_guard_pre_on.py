@@ -150,7 +150,6 @@ class MainGuardPreOnTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
         )
         doc = attach_guard(canonical(), reduced, now_s=self.now, expected_revision=0)
         restored, _ = read_guard(doc, session_id="sid",

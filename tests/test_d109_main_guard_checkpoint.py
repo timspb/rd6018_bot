@@ -194,8 +194,7 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
                         measured_current_a=measured,measured_current_fresh=True,
                         current_limit_readback_a=proposal.target_limit_a,
                         current_readback_fresh=True,
-                        ocp_limit_a=proposal.target_limit_a+.1,
-                        ocp_readback_fresh=True)
+)
                     holder.guard=current
                     # Persist the pure acknowledged state through the same
                     # canonical owner adapter. No actuator method is invoked.

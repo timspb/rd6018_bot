@@ -46,9 +46,6 @@ async def execute_controller_action_batch(
             controller=controller, actions=actions, now=time.monotonic,
             max_stage_current_a=float(max_stage_current_a),
             recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-            has_ovp=bool(has_ovp), has_ocp=bool(has_ocp),
-            ocp_offset_a=float(ocp_offset_a),
-            stabilize_delay_s=float(stabilize_delay_s),
             battery_v=float(battery_v), current=float(current), ah=float(ah),
         )
         if execution is not None and not execution.verified:

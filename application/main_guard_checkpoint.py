@@ -26,7 +26,7 @@ class MainGuardCheckpointError(RuntimeError):
 class CanonicalMainGuardCheckpoint:
     """Write pending and post-readback ACK in the existing charge_session.json.
 
-    The lock must already be held across preflight, hardware Iset/OCP and the
+    The lock must already be held across preflight, hardware Iset and the
     two durable writes. A stale/missing/conflicting journal never gets silently
     reset. No caller other than the charge runtime should own this instance.
     """

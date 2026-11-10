@@ -2338,3 +2338,18 @@ Fixed the /recovery_clear dead end for the authentic case where charge_session.j
 The existing-session retirement path remains unchanged. Unknown/corrupt journal, mismatched incident/session/battery, non-IDLE controller, or missing fresh OFF evidence remain fail-closed. No OCP control/readback was reinstated.
 
 Validation: focused recovery/MAIN Guard cohort 107 PASS, 18 subtests PASS before the additional diagnostic test; expanded cohort after the follow-up MAIN Guard signature cleanup 157 PASS, 2 deselected, 85 subtests PASS. Two tests were deselected only because this Windows runner cannot create symlinks (WinError 1314) and the other uses a Linux-only path/encoding assumption. The full suite cannot be collected on Windows because release tooling imports Linux-only fcntl/grp modules; re-run full regression under the project's Linux/Python 3.11 environment before release. py_compile and git diff --check PASS. No node104 files, HA, ESP, service, charge state, Output, lease, or D144 slot were changed. Production deployment remains HOLD; this is source-only until Linux regression and exact release admission are complete.
+
+
+## 2026-11-10 — MAIN Guard is Iset-only; remove stale OCP contract
+
+Owner correction applied: OCP was already removed from the MAIN Guard control contract and must not be reintroduced as an Iset-ratchet companion. The previous source still carried stale OCP arguments in the MAIN Guard commit/readback and verified-desulfation-return APIs. Removed those arguments and the corresponding test fixture expectations. MAIN Guard now admits/commits a reduction using the measured-current and Native Iset evidence only; the verified desulfation return likewise checks current-setpoint reset and fresh Output-OFF evidence without an OCP readback parameter. Updated production comments/log wording and the checkpoint/shadow descriptions so they no longer label this Iset-only operation as Iset/OCP.
+
+Scope is deliberately limited to MAIN Guard. This does not change independent hardware trip telemetry, RuntimeSafetyGuard, or explicit recipe-owned MIX protection. No protection actuator was added and no OCP setter/readback was reinstated in MAIN Guard.
+
+Validation in isolated WSL Python 3.12:
+- MAIN Guard/recovery focused cohort: 140 PASS.
+- Full pytest tests: 3199 passed, 2 failed, 3 skipped (475.65 s).
+- The two failures are the same pre-existing operator UI state=None failures on the parent baseline (operator_managed_stop.py, test_operator_actions.py::test_keyboard_renders_logical_actions_without_runtime_objects, and test_operator_hmi.py::test_idle_safety_denial_does_not_hide_charge_workspace_navigation). Parent baseline full suite: 3189 passed, 3 failed, 3 skipped; its third failure was D149 router pin matching, which is fixed in the current branch. Thus the current full run has no new failure relative to the parent baseline and has ten additional passing tests.
+- py_compile and git diff --check: PASS.
+
+Source-only. No service, ESP, HA, charge session, Output, setpoint, lease, node104 or D144/D145 slot was touched. Production deployment remains HOLD pending the established release admission and physical acceptance.

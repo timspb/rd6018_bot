@@ -22,12 +22,12 @@ class MainCurrentGuardTests(unittest.TestCase):
                 break
         return state, proposal
 
-    def ack(self, state, proposal, now=1801, *, current=4, ocp=None, fresh=True,
-            current_readback_fresh=True, ocp_fresh=True):
+    def ack(self, state, proposal, now=1801, *, current=4, fresh=True,
+            current_readback_fresh=True):
         return state.commit(proposal_id=proposal.proposal_id, now_s=now, measured_current_a=current,
-                            measured_current_fresh=fresh, ocp_limit_a=(proposal.target_limit_a + 0.1) if ocp is None else ocp,
+                            measured_current_fresh=fresh,
                             current_limit_readback_a=proposal.target_limit_a,
-                            current_readback_fresh=current_readback_fresh, ocp_readback_fresh=ocp_fresh)
+                            current_readback_fresh=current_readback_fresh)
 
     def test_72ah_starts_at_7_2a(self):
         self.assertEqual(self.make().initial_limit_a, 7.2)
@@ -138,24 +138,24 @@ class MainCurrentGuardTests(unittest.TestCase):
         s = s.return_after_verified_desulfation(
             now_s=2100, from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=True, current_readback_a=7.2,
-            ocp_readback_a=7.3, readbacks_fresh=True, segment_id="main-return-2")
+            readbacks_fresh=True, segment_id="main-return-2")
         self.assertEqual(s.hardware_limit_a, 7.2)
         self.assertEqual(s.accrued_output_on_s, 0)
         self.assertIn("return", s.segment_id)
 
-    def test_desulfation_return_must_have_verified_i_and_ocp(self):
+    def test_desulfation_return_requires_verified_current_readback(self):
         s, p = self.due(self.make(), current=4)
         s = self.ack(s, p)
         bad = s.return_after_verified_desulfation(
             now_s=2100, from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=True, current_readback_a=5.0,
-            ocp_readback_a=5.1, readbacks_fresh=True, segment_id="return-2")
+            readbacks_fresh=True, segment_id="return-2")
         self.assertEqual(bad.hardware_limit_a, 5)
         self.assertEqual(bad.fault, "desulfation_return_readback_mismatch")
         good = s.return_after_verified_desulfation(
             now_s=2100, from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=True, current_readback_a=7.2,
-            ocp_readback_a=7.3, readbacks_fresh=True, segment_id="return-2")
+            readbacks_fresh=True, segment_id="return-2")
         self.assertEqual(good.hardware_limit_a, 7.2)
         self.assertEqual(good.accrued_output_on_s, 0)
         self.assertFalse(good.last_output_on)
@@ -166,7 +166,7 @@ class MainCurrentGuardTests(unittest.TestCase):
         unproved = s.return_after_verified_desulfation(
             now_s=2100, from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=False, current_readback_a=7.2,
-            ocp_readback_a=7.3, readbacks_fresh=True, segment_id="return-2")
+            readbacks_fresh=True, segment_id="return-2")
         self.assertIsNotNone(unproved.fault)
         self.assertEqual(unproved.hardware_limit_a, 5)
 
@@ -179,14 +179,14 @@ class MainCurrentGuardTests(unittest.TestCase):
                 rejected = s.return_after_verified_desulfation(
                     now_s=2100, from_stage="DESULFATION", to_stage="MAIN",
                     output_off_proven=off_proof, current_readback_a=7.2,
-                    ocp_readback_a=7.3, readbacks_fresh=fresh_proof,
+                    readbacks_fresh=fresh_proof,
                     segment_id="return-2",
                 )
                 self.assertEqual(rejected.hardware_limit_a, 5)
                 self.assertEqual(rejected.fault,
                                  "desulfation_return_boundary_unproven")
 
-    def test_missing_or_mismatched_ocp_does_not_block_current_commit(self):
+    def test_current_commit_requires_only_current_readbacks(self):
         s, p = self.due(self.make(), current=4)
         committed = s.commit(proposal_id=p.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,
@@ -220,7 +220,7 @@ class MainCurrentGuardTests(unittest.TestCase):
         bad = s.commit(
             proposal_id=p.proposal_id, now_s=1801, measured_current_a=4,
             measured_current_fresh=True, current_limit_readback_a=7.2,
-            current_readback_fresh=True, ocp_limit_a=5.1, ocp_readback_fresh=True)
+            current_readback_fresh=True)
         self.assertEqual(bad.fault, "programmed_current_readback_mismatch")
 
     def test_stage_change_alone_does_not_reset_cap(self):
@@ -284,15 +284,13 @@ class MainCurrentGuardTests(unittest.TestCase):
         s, p = self.due(self.make(), current=4)
         self.assertIn("ambiguous", s.commit(proposal_id="bogus", now_s=1801, measured_current_a=4,
                        measured_current_fresh=True, current_limit_readback_a=5, current_readback_fresh=True,
-                       ocp_limit_a=7.2, ocp_readback_fresh=True).fault)
-        self.assertIsNone(self.ack(s, p, ocp=0.1).fault)
-        self.assertIsNone(self.ack(s, p, ocp=8).fault)
+                       ).fault)
+        self.assertIsNone(self.ack(s, p).fault)
 
-    def test_stale_current_ack_fails_but_ocp_freshness_is_irrelevant(self):
+    def test_stale_current_ack_fails(self):
         s, p = self.due(self.make(), current=4)
         self.assertEqual(self.ack(s, p, fresh=False).fault, "stale_readback")
         self.assertEqual(self.ack(s, p, current_readback_fresh=False).fault, "stale_readback")
-        self.assertIsNone(self.ack(s, p, ocp_fresh=False).fault)
 
     def test_commit_requires_fresh_current_readback_only(self):
         s, p = self.due(self.make(), current=4)
@@ -318,7 +316,7 @@ class MainCurrentGuardTests(unittest.TestCase):
         s = self.ack(s, p)
         replay = s.commit(proposal_id=p.proposal_id, now_s=1802, measured_current_a=4,
                           measured_current_fresh=True, current_limit_readback_a=5, current_readback_fresh=True,
-                          ocp_limit_a=5, ocp_readback_fresh=True)
+                          )
         self.assertIn("ambiguous", replay.fault)
 
     def test_snapshot_restart_preserves_cap_and_session_state(self):

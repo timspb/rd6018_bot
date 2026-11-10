@@ -2563,7 +2563,7 @@ async def data_logger() -> None:
                     )
                     # Accepted MAIN identity is not a runtime-private hint:
                     # compare the canonical durable session, its recipe and
-                    # fresh physical Iset/OCP while holding the common owner.
+                    # fresh physical Iset readback while holding the common owner.
                     canonical_main_session = read_canonical_session(SESSION_FILE)
                     admission = admit_main_guard_shadow(
                         controller=charge_controller,
@@ -2644,7 +2644,7 @@ async def data_logger() -> None:
                             if outcome is not None:
                                 if outcome.verified:
                                     logger.info(
-                                        "MAIN Guard Iset/OCP reduced and journaled: %.2f A",
+                                        "MAIN Guard Iset reduced and journaled: %.2f A",
                                         outcome.guard.hardware_limit_a,
                                     )
                                 else:

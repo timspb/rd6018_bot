@@ -259,8 +259,7 @@ async def execute_main_guard_reduction(
 async def execute_main_guard_desulfation_return(
     port: Any, *, controller: Any, actions: Mapping[str, Any],
     execution_lock: asyncio.Lock, now: Now, max_stage_current_a: float,
-    recipe_voltage_ceiling_v: float, has_ovp: bool, has_ocp: bool,
-    ocp_offset_a: float, stabilize_delay_s: float,
+    recipe_voltage_ceiling_v: float,
     battery_v: float, current: float, ah: float,
 ) -> MainGuardExecutionResult:
     """Restore the existing guard's original MAIN current after verified OFF.
@@ -365,7 +364,7 @@ async def execute_main_guard_desulfation_return(
         returned = guard.return_after_verified_desulfation(
             now_s=float(now()), from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=True, current_readback_a=actual_i,
-            ocp_readback_a=None, readbacks_fresh=True,
+            readbacks_fresh=True,
             segment_id=f"{guard.session_id}:MAIN:{float(now()).hex()}",
         )
         if returned.fault:
@@ -399,7 +398,6 @@ async def execute_main_guard_desulfation_return(
                     port, controller,
                     pre_return_guard, return_checkpoint_guard,
                     battery_v, current, ah, now, max_stage_current_a,
-                    ocp_offset_a, stabilize_delay_s,
                 )
         raise
     except Exception as exc:
@@ -414,7 +412,6 @@ async def execute_main_guard_desulfation_return(
                 await _compensate_interrupted_return(
                     port, controller, pre_return_guard, return_checkpoint_guard,
                     battery_v, current, ah, now, max_stage_current_a,
-                    ocp_offset_a, stabilize_delay_s,
                 )
                 guard = controller._main_current_guard
             except Exception as compensation_error:
@@ -432,8 +429,7 @@ async def execute_main_guard_desulfation_return(
 async def _compensate_interrupted_return(
     port: Any, controller: Any, prior: MainCurrentGuard,
     checkpoint: MainCurrentGuard, battery_v: float, current: float,
-    ah: float, now: Now, max_stage_current_a: float, ocp_offset_a: float,
-    stabilize_delay_s: float,
+    ah: float, now: Now, max_stage_current_a: float,
 ) -> None:
     """Durably retain the interrupted epoch while restoring its old Iset cap.
 
