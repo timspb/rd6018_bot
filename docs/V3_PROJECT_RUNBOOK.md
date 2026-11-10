@@ -1823,3 +1823,32 @@ Remaining RS-4 release boundaries: review/validate PC browser UI with a real bro
 ## 2026-11-09 — MAIN/MIX operator journal source acceptance (not node104 deployment)
 
 On HOME-PC feature branch `feature/main-mix-countdown-display`, journal/HMI telemetry source code commit `c70a6de38efbd6de8540ae09e6c3b40d4d524805` extends existing controller evidence with readable MAIN→MIX reason and thresholds, new-fact Imin/Vmax/Delta evidence, actual recipe finish-hold duration, a MIX progress message at the **existing** 10-minute checkpoint, and session-aware temperature source/age/status provenance. Fail-closed read-only formatting never substitutes a measured RD regulation mode. One execution owner and existing charge algorithm/safety remain intact. Source regression 212/212 PASS, separate D177 synthetic dry-run 31/31 PASS (different not-merged worktree). See `docs/assistant/RD6018_JOURNAL_TEMPERATURE_DRYRUN_2026-11-09.md` for exact coverage/limitations. Node104 and battery were untouched, temperature disagreement 25°C physical vs 23°C Telegram still requires fresh direct ESP Native readback and simultaneous secondary HA. No release/firmware/Output actuation or GitHub publication occurred at this checkpoint.
+## 2026-11-10 — standalone RD6018 Wake R7.2 connector (source only)
+
+Added a separate `integrations/rd6018-wake-connector/` package with a
+read-only snapshot contract, strict event normalization, allowlisted fields,
+stable event IDs, a size/age-bounded SQLite outbox, retry backoff, external
+per-chat route validation, config schema/example, isolated systemd template,
+and mocked tests. The connector service reads only an operator-provided
+read-only diagnostic snapshot file and persists locally. It does not import
+the bot runtime or use actuator/ESP/HA write paths.
+
+Audit boundary: D106 (`tools/node104_d106_live_observer.py`) and D151/D091 are
+read-only OFF/release proof collectors; D106 rejects active persistent charge
+sessions, so neither is a suitable periodic source during the owner-reported
+active charge. The exact R7.2-capable call found in the existing HOME-PC
+launcher is `notify_r72_complete.py`, which represents Codex task completion.
+It is deliberately not used for RD events. No generic R7.2 producer/ACK query
+is exposed by current MCP tools or found in the accessible documented
+interfaces. Outbound transport is therefore disabled; events remain local.
+No ACK or delivery claim is made.
+
+Focused package tests: `python3 -m unittest -v test_connector.py` — **8
+passed**. This verifies parser/normalization, route validation, secret-field
+exclusion, dedupe/restart persistence, retry timing, invalid-route hold,
+submitted-vs-acknowledged state distinction, config permissions, and
+snapshot symlink/size refusal. No live source, R7.2 transport, SSH, ESP, HA,
+node104 service, or charger was accessed. Owner reports charge actively
+running; D144 slot18 source `7c40e54` remains untouched. This package is not
+ready to install/enable until an admitted live-charge-safe source interface
+and supported generic R7.2 submission/ACK contract are supplied.

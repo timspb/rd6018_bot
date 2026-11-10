@@ -1,0 +1,26 @@
+[Unit]
+Description=RD6018 read-only Wake R7.2 event connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rd6018-wake-connector
+Group=rd6018-wake-connector
+ExecStart=/opt/rd6018-wake-connector/venv/bin/python /opt/rd6018-wake-connector/connector_service.py --config /etc/rd6018-wake-connector/config.json
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/run/rd6018-readonly-diagnostic
+ReadWritePaths=/var/lib/rd6018-wake-connector
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=96M
+CPUQuota=20%
+TasksMax=16
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

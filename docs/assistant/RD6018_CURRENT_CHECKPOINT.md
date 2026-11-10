@@ -2186,3 +2186,32 @@ Found existing user-confirmed STOP path `operator_managed_stop._stop_orphan_main
 ## 2026-11-10 — safe verified-OFF orphan final SAFE_WAIT STOP deployed to node104
 
 **Current production code:** `7c40e54f6db58a1b8720f8c0706fb780604bb37d`, D144 slot18 **COMMITTED**, source-paired D145 owner execute exit 0, service `active` new PID 242006, NRestarts=0. Backup `d144-backup-18`; D151 pinned observer unchanged. 3192 complete source suite PASS / 3 skipped / 0 fail; 78 focused START/STOP/HMI PASS. New code handles canonical, verified final SAFE_WAIT via existing orphan STOP retirement; action-view panels now expose `🛑 Завершить сохранённую сессию` for that exact candidate. Post-release fresh D151 Native+HA OFF, 0 A, unarmed lease, one owner. Read-only installed retirement adapter against persisted final wait: ORPHAN_STOP_BINDING True, IDENTITY_VALID True; `pb_managed`. **Actual Telegram confirmation, durable retirement and physical NEW START have NOT happened**. Old SAFE_WAIT and Guard remain unchanged, so START is still correctly blocked until explicit STOP confirmation. Detailed runbook: `docs/assistant/RD6018_SAFE_WAIT_OPERATOR_STOP_NODE104_2026-11-10.md`. Do not delete the session, skip proof, or press hardware START on operator's behalf. Next: operator refreshes panel, taps `Завершить сохранённую сессию`, confirms verified OFF retirement, then explicitly STARTs EFB 60 Ah. After confirmation collect new durable tombstone, Native R18 and initial start status; if refused inspect the exact logger and callback rather than bypassing the guard.
+## 2026-11-10 — standalone Wake R7.2 connector package (SOURCE ONLY)
+
+Starting repository HEAD verified as `5126f5a4cca03ebcb2eb953636c3a5bf5f0058f6`
+on `feature/main-mix-countdown-display`; origin comparison was 0 ahead / 0
+behind. Package source is currently uncommitted in
+`integrations/rd6018-wake-connector/`; exact implementation tree is identified
+by the pending worktree diff (do not claim a new commit SHA). Added typed
+snapshot normalization, secret-safe allowlisting, stable IDs, persistent
+bounded SQLite outbox with retries, external per-chat route validation/config
+schema, standalone service and unenabled systemd template. Focused tests:
+`python3 -m unittest -v test_connector.py` — 8 PASS. `git diff --check` PASS.
+
+Transport audit: D106/D151 are read-only OFF/release proof collectors and do
+not support live-charge polling (D106 rejects an active persistent session).
+Existing HOME-PC launcher submission is completion-only; using it for RD
+events would fabricate Codex completion. No generic R7.2 event producer or ACK
+query is available in the current tool/interface inventory. Connector holds
+events locally without a supported injected producer and never equates
+submission with ACK. Live-charge-safe source adapter also remains unresolved.
+
+Production boundary: owner states node104 is actively charging on D144 slot18
+source `7c40e54`; this turn performed no fresh hardware reads, service or
+filesystem access, control writes, deployment, restart, or charge operation.
+Installed baseline and state remain untouched. Exact no-deploy status:
+SOURCE ONLY; unit template is not installed or enabled. Local/origin gap
+remains 0/0 at the starting HEAD; uncommitted package changes are local.
+Next: obtain owner-approved existing live read-only source interface and the
+R7.2 team's supported generic producer plus ACK contract; implement and mock
+those adapters, then separately review safe activation after charge completes.
