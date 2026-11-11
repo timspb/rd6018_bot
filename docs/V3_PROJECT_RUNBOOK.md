@@ -1,5 +1,33 @@
 # RD6018 Bot V3 Project Runbook
 
+## Canonical mandatory post-release cleanup — 2026-11-11
+
+Every node104 installation is INCOMPLETE until after verified D144 COMMITTED,
+installed SHA, service health, physical OFF and telemetry checks, the deployer
+cleans ALL superseded deployment artifacts. Do not accumulate safety copies
+"just in case". Remove old D138 stages, upload temporaries, obsolete candidate
+folders, prior D144 backup/old app/venv directories, abandoned pip-unpack,
+unused install scripts and stale release material after confirming they are
+not referenced by the active transaction. Preserve runtime app/venv/state,
+service unit/environment/secrets, D090/D144 identity journals and immutable
+D151 collectors. Keep only the minimal currently required rollback boundary
+while a transaction is in flight; prune it after committed acceptance according
+to the owner's release contract. Never delete logs/database/state or disable
+services merely because they look old without verifying their consumers.
+Measure disk use before and after, audit `systemctl`, verify no D144 active
+transaction, and report exact installed SHA and remaining artifacts. Treat
+cleanup as part of DONE, not optional follow-up.
+
+## 2026-11-11 D145 software-only proof correction
+
+Python-only D145 `execute` must call `D090Transaction._read_recovery_proof`
+for all four D151 phases, including idle/no-quarantine state. This validates
+fresh independent HA + ESP Native Output OFF, zero current, service phase,
+lease, session and source nonces without incorrectly requiring zero battery
+voltage. Firmware/physical release paths retain strict voltage proof. The
+previous conditional based on preserved quarantine incorrectly blocked idle
+software releases when physical battery voltage was nonzero.
+
 ## R7.2 producer binding cutover — 2026-11-10: PASS
 
 Owner-authorized run `rd6018-r72-producer-bind-cutover-20261110-01` changed
