@@ -49,7 +49,11 @@ class D149RouterTests(unittest.TestCase):
 
     def test_d151_pin_matches_existing_readonly_d091_source(self):
         source = Path(__file__).resolve().parents[1] / "tools/node104_d091_physical_proof_collector.py"
-        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), REAL_D151_SHA)
+        # D151 pins the byte-for-byte CRLF collector deployed on node104.
+        # GitHub Linux checkout normalizes tracked Python sources to LF;
+        # reconstruct the deployed CRLF bytes for the immutable pin check.
+        source_lf = source.read_bytes().replace(b"\r\n", b"\n")
+        self.assertEqual(hashlib.sha256(source_lf.replace(b"\n", b"\r\n")).hexdigest(), REAL_D151_SHA)
 
     def test_old_before_stop_only(self):
         value = self.router()
