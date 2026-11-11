@@ -29,6 +29,25 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(len(messages),2)
         self.assertGreaterEqual((1794301800-1794300000),MIN_SUMMARY_S)
 
+    def test_retired_idle_with_zero_current_emits_no_heartbeats(self):
+        idle={**self.sample,"current_a":0.0,"program_active":False,
+              "output_state":False}
+        state={}
+        for offset in range(0,7200,20):
+            state=tick(self.box,state,NOW+offset,"running",idle,[])
+        self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in self.box.pending(100)),0)
+        active={**idle,"program_active":True,"output_state":True,"current_a":0.4}
+        state=tick(self.box,state,NOW+7200,"running",active,[])
+        self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in self.box.pending(100)),1)
+
+    def test_idle_does_not_hide_fault_or_service_down(self):
+        idle={**self.sample,"current_a":0.0,"program_active":False,"output_state":False}
+        state=tick(self.box,{},NOW,"running",idle,[])
+        state=tick(self.box,state,NOW+20,"down",idle,[])
+        self.assertEqual(sum(e.event_type=="charger.service_down" for e in self.box.pending(100)),1)
+        state=tick(self.box,state,NOW+40,"running",idle,[(NOW+40,"watchdog_timeout")])
+        self.assertEqual(sum(e.event_type=="charger.fault" for e in self.box.pending(100)),1)
+
     def test_mode_switch_sends_event_without_waiting_for_summary(self):
         state=tick(self.box,{},NOW,"running",self.sample,[])
         other={**self.sample,"stage":"Mix Mode"}

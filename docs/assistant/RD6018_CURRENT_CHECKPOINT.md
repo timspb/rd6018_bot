@@ -1,3 +1,23 @@
+# RD6018 — CURRENT CHECKPOINT (2026-11-11)
+
+## 2026-11-11 — node104 observer QUIET_IDLE installed
+
+The separate read-only `rd6018-wake-observer.service` was updated on node104 with
+`observer.py` SHA256 `2081345b53f67a8a15768c58c088b3e6d4a3a1d0dee9f7371c81eefb5bbbbc66`
+and `connector.py` SHA256 `e21bd13806b13f0d7bbccc3bc9a7e528f6e9fe6d3c2b32f96ae93fea45b68c0c`.
+Separate service active PID 253821, NRestarts=0; charging bot active unchanged PID 252075,
+NRestarts=0. Verified live snapshot: `program_active=False`, current 0.0 A,
+`freshness_known=True`, `guard_state=ok`, `service_state=running`,
+`output_state` unknown (not asserted ON), `QUIET_IDLE=True`.
+When idle, omit routine 30-minute heartbeat from Gateway while preserving
+critical faults, service loss, transitions and recovery. Quarantined periodic
+heartbeats and duplicate setpoint-ACK alerts remain suppressed. 36/36
+observer/connector unittest PASS on WSL. Earlier Windows test limitations
+on chmod/symlink are environment-specific. Source changes must be committed.
+Production charging bot still uses D144 slot20 `04191c9`; standalone D138
+`5d0a215` staged but NOT activated, so its 120s MAIN Guard confirmation
+is NOT installed. Do not infer charging bot deployment from observer update.
+
 # RD6018 — CURRENT CHECKPOINT (2026-11-10)
 
 ## 2026-11-10 — R7.2 producer binding cutover: PASS

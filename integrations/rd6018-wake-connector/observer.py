@@ -103,6 +103,20 @@ def snapshot(now):
                 values["control_mode"]=control_mode
     except (OSError,ValueError,TypeError):
         pass
+    # Only an explicitly retired session (or absent session file) establishes
+    # that no charge program is running. Unknown/corrupt state stays noisy.
+    try:
+        if not SESSION.exists():
+            values["program_active"]=False
+        elif SESSION.stat().st_size<=65536:
+            session=json.loads(SESSION.read_text(encoding="utf-8"))
+            if isinstance(session,dict):
+                if session.get("state")=="retired" and session.get("stage")=="RETIRED":
+                    values["program_active"]=False
+                else:
+                    values["program_active"]=True
+    except (OSError,ValueError,TypeError):
+        pass
     values["service_state"]=_run_status()
     return safe_payload(values)
 
@@ -252,10 +266,15 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
         last_errors[code]=ts
     state["error_last_seen"]={k:v for k,v in last_errors.items() if now-v<=1800}
     last_summary=state.get("last_summary_at",0)
+    quiet_idle=(samples.get("program_active") is False
+                and samples.get("freshness_known") is True
+                and samples.get("current_a")==0
+                and samples.get("output_state") is not True
+                and guard_state=="ok" and service=="running")
     if now-last_summary>=summary_interval_s:
         # Quarantine has its own urgent alert. Suppress fault-bearing summaries
         # until recovery; routine healthy summaries remain every 30 minutes.
-        if guard_state!="quarantined":
+        if guard_state!="quarantined" and not quiet_idle:
             slot=int(now//summary_interval_s)
             emit(box,"charger.heartbeat","summary:"+str(slot),now,samples)
         state["last_summary_at"]=now

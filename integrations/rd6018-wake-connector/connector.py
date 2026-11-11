@@ -32,7 +32,7 @@ PAYLOAD_FIELDS = frozenset({
     "ocp_a", "output_state", "temperature_internal_c", "temperature_external_c",
     "freshness_s", "freshness_known", "guard_state", "service_state",
     "protection_code", "regulation_code", "autonomous_mode", "output_state_code",
-    "guard_incident_at", "guard_incident_id",
+    "guard_incident_at", "guard_incident_id", "program_active",
 })
 _TEXT_FIELDS = frozenset({"stage", "control_mode", "fault_code", "guard_state", "service_state",
                          "protection_code", "regulation_code", "output_state_code",
@@ -42,7 +42,7 @@ _NUMBER_FIELDS = frozenset({
     "configured_voltage_v", "configured_current_a", "ovp_v", "ocp_a",
     "temperature_internal_c", "temperature_external_c", "freshness_s",
 })
-_BOOL_FIELDS = frozenset({"output_state", "freshness_known", "autonomous_mode"})
+_BOOL_FIELDS = frozenset({"output_state", "freshness_known", "autonomous_mode", "program_active"})
 _EVENT_NAMESPACE = uuid.UUID("d25834e5-f01a-4cca-884f-cc09f98abf6e")
 _UTC_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$")
 
