@@ -1,5 +1,18 @@
 # RD6018 Bot V3 Project Runbook
 
+## Wake observer START event contract — 2026-11-11
+
+When `program_active` transitions from false to true, suppress the pending
+routine heartbeat until a post-START, timestamped Output=ON readback and fresh
+voltage/current telemetry are available. Send one `charger.start_confirmed`
+with measured U/I/temperature/stage/Guard/Output; do not report the stale
+pre-ON snapshot as a successful START. If no confirmation within 120 seconds,
+send one warning `charger.start_output_unconfirmed`; likewise on early abort.
+Persist transition state in observer outbox; do not replay a false START report
+when observer restarts mid-session. Fault and service alerts bypass this delay.
+Only restart the observer for this rule; never restart an active charge bot.
+Remove temporary deployment files after verified activation.
+
 ## Canonical mandatory post-release cleanup — 2026-11-11
 
 Every node104 installation is INCOMPLETE until after verified D144 COMMITTED,

@@ -19,6 +19,7 @@ PRODUCER = "rd6018/node104"
 MIN_SUMMARY_S = 1800
 POLL_S = 20
 STALE_S = 300
+START_OUTPUT_CONFIRM_TIMEOUT_S = 120
 STATE = Path("/opt/services/rd6018-bot/state")
 DB = STATE / "rd6018.db"
 QUARANTINE = STATE / "session_recovery_quarantine.json"
@@ -75,6 +76,7 @@ def snapshot(now):
                     values["stage"]=stage_aliases[stage[0]]
                 if stage[1] in (0,1):
                     values["output_state"]=bool(stage[1])
+                    values["output_observed_at"]=float(stage[2])
         finally: conn.close()
     except (sqlite3.Error,OSError):
         values["freshness_known"]=False
@@ -241,8 +243,35 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
         emit(box,"charger.telemetry_recovered","source-recovered:"+str(now),now,samples)
     state["freshness"]="known" if fresh else "unknown"
 
+    # START is a transition, not merely an active session observed at boot.
+    # Require a fresh post-START Output=ON trace; never promote stale OFF.
+    active=samples.get("program_active")
+    if active is True and state.get("program_active") is False:
+        state["start_pending_since"]=now
+    elif active is False and "start_pending_since" in state:
+        emit(box,"charger.start_output_unconfirmed",
+             "start-aborted:"+str(int(state["start_pending_since"])),now,samples,"warning")
+        state.pop("start_pending_since",None)
+        state["last_summary_at"]=now
+    state["program_active"]=active
+    since=state.get("start_pending_since")
+    if isinstance(since,(int,float)):
+        observed=samples.get("output_observed_at")
+        post_start=(isinstance(observed,(int,float))
+                    and since-20<=observed<=now and now-observed<=40)
+        if (active is True and fresh and samples.get("freshness_s",999)<=40
+                and samples.get("output_state") is True and post_start):
+            emit(box,"charger.start_confirmed","start:"+str(int(since)),now,samples)
+            state.pop("start_pending_since",None)
+            state["last_summary_at"]=now
+            state["stage"]=samples.get("stage")
+        elif now-since>=START_OUTPUT_CONFIRM_TIMEOUT_S:
+            emit(box,"charger.start_output_unconfirmed","start-timeout:"+str(int(since)),now,samples,"warning")
+            state.pop("start_pending_since",None)
+            state["last_summary_at"]=now
+
     stage=samples.get("stage")
-    if stage and state.get("stage") and stage!=state["stage"]:
+    if stage and state.get("stage") and stage!=state["stage"] and "start_pending_since" not in state:
         emit(box,"charger.stage_changed","stage:"+str(now)+":"+stage,now,samples)
     if stage:state["stage"]=stage
 
@@ -274,7 +303,7 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
     if now-last_summary>=summary_interval_s:
         # Quarantine has its own urgent alert. Suppress fault-bearing summaries
         # until recovery; routine healthy summaries remain every 30 minutes.
-        if guard_state!="quarantined" and not quiet_idle:
+        if guard_state!="quarantined" and not quiet_idle and "start_pending_since" not in state:
             slot=int(now//summary_interval_s)
             emit(box,"charger.heartbeat","summary:"+str(slot),now,samples)
         state["last_summary_at"]=now

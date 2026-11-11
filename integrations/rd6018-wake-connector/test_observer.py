@@ -38,7 +38,55 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in self.box.pending(100)),0)
         active={**idle,"program_active":True,"output_state":True,"current_a":0.4}
         state=tick(self.box,state,NOW+7200,"running",active,[])
-        self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in self.box.pending(100)),1)
+        self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in self.box.pending(100)),0)
+        self.assertIn("start_pending_since",state)
+
+    def test_start_waits_for_new_output_readback_and_reports_once(self):
+        idle={**self.sample,"program_active":False,"output_state":False,
+              "output_observed_at":NOW-5,"current_a":0.0}
+        state=tick(self.box,{},NOW,"running",idle,[])
+        pending={**idle,"program_active":True,"stage":"Main Charge"}
+        state=tick(self.box,state,NOW+20,"running",pending,[])
+        self.assertEqual(sum(e.event_type=="charger.start_confirmed" for e in self.box.pending(100)),0)
+        stale={**pending,"output_state":True,"output_observed_at":NOW-80}
+        state=tick(self.box,state,NOW+40,"running",stale,[])
+        self.assertEqual(sum(e.event_type=="charger.start_confirmed" for e in self.box.pending(100)),0)
+        fresh={**pending,"output_state":True,"output_observed_at":NOW+48,"current_a":0.31}
+        state=tick(self.box,state,NOW+60,"running",fresh,[])
+        state=tick(self.box,state,NOW+80,"running",fresh,[])
+        events=self.box.pending(100)
+        self.assertEqual(sum(e.event_type=="charger.start_confirmed" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.start_output_unconfirmed" for e in events),0)
+        self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in events),0)
+
+    def test_unconfirmed_start_times_out_once_and_faults_still_pass(self):
+        idle={**self.sample,"program_active":False,"output_state":False,
+              "output_observed_at":NOW-5,"current_a":0.0}
+        state=tick(self.box,{},NOW,"running",idle,[])
+        waiting={**idle,"program_active":True}
+        for offset in range(20,220,20):
+            state=tick(self.box,state,NOW+offset,"running",waiting,[])
+        events=self.box.pending(100)
+        self.assertEqual(sum(e.event_type=="charger.start_output_unconfirmed" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.start_confirmed" for e in events),0)
+        state=tick(self.box,state,NOW+240,"running",waiting,[(NOW+240,"watchdog_timeout")])
+        self.assertEqual(sum(e.event_type=="charger.fault" for e in self.box.pending(100)),1)
+
+    def test_aborted_start_warns_without_false_success(self):
+        idle={**self.sample,"program_active":False,"output_state":False,"output_observed_at":NOW-2}
+        state=tick(self.box,{},NOW,"running",idle,[])
+        state=tick(self.box,state,NOW+20,"running",{**idle,"program_active":True},[])
+        state=tick(self.box,state,NOW+40,"running",idle,[])
+        types=[e.event_type for e in self.box.pending(100)]
+        self.assertEqual(types.count("charger.start_output_unconfirmed"),1)
+        self.assertEqual(types.count("charger.start_confirmed"),0)
+
+    def test_observer_restart_with_active_program_does_not_fake_new_start(self):
+        active={**self.sample,"program_active":True,"output_state":True,
+                "output_observed_at":NOW-2}
+        state=tick(self.box,{},NOW,"running",active,[])
+        self.assertNotIn("start_pending_since",state)
+        self.assertEqual(sum(e.event_type=="charger.start_confirmed" for e in self.box.pending(100)),0)
 
     def test_idle_does_not_hide_fault_or_service_down(self):
         idle={**self.sample,"current_a":0.0,"program_active":False,"output_state":False}

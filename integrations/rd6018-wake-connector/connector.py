@@ -23,7 +23,7 @@ EVENT_TYPES = frozenset({
     "charger.fault", "charger.stage_changed", "charger.mode_changed", "charger.guard_recovered", "charger.telemetry_stale",
     "charger.telemetry_unknown", "charger.telemetry_recovered",
     "charger.guard_fault", "charger.guard_state_unknown", "charger.service_down", "charger.service_recovered",
-    "charger.heartbeat",
+    "charger.heartbeat", "charger.start_confirmed", "charger.start_output_unconfirmed",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
 PAYLOAD_FIELDS = frozenset({
@@ -32,7 +32,7 @@ PAYLOAD_FIELDS = frozenset({
     "ocp_a", "output_state", "temperature_internal_c", "temperature_external_c",
     "freshness_s", "freshness_known", "guard_state", "service_state",
     "protection_code", "regulation_code", "autonomous_mode", "output_state_code",
-    "guard_incident_at", "guard_incident_id", "program_active",
+    "guard_incident_at", "guard_incident_id", "program_active", "output_observed_at",
 })
 _TEXT_FIELDS = frozenset({"stage", "control_mode", "fault_code", "guard_state", "service_state",
                          "protection_code", "regulation_code", "output_state_code",
@@ -40,7 +40,7 @@ _TEXT_FIELDS = frozenset({"stage", "control_mode", "fault_code", "guard_state", 
 _NUMBER_FIELDS = frozenset({
     "voltage_v", "current_a", "battery_voltage_v", "input_voltage_v",
     "configured_voltage_v", "configured_current_a", "ovp_v", "ocp_a",
-    "temperature_internal_c", "temperature_external_c", "freshness_s",
+    "temperature_internal_c", "temperature_external_c", "freshness_s", "output_observed_at",
 })
 _BOOL_FIELDS = frozenset({"output_state", "freshness_known", "autonomous_mode", "program_active"})
 _EVENT_NAMESPACE = uuid.UUID("d25834e5-f01a-4cca-884f-cc09f98abf6e")
