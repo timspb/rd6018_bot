@@ -1,5 +1,31 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-11)
 
+## 2026-11-11 — node104 release slot21 COMMITTED + full postrelease cleanup
+
+Installed SHA `955985968205224ee7e550e422b652880e0ad65c`, D144 slot21,
+transaction `f391bf9edbc940f280d8ba6ad24edeed`, phase COMMITTED.
+D145 was corrected to use D151 independent software-only OFF proof in all
+phases even with no active quarantine (battery voltage need not be zero).
+31 focused tests PASS; D145 PREPARE, D144 EXECUTE and live verification PASS.
+
+Independent D151 physical proof: HA and ESP Native Output OFF, both currents
+0 A, safety lease disarmed, no active charge session, fresh Native samples.
+Running services: bot PID 255365, wake observer PID 253821, voltage relaxation
+PID 62502; all active, NRestarts=0. No errors in new bot journal since startup.
+Deployed code verified for 120 s Iset convergence, 180 s complete transaction,
+retired previous Guard START fix and software-only release OFF proof.
+
+Postrelease cleanup COMPLETE: pruned old D144 slots 13–21 backup/app/venv
+copies and candidates, obsolete D144 history, 479 MiB old reinstall archive,
+D138 staging, installer upload files, temp scripts and pip leftovers. Final
+`/tmp` pass removed 77 objects. Kept only latest slot21 COMMITTED ledger and
+identity, immutable D090, working app/venv/state/services/secrets/proof and
+required logs. Filesystem 7.7 GiB: occupancy fell from 100% to 28%, free
+space 5.3 GiB. Unrelated active emotion-dashboard service not changed.
+Canonical policy `docs/V3_PROJECT_RUNBOOK.md`: release not DONE without
+verified COMMITTED, physical/service acceptance and full cleanup. No charge
+was started by the deployment.
+
 ## 2026-11-11 — EFB 65 Ah START rejected by stale in-memory MAIN Guard
 
 At 05:58:56–05:58:58 UTC, node104's `v2_quick_start` for EFB 65 Ah recovery
