@@ -1,5 +1,21 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-11)
 
+## 2026-11-11 — Telegram polling isolated from critical charger alarm
+
+Source commit `6ab26bf`: `aiogram.dispatcher` polling timeout no longer maps
+to `charger.fault/service_error`. Brief failure/recovery is silent. Sustained
+outage >=300s emits `charger.telegram_unavailable` warning once, subsequent
+recovery `charger.telegram_recovered` info. No impact on watchdog, MAIN Guard,
+physical incidents. 44/44 observer/connector offline tests PASS. Installed
+only `/opt/rd6018-wake-observer/{observer.py,connector.py}` on node104:
+SHA256 observer `7a584d280c451860523a8ed38fcb6a03e9ace2502e6182eca6f3693e82a4f812`,
+connector `03528a427cabaa03448618ecc6d90d7f23918b3d7264215958f39c111b2590b8`.
+Replayed real 07:56:39 UTC incident through installed `journal_errors`:
+`telegram_poll_failed` then `telegram_poll_recovered` at 07:56:51;
+**no service_error**. Observer PID 256489 active NRestarts=0; live charging
+bot PID 255365 unchanged, active NRestarts=0. No new actuation or recharge.
+Installer copy/backup cleanup `PASS`; root disk 5.3G free, 28% occupied.
+
 ## 2026-11-11 — Wake observer START report after confirmed Output ON
 
 Source commit `1aad40c`; only separate observer/connector files deployed on node104.
