@@ -30,7 +30,10 @@ def auto_stage_progress(
         hold_started = snapshot.get("finish_hold_started_at")
         durable_status = _durable_finish_status(snapshot, regulator)
         in_mix = "mix" in stage.casefold()
-        if in_mix and hold_started is not None:
+        if stage == "Main Charge" and regulator == "CC":
+            # Vmax/ΔV is MIX analysis, not a MAIN status indicator.
+            stage_status = ""
+        elif in_mix and hold_started is not None:
             from runtime.charge.runtime.support import _effective_mix_finish_hold_seconds
             stage_status = mix_finish_hold_status(
                 snapshot=snapshot,

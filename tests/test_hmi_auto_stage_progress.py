@@ -5,6 +5,19 @@ from runtime.ui.components.hmi_auto_stage_progress import auto_stage_progress
 
 
 class AutoStageProjectionTests(unittest.TestCase):
+    def test_main_cc_never_shows_mix_vmax_analysis(self):
+        for snapshot in (
+            {"runtime_evidence_available": False},
+            {"runtime_evidence_available": True, "metrics": {"voltage_max_v": 14.7}},
+        ):
+            with self.subTest(snapshot=snapshot):
+                _, status, _ = auto_stage_progress(
+                    NS(), NS(ui_support_snapshot=lambda: snapshot), {},
+                    stage="Main Charge", regulator="CC", telemetry_stale=False,
+                    battery_type="EFB", capacity=70, now_s=lambda: 10000.0,
+                )
+                self.assertEqual(status, "")
+
     def test_mix_cv_reuses_accepted_delta_and_source_once(self):
         reads=[]
         snapshot={
